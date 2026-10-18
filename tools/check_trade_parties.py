@@ -12,12 +12,11 @@ def run_checks(url, query, manifest):
     entity, other_entity = [next(p for p in catalog['legalEntities'] if p['code'] == code) for code in ('entity_1', 'entity_2')]
     party, other_party = [next(p for p in catalog['counterparties'] if p['code'] == code) for code in ('party_1', 'party_2')]
     def booking(e=entity, p=party):
-        return {'tradeDate': '2020-12-18', 'legalEntityId': e['id'], 'legalEntityRevision': e['revision'],
+        return {'legalEntityId': e['id'], 'legalEntityRevision': e['revision'],
                 'counterpartyId': p['id'], 'counterpartyRevision': p['revision']}
     contract = catalog['contracts'][0]
     body = {**context, **booking(), 'operationId': str(uuid4()), 'bookId': catalog['books'][0]['id'],
-            'curve': contract['curve'], 'contractId': contract['id'], 'lots': '2', 'executionPrice': '3',
-            'executedAt': '2020-12-18T15:00:00Z'}
+            'curve': contract['curve'], 'contractId': contract['id'], 'lots': '2', 'executionPrice': '3'}
     first = c.call('futures/book', body)
     assert first == c.call('futures/book', body)
     second = c.call('futures/book', {**body, **booking(other_entity, other_party), 'lots': '3', 'operationId': str(uuid4())})
@@ -26,20 +25,20 @@ def run_checks(url, query, manifest):
         return c.call('futures/editor', {'context': context, 'tradeId': first['tradeId'], 'revision': revision})
     assert all(detail()['state']['booking'][key] == value for key, value in booking().items())
     retained = detail()['context']['contextId']
-    amend = {**body, **booking(other_entity, other_party), 'tradeDate': '2020-12-17', 'operationId': str(uuid4()),
+    amend = {**body, **booking(other_entity, other_party), 'operationId': str(uuid4()),
              'tradeId': first['tradeId'], 'expectedRevision': 1, 'effectiveAt': catalog['asOf'],
              'reason': 'Synthetic party correction', 'amendmentConvention': 'unprocessed_futures_booking_amendment_v1'}
     c.call('futures/amend-preview', amend)
     changed = c.call('futures/amend', amend)
     assert changed == c.call('futures/amend', amend) and changed['instrumentId'] == first['instrumentId']
     assert detail()['state']['booking']['counterpartyId'] == other_party['id']
-    assert detail(1)['state']['booking']['counterpartyId'] == party['id'] and detail(1)['state']['booking']['tradeDate'] == '2020-12-18'
+    assert detail(1)['state']['booking']['counterpartyId'] == party['id'] and detail(1)['state']['booking']['tradeDate'] == detail()['state']['booking']['tradeDate']
     historical = c.call('futures/editor', {'context': {**context, 'knowledgeMode': 'retained', 'contextId': retained},
                                          'tradeId': first['tradeId'], 'revision': None})
     assert historical['state']['revision'] == 1 and historical['state']['booking']['counterpartyId'] == party['id']
     c.call('futures/book', {**body, 'counterpartyId': other_party['id']}, expected=409)
     for patch in ({'counterpartyId': str(uuid4())}, {'legalEntityRevision': 999}, {'counterpartyRevision': None},
-                  {'tradeDate': None}, {'tradeDate': '2020-02-30'}):
+                  {'tradeDate': '2020-02-30'}):
         c.call('futures/book', {**body, 'operationId': str(uuid4()), **patch}, expected=422)
     c.call('profile', {'profile': 'viewer'})
     c.call('futures/book', {**body, 'operationId': str(uuid4())}, expected=403)
@@ -52,14 +51,14 @@ def run_checks(url, query, manifest):
     rule = {'frequency': 'monthly', 'rule': 'days_after_period_end', 'days': 18, 'dayOfMonth': None,
             'dayBasis': 'calendar_days', 'shortMonth': None, 'adjustment': 'unadjusted', 'calendar': None,
             'implementation': 'monthly_payment_date_rules_v1'}
-    swap = {**swap_context, **booking(), 'operationId': str(uuid4()), 'bookId': body['bookId'], 'executedAt': body['executedAt'],
+    swap = {**swap_context, **booking(), 'operationId': str(uuid4()), 'bookId': body['bookId'],
             'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
                          'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'firstFixingAt': '2020-12-31T12:00:00Z',
                          'paymentSchedule': rule, 'resetFrequency': 'monthly', 'averagingMethod': 'none'}}
     c.call('swaps/preview', swap); booked = c.call('swaps/book', swap)
-    edit = {**swap, **booking(other_entity, other_party), 'tradeDate': '2020-12-17', 'tradeId': booked['tradeId'],
+    edit = {**swap, **booking(other_entity, other_party), 'tradeId': booked['tradeId'],
             'expectedRevision': 1, 'operationId': str(uuid4()), 'effectiveAt': swaps['asOf'], 'reason': 'Synthetic party amendment'}
     c.call('swaps/preview', edit); changed_swap = c.call('swaps/amend', edit)
     assert changed_swap == c.call('swaps/amend', edit) and changed_swap['instrumentId'] == booked['instrumentId']

@@ -35,3 +35,20 @@ test('settlement marks retain their clearing increment separately from execution
  assert.equal(requests.find(r=>r.value==='3.1001').tick,'0.0001');
  assert.equal(requests.find(r=>r.value==='3.101').tick,'0.001');
 });
+test('ordinary money display defaults to three decimal places',()=>{
+ assert.equal(initialDisplayPrecision().money,3);
+});
+test('only money is padded while noncash values request compact backend formatting',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());const requests=[];
+ await prepareAmountDisplay({presentValue:'123.45678',quantity:'1000',fixedPrice:'3.1',discountFactor:'0.95',priceTick:'0.025',executionPrice:'3.1'},async body=>{requests.push(...body);return body.map(r=>r.value);});
+ assert.equal(requests.find(r=>r.value==='123.45678').trimTrailingZeros,false);
+ for(const value of ['1000','0.95'])assert.equal(requests.find(r=>r.value===value).trimTrailingZeros,true);
+ assert.equal(requests.find(r=>r.tick==='0.025').trimTrailingZeros,true);
+});
+test('money and quantity with the same value and places keep separate display cache entries',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());
+ const requests=[];await prepareAmountDisplay({presentValue:'417',quantity:'417'},async body=>{requests.push(...body);return body.map(r=>r.trimTrailingZeros?'417':'417.000');});
+ assert.equal(requests.length,2);
+ assert.equal(amountText('417','money'),'417.000');
+ assert.equal(amountText('417','quantity'),'417');
+});

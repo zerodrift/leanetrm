@@ -18,7 +18,7 @@ def run_checks(url):
     lag={'frequency':'monthly','rule':'days_after_period_end','days':18,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
     following={**lag,'rule':'day_of_following_month','days':None,'dayOfMonth':18,'dayBasis':None,'shortMonth':'reject'}
     body={**context,'operationId':str(uuid4()),**trade_booking(), 'bookId':catalog['books'][0]['id'],'commodity':index['commodity'],
-          'definitionRevisionId':index['definitionRevisionId'],'executedAt':'2020-12-18T15:00:00Z','quantity':'100','fixedCoefficient':'-1','discounting':False,
+          'definitionRevisionId':index['definitionRevisionId'],'quantity':'100','fixedCoefficient':'-1','discounting':False,
           'fixed':{'price':'3','currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':lag},
           'floating':{'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01',
                       'firstFixingAt':'2020-12-31T12:00:00Z','paymentSchedule':following,'resetFrequency':'daily','averagingMethod':'arithmetic'}}

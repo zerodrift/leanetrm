@@ -24,7 +24,7 @@ def run_checks(Client, check):
     context = trader.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
     trader.call('market/current', {})
     request = {'operationId': str(uuid4()), **view, **trade_booking(), 'bookId': catalog['books'][0]['id'], 'curve': contract['curve'],
-               'contractId': contract['id'], 'lots': '2', 'executionPrice': '2.9', 'executedAt': frame['at']}
+               'contractId': contract['id'], 'lots': '2', 'executionPrice': '2.9'}
     for field, value in [('contractSize', '80'), ('settlementMethod', 'physical'), ('quoteMultiplier', '100')]:
         trader.call('futures/book', {**request, field: value}, expected=400)
         check('booking cannot override shared contract term ' + field)

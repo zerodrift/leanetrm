@@ -17,14 +17,14 @@ def run_checks(query,manifest):
     def future(operation,trade=None):
         common=f"'{catalog}','{operation}'"
         terms=f"'{book}','{manifest['revisionId']}','future','{contract}','2020-12-18T16:00:00Z'"
-        if trade is None:return f"security.book_futures_with_parties({common},{terms},'2020-12-18T15:00:00Z',1,3,'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
-        return f"security.amend_futures_with_parties({common},'{trade}',1,{terms},'2020-12-18T16:00:00Z','2020-12-18T15:00:00Z',2,3,'Synthetic correction','fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
+        if trade is None:return f"security.book_futures_with_parties({common},{terms},NULL,1,3,'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
+        return f"security.amend_futures_with_parties({common},'{trade}',1,{terms},'2020-12-18T16:00:00Z',NULL,2,3,'Synthetic correction','fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
     def swap(operation,trade=None):
         def rule(days):return json.dumps(dict(frequency='monthly',rule='days_after_period_end',days=days,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1'))
         identity='NULL,NULL' if trade is None else f"'{trade}',1"
         return f"""security.save_swap_with_parties('{catalog}','{operation}',{identity},'{book}','{REVISION}','{ref}','{revision}',
           'daily_gas','{index}','usd','usd','2021-01-01','2021-02-01','2021-02-18T00:00:00Z','2021-01-01','2021-02-01','2020-12-31T12:00:00Z',
-          '2021-03-18T00:00:00Z','calendar_day_arithmetic',3,{100 if trade is None else 200},-1,false,'2020-12-18T16:00:00Z','2020-12-18T15:00:00Z','2020-12-18T15:00:00Z',
+          '2021-03-18T00:00:00Z','calendar_day_arithmetic',3,{100 if trade is None else 200},-1,false,'2020-12-18T16:00:00Z',NULL,'2020-12-18T16:00:00Z',
           'Synthetic booking','independent_side_financial_swap_v2','{rule(18)}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{booking}'::jsonb)"""
     original_future=json.loads(runtime('SELECT '+future(future_op)+';'))
     original_swap=json.loads(runtime('SELECT '+swap(swap_op)+';'))

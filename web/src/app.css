@@ -464,3 +464,10 @@ dialog label{margin-top:16px}
 .example-switch select{width:100%;background:var(--sidebar-2);color:var(--sidebar-text);border-color:#2f4b3e}
 .header-context>summary{color:var(--accent-text)}
 .workspace-mode{color:var(--text-3)}.workspace-mode strong{color:var(--text)}
+.advanced-settings{margin-block:1rem;color:#657080}
+.advanced-settings>summary{cursor:pointer;font-size:.875rem}
+.advanced-settings[open]>summary{margin-bottom:.75rem}
+.advanced-settings input[type=number]{max-width:8rem}
+.instrument-editor{border-top:1px solid #dce3d5;margin-top:1.25rem;padding-top:.75rem}
+.trade-booking-terms input[readonly]{background:#f5f7f2;color:#526249;cursor:default}
+.swap-sides>#swap-fixed-editor,.swap-sides>#swap-floating-editor{display:contents}

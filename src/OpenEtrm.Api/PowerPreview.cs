@@ -103,7 +103,7 @@ public static class PowerPreview
                 .Select(q=>new{basis=q.Text("unit_code")=="megawatt"?"flat_power":"total_energy",
                     label=(q.Text("unit_code")=="megawatt"?"Flat MW over selected hours":"Total MWh for the delivery period")+" · "+q.Text("basis_code").Replace('_',' '),
                     specification=new ReferenceKey(data.ReferenceRevision,q.Text("code"))}),
-            display=new PowerDisplayInput(3,4,2),
+            display=new PowerDisplayInput(3,4,3),
             numericalPolicy=PowerSettlementPolicy.Preview.Implementation
         };
     }
@@ -144,8 +144,8 @@ public static class PowerPreview
         var schedule=PowerQuantitySchedule.Compile(new(ExactDecimal.Parse(body.Quantity.Value),body.Quantity.Specification),basis,Definition(source),Definition(quantity),
             contract.DeliveryFrom,contract.DeliveryTo,clock,mask,holidays,body.Minutes,allocation);
         var periods=schedule.Intervals.Select(p=>p.Interval).ToArray();
-        var quantityFormat=new AmountFormat(body.Display.Quantity,CashTieRule.ToEven,true,false);
-        var priceFormat=new AmountFormat(body.Display.Price,CashTieRule.ToEven,true,false);
+        var quantityFormat=new AmountFormat(body.Display.Quantity,CashTieRule.ToEven,true,true);
+        var priceFormat=new AmountFormat(body.Display.Price,CashTieRule.ToEven,true,true);
         var moneyFormat=new AmountFormat(body.Display.Money,CashTieRule.ToEven,true,false);
         var currency=data.References["currencies"].Single(c=>c.Text("code")==quote.Text("currency_code"));
         var powerUnit=data.References["units"].Single(u=>u.Text("code")=="megawatt" && u.Text("dimension_code")=="power");

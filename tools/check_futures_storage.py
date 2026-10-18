@@ -55,11 +55,11 @@ def run_checks(query, manifest, psql, environment):
     check('unknown current operation status reveals no business record', query(runtime(f"SELECT security.futures_booking_status('{catalog}','{uuid4()}') IS NULL;")) == 't')
     contract = query(f"SELECT id FROM market_data.contracts WHERE catalog_id='{catalog}' AND kind='future' ORDER BY delivery_from LIMIT 1;")
     expiry = query(f"SELECT expiry_at::text FROM market_data.contracts WHERE catalog_id='{catalog}' AND id='{contract}';")
-    def booking(valuation='2020-12-18T16:00:00Z', executed='2020-12-18T16:00:00Z', lots='1', price='3', operation=None):
+    def booking(valuation='2020-12-18T16:00:00Z', executed=None, lots='1', price='3', operation=None):
         operation = operation or uuid4()
-        return f"PERFORM security.book_futures_with_parties('{catalog}','{operation}','d1000000-0000-0000-0000-000000000001','{manifest['revisionId']}','future','{contract}','{valuation}','{executed}',{lots},{price},'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb);"
-    query(runtime(reject(booking(valuation='2020-12-18T15:59:59Z'), 'P0001', 'futures_execution')))
-    check('raw booking cannot place an execution after its selected valuation instant')
+        return f"PERFORM security.book_futures_with_parties('{catalog}','{operation}','d1000000-0000-0000-0000-000000000001','{manifest['revisionId']}','future','{contract}','{valuation}',{('NULL' if executed is None else chr(39)+executed+chr(39))},{lots},{price},'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb);"
+    query(runtime(reject(booking(valuation='2020-12-18T15:59:59Z',executed='2020-12-18T16:00:00Z'), 'P0001', 'trade_booking_read_only')))
+    check('raw booking cannot supply its own execution timestamp')
     query(runtime(reject(booking(valuation=expiry), 'P0001', 'futures_execution')))
     check('raw booking rejects the exact last-trading boundary')
     query(runtime(reject(booking(lots='0.5'), 'P0001', 'futures_lots')))

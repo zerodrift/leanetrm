@@ -25,7 +25,7 @@ def run_checks(url, query, manifest, psql, environment):
     contract = next(k for k in catalog['contracts'] if k['deliveryFrom'] == '2021-01-01')
     book_a, book_b = [b['id'] for b in catalog['books']]
     booking = {'operationId': str(uuid4()), **context, **trade_booking(), 'bookId': book_a, 'curve': contract['curve'], 'contractId': contract['id'],
-               'lots': '1', 'executionPrice': '2.9', 'executedAt': earlier['at']}
+               'lots': '1', 'executionPrice': '2.9', 'snapshotId':earlier['id']}
     trade = c.call('futures/book', booking)
     other = c.call('futures/book', {**booking, 'operationId': str(uuid4())})
     details = lambda revision=None, selected=context: c.call('futures/editor', {'context': selected, 'tradeId': trade['tradeId'], 'revision': revision})
@@ -33,7 +33,7 @@ def run_checks(url, query, manifest, psql, environment):
     check('row editor exposes the current revision and retained booking event', initial['state']['revision'] == 1 and initial['canAmend'] and len(initial['history']) == 1)
     check('trade and instrument references are readable and stable', initial['state']['tradeReference'].startswith('TR-') and initial['state']['instrumentReference'].startswith('IN-'))
     retained = {**context, 'knowledgeMode': 'retained', 'contextId': initial['context']['contextId']}
-    change = {'operationId': str(uuid4()), **booking, 'tradeId': trade['tradeId'], 'expectedRevision': 1,
+    change = {'operationId': str(uuid4()), **booking, 'snapshotId':frame['id'], 'tradeId': trade['tradeId'], 'expectedRevision': 1,
               'effectiveAt': frame['at'], 'reason': 'Synthetic booking correction', 'amendmentConvention': 'unprocessed_futures_booking_amendment_v1',
               'bookId': book_b, 'lots': '2', 'executionPrice': '2.95'}
     change['operationId'] = str(uuid4())
@@ -43,7 +43,7 @@ def run_checks(url, query, manifest, psql, environment):
                   f"'https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
     raw = query(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{token}'); "
                 f"SELECT security.amend_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{trade['tradeId']}',1,'{book_b}','{manifest['revisionId']}',"
-                f"'{contract['curve']}','{contract['id']}','{frame['at']}','{frame['at']}','{earlier['at']}',2,2.95,'Synthetic correction',"
+                f"'{contract['curve']}','{contract['id']}','{frame['at']}','{frame['at']}',NULL,2,2.95,'Synthetic correction',"
                 f"'fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); ROLLBACK;")
     check('raw amendment creates the same successor inside an isolated rollback', json.loads(raw)['revision'] == 2 and details()['state']['revision'] == 1)
     amended = c.call('futures/amend', change)
@@ -89,7 +89,7 @@ def run_checks(url, query, manifest, psql, environment):
                   f"'https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
     query(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{token}'); DO $$ BEGIN "
           f"PERFORM security.amend_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{trade['tradeId']}',3,'{book_b}','{manifest['revisionId']}',"
-          f"'{february['curve']}','{february['id']}','{contract['lastTrading']}','{contract['lastTrading']}','{earlier['at']}',4,2.95,'Synthetic expired correction',"
+          f"'{february['curve']}','{february['id']}','{contract['lastTrading']}','{contract['lastTrading']}',NULL,4,2.95,'Synthetic expired correction',"
           f"'fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); RAISE EXCEPTION 'Expected expired-head rejection'; "
           "EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'futures_execution' THEN RAISE; END IF; END $$; ROLLBACK;")
     check('raw commit cannot use amendment to escape an expired prior contract', details()['state']['revision'] == 3)
@@ -108,7 +108,7 @@ def run_checks(url, query, manifest, psql, environment):
         expired_operation = str(uuid4())
         sql = (f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{token}'); "
                f"SELECT security.amend_futures_with_parties('{manifest['catalogId']}','{expired_operation}','{trade['tradeId']}',3,'{book_b}','{manifest['revisionId']}',"
-               f"'{contract['curve']}','{contract['id']}','{frame['at']}','{frame['at']}','{earlier['at']}',4,2.95,'Synthetic expired capability',"
+               f"'{contract['curve']}','{contract['id']}','{frame['at']}','{frame['at']}',NULL,4,2.95,'Synthetic expired capability',"
                f"'fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); COMMIT;")
         blocked = subprocess.Popen([str(p) for p in psql]+['-v','VERBOSITY=verbose'], env={**environment, 'PGAPPNAME': 'amendment_expiry_waiter'}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         children.append(blocked); blocked.stdin.write(sql); blocked.stdin.close(); blocked.stdin = None

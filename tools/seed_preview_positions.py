@@ -49,5 +49,5 @@ def seed_positions(url, run_id, owned_root):
         for book, lots, price in zip(BOOKS, (a_lots,b_lots), (a_price,b_price), strict=True):
             operation = uuid5(NAMESPACE, ':'.join(('weekday_demo_v1',CAT,REV,day,book)))
             results.append(client.call('futures/book', {'operationId':str(operation),'snapshotId':frame['id'],'convention':CONVENTION,
-                'knowledgeMode':'current',**trade_booking(day),'bookId':book,'curve':'future','contractId':contract,'lots':lots,'executionPrice':price,'executedAt':day+'T15:30:00Z'}))
+                'knowledgeMode':'current',**trade_booking(),'bookId':book,'curve':'future','contractId':contract,'lots':lots,'executionPrice':price}))
     return results

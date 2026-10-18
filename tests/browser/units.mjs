@@ -6,11 +6,15 @@ export async function run({command,wait,click,set,submit,check,evaluate,idle,url
  await check('futures decimal prices follow their 0.025 tick precision',"/\\d+\\.\\d{3} USD\\/MMBtu/.test(document.querySelector('#futures-holdings').innerText)");
  await click('#profile-open');await check('Profile contains no amount precision controls',"!document.querySelector('#precision-money')&&!document.querySelector('#precision-quantity')");await click('#profile-close');
  await click('#futures-holdings .tabulator-row');await wait("document.querySelector('#trade-editor').open&&!document.querySelector('#trade-amount-format').hidden");
+ await check('money display settings are collapsed below the main trade workflow',"!document.querySelector('#trade-amount-format details').open&&document.querySelector('#trade-amount-format-trade-money').value==='3'&&!document.querySelector('#trade-amount-format-trade-price')&&!document.querySelector('#trade-amount-format-trade-quantity')&&Boolean(document.querySelector('#trade-amend-form').compareDocumentPosition(document.querySelector('#trade-amount-format'))&Node.DOCUMENT_POSITION_FOLLOWING)");
  const revision=await evaluate("document.querySelector('#trade-revision').value");
- await set('#trade-amount-format-trade-money','3');await set('#trade-amount-format-trade-quantity','2');await click('#trade-amount-format button[data-role="trade"]');
- await check('deal precision saves independently of a financial amendment',"document.querySelector('#trade-amount-format [role=status]').textContent.includes('saved')&&document.querySelector('#trade-revision').value==="+JSON.stringify(revision));
+ await click('#trade-amount-format summary');await set('#trade-amount-format-trade-money','1');await click('#trade-amount-format button[data-role="trade"]');
+ await check('money display saves independently of a financial amendment',"document.querySelector('#trade-amount-format [role=status]').textContent.includes('saved')&&document.querySelector('#trade-revision').value==="+JSON.stringify(revision));
  await click('#trade-editor-close');await click('#futures-refresh');
- await check('saved deal precision changes its quantity presentation while futures retain tick precision',"/\\d+\\.\\d{2} MMBtu/.test(document.querySelector('#futures-holdings').innerText)&&/\\d+\\.\\d{3} USD\\/MMBtu/.test(document.querySelector('#futures-holdings').innerText)");
+ await check('noncash quantities are compact while futures prices retain tick places',"/\\b[0-9,]+ MMBtu/.test(document.querySelector('#futures-holdings').innerText)&&/\\d+\\.\\d{3} USD\\/MMBtu/.test(document.querySelector('#futures-holdings').innerText)");
+ await click('#futures-holdings .tabulator-row');await wait("document.querySelector('#trade-editor').open&&!document.querySelector('#trade-amount-format').hidden");
+ await check('reopening a deal keeps advanced settings closed and the saved money display',"!document.querySelector('#trade-amount-format details').open&&document.querySelector('#trade-amount-format-trade-money').value==='1'");
+ await click('#trade-editor-close');
  await check('numeric grid retains raw exact strings separately from formatted cell text',"[...document.querySelectorAll('#futures-holdings .tabulator-cell span[title]')].some(s=>s.title!==s.textContent&&/^-?\\d+(\\.\\d+)?$/.test(s.title))");
  await click('#nav-reference');await set('#reference-table','units');
  await check('common unit catalog and quantity conversion controls are visible',"!document.querySelector('#unit-converter').hidden&&document.querySelector('#reference').textContent.includes('MMBtu (IT)')&&document.querySelector('#reference').textContent.includes('bbl (42 US gal)')");

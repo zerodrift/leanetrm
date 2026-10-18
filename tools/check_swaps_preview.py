@@ -21,8 +21,7 @@ def run_checks(url):
     contract = index['contracts'][0]
     def rule(days):
         return {'frequency':'monthly','rule':'days_after_period_end','days':days,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
-    body = {**context, 'operationId': str(uuid4()), **trade_booking(), 'bookId': catalog['books'][0]['id'], 'executedAt': '2020-12-18T15:00:00Z',
-            'definitionRevisionId': index['definitionRevisionId'], 'commodity':index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': True,
+    body = {**context, 'operationId': str(uuid4()), **trade_booking(), 'bookId': catalog['books'][0]['id'], 'definitionRevisionId': index['definitionRevisionId'], 'commodity':index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': True,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'], 'paymentSchedule':rule(18)},
             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'],
                          'firstFixingAt': '2020-12-31T12:00:00Z', 'paymentSchedule':rule(46), 'resetFrequency':'monthly','averagingMethod':'none'}}
@@ -74,7 +73,7 @@ def run_checks(url):
     futures_context = {**context, 'convention': 'fixed_total_cash_execution_pnl_v1'}
     future_catalog = c.call('futures/catalog', futures_context)
     future = future_catalog['contracts'][0]
-    future_body = {**futures_context, 'operationId': amend['operationId'], **trade_booking(), 'bookId': body['bookId'], 'curve': future['curve'], 'contractId': future['id'], 'lots': '1', 'executionPrice': '2.9', 'executedAt': body['executedAt']}
+    future_body = {**futures_context, 'operationId': amend['operationId'], **trade_booking(), 'bookId': body['bookId'], 'curve': future['curve'], 'contractId': future['id'], 'lots': '1', 'executionPrice': '2.9'}
     c.call('futures/book', future_body, expected=409)
     future_body['operationId'] = str(uuid4())
     future_trade = c.call('futures/book', future_body)

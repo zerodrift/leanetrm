@@ -30,5 +30,5 @@ def run_checks(url, run_id, owned_root):
         check(frame['at'][:10]+' preserves two books and one shared dated contract', {r['book'] for r in rows} == {'Book A','Book B'} and len({r['instrumentId'] for r in rows}) == 1 and len({r['pricingBindingId'] for r in rows}) == 1)
     historical = client.call('futures/holdings', {**view, 'knowledgeMode':'retained', 'contextId':earlier['contextId']})
     check('new backdated demo trades do not leak into an earlier knowledge receipt', not any(r['tradeId'] in ids for r in historical['holdings']))
-    check('all demo execution dates are weekdays and settlement remains unprocessed', all(datetime.fromisoformat(r['executedAt']).weekday() < 5 and r['settlement'] == 'unprocessed' for r in rows))
+    check('all demo economic effective dates are weekdays and settlement remains unprocessed', all(datetime.fromisoformat(r['economicEffectiveAt']).weekday() < 5 and r['settlement'] == 'unprocessed' for r in rows))
     print(f'{passed} seeded preview checks passed.', flush=True)

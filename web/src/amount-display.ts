@@ -1,21 +1,21 @@
 // The backend formats decimal/rational strings; the browser never rounds amounts.
 export type DisplayPrecision={money:number;price:number;quantity:number;factor:number};
-export const initialDisplayPrecision=():DisplayPrecision=>({money:2,price:4,quantity:3,factor:6});
+export const initialDisplayPrecision=():DisplayPrecision=>({money:3,price:4,quantity:3,factor:6});
 export function displayPrecision(value:unknown):DisplayPrecision{
  const v=value as DisplayPrecision;
  if(!v||[v.money,v.price,v.quantity,v.factor].some(n=>!Number.isInteger(n)||n<0||n>18))throw Error('Choose 0–18 decimal places for each amount display.');
  return {money:v.money,price:v.price,quantity:v.quantity,factor:v.factor};
 }
 type Kind=keyof DisplayPrecision;
-type Request={value:string;decimalPlaces:number;tick:string|null};
+type Request={value:string;decimalPlaces:number;tick:string|null;trimTrailingZeros:boolean};
 const rendered=new Map<string,string>();let precision=initialDisplayPrecision();
 export function selectDisplayPrecision(value:DisplayPrecision){precision=displayPrecision(value);rendered.clear();}
-const key=(value:string,kind:Kind,tick?:string,policy=precision)=>JSON.stringify([value,policy[kind],tick??null]);
+const key=(value:string,kind:Kind,tick?:string,policy=precision)=>JSON.stringify([value,policy[kind],tick??null,kind!=='money']);
 export function amountText(value:string,kind:Kind,tick?:string,policy=precision){return rendered.get(key(value,kind,tick,policy))??value;}
 const money=new Set(['presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change']);
 const prices=new Set(['price','fixedPrice','executionPrice','mark','value','annualRate']);
 const quantities=new Set(['quantity','physicalQuantity','totalQuantity','weight']);
-const factors=new Set(['discountFactor','factor','multiplier']);
+const factors=new Set(['discountFactor','factor','multiplier','delta','gamma']);
 export async function prepareAmountDisplay(payload:unknown,format:(body:Request[])=>Promise<string[]>,initialTick?:string,initialPolicy=precision){
  const requests=new Map<string,Request>();
  function visit(value:unknown,tick?:string,inherited=initialPolicy){
@@ -26,7 +26,7 @@ export async function prepareAmountDisplay(payload:unknown,format:(body:Request[
    const kind:Kind|undefined=money.has(field)?'money':prices.has(field)?'price':quantities.has(field)?'quantity':factors.has(field)?'factor':undefined;
    if(kind&&typeof raw==='string'&&/^-?\d+(?:\.\d+|\/\d+)?$/.test(raw)){
     const selectedTick=kind==='price'?(field==='mark'&&typeof row.markTick==='string'?row.markTick:priceTick):undefined,selectedPolicy=field==='fixedPrice'&&row.fixedAmountFormat?displayPrecision(row.fixedAmountFormat):policy,k=key(raw,kind,selectedTick,selectedPolicy);
-    if(!rendered.has(k))requests.set(k,{value:raw,decimalPlaces:selectedPolicy[kind],tick:selectedTick??null});
+    if(!rendered.has(k))requests.set(k,{value:raw,decimalPlaces:selectedPolicy[kind],tick:selectedTick??null,trimTrailingZeros:kind!=='money'});
    }else visit(raw,priceTick,policy);
   }
  }

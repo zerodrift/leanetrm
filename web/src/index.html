@@ -79,10 +79,10 @@
         <h3 class="form-section">Quantity &amp; classification</h3>
         <div class="schedule-fields"><div><label for="power-quantity-basis">Quantity basis</label><select id="power-quantity-basis" required></select></div><div id="power-allocation-field" hidden><label for="power-allocation">Allocate total energy</label><select id="power-allocation"><option value="">Choose…</option><option value="flat_rate">Flat MW across the selected intervals</option></select></div></div>
         <div class="schedule-fields three"><div><label id="power-quantity-label" for="power-mw">Amount</label><input id="power-mw" type="text" inputmode="decimal" value="10" required></div><div><label for="power-price-type">Price type</label><input id="power-price-type" list="power-price-types" maxlength="40" required><datalist id="power-price-types"></datalist></div><div><label for="power-timing">Price timing</label><input id="power-timing" list="power-timings" maxlength="40" required><datalist id="power-timings"></datalist></div></div>
-        <div class="schedule-fields"><div><label for="power-quantity-precision">Quantity display · decimal places</label><input id="power-quantity-precision" type="number" min="0" max="18" required></div><div><label for="power-price-precision">Price display · decimal places</label><input id="power-price-precision" type="number" min="0" max="18" required></div><div><label for="power-money-precision">Money display · decimal places</label><input id="power-money-precision" type="number" min="0" max="18" required></div></div>
-        <p class="field-help">Generated test fixings use the contract's curve price in its own currency per MWh. Classifications are labels, never a claim of official publication. Prices round to 18 decimal places and cash to 2 (ties to even) once, after exact aggregation.</p>
-        <div class="schedule-actions"><button type="submit">Check hours &amp; settlements</button></div>
-      </form>
+        <p class="field-help">Generated test fixings use the contract's curve price in its own currency per MWh. Classifications are labels, never a claim of official publication.</p>
+         <div class="schedule-actions"><button type="submit">Check hours &amp; settlements</button></div>
+         <details id="power-advanced" class="advanced-settings"><summary>Advanced settings</summary><label for="power-money-precision">Money decimal places</label><input id="power-money-precision" type="number" min="0" max="18" required><p class="field-help">Formats final money amounts for this example. Exact quantities and calculations are unchanged.</p></details>
+       </form>
     </div>
     <div id="power-result" hidden><div class="card"><h3 id="power-summary"></h3><p id="power-price-note" class="muted"></p><p id="power-holiday-note" class="muted"></p><div id="power-days" class="table-wrap"></div></div><div class="card"><div class="card-heading"><h3>Settlement intervals</h3><div><label for="power-show">Rows</label><select id="power-show"><option value="few">First 60</option><option value="all">Show all</option></select></div></div><p id="power-rows-note" class="field-help"></p><div id="power-intervals" class="table-wrap"></div></div></div>
   </section>
@@ -141,9 +141,9 @@
     </section>
     <p id="futures-booking-availability" class="field-help" role="status">Choose an As of date to book a trade.</p>
     <section id="futures-booking" class="card" hidden><div class="card-heading"><h3>New futures trade</h3><button id="futures-cancel" type="button" class="text-button">Close</button></div><p id="futures-terms" class="field-help">Select a dated contract to see its terms.</p><form id="futures-form" hidden><fieldset id="futures-fields" class="futures-fields">
-      <div class="schedule-fields"><div><label for="futures-book">Book</label><select id="futures-book" required><option value="">Choose…</option></select></div><div><label for="futures-contract">Dated contract</label><select id="futures-contract" required><option value="">Choose…</option></select></div></div>
-      <div class="schedule-fields"><div><label for="futures-lots">Signed lots · positive long, negative short</label><input id="futures-lots" type="text" inputmode="numeric" pattern="-?[0-9]+" required maxlength="7"></div><div><label for="futures-execution">Execution price · in the displayed quote units</label><input id="futures-execution" type="text" inputmode="decimal" required maxlength="45"></div></div>
-      <div class="trade-annotation-fields"><div><label for="futures-trade-date">Trade date</label><input id="futures-trade-date" type="date" min="1901-01-01" max="2199-12-31" required></div><div><label for="futures-legal-entity">Legal entity</label><select id="futures-legal-entity" required></select></div><div><label for="futures-counterparty">Counterparty</label><select id="futures-counterparty" required></select></div></div><div class="trade-annotation-fields"><div><label for="futures-trader">Trader</label><select id="futures-trader"></select></div><div><label for="futures-memo">Memo</label><textarea id="futures-memo" maxlength="4000" rows="2"></textarea></div></div><label for="futures-executed">Execution date &amp; time · <span data-user-time-zone></span></label><input id="futures-executed" type="datetime-local" step="1" required><p class="field-help">Execution must be within the contract’s trading interval and no later than the selected market date. Changes persist in this preview database until the disposable preview is stopped.</p><button type="submit">Book future</button>
+      <section id="futures-trade-terms" class="trade-booking-terms"></section>
+      <section id="futures-instrument"></section><section id="futures-draft-valuation"></section>
+      <p class="field-help">Booking facts are assigned by the server. The selected market date supplies the separate pricing effective time.</p><button id="futures-book-submit" type="submit" class="secondary">Book future</button>
     </fieldset></form><div id="futures-pending" class="profile-note" hidden><p>A trade request is retained. Check its committed outcome or retry the identical request before entering another booking.</p><div class="schedule-actions"><button id="futures-reconcile" type="button" class="secondary">Check trade status</button><button id="futures-retry" type="button" class="secondary">Retry original request</button></div></div></section>
     <details class="table-totals"><summary>Futures execution P&amp;L · book totals before row filters</summary><p class="field-help">Totals cover the selected portfolios and books, independently of row filters.</p><div id="futures-totals" class="table-wrap"></div></details>
   </section>
@@ -160,16 +160,53 @@
 <dialog id="trade-kind" aria-labelledby="trade-kind-title"><div class="dialog-heading"><h2 id="trade-kind-title">New trade</h2><button id="trade-kind-close" type="button" class="icon-button" aria-label="Close trade choices">×</button></div><div class="trade-kind-actions"><button id="trade-kind-future" type="button">Futures</button><button id="trade-kind-swap" type="button">Financial swap</button></div></dialog>
 <dialog id="swap-editor" class="trade-editor swap-editor" aria-labelledby="swap-title">
  <div class="dialog-heading"><div><div class="eyebrow">TRADING</div><h2 id="swap-title">Financial swap</h2></div><button id="swap-close" type="button" class="icon-button" aria-label="Close financial swap">×</button></div>
- <div id="swap-amount-format"></div><p id="swap-reference" class="profile-note"></p><p id="swap-mode" class="field-help" role="status"></p><p id="swap-error" role="alert" hidden></p>
+ <p id="swap-reference" class="profile-note"></p><p id="swap-mode" class="field-help" role="status"></p><p id="swap-error" role="alert" hidden></p>
  <div id="swap-revisions" hidden><label for="swap-revision">Trade revision</label><select id="swap-revision"></select><button id="swap-latest" type="button" class="secondary">Reload latest revision</button></div>
  <form id="swap-form"><fieldset id="swap-fields">
-  <section class="trade-booking-terms"><h3>Trade terms</h3><div class="schedule-fields"><div><label for="swap-book">Book</label><select id="swap-book" required></select></div><div><label for="swap-quantity">Total quantity · <span id="swap-unit"></span></label><input id="swap-quantity" required inputmode="decimal" maxlength="45"></div><div><label for="swap-executed">Execution time · <span data-user-time-zone></span></label><input id="swap-executed" type="datetime-local" step="1" required></div></div></section>
-  <div class="trade-annotation-fields"><div><label for="swap-trade-date">Trade date</label><input id="swap-trade-date" type="date" min="1901-01-01" max="2199-12-31" required></div><div><label for="swap-legal-entity">Legal entity</label><select id="swap-legal-entity" required></select></div><div><label for="swap-counterparty">Counterparty</label><select id="swap-counterparty" required></select></div></div><div class="trade-annotation-fields"><div><label for="swap-trader">Trader</label><select id="swap-trader"></select></div><div><label for="swap-memo">Memo</label><textarea id="swap-memo" maxlength="4000" rows="2"></textarea></div></div>
+  <section id="swap-trade-terms" class="trade-booking-terms"></section>
+  <section id="swap-instrument" class="instrument-editor" data-instrument-type="financial_swap"><h3>Financial swap instrument</h3>
+  <div class="schedule-fields"><div><label for="swap-quantity">Instrument quantity · <span id="swap-unit"></span></label><input id="swap-quantity" required inputmode="decimal" maxlength="45"></div><div><label for="swap-quantity-unit">Quantity unit</label><select id="swap-quantity-unit" required></select></div></div>
   <div class="swap-commodity"><label for="swap-commodity">Commodity</label><select id="swap-commodity" required></select><p class="field-help">Filters the available floating indices, projection curves and compatible quantity units.</p></div>
   <div class="schedule-fields"><div><label for="swap-discounting">Discounting</label><select id="swap-discounting" required><option value="">Choose…</option><option value="currency_default">Currency default curve</option><option value="none">Explicitly undiscounted</option></select></div></div>
   <div id="swap-date-tools"></div>
   <div class="instrument-sides swap-sides" aria-label="Financial swap sides">
-   <section class="instrument-side" aria-labelledby="swap-fixed-title" style="--side-rows:11"><h3 id="swap-fixed-title">Fixed side</h3>
+   <div id="swap-fixed-editor"></div>
+   <div id="swap-floating-editor"></div>
+  </div>
+
+  <section id="swaps-draft-valuation"></section>
+  </section>
+  <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. The instrument quantity applies once after signed side PVs are summed. This model has one monthly payment per side and values projected observations before the first fixing.</p>
+  <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>
+  <button id="swap-preview" type="submit">Prepare booking</button>
+ </fieldset></form>
+ <section id="swap-result" hidden><h3>Valuation &amp; schedules</h3><p id="swap-pv" class="profile-note"></p><div id="swap-schedules"></div></section>
+ <div id="swap-confirmation" hidden><label><input id="swap-confirm" type="checkbox"> Commit these exact reviewed terms</label><button id="swap-submit" type="button" disabled>Book financial swap</button></div>
+ <div id="swap-amount-format"></div>
+ <section id="swap-history-panel" hidden><h3>Events &amp; revisions</h3><div id="swap-history" class="table-wrap"></div></section>
+</dialog>
+<dialog id="trade-editor" class="trade-editor" aria-labelledby="trade-editor-title">
+  <div class="dialog-heading"><div><div class="eyebrow">TRADING</div><h2 id="trade-editor-title">Instrument &amp; trade editor</h2></div><button id="trade-editor-close" type="button" class="icon-button" aria-label="Close trade editor">×</button></div>
+  <div class="schedule-fields"><div><label for="trade-revision">Trade revision</label><select id="trade-revision"></select></div><div><label>View</label><p id="trade-editor-mode" role="status"></p><button id="trade-reload" type="button" class="secondary">Reload latest revision</button></div></div>
+  <p id="trade-editor-reference" class="profile-note"></p>
+  <p id="trade-error" role="alert" hidden></p>
+  <form id="trade-amend-form"><fieldset id="trade-amend-fields" class="futures-fields">
+    <section id="trade-trade-terms" class="trade-booking-terms"></section>
+    <section id="trade-instrument"></section>
+    <p id="trade-editor-terms" class="field-help"></p>
+    <p id="trade-effective" class="field-help"></p>
+    <label for="trade-reason">Amendment reason</label><input id="trade-reason" required maxlength="500" autocomplete="off">
+    <p class="field-help">This corrects the current unprocessed booking. Standard contract terms stay shared. Rolls, termination and settlement are separate operations.</p>
+    <button id="trade-preview" type="submit">Preview amendment</button>
+  </fieldset></form>
+  <div id="trade-preview-result" class="profile-note" hidden><p id="trade-preview-values"></p><label><input id="trade-confirm" type="checkbox"> Apply this amendment at the displayed working As of time</label><button id="trade-submit" type="button" disabled>Submit amendment</button></div>
+  <div id="trade-editor-pending" class="profile-note" hidden><p>The amendment outcome needs reconciliation. The original command is retained.</p><button id="trade-editor-reconcile" type="button" class="secondary">Check status</button><button id="trade-editor-retry" type="button" class="secondary">Retry original amendment</button></div>
+  <div id="trade-amount-format"></div>
+  <h3>Events &amp; revisions</h3><div id="trade-history" class="table-wrap"></div>
+</dialog>
+<dialog id="profile-dialog" aria-labelledby="profile-title"><form id="preferences-form"><div class="dialog-heading"><div><div class="eyebrow">PERSONAL SETTINGS</div><h2 id="profile-title">Your profile</h2></div><button type="button" id="profile-close" class="icon-button" aria-label="Close profile">×</button></div><p id="profile-access" class="muted">Make this view work for you.</p><label for="zone">Time zone</label><select id="zone" required></select><p class="field-help">Dates and times will appear in your chosen time zone.</p><label for="preferred-browse">Browse market data by</label><select id="preferred-browse"><option value="commodity">Commodity</option><option value="marketType">Market type</option></select><div class="profile-note">Your browsing choices are remembered on this browser. Account-wide settings will be added with sign-in.</div><div class="dialog-actions"><button type="button" id="profile-cancel" class="secondary">Cancel</button><button type="submit">Save preferences</button></div></form>
+<details class="preview-tools"><summary>Preview access</summary><p class="muted">Try different permissions in the sample app. These are demo users.</p><label for="profile">Demo user</label><select id="profile"></select><button id="open" class="secondary">Switch demo user</button></details></dialog>
+<template id="swap-fixed-template">   <section class="instrument-side" aria-labelledby="swap-fixed-title" style="--side-rows:11"><h3 id="swap-fixed-title">Fixed side</h3>
     <div><label for="swap-direction">Direction</label><select id="swap-direction" required><option value="">Choose…</option><option value="-1">Pay fixed</option><option value="1">Receive fixed</option></select></div>
     <div><label for="swap-fixed-currency">Currency</label><select id="swap-fixed-currency" required></select></div>
     <div><label for="swap-price">Fixed price · <span id="swap-price-unit">choose projection curve</span></label><input id="swap-price" required inputmode="decimal" maxlength="45"></div>
@@ -192,7 +229,8 @@
      <p class="field-help">Payment dates are generated from these rules. Lag is applied before adjustment; business-day lag counts strictly after the last delivery day.</p>
     </div>
    </section>
-   <section class="instrument-side" aria-labelledby="swap-floating-title" style="--side-rows:11"><h3 id="swap-floating-title">Floating side</h3>
+</template>
+<template id="swap-floating-template">   <section class="instrument-side" aria-labelledby="swap-floating-title" style="--side-rows:11"><h3 id="swap-floating-title">Floating side</h3>
     <div><label>Direction</label><p id="swap-floating-direction" class="field-help">Choose the fixed-side direction.</p></div>
     <div><label for="swap-floating-currency">Currency</label><select id="swap-floating-currency" required></select></div>
     <div><label for="swap-index">Floating Index</label><select id="swap-index" required></select></div>
@@ -215,43 +253,5 @@
      <p class="field-help">Payment dates are generated from these rules. Lag is applied before adjustment; business-day lag counts strictly after the last delivery day.</p>
     </div>
    </section>
-  </div>
-
-  <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. Total quantity applies once after signed side PVs are summed. This model has one monthly payment per side and values projected observations before the first fixing. Final values use exact 18-decimal working amounts; unsupported precision raises an error.</p>
-  <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>
-  <button id="swap-preview" type="submit">Validate schedules &amp; preview PV</button>
- </fieldset></form>
- <section id="swap-result" hidden><h3>Valuation &amp; schedules</h3><p id="swap-pv" class="profile-note"></p><div id="swap-schedules"></div></section>
- <div id="swap-confirmation" hidden><label><input id="swap-confirm" type="checkbox"> Commit these exact reviewed terms</label><button id="swap-submit" type="button" disabled>Book financial swap</button></div>
- <section id="swap-history-panel" hidden><h3>Events &amp; revisions</h3><div id="swap-history" class="table-wrap"></div></section>
-</dialog>
-<dialog id="trade-editor" class="trade-editor" aria-labelledby="trade-editor-title">
-  <div class="dialog-heading"><div><div class="eyebrow">TRADING</div><h2 id="trade-editor-title">Instrument &amp; trade editor</h2></div><button id="trade-editor-close" type="button" class="icon-button" aria-label="Close trade editor">×</button></div>
-  <div class="schedule-fields"><div><label for="trade-revision">Trade revision</label><select id="trade-revision"></select></div><div><label>View</label><p id="trade-editor-mode" role="status"></p><button id="trade-reload" type="button" class="secondary">Reload latest revision</button></div></div>
-  <p id="trade-editor-reference" class="profile-note"></p>
-  <p id="trade-error" role="alert" hidden></p><div id="trade-amount-format"></div>
-  <form id="trade-amend-form"><fieldset id="trade-amend-fields" class="futures-fields">
-    <section class="trade-booking-terms" aria-labelledby="trade-booking-title"><h3 id="trade-booking-title">Trade terms</h3>
-      <div class="schedule-fields"><div><label for="trade-book">Book</label><select id="trade-book" required></select></div><div><label for="trade-lots">Signed lots · positive long, negative short</label><input id="trade-lots" required maxlength="7" inputmode="numeric" pattern="-?[0-9]+"></div></div>
-      <div class="trade-annotation-fields"><div><label for="trade-trade-date">Trade date</label><input id="trade-trade-date" type="date" min="1901-01-01" max="2199-12-31" required></div><div><label for="trade-legal-entity">Legal entity</label><select id="trade-legal-entity" required></select></div><div><label for="trade-counterparty">Counterparty</label><select id="trade-counterparty" required></select></div></div><div class="trade-annotation-fields"><div><label for="trade-trader">Trader</label><select id="trade-trader"></select></div><div><label for="trade-memo">Memo</label><textarea id="trade-memo" maxlength="4000" rows="2"></textarea></div></div><div class="schedule-fields"><div><label for="trade-price">Execution price · displayed quote units</label><input id="trade-price" required maxlength="45" inputmode="decimal"></div><div><label for="trade-executed">Execution time · <span data-user-time-zone></span></label><input id="trade-executed" type="datetime-local" step="1" required></div></div>
-    </section>
-    <div class="instrument-sides" aria-label="Instrument sides">
-      <section class="instrument-side" aria-labelledby="trade-side-title">
-        <h3 id="trade-side-title">Futures side</h3>
-        <div class="side-contract"><label for="trade-contract">Dated futures contract</label><select id="trade-contract" required></select></div>
-        <dl id="trade-side-fields" class="side-terms"></dl>
-      </section>
-    </div>
-    <p id="trade-editor-terms" class="field-help"></p>
-    <p id="trade-effective" class="field-help"></p>
-    <label for="trade-reason">Amendment reason</label><input id="trade-reason" required maxlength="500" autocomplete="off">
-    <p class="field-help">This corrects the current unprocessed booking. Standard contract terms stay shared. Rolls, termination and settlement are separate operations.</p>
-    <button id="trade-preview" type="submit">Preview amendment</button>
-  </fieldset></form>
-  <div id="trade-preview-result" class="profile-note" hidden><p id="trade-preview-values"></p><label><input id="trade-confirm" type="checkbox"> Apply this amendment at the displayed working As of time</label><button id="trade-submit" type="button" disabled>Submit amendment</button></div>
-  <div id="trade-editor-pending" class="profile-note" hidden><p>The amendment outcome needs reconciliation. The original command is retained.</p><button id="trade-editor-reconcile" type="button" class="secondary">Check status</button><button id="trade-editor-retry" type="button" class="secondary">Retry original amendment</button></div>
-  <h3>Events &amp; revisions</h3><div id="trade-history" class="table-wrap"></div>
-</dialog>
-<dialog id="profile-dialog" aria-labelledby="profile-title"><form id="preferences-form"><div class="dialog-heading"><div><div class="eyebrow">PERSONAL SETTINGS</div><h2 id="profile-title">Your profile</h2></div><button type="button" id="profile-close" class="icon-button" aria-label="Close profile">×</button></div><p id="profile-access" class="muted">Make this view work for you.</p><label for="zone">Time zone</label><select id="zone" required></select><p class="field-help">Dates and times will appear in your chosen time zone.</p><label for="preferred-browse">Browse market data by</label><select id="preferred-browse"><option value="commodity">Commodity</option><option value="marketType">Market type</option></select><div class="profile-note">Your browsing choices are remembered on this browser. Account-wide settings will be added with sign-in.</div><div class="dialog-actions"><button type="button" id="profile-cancel" class="secondary">Cancel</button><button type="submit">Save preferences</button></div></form>
-<details class="preview-tools"><summary>Preview access</summary><p class="muted">Try different permissions in the sample app. These are demo users.</p><label for="profile">Demo user</label><select id="profile"></select><button id="open" class="secondary">Switch demo user</button></details></dialog>
+</template>
 </body></html>
