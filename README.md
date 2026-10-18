@@ -59,6 +59,13 @@ operations used by the UI and agents. Examples will be explicitly synthetic.
 The intended eventual hosted domain is leanetrm.com. No hosted service or
 deployment is implied by this repository's current status.
 
+## Contributing
+
+Small fixes are welcome. Sign off contribution commits with `git commit -s`
+under the [Developer Certificate of Origin](https://developercertificate.org/).
+See [the contribution guide](CONTRIBUTING.md); designated core contributors also
+sign the [Core Contributor Agreement](CLA.md).
+
 ## License
 
 Copyright (c) 2017 zerodrift.
