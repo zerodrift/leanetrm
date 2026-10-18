@@ -69,3 +69,4 @@ The local frontend uses pinned public presentation dependencies for its trading
 grid and analytical charts. The build serves their assets locally and includes
 required license notices under `web/dist/vendor`. Business calculations remain
 in the managed backend; see [implemented capabilities](docs/implementation.md).
+
