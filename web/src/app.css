@@ -509,3 +509,25 @@ dialog label{margin-top:16px}
 .sidebar .nav-item,.sidebar select{box-sizing:border-box;max-width:100%;min-width:0}
 .sidebar .nav-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:760px){.date-control{flex-wrap:wrap}.date-control select{flex:1 1 0;min-width:0}.date-control #header-calculation-time{flex-basis:100%;max-width:none}}
+/* Curve-type filter as one segmented control. */
+.library-filters .filter-tabs{gap:2px;padding:3px;background:var(--surface-3);border-radius:8px}
+.library-filters .filter-tabs button{border:0;border-radius:6px;padding:5px 2px;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.library-filters .filter-tabs button:hover{background:#ffffff99}
+.library-filters .filter-tabs button.active{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 2px #1b2e2324}
+.chart-toolbar>span strong{color:var(--text);font-weight:600}
+/* Unit converter: amount, from and to on one row; precision and action aligned below. */
+.converter-fields{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,1.4fr)}
+.converter-precision{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-top:4px}
+.converter-precision>div{min-width:220px}.converter-precision>#unit-rounding-fields{flex:1 1 280px;margin:0}
+.converter-precision label{display:block}.converter-precision button{margin:0 0 1px}
+@media(max-width:760px){.converter-fields{grid-template-columns:1fr}}
+/* Party editor: the form reads as part of the card, with history clearly separated. */
+#party-fields{border:0;padding:0;margin:0;min-width:0}
+#party-pending+h3{margin-top:28px;padding-top:20px;border-top:1px solid var(--border)}
+.library-filters .filter-tabs{display:flex}.library-filters .filter-tabs button{flex:1 1 auto;padding:5px 7px}
+#party-new{margin-top:12px}
+/* Power settlement check: numbered steps and an action that stays in reach on a long form. */
+#power-form{counter-reset:power-step}
+#power-form .form-section{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--text)}
+#power-form .form-section::before{counter-increment:power-step;content:counter(power-step);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font-size:12px;font-weight:600;flex:none}
+#power-form>div:has(>button[type=submit]){position:sticky;bottom:0;z-index:3;margin:0 -20px -20px;padding:12px 20px;background:var(--surface);border-top:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius)}
