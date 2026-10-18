@@ -385,3 +385,18 @@ versions only, and power previews pin the product version they price.
 date-schedule version to an exact sealed holiday calendar from a reference
 catalog the writer can access. The weekend mask uses ISO 8601 bits (bit 0 is
 Monday). Draft schedule versions are hidden from readers.
+
+
+[0029_server_booking_facts.sql](migrations/0029_server_booking_facts.sql) retains
+immutable human booker, UTC booking date and persistence time. APIs and raw
+business writes reject caller-supplied booking facts; exact retries precede
+stamping. Existing economic coordinates remain unchanged. These additions follow
+the stored-name, TOU-product and reference-calendar migrations 0026–0028.
+[0030_deal_risk.sql](migrations/0030_deal_risk.sql) grants the distinct draft-deal
+risk capability to traders and risk analysts.
+[0031_definition_publication_scope.sql](migrations/0031_definition_publication_scope.sql)
+requires current access to the exact clock/calendar catalog before a new TOU or
+reference-calendar schedule publication. Accepted retries retain their original
+control ordinal and create no new publication. Drain runtime writes for upgrades.
+The display-name migration still rejects populated unnamed catalogs; this
+sequence does not claim an automatic upgrade of those retained installations.

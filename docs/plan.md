@@ -17,6 +17,22 @@ daily/final settlement, variation-margin transitions and generic futures PV rema
 unimplemented. Quantities, quote scales, numerical policy and exact inputs stay in
 the managed backend.
 
+
+Temporary futures and swap editors expose Price and Risk before booking. Trade
+parties and book membership are required only for booking. The backend converts
+explicit typed quantities against the selected pricing reference revision; it
+rejects unsupported or inexact decimal conversions rather than choosing a rounding
+policy. Price returns a pinned historical context reused by Risk. Draft risk
+requires `RunDealRisk`, distinct from book-wide scenario authority, and reprices
+the same instrument under immutable shared one-trading-tick quote scenarios.
+Only declared live quote lineage is shocked; all-in marks acquire no inferred
+upstream exposure. Interest rates remain fixed. Results retain exact rational
+base/up/down cash, delta and gamma, including nonterminating daily-average
+sensitivities. The UI formats those results through backend amount formatting,
+clears them when terms/context change, and never books a trade as a side effect.
+Swap drafts report PV; futures drafts report execution P&L and open exposure.
+Variation-margin processing and full futures settlement PV remain unimplemented.
+
 Simple futures contracts are leaf instruments keyed by the exact futures-series
 primary key, independent of the curve recipe. Explicit pricing bindings retain
 selected curve/member and quote policy. Composed products use `SidedInstrument`
@@ -36,11 +52,11 @@ knowledge, historical views, selected price date and actual today in the user's
 zone. Power TOUs and Reference data are under Settings; visible branding is LeanETRM.
 
 Trade owns events, TraderId, TradeDate, counterparty, memo and legal entity.
-Trader attribution, memo, an explicitly supplied date-only TradeDate and exact
-LegalEntity/Counterparty versions are retained on current trade revisions.
-New bookings/amendments require date and both parties; legacy revisions retain
-unknown fields without backfilling inferred facts. General party administration
-and broader lifecycle execution remain work. Instruments
+The backend assigns trader to the original authenticated human workspace member,
+TradeDate to the UTC booking date and execution time to persistence time. These
+facts are read-only and survive amendments. Memo and exact-version parties remain
+editable trade terms. Shared presentation renders Trade Terms above the product
+editor and its sides; quantities belong to instrument bindings. Instruments
 remain unit definitions with separate unit-aware Quantity values held by Trade per
 instrument binding. Reuse the existing project-owned Quantity, Money and UnitPrice
 contracts backed by ExactDecimal; external quantities live outside the instrument
@@ -131,8 +147,9 @@ checks cover DST, TOU/holidays, signed quantities, conservation, incompatible
 references, cash rounding and overflow. Booked-side rate integration remains work.
 Legal-entity/counterparty editors now append immutable versions through separate
 party permissions, with retained history, optimistic conflicts and safe retries.
-Trader attribution must also be linked to actual scoped human
-users; the current independent synthetic trader rows do not satisfy D117.
+Immutable booking facts now reference actual scoped human users and preserve
+the original captured booker across account changes and financial amendments.
+Server-owned UTC dates/timestamps and separate economic coordinates follow D129.
 
 The initial reference-data schema and disposable database checks are implemented.
 The first local market-data slice now also implements commodity curve building,
@@ -498,6 +515,10 @@ Independent review covers authorization, temporal behavior, transaction races,
 idempotency and migration/release boundaries.
 
 ## Milestone 4 — Durable runs and a usable browser slice
+
+Amount presentation keeps final money decimal controls under collapsed Advanced
+settings, defaulting to three places. Ordinary deal entry prioritizes contractual
+terms; noncash amounts use compact backend formatting and futures tick places.
 
 Deliver:
 

@@ -4,7 +4,7 @@ using OpenEtrm.MarketData;
 namespace OpenEtrm.Api;
 
 public sealed record UnitConvertRequest(string? Value, string? From, string? To, int? DecimalPlaces, string? TieRule);
-public sealed record DisplayNumberRequest(string Value, int? DecimalPlaces, string? Tick);
+public sealed record DisplayNumberRequest(string Value, int? DecimalPlaces, string? Tick, bool TrimTrailingZeros = false);
 public static class UnitOperations
 {
     public static UnitConverter Converter(UnitCatalogData data)
@@ -37,7 +37,7 @@ public static class UnitOperations
         return requests.Select(r =>
         {
             if (r is null) throw new MarketDataException("display_precision", "A display entry cannot be null.");
-            var format = r.Tick is null ? new AmountFormat(r.DecimalPlaces ?? throw new MarketDataException("display_precision", "Display precision must be explicit."), CashTieRule.ToEven, true, false) : AmountFormat.ForTick(ExactDecimal.Parse(r.Tick));
+            var format = r.Tick is null ? new AmountFormat(r.DecimalPlaces ?? throw new MarketDataException("display_precision", "Display precision must be explicit."), CashTieRule.ToEven, true, r.TrimTrailingZeros) : AmountFormat.ForTick(ExactDecimal.Parse(r.Tick));
             if (r.Value is null || r.Value.Length > 256) throw new MarketDataException("numeric_format", "The display value exceeds its supported bound.");
             var ratio = r.Value.Split('/');
             if (ratio.Length == 1) return ExactDecimal.Parse(r.Value).ToString(format);

@@ -32,6 +32,11 @@ public sealed record ExactMoney
             denominator * (other.denominator / shared), Currency);
     }
     public ExactMoney Scale(ExactDecimal factor) => new(numerator * factor.ScaledValue, denominator * ExactDecimal.WorkingScale, Currency);
+    internal ExactMoney DivideBy(ExactDecimal divisor)
+    {
+        if(divisor.CompareTo(default)<=0)throw new MarketDataException("numeric_division","An exact positive divisor is required.");
+        return new(numerator*ExactDecimal.WorkingScale,denominator*divisor.ScaledValue,Currency);
+    }
     public ExactMoney Subtract(ExactMoney other)=>Add(other.Scale(ExactDecimal.Parse("-1")));
     public Money ToMoney()
     {

@@ -212,20 +212,18 @@ def security_fixture(catalog,reference_catalog):
 def trading_fixture(catalog, swap_defaults=False, annotations=True):
     """Immutable synthetic books used by the local futures booking operation."""
     defaults = f"INSERT INTO trading.currency_discount_defaults VALUES ('{catalog}','d2000000-0000-0000-0000-000000000001','{REV}','{RCAT}','{RREV}','{CURRENCY}','interest_rates','log_discount_geometric_root_to_even_18_v1',1,'2020-01-01 00:00:00+00');" + f"\nINSERT INTO trading.currency_discount_defaults VALUES ('{catalog}','d2000000-0000-0000-0000-000000000002','60000000-0000-0000-0000-000000000002','{RCAT}','{RREV}','{CURRENCY}','interest_rates','log_discount_geometric_root_to_even_18_v1',1,'2020-01-01 00:00:00+00');" if swap_defaults else ''
-    traders=f"INSERT INTO trading.traders VALUES ('{catalog}','d3000000-0000-0000-0000-000000000001',1,'trader_a','Trader A',1,'2020-01-01T00:00:00Z'),('{catalog}','d3000000-0000-0000-0000-000000000002',1,'trader_b','Trader B',1,'2020-01-01T00:00:00Z');" if annotations else ''
     parties = '\n'.join(f"INSERT INTO trading.{table} VALUES ('{catalog}','{prefix}000000-0000-0000-0000-00000000000{n}',1,'{code}_{n}','Synthetic {label} {n}',1,'2020-01-01T00:00:00Z');" for table,prefix,code,label in [('legal_entities','d4','entity','entity'),('counterparties','d5','party','party')] for n in (1,2)) if annotations else ''
     return f"""BEGIN;
 INSERT INTO trading.publications VALUES ('{catalog}',1,pg_current_xact_id());
 INSERT INTO trading.portfolios VALUES ('{catalog}','d0000000-0000-0000-0000-000000000001','Synthetic portfolio',1,'2020-01-01 00:00:00+00');
 INSERT INTO trading.books VALUES ('{catalog}','d1000000-0000-0000-0000-000000000001','d0000000-0000-0000-0000-000000000001','Book A',1,'2020-01-01 00:00:00+00');
 INSERT INTO trading.books VALUES ('{catalog}','d1000000-0000-0000-0000-000000000002','d0000000-0000-0000-0000-000000000001','Book B',1,'2020-01-01 00:00:00+00');
-{traders}
 {parties}
 {defaults}
 COMMIT;"""
 
 
-def trade_booking(trade_date='2020-12-18'):
-    """Explicit party/date choices for the standard synthetic trading fixture."""
-    return {'tradeDate': trade_date, 'legalEntityId': 'd4000000-0000-0000-0000-000000000001', 'legalEntityRevision': 1,
+def trade_booking():
+    """Exact party choices for the standard synthetic trading fixture."""
+    return {'legalEntityId': 'd4000000-0000-0000-0000-000000000001', 'legalEntityRevision': 1,
             'counterpartyId': 'd5000000-0000-0000-0000-000000000001', 'counterpartyRevision': 1}

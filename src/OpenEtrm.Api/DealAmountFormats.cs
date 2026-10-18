@@ -7,7 +7,7 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record DealAmountFormat([property:JsonRequired]int Money,[property:JsonRequired]int Price,[property:JsonRequired]int Quantity,[property:JsonRequired]int Factor)
 {
- public static DealAmountFormat Default=>new(2,4,3,6);
+ public static DealAmountFormat Default=>new(3,4,3,6);
  public void Validate(){foreach(var places in new[]{Money,Price,Quantity,Factor})_=new AmountFormat(places,CashTieRule.ToEven,true,false);}
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

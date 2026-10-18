@@ -66,8 +66,8 @@ market clocks, and its power indexes settle on the NERC-holiday calendars of
 those clocks.
 ## Amount display and unit conversion
 
-Deal editors select decimal places for money/PV, prices, quantities and factors;
-fixed and floating roles have independent controls. Shared current presentation
+Deal editors expose final money decimal places under collapsed Advanced settings;
+trade, fixed and floating roles retain independent policies. Shared current presentation
 is stored against the exact trade identity with optimistic revisions and current
 trade read/amend authority. It is independent of financial history, economic keys
 and contractual cash rounding. Old browser Profile precision is ignored.
@@ -75,7 +75,9 @@ Decimal futures price display follows tick precision. The managed amount types
 provide formatted `ToString` overloads using resolved exact-reference labels.
 Tables show units alongside quantities/prices; formatting preserves raw sorting,
 filters, inputs and exact exports. Display ties use to-even; current initial
-presentation choices are 2/4/3/6 decimal places respectively and are editable.
+presentation choices are 3/4/3/6 decimal places for money/price/quantity/factors.
+Only money places are exposed; noncash display trims padding zeros and futures
+prices preserve tick places.
 
 Reference data → Units / Unit conversions provides a typed quantity converter.
 The consumer uses stored exact ratios, inverse paths and explicit final rounding,
@@ -114,8 +116,13 @@ persist this quantity rule.
 ## Current trading implementation
 
 Trade booking now consumes separate immutable `LegalEntity` and `Counterparty`
-models with exact catalog/ID/revision keys. An explicit date-only TradeDate and
-both party versions are required on new futures/swap bookings and amendments.
+models with exact catalog/ID/revision keys. Both party versions are required on
+new futures/swap bookings and amendments. Migration 0029 adds immutable booking
+facts for the original authenticated human user, server persistence time and
+UTC booking date; clients cannot set them. Economic effective time is separate.
+Shared Trade Terms render above product/side editors; the quantity belongs to
+the instrument binding, with no editable trade-wide total. The bounded operation
+still supports one instrument binding per trade.
 Retained states, history, optional blotter columns and exports expose the selected
 facts. Party-only corrections append a revision without changing the reusable
 unit instrument. Migration 0018 preserves legacy rows with NULL facts, adds exact
@@ -1114,3 +1121,19 @@ settlement references while remaining independent factors for current mark risk.
 Deal display precision is shared current presentation outside financial history;
 Profile has no amount-precision controls. Daily/final settlement and variation
 margin remain unimplemented.
+
+
+Temporary futures and swap editors expose Price and Risk before booking. Trade
+parties and book membership are required only for booking. The backend converts
+explicit typed quantities against the selected pricing reference revision; it
+rejects unsupported or inexact decimal conversions rather than choosing a rounding
+policy. Price returns a pinned historical context reused by Risk. Draft risk
+requires `RunDealRisk`, distinct from book-wide scenario authority, and reprices
+the same instrument under immutable shared one-trading-tick quote scenarios.
+Only declared live quote lineage is shocked; all-in marks acquire no inferred
+upstream exposure. Interest rates remain fixed. Results retain exact rational
+base/up/down cash, delta and gamma, including nonterminating daily-average
+sensitivities. The UI formats those results through backend amount formatting,
+clears them when terms/context change, and never books a trade as a side effect.
+Swap drafts report PV; futures drafts report execution P&L and open exposure.
+Variation-margin processing and full futures settlement PV remain unimplemented.

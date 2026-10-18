@@ -28,6 +28,8 @@ def main():
     parser.add_argument('--port', type=int, default=0, help='Loopback HTTP port; 0 chooses an unused port')
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
+    parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
+    parser.add_argument('--booking-check',action='store_true',help='Qualify backend-owned immutable trade booking facts')
     parser.add_argument('--unit-check', action='store_true', help='Run amount/unit integration checks in the owned standard fixture')
     parser.add_argument('--exchange-check',action='store_true',help='Qualify the independent exchange futures dataset')
     parser.add_argument('--with-exchange',action='store_true',help='Publish the independent exchange futures dataset in this newly owned database')
@@ -37,7 +39,7 @@ def main():
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
-    if args.identity_check or args.unit_check or args.party_check or args.exchange_check:
+    if args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -182,7 +184,15 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.exchange_check:
+            if args.draft_check:
+                from check_draft_pricing import run_checks as check_draft
+                check_draft(url,query,manifest)
+            elif args.booking_check:
+                from check_definition_publication import run_checks as check_definition_publication
+                check_definition_publication(query,manifest)
+                from check_booking_facts import run_checks as check_booking_facts
+                check_booking_facts(url,query,manifest)
+            elif args.exchange_check:
                 from check_exchange_preview import run_checks as check_exchange
                 check_exchange(url,query,exchange_manifest)
                 from seed_exchange_positions import seed_positions as seed_exchange
@@ -250,6 +260,12 @@ def main():
                 check_swaps(url)
                 from check_swap_payment_rules import run_checks as check_swap_payment_rules
                 check_swap_payment_rules(url)
+                from check_booking_facts import run_checks as check_booking_facts
+                check_booking_facts(url,query,manifest)
+                from check_draft_pricing import run_checks as check_draft
+                seed_client=check_draft(url,query,manifest)
+                from check_definition_publication import run_checks as check_definition_publication
+                check_definition_publication(query,manifest)
                 from check_trade_annotations import run_checks as check_trade_annotations
                 check_trade_annotations(url)
                 from check_trade_parties import run_checks as check_trade_parties
@@ -263,8 +279,8 @@ def main():
                 from check_swaps_storage import run_checks as check_swaps_storage
                 check_swaps_storage(query,manifest,psql,env)
                 from seed_preview_swaps import seed_swaps
-                seeded=seed_swaps(url,run_id,temporary)
-                assert len(seeded)==16 and seeded==seed_swaps(url,run_id,temporary)
+                seeded=seed_swaps(url,run_id,temporary,seed_client)
+                assert len(seeded)==16 and seeded==seed_swaps(url,run_id,temporary,seed_client)
                 print('PASS sixteen synthetic swap examples seed idempotently across all four weekdays',flush=True)
         else:
             child.wait()

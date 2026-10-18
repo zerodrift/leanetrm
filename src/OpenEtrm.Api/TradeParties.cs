@@ -20,14 +20,22 @@ internal static class TradeParties
             """, [catalog], ct);
         return rows.Select(r => new Choice(r.Id("id"), int.Parse(r.Text("revision"), CultureInfo.InvariantCulture), r.Text("code"), r.Text("name"))).ToImmutableArray();
     }
+    private static void ValidateReferences(Guid? entity,int? entityRevision,Guid? party,int? partyRevision)
+    {
+        if(entity is null||entity==Guid.Empty||entityRevision is null or <=0||party is null||party==Guid.Empty||partyRevision is null or <=0)
+            throw new MarketDataException("trade_party","Select legal entity and counterparty with exact available versions.");
+    }
     internal static string Payload(string? date, Guid? entity, int? entityRevision, Guid? party, int? partyRevision)
     {
-        if (!DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day) ||
-            day.Year is < 1901 or > 2199 || entity is null || entity == Guid.Empty || entityRevision is null or <= 0 ||
-            party is null || party == Guid.Empty || partyRevision is null or <= 0)
-            throw new MarketDataException("trade_party", "Select an explicit trade date, legal entity and counterparty with exact versions.");
-        return JsonSerializer.Serialize(new { tradeDate = day, legalEntityId = entity, legalEntityRevision = entityRevision,
-            counterpartyId = party, counterpartyRevision = partyRevision });
+        ValidateReferences(entity,entityRevision,party,partyRevision);
+        if(!DateOnly.TryParseExact(date,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var day)||day.Year is <1901 or >2199)
+            throw new MarketDataException("trade_party","The retained backend booking date is unavailable.");
+        return JsonSerializer.Serialize(new{tradeDate=day,legalEntityId=entity,legalEntityRevision=entityRevision,counterpartyId=party,counterpartyRevision=partyRevision});
+    }
+    internal static string Submitted(Guid? entity,int? entityRevision,Guid? party,int? partyRevision)
+    {
+        ValidateReferences(entity,entityRevision,party,partyRevision);
+        return JsonSerializer.Serialize(new{legalEntityId=entity,legalEntityRevision=entityRevision,counterpartyId=party,counterpartyRevision=partyRevision});
     }
     internal static async Task Validate(NpgsqlConnection connection, Guid catalog, string payload, DateTimeOffset executed, CancellationToken ct)
     {
@@ -60,7 +68,7 @@ internal static class TradeParties
     internal static object State(Guid catalog, JsonElement row)
     {
         var terms = Read(catalog, row);
-        return new { tradeDate = terms?.TradeDate, legalEntityId = terms?.LegalEntity.Key.Id, legalEntityRevision = terms?.LegalEntity.Key.Revision,
+        return new { tradeDate = row.OptionalText("booking_date") is {} bookingDate?DateOnly.ParseExact(bookingDate,"yyyy-MM-dd",CultureInfo.InvariantCulture):terms?.TradeDate, legalEntityId = terms?.LegalEntity.Key.Id, legalEntityRevision = terms?.LegalEntity.Key.Revision,
             legalEntity = terms?.LegalEntity.Name, counterpartyId = terms?.Counterparty.Key.Id, counterpartyRevision = terms?.Counterparty.Key.Revision,
             counterparty = terms?.Counterparty.Name };
     }

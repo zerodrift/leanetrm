@@ -7,15 +7,22 @@ namespace OpenEtrm.Api;
 
 internal static class TradeAnnotations
 {
-    internal sealed record TraderChoice(Guid Id,int Revision,string Code,string Name);
-    public static async Task<ImmutableArray<TraderChoice>> Catalog(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
+    public static async Task<JsonElement> Actor(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {
-        var rows=await PreviewDatabase.Rows(connection,"""
-        SELECT row_to_json(t)::text FROM(SELECT DISTINCT ON(id) id,revision,code,name
-          FROM trading.traders WHERE catalog_id=$1 ORDER BY id,revision DESC)t ORDER BY t.code
-        """,[catalog],ct);
-        return rows.Select(r=>new TraderChoice(r.Id("id"),int.Parse(r.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),r.Text("code"),r.Text("name"))).ToImmutableArray();
+        await using var command=ScheduleStore.Command(connection,"SELECT security.booking_actor($1)::text",catalog);
+        return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
+    public static void RequireServerFacts(string? executed,Guid? trader,int? revision,string? date)
+    {
+        if(executed is not null||trader is not null||revision is not null||date is not null)
+            throw new MarketDataException("trade_booking_read_only","Trader, trade date and execution time are assigned by the server and cannot be changed.");
+    }
+    public static void RequireFacts(ImmutableArray<JsonElement> rows)
+    {
+        if(rows.Any(row=>row.GetProperty("booker_id").ValueKind==JsonValueKind.Null))
+            throw new MarketDataException("trade_booking","The original booking facts are unavailable in this context.");
+    }
+    public static object Facts(JsonElement row)=>new{implementation=row.Text("booking_implementation"),labelCapturedAt=row.Text("booker_label_captured_at")};
     public static void ValidateShape(Guid? trader,int? revision,string? memo)
     {
         if((trader is null)!=(revision is null)||memo?.Length>4000||memo?.Contains('\0')==true)

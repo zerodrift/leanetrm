@@ -29,7 +29,6 @@ def seed_positions(url,run_id,owned_root):
         body={'operationId':operation,**context,'bookId':catalog['books'][n%len(catalog['books'])]['id'],
             'curve':curve,'contractId':contract['id'],'lots':'2' if n%2==0 else '-1',
             'executionPrice':str(Decimal(contract['mark'])-Decimal(contract['tick'])),
-            'executedAt':'2026-10-13T15:30:00Z','tradeDate':'2026-10-13',
             'legalEntityId':catalog['legalEntities'][0]['id'],'legalEntityRevision':catalog['legalEntities'][0]['revision'],
             'counterpartyId':catalog['counterparties'][0]['id'],'counterpartyRevision':catalog['counterparties'][0]['revision']}
         results.append(c.call('futures/book',body))

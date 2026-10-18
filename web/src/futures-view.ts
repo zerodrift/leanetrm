@@ -1,3 +1,4 @@
+import {draftValuation} from './draft-valuation.js';
 import {amountText,type DisplayPrecision} from './amount-display.js';
 import {tradeAnnotations,type PartyCatalog,type Booking,type Trader} from './trade-annotations.js';
 import {setupSwapEditor} from './swap-editor.js';
@@ -5,7 +6,7 @@ import {setupTradeEditor} from './trade-editor.js';
 import {futuresContractDescription,futuresContractKey,type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {setupRisk} from './risk-view.js';
-import {zonedInput} from './user-time.js';
+import {futuresInstrumentEditor} from './futures-instrument-editor.js';
 import {createTableWorkspace} from './table-workspace.js';
 import {renderDataGrid} from './data-grid.js';
 import {pivotMatrix,type PivotGroup} from './analytics-model.js';
@@ -16,7 +17,7 @@ import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './mark
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
 type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'retained';contextId?:string};
-type Catalog=PartyCatalog&{traders:Trader[];books:{id:string;name:string;portfolio:string;portfolio_id:string}[];contracts:Contract[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;bookingUnavailableReason:string|null};
+type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string;portfolio_id:string}[];contracts:Contract[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;bookingUnavailableReason:string|null};
 type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:{booking:Booking;priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;fixedPrice:string|null;presentValue:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;bookId:string;contractId:string;revision:string;book:string;portfolio:string;curve:string;lots:string;quantity:string;unit:string;executedAt:string;executionPrice:string;mark:string;executionPnl:string;currency:string;deliveryFrom:string;deliveryTo:string;settlement:string}[];totals:{book:string;currency:string;executionPnl:string}[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 
@@ -34,8 +35,13 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   get('blotter-refresh').id='futures-refresh';get('blotter-new').id='futures-new';get('blotter-rows').id='futures-holdings';
   let catalog:Catalog|undefined,holdings:Holdings|undefined,owner='',snapshot='',uncertain=false;
   const pending=new PendingCommand();
-  const annotations=tradeAnnotations('futures');
-  const executionTime=zonedInput(get<HTMLInputElement>('futures-executed'),options.zone,api);
+  const annotations=tradeAnnotations('futures',options.zone);
+  const instrument=futuresInstrumentEditor(get('futures-instrument'),{contract:'futures-contract',lots:'futures-lots',price:'futures-execution',terms:'futures-contract-terms'});
+  const draft=draftValuation(get('futures-draft-valuation'),{product:'futures',api,act,busy,denied:clear,key:()=>JSON.stringify(readContext()),draft:async()=>{
+    const c=catalog?.contracts.find(c=>contractKey(c)===field('futures-contract').value);if(!c)throw Error('Choose an exact dated futures contract.');
+    return{context:readContext(),curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
+  }});
+  get('futures-form').addEventListener('input',draft.reset);
   let lastReadRequest:unknown;
   let view=newBlotterView(),savedViews:BlotterView[]=[],table:ReturnType<typeof renderDataGrid>|undefined,tableColumns:string[]=[];
   let versions=new Map<string,string>();
@@ -94,22 +100,22 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
     savedViews=parsed;versions=new Map(saved.map(v=>[v.layout.name,v.version]));viewsLoaded=true;viewControls();
   }
 
-  const storageKey=()=>`openetrm.futures.request.${options.profile()}`;
+  const storageKey=()=>`openetrm.futures.request.server_booking_utc_v1.${options.profile()}`;
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The current visit still retains the exact in-memory request. */}}
   function restore(){
     if(owner===options.profile())return;
     owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();savedViews=[];versions.clear();draftBase=undefined;viewsLoaded=false;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Individual trades');workspace.closeMenus();viewControls();
     try{const saved=JSON.parse(sessionStorage.getItem(storageKey())??'null');if(saved&&['futures/book','futures/amend','swaps/book','swaps/amend'].includes(saved.path)&&typeof saved.operationId==='string'&&saved.body&&typeof saved.body==='object'){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
   }
-  function sync(){risk.sync();editor.sync();swapEditor.sync();get('blotter-risk').hidden=!!holdings?.hasSwaps;get('blotter-risk').textContent='Futures shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!catalog?.canBook;get('futures-form').hidden=!catalog?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog?.canBook||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency'].includes(n.value))n.disabled=true;});}
-  function clear(){editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;table=undefined;lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();get('futures-totals').replaceChildren();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
+  function sync(){draft.sync();risk.sync();editor.sync();swapEditor.sync();get('blotter-risk').hidden=!!holdings?.hasSwaps;get('blotter-risk').textContent='Futures shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!catalog;get('futures-form').hidden=!catalog;get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!catalog?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency'].includes(n.value))n.disabled=true;});}
+  function clear(){draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;table=undefined;lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();get('futures-totals').replaceChildren();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
   function reset(){clear();restore();savedViews=[];versions.clear();viewsLoaded=false;viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   const contractKey=futuresContractKey;
-  function terms(){const c=catalog?.contracts.find(c=>contractKey(c)===field('futures-contract').value);text('futures-terms',c?futuresContractDescription(c,options.zone()):'Select a dated contract to see its terms.');}
+  function terms(){const c=catalog?.contracts.find(c=>contractKey(c)===field('futures-contract').value);text('futures-terms',c?futuresContractDescription(c,options.zone()):'Select a dated contract to see its terms.');instrument.render(c,options.zone(),(value,tick)=>amountText(value,'price',tick));}
   function render(){
     if(!catalog||!holdings)return;
-    annotations.populate(catalog.traders,catalog,annotations.read());
+    annotations.populate(catalog.bookingActor,catalog,annotations.read());
     choose('futures-book',catalog.books.map(b=>({id:b.id,name:`${b.portfolio} · ${b.name}`})),field('futures-book').value);
     choose('futures-contract',catalog.contracts.map(c=>({id:contractKey(c),name:`${curveName(c.curve)} · ${c.name} · ${deliveryLabel(c.deliveryFrom,c.deliveryTo)}`})),field('futures-contract').value);terms();
     const scope=options.profile()+':'+snapshot+':'+catalog.context.contextId;
@@ -196,9 +202,8 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   get<HTMLFormElement>('futures-form').onsubmit=event=>{event.preventDefault();void act(async()=>{
     if(!catalog?.canBook)throw Error('Return to current inputs with trading authority before booking.');
     const c=catalog.contracts.find(c=>contractKey(c)===field('futures-contract').value);if(!c)throw Error('Choose the exact dated contract.');
-    const executedAt=await executionTime.instant();
     const body={...annotations.read(),snapshotId:options.source().snapshotId,convention:options.source().convention,knowledgeMode:'current',bookId:field('futures-book').value,curve:c.curve,contractId:c.id,
-      lots:field('futures-lots').value,executionPrice:field('futures-execution').value,executedAt};
+      lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
     const command=pending.begin('futures/book',body);store();sync();await send(command);
   });};
   get('futures-retry').onclick=()=>void act(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
@@ -210,7 +215,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
       pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load();
     }catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}
   });
-  get('futures-new').onclick=()=>{if(busy()||!catalog?.canBook)return;kindDialog.showModal();};
+  get('futures-new').onclick=()=>{if(busy()||!catalog)return;kindDialog.showModal();};
   get('futures-cancel').onclick=()=>{if(!busy())get('futures-booking').hidden=true;};
   field('blotter-mode').onchange=()=>{if(busy())return;get('blotter-pivot-fields').hidden=field('blotter-mode').value!=='pivot';};
   get('blotter-apply').onclick=()=>void act(load);
@@ -234,5 +239,5 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   };
   get('futures-refresh').onclick=()=>void act(load);
   field('futures-contract').onchange=terms;
-  return {load,reset,sync,refresh(){editor.refresh();swapEditor.refresh();executionTime.refresh();captureFilters();render();}};
+  return {load,reset,sync,refresh(){draft.reset();editor.refresh();swapEditor.refresh();annotations.refresh();captureFilters();render();}};
 }

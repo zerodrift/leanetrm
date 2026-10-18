@@ -118,6 +118,28 @@ def run_checks(query, psql, environment, root, fixture, manifest):
         assert upgraded("SELECT bool_and(t.profile_code=c.profile_code) FROM ref_data.futures_product_terms t JOIN ref_data.futures_series s ON(s.catalog_id,s.revision_id,s.product_code)=(t.catalog_id,t.revision_id,t.product_code) JOIN market_data.contracts k ON(k.reference_catalog_id,k.reference_revision_id,k.futures_series_code)=(s.catalog_id,s.revision_id,s.code) JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(k.catalog_id,k.revision_id,k.id) JOIN market_data.curves c ON(c.catalog_id,c.revision_id,c.code)=(m.catalog_id,m.revision_id,m.curve_code);")=='t'
         print('PASS generalized-futures upgrade preserves original financial rows and normalizes exact authoritative delivery profiles',flush=True)
 
+        headers_before=upgraded("SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id)::text FROM trading.trades t;")
+        upgraded((root/'db/migrations/0029_server_booking_facts.sql').read_text())
+        assert headers_before==upgraded("SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id)::text FROM trading.trades t;")
+        assert upgraded("SELECT count(*)=(SELECT count(*) FROM trading.trades) AND bool_and(implementation='retained_commit_utc_v1') FROM trading.booking_facts;")=='t'
+        # Introduce exact party references through a new publication, never by
+        # assigning newly created reference rows to an old certified prefix.
+        upgraded(f"""BEGIN;SELECT pg_advisory_xact_lock(730849102);
+         INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';
+         INSERT INTO trading.legal_entities SELECT '{catalog}','d4000000-0000-0000-0000-000000000001',1,'upgrade_entity','Synthetic upgrade entity',max(publication_order),'2020-01-01T00:00:00Z' FROM trading.publications WHERE catalog_id='{catalog}';
+         INSERT INTO trading.counterparties SELECT '{catalog}','d5000000-0000-0000-0000-000000000001',1,'upgrade_party','Synthetic upgrade party',max(publication_order),'2020-01-01T00:00:00Z' FROM trading.publications WHERE catalog_id='{catalog}';COMMIT;""")
+        from preview_fixture import trade_booking
+        party_json=json.dumps(trade_booking())
+        amended=runtime(f"SELECT security.amend_futures_with_parties('{catalog}','{uuid4()}','{result['tradeId']}',1,'d1000000-0000-0000-0000-000000000001','{manifest['revisionId']}','future','{contracts[0]}','2020-12-18T16:00:00Z','2020-12-18T16:00:00Z',NULL,3,2.9,'Synthetic legacy quantity correction','fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{party_json}'::jsonb);")
+        assert json.loads(amended)['revision']==2
+        rule=lambda days:json.dumps(dict(frequency='monthly',rule='days_after_period_end',days=days,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1'))
+        amended_swap=runtime(f"SELECT security.save_swap_with_parties('{catalog}','{uuid4()}','{legacy['tradeId']}',1,'d1000000-0000-0000-0000-000000000001','{manifest['revisionId']}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','base_forward','{index}','usd','usd','2021-01-01','2021-02-01','2021-02-18T00:00:00Z','2021-01-01','2021-02-01','2020-12-31T12:00:00Z','2021-03-18T00:00:00Z','monthly_index_price',3,200,-1,false,'2020-12-18T16:00:00Z',NULL,'2020-12-18T16:00:00Z','Synthetic legacy quantity correction','independent_side_financial_swap_v2','{rule(18)}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{party_json}'::jsonb);")
+        assert json.loads(amended_swap)['revision']==2
+        assert upgraded("SELECT bool_and(r.trade_date IS NULL) FROM(SELECT trade_date FROM trading.trade_revisions WHERE revision=1 UNION ALL SELECT trade_date FROM trading.swap_trade_revisions WHERE revision=1)r;")=='t'
+        assert upgraded("SELECT bool_and(r.trade_date=f.trade_date) FROM(SELECT catalog_id,trade_id,trade_date FROM trading.trade_revisions WHERE revision=2 UNION ALL SELECT catalog_id,trade_id,trade_date FROM trading.swap_trade_revisions WHERE revision=2)r JOIN trading.booking_facts f USING(catalog_id,trade_id);")=='t'
+        print('PASS server-booking upgrade: original rows unchanged, certified commit facts retained, legacy futures/swap V1 amendments derive missing date without rewriting the originals',flush=True)
+
+
 
 
     finally:

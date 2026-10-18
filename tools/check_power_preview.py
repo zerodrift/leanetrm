@@ -9,6 +9,7 @@ def run_checks(Client, check):
     c.call('profile',{'profile':'viewer'})
     workspace=c.call('workspace'); frame=workspace['frames'][0]
     catalog=c.call('power/catalog',{'snapshotId':frame['id']})
+    check('power final money defaults to three display places',catalog['display']['money']==3)
     check('index classification suggestions are served by the catalog',catalog['classifications']=={'priceTypes':['Test','Official'],'timings':['End of day','Intraday']})
     check('the power calculation offers the published TOU products with their clocks',
           {p['code'] for p in catalog['products']}=={'pjm','nyiso','isone','miso','spp','ercot','caiso'} and all(p['name'] and p['clock'] and p['version']==1 for p in catalog['products']))

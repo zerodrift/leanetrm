@@ -531,3 +531,10 @@ dialog label{margin-top:16px}
 #power-form .form-section{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--text)}
 #power-form .form-section::before{counter-increment:power-step;content:counter(power-step);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font-size:12px;font-weight:600;flex:none}
 #power-form>div:has(>button[type=submit]){position:sticky;bottom:0;z-index:3;margin:0 -20px -20px;padding:12px 20px;background:var(--surface);border-top:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius)}
+.advanced-settings{margin-block:1rem;color:#657080}
+.advanced-settings>summary{cursor:pointer;font-size:.875rem}
+.advanced-settings[open]>summary{margin-bottom:.75rem}
+.advanced-settings input[type=number]{max-width:8rem}
+.instrument-editor{border-top:1px solid #dce3d5;margin-top:1.25rem;padding-top:.75rem}
+.trade-booking-terms input[readonly]{background:#f5f7f2;color:#526249;cursor:default}
+.swap-sides>#swap-fixed-editor,.swap-sides>#swap-floating-editor{display:contents}

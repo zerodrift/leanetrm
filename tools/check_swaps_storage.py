@@ -33,7 +33,7 @@ def run_checks(query, manifest, psql, environment):
          '{terms['definition']}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','{terms['curve']}','{terms['index']}',
          'usd','usd','2021-01-01','2021-02-01','2021-02-18T00:00:00Z','2021-01-01','2021-02-01','{terms['fixing']}',
          '2021-03-18T00:00:00Z','{terms['averaging']}',{terms['price']},{terms['quantity']},-1,{terms['discounting']},
-         '2020-12-18T16:00:00Z','2020-12-18T15:00:00Z','2020-12-18T15:00:00Z','Initial booking','independent_side_financial_swap_v2','{terms.get('fixed_rule',rule(18))}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb);"""
+         '2020-12-18T16:00:00Z',NULL,'2020-12-18T16:00:00Z','Initial booking','independent_side_financial_swap_v2','{terms.get('fixed_rule',rule(18))}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb);"""
     # Run this first so the expired-duplicate regression is observed before its fix.
     token = issue()
     query(f"""BEGIN;

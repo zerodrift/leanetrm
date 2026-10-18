@@ -7,8 +7,8 @@ def run_checks(url):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     frame=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
     context={'snapshotId':frame['id'],'convention':'fixed_total_cash_execution_pnl_v1','knowledgeMode':'current'}
-    catalog=c.call('futures/catalog',context);trader=catalog['traders'][0];contract=catalog['contracts'][0]
-    body={**context,'operationId':str(uuid4()),**trade_booking(), 'bookId':catalog['books'][0]['id'],'curve':contract['curve'],'contractId':contract['id'],'lots':'2','executionPrice':'3','executedAt':'2020-12-18T15:00:00Z','traderId':trader['id'],'traderRevision':trader['revision'],'memo':'Synthetic memo <text> =1+1'}
+    catalog=c.call('futures/catalog',context);trader=catalog['bookingActor'];contract=catalog['contracts'][0]
+    body={**context,'operationId':str(uuid4()),**trade_booking(), 'bookId':catalog['books'][0]['id'],'curve':contract['curve'],'contractId':contract['id'],'lots':'2','executionPrice':'3','memo':'Synthetic memo <text> =1+1'}
     result=c.call('futures/book',body);assert result==c.call('futures/book',body)
     detail=c.call('futures/editor',{'context':context,'tradeId':result['tradeId'],'revision':None})
     assert detail['state']['traderId']==trader['id'] and detail['state']['memo']==body['memo']

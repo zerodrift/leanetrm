@@ -61,7 +61,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
             .Select(m=>Binding(data,m.Text("curve_code"),m.Id("contract_id"),m.Id("contract_id"),manifest.FuturesConvention))
             .Where(s=>s.FirstTrading<=frame.At&&frame.At<s.Contract.Expiry).OrderBy(s=>s.Contract.DeliveryFrom).ToArray();
         var market=contracts.Length==0?null:data.Model.Build(data.Snapshot(frame),contracts.Select(s=>s.Market).ToImmutableArray());
-        return new {books=await Books(connection,ct),traders=await TradeAnnotations.Catalog(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),contracts=contracts.Select(s=>
+        return new {books=await Books(connection,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),contracts=contracts.Select(s=>
         {
             var series=One(data.References["futures_series"].Where(v=>v.Text("code")==s.Series.Key.Code));
             var product=One(data.References["futures_products"].Where(v=>v.Text("code")==series.Text("product_code")));
@@ -123,10 +123,10 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
                 tradeCount=g.TradeCount,lots=g.Lots?.ToString(),quantity=g.Quantity?.Amount.ToString(),executionPnl=g.ExecutionPnl?.Amount.ToString(),
                 quantitySpecification=g.Key.Quantity,unit=Unit(g.Key.Quantity),currencyReference=g.Key.Currency,currency=Currency(g.Key.Currency)}).ToArray(),
             convention=manifest.FuturesConvention,evaluatedContracts=build?.EvaluatedConstituents??0,
-            holdings=holdings.Select(h=>new {booking=TradeParties.State(manifest.CatalogId,rows.Single(r=>r.Id("trade_id")==h.TradeId)),traderId=rows.Single(r=>r.Id("trade_id")==h.TradeId).OptionalId("trader_id"),trader=rows.Single(r=>r.Id("trade_id")==h.TradeId).OptionalText("trader_name"),traderCode=rows.Single(r=>r.Id("trade_id")==h.TradeId).OptionalText("trader_code"),memo=rows.Single(r=>r.Id("trade_id")==h.TradeId).OptionalText("memo"),tradeId=h.TradeId,tradeReference=TradingReference.Trade(rows.Single(r=>r.Id("trade_id")==h.TradeId)),instrumentReference=TradingReference.Instrument(rows.Single(r=>r.Id("trade_id")==h.TradeId)),revision=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Number("revision").ToString(),revisionEffectiveAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("revision_effective_at"),bookId=h.BookId,book=Name(h.BookId),portfolioId=books.Single(b=>b.Id("id")==h.BookId).Id("portfolio_id"),portfolio=books.Single(b=>b.Id("id")==h.BookId).Text("portfolio"),bindingId=h.BindingId,instrumentId=h.InstrumentId,pricingBindingId=h.PricingBindingId,canonicalInstrumentId=sides[h.PricingBindingId].Instrument.Id,priceTick=sides[h.PricingBindingId].Quote.TradingTick.ToString(),markTick=sides[h.PricingBindingId].Quote.ClearingIncrement.ToString(),quoteMultiplier=sides[h.PricingBindingId].Quote.Multiplier.ToString(),contractId=h.Contract.Id,
+            holdings=holdings.Select(h=>new {booking=TradeParties.State(manifest.CatalogId,rows.Single(r=>r.Id("trade_id")==h.TradeId)),bookingFacts=TradeAnnotations.Facts(rows.Single(r=>r.Id("trade_id")==h.TradeId)),traderId=rows.Single(r=>r.Id("trade_id")==h.TradeId).Id("booker_id"),trader=rows.Single(r=>r.Id("trade_id")==h.TradeId).Text("booker_name"),traderCode=rows.Single(r=>r.Id("trade_id")==h.TradeId).Text("booker_login"),memo=rows.Single(r=>r.Id("trade_id")==h.TradeId).OptionalText("memo"),tradeId=h.TradeId,tradeReference=TradingReference.Trade(rows.Single(r=>r.Id("trade_id")==h.TradeId)),instrumentReference=TradingReference.Instrument(rows.Single(r=>r.Id("trade_id")==h.TradeId)),revision=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Number("revision").ToString(),revisionEffectiveAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("revision_effective_at"),bookId=h.BookId,book=Name(h.BookId),portfolioId=books.Single(b=>b.Id("id")==h.BookId).Id("portfolio_id"),portfolio=books.Single(b=>b.Id("id")==h.BookId).Text("portfolio"),bindingId=h.BindingId,instrumentId=h.InstrumentId,pricingBindingId=h.PricingBindingId,canonicalInstrumentId=sides[h.PricingBindingId].Instrument.Id,priceTick=sides[h.PricingBindingId].Quote.TradingTick.ToString(),markTick=sides[h.PricingBindingId].Quote.ClearingIncrement.ToString(),quoteMultiplier=sides[h.PricingBindingId].Quote.Multiplier.ToString(),contractId=h.Contract.Id,
                 curve=sides[h.PricingBindingId].Market.Curve.Code,deliveryFrom=Date(sides[h.PricingBindingId].Contract.DeliveryFrom),deliveryTo=Date(sides[h.PricingBindingId].Contract.DeliveryTo),
                 lots=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("lots"),quantity=h.Quantity.Amount.ToString(),unit=Unit(h.Quantity.Specification),
-                executedAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("effective_at"),
+                executedAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("booked_at"),economicEffectiveAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("effective_at"),
                 executionPrice=h.ExecutionPrice.Value.ToString(),mark=h.Mark.Value.ToString(),executionPnl=h.ExecutionPnl.Amount.ToString(),currency=Currency(h.ExecutionPnl.Currency),settlement="unprocessed"}).ToArray(),
             totals=holdings.GroupBy(h=>(h.BookId,h.ExecutionPnl.Currency)).Select(g=>new {book=Name(g.Key.BookId),currency=Currency(g.Key.Currency),
                 executionPnl=g.Select(h=>h.ExecutionPnl).Aggregate((a,b)=>a.Add(b)).Amount.ToString()}).ToArray()};
@@ -165,18 +165,19 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
     }
     public async Task<JsonElement> Book(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBookRequest body,CancellationToken ct)
     {
+        TradeAnnotations.RequireServerFacts(body.ExecutedAt,body.TraderId,body.TraderRevision,body.TradeDate);
         Convention(body.Convention);
         if(body.KnowledgeMode!="current" || body.OperationId==Guid.Empty)throw Error("futures_input","Booking needs explicit current knowledge and a stable operation identity.");
         var side=Binding(data,Text(body.Curve),body.ContractId,body.ContractId,body.Convention!);
         var instrument=side.Instrument;
         var position=new FuturesPosition(Guid.NewGuid(),side,ExactDecimal.Parse(Text(body.Lots)),new UnitPrice(ExactDecimal.Parse(Text(body.ExecutionPrice)),side.Quote),
-            SchedulePreview.ParseAt(body.ExecutedAt),FuturesSettlementState.Unprocessed);
+            frame.At,FuturesSettlementState.Unprocessed);
         if(position.ExecutedAt>frame.At || frame.At>=side.Contract.Expiry || frame.At<side.FirstTrading)
             throw Error("futures_execution","Execution and selected market date must be in the retained trading interval, with execution no later than the market date.");
         TradeAnnotations.ValidateShape(body.TraderId,body.TraderRevision,body.Memo);
         await using var command=ScheduleStore.Command(connection,"SELECT security.book_futures_with_parties($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric,$11,$12,$13,$14,$15::jsonb)::text",
-            manifest.CatalogId,body.OperationId,body.BookId,manifest.RevisionId,body.Curve!,body.ContractId,frame.At,position.ExecutedAt,
-            position.Lots.ToString(),position.ExecutionPrice.Value.ToString(),body.Convention!,body.TraderId is {} trader?trader:DBNull.Value,body.TraderRevision is {} traderVersion?traderVersion:DBNull.Value,body.Memo is {} memo?memo:DBNull.Value,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision));
+            manifest.CatalogId,body.OperationId,body.BookId,manifest.RevisionId,body.Curve!,body.ContractId,frame.At,DBNull.Value,
+            position.Lots.ToString(),position.ExecutionPrice.Value.ToString(),body.Convention!,DBNull.Value,DBNull.Value,body.Memo is {} memo?memo:DBNull.Value,TradeParties.Submitted(body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision));
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
     public async Task<JsonElement> Status(NpgsqlConnection connection,Guid operation,CancellationToken ct)

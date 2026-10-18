@@ -17,7 +17,7 @@ def run_checks(url, query, manifest):
     market=viewer.call('evaluate',{'snapshotId':view_frame['id'],'curve':member['curve']})
     assert next(p for p in market['points'] if p['contractId']==member['id'])['instrumentId']==member['instrumentId']
     future_body = {**future_context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': futures['books'][0]['id'],
-                   'executedAt': '2020-12-18T15:00:00Z', 'curve': member['curve'], 'contractId': member['id'],
+                   'curve': member['curve'], 'contractId': member['id'],
                    'lots': '2', 'executionPrice': '3'}
     previous = int(query("SELECT count(*) FROM trading.futures_revision_markets;"))
     first = c.call('futures/book', future_body)
@@ -57,7 +57,7 @@ def run_checks(url, query, manifest):
      SET SESSION AUTHORIZATION preview_runtime; SELECT security.use_context('{token}');
      DO $$ BEGIN
       PERFORM security.book_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{future_body['bookId']}','{manifest['revisionId']}',
-       '{collision['curve']}','{collision['id']}','2020-12-18T16:00:00Z','2020-12-18T15:00:00Z',1,3,'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{booking_json}'::jsonb);
+       '{collision['curve']}','{collision['id']}','2020-12-18T16:00:00Z',NULL,1,3,'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{booking_json}'::jsonb);
       RAISE EXCEPTION 'Expected canonical identity collision rejection';
      EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'futures_identity' THEN RAISE; END IF; END $$;
      ROLLBACK;""")
@@ -68,7 +68,7 @@ def run_checks(url, query, manifest):
             'dayBasis': 'calendar_days', 'shortMonth': None, 'adjustment': 'unadjusted', 'calendar': None,
             'implementation': 'monthly_payment_date_rules_v1'}
     body = {**context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': catalog['books'][0]['id'],
-            'executedAt': '2020-12-18T15:00:00Z', 'definitionRevisionId': index['definitionRevisionId'],
+            'definitionRevisionId': index['definitionRevisionId'],
             'commodity': index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],

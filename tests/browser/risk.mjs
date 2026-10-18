@@ -5,7 +5,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('risk');
   const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#futures-holdings .tabulator-row')&&!document.querySelector('#blotter-risk').disabled");
-  await check('Risk Analyst can inspect holdings and run scenarios without booking authority',"document.querySelector('#profile-label').textContent==='Risk Analyst'&&document.querySelector('#futures-new').disabled&&!document.querySelector('#blotter-risk').disabled");
+  await check('Risk Analyst can inspect holdings and run scenarios without booking authority',"document.querySelector('#profile-label').textContent==='Risk Analyst'&&!document.querySelector('#futures-new').disabled&&document.querySelector('#futures-book-submit').disabled&&!document.querySelector('#blotter-risk').disabled");
   await click('#blotter-risk');
   await check('shock entry requires explicit factor and bump choices',"!document.querySelector('#risk-card').hidden&&document.querySelector('#risk-factor').value===''&&document.querySelector('#risk-bump').value===''&&!document.querySelector('#risk-form').checkValidity()");
   const factor=await evaluate("window.__riskReads.find(r=>r.path==='/api/futures/risk/catalog').data.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01').seriesId");

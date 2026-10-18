@@ -105,8 +105,11 @@ separate trade/fixed/floating role policies in the bounded editor. It is not a
 personal preference and does not enter economic identity, contractual rounding
 or pricing/risk caches. Saved precision uses exact trade foreign keys, explicit
 roles, current authority and optimistic versions; it may format a historical
-financial view without changing that view's inputs. Initial display defaults are
-2/4/3/6 places for money/price/quantity/factors; futures prices use tick scale.
+financial view without changing that view's inputs. Final money display defaults
+to three places. Money display controls live in collapsed Advanced settings below ordinary trade entry, with separate trade and
+side roles. Other amount displays trim padding zeros using their managed display
+policies; futures prices retain their tick scale. Price, quantity and factor
+precision are not ordinary editor controls.
 
 Profile customization is presentation state, never a source of authorization,
 market-input selection policy or contractual clock conventions. Blotter layouts persist in the database for the current human account and
@@ -170,9 +173,10 @@ These are distinct concepts:
   occurrences of the same definition; equivalence alone does not merge them.
 - Events, TraderId, TradeDate, counterparty, memo and legal entity belong to Trade.
   These booking facts are excluded from reusable instrument and side identity.
-  Trader attribution is distinct from the principal recording an operation.
-  TradeDate is a business field; its relationship to execution instants and
-  effective/knowledge coordinates must be explicit, never silently inferred.
+  Trader is the authenticated human who originally books the trade. The backend
+  assigns its UTC booking date and persistence timestamp; amendments retain these
+  facts and independently audit their own actor. Economic effective time remains
+  separate from persistence, market inputs and knowledge coordinates.
 - An instrument defines unit economics. Each booked quantity uses the existing
   unit-aware Quantity value type: an ExactDecimal amount with an exact
   commodity/basis/unit specification, held externally to the instrument in the
@@ -225,28 +229,45 @@ earlier revisions are read-only and shared definitions remain unchanged.
 Futures PV, other lifecycle transitions and the wider trading abstractions
 here remain design; fixed/floating swap PV has a bounded managed implementation.
 
-The current preview retains trader attribution, memo, an explicit TradeDate and
-exact-version LegalEntity/Counterparty bindings on trade revisions. New booking
-and amendment operations require the date and both parties. TradeDate is a
-date-only booking fact, independently supplied rather than derived from an
-execution instant or display zone. The V2 booking contract requires each selected
-party version to be effective by the execution instant and visible at the selected
-knowledge cutoff; current authority still governs every read and write.
-Earlier revisions remain unchanged; legacy
-bookings retain unavailable date/party fields until an explicit amendment supplies
-them. Party master versions are immutable scoped reference data; the bounded
-preview supplies synthetic versions and an append-only name/code editor for each
-party type. `ReadTradeParties` permits scoped historical inspection;
-`WriteTradeParties` permits current maintenance without granting trade access.
-Editing checks the expected head revision, preserves the code and nondecreasing
-effective instants, and atomically publishes an immutable successor with actor and
-operation identity. Exact retries return their original version after later edits.
-Deactivation, corporate hierarchies and broader party attributes remain work.
-Trader attribution must reference an actual system human user in the selected
-workspace, independently of the actor who records the trade. Retained attribution
-must remain readable after a user is renamed or disabled; current eligibility
-governs new selections. The existing `trading.traders` records have no user foreign
-key yet and do not satisfy this requirement.
+The preview retains immutable `trading.booking_facts`: exact original human
+workspace membership, captured booker name/login/version, server persistence
+instant and its UTC date under `server_booking_utc_v1`. Database and API operations
+reject caller-supplied trader, trade date and execution time. Bookings stamp these
+facts after replay resolution, immediately before inserting the trade. Exact
+retries return the original outcome; amendments preserve the original booker and
+stamp while separately retaining the amendment actor. Timestamps are stored in
+UTC and rendered in the user's chosen zone; the date-only TradeDate remains the
+explicit UTC booking date.
+
+The selected market frame supplies the separate economic effective coordinate.
+It is not presented as the persistence timestamp. Existing economic execution and
+publication facts are not rewritten. Migration 0029 resolves retained original
+actors against actual workspace memberships and certifies old persistence times
+from commit receipts. `retained_commit_utc_v1` explicitly identifies this origin;
+its label capture instant records that names were captured during migration,
+not historically certified. Missing original human membership or certified time
+rejects migration rather than inventing facts.
+
+Exact-version LegalEntity/Counterparty bindings and memo remain amendable booking
+terms outside instrument identity. New booking/amendment operations require both
+parties, effective by the economic execution coordinate and visible at the
+selected knowledge cutoff; current authority governs every read and write. Legacy
+NULL party fields remain unchanged until an explicit amendment supplies them.
+Party editors append scoped immutable name/code versions with expected heads,
+nondecreasing effective instants and idempotent commands. Read/maintenance
+permissions are separate from trade access; broader party attributes remain work.
+
+Trade editors render common Trade Terms, then a product-specific instrument
+editor and its independent side editors where needed. The common header exposes
+book, parties and memo, with read-only booking facts. Futures booking/amendment
+share their product widget; swaps mount separate fixed/floating side widgets.
+Each instrument binding owns its quantity. There is no editable trade-wide total
+quantity. The bounded operations currently book one instrument binding per trade;
+modular presentation does not imply multi-instrument booking is implemented.
+Widgets render authorized backend catalogs/results and submit the same business
+operations as other clients; pricing, schedules, quantity scaling and validation
+remain managed/backend responsibilities.
+
 Reuse the existing project-owned value contracts: Quantity for unit-aware
 amounts, Money for currency amounts and UnitPrice for currency per quantity with
 an explicit quote multiplier, all backed by ExactDecimal. External quantity means
@@ -1378,3 +1399,19 @@ Risk unit pricers return typed exact cash. Execution bases, quote multipliers an
 position quantities remain exact through subtraction and scaling; conversion to
 bounded decimal Money occurs at the final position-value boundary. This matches
 the futures holdings arithmetic without requiring a representable per-unit PV.
+
+
+Temporary futures and swap editors expose Price and Risk before booking. Trade
+parties and book membership are required only for booking. The backend converts
+explicit typed quantities against the selected pricing reference revision; it
+rejects unsupported or inexact decimal conversions rather than choosing a rounding
+policy. Price returns a pinned historical context reused by Risk. Draft risk
+requires `RunDealRisk`, distinct from book-wide scenario authority, and reprices
+the same instrument under immutable shared one-trading-tick quote scenarios.
+Only declared live quote lineage is shocked; all-in marks acquire no inferred
+upstream exposure. Interest rates remain fixed. Results retain exact rational
+base/up/down cash, delta and gamma, including nonterminating daily-average
+sensitivities. The UI formats those results through backend amount formatting,
+clears them when terms/context change, and never books a trade as a side effect.
+Swap drafts report PV; futures drafts report execution P&L and open exposure.
+Variation-margin processing and full futures settlement PV remain unimplemented.

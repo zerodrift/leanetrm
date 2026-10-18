@@ -23,11 +23,12 @@ public sealed partial class FuturesStore
               FROM trading.trade_revisions r WHERE r.catalog_id=$1 AND($2::uuid IS NULL OR r.trade_id=$2)
             )
             SELECT row_to_json(value)::text FROM(
-              SELECT t.catalog_id,t.id AS trade_id,p.book_id,p.binding_id,p.instrument_id,p.lots,p.execution_price,p.execution_at AS effective_at,p.settlement_state,
+              SELECT t.catalog_id,t.id AS trade_id,facts.booker_id,facts.booker_version,facts.booker_name,facts.booker_login,facts.executed_at AS booked_at,facts.trade_date AS booking_date,facts.implementation AS booking_implementation,facts.label_captured_at AS booker_label_captured_at,p.book_id,p.binding_id,p.instrument_id,p.lots,p.execution_price,p.execution_at AS effective_at,p.settlement_state,
                 p.trade_date,p.legal_entity_id,p.legal_entity_revision,p.counterparty_id,p.counterparty_revision,le.code AS legal_entity_code,le.name AS legal_entity_name,cp.code AS counterparty_code,cp.name AS counterparty_name,p.trader_id,p.trader_revision,p.memo,trdr.code AS trader_code,trdr.name AS trader_name,tr.reference_number AS trade_reference,ir.reference_number AS instrument_reference,p.revision,p.previous_revision,p.event_id,p.event_schema,p.event_kind,p.effective_at AS revision_effective_at,p.reason,k.known_from AS recorded_at,
                 s.market_binding_id AS side_id,1 AS coefficient,s.definition_revision_id,s.curve_code,s.contract_id,s.implementation,s.reference_catalog_id,s.reference_revision_id,s.series_code,
                 t.publication_order AS trade_publication,p.publication_order AS binding_publication
               FROM selected p JOIN trading.trades t ON(t.catalog_id,t.id)=(p.catalog_id,p.trade_id)
+              LEFT JOIN trading.booking_facts facts ON(facts.catalog_id,facts.trade_id)=(t.catalog_id,t.id)
               LEFT JOIN trading.legal_entities le ON(le.catalog_id,le.id,le.revision)=(p.catalog_id,p.legal_entity_id,p.legal_entity_revision)
               LEFT JOIN trading.counterparties cp ON(cp.catalog_id,cp.id,cp.revision)=(p.catalog_id,p.counterparty_id,p.counterparty_revision)
               LEFT JOIN trading.traders trdr ON(trdr.catalog_id,trdr.id,trdr.revision)=(p.catalog_id,p.trader_id,p.trader_revision)
@@ -39,6 +40,7 @@ public sealed partial class FuturesStore
               WHERE($3 OR p.position=1) ORDER BY p.execution_at,p.trade_id,p.revision
             )value
             """,[manifest.CatalogId,trade is {} id?id:DBNull.Value,history],ct);
+        TradeAnnotations.RequireFacts(rows);
         if(rows.Any(r=>r.GetProperty("side_id").ValueKind==JsonValueKind.Null))
             throw Error("futures_definition","A retained revision is missing its exact pricing binding.");
         return rows;
@@ -46,9 +48,9 @@ public sealed partial class FuturesStore
 
     private static int Revision(JsonElement row)=>int.Parse(row.Text("revision"),System.Globalization.CultureInfo.InvariantCulture);
     private object State(JsonElement row)=>new{
-        booking=TradeParties.State(manifest.CatalogId,row),traderId=row.OptionalId("trader_id"),traderRevision=row.OptionalText("trader_revision") is {} tv?int.Parse(tv,System.Globalization.CultureInfo.InvariantCulture):(int?)null,trader=row.OptionalText("trader_name"),traderCode=row.OptionalText("trader_code"),memo=row.OptionalText("memo"),tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentReference=TradingReference.Instrument(row),revision=Revision(row),bookId=row.Id("book_id"),bindingId=row.Id("binding_id"),instrumentId=row.Id("instrument_id"),canonicalInstrumentId=ContractIdentity.Futures(new(new(row.Id("reference_catalog_id"),row.Id("reference_revision_id")),row.Text("series_code"))),
+        booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),traderId=row.Id("booker_id"),traderRevision=int.Parse(row.Text("booker_version"),System.Globalization.CultureInfo.InvariantCulture),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentReference=TradingReference.Instrument(row),revision=Revision(row),bookId=row.Id("book_id"),bindingId=row.Id("binding_id"),instrumentId=row.Id("instrument_id"),canonicalInstrumentId=ContractIdentity.Futures(new(new(row.Id("reference_catalog_id"),row.Id("reference_revision_id")),row.Text("series_code"))),
         curve=row.Text("curve_code"),contractId=row.Id("contract_id"),lots=row.Text("lots"),executionPrice=row.Text("execution_price"),
-        executedAt=row.Text("effective_at"),effectiveAt=row.Text("revision_effective_at"),recordedAt=row.Text("recorded_at"),
+        executedAt=row.Text("booked_at"),economicEffectiveAt=row.Text("effective_at"),effectiveAt=row.Text("revision_effective_at"),recordedAt=row.Text("recorded_at"),
         eventId=row.Id("event_id"),eventSchema=row.Text("event_schema"),kind=row.Text("event_kind"),reason=row.Text("reason"),settlement=row.Text("settlement_state")};
 
     public async Task<object> Editor(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesEditorRequest body,CancellationToken ct)
@@ -66,6 +68,7 @@ public sealed partial class FuturesStore
     private sealed record AmendmentPlan(FuturesTrade Before,FuturesTrade After,DateTimeOffset EffectiveAt,string Reason);
     private async Task<AmendmentPlan> PlanAmendment(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesAmendRequest body,CancellationToken ct)
     {
+        TradeAnnotations.RequireServerFacts(body.ExecutedAt,body.TraderId,body.TraderRevision,body.TradeDate);
         Convention(body.Convention);
         var effective=SchedulePreview.ParseAt(body.EffectiveAt);
         if(body.AmendmentConvention!=AmendmentConvention||body.KnowledgeMode!="current"||body.OperationId==Guid.Empty||
@@ -82,6 +85,7 @@ public sealed partial class FuturesStore
             throw Error("futures_amendment","Only the latest unprocessed futures binding can be amended from its current effective interval.");
         var side=Binding(data,Text(body.Curve),body.ContractId,body.ContractId,body.Convention!);
         var prior=before.Instruments[0];
+        body=body with{ExecutedAt=Instant(prior.ExecutedAt),TraderId=current.OptionalId("trader_id"),TraderRevision=current.OptionalText("trader_revision") is {} traderVersion?int.Parse(traderVersion,System.Globalization.CultureInfo.InvariantCulture):null,TradeDate=current.OptionalText("trade_date")??current.Text("booking_date")};
         if(frame.At<prior.MarketBinding.FirstTrading||frame.At>=prior.MarketBinding.Contract.Expiry||side.Quote.Currency!=prior.MarketBinding.Quote.Currency)
             throw Error("futures_amendment","Amendments require live unprocessed states in the same exact currency definition.");
         var same=side.Market==prior.MarketBinding.Market;
@@ -121,12 +125,13 @@ public sealed partial class FuturesStore
     {
         // SQL owns current-head/idempotency checks. An accepted old command must
         // reconcile even after a newer revision, without rerunning a stale plan.
+        TradeAnnotations.RequireServerFacts(body.ExecutedAt,body.TraderId,body.TraderRevision,body.TradeDate);
         Convention(body.Convention);
         await using var command=ScheduleStore.Command(connection,
             "SELECT security.amend_futures_with_parties($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13::numeric,$14,$15,$16,$17,$18,$19,$20::jsonb)::text",
             manifest.CatalogId,body.OperationId,body.TradeId,body.ExpectedRevision,body.BookId,manifest.RevisionId,Text(body.Curve),body.ContractId,
-            frame.At,SchedulePreview.ParseAt(body.EffectiveAt),SchedulePreview.ParseAt(body.ExecutedAt),ExactDecimal.Parse(Text(body.Lots)).ToString(),
-            ExactDecimal.Parse(Text(body.ExecutionPrice)).ToString(),Text(body.Reason).Trim(),body.Convention!,body.AmendmentConvention??"",body.TraderId is {} trader?trader:DBNull.Value,body.TraderRevision is {} traderVersion?traderVersion:DBNull.Value,body.Memo is {} memo?memo:DBNull.Value,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision));
+            frame.At,SchedulePreview.ParseAt(body.EffectiveAt),DBNull.Value,ExactDecimal.Parse(Text(body.Lots)).ToString(),
+            ExactDecimal.Parse(Text(body.ExecutionPrice)).ToString(),Text(body.Reason).Trim(),body.Convention!,body.AmendmentConvention??"",DBNull.Value,DBNull.Value,body.Memo is {} memo?memo:DBNull.Value,TradeParties.Submitted(body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision));
         if(body.KnowledgeMode!="current")throw Error("futures_amendment","Amendments require current working data.");
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }

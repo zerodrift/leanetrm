@@ -632,3 +632,88 @@ checks passed. The Release benchmark rechecked every position/book against its
 independent reference; current work, allocations and timing are recorded in
 [risk-benchmark.md](risk-benchmark.md). Its mixed performance is not a service
 throughput claim.
+
+## Quieter amount presentation checkpoint
+
+On 2026-10-18, three-place final money display and compact noncash presentation
+passed 80 frontend checks, the managed API adapter checks and the complete
+standard disposable HTTP/database/browser command on stock PostgreSQL 16.14,
+.NET 10.0.402, Node 24.22.0 and Chrome 155. All 199 owned browser checks passed;
+the disposable database and browser were removed. Meaningful checks first failed
+for the old two-place default and a shared cash/noncash formatting cache entry,
+then passed after the changes.
+
+The browser checks cover collapsed money-only Advanced settings below the trade
+workflow, independent display saves without financial amendments, reopening saved
+settings, compact quantity labels, futures tick places and the unsaved power
+example's money-only control. Managed oracles verify exact large-value rounding,
+compact quantity/factor strings and preserved tick places. Existing noncash
+policies remain retained; the editor changes only the selected role's money
+places. Calculation amounts, contractual settlement rounding and exact exports
+are unchanged. Independent review found no implementation blocker.
+
+The retained synthetic preview was then updated with a frozen verified API/web
+release. Independently recreated pre/post migration schemas matched the retained
+installation and migration 0025. Transactional comparisons preserved every
+existing trading, presentation, reference and market row. Read-only acceptance on
+a private port and the reopened URL verified both example namespaces, final-money
+defaults, compact noncash strings, futures tick places and served asset hashes.
+The existing database, both immutable manifests and all retained trades remain.
+
+
+## Server booking facts and temporary deal valuation checkpoint
+
+On 2026-10-18 the complete `tools/check_all.py` command passed on stock
+PostgreSQL 16.14, .NET 10.0.402, Node 24.22.0 and Chrome 155. It includes
+253 managed core checks, 80 frontend checks, database/security checks and 212
+standard owned browser checks, followed by the isolated party/power, units,
+exchange-futures and mixed-period suites. Disposable resources were removed.
+
+Booking checks qualify authenticated original-human attribution, UTC booking date,
+persistence timestamp, read-only API/SQL boundaries, exact retry without another
+clock, independent amendment actor, renamed/disabled original membership,
+historical exclusion and retained-data upgrades. Old missing trade dates remain
+unchanged and can be derived from certified booking facts during amendments.
+Migration-derived times and migration-captured names have explicit provenance.
+Pending commands use the versioned server-owned booking contract namespace.
+
+Independent draft oracles cover signed futures lots, base-plus-basis propagation,
+all-in marks without inferred upstream factors, exact 31-day rational
+sensitivities, therm-to-MMBtu conversion, nonzero quadratic gamma, pinned replay,
+required policy inputs and distinct deal-risk authority. No draft Price/Risk
+operation writes a trade or trading publication. Direct quoted basis futures
+retain only their own observable exposure. Browser checks qualify unbooked
+pricing without parties, backend kWh-to-MWh conversion through booking preparation,
+selected-unit labels, invalidation on edits and delayed-response rejection after
+closing the editor. Independent adversarial review found no remaining code blocker.
+
+Swap drafts return PV. Futures drafts return execution P&L/open-price exposure;
+variation-margin processing and full settlement PV remain unimplemented. Draft
+risk shocks commodity quote factors by one trading tick with interest rates held
+fixed; it does not implement a full multi-asset risk run or VaR.
+
+
+## Combined workbench integration checkpoint
+
+On 2026-10-18 the combined workbench passed the complete `tools/check_all.py`
+command on stock PostgreSQL 16.14, .NET 10.0.402, Node 24.22.0 and Chrome 155.
+The run includes 87 frontend checks, 253 managed core checks, database/security
+checks and 218 standard owned browser checks, followed by the isolated
+party/power, units, exchange-futures and mixed-period suites. All owned disposable
+resources were removed.
+
+The merged browser checks preserve published TOU product versions, reference
+calendars, explicit economic choices, compact amount formatting, server-owned
+booking facts and unbooked Price/Risk. The new raw-publication scope regression
+first reproduced unauthorized publication after reference-scope revocation, then
+passed with migration 0031: both TOU clocks and schedule calendars require current
+catalog access before a new publication. Authorized publication and accepted
+control replay remain available. Independent adversarial review found no remaining
+merge or publication blocker.
+
+Migrations 0026–0028 retain the stored-name/TOU/calendar sequence; booking facts
+and draft-risk permission follow as 0029–0030. Legacy booking-upgrade checks retain
+original rows and certified facts. The stored-name migration still refuses
+populated unnamed catalogs, so these checks do not qualify an automatic upgrade
+of such retained installations. Runtime deployment is separate from this source
+integration.

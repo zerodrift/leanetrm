@@ -16,7 +16,7 @@ public sealed partial class CurveModel
             var quote=quotes[quoteKey];var obs=selected.Observation;
             var direct=curves.Values.Where(c=>c.Rule==CurveRule.Direct && c.Quote==quoteKey && c.Constituents.Contains(contract) &&
                 c.DirectSource==obs.Source && c.DirectRole==obs.Role).Select(c=>c.Key).OrderBy(c=>c.Code,StringComparer.Ordinal).ToImmutableArray();
-            if(!direct.IsEmpty && obs.State==PublicationState.Final)result.Add(new(selected.Input,quoteKey,PriceUnit.FromQuote(quote),contract,obs.Key,obs.Source,obs.Role,obs.Value,direct));
+            if(!direct.IsEmpty && obs.State==PublicationState.Final)result.Add(new(selected.Input,quoteKey,PriceUnit.FromQuote(quote),contract,obs.Key,obs.Source,obs.Role,obs.Value,direct,quote.TradingTick));
         }
         return result.OrderBy(f=>contracts[f.Contract].DeliveryFrom).ThenBy(f=>f.Input.Series.Id).ToImmutableArray();
     }

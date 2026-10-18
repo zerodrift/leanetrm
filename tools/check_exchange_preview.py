@@ -33,14 +33,24 @@ def run_checks(url,query=None,manifest=None):
         assert selected['quoteKind']=='basis' and selected['basisSettlement']['implementation']=='index_minus_future_v1'
         assert selected['basisSettlement']['benchmarkSeries']['code']=='nymex_ng_20261101'
         assert Decimal(selected['mark'])<0
+    # Direct quoted basis is itself the live factor: its benchmark is settlement metadata.
+    from fractions import Fraction as F
+    basis=next(v for v in contracts if v['curve']=='ice_dgd')
+    draft={'context':context,'curve':basis['curve'],'contractId':basis['id'],'lots':'-2','executionPrice':basis['mark']}
+    price=c.call('futures/price',draft);assert price['executionPnl']=='0' and price['unbooked']
+    risk=c.call('futures/draft-risk',{'draft':{**draft,'context':{**context,'knowledgeMode':'retained','contextId':price['context']['contextId']}},'bumpPolicy':price['bumpPolicy'],'numericalPolicy':price['numericalPolicy']})
+    assert len(risk['factors'])==1 and risk['factors'][0]['factor']['curves']==['ice_dgd']
+    assert F(risk['factors'][0]['delta'])==-2*F(basis['contractSize'])*F(basis['quoteMultiplier'])
+    assert F(risk['factors'][0]['gamma'])==0
+    assert not c.call('futures/holdings',context)['holdings']
+    print('PASS temporary basis futures: signed lot exposure belongs only to its quoted observable, no benchmark exposure or booking',flush=True)
     expected={}
     for n,(curve,size) in enumerate(expected_sizes.items()):
         contract=next(v for v in contracts if v['curve']==curve)
         assert contract['contractSize']==size
         lots=Decimal('-2' if n%2 else '2');tick=Decimal(contract['tick']);execution=Decimal(contract['mark'])-tick
         body={'operationId':str(uuid4()),**context,'bookId':catalog['books'][n%2]['id'],'curve':curve,'contractId':contract['id'],
-              'lots':str(lots),'executionPrice':str(execution),'executedAt':frame['at'],'tradeDate':'2026-10-16',
-              'legalEntityId':catalog['legalEntities'][0]['id'],'legalEntityRevision':catalog['legalEntities'][0]['revision'],
+              'lots':str(lots),'executionPrice':str(execution),'legalEntityId':catalog['legalEntities'][0]['id'],'legalEntityRevision':catalog['legalEntities'][0]['revision'],
               'counterpartyId':catalog['counterparties'][0]['id'],'counterpartyRevision':catalog['counterparties'][0]['revision']}
         saved=c.call('futures/book',body);assert saved==c.call('futures/book',body)
         expected[saved['tradeId']]={'quantity':lots*Decimal(size),'pnl':lots*Decimal(size)*tick,'body':body,'contract':contract}
@@ -128,7 +138,7 @@ def run_checks(url,query=None,manifest=None):
         assert query("SELECT bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE oid IN('ref_data.futures_product_terms'::regclass,'ref_data.futures_basis_settlements'::regclass,'ref_data.futures_lot_resolutions'::regclass);")=='t'
         assert query("SELECT NOT has_table_privilege('preview_runtime','security.request_contexts','UPDATE');")=='t'
         oracle=next(v for v in expected.values() if v['body']['curve']=='ice_wah');body=oracle['body']
-        booking=json.dumps({key:body[key] for key in ('tradeDate','legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision')}).replace("'","''")
+        booking=json.dumps({key:body[key] for key in ('legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision')}).replace("'","''")
         for changed in ('incompatible','missing','duplicate_index'):
             token=query("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
                 f"'https://exchange-preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
@@ -140,7 +150,7 @@ def run_checks(url,query=None,manifest=None):
               SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');
               DO $$ BEGIN
                 PERFORM security.book_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{body['bookId']}','{manifest['revisionId']}',
-                  'ice_wah','{body['contractId']}','{frame['at']}','{frame['at']}',1,{body['executionPrice']},'contract_lot_execution_pnl_v2',NULL,NULL,NULL,'{booking}'::jsonb);
+                  'ice_wah','{body['contractId']}','{frame['at']}',NULL,1,{body['executionPrice']},'contract_lot_execution_pnl_v2',NULL,NULL,NULL,'{booking}'::jsonb);
                 RAISE EXCEPTION 'Expected canonical-profile rejection';
               EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'futures_definition' THEN RAISE;END IF;END $$;ROLLBACK;""")
         print('PASS SQL boundary: missing/incompatible canonical profiles reject through raw authorized booking; exact reference tables force RLS and runtime cannot rewrite verified identity.',flush=True)

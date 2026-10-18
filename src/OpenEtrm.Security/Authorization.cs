@@ -9,7 +9,7 @@ public enum Permission
     ReadMarketData = 1, WriteMarketDefinitions, SealMarketDefinitions,
     ImportObservations, WriteReferenceData, SealReferenceData,
     ManageIdentities, ManageAccess, CreateDelegations,
-    BookTrade, AmendTrade, RunValuation, RunScenario, ApproveMarketData, PublishMarketData, ReadTrades,
+    BookTrade, AmendTrade, RunValuation, RunScenario, RunDealRisk, ApproveMarketData, PublishMarketData, ReadTrades,
     ReadTradeParties, WriteTradeParties
 }
 public sealed record Principal(Guid Id, PrincipalKind Kind, bool Enabled);

@@ -16,6 +16,19 @@ internal static class RiskChecks
         var power=new CurveRequest(f.C("local_power"),f.K(5));var future=new CurveRequest(f.C("future"),f.K(1));
         QuoteBump Bump(int series=1,string size="0.1",string quote="gas_out")=>new(new(f.S(series),InputUse.Variable),f.R(quote),
             PriceUnit.FromQuote(f.Quotes.Single(q=>q.Key==f.R(quote))),ExactDecimal.Parse(size),QuoteBump.Convention);
+        Check("temporary deal exact repricing retains nonzero curvature and signed cash changes",()=>
+        {
+            var run=DealRisk.Calculate(model,snapshot,[future],market=>
+            {
+                var p=market.Values.Single(v=>v.Request==future).Price.Value;
+                return ExactMoney.FromMoney(new(p*p,f.R("currency")));
+            },DealRisk.BumpPolicy,DealRisk.NumericalPolicy);
+            var value=run.Factors.Single().Values;
+            Equal(run.ScenarioCount,3);Equal(value.Base.ToMoney().Amount.ToString(),"9");
+            Equal(value.Delta.Value.ToMoney().Amount.ToString(),"6");
+            Equal(value.Gamma.Value.ToMoney().Amount.ToString(),"2");
+            Equal(value.Delta.Unit.Order,1);Equal(value.Gamma.Unit.Order,2);
+        });
         Check("one shared gas overlay propagates to power without editing observations",()=>
         {
             var run=model.BuildScenarios(snapshot,[power,future],[Bump()]);var pair=run.Factors.Single();
