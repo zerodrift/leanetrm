@@ -1,6 +1,6 @@
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,errors}){
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1250,deviceScaleFactor:1,mobile:false});
-  await command('Page.navigate',{url});await wait("document.querySelector('#profile-open')&&document.body?.getAttribute('aria-busy')==='false'");
+  await command('Page.navigate',{url});await wait(idle);
   await evaluate(`(()=>{const send=window.fetch;window.__riskReads=[];window.__riskRequests=[];window.fetch=async(input,init)=>{const path=String(input);if(path==='/api/futures/risk'){window.__riskRequests.push(JSON.parse(init.body));if(window.__denyRisk){window.__denyRisk=false;return new Response(JSON.stringify({code:'access_denied'}),{status:403,headers:{'Content-Type':'application/json'}});}}const response=await send(input,init);try{window.__riskReads.push({path,data:await response.clone().json()});}catch{}return response;};})();`);
   await persona('risk');
   const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");

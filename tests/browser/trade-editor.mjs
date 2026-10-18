@@ -1,7 +1,7 @@
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
   await command('Page.enable');await command('Runtime.enable');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
-  await command('Page.navigate',{url});await wait("document.querySelector('#profile-open')&&!document.querySelector('#status').textContent.includes('Loading')");
+  await command('Page.navigate',{url});await wait(idle);
   await evaluate(`(()=>{const send=window.fetch;window.__editorReplies=[];window.__amendCommands=[];window.fetch=async(input,init)=>{
     const path=typeof input==='string'?input:input.url;
     if(path==='/api/futures/editor'&&window.__denyEditor){window.__denyEditor=false;return new Response(JSON.stringify({code:'access_denied'}),{status:403});}

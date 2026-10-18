@@ -4,6 +4,8 @@ import {mkdtemp,readFile,writeFile,stat} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
+export const idle="document.body?.getAttribute('aria-busy')==='false'";
+
 export async function withOwnedBrowser(targetFile,browserPath,run){
   const root=dirname(resolve(targetFile)),target=JSON.parse(await readFile(targetFile,'utf8'));
   const url=new URL(target.url);
@@ -37,7 +39,6 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
     function command(method,params={}){const id=++sequence;return new Promise((accept,reject)=>{const timeout=setTimeout(()=>{pending.delete(id);reject(Error('Browser command timed out: '+method));},20000);pending.set(id,{accept,reject,timeout});socket.send(JSON.stringify({id,method,params}));});}
     async function evaluate(expression){const response=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(response.exceptionDetails)throw Error(JSON.stringify(response.exceptionDetails));return response.result.value;}
     async function wait(expression){for(let i=0;i<200;i++){if(await evaluate(expression))return;await delay(50);}throw Error('Timed out: '+expression);}
-    const idle="document.body?.getAttribute('aria-busy')==='false'";
     async function click(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);await wait(idle);}
     async function set(selector,value){await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
     async function submit(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);await wait(idle);}
