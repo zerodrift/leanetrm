@@ -8,7 +8,7 @@ The architecture is in [architecture.md](architecture.md); delivery scope is in
 
 | ID | Decision | Consequence |
 | --- | --- | --- |
-| D01 | Public project under Apache-2.0 | Preserve license/attribution; review all published material |
+| D01 | Public project under Apache-2.0, with DCO sign-offs for contribution commits and an additional agreement for designated core contributors | Preserve license/attribution; review all published material. Casual contributors need no separate CLA. Core contributors retain copyright and grant additional rights under [agreement v1.2](../CLA.md); see the [contribution guide](../CONTRIBUTING.md) and [integration setup](contributing-setup.md). Live signing checks and merge enforcement require separate verification |
 | D02 | Fresh implementation/history, with synthetic examples | Private sources, datasets and operational history are not imported |
 | D03 | Vanilla PostgreSQL | No custom server fork or mandatory private runtime dependency |
 | D04 | Preserve the independent side architecture | Trades reference immutable instruments; composed instruments have reusable sides through explicit memberships; simple contracts may be leaf instruments (D110) |

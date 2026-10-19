@@ -464,6 +464,73 @@ dialog label{margin-top:16px}
 .example-switch select{width:100%;background:var(--sidebar-2);color:var(--sidebar-text);border-color:#2f4b3e}
 .header-context>summary{color:var(--accent-text)}
 .workspace-mode{color:var(--text-3)}.workspace-mode strong{color:var(--text)}
+
+/* Blotter: headline strip, compact toolbar and a dense, scannable grid. */
+.table-workspace{border-color:var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:clip}
+.table-workspace-toolbar{gap:4px;padding:8px 10px;background:var(--surface-2);border-bottom-color:var(--border)}
+.table-workspace-toolbar>select{min-height:32px;font-size:12px;font-weight:500;padding:5px 28px 5px 10px;border-radius:var(--radius-sm)}
+.table-menu>summary{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text-2);padding:7px 10px;border-radius:var(--radius-sm)}
+.table-menu>summary::after{content:'';width:6px;height:6px;margin-top:-3px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(45deg);opacity:.6}
+.table-menu[open]>summary::after{margin-top:3px;transform:rotate(-135deg)}
+.table-menu>summary:hover,.table-menu[open]>summary{background:var(--surface);border-color:var(--border);color:var(--text)}
+.table-workspace-actions{gap:6px;padding-left:8px;border-left:1px solid var(--border)}
+.table-workspace-actions button{font-size:12px;font-weight:500;padding:7px 12px;border-radius:var(--radius-sm)}
+.table-workspace-actions button:last-child{background:var(--accent);border-color:var(--accent);color:#fff}
+.table-workspace-actions button:last-child:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.table-workspace-summary{display:flex;flex-wrap:wrap;gap:0;margin:0;border-bottom:1px solid var(--border)}
+.table-workspace-summary[hidden]{display:none}
+.table-workspace-summary>div{flex:1 1 160px;min-width:0;padding:12px 16px;border-right:1px solid var(--border)}
+.table-workspace-summary>div:last-child{border-right:0}
+.table-workspace-summary dt{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.table-workspace-summary dd{margin:4px 0 0;font-size:17px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.table-workspace-summary dd[data-sign=negative],.standard-data-grid .grid-negative{color:var(--danger)}
+.table-workspace-summary dd[data-sign=positive]{color:var(--accent-text)}
+.table-workspace-title{margin:12px 16px 0;font-size:13px;font-weight:600;color:var(--text)}
+.table-workspace .table-filters{padding:0 16px;margin:8px 0 10px}
+.table-workspace .standard-data-grid.tabulator{font-size:13px;border-top-color:var(--border)}
+.table-workspace .standard-data-grid .tabulator-header{background:var(--surface-2);font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--text-2)}
+.table-workspace .standard-data-grid .tabulator-header .tabulator-col{background:var(--surface-2);border-right-color:transparent}
+.table-workspace .standard-data-grid .tabulator-header .tabulator-col:hover{border-right-color:var(--border)}
+.table-workspace .standard-data-grid .tabulator-header .tabulator-col .tabulator-col-content{padding:8px 12px}
+.table-workspace .standard-data-grid .tabulator-row{min-height:35px}
+.table-workspace .standard-data-grid .tabulator-row .tabulator-cell{padding:7px 12px;line-height:20px}
+.table-workspace .standard-data-grid .tabulator-row.tabulator-row-even{background:var(--surface)}
+.table-workspace .standard-data-grid .tabulator-row.openable-row{cursor:pointer}
+.table-workspace .standard-data-grid .tabulator-row.openable-row:hover{background:var(--accent-soft)}
+/* Sort arrows appear on hover and on the sorted column only. */
+.standard-data-grid .tabulator-col .tabulator-col-sorter{opacity:0;transition:opacity .12s}
+.standard-data-grid .tabulator-col:hover .tabulator-col-sorter,.standard-data-grid .tabulator-col[aria-sort=ascending] .tabulator-col-sorter,.standard-data-grid .tabulator-col[aria-sort=descending] .tabulator-col-sorter{opacity:1}
+.table-workspace-footer{padding:10px 4px 14px;color:var(--text-3)}
+.date-control #header-calculation-time{font-size:11px;color:var(--text-3)}
+@media(min-width:1200px){.date-control #header-calculation-time{white-space:nowrap;max-width:none}}
+.table-workspace .standard-data-grid .tabulator-row .tabulator-cell{border-right:0}
+@media(max-width:760px){.table-workspace-actions{border-left:0;padding-left:0}.table-workspace-summary>div{flex-basis:45%;border-bottom:1px solid var(--border)}.table-workspace-summary dd{font-size:15px}}
+/* Sidebar controls stay inside the rail; long labels truncate instead of overflowing. */
+.sidebar .nav-item,.sidebar select{box-sizing:border-box;max-width:100%;min-width:0}
+.sidebar .nav-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:760px){.date-control{flex-wrap:wrap}.date-control select{flex:1 1 0;min-width:0}.date-control #header-calculation-time{flex-basis:100%;max-width:none}}
+/* Curve-type filter as one segmented control. */
+.library-filters .filter-tabs{gap:2px;padding:3px;background:var(--surface-3);border-radius:8px}
+.library-filters .filter-tabs button{border:0;border-radius:6px;padding:5px 2px;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.library-filters .filter-tabs button:hover{background:#ffffff99}
+.library-filters .filter-tabs button.active{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 2px #1b2e2324}
+.chart-toolbar>span strong{color:var(--text);font-weight:600}
+/* Unit converter: amount, from and to on one row; precision and action aligned below. */
+.converter-fields{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,1.4fr)}
+.converter-precision{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-top:4px}
+.converter-precision>div{min-width:220px}.converter-precision>#unit-rounding-fields{flex:1 1 280px;margin:0}
+.converter-precision label{display:block}.converter-precision button{margin:0 0 1px}
+@media(max-width:760px){.converter-fields{grid-template-columns:1fr}}
+/* Party editor: the form reads as part of the card, with history clearly separated. */
+#party-fields{border:0;padding:0;margin:0;min-width:0}
+#party-pending+h3{margin-top:28px;padding-top:20px;border-top:1px solid var(--border)}
+.library-filters .filter-tabs{display:flex}.library-filters .filter-tabs button{flex:1 1 auto;padding:5px 7px}
+#party-new{margin-top:12px}
+/* Long editors (power check, schedules): numbered steps and an action bar that stays in reach. */
+#power-form,#dates-form{counter-reset:power-step}
+#power-form .form-section,#dates-form .form-section{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--text)}
+#power-form .form-section::before,#dates-form .form-section::before{counter-increment:power-step;content:counter(power-step);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font-size:12px;font-weight:600;flex:none}
+#power-form>div:has(>button[type=submit]),#dates-form>div:has(>button[type=submit]){position:sticky;bottom:0;z-index:3;margin:0 -20px -20px;padding:12px 20px;background:var(--surface);border-top:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius)}
 .advanced-settings{margin-block:1rem;color:#657080}
 .advanced-settings>summary{cursor:pointer;font-size:.875rem}
 .advanced-settings[open]>summary{margin-bottom:.75rem}
@@ -471,3 +538,15 @@ dialog label{margin-top:16px}
 .instrument-editor{border-top:1px solid #dce3d5;margin-top:1.25rem;padding-top:.75rem}
 .trade-booking-terms input[readonly]{background:#f5f7f2;color:#526249;cursor:default}
 .swap-sides>#swap-fixed-editor,.swap-sides>#swap-floating-editor{display:contents}
+/* Empty lists read as an intentional empty state, not stray text. */
+#dates-saved:not(:has(*)),#curve-dates-saved:not(:has(*)){padding:18px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);background:var(--surface-2);text-align:center;font-size:13px}
+/* Contract definitions: example picker on one row; table actions and kept definitions spaced apart. */
+.inline-field{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.inline-field select{flex:0 1 320px;min-width:0}
+#curve-dates-add{margin-top:12px}
+#curve-dates-form .schedule-actions{margin-top:18px}
+#curve-dates-form~h3{margin-top:28px;padding-top:20px;border-top:1px solid var(--border)}
+/* Access administration: spacing below the account table and a clear selected-role state. */
+#admin-new{margin-top:12px}
+.admin-roles>*:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+#dates-form>div:has(>button[type=submit]){margin:0 -20px;border-radius:0}
+#admin-form-title{margin-bottom:16px}#admin-form>#admin-name{margin-bottom:16px}

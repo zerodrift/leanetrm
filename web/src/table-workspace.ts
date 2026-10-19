@@ -40,8 +40,9 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   const chartMeasure=node('select',undefined,'chart-measure');chartMeasure.append(new Option('Quantity','quantity'),new Option('Execution P&L','executionPnl'));labeled(chartPanel,'Measure',chartMeasure);
   const chartApply=button('Apply chart','chart-apply');chartApply.onclick=()=>options.onApply();chartPanel.append(chartApply);
   const actions=node('div');actions.className='table-workspace-actions';for(const [id,label] of options.actions)actions.append(button(label,id));toolbar.append(actions);
+  const summary=node('dl',undefined,'summary');summary.className='table-workspace-summary';summary.hidden=true;
   const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';const content=node('div',undefined,'rows');content.className='table-wrap';
-  shell.append(toolbar,title,content);host.replaceChildren(shell);
+  shell.append(toolbar,summary,title,content);host.replaceChildren(shell);
   shell.addEventListener('keydown',event=>{if(event.key==='Escape'){const open=menus.find(m=>m.open);if(open){open.open=false;open.querySelector('summary')?.focus();}}});
   function fillChoices(target:HTMLElement,choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){
     const order=[...choices].sort(([a],[b])=>{const ai=selected.indexOf(a),bi=selected.indexOf(b);return (ai<0?choices.length:ai)-(bi<0?choices.length:bi);});
@@ -65,7 +66,13 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   }
   let grid:ReturnType<typeof renderDataGrid>|undefined;
   return {
-    clear(){grid?.destroy();grid=undefined;content.replaceChildren();},
+    clear(){grid?.destroy();grid=undefined;content.replaceChildren();summary.replaceChildren();summary.hidden=true;},
+    /** Headline figures supplied by the consumer; a signed value is shaded by its sign. */
+    summary(items:{label:string;value:string;signed?:string}[]){
+      summary.replaceChildren(...items.map(item=>{const wrap=node('div'),term=node('dt',item.label),value=node('dd',item.value);
+        if(item.signed!==undefined)value.dataset.sign=item.signed.startsWith('-')?'negative':/^0(\.0*)?$/.test(item.signed)?'zero':'positive';wrap.append(term,value);return wrap;}));
+      summary.hidden=!items.length;
+    },
     busy(value:boolean){content.inert=value;},
     render(...args:Parameters<typeof renderDataGrid> extends [HTMLElement,...infer Rest]?Rest:never){grid?.destroy();grid=renderDataGrid(content,...args);return grid;},
     columns(choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){fillChoices(columnChoices,choices,selected,change,required);},

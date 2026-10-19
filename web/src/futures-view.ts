@@ -148,6 +148,8 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
     },pivot?['instrumentType','unit','currency']:[]);
     if(pivot)get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency'].includes(n.value)){n.checked=true;n.disabled=true;}});
     renderRegularTable(get('futures-totals'),'futures-totals',scope,['Book','Currency','Execution P&L'],holdings.totals.map(t=>[t.book,t.currency,t.executionPnl]),[2],busy,{displayRows:holdings.totals.map(t=>[t.book,t.currency,amountText(t.executionPnl,'money')])});
+    workspace.summary([{label:'Trades · selected books',value:String(holdings.holdings.length)},{label:'Futures prices evaluated',value:String(holdings.evaluatedContracts)},
+      ...holdings.totals.map(t=>({label:`${t.book} · execution P&L`,value:`${amountText(t.executionPnl,'money')} ${t.currency}`,signed:t.executionPnl}))]);
     text('blotter-table-title',pivot?view.splitBy.length?'Pivot table':'Pivot summary':'Individual trades');
     text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();
   }
