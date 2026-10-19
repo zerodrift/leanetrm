@@ -25,7 +25,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
         run(command, cwd=ROOT, env=environment, check=True)
 
     check('verification runner', [sys.executable, '-m', 'unittest', 'discover',
-                                  '-s', 'tests', '-p', 'test_check_all.py'])
+                                  '-s', 'tests', '-p', 'test_*.py'])
     check('standalone dependencies', [sys.executable, 'tools/check_standalone.py'])
     check('owned process cleanup', [sys.executable, 'tools/check_owned_process.py'])
     check('locked frontend install', ['npm', 'ci', '--prefix', 'web', '--ignore-scripts'])
@@ -43,6 +43,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
     check('isolated party maintenance and power browser', [*preview, '--party-check', '--browser-check', '--browser', str(browser)])
     check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     check('isolated exchange futures browser', [*preview, '--exchange-check', '--browser-check', '--browser', str(browser)])
+    check('isolated hosted authentication and browser', [*preview, '--hosted-check', '--browser-check', '--browser', str(browser)])
     check('mixed-period preview', [*preview, '--example', 'mixed-gas'])
     print('All synthetic verification suites passed.', flush=True)
 

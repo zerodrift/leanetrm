@@ -11,43 +11,50 @@ using Npgsql;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
-if (!args.Contains("--local-preview")) throw new InvalidOperationException("This host supports only an explicitly selected local synthetic preview.");
-var root=Path.GetFullPath(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT") ?? throw new InvalidOperationException("Use tools/run_preview.py."));
-var runId=Guid.Parse(File.ReadAllText(Path.Combine(root,".openetrm-preview")));
-var port=int.Parse(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PORT") ?? throw new InvalidOperationException("Explicit preview port is required."));
-var webRoot=Path.GetFullPath(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_WEB") ?? throw new InvalidOperationException("Explicit built web root is required."));
+if(args is ["--render-power-days",var calendarInput,var calendarOutput]){PowerDayCalendar.Run(calendarInput,calendarOutput);return;}
+
+if(args.Length>0 && args[0]=="--collect-power"){Environment.ExitCode=await PowerCollection.Run(args[1..]);return;}
+
+if(args.Length!=1 || args[0] is not ("--local-preview" or "--hosted-pilot")) throw new InvalidOperationException("Choose exactly --local-preview or --hosted-pilot.");
+var hosted=args[0]=="--hosted-pilot"?HostedConfiguration.Read(Environment.GetEnvironmentVariable("OPENETRM_HOSTED_CONFIG")??throw new InvalidOperationException("Explicit private hosted configuration is required.")):null;
+var root=Path.GetFullPath(hosted?.ManifestDirectory ?? Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT") ?? throw new InvalidOperationException("Use tools/run_preview.py."));
+var runId=hosted?.InstallationId ?? Guid.Parse(File.ReadAllText(Path.Combine(root,".openetrm-preview")));
+var port=hosted?.ListenPort ?? int.Parse(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PORT") ?? throw new InvalidOperationException("Explicit preview port is required."));
+var webRoot=Path.GetFullPath(hosted?.WebDirectory ?? Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_WEB") ?? throw new InvalidOperationException("Explicit built web root is required."));
+await using var hostedAuthentication=hosted is null?null:new HostedAuthentication(hosted);
 var builder=WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); builder.Logging.AddSimpleConsole(o=>o.SingleLine=true); builder.Logging.SetMinimumLevel(LogLevel.Warning);
-builder.WebHost.ConfigureKestrel(o=> { o.Listen(IPAddress.Loopback,port); o.Limits.MaxRequestBodySize=32*1024; });
-builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
+builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=32*1024; });
+if(hosted is null)builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
+else {HostedAuthentication.Configure(builder,hosted);builder.Services.AddSingleton(hostedAuthentication!);}
 builder.Services.AddSingleton<IAntiforgeryAdditionalDataProvider,PreviewAntiforgeryScope>();
-builder.Services.AddAntiforgery(o=> { o.HeaderName="X-Preview-CSRF"; o.Cookie.Name="openetrm_preview_csrf"; o.Cookie.HttpOnly=true; o.Cookie.SameSite=SameSiteMode.Strict; o.Cookie.SecurePolicy=CookieSecurePolicy.None; });
+builder.Services.AddAntiforgery(o=> { o.HeaderName="X-Preview-CSRF"; o.Cookie.Name=hosted is null?"openetrm_preview_csrf":"__Host-openetrm_csrf"; o.Cookie.HttpOnly=true; o.Cookie.SameSite=SameSiteMode.Strict; o.Cookie.SecurePolicy=hosted is null?CookieSecurePolicy.None:CookieSecurePolicy.Always; });
 builder.Services.ConfigureHttpJsonOptions(o=>{o.SerializerOptions.PropertyNamingPolicy=JsonNamingPolicy.CamelCase;o.SerializerOptions.Converters.Add(new ExactDecimalJsonConverter());});
 var app=builder.Build();
-await using var database=new PreviewDatabase(root);
+var httpContext=hosted is null?null:app.Services.GetRequiredService<IHttpContextAccessor>();
+await using var database=new PreviewDatabase(root,hosted:hosted,hostedSession:hosted is null?null:()=>HostedAuthentication.SessionDigest(httpContext!.HttpContext??throw new PreviewDeniedException()));
+if(hosted is not null)await database.ValidateHostedBoundary(CancellationToken.None);
+if(hostedAuthentication is not null){hostedAuthentication.Tenant=database.Manifest.TenantId;hostedAuthentication.Workspace=database.Manifest.WorkspaceId;app.UseForwardedHeaders();}
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
 
 app.Use(async (context,next)=>
 {
-    var origin=$"http://127.0.0.1:{port}";
+    var origin=hosted?.PublicOrigin ?? $"http://127.0.0.1:{port}";
     var apiPath=context.Request.Path.StartsWithSegments("/examples/exchange/api",out var suffix)?new PathString("/api"+suffix):context.Request.Path;
-    if (context.Connection.RemoteIpAddress is not {} remote || !IPAddress.IsLoopback(remote) ||
+    if (hosted is null && (context.Connection.RemoteIpAddress is not {} remote || !IPAddress.IsLoopback(remote) ||
         context.Request.Host.Host!="127.0.0.1" || context.Request.Host.Port!=port ||
         context.Request.Headers.TryGetValue("Origin",out var supplied) && supplied!=origin)
+        || hosted is not null && (!context.Request.IsHttps || context.Request.Host.Value!=hosted.Origin.Authority || context.Request.Headers.TryGetValue("Origin",out var hostedOrigin)&&hostedOrigin!=origin))
     { context.Response.StatusCode=403; return; }
     context.Response.Headers["Content-Security-Policy"]="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
-    context.Response.Headers["X-Content-Type-Options"]="nosniff"; context.Response.Headers["Referrer-Policy"]="no-referrer";
+    context.Response.Headers["X-Content-Type-Options"]="nosniff"; context.Response.Headers["Referrer-Policy"]=hosted is null?"no-referrer":"same-origin";
+    if(hosted is not null){context.Response.Headers.CacheControl="no-store";context.Response.Headers["Strict-Transport-Security"]="max-age=31536000";}
     if (apiPath.StartsWithSegments("/api")) context.Response.Headers.CacheControl="no-store";
     using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted); deadline.CancelAfter(TimeSpan.FromSeconds(15));
     context.RequestAborted=deadline.Token;
     try
     {
-        if (context.Request.Method is not ("GET" or "HEAD"))
-        {
-            if (!context.Request.Headers.TryGetValue("Origin",out var requestOrigin) || requestOrigin!=origin) throw new PreviewDeniedException();
-            await context.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(context);
-        }
         await next(context);
     }
     catch (Exception e) when (!context.Response.HasStarted)
@@ -105,14 +112,42 @@ app.Use(async (context,next)=>
     }
 });
 
-await using var exchangeDatabase=File.Exists(Path.Combine(root,"exchange-manifest.json"))?new PreviewDatabase(root,"exchange-manifest.json"):null;
-MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,"openetrm_preview");
+if(hostedAuthentication is not null){app.UseAuthentication();app.UseRateLimiter();}
+if(hostedAuthentication is not null)
+{
+    app.Use(async(c,next)=>
+    {
+        if(c.Request.Path.StartsWithSegments("/auth")){await next(c);return;}
+        if(c.User.Identity?.IsAuthenticated!=true)
+        {
+            if(c.Request.Path.StartsWithSegments("/api")||c.Request.Path.StartsWithSegments("/examples")){c.Response.StatusCode=401;await c.Response.WriteAsJsonAsync(new{code="sign_in_required",message="Sign in to this private workspace."});}
+            else c.Response.Redirect("/auth");
+            return;
+        }
+        await next(c);
+    });
+    hostedAuthentication.Map(app);
+}
+
+app.Use(async(c,next)=>
+{
+    if(c.Request.Method is not ("GET" or "HEAD"))
+    {
+        var origin=hosted?.PublicOrigin??$"http://127.0.0.1:{port}";
+        if(!c.Request.Headers.TryGetValue("Origin",out var supplied)||supplied!=origin)throw new PreviewDeniedException();
+        await c.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(c);
+    }
+    await next(c);
+});
+
+await using var exchangeDatabase=hosted is null&&File.Exists(Path.Combine(root,"exchange-manifest.json"))?new PreviewDatabase(root,"exchange-manifest.json"):null;
+MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,hosted is null?"openetrm_preview":"__Host-openetrm_workspace");
 if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api").WithMetadata(new PreviewScope("exchange")),exchangeDatabase,"openetrm_exchange_preview");
-app.MapGet("/api/examples",()=>new[]{new {id="baseline",name="Original synthetic example",url="/"},new {id="exchange",name="CME & ICE futures · synthetic prices",url="/?example=exchange"}}.Where(e=>e.id=="baseline"||exchangeDatabase is not null));
+app.MapGet("/api/examples",()=>new[]{new {id="baseline",name=hosted is null?"Original synthetic example":"Private pilot workspace",url="/"},new {id="exchange",name="CME & ICE futures · synthetic prices",url="/?example=exchange"}}.Where(e=>e.id=="baseline"||exchangeDatabase is not null));
 void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName)
 {
 var sessions=new ConcurrentDictionary<string,PreviewSession>();
-api.MapGet("/health",()=>new {mode="local-synthetic-preview",runId});
+api.MapGet("/health",()=>new {mode=database.Manifest.Mode,runId});
 api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery)=>
 {
     foreach(var item in sessions.Where(x=>DateTimeOffset.UtcNow-x.Value.Created>TimeSpan.FromMinutes(30)).ToArray()) sessions.TryRemove(item.Key,out _);
@@ -123,10 +158,13 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery)=>
         if (sessions.Count>=64) throw new PreviewDeniedException();
         var id=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)); session=new PreviewSession(database.Manifest);
         sessions[id]=session;
-        context.Response.Cookies.Append(cookieName,id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=false,MaxAge=TimeSpan.FromMinutes(30),Path="/"});
+        context.Response.Cookies.Append(cookieName,id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=TimeSpan.FromMinutes(30),Path="/"});
     }
     await session.Gate.WaitAsync(context.RequestAborted);
-    try { return new {mode="local-synthetic-preview",runId,notice="Disposable synthetic workspace. Test identities are simulations, not production sign-in.",profiles,
+    try {
+        var identity=hosted is null?null:HostedAuthentication.Current(context);
+        if(identity is not null){if(session.Profile is not null&&session.Profile!=identity.Subject)throw new PreviewDeniedException();session.Profile=identity.Subject;}
+        return new {mode=database.Manifest.Mode,runId,notice=hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
         profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=session.Frames.Values.Where(f=>f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray(),
         catalogId=database.Manifest.CatalogId,tenantId=database.Manifest.TenantId,workspaceId=database.Manifest.WorkspaceId}; }
     finally { session.Gate.Release(); }
@@ -134,6 +172,7 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery)=>
 PreviewSession Session(HttpContext context)
 {
     if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow-session.Created>TimeSpan.FromMinutes(30)) throw new PreviewDeniedException();
+    if(hosted is not null&&session.Profile!=HostedAuthentication.Current(context).Subject)throw new PreviewDeniedException();
     return session;
 }
 async Task<IResult> Locked(HttpContext context,Func<PreviewSession,Task<IResult>> work)
@@ -147,6 +186,7 @@ api.MapPost("/time/inspect",(HttpContext c,LocalTimeRequest body)=>Locked(c,sess
 InputFrame Frame(PreviewSession session,Guid id)=>session.Frames.TryGetValue(id,out var frame) && frame.ContextId==session.MarketContext?.ContextId?frame:throw new MarketDataException("snapshot_missing","Select a saved input snapshot from this preview session.");
 api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
 {
+    if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
     session.Profile=body.Profile; session.MarketContext=null; return Task.FromResult(Results.Ok(new {profile=session.Profile}));
 }));
@@ -161,6 +201,9 @@ api.MapPost("/units/convert",(HttpContext c,UnitConvertRequest body)=>Locked(c,s
 },c.RequestAborted)));
 api.MapPost("/amounts/display",(HttpContext c,System.Collections.Immutable.ImmutableArray<DisplayNumberRequest> body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),null,(_,_)=>Task.FromResult<IResult>(Results.Ok(UnitOperations.Display(body))),c.RequestAborted)));
+api.MapGet("/power-imports",(Func<HttpContext,Task<IResult>>)(c=>PowerOperation(c,"ReadMarketData",async(_,connection,ct)=>Results.Ok(await PowerHistory.Catalog(connection,ct)))));
+api.MapPost("/power-imports/period",(HttpContext c,PowerHistoryPeriodRequest body)=>PowerOperation(c,"ReadMarketData",async(_,connection,ct)=>Results.Ok(await PowerHistory.Period(connection,body,ct))));
+api.MapPost("/power-imports/history",(HttpContext c,PowerHistoryRequest body)=>PowerOperation(c,"ReadMarketData",async(_,connection,ct)=>Results.Ok(await PowerHistory.Read(connection,body,ct))));
 var touStore=new TouProductStore(database.Manifest.CatalogId,database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId);
 // TOU products are current definitions; a historical view never substitutes them.
 Task<IResult> PowerOperation(HttpContext c,string permission,Func<PreviewSession,NpgsqlConnection,CancellationToken,Task<IResult>> work)=>Locked(c,session=>
@@ -628,6 +671,7 @@ api.MapGet("/admin",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
         await using var command=ScheduleStore.Command(connection,"SELECT security.administration_directory()::text");
         var directory=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>((string)(await command.ExecuteScalarAsync(ct))!)!;
         directory["kinds"]=JsonSerializer.SerializeToElement(IdentityKinds.Select(k=>new {code=k.Code,name=k.Name}));
+        directory["canCreate"]=JsonSerializer.SerializeToElement(hosted is null);
         return Results.Ok(directory);
     },c.RequestAborted))));
 async Task<IResult> AdminMutation(HttpContext c,object body,string action)=>await Locked(c,async session=>
@@ -642,7 +686,7 @@ async Task<IResult> AdminMutation(HttpContext c,object body,string action)=>awai
     if(result.GetProperty("kind").GetString()=="human")session.CustomProfiles[result.GetProperty("login").GetString()!]=result.GetProperty("name").GetString()!;
     return Results.Ok(result);
 });
-api.MapPost("/admin/create",(HttpContext c,AdminCreate body)=>AdminMutation(c,body,"create"));
+api.MapPost("/admin/create",(HttpContext c,AdminCreate body)=>hosted is null?AdminMutation(c,body,"create"):Task.FromResult<IResult>(Results.Json(new{code="access_denied",message="Hosted accounts require a private invitation."},statusCode:403)));
 api.MapPost("/admin/update",(HttpContext c,AdminUpdate body)=>AdminMutation(c,body,"update"));
 }
 var files=new PhysicalFileProvider(webRoot);

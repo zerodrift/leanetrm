@@ -10,7 +10,7 @@ using OpenEtrm.Rates;
 namespace OpenEtrm.Api;
 
 public sealed record PreviewManifest(string Mode, Guid CatalogId, Guid RevisionId, Guid ReferenceCatalogId,
-    Guid ReferenceRevisionId, Guid TenantId, Guid WorkspaceId, PreviewSeedFrame[] Frames,PreviewExample Example,
+    Guid ReferenceRevisionId, Guid TenantId, Guid WorkspaceId, PreviewSeedFrame[] Frames,PreviewExample? Example,
     PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",string FuturesConvention="fixed_total_cash_execution_pnl_v1");
 public sealed record PreviewUnitCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
 public sealed record UnitCatalogData(ReferenceRevision Revision,ImmutableDictionary<string,ImmutableArray<JsonElement>> References);
@@ -27,6 +27,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
 {
     private readonly NpgsqlDataSource authenticator;
     private readonly NpgsqlDataSource runtime;
+    private readonly string runtimeLogin;
+    private readonly Func<string>? hostedSession;
     public PreviewManifest Manifest { get; }
     public static readonly string[] ReferenceTables = ["currencies", "dimensions", "units", "unit_conversions", "commodities",
         "measurement_bases", "quantity_specifications", "quote_specifications", "value_specifications", "locations",
@@ -37,12 +39,13 @@ public sealed class PreviewDatabase : IAsyncDisposable
         "futures_products", "futures_series", "futures_milestones", "futures_lot_resolutions", "futures_product_terms", "futures_basis_settlements"];
     private static readonly string[] DefinitionTables = ["revisions", "contracts", "curves", "series", "curve_members", "curve_inputs", "constituent_mappings", "rate_curves", "rate_curve_points", "revision_periods"];
 
-    public PreviewDatabase(string root,string manifestName="manifest.json")
+    public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
     {
         if(manifestName is not ("manifest.json" or "exchange-manifest.json"))throw new InvalidOperationException("Choose a configured preview manifest.");
         Manifest = JsonSerializer.Deserialize<PreviewManifest>(File.ReadAllText(Path.Combine(root, manifestName)),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidOperationException("Missing preview manifest.");
-        if (Manifest.Mode != "local-synthetic-preview") throw new InvalidOperationException("Preview requires an owned synthetic fixture.");
+        if (Manifest.Mode != (hosted is null ? "local-synthetic-preview" : "hosted-pilot")) throw new InvalidOperationException("Manifest does not match the explicitly selected host mode.");
+        if (hosted is not null && Manifest.IdentityIssuer != hosted.IdentityIssuer) throw new InvalidOperationException("The exact hosted identity issuer must match the manifest.");
         NpgsqlDataSource Source(string variable, string login)
         {
             var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable(variable)
@@ -55,27 +58,43 @@ public sealed class PreviewDatabase : IAsyncDisposable
             config.CommandTimeout = 5; config.Timeout = 5; config.MaxPoolSize = 8;
             return NpgsqlDataSource.Create(config.ConnectionString);
         }
-        authenticator = Source("OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator");
-        runtime = Source("OPENETRM_PREVIEW_RUNTIME", "preview_runtime");
+        if (hosted is null)
+        {
+            authenticator = Source("OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator");
+            runtime = Source("OPENETRM_PREVIEW_RUNTIME", "preview_runtime");
+            runtimeLogin = "preview_runtime";
+        }
+        else
+        {
+            this.hostedSession=hostedSession??throw new InvalidOperationException("Hosted capabilities require a verified server session.");
+            var auth = HostedConfiguration.Connection(hosted.AuthenticatorConnectionFile);
+            var app = HostedConfiguration.Connection(hosted.RuntimeConnectionFile);
+            if(auth.Username==app.Username || auth.Database!=app.Database || auth.Host!=app.Host || auth.Port!=app.Port)
+                throw new InvalidOperationException("Hosted runtime and authenticator require separate logins to the same dedicated database.");
+            authenticator=NpgsqlDataSource.Create(auth.ConnectionString); runtime=NpgsqlDataSource.Create(app.ConnectionString);
+            runtimeLogin=app.Username!;
+        }
     }
 
     public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, bool administration=false)
     {
         if (string.IsNullOrWhiteSpace(profile) || profile.Length>48) throw new PreviewDeniedException();
-        await using var issue = authenticator.CreateCommand("SELECT security.issue_context($1,$2,$3,$4,$5,NULL,$6::name,60)");
-        foreach (var value in new object[] { Manifest.IdentityIssuer, profile, "human_interactive", Manifest.TenantId, Manifest.WorkspaceId, "preview_runtime" })
+        await using var issue = authenticator.CreateCommand(hostedSession is null?"SELECT security.issue_context($1,$2,$3,$4,$5,NULL,$6::name,60)":"SELECT security.issue_hosted_context($1,$2::name)");
+        foreach (var value in hostedSession is null?new object[] { Manifest.IdentityIssuer, profile, "human_interactive", Manifest.TenantId, Manifest.WorkspaceId, runtimeLogin }:new object[]{hostedSession(),runtimeLogin})
             issue.Parameters.Add(new NpgsqlParameter { Value = value });
         var token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException());
         await using var connection = await runtime.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         await using (var bind = new NpgsqlCommand(administration?"SELECT security.use_administration_context($1)":"SELECT security.use_context($1)", connection, transaction))
         { bind.Parameters.AddWithValue(token); await bind.ExecuteNonQueryAsync(ct); }
+        if(hostedSession is not null)await using(var sessionCheck=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction))await sessionCheck.ExecuteNonQueryAsync(ct);
         if(permission is not null) await using (var check = new NpgsqlCommand("SELECT security.has_permission($1)", connection, transaction))
         {
             check.Parameters.AddWithValue(permission);
             if (!Equals(await check.ExecuteScalarAsync(ct), true)) throw new PreviewDeniedException();
         }
         var result = await operation(connection, ct);
+        if(hostedSession is not null)await using(var sessionCheck=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction))await sessionCheck.ExecuteNonQueryAsync(ct);
         if(permission is not null) await using (var finalCheck = new NpgsqlCommand("SELECT security.has_permission($1)", connection, transaction))
         {
             finalCheck.Parameters.AddWithValue(permission);
@@ -83,6 +102,21 @@ public sealed class PreviewDatabase : IAsyncDisposable
         }
         await transaction.CommitAsync(ct);
         return result;
+    }
+
+    public async Task ValidateHostedBoundary(CancellationToken ct)
+    {
+        foreach(var entry in new[]{(Source:runtime,Role:"openetrm_runtime",Other:"openetrm_authenticator"),(Source:authenticator,Role:"openetrm_authenticator",Other:"openetrm_runtime")})
+        {
+            await using var command=entry.Source.CreateCommand("""
+SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_role(current_user,$1,'MEMBER') AND NOT pg_has_role(current_user,$2,'MEMBER') AND NOT pg_has_role(current_user,'openetrm_security_owner','MEMBER') AND current_setting('track_commit_timestamp')='on'
+ AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,c.relowner,'MEMBER'))
+ AND NOT EXISTS(SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,n.nspowner,'MEMBER'))
+ AND NOT EXISTS(SELECT 1 FROM pg_database d WHERE d.datname=current_database() AND pg_has_role(current_user,d.datdba,'MEMBER')) FROM pg_roles WHERE rolname=current_user
+""");
+            command.Parameters.AddWithValue(entry.Role);command.Parameters.AddWithValue(entry.Other);
+            if(!Equals(await command.ExecuteScalarAsync(ct),true))throw new InvalidOperationException("Hosted database roles or commit tracking do not meet the installation boundary.");
+        }
     }
 
     public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null)

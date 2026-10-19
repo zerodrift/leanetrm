@@ -4,8 +4,21 @@ using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
+if (args is ["--hosted-access"])
+{
+    HostedAccessChecks.Run();
+    return;
+}
+if(args is ["--power-collection"]){Environment.ExitCode=await PowerImportChecks.MalformedCollection();return;}
+if (args is ["--power-imports"])
+{
+    PowerImportChecks.Run();return;
+}
+
 if (args is ["--schedules"])
 {
+    HostedAccessChecks.Run();
+    PowerImportChecks.Run();
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();
     SchedulePublicationChecks.Run();

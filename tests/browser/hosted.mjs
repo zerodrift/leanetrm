@@ -1,0 +1,38 @@
+import {withOwnedBrowser} from './owned-browser.mjs';
+import {readFile} from 'node:fs/promises';
+import {dirname,join} from 'node:path';
+const target=process.argv[2], credentials=JSON.parse(await readFile(join(dirname(target),'hosted-check/browser-account.json'),'utf8'));
+await withOwnedBrowser(target,process.argv[3],async({command,evaluate,wait,set,check,shot,idle,url,click,submit})=>{
+  await command('Page.navigate',{url:url+'/auth'});
+  await wait("!!document.querySelector('#signin')");
+  await set('#signin [name=login]',credentials.login);
+  await set('#signin [name=password]',credentials.password);
+  await evaluate("document.querySelector('#signin').requestSubmit()");
+  await wait("location.pathname==='/' && document.querySelector('#profile-label')?.textContent==='Synthetic hosted human'");
+  await wait(idle);
+  await click('#nav-delivery');
+  await check('configured delivery-price sources and paused scheduler are visible',"document.querySelector('#delivery-price-source').options.length===2 && document.querySelector('#delivery-price-jobs').textContent.includes('paused')");
+  await evaluate("document.querySelector('#delivery-price-source').selectedIndex=1");
+  await set('#delivery-price-from','2026-11-02');await set('#delivery-price-through','2026-11-02');
+  await submit('#delivery-price-form');
+  await check('delivery-price history is served with exact typed amounts and complete interval coverage',"document.querySelectorAll('#delivery-price-results tbody tr').length===24 && document.querySelector('#delivery-price-results').textContent.includes('-17.125')");
+  await evaluate("document.querySelector('#profile-open').click()");
+  await wait("document.querySelector('#profile-dialog').open");
+  await check('hosted profile has sign out and no selectable demo identities',"document.querySelector('#preview-access').hidden && !document.querySelector('#sign-out').hidden");
+  await shot('hosted-profile');
+  // An expired browser cookie must remove displayed business data on its next operation.
+  await command('Network.clearBrowserCookies');
+  await evaluate("document.querySelector('#profile-close').click();document.querySelector('#profile-open').click()");
+  await wait("location.pathname==='/auth' && !!document.querySelector('#signin')");
+  await check('expired login returns to sign in without stale business panels',"!document.querySelector('#profile-dialog') && !!document.querySelector('#signin')");
+  await set('#signin [name=login]',credentials.secondLogin);
+  await set('#signin [name=password]',credentials.password);
+  await evaluate("document.querySelector('#signin').requestSubmit()");
+  await wait("location.pathname==='/' && !!document.querySelector('#profile-open')");
+  await wait(idle);
+  await evaluate("document.querySelector('#profile-open').click()");
+  await wait("document.querySelector('#profile-dialog').open");
+  await evaluate("document.querySelector('#sign-out').click()");
+  await wait("location.pathname==='/auth' && !!document.querySelector('#signin')");
+  await check('another human can sign in and sign out',"!!document.querySelector('#signin')");
+});

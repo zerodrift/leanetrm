@@ -50,6 +50,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--unit-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--exchange-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('mixed-gas' in command for command in commands))
+        self.assertTrue(any('--hosted-check' in command and '--browser-check' in command for command in commands))
 
     def test_failed_browser_checks_stop_later_work_and_preserve_failure(self):
         commands = []

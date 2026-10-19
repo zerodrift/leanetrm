@@ -1,0 +1,31 @@
+# Render privately with the exact host, certificate paths and private upstream address.
+server {
+    listen 80;
+    server_name ${PUBLIC_HOST};
+    location /.well-known/acme-challenge/ { root /etc/letsencrypt/acme; }
+    location / { return 308 https://${PUBLIC_HOST}$request_uri; }
+}
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${PUBLIC_HOST};
+    ssl_certificate ${CERTIFICATE_CHAIN};
+    ssl_certificate_key ${CERTIFICATE_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    client_max_body_size 32k;
+    access_log off;
+    location / {
+        set $openetrm_backend ${UPSTREAM_ADDRESS}:${UPSTREAM_PORT};
+        proxy_pass http://$openetrm_backend;
+        proxy_set_header Host ${PUBLIC_HOST};
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host "";
+        proxy_set_header Forwarded "";
+        proxy_hide_header X-Powered-By;
+        proxy_read_timeout 20s;
+        proxy_buffering off;
+        add_header Cache-Control "no-store" always;
+    }
+}

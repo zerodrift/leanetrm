@@ -30,8 +30,11 @@ replacing the scenario mechanism or collapsing the side architecture.
 
 The application must be self-hostable from public dependencies. Its foundation is
 an unmodified relational database, not a database fork or a private platform SDK.
-The intended eventual hosted domain is leanetrm.com; deployment is a later,
-separately approved operational step.
+A private pilot may be hosted at leanetrm.com under the separately approved
+deployment procedure. Automatic image updates use attested GitHub Release bundles
+and a pinned local pull operator; schema and infrastructure changes require a
+separate qualified baseline (D135). Hosted authentication and collection boundaries are described
+in [hosted pilot operations](hosted-pilot.md); the synthetic local preview stays isolated.
 
 ## 2. Application structure and deployment
 

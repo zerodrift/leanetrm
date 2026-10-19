@@ -1,0 +1,18 @@
+[Unit]
+Description=Admit and deploy verified OpenETRM GitHub releases
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/openetrm/operations
+ExecStart=/usr/bin/python3 /opt/openetrm/operations/deploy_release.py --config /etc/openetrm/deployment-operator.json
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/openetrm /var/lib/openetrm/deployment /var/cache/openetrm-deploy
+MemoryMax=768M
+TimeoutStartSec=10min

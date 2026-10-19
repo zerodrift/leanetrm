@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
+    parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--booking-check',action='store_true',help='Qualify backend-owned immutable trade booking facts')
     parser.add_argument('--unit-check', action='store_true', help='Run amount/unit integration checks in the owned standard fixture')
     parser.add_argument('--exchange-check',action='store_true',help='Qualify the independent exchange futures dataset')
@@ -39,7 +40,7 @@ def main():
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
-    if args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check:
+    if args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -108,6 +109,21 @@ def main():
             reference,market,security,manifest=fixture(ROOT)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             query(migration.read_text())
+        if args.hosted_check:
+            from provision_hosted import prepare as prepare_hosted
+            prepared=temporary/'fresh-pilot-check'
+            from preview_fixture import installed_tzdb
+            source_id,job_id=str(uuid4()),str(uuid4())
+            collection={'sources':[{'id':source_id,'name':'Synthetic PJM source','provider':'PJM','dataset':'da_hrl_lmps','market':'DA','point':'51288','minutes':60,'unit':'MWh','currency':'USD','timeZone':'America/New_York'}],
+                        'jobs':[{'id':job_id,'provider':'PJM','name':'Synthetic paused collection','sourceIds':[source_id],'enabled':True,'scheduleEnabled':False,'cron':'0 8 * * *','scheduleZone':'UTC','fromDay':-7,'throughDay':-1}], 'requestsPerMinute':{'PJM':4}}
+            prepared_ids=prepare_hosted('https://pilot.synthetic.invalid',str(uuid4()),installed_tzdb(),prepared,collection)
+            calendar_request=prepared/'calendar.json';calendar_sql=prepared/'calendar.sql'
+            calendar_request.write_text(json.dumps({'referenceCatalogId':prepared_ids['reference'],'referenceRevisionId':prepared_ids['referenceRevision'],'from':'2026-03-08','through':'2026-11-02','clocks':[{'code':'pjm','kind':'iana','fixedOffsetSeconds':None,'ianaZone':'America/New_York','tzdbVersion':installed_tzdb()}]}))
+            subprocess.run([str(dotnet),str(dll),'--render-power-days',str(calendar_request),str(calendar_sql)],cwd=ROOT,env=env,check=True,timeout=30)
+            combined=(prepared/'seed.sql').read_text().replace('COMMIT;','')+calendar_sql.read_text().replace('BEGIN;','').replace('COMMIT;',"DO $$BEGIN IF NOT EXISTS(SELECT 1 FROM power_data.operating_days WHERE operating_date='2026-03-08' AND ends_at-starts_at=interval '23 hours') OR NOT EXISTS(SELECT 1 FROM power_data.operating_days WHERE operating_date='2026-11-01' AND ends_at-starts_at=interval '25 hours') THEN RAISE EXCEPTION 'Incorrect retained operating-day bounds';END IF;END$$;ROLLBACK;")
+            query(combined)
+
+            print('PASS fresh hosted seed validates on an empty stock database without synthetic users, observations or trades',flush=True)
         query(reference)
         query(market)
         if args.example=='standard':
@@ -115,6 +131,11 @@ def main():
             swap_market,swap_manifest=swap_fixture();query(swap_market)
             manifest['swapMarkets']=[swap_manifest]
         query(security)
+        if args.hosted_check:
+            from check_hosted_auth import run_checks as check_hosted_auth
+            check_hosted_auth(query, manifest)
+            from check_power_import import run_checks as check_power_import
+            check_power_import(query,manifest,dotnet,temporary,env)
         if args.exchange_check or args.with_exchange:
             from exchange_fixture import fixture as exchange_fixture
             er,em,es,et,exchange_manifest=exchange_fixture(ROOT)
@@ -184,7 +205,10 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.draft_check:
+            if args.hosted_check:
+                from check_hosted_http import run_checks as check_hosted_http
+                check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id)
+            elif args.draft_check:
                 from check_draft_pricing import run_checks as check_draft
                 check_draft(url,query,manifest)
             elif args.booking_check:

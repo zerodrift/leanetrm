@@ -1,0 +1,10 @@
+[Unit]
+Description=OpenETRM scheduled power-price collection
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/openetrm/operations
+ExecStart=/usr/bin/flock --wait 600 /var/lib/openetrm/deployment/operation.lock /usr/bin/docker compose --env-file /etc/openetrm/compose.env -f /etc/openetrm/release-compose.yaml run --rm --no-deps --entrypoint dotnet collector /opt/openetrm/api/OpenEtrm.Api.dll --collect-power scheduled
+TimeoutStartSec=2h

@@ -701,3 +701,16 @@ variable-lot and quoted-basis contracts. Nineteen sourced product families and o
 synthetic calendar-day control cover 113 dated definitions. Full settlement,
 variation margin, physical delivery and production data activation remain exit
 criteria before a broader futures lifecycle claim.
+
+## Private hosted pilot extension
+
+The private pilot uses invitation-only local credentials and a fresh stock database.
+Provider settings, source selections and real observations are private installation
+data. A bounded managed PJM/ERCOT delivery-price collector and daily UTC timer
+retain job outcomes, exact units, full market-day coverage and certified correction
+history. Schedules can remain paused independently of an explicit operator run.
+This does not activate futures catalogs, implement fixing-based valuation or certify
+production readiness. The automated-release extension adds exact-source CI and
+attestation admission, bounded data-only packaging, isolated candidate checks and
+interruption/retention controls. Automatic database upgrades and rollback of
+financial state remain outside that contract. See [pilot operations](hosted-pilot.md) for release gates and limits.

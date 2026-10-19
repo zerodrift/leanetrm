@@ -45,6 +45,10 @@ jobs:
           /usr/lib/postgresql/16/bin/postgres --version
           google-chrome --version
           dpkg-query -W tzdata libicu74
+      - name: Check release admission and archive boundaries
+        run: python3 -m unittest discover -s tests -p test_release_deployment.py
+      - name: Validate deployment configuration
+        run: python3 tools/check_deployment.py
       - name: Run synthetic verification
         shell: bash
         run: |
@@ -52,3 +56,51 @@ jobs:
             --pg-bin /usr/lib/postgresql/16/bin \
             --dotnet "$(command -v dotnet)" \
             --browser "$(command -v google-chrome)"
+
+  publish:
+    name: Publish hosted release
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.RELEASE_PUBLICATION_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: hosted-release
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the verified commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up the pinned SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Set up the pinned Node runtime
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Build release outputs
+        run: |
+          dotnet restore src/OpenEtrm.Api/OpenEtrm.Api.csproj --locked-mode
+          dotnet publish src/OpenEtrm.Api/OpenEtrm.Api.csproj --no-restore --no-self-contained --configuration Release --output "$RUNNER_TEMP/api"
+          npm ci --prefix web --ignore-scripts
+          npm run build --prefix web
+          mkdir "$RUNNER_TEMP/release"
+          python3 tools/package_release.py --api "$RUNNER_TEMP/api" --web web/dist \
+            --output "$RUNNER_TEMP/release/openetrm-release.tar.gz" \
+            --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Attest the complete release envelope
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ runner.temp }}/release/openetrm-release.tar.gz
+      - name: Publish the attested release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_FILE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          python3 tools/publish_release.py --directory "$RUNNER_TEMP/release" --attestation "$ATTESTATION_FILE"

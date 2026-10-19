@@ -1,0 +1,11 @@
+[Unit]
+Description=Wake OpenETRM collection at the configured UTC daily boundary
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=openetrm-collection.service
+
+[Install]
+WantedBy=timers.target

@@ -8,7 +8,7 @@ export type {RequestCommand as AdministrativeCommand} from './pending-command.js
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Member={id:string;login:string;name:string;kind:string;enabled:boolean;version:number;roles:string[]};
 type Audit={operationId:string;at:string;actor:string;action:string;before:Member|null;after:Member};
-type Directory={members:Member[];roles:{code:string;name:string;permissions:string[]}[];audit:Audit[];kinds:{code:string;name:string}[]};
+type Directory={members:Member[];roles:{code:string;name:string;permissions:string[]}[];audit:Audit[];kinds:{code:string;name:string}[];canCreate?:boolean};
 
 export function knownAdministrationRejection(code:string|undefined):boolean{
   return !!code&&['admin_conflict','admin_input','last_administrator','self_access_change','admin_limit',
@@ -33,6 +33,7 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
   function pendingNote(){get('admin-pending').hidden=!pending.command;}
   function fill(member?:Member){
     selected=member;get<HTMLFormElement>('admin-form').reset();
+    get('admin-form').hidden=directory?.canCreate===false&&!member;
     field('admin-name').value=member?.name??'';field('admin-login').value=member?.login??'';field('admin-kind').value=member?.kind??'';
     get('admin-new-fields').hidden=!!member;get('admin-enabled-field').hidden=!member;
     get<HTMLInputElement>('admin-enabled').checked=member?.enabled??true;
@@ -46,6 +47,7 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
   function button(label:string,work:()=>void){const b=el('button',label);b.type='button';b.className='secondary';b.onclick=()=>{if(!busy())work();};return b;}
   function render(){
     if(!directory)return;
+    get('admin-new').hidden=directory.canCreate===false;
     const kind=field('admin-kind').value,first=el('option','Choose a kind…');first.value='';
     get('admin-kind').replaceChildren(first,...directory.kinds.map(k=>{const o=el('option',k.name);o.value=k.code;return o;}));field('admin-kind').value=directory.kinds.some(k=>k.code===kind)?kind:'';
     get('admin-roles').replaceChildren(...directory.roles.map(role=>{

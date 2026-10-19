@@ -1,4 +1,5 @@
 // Browser checks receive an owned target from run_preview.py, never an arbitrary URL.
+import {X509Certificate,createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,stat} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
@@ -7,13 +8,23 @@ import {setTimeout as delay} from 'node:timers/promises';
 export async function withOwnedBrowser(targetFile,browserPath,run){
   const root=dirname(resolve(targetFile)),target=JSON.parse(await readFile(targetFile,'utf8'));
   const url=new URL(target.url);
-  if(target.suite!=='business_browser_v1'||url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port||url.pathname!=='/'||url.search||url.hash||url.username||url.password||
+  const hosted=target.suite==='hosted_browser_v1';
+  if(!['business_browser_v1','hosted_browser_v1'].includes(target.suite)||url.protocol!==(hosted?'https:':'http:')||url.hostname!=='127.0.0.1'||!url.port||url.pathname!=='/'||url.search||url.hash||url.username||url.password||
     (await readFile(join(root,'.openetrm-preview'),'utf8'))!==target.runId||!(await stat(join(root,'data/postmaster.pid'))).isFile())throw Error('Browser checks require the newly owned preview target.');
-  const health=await(await fetch(new URL('/api/health',url),{signal:AbortSignal.timeout(5000)})).json();
+  const control=new URL(hosted?target.controlUrl:target.url);
+  if(control.protocol!=='http:'||control.hostname!=='127.0.0.1'||!control.port||control.pathname!=='/'||control.search||control.hash||control.username||control.password)throw Error('Invalid owned control target.');
+  const health=await(await fetch(new URL('/api/health',control),{signal:AbortSignal.timeout(5000)})).json();
   if(health.mode!=='local-synthetic-preview'||health.runId!==target.runId)throw Error('HTTP target does not match the owned preview.');
+  const certificateFlags=[];
+  if(hosted){
+    const configuration=JSON.parse(await readFile(join(root,'hosted-check/host.json'),'utf8'));
+    if(configuration.publicOrigin!==url.origin)throw Error('Hosted target does not match owned configuration.');
+    const certificate=new X509Certificate(await readFile(join(root,'hosted-check/tls.pem')));
+    certificateFlags.push('--ignore-certificate-errors-spki-list='+createHash('sha256').update(certificate.publicKey.export({type:'spki',format:'der'})).digest('base64'));
+  }
   if(!(await stat(browserPath)).isFile())throw Error('Configure an installed Chromium-compatible browser executable.');
   const directory=await mkdtemp(join(root,'browser-'));
-  const chrome=spawn(browserPath,['--headless=new','--no-first-run','--disable-background-networking','--disable-component-update','--disable-sync','--disable-extensions','--disable-default-apps','--metrics-recording-only',`--user-data-dir=${directory}`,'--remote-debugging-port=0','about:blank'],{stdio:'ignore'});
+  const chrome=spawn(browserPath,[...certificateFlags,'--headless=new','--no-first-run','--disable-background-networking','--disable-component-update','--disable-sync','--disable-extensions','--disable-default-apps','--metrics-recording-only',`--user-data-dir=${directory}`,'--remote-debugging-port=0','about:blank'],{stdio:'ignore'});
   let socket,sequence=0,passed=0,spawnError;
   const pending=new Map(),errors=[];
   chrome.on('error',error=>{spawnError=error;});
