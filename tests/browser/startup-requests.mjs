@@ -67,12 +67,12 @@ export async function run({command,evaluate,wait,click,submit,persona,check,idle
   await check('later profile and market work never republishes the initial ready mark',"performance.getEntriesByName('leanetrm:workspace-ready','mark').length===1");
   const failure=await command('Page.addScriptToEvaluateOnNewDocument',{source:`const before=window.fetch;window.fetch=async(input,...args)=>{const response=await before(input,...args);if(String(input)!=='/api/workspace/navigation'||!response.ok)return response;const data=await response.json();delete data.curveNames;return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});};`});
   try{
-    await command('Page.navigate',{url:url+'/'});await wait("!document.querySelector('#error').hidden&&"+idle);
+    await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#error')?.hidden===false&&"+idle);
     await check('a missing stored-name directory fails initial hydration without a ready mark or fallback',"performance.getEntriesByName('leanetrm:workspace-ready','mark').length===0&&document.querySelectorAll('.curve-button').length===0&&!window.__startupRequests.includes('/api/curve-names')");
   }finally{await command('Page.removeScriptToEvaluateOnNewDocument',{identifier:failure.identifier});}
   const unavailable=await command('Page.addScriptToEvaluateOnNewDocument',{source:`const earlier=window.fetch;window.fetch=(input,...args)=>new URL(String(input),location.href).pathname==='/api/bootstrap'?Promise.resolve(new Response(JSON.stringify({code:'request_failed'}),{status:503})):earlier(input,...args);`});
   try{
-    await command('Page.navigate',{url:url+'/'});await wait("!document.querySelector('#error').hidden&&"+idle);
+    await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#error')?.hidden===false&&"+idle);
     await check('unverified bootstrap leaves neutral workspace labels without local-preview claims',"document.querySelector('#workspace-host-mode').textContent==='Workspace'&&!/synthetic|disposable|private pilot/i.test(document.querySelector('.side-note').textContent+document.querySelector('#workspace-footer').textContent)");
   }finally{await command('Page.removeScriptToEvaluateOnNewDocument',{identifier:unavailable.identifier});}
   }finally{
