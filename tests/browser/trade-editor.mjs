@@ -7,6 +7,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(path==='/api/futures/editor'&&window.__denyEditor){window.__denyEditor=false;return new Response(JSON.stringify({code:'access_denied'}),{status:403});}
     if(path==='/api/futures/amend')window.__amendCommands.push(JSON.parse(init.body));
     let response=await send(input,init);
+    if(path==='/api/trading/blotter'&&response.ok){const data=await response.json();data.holdings=data.holdings.map(h=>({...h,executedAt:'2020-12-18T15:37:00Z'}));response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
     if(path==='/api/trading/blotter'&&window.__revisionSort&&response.ok){const data=await response.json();data.holdings=data.holdings.slice(0,2).map((h,i)=>({...h,revision:i===0?'10':'2'}));response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
     if((path==='/api/futures/editor'&&window.__holdEditor)||(path==='/api/futures/amend-preview'&&window.__holdPreview)){
       window.__holdEditor=false;window.__holdPreview=false;await new Promise(resolve=>window.__releaseEditor=resolve);window.__releaseEditor=null;
@@ -21,9 +22,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#nav-power');await check('Power TOUs header identifies Settings',"document.querySelector('#page-section').textContent==='WORKSPACE SETTINGS'");await click('#nav-reference');await check('Reference data header identifies Settings',"document.querySelector('#page-section').textContent==='WORKSPACE SETTINGS'");await click('#nav-futures');
   await check('visible product branding is LeanETRM',"document.title.includes('LeanETRM')&&document.querySelector('.brand').textContent.includes('LeanETRM')");
   await check('working knowledge and actual today are explicit beside selected price date',"document.querySelector('#workspace-mode-label').textContent.includes('Working data')&&document.querySelector('#workspace-today').textContent.includes('Today:')&&document.querySelector('#workspace-today').textContent.includes('earlier market date')&&!document.querySelector('#futures-new').disabled");
-  await click('#futures-new');await click('#trade-kind-future');await evaluate("document.querySelector('#futures-contract').selectedIndex=1;document.querySelector('#futures-contract').dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('#futures-book').selectedIndex=1;");
-  await set('#futures-lots','37');await set('#futures-execution','2.9');await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
-  async function open(){await set('#futures-holdings .table-search','37');await click('#futures-holdings .tabulator-row');await wait("document.querySelector('#trade-editor').open");}
+  async function book(lots){
+    await click('#futures-new');await click('#trade-kind-future');await evaluate("document.querySelector('#futures-contract').selectedIndex=1;document.querySelector('#futures-contract').dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('#futures-book').selectedIndex=1;");
+    await set('#futures-lots',lots);await set('#futures-execution','2.9');await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
+  }
+  // Every stubbed execution instant displays minute 37, so free-text search cannot identify the 37-lot trade.
+  await book('12');await book('37');
+  const reference=await evaluate("(()=>{const replies=path=>window.__editorReplies.filter(r=>r.path===path);const id=replies('/api/futures/book').at(-1).data.tradeId;return replies('/api/trading/blotter').at(-1).data.holdings.find(h=>h.tradeId===id).tradeReference;})()");
+  async function open(){await set('#futures-holdings .table-search',reference);await click('#futures-holdings .tabulator-row');await wait("document.querySelector('#trade-editor').open");}
   await open();
   await check('blotter exposes readable trade instrument and revision columns',"document.querySelector('#futures-holdings').textContent.includes('Trade ID')&&document.querySelector('#futures-holdings').textContent.includes('Instrument ID')&&document.querySelector('#trade-editor-reference').textContent.includes('TR-')&&document.querySelector('#trade-editor-reference').textContent.includes('IN-')");
   await check('trade terms keep immutable booking facts above an instrument-owned quantity',"['trader','trade-date','executed'].every(id=>document.getElementById('trade-'+id).readOnly)&&!document.querySelector('#trade-trade-terms #trade-lots')&&document.querySelector('#trade-instrument #trade-lots')&&Boolean(document.querySelector('#trade-trade-terms').compareDocumentPosition(document.querySelector('#trade-instrument'))&Node.DOCUMENT_POSITION_FOLLOWING)");
@@ -34,7 +40,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('uncertain amendment retains original command and closes stale editor',"!document.querySelector('#trade-editor').open&&!document.querySelector('#futures-pending').hidden");
   await click('#futures-retry');
   await check('amendment retry preserves exact operation and economics',"window.__amendCommands.length===2&&JSON.stringify(window.__amendCommands[0])===JSON.stringify(window.__amendCommands[1])&&document.querySelector('#futures-pending').hidden");
-  await set('#futures-holdings .table-search','38');await click('#futures-holdings .tabulator-row');
+  await open();
   await check('accepted amendment exposes current revision and immutable event history',"document.querySelector('#trade-revision').value==='2'&&document.querySelector('#trade-lots').value==='38'&&document.querySelector('#trade-history').textContent.includes('Synthetic editor correction')");
   await set('#trade-revision','1');await wait(idle);
   await check('earlier revision is inspectable but cannot be edited',"document.querySelector('#trade-lots').value==='37'&&document.querySelector('#trade-amend-fields').disabled&&document.querySelector('#trade-editor-mode').textContent.includes('earlier trade revision')");
@@ -46,7 +52,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate("window.__holdEditor=true;document.querySelector('#trade-reload').click()");await wait('!!window.__releaseEditor');
   await evaluate("document.querySelector('#trade-editor').dispatchEvent(new Event('cancel'));window.__releaseEditor()");await wait(idle);
   await check('delayed editor response cannot reopen a cancelled dialog',"!document.querySelector('#trade-editor').open&&document.querySelector('#trade-book').options.length===0");
-  await set('#futures-holdings .table-search','38');await click('#futures-holdings .tabulator-row');await set('#trade-lots','39');await set('#trade-reason','Synthetic delayed preview');
+  await open();await set('#trade-lots','39');await set('#trade-reason','Synthetic delayed preview');
   await evaluate("window.__holdPreview=true;document.querySelector('#trade-amend-form').requestSubmit()");await wait('!!window.__releaseEditor');
   await evaluate("document.querySelector('#trade-editor').dispatchEvent(new Event('cancel'));window.__releaseEditor()");await wait(idle);
   await check('late preview cannot restore cleared economics or prepared amendment',"!document.querySelector('#trade-editor').open&&document.querySelector('#trade-preview-result').hidden&&document.querySelector('#trade-preview-values').textContent===''&&document.querySelector('#trade-effective').textContent===''");
