@@ -109,6 +109,19 @@ replacements and accepted-operation retries then fail with SQLSTATE 42501, with
 all provider, credential and audit rows unchanged. Ordinary creation, replacement
 and replay continue through the provider administration integration suite.
 
+The model and price commands (migration 0051) get the same treatment. Eight direct
+SQL cases let the administrator's grants or request context expire while a command
+waits at the last point its recheck must follow: its principal row, its model row,
+the replay lookup, or its audit write, the last one. Each check names the recheck
+that must refuse it, from the error's PL/pgSQL context: the replay lookup's, the
+model lock's or the final one.
+A market-data grant expiring during an Add price write leaves it
+`currency_unavailable`. Every model, price, provider and audit row stays unchanged.
+Before 0051 applies, its body runs in a rolled-back transaction, once after
+`provider_directory`'s definition changes and once after `actor()`'s privileges
+change; both times it refuses the helper. Under a caller search path that prints
+those definitions differently, it still recognizes its helpers and applies.
+
 ## Hosted job
 
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on

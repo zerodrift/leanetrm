@@ -32,7 +32,9 @@ if(hosted is null)builder.Services.AddDataProtection().UseEphemeralDataProtectio
 else {HostedAuthentication.Configure(builder,hosted);builder.Services.AddSingleton(hostedAuthentication!);}
 builder.Services.AddSingleton<IAntiforgeryAdditionalDataProvider,PreviewAntiforgeryScope>();
 builder.Services.AddAntiforgery(o=> { o.HeaderName="X-Preview-CSRF"; o.Cookie.Name=hosted is null?"openetrm_preview_csrf":"__Host-openetrm_csrf"; o.Cookie.HttpOnly=true; o.Cookie.SameSite=SameSiteMode.Strict; o.Cookie.SecurePolicy=hosted is null?CookieSecurePolicy.None:CookieSecurePolicy.Always; });
-builder.Services.ConfigureHttpJsonOptions(o=>{o.SerializerOptions.PropertyNamingPolicy=JsonNamingPolicy.CamelCase;o.SerializerOptions.Converters.Add(new ExactDecimalJsonConverter());});
+// A member repeated in any letter case is ambiguous, so it never binds.
+builder.Services.ConfigureHttpJsonOptions(o=>{o.SerializerOptions.PropertyNamingPolicy=JsonNamingPolicy.CamelCase;o.SerializerOptions.AllowDuplicateProperties=false;
+    o.SerializerOptions.Converters.Add(new ExactDecimalJsonConverter());});
 builder.Services.AddResponseCompression(o=>{o.EnableForHttps=true;o.Providers.Add<GzipCompressionProvider>();o.MimeTypes=["application/json"];});
 builder.Services.Configure<GzipCompressionProviderOptions>(o=>o.Level=CompressionLevel.Fastest);
 var app=builder.Build();
@@ -103,8 +105,9 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/admin") => (409,"admin_conflict","That account or request already exists. Reload administration."),
             ModelAdministrationException m => (422,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_conflict" || p.SqlState=="23505" && context.Items.ContainsKey("model_admin_attempted")
-                => (409,"model_admin_conflict","This provider or request changed. Reload Settings › AI and replace the key under a new request."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_input" => (422,p.MessageText,"Supply a supported provider, a request identity and the version you are replacing."),
+                => (409,"model_admin_conflict","This provider, model or request changed, or the model already exists. Reload Settings › AI before repeating the change under a new request."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable"
+                => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "amount_format" or "futures_lot" => (422,p.MessageText,"Supply exact supported contract lot terms or deal display precision."),
             PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
@@ -113,7 +116,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState is "23514" or "55000" => (422,"definition_rejected","The value or operation violates an explicit database specification."),
             PostgresException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome cannot be confirmed. Retain the original request and inspect the audit before retrying."),
             Exception when context.Items.ContainsKey("model_admin_attempted") && e is NpgsqlException or OperationCanceledException
-                => (503,"model_admin_outcome_unknown","The key replacement outcome is unknown. Check the provider's credential and audit, or retry with the key under the same request."),
+                => (503,"model_admin_outcome_unknown","The outcome is unknown. Check Settings › AI and its audit, or repeat the identical request."),
             OperationCanceledException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
             NpgsqlException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
             OperationCanceledException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome is unknown. Retain the request identity and inspect the audit before retrying the exact command."),
@@ -783,14 +786,21 @@ api.MapPost("/admin/update",(HttpContext c,AdminUpdate body)=>AdminMutation(c,bo
 // Settings › AI administers the page assistant, which exists only in the local preview (P37).
 if(hosted is null)
 {
-    var modelProviders=new ModelProviders(CredentialCustody.FromEnvironment(),database.Manifest);
-    api.MapGet("/settings/ai/providers",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ManageModelProviders",
-        async(connection,ct)=>Results.Ok(await modelProviders.Directory(connection,ct)),c.RequestAborted))));
-    api.MapPost("/settings/ai/providers/key",(HttpContext c,ReplaceKeyRequest body)=>Locked(c,session=>
+    var (modelProviders,modelCatalog)=(new ModelProviders(CredentialCustody.FromEnvironment(),database.Manifest),new ModelCatalog());
+    Task<IResult> ModelRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
+        database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
+    Task<IResult> ModelCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,session=>
     {
         c.Items["model_admin_attempted"]=true;
-        return database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await modelProviders.ReplaceKey(connection,body,ct)),c.RequestAborted);
-    }));
+        return database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await command(connection,ct)),c.RequestAborted);
+    });
+    api.MapGet("/settings/ai/providers",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,modelProviders.Directory)));
+    api.MapGet("/settings/ai/models",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,async(connection,ct)=>await modelCatalog.Directory(connection,ct))));
+    api.MapPost("/settings/ai/providers/key",(HttpContext c,ReplaceKeyRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.ReplaceKey(connection,body,ct)));
+    api.MapPost("/settings/ai/models/add",(HttpContext c,AddModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddModel(connection,body,ct)));
+    api.MapPost("/settings/ai/models/rename",(HttpContext c,RenameModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.RenameModel(connection,body,ct)));
+    api.MapPost("/settings/ai/models/price",(HttpContext c,AddPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddPrice(connection,body,ct)));
+    api.MapPost("/settings/ai/models/withdraw",(HttpContext c,WithdrawPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.WithdrawPrice(connection,body,ct)));
 }
 }
 var files=new PhysicalFileProvider(webRoot);
