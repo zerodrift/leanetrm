@@ -125,6 +125,11 @@ eligible for scoped cleanup: active and previous images remain, in-use images ar
 preserved, and blocked retention prevents further image accumulation. No broad
 Docker prune is used.
 
+Host egress policy must allow Docker's root-owned loopback proxy to reach TCP 8080
+on the installation's ingress bridge. Scope any required host-only allowance to
+that exact bridge, destination subnet, owner and port. Retire temporary allowances
+for disposable qualification networks with those owned resources.
+
 Environment changes and deployment phases are written atomically. Interruption
 or failure around promotion blocks further automatic switches. No automatic
 application or database rollback is attempted after financial writes could have

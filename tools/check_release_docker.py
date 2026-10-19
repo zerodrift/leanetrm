@@ -94,7 +94,13 @@ def main():
             psql("CREATE ROLE synthetic_runtime LOGIN PASSWORD '" + runtime_password + "' IN ROLE openetrm_runtime;\n"
                  "CREATE ROLE synthetic_authenticator LOGIN PASSWORD '" + auth_password + "' IN ROLE openetrm_authenticator;")
             psql((root / 'bootstrap/seed.sql').read_text())
-            deploy.command([*compose, 'create', '--no-deps', 'api'])
+            original_db = deploy.inspect_container(values['DATABASE_CONTAINER'])
+            deploy.command([*compose, 'up', '--no-start', '--no-deps', 'api'])
+            require(deploy.inspect_container(values['API_CONTAINER'])['State']['Status'] == 'created',
+                    'qualification started its API before private configuration was ready')
+            database = deploy.inspect_container(values['DATABASE_CONTAINER'])
+            require(database['Id'] == original_db['Id'] and database['State']['StartedAt'] == original_db['State']['StartedAt'],
+                    'qualification changed its database while creating the API')
             gateway = json.loads(deploy.command(['docker', 'network', 'inspect', project + '_web_ingress']))[0]['IPAM']['Config'][0]['Gateway']
             host['trustedProxyNetwork'] = gateway + '/32'
             (application / 'host.json').write_text(json.dumps(host))
@@ -138,11 +144,12 @@ def main():
                         'ingressNetwork': project + '_web_ingress', 'databaseNetwork': project + '_database', 'candidatePort': candidate_port,
                         'project': project, 'gatewayAddress': '127.0.0.1', 'gatewayPort': gateway_port}
             before = psql('SELECT (SELECT count(*) FROM trading.trades),(SELECT count(*) FROM power_data.prices),(SELECT count(*) FROM security.hosted_sessions);')
-            original_db = deploy.inspect_container(values['DATABASE_CONTAINER'])['Id']
             deploy.Deployment(settings).run()
             receipt = json.loads((operator / 'state.json').read_text())
             require(receipt.get('activeCommit') == args.commit and receipt['phase'] == 'idle', 'qualification did not complete promotion')
-            require(deploy.inspect_container(values['DATABASE_CONTAINER'])['Id'] == original_db, 'qualification replaced its database')
+            database = deploy.inspect_container(values['DATABASE_CONTAINER'])
+            require(database['Id'] == original_db['Id'] and database['State']['StartedAt'] == original_db['State']['StartedAt'],
+                    'qualification replaced or restarted its database')
             require(psql('SELECT (SELECT count(*) FROM trading.trades),(SELECT count(*) FROM power_data.prices),(SELECT count(*) FROM security.hosted_sessions);') == before,
                     'qualification changed financial/session data')
             deploy.Deployment(settings).run()
