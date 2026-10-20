@@ -5,6 +5,7 @@ using OpenEtrm.Security;
 
 if(args is ["--commodity-lookups"]){CommodityLookupChecks.Run();return;}
 if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();return;}
+if(args is ["--snapshot-inputs"]){SnapshotInputChecks.Run();return;}
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
 if(args is ["--index-fixings"]){IndexFixingChecks.Run();return;}
@@ -374,6 +375,7 @@ passed += FuturesChecks.Run();
 passed += ExchangeFuturesChecks.Run();
 passed += SwapChecks.Run();
 passed += CommodityLookupChecks.Run();
+passed += SnapshotInputChecks.Run();
 passed += IndexFixingChecks.Run();
 passed += PaymentRuleChecks.Run();
 passed += IndependentSideChecks.Run();

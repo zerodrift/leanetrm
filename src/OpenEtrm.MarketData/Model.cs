@@ -114,7 +114,7 @@ public sealed record MarketSnapshot(
     public bool HasSameInputs(MarketSnapshot? other) => other is not null &&
         Id == other.Id && Definitions == other.Definitions && ValuationAt == other.ValuationAt && MarketCutoff == other.MarketCutoff &&
         SelectionPolicy == other.SelectionPolicy && !Selections.IsDefault && !other.Selections.IsDefault &&
-        Selections.Length == other.Selections.Length && Selections.ToHashSet().SetEquals(other.Selections);
+        Selections.Length == other.Selections.Length && (ReferenceEquals(this, other) || Selections.ToHashSet().SetEquals(other.Selections));
 }
 
 public readonly record struct CurveRequest(CurveKey Curve, ContractKey Contract);
