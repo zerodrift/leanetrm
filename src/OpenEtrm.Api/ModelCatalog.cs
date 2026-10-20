@@ -26,9 +26,10 @@ public sealed record AddPriceRequest(Guid OperationId,Guid ModelId,int? Expected
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record WithdrawPriceRequest(Guid OperationId,Guid ModelId,int? ExpectedSequence,string? EffectiveFrom,[property:JsonRequired] string? EffectiveTo);
 // A capability version: each fact with the published source it came from and the date it was checked.
+// The limit binds as a long, so any whole number an administrator enters reaches the rule as a refusal.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record EditModelRequest(Guid OperationId,Guid ModelId,int? ExpectedVersion,
-    int? OutputLimit,string? OutputLimitSource,string? OutputLimitCheckedOn,
+    long? OutputLimit,string? OutputLimitSource,string? OutputLimitCheckedOn,
     string[]? ReasoningEfforts,string? ReasoningSource,string? ReasoningCheckedOn,
     string? IdentifierStabilitySource,string? IdentifierStabilityCheckedOn,
     string[]? AcceptedServed,string? AcceptedServedSource,string? AcceptedServedCheckedOn,
@@ -91,8 +92,9 @@ public sealed partial class ModelCatalog
             :throw Input();
 
     // The database validates the facts under the mapping the model's vendor's adapter applies; this boundary
-    // refuses only what it cannot transport: a missing fact, a null in a list, NUL in text, or a date not
-    // written yyyy-MM-dd. NUL in an accepted served identifier is an invalid identifier, as in Add model.
+    // refuses only what it cannot transport: a missing fact, a limit beyond a database integer, a null in a
+    // list, NUL in text, or a date not written yyyy-MM-dd. NUL in an accepted served identifier is an
+    // invalid identifier, as in Add model.
     public Task<JsonElement> EditModel(NpgsqlConnection connection,EditModelRequest body,CancellationToken ct)
     {
         if(body is not {OperationId:var operation,ModelId:var model,ExpectedVersion:{} expected,
@@ -101,12 +103,12 @@ public sealed partial class ModelCatalog
                 IdentifierStabilitySource:{} stableSource,IdentifierStabilityCheckedOn:{} stableOn,
                 AcceptedServed:{} served,AcceptedServedSource:{} servedSource,AcceptedServedCheckedOn:{} servedOn,
                 ToolsSource:{} toolsSource,ToolsCheckedOn:{} toolsOn,StreamingSource:{} streamingSource,StreamingCheckedOn:{} streamingOn}
-            ||operation==Guid.Empty||model==Guid.Empty||efforts.Concat(served).Any(t=>t is null)
+            ||operation==Guid.Empty||model==Guid.Empty||limit is <int.MinValue or >int.MaxValue||efforts.Concat(served).Any(t=>t is null)
             ||new[]{limitSource,reasoningSource,stableSource,servedSource,toolsSource,streamingSource}.Concat(efforts).Any(t=>t.Contains('\0')))
             throw Input();
         if(served.Any(identifier=>identifier.Contains('\0')))throw Refused("model_identifier_invalid");
         return ModelProviders.Read(connection,"SELECT assistant.edit_model($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)::text",
-            [operation,model,expected,limit,limitSource,ModelProviders.Date(limitOn),efforts,reasoningSource,ModelProviders.Date(reasoningOn),
+            [operation,model,expected,(int)limit,limitSource,ModelProviders.Date(limitOn),efforts,reasoningSource,ModelProviders.Date(reasoningOn),
                 stableSource,ModelProviders.Date(stableOn),served,servedSource,ModelProviders.Date(servedOn),
                 toolsSource,ModelProviders.Date(toolsOn),streamingSource,ModelProviders.Date(streamingOn)],ct);
     }
