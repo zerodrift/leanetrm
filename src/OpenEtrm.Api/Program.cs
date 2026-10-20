@@ -108,7 +108,8 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/admin") => (409,"admin_conflict","That account or request already exists. Reload administration."),
             ModelAdministrationException m => (422,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_conflict" || p.SqlState=="23505" && context.Items.ContainsKey("model_admin_attempted")
-                => (409,"model_admin_conflict","This provider, model or request changed, or the model already exists. Reload Settings › AI before repeating the change under a new request."),
+                => (409,"model_admin_conflict","This provider, model or request changed, or its current state does not allow the change. Reload Settings › AI before repeating the change under a new request."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_provider_unqualified" => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable"
                 => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
@@ -840,6 +841,10 @@ if(hosted is null)
     api.MapGet("/settings/ai/providers",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,modelProviders.Directory)));
     api.MapGet("/settings/ai/models",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,async(connection,ct)=>await modelCatalog.Directory(connection,ct))));
     api.MapPost("/settings/ai/providers/key",(HttpContext c,ReplaceKeyRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.ReplaceKey(connection,body,ct)));
+    api.MapPost("/settings/ai/providers/terms",(HttpContext c,RecordTermsRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.RecordTerms(connection,body,ct)));
+    api.MapPost("/settings/ai/providers/attest",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Attest(connection,body,ct)));
+    api.MapPost("/settings/ai/providers/enable",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Enable(connection,body,ct)));
+    api.MapPost("/settings/ai/providers/disable",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Disable(connection,body,ct)));
     api.MapPost("/settings/ai/models/add",(HttpContext c,AddModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddModel(connection,body,ct)));
     api.MapPost("/settings/ai/models/rename",(HttpContext c,RenameModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.RenameModel(connection,body,ct)));
     api.MapPost("/settings/ai/models/price",(HttpContext c,AddPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddPrice(connection,body,ct)));

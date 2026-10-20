@@ -1,5 +1,6 @@
 """Request contexts for the page-assistant database checks; owned synthetic preview only."""
 import json
+import re
 import subprocess
 import time
 from uuid import UUID, uuid4
@@ -17,6 +18,32 @@ def refused(sql, message):
     # Any other error, and the sentinel itself, escapes the handler.
     return (f"DO $$ BEGIN {sql} RAISE EXCEPTION 'Expected rejection'; "
             f"EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'{message}' THEN RAISE; END IF; END $$;")
+
+
+def check_guard(query, migration, number, guard, changes):
+    """Before migration `number` applies: it refuses a helper whose definition or privileges differ from those it was written against."""
+    body = migration.strip().replace('BEGIN;', '', 1).removesuffix('COMMIT;')
+    for change, helper in changes:
+        try:
+            query(f'BEGIN;{change}{body}ROLLBACK;')
+        except RuntimeError as error:
+            assert f'{guard}: unexpected helper {helper}' in str(error), error
+        else:
+            raise AssertionError(f'Migration {number} applied over a changed {helper}')
+    print(f'PASS migration {number} refuses a changed definition or privilege of a helper it relies on', flush=True)
+    # A caller's search path changes how pinned definitions print; the migration sets its own.
+    query(f'BEGIN;SET LOCAL search_path=security,assistant,public;{body}ROLLBACK;')
+    print(f'PASS migration {number} recognizes its helpers under any caller search path', flush=True)
+
+
+def refused_at(failure, code, site):
+    """Whether a verbose error output refuses with `code` at the frame matching `site`: for an
+    authorization error, the recheck that called actor()."""
+    frames = [line.removeprefix('CONTEXT:  ') for line in (failure or '').splitlines()]
+    frames = [frame for frame in frames if frame.startswith('PL/pgSQL function')]
+    if code not in (failure or '') or not frames:
+        return False
+    return re.search(site, frames[1] if frames[0].startswith('PL/pgSQL function assistant.actor()') and len(frames) > 1 else frames[0]) is not None
 
 
 def state(*tables):

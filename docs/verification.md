@@ -124,6 +124,31 @@ those definitions differently, it still recognizes its helpers and applies. Migr
 0053 gets the same checks, after Add price's helper definition changes and after the
 currency read's privileges change.
 
+Provider qualification (migration 0058) has its own checks after the model checks.
+They confirm that the release installs one confirmed usage mapping, the Messages
+mapping with its sources, which its adapter applies and which a vendor without a
+provider row already lists, and that qualification follows the applied mapping, not
+any mapping confirmed for the vendor. Writing nothing, each terms field is refused
+when empty, longer than 1000 characters, surrounded by ASCII or Unicode spaces, or
+containing a control, bidirectional control or line separator character; each source
+when it is not https, names no well-formed host, has a port, user information, a
+space or a non-ASCII character, or exceeds 2048 characters; and each date when it is
+not a calendar date written yyyy-MM-dd or has not begun anywhere. They record terms,
+attest and enable the Anthropic provider, then show that Replace key and new terms
+each disable it and leave it unattested until it is attested and enabled again, that
+Disable keeps the attestation so Enable alone resumes it, and that a provider with a
+key, terms and an attestation but no confirmed mapping stays
+`model_provider_unqualified`. A stale version for each command, a request identity
+reused for other terms or another command, a second attestation of the same key and
+terms, and enabling an enabled or disabling a disabled provider are conflicts;
+identical and overlapping retries of each command return the original outcome and
+write once. The database itself refuses each command to a viewer and to a delegated
+agent. Six direct SQL cases let the request context expire while Record terms, Attest
+or Enable waits for its provider row or its audit write, and each names the recheck
+that refuses it; every row stays unchanged. Before 0058 applies, its body is refused
+after Replace key's definition changes and after the provider state helper's
+privileges change.
+
 Settings › AI has its own browser scenario, which runs after those HTTP checks in the
 same isolated preview (`--assistant-check --browser-check`). From the page's own
 session it creates an administrator without market-data access and a pricing

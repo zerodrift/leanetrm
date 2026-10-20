@@ -1,9 +1,8 @@
 """Model and price administration for the page assistant; owned synthetic preview only."""
 import json
-import re
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
-from assistant_context import Contexts, expect, holding, refused, state, waiting
+from assistant_context import Contexts, check_guard, expect, holding, refused, refused_at, state, waiting
 from preview_client import PreviewClient
 
 MODELS = 'settings/ai/models'
@@ -14,22 +13,6 @@ RATES = {'uncachedInput': '1.234', 'cacheRead': '0.0123', 'cacheWrite': '2.5', '
 TIER = {'threshold': 123456, 'rates': {'uncachedInput': '2.468', 'cacheRead': '0.0246', 'cacheWrite': '5', 'output': '19.74'}}
 APPEND_PRICE = ('assistant.append_price(text,uuid,uuid,integer,uuid,uuid,text,numeric,numeric,numeric,numeric,bigint,'
                 'numeric,numeric,numeric,numeric,timestamp with time zone,timestamp with time zone)')
-
-
-def check_guard(query, migration, number, guard, changes):
-    """Before migration `number` applies: it refuses a helper whose definition or privileges differ from those it was written against."""
-    body = migration.strip().replace('BEGIN;', '', 1).removesuffix('COMMIT;')
-    for change, helper in changes:
-        try:
-            query(f'BEGIN;{change}{body}ROLLBACK;')
-        except RuntimeError as error:
-            assert f'{guard}: unexpected helper {helper}' in str(error), error
-        else:
-            raise AssertionError(f'Migration {number} applied over a changed {helper}')
-    print(f'PASS migration {number} refuses a changed definition or privilege of a helper it relies on', flush=True)
-    # A caller's search path changes how pinned definitions print; the migration sets its own.
-    query(f'BEGIN;SET LOCAL search_path=security,assistant,public;{body}ROLLBACK;')
-    print(f'PASS migration {number} recognizes its helpers under any caller search path', flush=True)
 
 
 def check_upgrade(query, migration):
@@ -383,15 +366,7 @@ def run_checks(url, query, psql, manifest, environment):
     # As credential replacement does (0045), each command rechecks its authority after its principal
     # and model row waits, before it replays an earlier outcome, and after its writes. Each case lets
     # the administrator's authority expire while the command waits at the last point its recheck
-    # must follow, and names the frame that must refuse it: for an authorization error, the recheck
-    # that called actor().
-    def refused_at(failure, code, site):
-        frames = [line.removeprefix('CONTEXT:  ') for line in (failure or '').splitlines()]
-        frames = [frame for frame in frames if frame.startswith('PL/pgSQL function')]
-        if code not in (failure or '') or not frames:
-            return False
-        return re.search(site, frames[1] if frames[0].startswith('PL/pgSQL function assistant.actor()') and len(frames) > 1 else frames[0]) is not None
-
+    # must follow, and names the frame that must refuse it.
     rows = state('models', 'price_revisions', 'providers', 'administration_audit')
     sequence, version = (query(f"SELECT {column} FROM assistant.models m WHERE id='{anthropic['id']}';")
                          for column in ('(SELECT count(*) FROM assistant.price_revisions r WHERE r.model_id=m.id)', 'version'))
