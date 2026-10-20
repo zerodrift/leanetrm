@@ -185,9 +185,10 @@ Fixing lifecycle events, persisted recurring payment strips, persisted portfolio
 physical products and PPAs remain work. Draft swap quote risk supports unresolved
 observations; final index fixings remain frozen inputs.
 FixedSide and FloatingSide now independently generate and value their own
-schedules through Side.PV. Each side currently has one payment; payment/delivery
-dates and DFs can differ. Side results retain normalized unit quantities, lookup
-terms/weights, prices/lineage, exact cash/PV and discount construction evidence.
+schedules through Side.PV. Each constituent monthly side has one payment;
+payment/delivery dates and DFs can differ. Side results retain normalized unit
+quantities, lookup terms/weights, prices/lineage, exact cash/PV and discount
+construction evidence.
 Instrument.PV only sums membership-signed side PVs under one full context; trade
 quantity scales afterward. Persisted recurring periods and fixing lifecycle events remain
 work; the browser inspector now exposes the actual valued payment and reset rows. Options retain explicit sibling references

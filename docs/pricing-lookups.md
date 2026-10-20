@@ -16,9 +16,10 @@ There is no cross-request result cache or implicit discount-curve selection.
 observation identity. Missing exact pillars fail. It does not invent a zero-rate
 interpolation convention. Payment discount factors retain the existing explicit
 log-linear discount interpolation policy and require bracketing pillars; there
-is no extrapolation. Its integer-root arithmetic, rounding and maximum 3,660-day
-pillar interval remain unchanged. Sparse maximum-span interpolation is materially
-more expensive than an indexed exact-pillar lookup.
+is no extrapolation. Exact integer bounds accelerate the root search while
+preserving its final exact half-integer comparison, rounding policy and maximum
+3,660-day pillar interval. Sparse interpolation still costs more than an indexed
+exact-pillar lookup.
 
 Amount formatting, increment rounding and rate-factor construction share
 `OpenEtrm.Shared.Numerics.IntegerRounding`. Units, financial conventions, numeric
@@ -76,14 +77,17 @@ alone does not wire booked swaps into the existing risk screen/API.
 These are synthetic, warmed, single-thread managed measurements on macOS 26.6.2
 Arm64, .NET 10.0.13, with 14 logical processors. They exclude database, authorization,
 transport and hosted-page latency. Financial outputs/evidence match independent
-checks. Rate and risk comparisons disable tiered compilation. Three curve-build
-samples and five or seven other samples establish bounded observations, not a
-concurrent-throughput or service-latency qualification.
+checks. Rate and risk comparisons disable tiered compilation. Curve builds use
+three timed samples, exact-pillar rate preparation seven, sparse rate preparation
+three, and draft risk five. The 100,000-query row is one aggregate pass after
+warm-up. These establish bounded observations, not a concurrent-throughput or
+service-latency qualification.
 
 | Workload | Before | After |
 | --- | ---: | ---: |
 | 7,305 dated contracts; 3 curves; 14,610 inputs; 21,915 evaluated nodes; one scenario | 219.77 ms | 57.34 ms |
 | 128 payment dates; 128 rate pillars; 640 snapshot inputs; one valuation | 84.26 ms / 114.47 MB allocated | 0.73 ms / 0.98 MB |
+| 360 monthly payment dates; 31 rate pillars; 329 interpolations; one valuation | 675.59 ms / 42.94 MB allocated | 91.07 ms / 10.23 MB |
 | 100,000 exact-pillar queries; 360 stored pillars | 42.78 ms / 8.80 MB | 1.46 ms / zero query allocation |
 | Draft basket: 120 consumed contracts; 1,080 catalog contracts/observations; 120 factors; 241 scenarios | 222.62 ms | 211.61 ms |
 
@@ -93,6 +97,18 @@ fell from 119.36 MB to 110.94 MB. Those are allocated bytes, not retained or pea
 memory. The draft basket's distinct observed built values fell from 1,320 to 360;
 241 pricing callbacks and the exact financial results were unchanged.
 
+The sparse-rate case uses explicitly selected 4% simple annual rates, a short
+initial pillar and annual pillars thereafter, with gaps of at most 366 days.
+Every monthly factor matches independent 90- and 150-digit decimal logarithm/
+exponential oracles using the retained endpoint factors and ties-to-even at 18
+digits. A zero-rate control isolates lookup/preparation from nontrivial root
+work. The comparison changes only the exact root search: a weighted arithmetic
+upper bound and integer Newton refinement near the root, with binary fallback
+for distant bounds. Date coverage, interpolation policy and final rounding are
+unchanged. This measurement covers DF preparation, not a complete swap valuation.
+Annual gaps do not qualify every supported 3,660-day interval or large factor
+ratio; those remain more expensive workloads.
+
 The executable monthly-strip benchmark is separate from those before/after
 comparisons. It prices one instrument against a prebuilt commodity market, with
 one explicit rate pillar per payment date. It also measures one contract's shock
@@ -101,6 +117,18 @@ Model, fixture and portfolio construction are excluded; risk includes market
 building and all holding results. Dense pillars do not measure sparse-interval
 interpolation. The report includes samples, allocated bytes, actual evaluated work
 and point-in-time managed/resident memory; peak memory is not measured.
+
+Five timed samples after one warm-up on the final implementation gave:
+
+| Term | Commodity contracts / rate pillars | One-instrument price | One-factor risk across 10,000 bindings | Allocated bytes, price / risk |
+| --- | ---: | ---: | ---: | ---: |
+| 10 years | 120 / 120 | 1.61 ms | 117.88 ms | 2.21 MB / 96.48 MB |
+| 30 years | 360 / 360 | 5.21 ms | 132.45 ms | 6.42 MB / 107.08 MB |
+
+These are medians. The fixtures contain 240/720 selected inputs and 240/720 side
+payments respectively. The three risk scenarios rebuild 122/362 curve nodes and
+reuse 238/718; base builds evaluate 120/360 nodes. Managed-heap/resident point
+measurements were 51.19/99.27 MB and 70.68/125.29 MB respectively.
 
 ```sh
 dotnet run --project tests/OpenEtrm.Rates.Checks -c Release -- --monthly-swap-benchmark
