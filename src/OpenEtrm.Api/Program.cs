@@ -611,29 +611,50 @@ api.MapPost("/corrections",(HttpContext c,CorrectionRequest body)=>Locked(c,asyn
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to current input editing before changing observations.");
     var frame=Frame(session,body.SnapshotId);
-    if (!frame.ObservationIds.Contains(body.ObservationId)) throw new MarketDataException("snapshot_input","Only an explicitly selected observation can be corrected here.");
+    // The correction replaces the pin in whichever bundle of this snapshot holds it (D172).
+    var held=frame.ObservationIds.Contains(body.ObservationId)?[]:(database.Manifest.SwapMarkets??[])
+        .Select(m=>(m.RevisionId,Pins:database.SwapMarketPins(frame,m)??[])).Where(m=>m.Pins.Contains(body.ObservationId)).ToArray();
+    if (held.Length>1) throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous.");
+    if (!frame.ObservationIds.Contains(body.ObservationId)&&held.Length==0) throw new MarketDataException("snapshot_input","Only an explicitly selected observation can be corrected here.");
     if (session.Frames.Count>=128) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
     if (string.IsNullOrWhiteSpace(body.Value)) throw new MarketDataException("missing_value","Enter an exact decimal value.");
     c.Items["correction_attempted"]=true;
-    var id=await database.WithIdentity(Profile(session),"ImportObservations",(connection,ct)=>database.Correct(connection,body.ObservationId,body.Value,ct),c.RequestAborted);
-    var updated=frame.SelectRevision(body.ObservationId,id,"Edited inputs");
+    var revision=held.Length==1?held[0].RevisionId:database.Manifest.RevisionId;
+    var id=await database.WithIdentity(Profile(session),"ImportObservations",(connection,ct)=>database.Correct(connection,revision,body.ObservationId,body.Value,ct),c.RequestAborted);
+    var updated=held.Length==0?frame.SelectRevision(body.ObservationId,id,"Edited inputs")
+        :frame.SelectSwapMarketRevision(revision,held[0].Pins,body.ObservationId,id,"Edited inputs");
     session.Frames.Add(updated.Id,updated);
     return Results.Ok(new {frame=updated,observationId=id});
 }));
+// The pin a chosen revision replaces: the one pin of the same exact source fact and time.
+static Guid SameFact(PreviewData data,ImmutableArray<Guid> pins,Guid chosenId)
+{
+    var chosen=data.Observation(chosenId);
+    var previous=pins.Where(id=>
+    {
+        var o=data.Observation(id);
+        return o.Id("series_id")==chosen.Id("series_id")&&o.Text("source_event_id")==chosen.Text("source_event_id")&&o.Text("source_code")==chosen.Text("source_code")&&o.Text("role")==chosen.Text("role")&&o.Instant("observed_at")==chosen.Instant("observed_at");
+    }).ToArray();
+    if (previous.Length!=1) throw new MarketDataException("selection_mismatch","Select a revision of the same exact source fact and time.");
+    return previous[0];
+}
 api.MapPost("/select-observation",(HttpContext c,SelectionRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to current input editing before changing selected revisions.");
     var frame=Frame(session,body.SnapshotId);
     var updated=await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>
     {
-        var data=await database.Read(connection,ct); var chosen=data.Observation(body.ObservationId);
-        var previous=frame.ObservationIds.Where(id=>
-        {
-            var o=data.Observation(id);
-            return o.Id("series_id")==chosen.Id("series_id")&&o.Text("source_event_id")==chosen.Text("source_event_id")&&o.Text("source_code")==chosen.Text("source_code")&&o.Text("role")==chosen.Text("role")&&o.Instant("observed_at")==chosen.Instant("observed_at");
-        }).ToArray();
-        if (previous.Length!=1) throw new MarketDataException("selection_mismatch","Select a revision of the same exact source fact and time.");
-        return frame.SelectRevision(previous[0],body.ObservationId,"Explicit revision selection");
+        // The chosen revision replaces the pin of the same source fact in the bundle that holds it (D172).
+        var data=await database.Read(connection,ct);
+        if(!data.HasObservation(body.ObservationId))
+            foreach(var market in database.Manifest.SwapMarkets??[])
+            {
+                if(database.SwapMarketPins(frame,market) is not {} pins||!await database.SwapMarketAvailable(connection,market,ct))continue;
+                var bundle=await database.Read(connection,ct,market.RevisionId);
+                if(bundle.HasObservation(body.ObservationId))
+                    return frame.SelectSwapMarketRevision(market.RevisionId,pins,SameFact(bundle,pins,body.ObservationId),body.ObservationId,"Explicit revision selection");
+            }
+        return frame.SelectRevision(SameFact(data,frame.ObservationIds,body.ObservationId),body.ObservationId,"Explicit revision selection");
     },c.RequestAborted);
     if (session.Frames.Count>=128) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
     session.Frames.Add(updated.Id,updated); return Results.Ok(new {frame=updated});

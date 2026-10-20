@@ -168,6 +168,9 @@ def main():
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
             reference,market,manifest=prepare_execution(reference,market,manifest)
+        if args.index_fixing_check:
+            from check_index_fixings import prepare as prepare_index_fixings
+            reference,market,manifest=prepare_index_fixings(reference,market,manifest)
         if args.custom_curves_check or args.with_custom_curves or args.market_dates_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest)

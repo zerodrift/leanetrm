@@ -221,6 +221,17 @@ public sealed record SidePaymentSchedule
         SideId = sideId; Currency = currency; UnitQuantity = unitQuantity;
         Implementation = implementation; Payments = payments;
     }
+    // A due payment needs explicit lifecycle state: it is never priced or discounted.
+    public void RequireUndue(MarketSnapshot snapshot)
+    {
+        if (snapshot is null) throw new MarketDataException("side_context", "An explicit valuation snapshot is required.");
+        foreach (var payment in Payments) RequireUndue(payment, snapshot);
+    }
+    private static void RequireUndue(SidePaymentPlan payment, MarketSnapshot snapshot)
+    {
+        if (snapshot.ValuationAt >= payment.PaymentAt)
+            throw new MarketDataException("side_payment_due", "A due side payment requires explicit lifecycle state before valuation.");
+    }
     internal SideValuation Evaluate(SideValuationContext context)
     {
         if (context is null) throw new MarketDataException("side_context", "A side valuation context is required.");
@@ -228,8 +239,7 @@ public sealed record SidePaymentSchedule
         {
             if (payment.FirstFixingAt is { } fixing && context.Snapshot.ValuationAt >= fixing)
                 throw new MarketDataException("swap_fixing_required", "This projection-only side requires retained actual fixings from its first fixing onward.");
-            if (context.Snapshot.ValuationAt >= payment.PaymentAt)
-                throw new MarketDataException("side_payment_due", "A due side payment requires explicit lifecycle state before valuation.");
+            RequireUndue(payment, context.Snapshot);
             return payment.Prices.Select(context.Resolve).ToImmutableArray();
         }).ToImmutableArray();
         var factors = context.Discounting.Resolve(this, context.Snapshot);
