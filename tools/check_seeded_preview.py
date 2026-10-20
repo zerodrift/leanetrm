@@ -1,8 +1,8 @@
 """Independently check weekday demo holdings in the owner's synthetic preview."""
 from datetime import datetime
 from decimal import Decimal
-from preview_client import PreviewClient
-from seed_preview_positions import seed_positions
+from preview_client import PreviewClient, initial_frame
+from seed_preview_positions import BOOKS, seed_positions
 
 
 def run_checks(url, run_id, owned_root):
@@ -33,3 +33,16 @@ def run_checks(url, run_id, owned_root):
     check('new backdated demo trades do not leak into an earlier knowledge receipt', not any(r['tradeId'] in ids for r in historical['holdings']))
     check('all demo economic effective dates are weekdays and settlement remains unprocessed', all(datetime.fromisoformat(r['economicEffectiveAt']).weekday() < 5 and r['settlement'] == 'unprocessed' for r in rows))
     print(f'{passed} seeded preview checks passed.', flush=True)
+
+
+def run_swap_book_checks(client, seeded):
+    """Seeded swaps share Book B, so the seeded Book A stays futures-only for shared futures shocks."""
+    client.call('profile', {'profile': 'trader'})
+    frame = initial_frame(client.call('workspace'), '2020-12-18')
+    context = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
+    view = {'mode': 'trades', 'bookIds': [], 'portfolioIds': [], 'groupBy': [], 'measures': [], 'pivotConvention': None}
+    def trades(book):
+        return {r['tradeId'] for r in client.call('trading/blotter', {'context': context, 'view': {**view, 'bookIds': [book]}})['holdings']}
+    swaps = {r['tradeId'] for r in seeded}
+    assert len(swaps) == 16 and swaps <= trades(BOOKS[1]) and not swaps & trades(BOOKS[0]), 'seeded swaps belong to Book B only'
+    print('PASS seeded preview: the sixteen swap examples share Book B, leaving seeded Book A futures-only', flush=True)

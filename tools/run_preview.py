@@ -460,6 +460,8 @@ def main():
                 seeded=seed_swaps(url,run_id,temporary,session)
                 assert len(seeded)==16 and seeded==seed_swaps(url,run_id,temporary,session)
                 print('PASS sixteen synthetic swap examples seed idempotently across all four weekdays',flush=True)
+                from check_seeded_preview import run_swap_book_checks
+                run_swap_book_checks(session,seeded)
         else:
             child.wait()
     except KeyboardInterrupt:
