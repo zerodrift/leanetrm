@@ -137,6 +137,47 @@ reaches session storage, local storage or the URL, its field clears when the req
 settles, and Retry asks for it again. A revoked administrator keeps no model, price
 or audit rows on screen, a viewer sees no AI settings, and hosted mode hides them.
 
+The Messages adapter has a conformance suite
+(`dotnet run --project tests/OpenEtrm.Api.Checks -- --model-providers`, also part of
+the managed checks). A fake provider, injected as an `HttpMessageHandler`, asserts
+that every request reaches only the documented endpoint with only the version and key
+headers, and replays hand-written synthetic recordings:
+- text, and two tool requests, one assembled from partial JSON split inside an escape
+  and one whose deltas carry nothing;
+- a two-step loop whose signature and redacted reasoning echo byte for byte, with a
+  block's unnamed field kept, while the cache breakpoint moves to the last tool result;
+- reasoning text streamed despite omission, which reaches no event and is never echoed;
+- usage:
+  - final usage with cache and reasoning, read from `message_start` where the caching
+    guide places it and cumulatively across two `message_delta` events;
+  - unrecognized when a priced count is reported by no event, falls or is malformed,
+    when the last `message_delta` has no usage, when a modifier differs from the one
+    requested, or when an unnamed field is not exactly zero;
+  - the streaming guide's basic example, which reports no cache counts, is
+    unrecognized rather than zero;
+- stop reasons: a tool request cut off by the output limit, refusals before output (with
+  no content, after reasoning only and after an empty block) and after text;
+- errors:
+  - the documented error statuses, every documented streamed error type and an unknown
+    one;
+  - a 400 body that is malformed, invalid UTF-8, holds a lone surrogate or stalls,
+    which keeps its classification;
+- malformed streams: invalid JSON or UTF-8, escaped lone surrogates, repeated names,
+  misplaced or mismatched events, a block after `message_delta`, unknown blocks and
+  deltas, a block or tool starting with content, a thinking block without its
+  signature, an encoded stream and a success that is not an event stream;
+- the byte bound at exactly its value and one byte past it;
+- connections never established, lost mid-stream or idle;
+- cancellation before sending, between events, during a pending read and during the
+  header wait;
+- a served model neither requested nor accepted;
+- requests refused before sending: missing reasoning, malformed identifiers and keys,
+  unset lists, an empty system instruction or text, no tool results, and a reply
+  replayed to another model.
+
+Message and request identifiers, reasoning, signatures, error text and the key reach
+no event, and nothing is written to the console. No check calls a real provider.
+
 ## Hosted job
 
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on

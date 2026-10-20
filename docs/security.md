@@ -350,3 +350,13 @@ Migration 0053 moves Add price's cache-read rule into a helper that the director
 states. It first verifies the definitions it replaces and the authority helpers they
 rely on, as 0051 does, keeps their owners and grants, and leaves the new helper
 unexecutable by the runtime.
+
+The Messages adapter (step 4) sends the key only in its `x-api-key` header, after
+checking its format, so a malformed key never reaches a header error. It reads an
+error body only to classify a 400 and never stores, logs or returns it. Streamed
+reasoning text is discarded, and signed reasoning stays in the reply it returns for
+replay within a turn. It reads at most the runtime set's response bytes and waits at
+most its idle timeout for headers and each read. It takes an HTTP handler rather than
+a client, which would buffer a whole response before the bound applied. No route
+calls it yet; the handler it will use, with no proxy, no redirects and default
+certificate validation, comes with Test.

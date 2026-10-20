@@ -19,8 +19,10 @@ reads and Replace key, Add model, Rename, Add price and Withdraw price, on those
 Settings › AI tabs. Model capability versions (§5.1), and with them model status,
 Enable, Disable, Attest and Test, come with step 4's qualification, which first consumes
 them, as do the Providers tab's endpoint, terms, owner visibility, attestation and last
-test. The turn's working-data pin (§7.2), which binds a captured context, is not
-implemented.
+test. Step 4 has begun with the provider-neutral boundary (§6.1) and the Messages
+adapter with its usage mapping `messages_v1` (§6.2), which pass the Messages
+conformance suite against a fake provider (§6.3); no route calls a provider yet. The
+turn's working-data pin (§7.2), which binds a captured context, is not implemented.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -298,9 +300,13 @@ audit as history.
 
 - A provider-neutral boundary (D06) streams a response for normalized messages, a
   system instruction, tool definitions and explicit parameters, with cancellation. It
-  yields typed events: text delta, tool request, completion with stop reason,
-  normalized usage and error category. Vendor types and response ids stay inside the
-  adapter. Adapters use the in-box HTTP client, no vendor SDKs.
+  yields text deltas, then exactly one ending: a completion with its stop reason (end
+  of turn, tool use, output limit, context window or refusal), normalized usage and
+  the served identifier, with the tool requests and the reply to replay when it
+  stopped for tools; or a failure with its category and usage. A request missing a
+  required value is refused before anything is sent. Vendor types and response ids
+  stay inside the adapter. Adapters use the in-box HTTP client and server-sent events
+  reader, no vendor SDKs.
 
 | Providers | Protocol | Endpoint path |
 | --- | --- | --- |
@@ -316,9 +322,18 @@ audit as history.
   choice "auto" and parallel tool calls; caching (the agent switch places explicit
   five-minute breakpoints on the Messages API; elsewhere caching is automatic at
   standard retention); and provider-side response storage disabled where offered.
+  A parameter that some supported model refuses is withheld, and where the response
+  reports its value, that value must be the standard one. The Messages mapping
+  requests adaptive thinking with its text omitted, an explicit effort, standard-only
+  capacity and global inference. It sends no sampling parameters (temperature, top_p,
+  top_k): current models accept only their defaults, and earlier ones none at all with
+  thinking. It sends no speed, which some models accept only with a beta header; fast
+  mode is an opt-in, and a reported fast speed makes usage `usage_unrecognized`. A
+  model that rejects one of the parameters sent cannot pass Test.
 - A model is allowed only by an identifier its vendor documents as not repointed. A
-  served identifier that is neither requested nor accepted keeps its usage as
-  `usage_unrecognized`, storing no cost, and fails the turn with `model_mismatch`.
+  served identifier that is neither requested nor accepted is checked at the first
+  event that names it, so nothing it wrote is published. Its usage is
+  `usage_unrecognized`, storing no cost, and the turn fails with `model_mismatch`.
 - Identifiers match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, optionally narrowed per
   adapter (`model_identifier_invalid`). The `generateContent` adapter inserts the
   identifier as one path segment and sends nothing if the built URL's scheme, host,
@@ -339,14 +354,26 @@ audit as history.
   another dimension. Each mapping states its output formula; for `generateContent`,
   output is `candidatesTokenCount` + `thoughtsTokenCount` and reasoning is
   `thoughtsTokenCount`.
-- Only final values count: `message_delta`, the terminal Responses event, the last
-  chunk's `usageMetadata`.
-- A normally ended stream with a missing usage block or reported dimension, an unnamed
-  nonzero field or an inconsistent total is `usage_unrecognized`. In a cancelled,
-  failed or interrupted stream, a reported dimension without its final value is
-  unknown and the call is `usage_unknown`; unknown never becomes zero.
+- Only final values count. For Messages, input and cache counts are `message_start`'s,
+  where the vendor documents them for streaming, as updated by any `message_delta`
+  that reports them, and output and reasoning are the last `message_delta`'s; the
+  counts are cumulative and may not fall. For Responses, the terminal event; for
+  `generateContent`, the last chunk's `usageMetadata`.
+- A normally ended stream with a missing usage block or priced dimension, a count
+  that falls, a field the mapping does not name that holds anything but nulls and
+  exact zeros, a reported service tier, region or speed other than the one requested,
+  or an inconsistent total is `usage_unrecognized`. Reasoning is never priced, so a
+  reasoning count the stream does not report is unknown and leaves usage recognized.
+  In a cancelled, failed or interrupted stream, a reported dimension without its final
+  value is unknown and the call is `usage_unknown`; unknown never becomes zero.
+- A Messages refusal before any output is `usage_unrecognized`: the vendor bills it
+  only in some refusal categories and says that list may change. Output is text or a
+  tool request; a refusal after reasoning alone or an empty block is still before it.
+  A refusal after output is billed as reported.
 - Each mapping lists error statuses that are not billed. Any other status may have
-  been billed, so the attempt's input is unknown.
+  been billed, so the attempt's input is unknown. The Messages documentation names
+  none, so no Messages error after sending is retried. A connection that was never
+  established sent nothing, and its input is known zero.
 
 ### 6.3 Qualification
 
@@ -584,7 +611,15 @@ The tool set is fixed; each tool is switched on per agent version.
   split into events; any other oversize event is `event_too_large`. Nothing is
   truncated.
 - Provider errors classify as authentication, rate limit, overloaded, invalid request,
-  context window exceeded or transport. Only transport and overload are retried, on
+  context window exceeded or transport. For Messages, 401, 402 and 403 are
+  authentication; 429 is rate limit; 500, 504, 529 and any other server status are
+  overloaded; any other client status is an invalid request, except a 400 whose
+  documented message says the prompt is too long. An error body that cannot be read
+  that way keeps its status's classification. A streamed error classifies by its
+  type. A response the mapping cannot read, such as malformed JSON or UTF-8, a
+  repeated name, an event out of order, an unknown content block or an unexpected stop
+  reason, is a transport failure; unknown event types are skipped, as the vendor's
+  versioning policy requires. Only transport and overload are retried, on
   the same provider and model, when the failed attempt published nothing and its input
   is known; each attempt has its own usage record. Otherwise the turn fails with that
   error's code: `model_provider_authentication`, `model_provider_rate_limited`,
