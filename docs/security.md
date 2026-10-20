@@ -345,4 +345,8 @@ access to the currency's sealed reference revision (D131), checked before and ag
 after its writes, otherwise `currency_unavailable`, so a model administrator prices
 models through an operator-assigned role that holds it (D152). Withdraw price names
 no currency and needs no such access. Currency choices and labels are the reader's
-own scoped reference read.
+own scoped reference read, and each choice names its catalog and revision.
+Migration 0053 moves Add price's cache-read rule into a helper that the directory also
+states. It first verifies the definitions it replaces and the authority helpers they
+rely on, as 0051 does, keeps their owners and grants, and leaves the new helper
+unexecutable by the runtime.

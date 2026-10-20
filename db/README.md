@@ -448,3 +448,15 @@ and grants and raises `swap_discount_ambiguous` rather than choosing between tie
 latest mappings (D166). The migration takes the security epoch and trading
 publication fences and refuses an unexpected lookup definition. As a new migration
 it stops automatic hosted updates until the operator qualifies a new baseline (D135).
+
+## Page-assistant cache-read rule
+
+[0053_model_cache_read_rule.sql](migrations/0053_model_cache_read_rule.sql) adds
+`assistant.cache_read_required`: a rate set must price cache reads on every protocol
+except the Messages API, which caches only on request
+([ai-assistant.md](../docs/ai-assistant.md) §5.3, §6.1). Add price applies the helper
+in place of its inline rule, and the Models & prices directory states it for each
+model, so Settings › AI never restates the rule. The replaced definitions keep 0051's
+checks, owners and grants, and the migration first verifies them and the authority
+helpers they rely on. As a new migration it stops automatic hosted updates until the
+operator qualifies a new baseline (D135).

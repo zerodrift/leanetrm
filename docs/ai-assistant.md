@@ -217,11 +217,13 @@ audit as history.
 - Rates are exact decimals per million tokens, below 10^12 with at most 12 fractional
   digits, for uncached input, cache read, cache write and output. Uncached input and
   output are always offered; cache read and cache write may be "not offered", except
-  cache read on protocols that cache automatically.
+  cache read on protocols that cache automatically. The Models & prices directory
+  states for each model whether cache read is required, by the rule pricing applies.
 - Each rate revision binds a currency row of a sealed reference revision. The price
   operation rechecks the actor's current `ReadMarketData` access to that catalog
   (D131), otherwise `currency_unavailable`; choices and Usage labels use the same
-  scoped read (D124).
+  scoped read (D124). Revisions can repeat a currency, so each choice also names its
+  catalog and revision.
 - An optional long-prompt tier has a threshold, a token count from 1 to below 10^12,
   and a second rate set offering exactly the dimensions the first offers. When uncached
   input + cache read + cache write exceeds the threshold, the second set prices every

@@ -138,6 +138,9 @@ def main():
             if args.assistant_check and migration.name=='0051_model_catalog.sql':
                 from check_model_catalog import check_upgrade as check_catalog_upgrade
                 check_catalog_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0053_model_cache_read_rule.sql':
+                from check_model_catalog import check_rule_upgrade
+                check_rule_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture

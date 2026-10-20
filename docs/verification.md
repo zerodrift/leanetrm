@@ -120,7 +120,9 @@ A market-data grant expiring during an Add price write leaves it
 Before 0051 applies, its body runs in a rolled-back transaction, once after
 `provider_directory`'s definition changes and once after `actor()`'s privileges
 change; both times it refuses the helper. Under a caller search path that prints
-those definitions differently, it still recognizes its helpers and applies.
+those definitions differently, it still recognizes its helpers and applies. Migration
+0053 gets the same checks, after Add price's helper definition changes and after the
+currency read's privileges change.
 
 ## Hosted job
 
