@@ -20,7 +20,8 @@ export type PriceEntry={currency:CurrencyReference|undefined;cacheReadRequired:b
 const dimensions:Dimension[]=['uncachedInput','cacheRead','cacheWrite','output'];
 const names:Record<Dimension,string>={uncachedInput:'uncached input',cacheRead:'cache read',cacheWrite:'cache write',output:'output'};
 const changes:Record<string,string>={add_model:'Model added',rename_model:'Display name changed',add_price:'Price added',withdraw_price:'Price withdrawn',replace_key:'Key replaced',
-  record_terms:'Terms recorded',attest:'Attested',enable_provider:'Enabled',disable_provider:'Disabled'};
+  record_terms:'Terms recorded',attest:'Attested',enable_provider:'Enabled',disable_provider:'Disabled',
+  edit_model:'Capabilities recorded',enable_model:'Enabled',disable_model:'Disabled'};
 // Refusals that prove a first attempt wrote nothing, so its retained request can be released.
 const rejections=['model_admin_input','model_admin_conflict','model_identifier_invalid','currency_unavailable','access_denied','request_format','request_token'];
 const modelPaths=['settings/ai/models/add','settings/ai/models/rename','settings/ai/models/price','settings/ai/models/withdraw'],keyPath='settings/ai/providers/key';

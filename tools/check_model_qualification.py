@@ -194,6 +194,7 @@ def run_checks(url, query, psql, manifest, environment):
           and refusal('enable', command('openai', responses['version']), 409, 'model_provider_unqualified'))
     check("qualification follows the mapping the vendor's adapter applies, not any mapping confirmed for the vendor",
           query("BEGIN;INSERT INTO assistant.confirmed_mappings VALUES('openai','synthetic_responses_v1','2026-10-20',ARRAY['https://example.invalid/usage']);"
+                "INSERT INTO assistant.mapping_efforts VALUES('openai','synthetic_responses_v1',ARRAY['low']);"
                 f"SELECT assistant.provider_qualified('{provider_id('openai')}');"
                 "INSERT INTO assistant.adapter_mappings VALUES('openai','synthetic_responses_v1');"
                 f"SELECT assistant.provider_qualified('{provider_id('openai')}');ROLLBACK;").splitlines() == ['f', 't'])

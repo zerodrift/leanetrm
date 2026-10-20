@@ -373,6 +373,16 @@ The migration verifies the two definitions it replaces and keeps their owners an
 grants. It stops on any stored display name that breaks the rule and names the affected
 models, rather than renaming them outside the audit.
 
+Migration 0060 adds model capability versions with three more definer operations,
+Edit, Enable and Disable, under the same rules: each refuses delegated agent contexts
+and rechecks current authority after its principal and model row waits, before
+returning a replay, and after its writes. Only Enable enables a model, and only one
+whose current capability version was validated under the mapping its vendor's adapter
+applies, on an enabled, qualified provider (`model_unqualified`,
+`model_provider_unqualified`, `model_provider_disabled`). Versions and the mapping
+efforts they draw on are immutable, the runtime reads neither directly, and the
+migration's helpers are unexecutable by the runtime.
+
 The Messages adapter (step 4) sends the key only in its `x-api-key` header, after
 checking its format, so a malformed key never reaches a header error. It reads an
 error body only to classify a 400 and never stores, logs or returns it. Streamed

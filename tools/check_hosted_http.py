@@ -165,7 +165,9 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         provider={'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0}
         for path,body in (('/api/settings/ai/providers/key',{**provider,'key':'sk-synthetic-hosted-0000'}),
                           *((f'/api/settings/ai/providers/{action}',provider) for action in ('terms','attest','enable','disable')),
-                          ('/api/settings/ai/models/add',{'operationId':str(uuid4()),'vendor':'anthropic','identifier':'hosted-model','displayName':'Hosted model'})):
+                          ('/api/settings/ai/models/add',{'operationId':str(uuid4()),'vendor':'anthropic','identifier':'hosted-model','displayName':'Hosted model'}),
+                          *((f'/api/settings/ai/models/{action}',{'operationId':str(uuid4()),'modelId':str(uuid4()),'expectedVersion':1})
+                            for action in ('edit','enable','disable'))):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
         print('PASS hosted mode maps no page-assistant administration route, even for a provider administrator',flush=True)

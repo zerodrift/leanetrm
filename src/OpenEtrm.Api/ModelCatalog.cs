@@ -25,6 +25,17 @@ public sealed record AddPriceRequest(Guid OperationId,Guid ModelId,int? Expected
     [property:JsonRequired] PriceTier? Tier,string? EffectiveFrom,[property:JsonRequired] string? EffectiveTo);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record WithdrawPriceRequest(Guid OperationId,Guid ModelId,int? ExpectedSequence,string? EffectiveFrom,[property:JsonRequired] string? EffectiveTo);
+// A capability version: each fact with the published source it came from and the date it was checked.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record EditModelRequest(Guid OperationId,Guid ModelId,int? ExpectedVersion,
+    int? OutputLimit,string? OutputLimitSource,string? OutputLimitCheckedOn,
+    string[]? ReasoningEfforts,string? ReasoningSource,string? ReasoningCheckedOn,
+    string? IdentifierStabilitySource,string? IdentifierStabilityCheckedOn,
+    string[]? AcceptedServed,string? AcceptedServedSource,string? AcceptedServedCheckedOn,
+    string? ToolsSource,string? ToolsCheckedOn,string? StreamingSource,string? StreamingCheckedOn);
+// Enable and Disable name only the model and the version the administrator saw.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record ModelCommandRequest(Guid OperationId,Guid ModelId,int? ExpectedVersion);
 
 // Models & prices (docs/ai-assistant.md §5.1, §5.3, §9). The database owns every rule; this boundary
 // admits only what it can transport exactly: required fields, a supported vendor, text without NUL,
@@ -79,6 +90,37 @@ public sealed partial class ModelCatalog
             ?ModelProviders.Read(connection,"SELECT assistant.withdraw_price($1,$2,$3,$4,$5::timestamptz)::text",[operation,model,sequence,Instant(from),End(body.EffectiveTo)],ct)
             :throw Input();
 
+    // The database validates the facts under the mapping the model's vendor's adapter applies; this boundary
+    // refuses only what it cannot transport: a missing fact, a null in a list, NUL in text, or a date not
+    // written yyyy-MM-dd. NUL in an accepted served identifier is an invalid identifier, as in Add model.
+    public Task<JsonElement> EditModel(NpgsqlConnection connection,EditModelRequest body,CancellationToken ct)
+    {
+        if(body is not {OperationId:var operation,ModelId:var model,ExpectedVersion:{} expected,
+                OutputLimit:{} limit,OutputLimitSource:{} limitSource,OutputLimitCheckedOn:{} limitOn,
+                ReasoningEfforts:{} efforts,ReasoningSource:{} reasoningSource,ReasoningCheckedOn:{} reasoningOn,
+                IdentifierStabilitySource:{} stableSource,IdentifierStabilityCheckedOn:{} stableOn,
+                AcceptedServed:{} served,AcceptedServedSource:{} servedSource,AcceptedServedCheckedOn:{} servedOn,
+                ToolsSource:{} toolsSource,ToolsCheckedOn:{} toolsOn,StreamingSource:{} streamingSource,StreamingCheckedOn:{} streamingOn}
+            ||operation==Guid.Empty||model==Guid.Empty||efforts.Concat(served).Any(t=>t is null)
+            ||new[]{limitSource,reasoningSource,stableSource,servedSource,toolsSource,streamingSource}.Concat(efforts).Any(t=>t.Contains('\0')))
+            throw Input();
+        if(served.Any(identifier=>identifier.Contains('\0')))throw Refused("model_identifier_invalid");
+        return ModelProviders.Read(connection,"SELECT assistant.edit_model($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)::text",
+            [operation,model,expected,limit,limitSource,ModelProviders.Date(limitOn),efforts,reasoningSource,ModelProviders.Date(reasoningOn),
+                stableSource,ModelProviders.Date(stableOn),served,servedSource,ModelProviders.Date(servedOn),
+                toolsSource,ModelProviders.Date(toolsOn),streamingSource,ModelProviders.Date(streamingOn)],ct);
+    }
+
+    public Task<JsonElement> EnableModel(NpgsqlConnection connection,ModelCommandRequest body,CancellationToken ct)=>
+        Command(connection,"SELECT assistant.enable_model($1,$2,$3)::text",body,ct);
+    public Task<JsonElement> DisableModel(NpgsqlConnection connection,ModelCommandRequest body,CancellationToken ct)=>
+        Command(connection,"SELECT assistant.disable_model($1,$2,$3)::text",body,ct);
+
+    static Task<JsonElement> Command(NpgsqlConnection connection,string sql,ModelCommandRequest body,CancellationToken ct)=>
+        body is {OperationId:var operation,ModelId:var model,ExpectedVersion:{} expected}&&operation!=Guid.Empty&&model!=Guid.Empty
+            ?ModelProviders.Read(connection,sql,[operation,model,expected],ct)
+            :throw Input();
+
     static (Guid,Guid,string) Key(JsonNode currency)=>(currency["catalogId"]!.GetValue<Guid>(),currency["revisionId"]!.GetValue<Guid>(),currency["code"]!.GetValue<string>());
     // PostgreSQL text cannot carry NUL, so it is malformed here rather than an unknown outcome there.
     static string Text(string text,string code="model_admin_input")=>text.Contains('\0')?throw Refused(code):text;
@@ -103,6 +145,9 @@ public sealed partial class ModelCatalog
         "model_identifier_invalid"=>"Enter the vendor's model identifier: up to 128 letters, digits, '.', '_' or '-', starting with a letter or digit.",
         "currency_unavailable"=>"Choose a currency of a sealed reference revision that your role can currently read.",
         "model_provider_unqualified"=>"Enable a provider once this release confirms its usage mapping and its current key and terms are attested.",
+        "model_unqualified"=>"Enable a model once its capabilities are recorded under the usage mapping its vendor's adapter applies.",
+        "model_provider_disabled"=>"Enable the model's provider before the model.",
+        "model_mapping_unconfirmed"=>"Record capabilities once this release confirms a usage mapping for the model's vendor.",
         _=>"Supply every required field in its documented form, with the version you are changing."
     };
 }
