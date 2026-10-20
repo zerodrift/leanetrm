@@ -217,6 +217,21 @@ internal static class DirectReadChecks
         public JsonNode Page(string name)=>JsonNode.Parse(view.GetProperty(name).GetRawText())!;
     }
 
+    // A mismatch names the differing fields and a bounded excerpt of its first difference.
+    public static void ReportsDifferences()
+    {
+        var page=JsonNode.Parse("""{"definitions":{"curves":[{"code":"a"},{"code":"b"}]},"observations":[],"unitCatalog":null}""");
+        var read=new{definitions=new{curves=new[]{new{code="a"},new{code="c"+new string('x',4000)}}},observations=Array.Empty<object>(),unitCatalog=(object?)null};
+        string? message=null;
+        try{Same("synthetic page",read,page,"definitions","observations","unitCatalog");}
+        catch(Exception e){message=e.Message;}
+        if(message is null||!message.Contains(" in definitions;",StringComparison.Ordinal)||message.Contains("observations",StringComparison.Ordinal)||
+            message.Contains("unitCatalog",StringComparison.Ordinal)||!message.Contains("$.definitions.curves[1].code",StringComparison.Ordinal)||
+            !message.Contains("\"cxxx",StringComparison.Ordinal)||!message.Contains("\"b\"",StringComparison.Ordinal)||message.Length>600)
+            throw new Exception("A direct read mismatch must name only its differing fields and a bounded excerpt of its first difference: "+message);
+        Console.WriteLine("PASS a direct read mismatch names its differing fields and a bounded excerpt of its first difference");
+    }
+
     static async Task Execute(NpgsqlConnection connection,string sql,CancellationToken ct){await using var command=new NpgsqlCommand(sql,connection);await command.ExecuteNonQueryAsync(ct);}
 
     static JsonObject Without(JsonObject page,string field){var copy=page.DeepClone().AsObject();copy.Remove(field);return copy;}
@@ -245,9 +260,37 @@ internal static class DirectReadChecks
             actual=new JsonObject(fields.Select(f=>KeyValuePair.Create(f,actual![f]?.DeepClone())));
             page=new JsonObject(fields.Select(f=>KeyValuePair.Create(f,page![f]?.DeepClone())));
         }
-        if(!JsonNode.DeepEquals(actual,page))throw new Exception($"{name}: the direct read differs from the page.");
+        if(!JsonNode.DeepEquals(actual,page))
+        {
+            var differing=actual is JsonObject a&&page is JsonObject b?" in "+string.Join(", ",Keys(a,b).Where(k=>Differs(a,b,k))):"";
+            var (path,inRead,inPage)=FirstDifference("$",actual,page);
+            throw new Exception($"{name}: the direct read differs from the page{differing}; first at {path}: read {inRead}, page {inPage}.");
+        }
         Console.WriteLine("PASS "+name);
     }
+
+    // The path and bounded excerpts of the first difference between two unequal values.
+    static (string Path,string Read,string Page) FirstDifference(string path,JsonNode? read,JsonNode? page)
+    {
+        if(read is JsonObject a&&page is JsonObject b)
+        {
+            var key=Keys(a,b).First(k=>Differs(a,b,k));
+            var (inRead,inPage)=(a.TryGetPropertyValue(key,out var x),b.TryGetPropertyValue(key,out var y));
+            return inRead&&inPage?FirstDifference($"{path}.{key}",x,y):($"{path}.{key}",inRead?Excerpt(x):"absent",inPage?Excerpt(y):"absent");
+        }
+        if(read is JsonArray r&&page is JsonArray p)
+            for(var i=0;;i++)
+            {
+                if(i>=r.Count||i>=p.Count)return($"{path}[{i}]",i<r.Count?Excerpt(r[i]):"absent",i<p.Count?Excerpt(p[i]):"absent");
+                if(!JsonNode.DeepEquals(r[i],p[i]))return FirstDifference($"{path}[{i}]",r[i],p[i]);
+            }
+        return(path,Excerpt(read),Excerpt(page));
+    }
+
+    static IEnumerable<string> Keys(JsonObject read,JsonObject page)=>read.Select(p=>p.Key).Union(page.Select(p=>p.Key));
+    static bool Differs(JsonObject read,JsonObject page,string key)=>
+        read.TryGetPropertyValue(key,out var x)!=page.TryGetPropertyValue(key,out var y)||!JsonNode.DeepEquals(x,y);
+    static string Excerpt(JsonNode? value){var json=value?.ToJsonString()??"null";return json.Length<=200?json:json[..200]+"...";}
 
     // A page's read is its value, or the code it refused with.
     static async Task Matches<T>(string name,Func<Task<T>> read,JsonNode page)
