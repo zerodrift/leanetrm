@@ -1,6 +1,8 @@
+from hashlib import sha256
 from html.parser import HTMLParser
 from pathlib import Path
 import unittest
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1] / 'site'
 SOURCE_URL = 'https://github.com/zerodrift/leanetrm'
@@ -59,6 +61,10 @@ class PublicSite(unittest.TestCase):
         self.assertEqual(self.page.unmodified_email_links, ['mailto:joe@trustygenius.com'] * 2)
         self.assertFalse(self.page.email_passthrough, 'Limit the edge exemption to the contact links.')
 
+    def test_stylesheet_changes_have_a_new_cache_identity(self):
+        version = sha256((ROOT / 'site.css').read_bytes()).hexdigest()[:12]
+        self.assertIn('/_landing/site.css?v=' + version, self.page.assets)
+
     def test_landing_is_readable_without_javascript_or_accounts(self):
         self.assertEqual(self.page.headings, ['h1'])
         self.assertFalse(self.page.scripts)
@@ -68,7 +74,7 @@ class PublicSite(unittest.TestCase):
     def test_all_public_assets_and_fragment_targets_exist(self):
         for url in self.page.assets:
             self.assertTrue(url.startswith('/_landing/'), url)
-            self.assertTrue((ROOT / url.removeprefix('/_landing/')).is_file(), url)
+            self.assertTrue((ROOT / urlsplit(url).path.removeprefix('/_landing/')).is_file(), url)
         for link in self.page.links:
             if link.startswith('#'):
                 self.assertIn(f'id="{link[1:]}"', self.text)
