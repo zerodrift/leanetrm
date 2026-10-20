@@ -179,18 +179,28 @@ public sealed record FinancialSwapEvaluation
 
 public static class FinancialSwapValuation
 {
-    public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault)
+    public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
+        Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
+    public static FinancialSwapEvaluation Evaluate(MonthlyFinancialSwap instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
+        Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
+    private static FinancialSwapEvaluation Evaluate(SidedInstrument? instrument,CurveBuild market,bool discounting,
+        CurrencyDiscountCurve? currencyDefault,bool? declaredDiscounting)
     {
         if(instrument is null||market is null)throw new MarketDataException("swap_context","An explicit instrument and built market scenario are required.");
-        if(discounting!=instrument.Discounting)throw new MarketDataException("swap_valuation","Discounting must match the immutable instrument definition.");
+        if(discounting!=declaredDiscounting)throw new MarketDataException("swap_valuation","Discounting must match the immutable instrument definition.");
         var inputs=new CurrencyDefaultDiscounting(instrument.Sides.Select(m=>m.Side.GenerateSchedule()),market.Snapshot,discounting,currencyDefault);
         var value=instrument.PV(new SideValuationContext(market,inputs));
         return new(value,value.Sides.Select(s=>new DiscountedSideValuation(s,s.Value.Payments.Select(p=>new DiscountedSidePayment(p,inputs.Inputs[p.Plan.Key],value.Snapshot)).ToImmutableArray())).ToImmutableArray());
     }
-    public static FinancialSwapValue Price(FinancialSwapInstrument instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault)
+    public static FinancialSwapValue Price(FinancialSwapInstrument instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
+        Price(instrument,market,quantity,discounting,currencyDefault,instrument?.Discounting);
+    public static FinancialSwapValue Price(MonthlyFinancialSwap instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
+        Price(instrument,market,quantity,discounting,currencyDefault,instrument?.Discounting);
+    private static FinancialSwapValue Price(SidedInstrument? instrument,CurveBuild market,Quantity quantity,bool discounting,
+        CurrencyDiscountCurve? currencyDefault,bool? declaredDiscounting)
     {
         if(instrument is null||quantity is null||(instrument.UnitQuantity is not {} basis||quantity.Specification!=basis.Specification)||quantity.Amount.CompareTo(default)<=0)
             throw new MarketDataException("swap_quantity","Supply a positive trade quantity in the exact financial swap unit.");
-        return Evaluate(instrument,market,discounting,currencyDefault).Scale(quantity);
+        return Evaluate(instrument,market,discounting,currencyDefault,declaredDiscounting).Scale(quantity);
     }
 }
