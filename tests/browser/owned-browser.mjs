@@ -6,6 +6,9 @@ import {dirname,join,resolve} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
 export const idle="document.body?.getAttribute('aria-busy')==='false'";
+// Phone emulation widens window.innerWidth to fit overflowing content, so a page's width is
+// compared with the root element's clientWidth: the layout viewport the device width sets.
+export const fitsWidth='(document.documentElement.scrollWidth<=document.documentElement.clientWidth+1)';
 
 // A cold first launch on a busy CI runner can take longer than ten seconds.
 export async function waitForBrowserPort(directory,chrome,deadline=60000){
@@ -134,7 +137,7 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
     async function check(label,expression,detail){if(!await evaluate(expression))throw Error('FAIL '+label+(detail===undefined?'':' · observed '+JSON.stringify(await evaluate(detail).catch(error=>'unavailable: '+error.message))));passed++;console.log('PASS '+label);}
     async function shot(name){if(!/^[a-z-]+$/.test(name))throw Error('Invalid screenshot name');const result=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(root,name+'.png'),Buffer.from(result.data,'base64'));}
     await command('Emulation.setTimezoneOverride',{timezoneId:'UTC'});
-    await run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,errors,url:url.origin});
+    await run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url:url.origin});
     if(errors.length)throw Error('Uncaught browser exceptions: '+JSON.stringify(errors));
     return passed;
   }catch(error){primaryError=error;throw error;}

@@ -1,7 +1,7 @@
 import {sideSession} from './side-session.mjs';
 
 /** Browser behavior over the same authorized custom-curve operations used by agents. */
-export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
+export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,fitsWidth,url}){
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.customAuthoringReads=[];{const original=window.fetch;window.fetch=(input,init)=>{window.customAuthoringReads.push(new URL(typeof input==='string'?input:input.url,location.href).pathname);return original(input,init);};}`});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
@@ -104,8 +104,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#custom-curves-preview');
  await check('raw rolling history displays every date and tenor without collapsing repeated position labels',"(()=>{const preview=window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/preview')).at(-1)?.payload;return preview?.rows.length===4&&preview?.chart.axis==='observation'&&preview.chart.series.length===2&&preview.chart.series.every(series=>series.points.length===2&&new Set(series.points.map(point=>point.x)).size===2)&&document.querySelectorAll('#custom-curves-values tbody tr').length===4&&!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#error').hidden;})()");
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate("document.querySelector('.custom-curve-centre').scrollIntoView({block:'start'})");
- await check('custom curve graph and tables scroll within a narrow viewport',"document.documentElement.scrollWidth<=window.innerWidth+1");await shot('custom-curves-mobile');
- await click('#custom-curves-toggle-palette');await click('#custom-curves-toggle-inspector');await evaluate("document.querySelector('.custom-curve-panel-tools').scrollIntoView({block:'start'})");await check('collapsed mobile panels preserve the graph without page overflow',"document.querySelector('#custom-curves-palette').hidden&&document.querySelector('#custom-curves-inspector').hidden&&document.documentElement.scrollWidth<=window.innerWidth+1&&document.querySelectorAll('.custom-curve-node').length>0");await shot('custom-curves-mobile-collapsed');await click('#custom-curves-toggle-palette');await click('#custom-curves-toggle-inspector');
+ await check('custom curve graph and tables scroll within a narrow viewport',fitsWidth);await shot('custom-curves-mobile');
+ await click('#custom-curves-toggle-palette');await click('#custom-curves-toggle-inspector');await evaluate("document.querySelector('.custom-curve-panel-tools').scrollIntoView({block:'start'})");await check('collapsed mobile panels preserve the graph without page overflow',"document.querySelector('#custom-curves-palette').hidden&&document.querySelector('#custom-curves-inspector').hidden&&"+fitsWidth+"&&document.querySelectorAll('.custom-curve-node').length>0");await shot('custom-curves-mobile-collapsed');await click('#custom-curves-toggle-palette');await click('#custom-curves-toggle-inspector');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await persona('viewer');await click('#nav-custom-curves');
  await check('switching identity clears computed outputs and authoring authority',"document.querySelector('#custom-curves-result').hidden&&document.querySelector('#custom-curves-code').value===''&&document.querySelector('#custom-curves-save').disabled&&document.querySelector('#custom-curves-publish').disabled");

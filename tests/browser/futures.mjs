@@ -1,5 +1,5 @@
 import {setupTradingReplies} from './trading-responses.mjs';
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url}){
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});
@@ -149,7 +149,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#blotter-saved','Book A review');await wait(idle);
   await check('loading a saved trade view restores filters columns and scope',"document.querySelector('#blotter-mode').value==='trades'&&document.querySelector('#futures-holdings .table-search').value==='Jan'&&[...document.querySelectorAll('#futures-holdings [role=columnheader]')].find(n=>n.textContent.trim()==='Execution price').style.display==='none'&&document.querySelector('#blotter-books').selectedOptions.length===1");
   await evaluate('window.scrollTo(0,0)');await shot('futures-desktop');await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
-  await check('mobile futures page avoids page-wide horizontal overflow','document.documentElement.scrollWidth<=innerWidth');await evaluate('window.scrollTo(0,0)');await shot('futures-mobile');
+  await check('mobile futures page avoids page-wide horizontal overflow',fitsWidth);await evaluate('window.scrollTo(0,0)');await shot('futures-mobile');
   await command('Emulation.clearDeviceMetricsOverride');
   await evaluate('localStorage.clear()');await command('Page.reload');await wait("document.querySelector('#profile-label')?.textContent==='Trader'&&document.body?.getAttribute('aria-busy')==='false'");await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await check('account views survive clearing browser preferences without restoring market choices',"[...document.querySelector('#blotter-saved').options].some(o=>o.value==='Contract pivot')&&document.querySelector('#blotter-mode').value==='trades'");

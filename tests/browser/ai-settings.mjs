@@ -2,7 +2,7 @@ import {sideSession} from './side-session.mjs';
 
 // Settings › AI against the assistant check's preview, after its HTTP checks: identifiers are
 // unique to this run and assertions look only at this run's rows.
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,errors,url}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url}){
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{window.__requests.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null});return window.__originalFetch(...args);};window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await window.__originalFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
@@ -105,9 +105,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a retry with the same key replays the original replacement once',`(()=>{const sent=${sent('providers/key')}.filter(r=>r.body.operationId===${JSON.stringify(keyed.operationId)});const audit=${rows('ai-provider-audit')}.filter(r=>r[3]==='Key replaced');return sent.length===2&&JSON.stringify(sent[0].body)===JSON.stringify(sent[1].body)&&audit.length===${replaced};})()&&document.querySelector('#ai-key-pending').hidden&&document.querySelector('#error').hidden&&document.querySelector('#ai-key-value').value===''&&!${stores}.includes('sk-browser-synthetic')`);
 
   await evaluate('window.scrollTo(0,0)');await shot('ai-settings-desktop');
-  await click('#ai-tab-models');
-  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
-  await check('AI settings avoid page-wide horizontal overflow on a phone',"document.documentElement.scrollWidth<=window.innerWidth+1");await shot('ai-settings-mobile');
+  // A model's price form is the page's widest content.
+  await click('#ai-tab-models');await manage(anthropic);
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate("document.querySelector('#ai-price-form').scrollIntoView({block:'start'})");
+  await check('AI settings avoid page-wide horizontal overflow on a phone',fitsWidth);await shot('ai-settings-mobile');
   await check('AI settings expose no internal GUIDs',"!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(document.body.innerText)");
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
 

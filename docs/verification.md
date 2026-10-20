@@ -48,12 +48,14 @@ owned HTTP checks cover exact source/schedule references, current scope
 revocation, immutable published relationships, certified knowledge cutoffs,
 historical corrections and explicit frozen final-settlement inputs. The 25
 custom-curve browser checks cover visual edits, raw per-tenor history charts,
-formula/SQL parity, uncertain-save retry, permissions and narrow-screen bounds.
-The standard preview's 268 browser checks and the existing isolated suites also
-passed. Disposable test resources completed teardown. All 31 Python checks and
-the additional history-panel preview startup with eight futures and sixteen swap
-examples also passed. This establishes the bounded local workspace; it does not
-qualify production throughput, bookable custom indices or historical VaR.
+formula/SQL parity, uncertain-save retry and permissions; their narrow-screen
+bound [measured against a viewport that grew with the
+page](#phone-width-overflow-checks). The standard preview's 268 browser checks
+and the existing isolated suites also passed. Disposable test resources
+completed teardown. All 31 Python checks and the additional history-panel
+preview startup with eight futures and sixteen swap examples also passed. This
+establishes the bounded local workspace; it does not qualify production
+throughput, bookable custom indices or historical VaR.
 
 The subsequent editor and market-calendar changes passed the complete command
 on the same toolchain, including 136 frontend checks, 33 custom-curve browser
@@ -62,8 +64,10 @@ dependencies and recipe history windows, exact snapshot/version choices,
 user-zone dates, certified historical contexts and current reference authority.
 Browser checks cover disabled unavailable days, explicit multiple-close choice,
 graph-preserving snapshot changes, stale-response fencing, permission-denial
-cleanup, keyboard navigation and narrow-screen bounds. Independent review found
-no remaining blocker. All owned disposable resources completed teardown.
+cleanup and keyboard navigation; their narrow-screen bounds [measured against
+a viewport that grew with the page](#phone-width-overflow-checks). Independent
+review found no remaining blocker. All owned disposable resources completed
+teardown.
 
 The final combined check with migration 0042 also passed after integrating the
 reference-read authorization changes. It includes all 279 standard browser
@@ -1141,3 +1145,43 @@ Independent adversarial review found no blocker. It also exercised the guard in
 bound historical contexts against a committed tie in a separate disposable
 cluster. All resources were disposable and synthetic. Hosted installations still
 need operator baseline qualification before applying this migration (D135).
+
+## Phone-width overflow checks
+
+Nine owned browser checks assert that a page has no page-wide horizontal overflow
+on a 390 × 844 phone with mobile emulation. They compared
+`document.documentElement.scrollWidth` with `window.innerWidth`, which mobile
+emulation widened to the content width when content overflowed the
+`width=device-width` layout viewport. With 900 px of content at 390 px both read
+900, and on the AI price form both read 571, while the root element's
+`clientWidth` stayed 390, so the width comparison passed on those overflowing
+pages. The checks now share one expression, `fitsWidth`, that compares
+`scrollWidth` with the root element's `clientWidth`, the layout viewport; the
+calendar check also bounds its dialog by that width.
+
+The Settings › AI check ran with no model open, so it never measured the price
+form, the page's widest content; it now opens a model first. With the form open,
+the corrected check failed on a 571 px page: the rate table kept 130 px inputs
+and unwrapped labels. Its inputs now shrink within their cells and its labels
+wrap; up to 760 px the table spans the form in equal columns. Measured with the
+form open at nine widths from 320 to 1,440 px, the page no longer overflows and
+the table stays within the card's content edge. Before, the table also crossed
+that edge in windows from 761 to about 815 px, widening the page up to 772 px;
+from 820 px it keeps its previous layout. The other eight checks passed on the
+existing pages.
+
+Disposable runs then widened `main` to 900 px before each check. All nine failed
+while the previous `innerWidth` comparison passed on the same page, and each
+passed once the widening was undone. That temporary code was removed. The
+complete command then passed on 2026-10-20 on macOS 26.6.2 arm64 with .NET
+10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 155.0.8059.85,
+including 156 frontend checks and 360 standard, 34 AI-settings, 43 custom-curve
+and 22 calendar browser checks. Disposable resources completed teardown.
+
+These checks establish that each checked page state keeps its scrollable content
+within a 390 px layout viewport in Chrome, to within one pixel. Fixed-position
+content such as an open dialog does not count toward that width; only the
+calendar check bounds its dialog separately. Content inside a scroll container or
+clipped by an ancestor is not page overflow. Other widths, page states and
+browsers remain unchecked; screenshots remain the evidence of how a narrow layout
+looks.
