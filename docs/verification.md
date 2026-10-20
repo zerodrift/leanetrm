@@ -1251,6 +1251,15 @@ teardown. Swap-catalog daily months still follow contract-identity order, and
 the power-import lists, automation directories and tied discount defaults depend
 on incidental order or ties; they need separate checks.
 
+A failed direct-read comparison now names the fields that differ and a bounded
+excerpt of its first difference, instead of reporting only that the direct read
+differs from the page. With the definition reads unordered again, the first pass
+reports `definitions` and the first differing `curve_inputs` row; a database-free
+check covers the report. The complete command passed on 2026-10-20 on Ubuntu
+24.04.5 x86_64 with .NET 10.0.402, Node 24.22.0, stock PostgreSQL 16.15, Python
+3.13.16 and Chromium 141.0.7390.37 with its normal sandbox, including 162 frontend
+tests, 623 standard and 24 mixed HTTP checks and 360 standard-preview browser checks.
+
 ## Explicit index fixings for swaps
 
 Local 2026-10-19 checks cover exact monthly publication schedules and partially
