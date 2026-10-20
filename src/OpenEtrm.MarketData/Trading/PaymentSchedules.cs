@@ -135,8 +135,7 @@ public sealed class SideValuationContext
             market.Model.RequireIndexFixing(lookup, fixing);
             if (Snapshot.ValuationAt >= fixing.FixingAt)
             {
-                var selected = Snapshot.Selections.SingleOrDefault(s => s.Input == new InputKey(fixing.Series, InputUse.FrozenFact));
-                if (selected is null)
+                if (!market.SelectedInputs.TryGetValue(new(fixing.Series, InputUse.FrozenFact), out var selected))
                     throw new MarketDataException("index_fixing_missing", "The exact published index fixing is required; a forecast cannot replace it.");
                 var observation = selected.Observation;
                 if (observation.Series != fixing.Series || observation.Source != fixing.Source ||

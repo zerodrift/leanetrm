@@ -377,7 +377,7 @@ public sealed partial class CurveModel
                 Fail("frozen_fact", "Frozen inputs require final contract settlement or an explicit final index fixing.");
         }
         var result = requests.Select(r => Evaluate(r, InputUse.Variable)).ToImmutableArray();
-        return new CurveBuild(this, snapshot, NumericalPolicy, result, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock);
+        return new CurveBuild(this, snapshot, NumericalPolicy, result, inputs, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock);
 
         BuiltValue Evaluate(CurveRequest request, InputUse use)
         {
