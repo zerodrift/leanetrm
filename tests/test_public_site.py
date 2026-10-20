@@ -10,16 +10,23 @@ class Page(HTMLParser):
         super().__init__()
         self.links, self.assets, self.headings, self.scripts = [], [], [], []
         self.anchors = []
+        self.email_passthrough = False
+        self.unmodified_email_links = []
         self.feed(text)
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if tag == 'a':
             self.links.append(a.get('href', ''))
             self.anchors.append(a)
+            if self.email_passthrough:
+                self.unmodified_email_links.append(a.get('href', ''))
         if tag == 'link' and a.get('rel') in ('stylesheet', 'icon'): self.assets.append(a['href'])
         if tag == 'img': self.assets.append(a['src'])
         if tag == 'h1': self.headings.append(tag)
         if tag == 'script': self.scripts.append(a)
+    def handle_comment(self, text):
+        if text.strip() == 'email_off': self.email_passthrough = True
+        if text.strip() == '/email_off': self.email_passthrough = False
 
 class PublicSite(unittest.TestCase):
     @classmethod
@@ -47,6 +54,10 @@ class PublicSite(unittest.TestCase):
         footer = self.text.split('<footer', 1)[1]
         self.assertIn('© 2026 Trusty Genius LLC', footer)
         self.assertIn('Built and supported by Trusty Genius', footer)
+
+    def test_public_email_links_do_not_require_an_edge_injected_script(self):
+        self.assertEqual(self.page.unmodified_email_links, ['mailto:joe@trustygenius.com'] * 2)
+        self.assertFalse(self.page.email_passthrough, 'Limit the edge exemption to the contact links.')
 
     def test_landing_is_readable_without_javascript_or_accounts(self):
         self.assertEqual(self.page.headings, ['h1'])
