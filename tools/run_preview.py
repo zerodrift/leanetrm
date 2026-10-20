@@ -149,6 +149,9 @@ def main():
             if args.assistant_check and migration.name=='0059_model_display_name_rule.sql':
                 from check_model_catalog import check_name_rule_upgrade
                 check_name_rule_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0060_model_versions.sql':
+                from check_model_versions import check_upgrade as check_versions_upgrade
+                check_versions_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -381,6 +384,8 @@ def main():
                 check_model_catalog(url,query,psql,manifest,app_env)
                 from check_model_qualification import run_checks as check_model_qualification
                 check_model_qualification(url,query,psql,manifest,app_env)
+                from check_model_versions import run_checks as check_model_versions
+                check_model_versions(url,query,psql,manifest,app_env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

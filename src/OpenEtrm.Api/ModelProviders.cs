@@ -91,7 +91,7 @@ public sealed partial class ModelProviders(CredentialCustody custody,PreviewMani
             :throw ModelCatalog.Input();
 
     internal static bool Supported(string vendor)=>Vendors.Any(v=>v.Code==vendor);
-    static DateOnly Date(string text)=>DateOnly.TryParseExact(text,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var date)?date:throw ModelCatalog.Input();
+    internal static DateOnly Date(string text)=>DateOnly.TryParseExact(text,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var date)?date:throw ModelCatalog.Input();
 
     // A vendor key is 8 to 512 visible ASCII characters; \z, unlike $, admits no final newline.
     [GeneratedRegex(@"^[!-~]{8,512}\z")] internal static partial Regex KeyFormat();

@@ -48,9 +48,11 @@ test('an interval end is chosen explicitly',()=>{
 });
 
 test('audit and schedule labels come only from known actions and revisions',()=>{
-  assert.deepEqual(['add_model','rename_model','add_price','withdraw_price','replace_key','record_terms','attest','enable_provider','disable_provider'].map(aiChange),
-    ['Model added','Display name changed','Price added','Price withdrawn','Key replaced','Terms recorded','Attested','Enabled','Disabled']);
-  assert.throws(()=>aiChange('enable_model'),/inconsistent/);
+  assert.deepEqual(['add_model','rename_model','add_price','withdraw_price','replace_key','record_terms','attest','enable_provider','disable_provider',
+    'edit_model','enable_model','disable_model'].map(aiChange),
+    ['Model added','Display name changed','Price added','Price withdrawn','Key replaced','Terms recorded','Attested','Enabled','Disabled',
+     'Capabilities recorded','Enabled','Disabled']);
+  assert.throws(()=>aiChange('delete_model'),/inconsistent/);
   const labels=currencyLabels([usd]),prices=[{sequence:1,kind:'rates',currency:{catalogId:'c1',revisionId:'r1',code:'usd'}},{sequence:2,kind:'withdrawal',currency:null}];
   assert.equal(segmentLabel({sequence:1,priced:true},prices,labels),'Revision 1 · USD · US Dollar');
   assert.equal(segmentLabel({sequence:2,priced:false},prices,labels),'No price · revision 2');
