@@ -168,6 +168,36 @@ matches exactly U+0001–U+001F and U+007F–U+009F under C, libc `en_US.UTF-8` 
 collations the new rule gave the same result for every code point alone, embedded,
 leading and trailing.
 
+Model capability versions (migration 0060) are checked next. Writing nothing, a
+version is refused when its output limit is outside 1 to 10,000,000 or missing, its
+reasoning efforts are empty, repeated or not among those its mapping states, its
+accepted served identifiers are invalid (`model_identifier_invalid`), repeated, more
+than 16 or include the model's own, a list is not one-dimensional from 1, or a fact's
+source is not an https URL naming a host or its date is not a begun calendar date
+written yyyy-MM-dd; a vendor whose adapter applies no confirmed mapping gets no version
+(`model_mapping_unconfirmed`). The checks record versions at the smallest and largest
+output limits and with 16 served identifiers; refuse a model without a version
+(`model_unqualified`) before considering its provider; enable the model only once its
+provider is enabled (`model_provider_disabled`) and qualified
+(`model_provider_unqualified`); record a second version while it stays enabled; and
+disable it while its provider is unqualified. In a release, rolled back with its check,
+that repoints the Messages adapter to a second confirmed mapping, Enable refuses the
+model, Disable still turns it off, efforts the new mapping does not state are refused,
+and a version recorded under it qualifies the model again. Stale versions, reused
+request identities, and enabling an enabled or disabling a disabled model are
+conflicts; identical and overlapping retries return the original outcome and write
+once. The database itself refuses each command to a viewer and to a delegated agent,
+and another workspace can neither see nor change the model. Owner-level constraints
+hold each fact's form, including checked dates begun when the version was recorded,
+efforts the version's mapping states, served identifiers other than the model's own,
+the version's own provider and vendor, a stated-efforts mapping for every adapter, and
+the forms of stated efforts and mapping sources; versions and stated efforts are
+immutable. Four direct SQL cases let the request context expire
+while Edit or Enable waits for its model row or its audit write, and each names the
+recheck that refuses it. Before 0060 applies, its body is refused after the model
+state helper's definition changes, after the provider qualification helper's
+privileges change and over a confirmed mapping whose sources repeat.
+
 Settings › AI has its own browser scenario, which runs after those HTTP checks in the
 same isolated preview (`--assistant-check --browser-check`). From the page's own
 session it creates an administrator without market-data access and a pricing

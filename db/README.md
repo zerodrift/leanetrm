@@ -501,3 +501,28 @@ affected model with its vendor and identifier. The migration never renames a mod
 rename is an administrator's audited change. Such an installation renames those models
 through Models & prices, then applies the migration again. As a new migration it stops
 automatic hosted updates until the operator qualifies a new baseline (D135).
+
+## Page-assistant model capability versions
+
+[0060_model_versions.sql](migrations/0060_model_versions.sql) adds model capability
+versions ([ai-assistant.md](../docs/ai-assistant.md) §5.1, §6.3, §9). A version is
+immutable and records, each with its source and checked date, the model's output
+limit, the reasoning efforts it accepts, its identifier's stability, the identifiers
+its vendor may report as served and its tool and streaming confirmations, together
+with the usage mapping version it was validated under. Foreign keys tie a version to
+its model's own provider and that provider's vendor, and to a mapping whose efforts
+are stated: `assistant.mapping_efforts` records, immutably, the reasoning efforts a
+confirmed mapping's adapter sends (`messages_v1`: low, medium, high, xhigh, max), and
+an adapter applies only a mapping whose efforts are stated. A trigger holds, for the
+owner too, that a version's efforts are ones its mapping states and that its served
+identifiers exclude its model's own. Every list a version or confirmed mapping holds,
+sources included, is one-dimensional, numbered from 1 and distinct, and every fact
+was checked on a date that had begun when its version was recorded. A model gains an
+enabled state, off until Enable, which needs a current version validated under the
+mapping its vendor's adapter applies, on an enabled, qualified provider. Three definer
+operations, Edit, Enable and Disable, advance the model's version and, like the model
+commands of 0051, recheck current authority after their principal and model row waits,
+before returning a replay and after their writes. The audit's model actions gain the
+three. No version is installed. The migration first verifies the helpers it relies on
+and the definitions it replaces. As a new migration it stops automatic hosted updates
+until the operator qualifies a new baseline (D135).

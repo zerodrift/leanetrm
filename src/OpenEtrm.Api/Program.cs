@@ -109,7 +109,8 @@ app.Use(async (context,next)=>
             ModelAdministrationException m => (422,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_conflict" || p.SqlState=="23505" && context.Items.ContainsKey("model_admin_attempted")
                 => (409,"model_admin_conflict","This provider, model or request changed, or its current state does not allow the change. Reload Settings › AI before repeating the change under a new request."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_provider_unqualified" => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_provider_unqualified" or "model_provider_disabled" or "model_unqualified" or "model_mapping_unconfirmed"
+                => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable"
                 => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
@@ -849,6 +850,9 @@ if(hosted is null)
     api.MapPost("/settings/ai/models/rename",(HttpContext c,RenameModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.RenameModel(connection,body,ct)));
     api.MapPost("/settings/ai/models/price",(HttpContext c,AddPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddPrice(connection,body,ct)));
     api.MapPost("/settings/ai/models/withdraw",(HttpContext c,WithdrawPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.WithdrawPrice(connection,body,ct)));
+    api.MapPost("/settings/ai/models/edit",(HttpContext c,EditModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EditModel(connection,body,ct)));
+    api.MapPost("/settings/ai/models/enable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EnableModel(connection,body,ct)));
+    api.MapPost("/settings/ai/models/disable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.DisableModel(connection,body,ct)));
 }
 }
 var files=new PhysicalFileProvider(webRoot);

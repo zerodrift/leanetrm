@@ -21,12 +21,12 @@ Messages adapter with its usage mapping `messages_v1` (§6.2), which pass the Me
 conformance suite against a fake provider (§6.3), and with provider qualification: the
 confirmed usage mapping each adapter applies, sourced and dated terms versions,
 attestations bound to the current key and terms, and provider Enable and Disable
-(§6.3), through the API but not yet on the Providers tab. Nothing consumes a provider's
-enabled state yet; model Enable and calls will. Model capability versions (§5.1), and
-with them model status, model Enable and Disable, and Test, come next, as do the
-Providers tab's endpoint, terms, owner visibility, attestation and last test. No route
-calls a provider yet. The turn's working-data pin (§7.2), which binds a captured
-context, is not implemented.
+(§6.3), and model capability versions with model Enable and Disable (§5.1, §6.3), all
+through the API but not yet on the Settings › AI tabs. Model Enable is the first
+consumer of a provider's enabled state; calls will consume both. Test comes next, as do
+the tabs' controls and the Providers tab's endpoint, terms, owner visibility,
+attestation and last test. No route calls a provider yet. The turn's working-data pin
+(§7.2), which binds a captured context, is not implemented.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -168,8 +168,8 @@ foreign keys, audited operations with operation identities and expected versions
 | --- | --- | --- |
 | Providers | Vendor. Versions: the vendor's retention and training-use terms and whether the account owner can view content, each with source and date, for the account type they apply to. State: enabled; attestation bound to the current credential and terms versions | Identity plus immutable versions |
 | Credentials | Provider, credential version, nonce, ciphertext, tag, last four characters, set by and at | Replace-only; never readable |
-| Confirmed mappings | Vendor, usage-mapping version, confirmation date and sources, installed by a reviewed migration (§6.3); and, per vendor, the confirmed mapping its adapter applies in the release | Confirmations immutable; a release repoints its adapters' mappings |
-| Models | Provider, vendor identifier (immutable), display name (audited presentation field). Versions: output limit, temperature support and range, reasoning control, identifier-stability source, accepted served identifiers, tool and streaming confirmation, each sourced and dated. State: enabled | Identity plus immutable versions |
+| Confirmed mappings | Vendor, usage-mapping version, confirmation date and sources, and the reasoning efforts its adapter sends, installed by a reviewed migration (§6.3); and, per vendor, the confirmed mapping its adapter applies in the release, which states its efforts | Confirmations and efforts immutable; a release repoints its adapters' mappings |
+| Models | Provider, vendor identifier (immutable), display name (audited presentation field). Versions: output limit, reasoning control, identifier-stability source, accepted served identifiers, tool and streaming confirmation, each sourced and dated, and the usage mapping version they were validated under; temperature support and range join with the first mapping that sends temperature (the Messages mapping sends none). State: enabled | Identity plus immutable versions |
 | Price revisions | Model identity, kind (rate set or withdrawal); for a rate set, exact currency reference, rates and optional tier; `effective_from`/`effective_to`, append sequence, `recorded_at` | Immutable; corrections and withdrawals append |
 | Agents, agent versions | Agent: name, principal, published version, active or retired. Version: description, instructions, exact model version, temperature, reasoning, caching switch, tools, allowed roles, limits (§7.5), grant duration | Head moves forward; versions immutable |
 | Model administration audit | Operation identity, actor, target, redacted request, before and after; usage exports | Append-only |
@@ -185,7 +185,7 @@ foreign keys, audited operations with operation identities and expected versions
 Prices and the display name belong to the model identity, so a rename never leaves a
 model unpriced. Each provider and model identity row also has its own version, which
 advances with each audited change to that row (Replace key, Record terms, Attest,
-Enable, Disable, a rename) and which
+Enable, Disable, a rename, a capability edit) and which
 commands name as their expected version. It is not one of the immutable provider or
 model versions that agents and calls pin. Grants use the existing
 `security.agent_delegations` and `security.delegation_permissions`, with the grant
@@ -408,7 +408,14 @@ audit as history.
   today is refused (UTC+14). Meta is shown but unqualified until its usage fields are
   confirmed; phase 1 is accepted without it.
 - A model is enableable only when tool calling and streaming are confirmed from
-  published documentation and pass conformance (`model_unqualified`).
+  published documentation and pass conformance (`model_unqualified`): its current
+  capability version records both confirmations and was validated under the usage
+  mapping its vendor's adapter applies, the adapter the conformance suite exercises.
+  The mapping version states the reasoning efforts its adapter sends (`messages_v1`:
+  low, medium, high, xhigh, max), and a version records a non-empty set of them. A
+  release that changes an adapter's mapping leaves earlier versions unqualified until
+  an administrator records a new one. A vendor whose adapter applies no confirmed
+  mapping gets no capability version (`model_mapping_unconfirmed`).
 - Conformance is not real-provider qualification; O09 stays open.
 
 ## 7. Agent runtime
@@ -748,10 +755,16 @@ credential entries read only "key replaced".
   rates, tier and the revision in force or scheduled; Add, Edit, Enable, Disable, Add
   price, Withdraw price. Every field is entered and none inferred: a request names each
   field, null where it means "not offered", no tier or open-ended. No models or prices
-  ship. Edits other than the display name create a model version. Adding a vendor's
-  first model creates its provider at version 1 without a credential; this tab's audit
-  records it as that Add model. Models start disabled; Enable needs a qualified model
-  on an enabled, qualified provider. Unpriced models show "No price".
+  ship. Edits other than the display name create a model version: an output limit of
+  1 to 10,000,000 tokens, the reasoning efforts the model accepts, up to 16 accepted
+  served identifiers other than its own, and a source and checked date for each fact,
+  including the identifier's stability and the tool and streaming confirmations. An
+  edit leaves the model enabled or disabled; a running turn stops at its next call
+  (`model_changed`). Adding a vendor's first model creates its provider at version 1
+  without a credential; this tab's audit records it as that Add model. Models start
+  disabled; Enable needs a qualified model on an enabled, qualified provider
+  (`model_unqualified`, `model_provider_unqualified`, `model_provider_disabled`).
+  Unpriced models show "No price".
 - **Providers** (`ManageModelProviders`): each vendor's protocol, endpoint (an
   override marked as a check endpoint), qualification, terms, owner visibility,
   attestation, credential status, last test and state; Replace key, Record terms,
@@ -934,7 +947,8 @@ synthetic data and the fake provider. The cases that coverage does not imply:
   the next admission interrupts a stuck turn and closes its calls; a stalled provider
   test closes with unknown usage and never sends a second request on retry, and one
   losing its permission mid-test still records usage while a token-less write is
-  rejected.
+  rejected; a test with each reasoning effort its mapping states passes the adapter's
+  own effort check against the fake provider.
 - **Stream:** resume through `Last-Event-ID` and `after`; an answer containing CR, LF
   and CRLF followed by `event: navigation`, `data: {…}`, `id: 999` and a blank line
   arrives only inside text deltas, byte-identical to the stored answer; admission
