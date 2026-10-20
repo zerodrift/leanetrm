@@ -2,10 +2,15 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
-from assistant_context import Contexts, check_guard, expect, holding, refused, refused_at, state, waiting
+from assistant_context import Contexts, check_guard, expect, holding, migration_body, refused, refused_at, state, waiting
 from preview_client import PreviewClient
 
 MODELS = 'settings/ai/models'
+# A leading no-break space, a trailing ideographic space, a right-to-left override and a line separator,
+# which 0051's rule admitted, and a C1 next line, which its control class already refused.
+ADMITTED_UNSAFE_NAMES = ('\u00a0Synthetic model', 'Synthetic model\u3000', 'Synthetic\u202emodel', 'Synthetic\u2028model')
+UNSAFE_NAMES = (*ADMITTED_UNSAFE_NAMES, 'Synthetic\u0085model')
+UNICODE_NAME = 'Mod\u00e8le \u65e5\u672c'
 # Fixed instants around any plausible run date, so schedules are deterministic.
 PAST, LATER, LAST = '2020-01-01T00:00:00Z', '2099-01-01T00:00:00Z', '2099-07-01T00:00:00Z'
 # Synthetic rates per million tokens; no vendor's real price ships (D150).
@@ -25,6 +30,52 @@ def check_rule_upgrade(query, migration):
     check_guard(query, migration, '0053', 'model_cache_read',
                 ((f"ALTER FUNCTION {APPEND_PRICE} SET work_mem='64kB';", APPEND_PRICE),
                  ('GRANT EXECUTE ON FUNCTION assistant.currency_readable(uuid,uuid,text) TO openetrm_runtime;', 'assistant.currency_readable(uuid,uuid,text)')))
+
+
+def check_name_rule_upgrade(query, migration):
+    check_guard(query, migration, '0059', 'model_display_name',
+                (("ALTER FUNCTION assistant.is_display_name(text) SET work_mem='64kB';", 'assistant.is_display_name(text)'),
+                 ('GRANT EXECUTE ON FUNCTION assistant.is_terms_text(text) TO openetrm_runtime;', 'assistant.is_terms_text(text)')))
+    body = migration_body(migration)
+    try:
+        query(f'BEGIN ISOLATION LEVEL REPEATABLE READ;{body}ROLLBACK;')
+    except RuntimeError as error:
+        assert 'model_display_name: requires read committed isolation' in str(error), error
+    else:
+        raise AssertionError('Migration 0059 applied under repeatable read, whose snapshot can predate the writes it waits for')
+    print('PASS migration 0059 requires read committed isolation, so its check sees every display name committed before it', flush=True)
+
+    def stored(names):
+        """Models stored under 0051's rule with these display names, in a workspace that rolls back with the check."""
+        tenant, workspace, provider, models = uuid4(), uuid4(), uuid4(), [str(uuid4()) for _ in names]
+        return models, (f"INSERT INTO security.tenants VALUES('{tenant}','synthetic_name_rule');"
+                        f"INSERT INTO security.workspaces VALUES('{tenant}','{workspace}','synthetic_name_rule');"
+                        f"INSERT INTO assistant.providers(id,tenant_id,workspace_id,vendor,version) VALUES('{provider}','{tenant}','{workspace}','anthropic',1);"
+                        + ''.join(f"INSERT INTO assistant.models VALUES('{model}','{tenant}','{workspace}','{provider}','model-synthetic-{n}','{name}',1);"
+                                  for n, (model, name) in enumerate(zip(models, names))))
+
+    # Both rules keep their owner, its sole grant, their settings and their volatility.
+    kept = ("(SELECT count(*) FROM pg_proc p WHERE p.oid IN('assistant.is_display_name(text)'::regprocedure,'assistant.is_terms_text(text)'::regprocedure)"
+            " AND(pg_get_userbyid(p.proowner),p.proacl::text,p.proconfig::text,p.provolatile::text)"
+            "=('openetrm_security_owner','{openetrm_security_owner=X/openetrm_security_owner}','{search_path=pg_catalog}','i'))=2")
+    # Exactly 80 characters, counted as characters rather than bytes, is still a display name.
+    compliant = ('Synthetic model', UNICODE_NAME, '\u65e5' * 80)
+    _, rows = stored(compliant)
+    names = ','.join(f"'{name}'" for name in compliant)
+    query(f"BEGIN;{rows}{body}DO $$BEGIN IF (SELECT array_agg(display_name ORDER BY identifier) FROM assistant.models) IS DISTINCT FROM ARRAY[{names}]"
+          f" OR NOT {kept} THEN RAISE EXCEPTION 'A stored name or a rule''s ownership changed';END IF;END$$;ROLLBACK;")
+    print("PASS migration 0059 applies over stored display names that follow the rule, changing neither them nor the rules' owner and grants", flush=True)
+    models, rows = stored((UNICODE_NAME, *ADMITTED_UNSAFE_NAMES))
+    try:
+        query(f'BEGIN;{rows}{body}ROLLBACK;')
+    except RuntimeError as error:
+        # Each refused model is named by identity, vendor and identifier, and no stored name is echoed.
+        named = [f'{model} (anthropic model-synthetic-{n})' for n, model in enumerate(models) if n]
+        assert ('model_display_name: ' in str(error) and all(m in str(error) for m in named) and models[0] not in str(error)
+                and str(error).isascii()), error
+    else:
+        raise AssertionError('Migration 0059 applied over stored display names that break the rule')
+    print('PASS migration 0059 stops on stored display names that break the rule and names each of their models', flush=True)
 
 
 def run_checks(url, query, psql, manifest, environment):
@@ -127,7 +178,7 @@ def run_checks(url, query, psql, manifest, environment):
     check('a display name is trimmed, at most 80 characters, without control characters, and a vendor is supported',
           all(refusal(MODELS + '/add', {**model_request('anthropic', 'model-synthetic-c'), **body}, 422, 'model_admin_input')
               for body in ({'displayName': ''}, {'displayName': ' padded'}, {'displayName': 'n' * 81}, {'displayName': 'tab\tname'},
-                           {'displayName': 'next\x85line'}, {'displayName': None}, {'identifier': None}, {'vendor': 'acme'}, {'vendor': None}))
+                           {'displayName': None}, {'identifier': None}, {'vendor': 'acme'}, {'vendor': None}))
           and counts() == before)
     admin.call(MODELS + '/add', {**model_request('anthropic', 'model-synthetic-c'), 'note': 'unlisted'}, expected=400)
 
@@ -146,6 +197,14 @@ def run_checks(url, query, psql, manifest, environment):
           refusal(MODELS + '/add', model_request('anthropic', 'model-synthetic-c', 'nul\x00name'), 422, 'model_admin_input')
           and refusal(MODELS + '/add', model_request('anthropic', 'model\x00synthetic'), 422, 'model_identifier_invalid')
           and refusal(MODELS + '/rename', {**rename, 'operationId': str(uuid4()), 'expectedVersion': 2, 'displayName': 'nul\x00name'}, 422, 'model_admin_input')
+          and counts() == before)
+    unicode_model = admin.call(MODELS + '/add', model_request('anthropic', 'model-synthetic-unicode', UNICODE_NAME))
+    check('a display name may hold letters beyond ASCII, kept exactly', unicode_model['displayName'] == UNICODE_NAME)
+    before = counts()
+    check('a display name with a space at either end, a C1 control, a bidirectional override or a line separator is refused on add and rename',
+          all(refusal(MODELS + '/add', model_request('anthropic', 'model-synthetic-c', name), 422, 'model_admin_input')
+              and refusal(MODELS + '/rename', {**rename, 'operationId': str(uuid4()), 'expectedVersion': 2, 'displayName': name}, 422, 'model_admin_input')
+              for name in UNSAFE_NAMES)
           and counts() == before)
     listing = admin.call(MODELS)
     check('an unpriced model shows no price from now on',
@@ -234,7 +293,7 @@ def run_checks(url, query, psql, manifest, environment):
                                                  ('2099-07-01T00:00:00', None, 1, True)])
     check('a model whose only price starts later has no price until then',
           schedule(listing, openai['id']) == [('now', '2099-01-01T00:00:00', None, False), ('2099-01-01T00:00:00', None, 1, True)]
-          and {m['id'] for m in listing['models']} == {anthropic['id'], openai['id']} and openai_later['price']['sequence'] == 1)
+          and {m['id'] for m in listing['models']} == {anthropic['id'], openai['id'], unicode_model['id']} and openai_later['price']['sequence'] == 1)
     superseding = pricing.call(MODELS + '/price', price_request(openai['id'], 1))
     check('a correction covering later boundaries merges them into one segment',
           superseding['price']['sequence'] == 2 and schedule(pricing.call(MODELS), openai['id']) == [('now', None, 2, True)])
@@ -284,8 +343,8 @@ def run_checks(url, query, psql, manifest, environment):
           == [('withdraw_price', 'openai', 'model-synthetic-a'), ('add_price', 'openai', 'model-synthetic-a'),
               ('add_price', 'openai', 'model-synthetic-a'), ('add_price', 'anthropic', 'model-synthetic-a'),
               ('add_price', 'anthropic', 'model-synthetic-a'), ('add_price', 'anthropic', 'model-synthetic-a'),
-              ('rename_model', 'anthropic', 'model-synthetic-a'), ('add_model', 'openai', 'model-synthetic-a'),
-              ('add_model', 'anthropic', 'model-synthetic-a')]
+              ('add_model', 'anthropic', 'model-synthetic-unicode'), ('rename_model', 'anthropic', 'model-synthetic-a'),
+              ('add_model', 'openai', 'model-synthetic-a'), ('add_model', 'anthropic', 'model-synthetic-a')]
           and provider_audit and all(a['action'] == 'replace_key' for a in provider_audit))
 
     lines = contexts.second_workspace(
@@ -436,6 +495,14 @@ def run_checks(url, query, psql, manifest, environment):
         query(expect(revision(kind, terms), '23514'))
     check('even for the owner, a rate set names its currency, uncached input and output and any tier below 10^12 tokens offers its dimensions, '
           'a withdrawal names none of them, and no other kind exists')
+    for name in UNSAFE_NAMES:
+        query(expect(f"UPDATE assistant.models SET display_name='{name}',version=version+1 WHERE id={model};", '23514'))
+    check('even for the owner, a stored display name follows the same rule')
+    # A session without standard conforming strings must read the rule's escapes the same way.
+    lax = 'SET standard_conforming_strings=off;'
+    query(lax + expect(f"UPDATE assistant.models SET display_name='{UNSAFE_NAMES[0]}',version=version+1 WHERE id={model};", '23514'))
+    check('both rules hold in a session without standard conforming strings',
+          query(lax + "SELECT assistant.is_display_name('Synthetic model') AND assistant.is_terms_text('Synthetic terms');") == 't')
     for statement in (f"UPDATE assistant.price_revisions SET output=1 WHERE model_id={model} AND kind='rates';",
                       f"DELETE FROM assistant.price_revisions WHERE model_id={model};",
                       # Advancing the version leaves only the identity rule to refuse these changes.

@@ -478,3 +478,26 @@ returning a replay and after their writes. No terms or attestation is installed.
 migration first verifies the authority and replay helpers it relies on and the
 definitions it replaces. As a new migration it stops automatic hosted updates until
 the operator qualifies a new baseline (D135).
+
+## Page-assistant display-name rule
+
+[0059_model_display_name_rule.sql](migrations/0059_model_display_name_rule.sql) gives a
+model's display name the character rule of vendor terms text
+([ai-assistant.md](../docs/ai-assistant.md) §6.3): 1 to 80 characters with no space at
+either end and no C0 or C1 control, line or paragraph separator, bidirectional
+embedding, override or isolate, or zero-width no-break space. 0051 trimmed only ASCII
+spaces and refused only `[[:cntrl:]]`, the C0 and C1 controls, so a name could begin
+with a no-break space or carry a right-to-left override or a line separator.
+`assistant.is_plain_text` now lists those code points once, rather than naming a
+locale's character class, and reads its escapes the same way whatever the session's
+`standard_conforming_strings`. `assistant.is_display_name` and `assistant.is_terms_text`
+each apply it with their own length, so terms text keeps its meaning. The replaced
+definitions keep their signatures, owners and grants, the runtime cannot execute the new
+helper, and the migration first verifies the definitions it replaces. A replaced
+function does not recheck the rows its constraint admitted, so the migration reads every
+stored display name, with row security off and under read committed isolation, which it
+requires. One that breaks the rule stops it with `model_display_name`, naming each
+affected model with its vendor and identifier. The migration never renames a model: a
+rename is an administrator's audited change. Such an installation renames those models
+through Models & prices, then applies the migration again. As a new migration it stops
+automatic hosted updates until the operator qualifies a new baseline (D135).
