@@ -44,6 +44,7 @@ if (args is ["--schedules"])
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();
     SchedulePublicationChecks.Run();
+    DirectReadChecks.ReportsDifferences();
     return;
 }
 
