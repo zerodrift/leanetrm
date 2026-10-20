@@ -159,6 +159,12 @@ def main():
             if args.assistant_check and migration.name=='0062_provider_tests.sql':
                 from check_provider_tests import check_upgrade as check_tests_upgrade
                 check_tests_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0064_directory_tests.sql':
+                from check_provider_tests import check_directory_upgrade as check_tests_directory_upgrade
+                check_tests_directory_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0065_worker_start_time.sql':
+                from check_provider_tests import check_start_upgrade
+                check_start_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -417,8 +423,13 @@ def main():
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    # The browser's two tests reach the provider; its retry and refused test must not.
+                    from fake_model_provider import echo
+                    reached=len(fake_provider.received);fake_provider.respond(echo(),echo())
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--assistant'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned page-assistant settings browser checks failed')
+                    if len(fake_provider.received)!=reached+2:raise RuntimeError('The browser tests did not reach the provider exactly twice')
+                    print('PASS the browser tests reached the provider exactly twice: a retry and a refused test sent nothing',flush=True)
             elif args.identity_check:
                 from check_units_preview import run_checks as check_units
                 check_units(url)

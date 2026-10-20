@@ -17,8 +17,16 @@ type Audit={at:string;actor:string;action:string;vendor:string;identifier?:strin
 type Models={asOf:string;models:Model[];audit:Audit[];currencies:Currency[]};
 type Term='retention'|'training'|'ownerAccess';
 type Terms={version:number;accountType:string;recordedBy:string;recordedAt:string}&Record<Term|`${Term}Source`|`${Term}CheckedOn`,string>;
-type Provider={vendor:string;name:string;protocol:string;mapping:{mapping:string;confirmedOn:string;efforts:string[]}|null;version:number;enabled:boolean;qualified:boolean;
-  credential:{version:number;lastFour:string;setBy:string;setAt:string}|null;terms:Terms|null;attestation:{attestedBy:string;attestedAt:string}|null};
+type Count={count:number|null;source:'reported'|'not_billed'|'unknown'};
+type Spent='uncachedInput'|'cacheRead'|'cacheWrite'|'output'|'reasoning';
+export type TestState={identifier:string;capabilityVersion:number;reasoning:string|null;credentialVersion:number;termsVersion:number;priceSequence:number;testedBy:string;
+  startedAt:string;closedAt:string|null;outcome:string|null;served:string|null;usage:({status:string}&Record<Spent,Count>)|null;
+  cost:{status:string;amount:string|null;currency:CurrencyReference}|null;operationId:string};
+type Endpoint={url:string;check:boolean};
+// The directory states whether its last test ran under the key and terms attested now.
+type LastTest=TestState&{underCurrentAttestation:boolean};
+type Provider={vendor:string;name:string;protocol:string;endpoint:Endpoint|null;mapping:{mapping:string;confirmedOn:string;efforts:string[]}|null;version:number;enabled:boolean;qualified:boolean;
+  credential:{version:number;lastFour:string;setBy:string;setAt:string}|null;terms:Terms|null;attestation:{attestedBy:string;attestedAt:string}|null;lastTest:LastTest|null};
 type Providers={providers:Provider[];audit:Audit[]};
 export type PriceEntry={currency:CurrencyReference|undefined;cacheReadRequired:boolean;rates:Record<Dimension,{value:string;notOffered:boolean}>;tier:string;threshold:string;tierRates:Record<Dimension,string>};
 
@@ -31,7 +39,10 @@ const changes:Record<string,string>={add_model:'Model added',rename_model:'Displ
 const rejections=['model_admin_input','model_admin_conflict','model_identifier_invalid','currency_unavailable','model_unqualified','model_provider_unqualified',
   'model_provider_disabled','model_mapping_unconfirmed','access_denied','request_format','request_token'];
 const modelPaths=['add','rename','price','withdraw','edit','enable','disable'].map(path=>'settings/ai/models/'+path);
-const providerPaths=['terms','attest','enable','disable'].map(path=>'settings/ai/providers/'+path),keyPath='settings/ai/providers/key';
+const providerPaths=['terms','attest','enable','disable'].map(path=>'settings/ai/providers/'+path),keyPath='settings/ai/providers/key',testPath='settings/ai/providers/test';
+// A test refused for these opened nothing. One in progress or whose answer was lost is retained, and so is one refused
+// access_denied, which the answer can be after the test was recorded and sent.
+const testRejections=['model_unpriced','parameter_required','credential_unavailable','agent_runtime_unavailable'];
 const inconsistent=()=>Error('The AI settings directory is inconsistent. Refresh AI settings.');
 const grouped=(count:number)=>count.toLocaleString('en-US');
 
@@ -127,7 +138,53 @@ export function segmentLabel(segment:{sequence:number|null;priced:boolean},price
   if(!price||segment.priced!==(price.kind==='rates'))throw inconsistent();
   return segment.priced?`Revision ${price.sequence} · ${labels.get(currencyKey(price.currency!))??'currency not readable'}`:`No price · revision ${price.sequence}`;
 }
-
+const outcomes:Record<string,string>={succeeded:'Succeeded',interrupted:'Interrupted',limit_elapsed:'Time limit elapsed',request_cancelled:'Cancelled',
+  usage_unrecognized:'Usage not recognized',model_refused:'Refused by the model',model_mismatch:'Served by another model',context_window_exceeded:'Context window exceeded',
+  model_provider_authentication:'Key not accepted',model_provider_rate_limited:'Rate limited',model_provider_overloaded:'Provider overloaded',
+  model_provider_invalid_request:'Request not accepted',model_provider_transport:'Transport failure',model_provider_response_too_large:'Response too large'};
+const spent:[Spent,string][]=[['uncachedInput','Uncached input'],['cacheRead','Cache read'],['cacheWrite','Cache write'],['output','Output'],['reasoning','Reasoning']];
+const unpricedCosts:Record<string,string>={usage_unknown:'No cost: usage is unknown',usage_unrecognized:'No cost: usage was not recognized',
+  cost_unpriced:'No cost: tokens were used in a dimension the pinned price does not offer'};
+export function testOutcome(outcome:string|null){
+  if(outcome===null)return 'No outcome recorded yet';if(!Object.hasOwn(outcomes,outcome))throw inconsistent();return outcomes[outcome];
+}
+// A test's pins, then, once it is closed, its usage by dimension and its exact cost as the server computed it.
+export function testRows(test:TestState,currency:(c:CurrencyReference)=>string,instant:(at:string)=>string){
+  if(test.reasoning===null)throw inconsistent();
+  const rows=[['Outcome',testOutcome(test.outcome)],['Model',test.identifier],['Capability version',`Version ${test.capabilityVersion}`],['Reasoning effort',test.reasoning],
+    ['Key and terms',`Key version ${test.credentialVersion} · terms version ${test.termsVersion}`],['Price revision',`Revision ${test.priceSequence}`],['Tested by',test.testedBy],
+    ['Started',instant(test.startedAt)]];
+  if(test.outcome===null)return rows;
+  if(!test.closedAt||!test.usage||!test.cost)throw inconsistent();
+  const {usage,cost}=test,count=({count,source}:Count)=>{
+    if(source==='reported'&&count!==null)return `${grouped(count)} tokens`;if(source==='not_billed')return 'Not billed';if(source==='unknown')return 'Unknown';
+    throw inconsistent();
+  };
+  if(cost.status!=='priced'&&!Object.hasOwn(unpricedCosts,cost.status))throw inconsistent();
+  return [...rows,['Closed',instant(test.closedAt)],['Served as',test.served??'Not reported'],...spent.map(([d,name])=>[name,count(usage[d])]),
+    ['Cost',cost.status==='priced'?`${cost.amount} ${currency(cost.currency)}`:unpricedCosts[cost.status]]];
+}
+function underCurrentAttestation(test:LastTest){if(typeof test.underCurrentAttestation!=='boolean')throw inconsistent();return test.underCurrentAttestation;}
+export function lastTestLabel(test:LastTest|null,instant:(at:string)=>string){
+  if(!test)return 'Not tested';
+  const when=test.closedAt?`${testOutcome(test.outcome)} · ${instant(test.closedAt)}`:`${testOutcome(null)} · started ${instant(test.startedAt)}`;
+  return underCurrentAttestation(test)?when:`${when} · earlier key or terms`;
+}
+// A provider tests only under its current key and terms once they are attested.
+export function lastTestSummary(test:LastTest|null,attested:boolean){
+  if(!test)return 'This provider has not been tested.';
+  if(underCurrentAttestation(test))return '';
+  return 'This test ran under an earlier key or terms. '+(attested?'Test again to check the current ones.':'Attest the current key and terms, then test again to check them.');
+}
+export function endpointLabel(endpoint:Endpoint|null){return endpoint?(endpoint.check?`${endpoint.url} (check endpoint)`:endpoint.url):'No adapter in this release';}
+// A provider's test offers its own models with recorded capabilities; the server refuses any other.
+export function testableModels<M extends {vendor:string;capability:unknown}>(models:M[],vendor:string){return models.filter(m=>m.vendor===vendor&&!!m.capability);}
+// A test names its model and one of the efforts its capability version records; the server decides the rest.
+export function testRequest(entry:{modelId:string;reasoning:string}){
+  if(!entry.modelId)throw Error('Choose the model to test.');
+  if(!entry.reasoning)throw Error('Choose the reasoning effort.');
+  return {modelId:entry.modelId,reasoning:entry.reasoning};
+}
 
 // Settings › AI (docs/ai-assistant.md §9): Models & prices and Providers. Both tabs read both
 // directories, since adding a vendor's first model creates its provider and a model's capabilities
@@ -142,13 +199,15 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   const [priceFrom,priceTo,withdrawFrom,withdrawTo]=['ai-price-from','ai-price-to','ai-withdraw-from','ai-withdraw-to'].map(id=>zonedInput(input(id),options.zone,options.api));
   const rejected=(code:string|undefined)=>!!code&&rejections.includes(code);
   const pending=new PendingCommand(rejected),providerPending=new PendingCommand(rejected);
+  const testPending=new PendingCommand(code=>code!=='access_denied'&&(rejected(code)||!!code&&testRejections.includes(code)));
   // The key itself is never part of the retained request (§5.2); a retry asks for it again.
   const keyPending=new PendingCommand(code=>rejected(code)||code==='credential_unavailable');
   let models:Models|undefined,providers:Providers|undefined,labels=new Map<string,string>(),selected:string|undefined,selectedVendor:string|undefined,keyVendor:string|undefined,generation=0;
   // The key and terms the attestation statement names; a confirmation never carries over to another pair.
   let statementPair='';
   const storage=new Map<PendingCommand,()=>string>([[pending,()=>`openetrm.ai.models.request.${options.identity()}`],
-    [providerPending,()=>`openetrm.ai.providers.request.${options.identity()}`],[keyPending,()=>`openetrm.ai.key.request.${options.identity()}`]]);
+    [providerPending,()=>`openetrm.ai.providers.request.${options.identity()}`],[keyPending,()=>`openetrm.ai.key.request.${options.identity()}`],
+    [testPending,()=>`openetrm.ai.test.request.${options.identity()}`]]);
 
   // Each retained request owns its slot, so one command never rewrites another's.
   function store(holder:PendingCommand){
@@ -172,7 +231,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     node.replaceChildren(blank,...choices.map(c=>new Option(publicText(c.label),c.value)));node.value=choices.some(c=>c.value===chosen)?chosen:'';
   }
   const rateCells=(rates:Rates)=>dimensions.map(d=>rates[d]??'Not offered');
-  const hosts=['ai-model-table','ai-model-audit','ai-price-history','ai-price-schedule','ai-capability-table','ai-provider-table','ai-terms-table','ai-provider-audit'];
+  const hosts=['ai-model-table','ai-model-audit','ai-price-history','ai-price-schedule','ai-capability-table','ai-provider-table','ai-terms-table','ai-test-table','ai-provider-audit'];
   const efforts=()=>[...get('ai-capability-efforts').querySelectorAll<HTMLInputElement>('input:checked')].map(box=>box.value);
   // One source and checked date per fact.
   get('ai-capability-sources').replaceChildren(...facts.map(fact=>{
@@ -199,6 +258,10 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   function selectProvider(vendor:string){
     if(!providers?.providers.some(p=>p.vendor===vendor))return;
     selectedVendor=vendor;for(const id of ['ai-terms-form','ai-attest-form'])form(id).reset();render();sync();get('ai-provider-card').scrollIntoView({block:'nearest'});
+  }
+  function fillTestEfforts(){
+    const chosen=models?.models.find(m=>m.id===get<HTMLSelectElement>('ai-test-model').value);
+    fillChoices('ai-test-effort','Choose an effort…',(chosen?.capability?.reasoningEfforts??[]).map(effort=>({value:effort,label:effort})));
   }
   function openKey(vendor:string){if(keyPending.command)return;keyVendor=vendor;input('ai-key-value').value='';sync();input('ai-key-value').focus();}
 
@@ -243,17 +306,18 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       note.textContent=mapping?'':`This release confirms no usage mapping for ${vendorName(shown.vendor)}, so its models’ capabilities cannot be recorded.`;
       if(mapping)form('ai-capability-form').removeAttribute('aria-describedby');else form('ai-capability-form').setAttribute('aria-describedby','ai-capability-note');
     }
-    renderRegularTable(get('ai-provider-table'),'ai-providers',options.identity(),['Provider','Protocol','State','Usage mapping','Terms','Attestation','Key','Key set by','Key set'],providers.providers.map(p=>[
+    renderRegularTable(get('ai-provider-table'),'ai-providers',options.identity(),['Provider','Protocol','State','Usage mapping','Terms','Attestation','Key','Key set by','Key set','Endpoint','Last test'],providers.providers.map(p=>[
       button(p.name,()=>selectProvider(p.vendor),'text-button'),p.protocol,stateLabel(p),p.mapping?`${p.mapping.mapping} · confirmed ${p.mapping.confirmedOn}`:'None confirmed',
       p.terms?`Version ${p.terms.version} · ${p.terms.accountType}`:'Not recorded',p.attestation?`${p.attestation.attestedBy} · ${instant(p.attestation.attestedAt)}`:'Not attested',
-      p.credential?`Ends in ${p.credential.lastFour}`:'Not set',p.credential?.setBy??'',p.credential?instant(p.credential.setAt):'']),[],options.busy);
+      p.credential?`Ends in ${p.credential.lastFour}`:'Not set',p.credential?.setBy??'',p.credential?instant(p.credential.setAt):'',endpointLabel(p.endpoint),
+      lastTestLabel(p.lastTest,instant)]),[],options.busy);
     renderRegularTable(get('ai-provider-audit'),'ai-provider-audit',options.identity(),['Saved','By','Provider','Change'],providers.audit.map(a=>[instant(a.at),a.actor,vendorName(a.vendor),aiChange(a.action)]),[],options.busy);
     const vendor=provider();get('ai-provider-card').hidden=!vendor;
     if(vendor){
       get('ai-provider-title').textContent=vendor.name;
       get('ai-provider-facts').textContent=publicText(`${vendor.protocol} · ${stateLabel(vendor)} · `
         +`${vendor.mapping?`usage mapping ${vendor.mapping.mapping}, confirmed ${vendor.mapping.confirmedOn}`:'this release confirms no usage mapping'} · `
-        +(vendor.credential?`key ends in ${vendor.credential.lastFour}`:'no key set'));
+        +(vendor.credential?`key ends in ${vendor.credential.lastFour}`:'no key set')+' · '+(vendor.endpoint?`endpoint ${endpointLabel(vendor.endpoint)}`:'no adapter in this release'));
       const terms=vendor.terms;
       get('ai-terms-summary').textContent=publicText(terms?`Version ${terms.version} for “${terms.accountType}”, recorded by ${terms.recordedBy} at ${instant(terms.recordedAt)}.`:'No terms are recorded.');
       renderRegularTable(get('ai-terms-table'),'ai-terms',JSON.stringify([options.identity(),vendor.vendor]),['Terms','Text','Source','Checked on'],
@@ -261,6 +325,14 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       get('ai-attest-statement').textContent=publicText(attestationStatement(vendor));
       const pair=JSON.stringify([vendor.vendor,vendor.credential?.version??null,terms?.version??null]);
       if(pair!==statementPair){input('ai-attest-confirm').checked=false;statementPair=pair;}
+      const choices=testableModels(models.models,vendor.vendor);
+      fillChoices('ai-test-model','Choose a model…',choices.map(m=>({value:m.id,label:`${m.displayName} · ${m.identifier}`})));fillTestEfforts();
+      const note=get('ai-test-note');note.hidden=!!vendor.endpoint&&choices.length>0;
+      note.textContent=vendor.endpoint?'Record a model’s capabilities to test this provider.':`No adapter for ${vendor.name} ships in this release, so it cannot be tested.`;
+      const last=vendor.lastTest;
+      get('ai-test-summary').textContent=lastTestSummary(last,!!vendor.attestation);
+      renderRegularTable(get('ai-test-table'),'ai-test',JSON.stringify([options.identity(),vendor.vendor]),['Test','Value'],
+        last?testRows(last,c=>labels.get(currencyKey(c))??'currency not readable',instant):[],[],options.busy);
     }
     fillChoices('ai-model-vendor','Choose a provider…',providers.providers.map(p=>({value:p.vendor,label:p.name})));
   }
@@ -272,7 +344,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     const unattestable=!vendor?.credential||!vendor.terms||!!vendor.attestation;
     const controls=(id:string)=>form(id).querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement|HTMLButtonElement>('input,select,textarea,button');
     for(const [id,blocked] of [['ai-model-form',held],['ai-rename-form',held],['ai-price-form',held||noCurrency],['ai-withdraw-form',held],['ai-capability-form',held||unmapped],
-      ['ai-terms-form',providerHeld],['ai-attest-form',providerHeld||unattestable]] as const)
+      ['ai-terms-form',providerHeld],['ai-attest-form',providerHeld||unattestable],['ai-test-form',!!testPending.command||missing]] as const)
       for(const node of controls(id))node.disabled=busy||blocked;
     if(!busy&&!held&&!noCurrency){
       const tier=choice('ai-price-tier')==='tier';
@@ -288,6 +360,11 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     get<HTMLButtonElement>('ai-provider-key').disabled=busy||!!keyPending.command;
     get('ai-models-pending').hidden=!pending.command;
     get('ai-providers-pending').hidden=!providerPending.command;
+    get('ai-test-pending').hidden=!testPending.command;
+    // The retained test names its model, with its vendor, when the directory lists it, never by its internal identifier.
+    const retained=testPending.command?.body,tested=models?.models.find(m=>m.id===retained?.modelId);
+    get('ai-test-pending-text').textContent=retained?`A test of ${tested?`${tested.displayName} (${vendorName(tested.vendor)} · ${tested.identifier})`:'a model these settings cannot list now'} at reasoning effort ${String(retained.reasoning)} `
+      +'has no confirmed outcome. Retry sends the same request: it reads the test’s outcome if the test was recorded, and otherwise runs it once. Discarding the request leaves any recorded test in place.':'';
     const keyed=String(keyPending.command?.body.vendor??keyVendor??''),name=providers?.providers.find(p=>p.vendor===keyed)?.name??keyed;
     get('ai-key-form').hidden=!keyed;get('ai-key-title').textContent=keyed?`Replace the ${name} key`:'';
     get('ai-key-pending').hidden=!keyPending.command;
@@ -392,6 +469,13 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     const p=currentProvider();await change(providerPending,'settings/ai/providers/'+path,{vendor:p.vendor,expectedVersion:p.version});
   }).then(()=>handOff('ai-provider-'+counterpart[path],'ai-provider-'+path));
   get('ai-provider-key').onclick=()=>{const p=provider();if(p&&!options.busy())openKey(p.vendor);};
+  get('ai-test-model').addEventListener('change',fillTestEfforts);
+  form('ai-test-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
+    currentProvider();
+    await change(testPending,testPath,testRequest({modelId:get<HTMLSelectElement>('ai-test-model').value,reasoning:get<HTMLSelectElement>('ai-test-effort').value}));
+  });};
+  get('ai-test-retry').onclick=()=>void options.act(()=>send(testPending));
+  get('ai-test-discard').onclick=()=>{if(options.busy())return;testPending.clear();store(testPending);sync();};
   get('ai-providers-retry').onclick=()=>void options.act(()=>send(providerPending));
   get('ai-providers-discard').onclick=()=>{if(options.busy())return;providerPending.clear();store(providerPending);sync();};
   form('ai-key-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
@@ -413,11 +497,12 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();},
     reset(){
       generation++;clearDirectories();selected=undefined;selectedVendor=undefined;statementPair='';
-      for(const id of ['ai-model-form','ai-rename-form','ai-key-form','ai-terms-form','ai-attest-form'])form(id).reset();resetModelForms();show('models');
+      for(const id of ['ai-model-form','ai-rename-form','ai-key-form','ai-terms-form','ai-attest-form','ai-test-form'])form(id).reset();resetModelForms();show('models');
       // This identity's unconfirmed requests stay offered whether or not its directories can be read.
       pending.command=stored(pending,c=>modelPaths.includes(c.path));
       providerPending.command=stored(providerPending,c=>providerPaths.includes(c.path));
       keyPending.command=stored(keyPending,c=>c.path===keyPath&&Object.keys(c.body).sort().join()==='expectedVersion,vendor');
+      testPending.command=stored(testPending,c=>c.path===testPath&&Object.keys(c.body).sort().join()==='modelId,reasoning');
       sync();
     }};
 }

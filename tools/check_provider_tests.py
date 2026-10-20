@@ -37,6 +37,20 @@ def check_upgrade(query, migration):
                  ('GRANT EXECUTE ON FUNCTION assistant.model_qualified(uuid) TO openetrm_runtime;', 'assistant.model_qualified(uuid)')))
 
 
+def check_start_upgrade(query, migration):
+    check_guard(query, migration, '0065', 'worker_start_time',
+                (("ALTER FUNCTION assistant.start_worker() SET work_mem='64kB';", 'assistant.start_worker()'),
+                 ('GRANT EXECUTE ON FUNCTION assistant.holds_worker_lock(integer) TO openetrm_runtime;', 'assistant.holds_worker_lock(integer)')))
+
+
+def check_directory_upgrade(query, migration):
+    check_guard(query, migration, '0064', 'directory_tests',
+                (("ALTER FUNCTION assistant.current_attestation(uuid) SET work_mem='64kB';", 'assistant.current_attestation(uuid)'),
+                 ("ALTER FUNCTION assistant.test_state(uuid) SET work_mem='64kB';", 'assistant.test_state(uuid)'),
+                 ("ALTER FUNCTION assistant.provider_directory() SET work_mem='64kB';", 'assistant.provider_directory()'),
+                 ('GRANT EXECUTE ON FUNCTION assistant.provider_state(uuid) TO openetrm_runtime;', 'assistant.provider_state(uuid)')))
+
+
 class Worker:
     """A session holding the agent-worker lock, as another preview process would: it ends the current holder's
     connection, takes the lock and, unless told not to, starts the next generation."""
@@ -95,6 +109,10 @@ def run_checks(url, query, psql, manifest, environment):
     for table in ('worker_generation', 'model_calls', 'model_call_outcomes'):
         contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
     check('the runtime reads worker generations, model calls and their outcomes only through the worker and Test operations')
+    check('the directory and the worker start keep the owner and grants their guards verified through 0064 and 0065',
+          query("SELECT count(*) FROM pg_proc p WHERE p.oid IN('assistant.provider_directory()'::regprocedure,'assistant.start_worker()'::regprocedure)"
+                " AND pg_get_userbyid(p.proowner)='openetrm_security_owner' AND cardinality(p.proacl)=2"
+                " AND p.proacl @> ARRAY['openetrm_security_owner=X/openetrm_security_owner','openetrm_runtime=X/openetrm_security_owner']::aclitem[];") == '2')
 
     # token_cost_v1 over revisions built for the check, never stored: exact rates per million tokens, and an
     # optional tier that prices every dimension once uncached input, cache read and cache write exceed it.
@@ -469,8 +487,10 @@ def run_checks(url, query, psql, manifest, environment):
     assert opener.returncode == 0, errors
     successor.generation = int(successor.receive())
     worker = successor
-    check('a worker that starts while a test is opening waits for the open to commit, then closes that test as interrupted',
-          record(query(f"SELECT id FROM assistant.model_calls WHERE operation_id='{racing}';"))['outcome'] == 'interrupted')
+    raced = query(f"SELECT id FROM assistant.model_calls WHERE operation_id='{racing}';")
+    check('a worker that starts while a test is opening waits for the open to commit, then closes that test as interrupted, never before it started',
+          record(raced)['outcome'] == 'interrupted' and query('SELECT o.closed_at>=c.started_at FROM assistant.model_calls c '
+                                                             f"JOIN assistant.model_call_outcomes o ON o.call_id=c.id WHERE c.id='{raced}';") == 't')
 
     # The open rechecks its authority after its principal and row waits and after its writes; each case names the
     # frame that must refuse it once the request context has expired.
@@ -487,6 +507,23 @@ def run_checks(url, query, psql, manifest, environment):
         check(f'a test waiting for {wait} with an expired request context is refused at its recheck',
               refused_at(failure, '42501', rf'function assistant\.{site}'))
     check('an expired test records nothing', query(RECORDS) == rows)
+
+    # The Providers directory shows each provider's latest test as Settings › AI reads it, open or closed.
+    def directory():
+        return json.loads(contexts.runtime('admin', 'SELECT assistant.provider_directory()::text;').splitlines()[-1])
+    latest = opened(tested)['opened']['call']
+    running, open_record = directory()['tests'], record(latest)
+    close(latest)
+    closed = directory()['tests']
+    isolated = json.loads(contexts.second_workspace('SELECT assistant.provider_directory()::text;').splitlines()[-1])
+    requalify()
+    check("the Providers directory shows each provider's latest test, open and then closed, none for a provider never tested, "
+          "and none of this workspace's to another",
+          running == {'anthropic': open_record | {'underCurrentAttestation': True}} and open_record['outcome'] is None
+          and closed == {'anthropic': record(latest) | {'underCurrentAttestation': True}} and record(latest)['outcome'] == 'succeeded'
+          and isolated['tests'] == {})
+    check('it states whether that test ran under the key and terms attested now, which new terms end',
+          directory()['tests']['anthropic']['underCurrentAttestation'] is False)
     worker.stop()
     print(f'{passed} provider test checks passed.', flush=True)
     return passed

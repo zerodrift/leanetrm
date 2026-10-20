@@ -257,6 +257,9 @@ variable names a trap:
   - While a start would succeed, a viewer's refused request takes no lock and starts no
     generation.
   - The API acquires the lock again for the next test.
+- **Directory:** the Providers tab lists each shipped adapter's endpoint, here the check
+  endpoint marked as one, and each provider's last test; vendors without an adapter have
+  neither.
 - **Egress:** no request reaches a proxy or redirect target, and the key's last four
   characters appear in no answer, request body or log line.
 
@@ -308,12 +311,21 @@ Then in SQL:
   - the next worker closes each test left open as interrupted, once: a further worker and
     a late close change nothing;
   - a worker that starts while a test is opening waits for the open to commit, then closes
-    that test.
+    that test, never before it started (migration 0065).
 - **Expired context:** three cases let the request context expire while a test waits for
   its principal, its model row or its record write, and each names the recheck that
   refuses it.
-- **Guard:** before 0062 applies, its body is refused after a pricing helper's definition
-  changes and after a qualification helper's privileges change.
+- **Last test:** the Providers directory (migration 0064) shows each provider's latest
+  test, open and then closed, none for a provider never tested, and none of this
+  workspace's to another. It states whether that test ran under the key and terms attested
+  now, which stops being true once new terms are attested.
+- **Guards:** before 0062 applies, its body is refused after a pricing helper's definition
+  changes and after a qualification helper's privileges change. Before 0064 applies, its
+  body is refused after the attestation or test state helper or the definition it
+  replaces changes, and after the provider state helper's privileges change. Before 0065
+  applies, its body is refused after the worker start's definition or the lock helper's
+  privileges change. The directory and the worker start keep the owner and grants those
+  guards verified.
 
 The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is
@@ -338,10 +350,23 @@ and date before Enable and Disable, after which focus moves to the control now
 offered, or stays on the one used when the change is refused. After a lost response to a committed price, key replacement or provider
 Enable, the page keeps the request through an identity switch and shows what was
 saved; Retry resends it under the same identity and the audit still records one
-change. The key never reaches session storage, local storage or the URL, its field
-clears when the request settles, and Retry asks for it again. Measured against the
-client width at 390 px, neither tab overflows the page. A revoked administrator keeps
-no model, price, capability, terms or audit rows on screen, a viewer sees no AI
+change. The provider's card and table name the check endpoint, and a vendor without an
+adapter has none. The test offers only the provider's models with capabilities and the
+chosen model's efforts, names its reasoning effort before it is sent and sends only its
+identity, model and effort. The card's last test, which a later test by another
+administrator would replace, then shows its outcome, usage by dimension and exact cost.
+After a lost response to a test at another effort, the page keeps the request while the
+card shows the test the server recorded, and Retry reads that same test. A test the
+server refuses, here for an effort a stubbed directory offers, keeps no request. A test
+still in progress, and a refusal the server can send after a test ran, keep the request
+for its own identity only: the page offers it after an identity switch, before any card
+opens, and after a failed directory read, and Discard forgets it without sending it. The
+last test is unmarked while its key and terms are attested; a new key marks it as run
+under an earlier key or terms, and the card says to attest before testing again. The
+launcher then confirms that only the two tests reached the fake provider. The key never reaches
+session storage, local storage or the URL, its field clears when the request settles,
+and Retry asks for it again. Measured against the client width at 390 px, neither tab overflows the page. A revoked administrator keeps
+no model, price, capability, terms, test or audit rows on screen, a viewer sees no AI
 settings, and hosted mode hides them.
 
 The Messages adapter has a conformance suite

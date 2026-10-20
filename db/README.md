@@ -590,3 +590,24 @@ Three definer operations make up the protocol:
 Nothing is seeded but the generation row, at 0. The migration first verifies the helpers
 it relies on. As a new migration it stops automatic hosted updates until the operator
 qualifies a new baseline (D135).
+
+## Page-assistant provider directory tests
+
+[0064_directory_tests.sql](migrations/0064_directory_tests.sql) has the Providers
+directory state each provider's latest test, by its start, as `test_state` gives it, open
+or closed, and whether it ran under the key and terms attested now, so the Providers tab
+shows its last test and when new ones have outdated it
+([ai-assistant.md](../docs/ai-assistant.md) §9). Nothing else changes; the replaced
+definition keeps its owner and grants. The migration first verifies the helpers it relies
+on and the definition it replaces. As a new migration it stops automatic hosted updates
+until the operator qualifies a new baseline (D135).
+
+## Page-assistant worker start time
+
+[0065_worker_start_time.sql](migrations/0065_worker_start_time.sql) has
+`assistant.start_worker` lock the generation row before it stamps its start. In 0062 the
+stamp could be taken before the start waited for an in-flight test open, so a test the
+start then closed as interrupted could read as closed before it started. Nothing else
+changes; the replaced definition keeps its owner and grants. The migration first verifies
+the lock helper it relies on and the definition it replaces. As a new migration it stops
+automatic hosted updates until the operator qualifies a new baseline (D135).

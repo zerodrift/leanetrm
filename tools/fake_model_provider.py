@@ -47,6 +47,13 @@ def stream(body, release=None, rest=''):
     return respond
 
 
+def echo():
+    """A synthetic recording served as the model the request names, for checks that cannot script the identifier."""
+    def respond(handler):
+        stream(recording(json.loads(handler.body)['model']))(handler)
+    return respond
+
+
 def status(code, body=None, headers=()):
     def respond(handler):
         payload = b'' if body is None else json.dumps(body).encode()
@@ -90,7 +97,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         fake = self.server.fake
-        body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        self.body = body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
         fake.received.append({'method': self.command, 'path': self.path, 'headers': [(k.lower(), v) for k, v in self.headers.items()], 'body': body})
         (fake.script.pop(0) if fake.script else status(500, {'type': 'error', 'error': {'type': 'api_error', 'message': 'Unscripted request'}}))(self)
 

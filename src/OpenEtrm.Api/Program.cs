@@ -43,10 +43,12 @@ await using var database=new PreviewDatabase(root,hosted:hosted,hostedSession:ho
 if(hosted is not null)await database.ValidateHostedBoundary(CancellationToken.None);
 if(hostedAuthentication is not null){hostedAuthentication.Tenant=database.Manifest.TenantId;hostedAuthentication.Workspace=database.Manifest.WorkspaceId;app.UseForwardedHeaders();}
 // The page assistant's worker and provider client exist only in the local preview (docs/ai-assistant.md §11). The
-// worker starts its generation before serving, closing whatever an earlier one left open.
+// worker starts its generation before serving, closing whatever an earlier one left open. Only checks set the
+// preview's provider endpoint override (§5.2).
+var checkEndpoint=hosted is null?ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PROVIDER_ENDPOINT")):null;
 await using var agentWorker=hosted is null?new AgentWorker(PreviewDatabase.AgentSource(root)):null;
 var providerTests=agentWorker is null?null:new ProviderTests(CredentialCustody.FromEnvironment(),agentWorker,
-    new MessagesAdapter(ModelTransport.Handler(ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PROVIDER_ENDPOINT"))),RuntimeSet.Provider),app.Logger);
+    new MessagesAdapter(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider),app.Logger);
 if(agentWorker is not null)await agentWorker.Generation(CancellationToken.None);
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
@@ -844,7 +846,7 @@ api.MapPost("/admin/update",(HttpContext c,AdminUpdate body)=>AdminMutation(c,bo
 // Settings › AI administers the page assistant, which exists only in the local preview (P37).
 if(hosted is null)
 {
-    var (modelProviders,modelCatalog)=(new ModelProviders(CredentialCustody.FromEnvironment(),database.Manifest),new ModelCatalog());
+    var (modelProviders,modelCatalog)=(new ModelProviders(CredentialCustody.FromEnvironment(),database.Manifest,checkEndpoint),new ModelCatalog());
     Task<IResult> ModelRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
         database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
     Task<IResult> ModelCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,session=>
