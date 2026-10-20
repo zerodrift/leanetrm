@@ -544,10 +544,18 @@ one currency and quantity basis and uses positive total trade quantity. Sampling
 financial terms: monthly index, equal calendar-day or business-day observations,
 preceding/following-observation calendar weighting, or supplied quantity weights.
 Calendar-dependent rules retain exact calendar references and resolved date sets.
-Daily rules require the matching dated daily projections. Observations and their
-weights remain separate from payment discounting. The current projection model
-requires valuation before the first fixing; later valuation needs retained actual
-fixings and cannot silently continue forecasting.
+Daily rules require matching dated projections for unresolved observations.
+Observations and their weights remain separate from payment discounting. New swap
+entry resolves an exact, versioned index observation schedule (D165), not a
+user-entered first-fixing time. Each dated publication rule pins its index, quote,
+source and actual series. At or after that observation's publication instant, the
+selected snapshot must contain its exact final `index_fixing` observation as a
+frozen fact. Unresolved observations retain their declared projection and original
+averaging weights. A partly fixed period combines actuals and projections; missing
+due actuals fail explicitly. Frozen actuals contribute cash but no live quote risk.
+The bounded implementation consumes qualified, explicit dated schedules; it does
+not invent publisher conventions, peak calendars or holiday/DST publication rules.
+Old projection-only definitions retain their original boundary and replay meaning.
 
 Contractual payment dates are generated from each side's payment convention,
 not authored as payment timestamps. New entry chooses monthly payment frequency,
@@ -572,7 +580,9 @@ daily rows retain exact contracts and cash allocations before monthly aggregatio
 Other pure-core averaging strategies are not yet booking choices. Storage uses
 immutable typed side definitions, exact reset references and explicit membership
 slots. The shared blotter separates projected swap PV from futures execution P&L.
-Swap risk, actual fixing events and recurring payment strips are not implemented.
+Draft swap quote risk and actual-versus-projected observation valuation are
+supported. Actual fixing lifecycle events, settlement/payment processing and
+recurring payment strips are not implemented.
 
 The currency's configured default supplies the discount curve unless the
 instrument explicitly selects discounting=false. Calculation inputs retain the
@@ -607,9 +617,9 @@ contexts also reject conflicting contents under one observation identity. Rate-b
 valuation retains each side's exact currency-default mapping/curve definition,
 used pillar dates/rates/factors and interpolation policy. An explicit scalar
 common-factor convenience operation remains limited to identical payment dates;
-independent dates require per-side factors. Recurring periods, actual fixings,
-durable swap storage and the browser inspector remain work. Futures execution
-P&L remains a separate implemented operation; generic futures PV/schedules reject
+independent dates require per-side factors. Recurring periods and fixing/payment
+lifecycle transitions remain work; retained actual inputs do not settle a trade.
+Futures execution P&L remains a separate implemented operation; generic futures PV/schedules reject
 without the required retained variation-margin/settlement lifecycle state.
 
 Instrument side editors display each side as a vertical field column with

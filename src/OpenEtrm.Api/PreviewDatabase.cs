@@ -51,7 +51,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
     public static readonly string[] ReferenceTables = [..ReferenceKeys.Select(r=>r.Table)];
     private static readonly (string Table,string Key)[] DefinitionTables = [("revisions","id"), ("contracts","id"), ("curves","code"), ("series","id"),
         ("curve_members","curve_code,contract_id"), ("curve_inputs","curve_code,slot"), ("constituent_mappings","curve_code,slot,target_contract_id"),
-        ("rate_curves","code"), ("rate_curve_points","curve_code,maturity"), ("revision_periods","revision_id")];
+        ("rate_curves","code"), ("rate_curve_points","curve_code,maturity"), ("revision_periods","revision_id"),
+        ("index_fixing_observations","index_code,observation_from,observation_to")];
     private static string ReferenceKey(string table)=>ReferenceKeys.Single(r=>r.Table==table).Key;
     internal static readonly ImmutableArray<string> UnitTables = ["dimensions", "units", "unit_conversions", "commodities", "measurement_bases", "quantity_specifications"];
 
@@ -510,7 +511,7 @@ public sealed class PreviewData
             row.Text("state") != "sealed")
             throw new MarketDataException("reference_pin_mismatch", "The persisted sealed bundle must match every exact manifest reference pin.");
     }
-    public static ObservationRole ParseRole(string role) => role switch {"trader_mark"=>ObservationRole.TraderMark,"daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,"parameter"=>ObservationRole.Parameter,_=>throw Unsupported()};
+    public static ObservationRole ParseRole(string role) => role switch {"trader_mark"=>ObservationRole.TraderMark,"daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,"parameter"=>ObservationRole.Parameter,"index_fixing"=>ObservationRole.IndexFixing,_=>throw Unsupported()};
     private static MarketDataException Unsupported()=>new("unsupported_definition","The selected definition uses an unsupported kind.");
     private static T Single<T>(IEnumerable<T> source)
     { var values=source.Take(2).ToArray(); return values.Length==1?values[0]:throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous."); }
@@ -532,7 +533,7 @@ public sealed class PreviewData
         var selections=frame.ObservationIds.Select(id=>
         {
             var o=Observation(id);
-            return new SelectedObservation(new(S(o.Id("series_id")),InputUse.Variable),new(new(manifest.CatalogId,id),S(o.Id("series_id")),R(o.Text("source_code")),ParseRole(o.Text("role")),
+            return new SelectedObservation(new(S(o.Id("series_id")),o.Text("role")=="index_fixing"?InputUse.FrozenFact:InputUse.Variable),new(new(manifest.CatalogId,id),S(o.Id("series_id")),R(o.Text("source_code")),ParseRole(o.Text("role")),
                 o.Text("publication_state") switch {"final"=>PublicationState.Final,"preliminary"=>PublicationState.Preliminary,_=>throw Unsupported()},o.Instant("observed_at"),o.Number("value")));
         }).ToImmutableArray();
         return new(frame.Id,revision,frame.At,frame.At,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,selections);

@@ -949,3 +949,30 @@ command passed on 2026-10-19 on macOS 26.6.2 arm64 with .NET 10.0.402, Node
 teardown. Swap-catalog daily months still follow contract-identity order, and
 the power-import lists, automation directories and tied discount defaults depend
 on incidental order or ties; they need separate checks.
+
+## Explicit index fixings for swaps
+
+Local 2026-10-19 checks cover exact monthly publication schedules and partially
+fixed daily gas/power periods. Independent arithmetic verifies actual/projected
+PV, unchanged averaging weights and quote risk only for unresolved observations.
+An actual present in storage but absent from the selected snapshot fails rather
+than being fetched implicitly. Manual boundary overrides reject. Identical booking
+retries retain their original outcome after an actual correction; changed terms
+conflict and current write authority remains required.
+
+The owned 0049-to-0050 upgrade preserves existing financial, reference and market
+rows, certified history, definition identities and exact legacy retries. It adds
+no guessed fixing rules to sealed bundles. Runtime checks cover forced RLS,
+additional permissive policies, independently revoked market/reference access,
+unbound sessions and authority expiry during a blocked write. Rejected writes
+leave no trade or publication.
+
+After integrating migrations 0046–0049, the complete local verification command
+passed, including 298 managed market-data checks, 148 frontend checks, 353
+standard browser checks and 37 swap storage checks. The Release API build passed
+without warnings. Verification used
+.NET SDK 10.0.402, Node 24.22.0, PostgreSQL 16.14 and Chrome 155 on macOS arm64;
+all database/browser resources were owned, disposable and synthetic. Independent
+adversarial review found no remaining concrete blocker. These checks do not
+qualify live publisher data, broader peak/holiday observation authoring,
+settlement/payment lifecycle operations or a hosted deployment.

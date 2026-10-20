@@ -31,8 +31,13 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream)) Write(writer, definition);
         var bytes = stream.ToArray();
-        return new(contract.Version, Convert.ToHexStringLower(SHA256.HashData(bytes)), Encoding.UTF8.GetString(bytes));
+        return new(ContractVersion(definition, contract), Convert.ToHexStringLower(SHA256.HashData(bytes)), Encoding.UTF8.GetString(bytes));
     }
+
+    // Legacy floating definitions retain their exact v3 encoding. The new
+    // indexed variant additionally names its complete immutable fixing rules.
+    private static string ContractVersion(object definition, EconomicDefinitionAttribute contract) =>
+        definition is FloatingSide { Fixings.IsEmpty: false } ? "FloatingSide_v4" : contract.Version;
 
     private static void Write(Utf8JsonWriter writer, object? value)
     {
@@ -43,8 +48,10 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             var fields = Fields.GetOrAdd(type, t => t.GetProperties().Where(p => p.IsDefined(typeof(IdentityFieldAttribute)))
                 .OrderBy(p => p.Name, StringComparer.Ordinal).ToArray());
             if (fields.Length == 0 || fields.Any(p => p.GetIndexParameters().Length != 0)) throw Error();
-            writer.WriteStartObject(); writer.WriteString("contract", contract.Version);
+            writer.WriteStartObject(); writer.WriteString("contract", ContractVersion(value, contract));
             foreach (var field in fields) { writer.WritePropertyName(field.Name); Write(writer, field.GetValue(value)); }
+            if (value is FloatingSide { Fixings.IsEmpty: false } indexed)
+            { writer.WritePropertyName("IndexFixings"); Write(writer, indexed.Fixings); }
             writer.WriteEndObject();
         }
         else if (value is SideMembership member)
@@ -74,6 +81,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
         {
             ReferenceRevision r => ["reference_revision", r.CatalogId, r.RevisionId],
             DefinitionRevision r => ["definition_revision", r.CatalogId, r.RevisionId],
+            SeriesKey k => ["series", k.Revision, k.Id],
             ReferenceKey k => ["reference", k.Revision, k.Code],
             ContractKey k => ["contract", k.Revision, k.Id],
             CurveKey k => ["curve", k.Revision, k.Code],

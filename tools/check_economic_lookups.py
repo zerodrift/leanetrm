@@ -72,7 +72,7 @@ def run_checks(url, query, manifest, client=None):
             'commodity': index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
-                         'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'firstFixingAt': '2020-12-31T12:00:00Z',
+                         'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01',
                          'paymentSchedule': rule, 'resetFrequency': 'monthly', 'averagingMethod': 'none'}}
     plain = c.call('swaps/book', body)
     discounted = c.call('swaps/book', {**body, 'operationId': str(uuid4()), 'discounting': True})

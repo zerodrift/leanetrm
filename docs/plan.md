@@ -138,6 +138,16 @@ separate from full contract equivalence. Options, standalone physical forward
 booking, VaR/covariance and cross-revision forward-observable normalization remain
 explicit later work.
 
+New swap entry no longer accepts a manual first-fixing boundary (D165). An exact
+sealed index schedule supplies dated publication instants and actual-series/source
+bindings. The valuation path combines final, exactly pinned actual fixings with
+remaining projections under unchanged observation weights. Due missing fixings
+are structured errors. Actuals retain frozen lineage and cannot become live quote
+risk. Legacy projection-only definitions and idempotent retries remain retained;
+new raw/manual boundary writes are closed. Public fixtures are synthetic. Real
+publisher schedules, peak-product observations, licensed actual data ingestion and
+fixing/payment lifecycle operations require separate qualification.
+
 Financial gas and power swaps now have local booking/amendment operations, a
 shared trade blotter and an editor with independently valued side tables. The
 booking model supports one whole delivery month, monthly-index or complete daily
@@ -163,15 +173,16 @@ Shared tables now guard row activation during selection/scrolling and use a sing
 scroll container for schedule inspection.
 The managed core additionally validates calendar-based and quantity-weighted
 rules; those need persisted authoring before booking controls are exposed.
-Actual fixings, recurring payment strips, swap risk, physical products and PPAs
-remain work. Current shock controls support futures only.
+Fixing lifecycle events, recurring payment strips, persisted portfolio swap risk,
+physical products and PPAs remain work. Draft swap quote risk supports unresolved
+observations; final index fixings remain frozen inputs.
 FixedSide and FloatingSide now independently generate and value their own
 schedules through Side.PV. Each side currently has one payment; payment/delivery
 dates and DFs can differ. Side results retain normalized unit quantities, lookup
 terms/weights, prices/lineage, exact cash/PV and discount construction evidence.
 Instrument.PV only sums membership-signed side PVs under one full context; trade
-quantity scales afterward. Recurring periods and actual fixings remain work; the browser inspector
-now exposes the actual valued payment and reset rows. Options retain explicit sibling references
+quantity scales afterward. Recurring periods and fixing lifecycle events remain
+work; the browser inspector now exposes the actual valued payment and reset rows. Options retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open and no option model is enabled.
 The instrument editor uses vertical side fields, separated from trade-level

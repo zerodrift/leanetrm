@@ -74,6 +74,7 @@ public sealed record FixedSide : Side
 public sealed record FloatingSide : Side
 {
     public const string Implementation = "prefixing_index_projection_v1";
+    public const string IndexedImplementation = "index_observation_fixings_v1";
     public const int MaximumDeliveryDays = 366;
     [IdentityField]
     public ReferenceKey Index { get; }
@@ -88,6 +89,7 @@ public sealed record FloatingSide : Side
     public DateOnly DeliveryTo { get; }
     [IdentityField]
     public DateTimeOffset FirstFixingAt { get; }
+    public ImmutableArray<IndexFixing> Fixings { get; } = [];
     [IdentityField]
     public DateTimeOffset PaymentAt { get; }
     [IdentityField]
@@ -105,6 +107,51 @@ public sealed record FloatingSide : Side
     public SwapObservationCalendar? Calendar { get; }
     private readonly ImmutableArray<ExactDecimal> weights;
     public override ImmutableArray<CurveRequest> Dependencies => Projections.Select(p => p.Market).ToImmutableArray();
+    public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) =>
+        GenerateSchedule().DependenciesAt(snapshot);
+
+    public FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
+        DateOnly deliveryFrom, DateOnly deliveryTo, ImmutableArray<IndexFixing> fixings,
+        DateTimeOffset paymentAt, FloatingAveraging averaging, ImmutableArray<SwapProjection> projections,
+        string implementation, SwapObservationCalendar? calendar = null)
+        : this(id, index, quote, unitQuantity, deliveryFrom, deliveryTo, fixings, paymentAt,
+            averaging, projections, implementation, calendar, false) { }
+
+    private FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
+        DateOnly deliveryFrom, DateOnly deliveryTo, ImmutableArray<IndexFixing> fixings,
+        DateTimeOffset paymentAt, FloatingAveraging averaging, ImmutableArray<SwapProjection> projections,
+        string implementation, SwapObservationCalendar? calendar, bool scheduled)
+        : this(id, index, quote, unitQuantity, deliveryFrom, deliveryTo,
+            FirstFixing(fixings), paymentAt, averaging, projections, Implementation, calendar, scheduled)
+    {
+        if (implementation != IndexedImplementation)
+            throw new MarketDataException("index_fixing_definition", "Select the explicit indexed fixing implementation.");
+        if (fixings.Length != projections.Length || fixings.Select(f => f.Series).Distinct().Count() != fixings.Length ||
+            fixings.Where((f, n) => f.Index != index || f.Quote != quote.Key || f.From != projections[n].Contract.DeliveryFrom ||
+                f.To != projections[n].Contract.DeliveryTo || !TradingInstant.IsSupported(f.FixingAt) || f.FixingAt >= paymentAt ||
+                f.Series.Revision != projections[n].Market.Curve.Revision || f.Series.Id == Guid.Empty ||
+                f.Source.Revision != index.Revision || string.IsNullOrWhiteSpace(f.Source.Code) ||
+                f.Implementation != IndexFixing.SupportedImplementation).Any())
+            throw new MarketDataException("index_fixing_definition", "Every exact observation period requires its qualified index, quote, series, source and UTC publication instant.");
+        Fixings = fixings;
+    }
+
+    public FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
+        DateOnly deliveryFrom, DateOnly deliveryTo, ImmutableArray<IndexFixing> fixings,
+        PaymentRule paymentSchedule, FloatingAveraging averaging, ImmutableArray<SwapProjection> projections,
+        string implementation, SwapObservationCalendar? calendar = null)
+        : this(id, index, quote, unitQuantity, deliveryFrom, deliveryTo, fixings,
+            FixedSide.PaymentBoundary(paymentSchedule, deliveryFrom, deliveryTo), averaging, projections, implementation, calendar, true)
+    {
+        if (paymentSchedule.Calendar is { } dates && dates.Key.Revision != quote.Currency.Revision)
+            throw new MarketDataException("payment_calendar", "The payment calendar must use the side's exact reference revision.");
+        PaymentSchedule = paymentSchedule;
+    }
+
+    private static DateTimeOffset FirstFixing(ImmutableArray<IndexFixing> fixings) =>
+        !fixings.IsDefaultOrEmpty && fixings.All(f => f is not null)
+            ? fixings.Min(f => f.FixingAt)
+            : throw new MarketDataException("index_fixing_definition", "Supply the complete explicit dated index fixing schedule.");
 
     public FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
         DateOnly deliveryFrom, DateOnly deliveryTo, DateTimeOffset firstFixingAt, DateTimeOffset paymentAt,
@@ -208,9 +255,10 @@ public sealed record FloatingSide : Side
     }
 
     public override SidePaymentSchedule GenerateSchedule() => new(new(Id, DeliveryFrom, DeliveryTo, PaymentAt,
-        Quote.Currency, UnitQuantity, FirstFixingAt, Averaging, Calendar,
+        Quote.Currency, UnitQuantity, Fixings.IsEmpty ? FirstFixingAt : null, Averaging, Calendar,
         Projections.Select((p, n) => new SchedulePriceTerm(weights[n], null,
-            new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity))).ToImmutableArray(), Implementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
+            new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity, Fixings.IsEmpty ? null : Fixings[n]))).ToImmutableArray(),
+        Fixings.IsEmpty ? Implementation : IndexedImplementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
     public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 
 }

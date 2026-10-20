@@ -21,7 +21,7 @@ def run_checks(url,client=None):
           'definitionRevisionId':index['definitionRevisionId'],'quantity':'100','fixedCoefficient':'-1','discounting':False,
           'fixed':{'price':'3','currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':lag},
           'floating':{'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01',
-                      'firstFixingAt':'2020-12-31T12:00:00Z','paymentSchedule':following,'resetFrequency':'daily','averagingMethod':'arithmetic'}}
+                      'paymentSchedule':following,'resetFrequency':'daily','averagingMethod':'arithmetic'}}
     passed=0
     def check(name,ok=True):
         nonlocal passed

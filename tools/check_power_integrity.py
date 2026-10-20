@@ -128,6 +128,10 @@ def main():
                     query(migration.read_text())
             from preview_fixture import fixture as standard_fixture
             reference, market, security, manifest = standard_fixture(ROOT)
+            # This upgrade starts at 0047; index-fixing definitions arrive in
+            # 0050 and are unrelated to the delivery catalog relationships.
+            market = '\n'.join(line for line in market.splitlines()
+                               if not line.startswith('INSERT INTO market_data.index_fixing_observations '))
             for sql in (reference, market, security):
                 query(sql)
             run_checks(query, manifest)

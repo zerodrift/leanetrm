@@ -191,7 +191,7 @@
 
   <section id="swaps-draft-valuation"></section>
   </section>
-  <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. The instrument quantity applies once after signed side PVs are summed. This model has one monthly payment per side and values projected observations before the first fixing.</p>
+  <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. The instrument quantity applies once after signed side PVs are summed. This model has one monthly payment per side. Each floating reset uses its index’s fixing convention and the selected market context; inspect its actual or projected state in the valued schedule.</p>
   <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>
   <button id="swap-preview" type="submit">Prepare booking</button>
  </fieldset></form>
@@ -256,7 +256,7 @@
     <div><label for="swap-reset-frequency">Reset frequency</label><select id="swap-reset-frequency" required></select></div>
     <div><label for="swap-projection">Projection curve</label><select id="swap-projection" required></select></div>
     <div><label for="swap-averaging">Averaging method</label><select id="swap-averaging" required></select></div>
-    <div><label for="swap-fixing">First fixing boundary · <span data-user-time-zone></span></label><input id="swap-fixing" type="datetime-local" step="1" required></div>
+    <div><span class="field-help">Index fixing convention</span><p id="swap-fixing-convention" class="field-help" role="status">Choose an index and projection curve to inspect its fixing convention.</p><p id="swap-legacy-fixing" class="field-help" hidden></p></div>
     <div class="side-payment-rule"><h4>Payment schedule</h4>
      <label for="swap-floating-payment-frequency">Payment frequency</label><select id="swap-floating-payment-frequency" required></select>
      <label for="swap-floating-payment-rule">Payment date rule</label><select id="swap-floating-payment-rule" required></select>

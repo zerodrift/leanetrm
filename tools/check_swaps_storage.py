@@ -25,15 +25,17 @@ def run_checks(query, manifest, psql, environment):
         return f"DO $$ BEGIN {sql} RAISE EXCEPTION 'Expected rejection'; EXCEPTION WHEN SQLSTATE '{code}' THEN {guard} END $$;"
     def booking(operation=None, **changes):
         terms = dict(operation=str(operation or uuid4()), definition=REVISION, curve='daily_gas', index=query(f"SELECT index_a_code FROM ref_data.settlement_targets WHERE catalog_id='{manifest['referenceCatalogId']}' AND revision_id='{manifest['referenceRevisionId']}' AND code='test_index_target';"),
-                     price='3', quantity='100', discounting='false', averaging='calendar_day_arithmetic', fixing='2020-12-31T12:00:00Z')
+                     price='3', quantity='100', discounting='false', averaging='calendar_day_arithmetic')
         terms.update(changes)
         def rule(days):
             return json.dumps({'frequency':'monthly','rule':'days_after_period_end','days':days,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'})
-        return f"""SELECT security.save_swap_with_parties('{catalog}','{terms['operation']}',NULL,NULL,'d1000000-0000-0000-0000-000000000001',
+        return f"""SELECT security.save_indexed_swap_with_parties('{catalog}','{terms['operation']}',NULL,NULL,'d1000000-0000-0000-0000-000000000001',
          '{terms['definition']}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','{terms['curve']}','{terms['index']}',
-         'usd','usd','2021-01-01','2021-02-01','2021-02-18T00:00:00Z','2021-01-01','2021-02-01','{terms['fixing']}',
+         'usd','usd','2021-01-01','2021-02-01','2021-02-18T00:00:00Z','2021-01-01','2021-02-01',
          '2021-03-18T00:00:00Z','{terms['averaging']}',{terms['price']},{terms['quantity']},-1,{terms['discounting']},
-         '2020-12-18T16:00:00Z',NULL,'2020-12-18T16:00:00Z','Initial booking','independent_side_financial_swap_v2','{terms.get('fixed_rule',rule(18))}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb);"""
+         '2020-12-18T16:00:00Z',NULL,'2020-12-18T16:00:00Z','Initial booking','independent_side_financial_swap_v2','{terms.get('fixed_rule',rule(18))}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb,'{{}}'::uuid[]);"""
+    check('manual-boundary writer cannot admit new runtime bookings', query(runtime("SELECT has_function_privilege(current_user,'security.save_swap_with_parties(uuid,uuid,uuid,integer,uuid,uuid,uuid,uuid,text,text,text,text,date,date,timestamptz,date,date,timestamptz,timestamptz,text,numeric,numeric,numeric,boolean,timestamptz,timestamptz,timestamptz,text,text,jsonb,jsonb,text,uuid,integer,text,jsonb)','EXECUTE');")) == 'f')
+    check('fixing schedules force RLS and deny unbound reads', query("SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='market_data.index_fixing_observations'::regclass;") == 't' and query("SET SESSION AUTHORIZATION preview_runtime; SELECT count(*) FROM market_data.index_fixing_observations;") == '0')
     # Run this first so the expired-duplicate regression is observed before its fix.
     token = issue()
     query(f"""BEGIN;
@@ -67,7 +69,7 @@ def run_checks(query, manifest, psql, environment):
     check('raw calendar work is bounded before scanning under the publication fence')
 
     before = query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';")
-    for changes, code in [({'quantity': '0'}, 'swap_input'), ({'discounting': 'NULL'}, 'swap_input'), ({'averaging': 'unsupported'}, 'swap_input'), ({'fixing': '2020-12-18T16:00:00Z'}, 'swap_input'), ({'curve': 'missing'}, 'swap_definition')]:
+    for changes, code in [({'quantity': '0'}, 'swap_input'), ({'discounting': 'NULL'}, 'swap_input'), ({'averaging': 'unsupported'}, 'swap_input'), ({'curve': 'missing'}, 'swap_definition')]:
         query(runtime(reject(booking(**changes).replace('SELECT ', 'PERFORM ', 1), message=code)))
     check('invalid raw terms roll back without a publication', query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';") == before)
     query(runtime(booking(price='1001.003')))
@@ -110,4 +112,51 @@ def run_checks(query, manifest, psql, environment):
     finally:
         for child in children:
             if child.poll() is None: child.kill(); child.communicate(timeout=5)
+
+    # A market-read grant can expire independently of the still-live booking
+    # grant. Block the last revision INSERT, after fixing inputs were checked.
+    actor, long_role, market_role, market_grant = [str(uuid4()) for _ in range(4)]
+    children = []
+    try:
+        query(f"""INSERT INTO security.principals VALUES('{actor}','human',true);
+         INSERT INTO security.identity_bindings VALUES('https://preview.invalid','swap_market_expiry','{actor}','human_interactive');
+         INSERT INTO security.workspace_memberships VALUES('{tenant}','{workspace}','{actor}','swap_market_expiry','Synthetic market expiry',true,1);
+         INSERT INTO security.roles(id,code,name) VALUES('{long_role}','swap_market_expiry_trading','Synthetic long-lived trading'),('{market_role}','swap_market_expiry_market','Synthetic expiring market read');
+         INSERT INTO security.role_permissions VALUES('{long_role}','ReadTrades'),('{long_role}','BookTrade'),('{market_role}','ReadMarketData');
+         INSERT INTO security.role_grants VALUES(gen_random_uuid(),'{actor}','{long_role}','{tenant}','{workspace}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 day',false),
+          ('{market_grant}','{actor}','{market_role}','{tenant}','{workspace}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '3 seconds',false);""")
+        token = issue('swap_market_expiry')
+        check('independent market grant starts with live booking and market authority', query(runtime(f"SELECT security.trading_access('{catalog}','BookTrade') AND security.market_access('{catalog}','ReadMarketData');", issue('swap_market_expiry'))) == 't')
+        locker = subprocess.Popen(psql, env={**environment, 'PGAPPNAME':'swap_market_expiry_lock'}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True); children.append(locker)
+        locker.stdin.write('BEGIN; LOCK TABLE trading.swap_trade_revisions IN SHARE MODE;\n\\echo READY\n'); locker.stdin.flush()
+        while locker.stdout.readline().strip() != 'READY':
+            if locker.poll() is not None: raise AssertionError(locker.stderr.read())
+        operation = str(uuid4())
+        before = query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';")
+        blocked = subprocess.Popen(psql+['-v','VERBOSITY=verbose'], env={**environment, 'PGAPPNAME':'swap_market_expiry_waiter'}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True); children.append(blocked)
+        blocked.stdin.write(runtime(booking(operation), token)); blocked.stdin.close(); blocked.stdin = None
+        for _ in range(100):
+            if blocked.poll() is not None: raise AssertionError(blocked.stderr.read())
+            if query("SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='swap_market_expiry_waiter' AND NOT l.granted AND l.mode='RowExclusiveLock' AND l.relation='trading.swap_trade_revisions'::regclass;") == '1': break
+            time.sleep(.05)
+        else: raise AssertionError('Indexed swap did not wait on its final revision INSERT')
+        for _ in range(100):
+            if query(f"SELECT clock_timestamp()>granted_to FROM security.role_grants WHERE id='{market_grant}';") == 't': break
+            time.sleep(.05)
+        else: raise AssertionError('Expected independent market grant expiry')
+        check('late wait expires market access while context and booking permissions remain live', query(f"SELECT expires_at>clock_timestamp() FROM security.request_contexts WHERE id='{token}';") == 't' and query(runtime(f"SELECT security.has_permission('ReadTrades') AND security.has_permission('BookTrade') AND NOT security.trading_access('{catalog}','BookTrade') AND NOT security.market_access('{catalog}','ReadMarketData') AND NOT security.reference_access('{manifest['referenceCatalogId']}','ReadMarketData');", issue('swap_market_expiry'))) == 't')
+        locker.stdin.write('COMMIT;\n'); locker.stdin.flush(); _, error = locker.communicate(timeout=10); assert locker.returncode == 0, error
+        _, error = blocked.communicate(timeout=10)
+        check('indexed write rechecks market authority after its final revision wait', blocked.returncode != 0 and '42501' in error)
+        check('late market expiry rolls back every trade and publication', query(f"SELECT count(*) FROM trading.trades WHERE operation_id='{operation}';") == '0' and query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';") == before)
+    finally:
+        for child in children:
+            if child.poll() is None: child.kill(); child.communicate(timeout=5)
+        query(f"""DELETE FROM security.request_contexts WHERE actor_id='{actor}';
+         DELETE FROM security.role_grants WHERE principal_id='{actor}';
+         DELETE FROM security.role_permissions WHERE role_id IN('{long_role}','{market_role}');
+         DELETE FROM security.roles WHERE id IN('{long_role}','{market_role}');
+         DELETE FROM security.workspace_memberships WHERE principal_id='{actor}';
+         DELETE FROM security.identity_bindings WHERE principal_id='{actor}';
+         DELETE FROM security.principals WHERE id='{actor}';""")
     print(f'{passed} swap storage checks passed.', flush=True)

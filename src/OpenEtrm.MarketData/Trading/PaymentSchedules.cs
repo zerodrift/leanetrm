@@ -4,7 +4,8 @@ namespace OpenEtrm.MarketData.Trading;
 
 public readonly record struct SidePaymentKey(Guid SideId, int Ordinal, DateTimeOffset PaymentAt, ReferenceKey Currency);
 public sealed record IndexPriceLookup(ReferenceKey Index, QuoteSpecification Quote, CurveRequest Market,
-    MarketContract Contract, Quantity? AveragingQuantity);
+    MarketContract Contract, Quantity? AveragingQuantity, IndexFixing? Fixing = null);
+public enum SchedulePriceState { Fixed = 1, Projected, Actual }
 public enum DiscountFactorSource { Explicit = 1, CurrencyDefault, Undiscounted }
 public sealed record SidePaymentFactor(SidePaymentKey Payment, ExactDecimal DiscountFactor,
     MarketSnapshot Snapshot, DiscountFactorSource Source);
@@ -78,8 +79,10 @@ public sealed record ResolvedSchedulePrice
     public SchedulePriceTerm Term { get; }
     public UnitPrice Price { get; }
     public ImmutableHashSet<ObservationKey> Lineage { get; }
-    internal ResolvedSchedulePrice(SchedulePriceTerm term, UnitPrice price, ImmutableHashSet<ObservationKey> lineage)
-    { Term = term; Price = price; Lineage = lineage; }
+    public SchedulePriceState State { get; }
+    internal ResolvedSchedulePrice(SchedulePriceTerm term, UnitPrice price, ImmutableHashSet<ObservationKey> lineage,
+        SchedulePriceState? state = null)
+    { Term = term; Price = price; Lineage = lineage; State = state ?? (term.FixedPrice is null ? SchedulePriceState.Projected : SchedulePriceState.Fixed); }
 }
 
 // No instrument, direction or trade quantity is available to a side valuation.
@@ -127,6 +130,22 @@ public sealed class SideValuationContext
         if (market is null) throw new MarketDataException("side_market_inputs", "This side requires its declared built commodity market inputs.");
         var lookup = term.Lookup!;
         market.Model.RequireIndexProjection(lookup.Market, lookup.Contract, lookup.Index, lookup.Quote);
+        if (lookup.Fixing is { } fixing)
+        {
+            market.Model.RequireIndexFixing(lookup, fixing);
+            if (Snapshot.ValuationAt >= fixing.FixingAt)
+            {
+                var selected = Snapshot.Selections.SingleOrDefault(s => s.Input == new InputKey(fixing.Series, InputUse.FrozenFact));
+                if (selected is null)
+                    throw new MarketDataException("index_fixing_missing", "The exact published index fixing is required; a forecast cannot replace it.");
+                var observation = selected.Observation;
+                if (observation.Series != fixing.Series || observation.Source != fixing.Source ||
+                    observation.Role != ObservationRole.IndexFixing || observation.State != PublicationState.Final ||
+                    !TradingInstant.IsSupported(observation.ObservedAt) || observation.ObservedAt < fixing.FixingAt || observation.ObservedAt > Snapshot.MarketCutoff)
+                    throw new MarketDataException("index_fixing_selection", "The pinned actual must match the qualified series, source, final role and publication interval.");
+                return new(term, new(observation.Value, lookup.Quote), ImmutableHashSet.Create(observation.Key), SchedulePriceState.Actual);
+            }
+        }
         if (permitted is not null && !permitted.Contains(lookup.Market))
             throw new MarketDataException("risk_dependency", "A side requested an undeclared market input.");
         if (!prices.TryGetValue(lookup.Market, out var value) || value.Quote != lookup.Quote.Key)
@@ -172,6 +191,14 @@ public sealed record SidePaymentSchedule
     public ImmutableArray<SidePaymentPlan> Payments { get; }
     public ImmutableArray<CurveRequest> Dependencies => Payments.SelectMany(p => p.Prices)
         .Where(p => p.Lookup is not null).Select(p => p.Lookup!.Market).Distinct().ToImmutableArray();
+    public ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)
+    {
+        if (snapshot is null || !TradingInstant.IsSupported(snapshot.ValuationAt))
+            throw new MarketDataException("side_context", "An explicit supported valuation instant is required.");
+        return Payments.SelectMany(p => p.Prices).Where(p => p.Lookup is { } lookup &&
+                (lookup.Fixing is null || snapshot.ValuationAt < lookup.Fixing.FixingAt))
+            .Select(p => p.Lookup!.Market).Distinct().ToImmutableArray();
+    }
     internal SidePaymentSchedule(SidePaymentPlan payment)
     {
         SideId = payment.SideId; Currency = payment.Currency; UnitQuantity = payment.UnitQuantity;

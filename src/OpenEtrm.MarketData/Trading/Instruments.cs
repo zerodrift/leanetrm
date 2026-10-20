@@ -13,6 +13,7 @@ public abstract record Side
 {
     public Guid Id { get; }
     public abstract ImmutableArray<CurveRequest> Dependencies { get; }
+    public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) => Dependencies;
     public abstract SidePaymentSchedule GenerateSchedule();
     public abstract SideValuation PV(SideValuationContext context);
 
@@ -83,6 +84,8 @@ public abstract record SidedInstrument : Instrument
     public ImmutableArray<SideMembership> Sides { get; }
     public ImmutableArray<CurveRequest> Dependencies =>
         Sides.SelectMany(m => m.Side.Dependencies).Distinct().ToImmutableArray();
+    public ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) =>
+        Sides.SelectMany(m => m.Side.DependenciesAt(snapshot)).Distinct().ToImmutableArray();
 
     protected SidedInstrument(Guid id, ImmutableArray<SideMembership> sides) : base(id)
     {
@@ -92,7 +95,7 @@ public abstract record SidedInstrument : Instrument
     }
 
     public override UnitPricingContract Declare(UnitValuationContext context)=>
-        new(Id,"independent_side_unit_pv_v1",Dependencies,UnitQuantity.Specification,Currency);
+        new(Id,"independent_side_unit_pv_v1",DependenciesAt(context.Snapshot),UnitQuantity.Specification,Currency);
 
     // The instrument delegates valuation; it never interprets a side's cashflows.
     public override InstrumentValuation PV(SideValuationContext context)

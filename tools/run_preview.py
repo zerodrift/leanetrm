@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--port', type=int, default=0, help='Loopback HTTP port; 0 chooses an unused port')
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
+    parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
@@ -49,7 +50,7 @@ def main():
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
-    if args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.index_fixing_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -128,7 +129,7 @@ def main():
             from mixed_preview_fixture import fixture as mixed_fixture
             reference,market,security,manifest=mixed_fixture(export)
         else:
-            reference,market,security,manifest=fixture(ROOT)
+            reference,market,security,manifest=fixture(ROOT,fixing_frames=args.index_fixing_check)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if args.execution_check and migration.name=='0040_futures_execution_policies.sql':
                 from check_futures_policy_upgrade import run_checks as check_policy_upgrade
@@ -160,7 +161,7 @@ def main():
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
-            swap_market,swap_manifest=swap_fixture();query(swap_market)
+            swap_market,swap_manifest=swap_fixture(fixing_frames=args.index_fixing_check);query(swap_market)
             manifest['swapMarkets']=[swap_manifest]
         query(security)
         if args.hosted_check:
@@ -175,6 +176,9 @@ def main():
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
+        if args.index_fixing_check:
+            from check_index_fixing_upgrade import run_checks as check_index_fixing_upgrade
+            check_index_fixing_upgrade(query,psql,env,ROOT)
         if args.unit_check:
             manifest['unitCatalogPreviousKnownAt']=query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');")
             unit_reference='20000000-0000-0000-0000-000000000004'
@@ -322,6 +326,9 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--units'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=60):raise RuntimeError('Owned unit browser checks failed')
+            elif args.index_fixing_check:
+                from check_index_fixings import run_checks as check_index_fixings
+                check_index_fixings(url,query,manifest)
             elif args.market_read_check:
                 from check_market_read_authority import run_checks as check_market_authority
                 check_market_authority(query,manifest)
