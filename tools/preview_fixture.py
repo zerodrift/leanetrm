@@ -1,5 +1,5 @@
 """Project-authored synthetic data for a newly owned local preview cluster."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import json
 import os
@@ -72,7 +72,16 @@ def identity(prefix, n):
     return f'{prefix}0000000-0000-0000-0000-{n:012d}'
 
 
-def fixture(root, current_schema=True):
+def monthly_value(kind, month, distance=0):
+    m=Decimal(month);d=Decimal(distance)
+    return {1:Decimal('3')+m*Decimal('.05')-d*Decimal('.01'),
+            2:Decimal('.1')+m*Decimal('.005'),3:Decimal('.2')+m*Decimal('.01'),
+            4:Decimal('4')+m*Decimal('.1'),5:Decimal('2')+m*Decimal('.05'),
+            8:Decimal('.025')-d*Decimal('.0001'),9:Decimal('.03')-d*Decimal('.0001'),10:Decimal('.035')-d*Decimal('.0001'),
+            6:Decimal('7')-d*Decimal('.02'),7:Decimal('29.1')+m*Decimal('.605')-d*Decimal('.05')}[kind]
+
+
+def fixture(root, current_schema=True, fixing_frames=False):
     """current_schema=False omits rows that need migrations 0026+ (curve names, TOU products)."""
     def historical(text):
         for old, new in [('2039','2019'),('2040','2020'),('2041','2021'),('2042','2022')]:
@@ -146,6 +155,15 @@ def fixture(root, current_schema=True):
             if month or n==7:
                 extra_market.append(f"INSERT INTO market_data.series VALUES ({M},'{sid}','series_{number}',{R},'{identity('5',month*5+cn)}','test_{quote}',NULL);")
             series.append((number,n,month))
+        if current_schema:
+            # These are deliberately invented publication instants and prices,
+            # not a claim about a publisher's real bidweek methodology. One
+            # published monthly index is shared by same-index curve recipes.
+            fixing_at=f'{start-timedelta(days=1)}T12:00:00Z'
+            gas_sid=identity('9',9200+month)
+            extra_market.append(f"INSERT INTO market_data.series VALUES ({M},'{gas_sid}','synthetic_monthly_gas_fixing_{month}',{R},'{identity('5',month*5+2)}','test_gas_outright',NULL);")
+            for index,quote,sid in [('test_price','test_gas_outright',gas_sid),('test_power_price','test_power_outright',identity('9',month*100+7))]:
+                extra_market.append(f"INSERT INTO market_data.index_fixing_observations (catalog_id,revision_id,index_code,observation_from,observation_to,reference_catalog_id,reference_revision_id,quote_code,series_id,source_code,fixing_at,implementation) VALUES ({M},'{index}','{start}','{end}',{R},'{quote}','{sid}','fixture','{fixing_at}','published_index_observations_v1');")
     series.append((6,6,0))
     series.extend((800+n,8+n,0) for n in range(3))
     frames=[]
@@ -155,17 +173,38 @@ def fixture(root, current_schema=True):
             oid=identity('7',number if day==18 else 10000+day*1000+number)
             pins.append(oid)
             if day==18 and number<=6: continue
-            m=Decimal(month); d=Decimal(distance)
-            values={1:Decimal('3')+m*Decimal('.05')-d*Decimal('.01'),
-                    2:Decimal('.1')+m*Decimal('.005'),3:Decimal('.2')+m*Decimal('.01'),
-                    4:Decimal('4')+m*Decimal('.1'),5:Decimal('2')+m*Decimal('.05'),
-                    8:Decimal('.025')-d*Decimal('.0001'),9:Decimal('.03')-d*Decimal('.0001'),10:Decimal('.035')-d*Decimal('.0001'),
-                    6:Decimal('7')-d*Decimal('.02'),7:Decimal('29.1')+m*Decimal('.605')-d*Decimal('.05')}
+            value=monthly_value(n,month,distance)
             role='daily_settlement' if n==1 else 'parameter' if n==6 or n>=8 else 'trader_mark'
             event=f'event_{number}' if day==18 else f'history_{day}_{number}'
-            extra_obs.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{identity('9',number)}',{R},'fixture','{event}','1','{role}','final','2020-12-{day} 16:00:00+00','{now}',{values[n]},NULL);")
+            extra_obs.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{identity('9',number)}',{R},'fixture','{event}','1','{role}','final','2020-12-{day} 16:00:00+00','{now}',{value},NULL);")
         frames.append({'at':f'2020-12-{day}T16:00:00Z','observationIds':pins,
                        'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
+    if fixing_frames:
+        if not current_schema:
+            raise ValueError('Fixing frames require the current schema.')
+        # Keep the original four frames and their exact prices/pins unchanged.
+        # These extra frames are enabled only by the dedicated fixing check.
+        emitted=set()
+        for sample,at in enumerate(['2021-01-01T08:00:00Z','2021-01-15T08:00:00Z','2021-01-31T08:00:00Z']):
+            pins=[]
+            for number,n,month in series:
+                oid=identity('7',4000000+sample*10000+number);pins.append(oid)
+                value=monthly_value(n,month)
+                role='daily_settlement' if n==1 else 'parameter' if n==6 or n>=8 else 'trader_mark'
+                extra_obs.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{identity('9',number)}',{R},'fixture','fixing_frame_{sample}_{number}','1','{role}','final','{at}','{now}',{value},NULL);")
+            for month in range(6):
+                start=date(2021,month+1,1);fixing_at=f'{start-timedelta(days=1)}T12:00:00Z'
+                if fixing_at>at:
+                    continue
+                for n,sid,value in [(0,identity('9',9200+month),Decimal('3.5')+Decimal(month)/10),(1,identity('9',month*100+7),Decimal('45')+Decimal(month))]:
+                    oid=identity('7',5000000+month*10+n)
+                    pins.append(oid)
+                    if oid not in emitted:
+                        extra_obs.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','synthetic_monthly_fixing_{month}_{n}','1','index_fixing','final','{fixing_at}','{now}',{value},NULL);")
+                        emitted.add(oid)
+            frames.append({'at':at,'observationIds':pins,'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
+        partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
+        frames.append({**partial,'at':'2021-01-15T09:00:00Z'})
     extra_ref.append(f"DO $$ BEGIN IF to_regclass('ref_data.futures_product_terms') IS NOT NULL THEN INSERT INTO ref_data.futures_product_terms VALUES({R},'test_gas_future','test_uniform',NULL); END IF; END $$;")
     market=market.replace('UPDATE ref_data.revisions SET', '\n'.join(extra_ref)+'\nUPDATE ref_data.revisions SET',1)
     extra_market.append(f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','2022-01-01');")

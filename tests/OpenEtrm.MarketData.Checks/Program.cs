@@ -4,6 +4,7 @@ using OpenEtrm.Security;
 
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
+if(args is ["--index-fixings"]){IndexFixingChecks.Run();return;}
 
 if (args.Length > 0)
 {
@@ -368,6 +369,7 @@ passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();
 passed += FuturesChecks.Run();
 passed += ExchangeFuturesChecks.Run();
 passed += SwapChecks.Run();
+passed += IndexFixingChecks.Run();
 passed += PaymentRuleChecks.Run();
 passed += IndependentSideChecks.Run();
 passed += RiskChecks.Run();

@@ -8,6 +8,8 @@ from uuid import uuid4
 def run_checks(query, manifest):
     catalog, source, tenant, workspace = [manifest[k] for k in
         ['referenceCatalogId', 'referenceRevisionId', 'tenantId', 'workspaceId']]
+    from check_unit_symbol_integrity import run_checks as check_unit_symbols
+    check_unit_symbols(query,manifest)
     def call(profile, sql, bound=None, selected_workspace=workspace):
         token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{tenant}','{selected_workspace}',NULL,'preview_runtime',60);")
         bind = f"SELECT security.use_market_context('{manifest['catalogId']}','{bound}');" if bound else ''
@@ -22,14 +24,14 @@ def run_checks(query, manifest):
     # The same declared field contract drives authoring and the editor. This
     # independent expected shape excludes financial keys and preserves UI order.
     descriptors=json.loads(call('viewer',"SELECT security.reference_display_editor_fields('locations')::text"))
-    assert descriptors==[{'key':'name','label':'Name','kind':'text','nullable':False},
-                        {'key':'latitude','label':'Latitude','kind':'decimal','nullable':True},
-                        {'key':'longitude','label':'Longitude','kind':'decimal','nullable':True}]
+    assert descriptors==[{'key':'name','label':'Name','kind':'text','nullable':False,'maxLength':300},
+                        {'key':'latitude','label':'Latitude','kind':'decimal','nullable':True,'maxLength':48},
+                        {'key':'longitude','label':'Longitude','kind':'decimal','nullable':True,'maxLength':48}]
     assert call('viewer',"SELECT security.reference_display_editor_fields('unit_conversions')::text")=='[]'
     editable=json.loads(query("SELECT jsonb_object_agg(t,security.reference_display_editor_fields(t))::text FROM unnest(security.reference_display_tables())t WHERE jsonb_array_length(security.reference_display_editor_fields(t))>0;"))
-    text=lambda key,label:[{'key':key,'label':label,'kind':'text','nullable':False}]
+    text=lambda key,label,maximum=300:[{'key':key,'label':label,'kind':'text','nullable':False,'maxLength':maximum}]
     assert editable=={'currencies':text('name','Name'),'commodities':text('name','Name'),
-      'locations':descriptors,'location_types':text('description','Description'),'units':text('symbol','Display symbol'),
+      'locations':descriptors,'location_types':text('description','Description'),'units':text('symbol','Display symbol',80),
       'exchanges':text('name','Name'),'clearing_houses':text('name','Name'),
       'futures_products':text('name','Name'),'futures_series':text('series_label','Contract label')},'Unexpected editable reference policy'
     assert query("SELECT security.reference_display_fields('locations')=ARRAY['name','latitude','longitude'];")=='t'

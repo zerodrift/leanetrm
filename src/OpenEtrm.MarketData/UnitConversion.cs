@@ -40,7 +40,7 @@ public sealed class UnitConverter
         foreach (var unit in definitions)
         {
             Money.RequireKey(unit.Key); Money.RequireKey(unit.Dimension);
-            if (unit.Key.Revision != definitions[0].Key.Revision || unit.Dimension.Revision != unit.Key.Revision || string.IsNullOrWhiteSpace(unit.Symbol)) throw Invalid();
+            if (unit.Key.Revision != definitions[0].Key.Revision || unit.Dimension.Revision != unit.Key.Revision || !AmountLabel.IsSupportedSymbol(unit.Symbol)) throw Invalid();
         }
         foreach (var quantity in quantitySpecifications)
         {

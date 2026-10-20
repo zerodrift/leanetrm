@@ -82,11 +82,11 @@ public static class PowerPreview
     {
         var products=set.Available;
         var eligible=CurveCodes(data).ToHashSet(StringComparer.Ordinal);
-        // Only contracts with one explicit settlement index are offered; each
-        // carries its holiday calendar and exact reference commodity identity.
+        // Only contracts with one explicit settlement index are offered, by delivery date;
+        // each carries its holiday calendar and exact reference commodity identity.
         var curves=data.Definitions["curves"].Where(c=>eligible.Contains(c.Text("code"))).Select(c=>new {
             code=c.Text("code"),commodityCode=c.Text("commodity_code"),
-            contracts=data.Contracts.Where(k=>frame.CurveContracts.TryGetValue(c.Text("code"),out var members)&&members.Contains(k.Key.Id))
+            contracts=data.Contracts.Where(k=>frame.CurveContracts.TryGetValue(c.Text("code"),out var members)&&members.Contains(k.Key.Id)).OrderBy(k=>k.DeliveryFrom)
                 .Select(k=>(Contract:k,Index:IndexCode(data,c,k))).Where(k=>k.Index is not null).Select(k=>new {
                     id=k.Contract.Key.Id,from=k.Contract.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),to=k.Contract.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
                     holidayCalendar=Calendar(data,Index(data,k.Index!)).Text("code")}).ToArray()}).Where(c=>c.contracts.Length>0).ToArray();

@@ -862,7 +862,9 @@ The browser retains navigation separately from the full workspace and hydrates
 the latter only for consumers of its definitions, references or source pins.
 Hydration must match the same account, selection, context and revision pins;
 late responses cannot restore an earlier view. Existing full workspace endpoints
-retain their response contracts.
+retain their response contracts. Every definition and reference read orders its
+rows by the table's primary key within the selected revision, so identical pins
+give identical arrays whatever plan the database chooses.
 
 First dated-curve pricing explicitly requests complete workspace metadata with
 the evaluation. Both projections share one bound authorized model read; catalog
@@ -1120,10 +1122,10 @@ intervals and the explicit rate-date basis retain their meaning.
 
 Currency defaults and supplemental immutable daily-market bundles respect the
 common effective/knowledge context. A later backdated mapping does not alter a
-certified earlier view. Migration 0048 rejects a second default for the same
+certified earlier view. Migration 0052 rejects a second default for the same
 definition revision, exact currency reference, instant and publication, and the
 lookup raises `swap_discount_ambiguous` instead of choosing between tied latest
-mappings (D165). The shared backend blotter displays projected swap PV and
+mappings (D166). The shared backend blotter displays projected swap PV and
 futures execution P&L as separate nullable measures, with typed product partitions
 in pivots. Saved account layouts retain their choices. New trade offers Futures
 or Financial swap; both have backed booking and latest-head amendment operations.

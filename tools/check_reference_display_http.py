@@ -14,10 +14,18 @@ def run_checks(url,query):
     try:
         query(definition.replace("'Display symbol'","'Schema-driven symbol'",1))
         descriptor=client.call('reference/editor?table=units')['fields']
-        assert descriptor==[{'key':'symbol','label':'Schema-driven symbol','kind':'text','nullable':False}], 'The editor must use database field metadata rather than a duplicated API policy.'
+        assert descriptor==[{'key':'symbol','label':'Schema-driven symbol','kind':'text','nullable':False,'maxLength':80}], 'The editor must use database field metadata rather than a duplicated API policy.'
     finally:
         query(definition)
         assert query(definition_sql)==definition,'The owned field descriptor was not restored exactly'
+    for replacement in ["'absentBound',maximum", "'maxLength',0", "'maxLength','invalid'"]:
+        try:
+            assert definition.count("'maxLength',maximum")==1
+            query(definition.replace("'maxLength',maximum",replacement,1))
+            assert client.call('reference/editor?table=units',expected=422)['code']=='reference_edit', 'Invalid field bounds must not become a default editor policy'
+        finally:
+            query(definition)
+            assert query(definition_sql)==definition
     assert client.call('reference/editor?table=units')['fields'][0]['label']=='Display symbol'
     before=client.call('workspace/catalog')
     point=client.call('reference/editor?table=locations&code=test_facility_a')['item']
@@ -34,6 +42,9 @@ def run_checks(url,query):
     source=editor['sourceRevision']
     original=next(r for r in client.call('reference/catalog?table=units')['rows'] if r['code']=='megawatt_hour')['symbol']
     save={'operationId':str(uuid4()),'table':'units','code':'megawatt_hour','sourceRevisionId':source['revisionId'],'baseRevisionId':editor['baseRevisionId'],'values':{'symbol':original+' sample'}}
+    for symbol in ['x'*81,'\U0001f4a1'*81,'\u00a0','\u2003','\u202f','\u3000','x\x85','\x01']:
+        invalid={**save,'operationId':str(uuid4()),'values':{'symbol':symbol}}
+        assert client.call('reference/save',invalid,expected=422)['code']=='reference_edit'
     assert client.call('reference/save',{**save,'values':{'factor_numerator':'2'}},expected=422)['code']=='reference_edit'
     saved=client.call('reference/save',save)
     assert client.call('reference/save',save)==saved
@@ -74,6 +85,13 @@ def run_checks(url,query):
         saved=client.call('reference/save',{'operationId':str(uuid4()),'table':table,'code':code,'sourceRevisionId':draft['sourceRevision']['revisionId'],'baseRevisionId':draft['baseRevisionId'],'values':values})
         client.call('profile',{'profile':'approver'})
         client.call('reference/apply',{'operationId':str(uuid4()),'table':table,'sourceRevisionId':draft['sourceRevision']['revisionId'],'revisionId':saved['revisionId'],'expectedVersion':draft['displayVersion']})
+
+    supplementary='\U0001f4a1'*80
+    apply_metadata('units','megawatt_hour',{'symbol':supplementary})
+    converted=client.call('units/convert',{'value':'2','from':'test_power_quantity','to':'test_power_quantity','decimalPlaces':None,'tieRule':None})
+    assert converted['value']=='2' and converted['formatted']=='2 '+supplementary
+    assert converted['target']['revision']==source, 'Unicode display formatting changed the exact quantity reference'
+    apply_metadata('units','megawatt_hour',{'symbol':original})
 
     precise={'name':'Synthetic precise facility','latitude':'12.123456789012345678','longitude':'-45.987654321098765432'}
     apply_metadata('locations','test_facility_a',precise)

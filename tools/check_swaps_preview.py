@@ -1,5 +1,6 @@
 """Financial swap booking, retained history and independent side PV checks."""
 from preview_fixture import trade_booking
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 from preview_client import PreviewClient
@@ -24,8 +25,13 @@ def run_checks(url):
     body = {**context, 'operationId': str(uuid4()), **trade_booking(), 'bookId': catalog['books'][0]['id'], 'definitionRevisionId': index['definitionRevisionId'], 'commodity':index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': True,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'], 'paymentSchedule':rule(18)},
             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'],
-                         'firstFixingAt': '2020-12-31T12:00:00Z', 'paymentSchedule':rule(46), 'resetFrequency':'monthly','averagingMethod':'none'}}
+                         'paymentSchedule':rule(46), 'resetFrequency':'monthly','averagingMethod':'none'}}
     preview = c.call('swaps/preview', body)
+    check('published fixing conventions generate schedules without a manual fixing boundary',
+          index['fixingConvention'] == 'published_index_observations_v1' and
+          datetime.fromisoformat(preview['valuation']['sides'][1]['payments'][0]['resets'][0]['fixingAt'].replace('Z','+00:00')) == datetime(2020,12,31,12,tzinfo=timezone.utc))
+    c.call('swaps/preview', {**body, 'floating': {**body['floating'], 'firstFixingAt': '2020-12-31T12:00:00Z'}}, expected=422)
+    check('manual fixing boundary overrides reject even when they match the published schedule', True)
     result = c.call('swaps/book', body)
     retry = c.call('swaps/book', body)
     check('booking retries return the same trade instrument and initial event', result == retry and result['revision'] == 1)

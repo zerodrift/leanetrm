@@ -9,7 +9,7 @@ namespace OpenEtrm.Api;
 
 public sealed record ReferenceDisplayData(ReferenceRevision SourceRevision,ReferenceRevision DisplayRevision,int Version,
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References);
-public sealed record ReferenceEditField(string Key,string Label,string Kind,bool Nullable=false);
+public sealed record ReferenceEditField(string Key,string Label,string Kind,[property:JsonRequired]int MaxLength,bool Nullable=false);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ReferenceSaveRequest(Guid OperationId,string Table,string Code,Guid SourceRevisionId,Guid BaseRevisionId,
     Dictionary<string,string?> Values);
@@ -41,7 +41,9 @@ public static class ReferenceEditors
         await using(var reader=await access.ExecuteReaderAsync(ct))
         {
             await reader.ReadAsync(ct);write=reader.GetBoolean(0);seal=reader.GetBoolean(1);
-            fields=JsonSerializer.Deserialize<ImmutableArray<ReferenceEditField>>(reader.GetString(2),Json);
+            try{fields=JsonSerializer.Deserialize<ImmutableArray<ReferenceEditField>>(reader.GetString(2),Json);}
+            catch(JsonException){throw Error("reference_edit","The reference editor field contract is incomplete. Reload after its metadata is qualified.");}
+            if(fields.IsDefault||fields.Any(f=>f is null||f.MaxLength is <1 or >300))throw Error("reference_edit","The reference editor field bounds are invalid.");
         }
         var versions=display is not null&&(write||seal)?await PreviewDatabase.Rows(connection,"""
             SELECT row_to_json(t)::text FROM(
@@ -67,7 +69,9 @@ public static class ReferenceEditors
         var source=Source(manifest,request.Table);
         if(request.OperationId==Guid.Empty||request.SourceRevisionId!=source.RevisionId||request.BaseRevisionId==Guid.Empty||
             string.IsNullOrWhiteSpace(request.Code)||request.Code.Length>64||request.Values is null||request.Values.Count is <1 or >64||
-            request.Values.Any(p=>p.Key.Length>64||p.Value?.Length>300))
+            // Transport bound: one Unicode scalar may occupy two UTF-16 code
+            // units. The canonical SQL field policy enforces exact scalar limits.
+            request.Values.Any(p=>p.Key.Length>64||p.Value?.Length>600))
             throw Error("reference_edit","Choose a reference row and its supported display fields. Identity and financial terms are read-only.");
         return await Execute(connection,"SELECT security.save_reference_display_edit($1,$2,$3,$4,$5,$6,$7::jsonb)::text",
             [source.CatalogId,source.RevisionId,request.BaseRevisionId,request.OperationId,request.Table,request.Code,JsonSerializer.Serialize(request.Values,Json)],ct);

@@ -43,6 +43,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
     check('managed preview data',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--preview-data'])
     check('owned automation database',[sys.executable,'tools/check_automation.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)])
     check('owned reference metadata database',[sys.executable,'tools/check_reference_editing.py','--pg-bin',str(pg_bin)])
+    check('owned delivery catalog integrity',[sys.executable,'tools/check_power_integrity.py','--pg-bin',str(pg_bin)])
     check('stock database schema', [sys.executable, 'tools/check_reference_schema.py',
                                    '--pg-bin', str(pg_bin), '--market', '--security'])
     preview = [sys.executable, 'tools/run_preview.py', '--pg-bin', str(pg_bin),
@@ -51,6 +52,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
     check('isolated party maintenance and power browser', [*preview, '--party-check', '--browser-check', '--browser', str(browser)])
     check('isolated page-assistant administration', [*preview, '--assistant-check'])
     check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
+    check('published index fixing price and risk', [*preview, '--index-fixing-check'])
     check('standard futures execution policies', [*preview, '--execution-check'])
     check('custom curve graphs and editor', [*preview, '--custom-curves-check', '--browser-check', '--browser', str(browser)])
     check('market close calendar', [*preview, '--market-dates-check', '--browser-check', '--browser', str(browser)])

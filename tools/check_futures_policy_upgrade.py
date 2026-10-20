@@ -33,6 +33,10 @@ INSERT INTO ref_data.futures_execution_admissions(catalog_id,revision_id,series_
 
 def run_checks(query,reference,market,manifest,migration):
     def body(sql):return sql.strip().replace('BEGIN;','',1).removesuffix('COMMIT;')
+    # This fixture precedes 0040; index-fixing definitions arrive in 0050 and
+    # do not participate in the retained futures admission qualification.
+    market='\n'.join(line for line in market.splitlines()
+                     if not line.startswith('INSERT INTO market_data.index_fixing_observations '))
     old_ref,old_market,old_manifest=prepare(reference,market,copy.deepcopy(manifest))
     r=old_manifest['referenceCatalogId'];rev=old_manifest['referenceRevisionId'];catalog=old_manifest['catalogId'];mrev=old_manifest['revisionId']
     original="CREATE TEMP TABLE retained_admission_rows AS SELECT to_jsonb(a) AS value FROM ref_data.futures_execution_admissions a;"

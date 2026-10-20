@@ -23,12 +23,13 @@ public static class DealRisk
     public static DealRiskRun Calculate(CurveModel model,MarketSnapshot snapshot,ImmutableArray<CurveRequest> dependencies,
         Func<CurveBuild,ExactMoney> price,string bumpPolicy,string numericalPolicy,CancellationToken ct=default)
     {
-        if(bumpPolicy!=BumpPolicy||numericalPolicy!=NumericalPolicy||dependencies.IsDefaultOrEmpty||price is null)
+        if(bumpPolicy!=BumpPolicy||numericalPolicy!=NumericalPolicy||dependencies.IsDefault||price is null)
             throw new MarketDataException("risk_policy","Select explicit quote-tick symmetric shocks and the supported exact repricing policy.");
-        var market=model.Build(snapshot,dependencies);
+        var market=model.Build(snapshot,dependencies,ct);
         var lineage=market.Evaluations.Where(e=>e.Use==InputUse.Variable).SelectMany(e=>e.Result.Lineage).ToHashSet();
         var factors=model.QuoteFactors(snapshot).Where(f=>lineage.Contains(f.Observation)).ToArray();
-        if(factors.Length is 0 or >128)throw new MarketDataException("risk_factor","A draft requires one to 128 live declared price factors.");
+        if(factors.Length>128||factors.Length==0&&!dependencies.IsEmpty)
+            throw new MarketDataException("risk_factor","A draft with projected dependencies requires one to 128 live declared price factors.");
         var baseValue=price(market);var results=ImmutableArray.CreateBuilder<DealFactorRisk>();
         foreach(var batch in factors.Chunk(16))
         {
@@ -38,6 +39,7 @@ public static class DealRisk
             foreach(var (factor,scenario) in batch.Zip(scenarios.Factors))
                 results.Add(new(factor,scenario.Bump,Measure(baseValue,price(scenario.Up),price(scenario.Down),scenario.Bump)));
         }
+        ct.ThrowIfCancellationRequested();
         return new(baseValue,results.ToImmutable(),1+2*factors.Length);
     }
 }

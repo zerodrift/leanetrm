@@ -22,10 +22,10 @@ def run_checks(query,manifest):
     def swap(operation,trade=None):
         def rule(days):return json.dumps(dict(frequency='monthly',rule='days_after_period_end',days=days,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1'))
         identity='NULL,NULL' if trade is None else f"'{trade}',1"
-        return f"""security.save_swap_with_parties('{catalog}','{operation}',{identity},'{book}','{REVISION}','{ref}','{revision}',
-          'daily_gas','{index}','usd','usd','2021-01-01','2021-02-01','2021-02-18T00:00:00Z','2021-01-01','2021-02-01','2020-12-31T12:00:00Z',
+        return f"""security.save_indexed_swap_with_parties('{catalog}','{operation}',{identity},'{book}','{REVISION}','{ref}','{revision}',
+          'daily_gas','{index}','usd','usd','2021-01-01','2021-02-01','2021-02-18T00:00:00Z','2021-01-01','2021-02-01',
           '2021-03-18T00:00:00Z','calendar_day_arithmetic',3,{100 if trade is None else 200},-1,false,'2020-12-18T16:00:00Z',NULL,'2020-12-18T16:00:00Z',
-          'Synthetic booking','independent_side_financial_swap_v2','{rule(18)}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{booking}'::jsonb)"""
+          'Synthetic booking','independent_side_financial_swap_v2','{rule(18)}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{booking}'::jsonb,'{{}}'::uuid[])"""
     original_future=json.loads(runtime('SELECT '+future(future_op)+';'))
     original_swap=json.loads(runtime('SELECT '+swap(swap_op)+';'))
     default=f"security.swap_discount_default('{catalog}','{ref}','{revision}','usd','{REVISION}','2020-12-18T16:00:00Z')"

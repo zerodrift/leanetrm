@@ -19,7 +19,7 @@ def run_checks(url, query, manifest, client=None):
         return {'context': context, 'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
                 'quantity': {'value': amount, 'specification': index['quantityChoices'][0]['specification']}, 'fixedCoefficient': '-1', 'discounting': False,
                 'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
-                'floating': {'curve': curve, 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'firstFixingAt': '2020-12-31T12:00:00Z', 'paymentSchedule': rule, 'resetFrequency': 'daily' if daily else 'monthly', 'averagingMethod': 'arithmetic' if daily else 'none'}}
+                'floating': {'curve': curve, 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule, 'resetFrequency': 'daily' if daily else 'monthly', 'averagingMethod': 'arithmetic' if daily else 'none'}}
 
     def run(draft, pv, deltas):
         priced = c.call('swaps/price', draft)

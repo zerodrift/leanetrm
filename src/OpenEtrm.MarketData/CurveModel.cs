@@ -110,6 +110,14 @@ public sealed partial class CurveModel
             curve.Settlement.IndexB is not null || quote.Kind != QuoteKind.Outright || contract.Kind != ContractKind.Forward)
             Fail("swap_definition", "A floating projection requires the exact model-owned outright index contract and quote.");
     }
+    internal void RequireIndexFixing(IndexPriceLookup lookup, IndexFixing fixing)
+    {
+        if (fixing.Index != lookup.Index || fixing.Quote != lookup.Quote.Key ||
+            !series.TryGetValue(fixing.Series, out var actual) || actual.Quote != lookup.Quote.Key ||
+            actual.Contract is not { } key || !contracts.TryGetValue(key, out var contract) ||
+            contract.Kind != ContractKind.Forward || contract.DeliveryFrom != fixing.From || contract.DeliveryTo != fixing.To)
+            Fail("index_fixing_definition", "The actual series must retain the exact model-owned quote and observation period.");
+    }
     private QuantitySpecification Quantity(QuoteSpecification q) => quantities.TryGetValue(q.Quantity, out var x)
         ? x : throw new MarketDataException("missing_reference", "Quantity definition is absent.");
     private static bool SamePriceUnit(QuoteSpecification a, QuoteSpecification b) =>
@@ -343,6 +351,8 @@ public sealed partial class CurveModel
             EnumValue(selected.Input.Use);
             var obs = selected.Observation;
             EnumValue(obs.Role); EnumValue(obs.State); Ref(obs.Source);
+            if (obs.Role == ObservationRole.IndexFixing && selected.Input.Use != InputUse.FrozenFact)
+                Fail("index_fixing_use", "Index actuals are immutable frozen facts, never variable curve inputs.");
             if (!series.TryGetValue(obs.Series, out var definition) || selected.Input.Series != obs.Series ||
                 obs.Key.CatalogId != revision.CatalogId || obs.Key.Id == Guid.Empty)
                 Fail("observation_type", "Observation identity/type does not match the selected series.");
@@ -363,8 +373,8 @@ public sealed partial class CurveModel
                     Fail("series_type", "Numeric inputs require the explicit parameter observation role and variable use.");
             }
             if (selected.Input.Use == InputUse.FrozenFact &&
-                (obs.Role != ObservationRole.FinalContractSettlement || obs.State != PublicationState.Final))
-                Fail("frozen_fact", "First frozen-input subset requires final contract settlement.");
+                (obs.Role is not (ObservationRole.FinalContractSettlement or ObservationRole.IndexFixing) || obs.State != PublicationState.Final))
+                Fail("frozen_fact", "Frozen inputs require final contract settlement or an explicit final index fixing.");
         }
         var result = requests.Select(r => Evaluate(r, InputUse.Variable)).ToImmutableArray();
         return new CurveBuild(this, snapshot, NumericalPolicy, result, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock);

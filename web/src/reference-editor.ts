@@ -1,7 +1,7 @@
 type Row=Record<string,unknown>;
 type Revision={catalogId:string;revisionId:string};
 type Page={table:string;referenceRevision:Revision;rows:readonly Row[];context?:unknown};
-type Field={key:string;label:string;kind:'text'|'decimal';nullable:boolean};
+type Field={key:string;label:string;kind:'text'|'decimal';nullable:boolean;maxLength:number};
 type Version={revision_id:string;base_revision_id:string;table_name:string;item_code:string;changes:Record<string,string|null>;state:string;recorded_at:string};
 type Catalog={table:string;sourceRevision:Revision;baseRevisionId:string;displayVersion:number;fields:Field[];canEdit:boolean;canApply:boolean;versions:Version[];reason:string;display:{sourceRevision:Revision;references:Record<string,Row[]>}|null;item:Row|null};
 type Pending={path:'reference/save'|'reference/apply';body:Record<string,unknown>;uncertain:boolean};
@@ -27,8 +27,11 @@ export function setupReferenceEditor(options:Options){
   function selectedRow(){return page?.rows.find(r=>text(r.code)===rows.value);}
   function drawFields(){
     inputs.replaceChildren();const row=catalog?.item;if(!row||!catalog||text(row.code)!==rows.value)return;
+    if(catalog.fields.some(field=>!Number.isSafeInteger(field.maxLength)||field.maxLength<1))throw Error('Reference field limits are unavailable. Reload reference details before editing.');
     for(const field of catalog.fields){const wrapper=node('div'),label=node('label',field.label),input=node('input');input.name=field.key;input.id='reference-edit-'+field.key;label.htmlFor=input.id;
-      input.type='text';input.value=text(row[field.key]);input.required=!field.nullable;input.maxLength=field.kind==='decimal'?48:300;if(field.kind==='decimal')input.inputMode='decimal';wrapper.append(label,input);inputs.append(wrapper);}
+      input.type='text';input.value=text(row[field.key]);input.required=!field.nullable;if(field.kind==='decimal')input.inputMode='decimal';
+      // Native maxlength counts UTF16 units. The backend validates Unicode scalars.
+      const limit=node('small',`Maximum ${field.maxLength} characters.`);limit.id=input.id+'-limit';input.setAttribute('aria-describedby',limit.id);wrapper.append(label,input,limit);inputs.append(wrapper);}
     sync();
   }
   function drawReview(){

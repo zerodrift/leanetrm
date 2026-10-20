@@ -47,7 +47,7 @@ public sealed partial class SwapStore
     public async Task<object> PriceDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapDraftRequest body,CancellationToken ct)
     {
         var draft=await PrepareDraft(connection,data,frame,body,ct);var snapshot=draft.Data.Snapshot(draft.Frame);
-        var market=draft.Data.Model.Build(snapshot,draft.Instrument.Dependencies);
+        var market=draft.Data.Model.Build(snapshot,draft.Instrument.DependenciesAt(snapshot));
         var value=FinancialSwapValuation.Evaluate(draft.Instrument,market,draft.Instrument.Discounting,draft.Discount);
         return new{unbooked=true,measure="present_value",enteredQuantity=draft.Entered,quantity=draft.Quantity,
             currency=draft.Data.References["currencies"].Single(c=>c.Text("code")==draft.Instrument.Currency.Code).Text("display_code"),conversion=UnitConverter.Implementation,valuation=DraftValue(value,draft.Quantity),numericalPolicy=DealRisk.NumericalPolicy,bumpPolicy=DealRisk.BumpPolicy};
@@ -55,7 +55,7 @@ public sealed partial class SwapStore
     public async Task<object> RiskDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapDraftRiskRequest body,CancellationToken ct)
     {
         var draft=await PrepareDraft(connection,data,frame,body.Draft,ct);var snapshot=draft.Data.Snapshot(draft.Frame);
-        var run=DealRisk.Calculate(draft.Data.Model,snapshot,draft.Instrument.Dependencies,
+        var run=DealRisk.Calculate(draft.Data.Model,snapshot,draft.Instrument.DependenciesAt(snapshot),
             market=>FinancialSwapValuation.Evaluate(draft.Instrument,market,draft.Instrument.Discounting,draft.Discount).Instrument.PresentValue.Scale(draft.Quantity.Amount),body.BumpPolicy,body.NumericalPolicy,ct);
         return DraftRisk.Result(draft.Data,run,"present_value");
     }

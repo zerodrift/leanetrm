@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--port', type=int, default=0, help='Loopback HTTP port; 0 chooses an unused port')
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
+    parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
@@ -44,12 +45,12 @@ def main():
     parser.add_argument('--with-exchange',action='store_true',help='Publish the independent exchange futures dataset in this newly owned database')
     parser.add_argument('--party-check', action='store_true', help='Run party-editor integration checks in an owned fixture')
     parser.add_argument('--identity-check', action='store_true', help='Run economic-key integration checks in the owned standard fixture, then clean up')
-    parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider administration in an owned fixture')
+    parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
     parser.add_argument('--browser-check',action='store_true',help='Run checked-in browser scenarios in the newly owned standard fixture')
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
-    if args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.index_fixing_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -128,17 +129,20 @@ def main():
             from mixed_preview_fixture import fixture as mixed_fixture
             reference,market,security,manifest=mixed_fixture(export)
         else:
-            reference,market,security,manifest=fixture(ROOT)
+            reference,market,security,manifest=fixture(ROOT,fixing_frames=args.index_fixing_check)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if args.execution_check and migration.name=='0040_futures_execution_policies.sql':
                 from check_futures_policy_upgrade import run_checks as check_policy_upgrade
                 legacy_reference,legacy_market,_,legacy_manifest=fixture(ROOT)
                 check_policy_upgrade(query,legacy_reference,legacy_market,legacy_manifest,migration.read_text())
-            if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0048_unambiguous_discount_defaults.sql':
+            if args.assistant_check and migration.name=='0051_model_catalog.sql':
+                from check_model_catalog import check_upgrade as check_catalog_upgrade
+                check_catalog_upgrade(query,migration.read_text())
+            if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
                 from preview_fixture import trading_fixture
-                check_default_upgrade(query,[reference,market,swap_fixture()[0],security,trading_fixture(manifest['catalogId'],swap_defaults=True)],migration.read_text())
+                check_default_upgrade(query,[reference,market,swap_fixture(fixing_frames=args.index_fixing_check)[0],security,trading_fixture(manifest['catalogId'],swap_defaults=True)],migration.read_text())
             query(migration.read_text())
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
@@ -165,7 +169,7 @@ def main():
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
-            swap_market,swap_manifest=swap_fixture();query(swap_market)
+            swap_market,swap_manifest=swap_fixture(fixing_frames=args.index_fixing_check);query(swap_market)
             manifest['swapMarkets']=[swap_manifest]
         query(security)
         if args.hosted_check:
@@ -180,6 +184,9 @@ def main():
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
+        if args.index_fixing_check:
+            from check_index_fixing_upgrade import run_checks as check_index_fixing_upgrade
+            check_index_fixing_upgrade(query,psql,env,ROOT)
         if args.unit_check:
             manifest['unitCatalogPreviousKnownAt']=query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');")
             unit_reference='20000000-0000-0000-0000-000000000004'
@@ -327,12 +334,17 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--units'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=60):raise RuntimeError('Owned unit browser checks failed')
+            elif args.index_fixing_check:
+                from check_index_fixings import run_checks as check_index_fixings
+                check_index_fixings(url,query,manifest)
             elif args.market_read_check:
                 from check_market_read_authority import run_checks as check_market_authority
                 check_market_authority(query,manifest)
             elif args.assistant_check:
                 from check_model_providers import run_checks as check_model_providers
                 check_model_providers(url,query,psql,manifest,temporary,app_env,dotnet)
+                from check_model_catalog import run_checks as check_model_catalog
+                check_model_catalog(url,query,psql,manifest,app_env)
             elif args.identity_check:
                 from check_units_preview import run_checks as check_units
                 check_units(url)

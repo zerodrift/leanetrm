@@ -10,11 +10,24 @@ using OpenEtrm.Shared.Temporal;
 // Page reads run without an HTTP request or workspace session. Given the pinned context or
 // trading view a page used, a direct caller receives exactly the page's read or refusal, and
 // each read binds exactly what that names: its context, or nothing for live working data.
+// That read depends on its pins alone, never on how the database plans it: the checks run once
+// without index scans and once without sequential or bitmap scans, so rows arrive in heap order
+// in one pass and in index order in the other, and both must match the page whatever plan served it.
 internal static class DirectReadChecks
 {
     static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){Converters={new ExactDecimalJsonConverter()}};
+    static readonly string[][] DisabledScans=[["enable_indexscan","enable_indexonlyscan"],["enable_seqscan","enable_bitmapscan"]];
 
     public static async Task Run(string fixturePath)
+    {
+        foreach(var disabled in DisabledScans)
+        {
+            Console.WriteLine($"Direct reads with {string.Join(" and ",disabled)} off");
+            await Run(fixturePath,disabled);
+        }
+    }
+
+    static async Task Run(string fixturePath,string[] disabled)
     {
         await using var database=new PreviewDatabase(Path.GetFullPath(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")
             ??throw new InvalidOperationException("Run through tools/run_preview.py.")));
@@ -25,7 +38,11 @@ internal static class DirectReadChecks
         var profile=fixture.RootElement.GetProperty("profile").GetString()!;
         var views=fixture.RootElement.GetProperty("views").EnumerateArray().Select(v=>new View(v)).ToArray();
         var (working,historical)=(views.Single(v=>v.Context is null),views.Single(v=>v.Context is not null));
-        Task<T> Read<T>(Func<NpgsqlConnection,CancellationToken,Task<T>> read,string? who=null)=>database.WithIdentity(who??profile,"ReadMarketData",read,CancellationToken.None);
+        Task<T> Read<T>(Func<NpgsqlConnection,CancellationToken,Task<T>> read,string? who=null)=>database.WithIdentity(who??profile,"ReadMarketData",async(c,ct)=>
+        {
+            await Execute(c,string.Concat(disabled.Select(setting=>$"SET LOCAL {setting}=off;")),ct);
+            return await read(c,ct);
+        },CancellationToken.None);
         // A request binds a market context at most once, so a second bind shows whether the read bound one.
         // Reads bind their view's context unless they say otherwise.
         Task<T> Direct<T>(View view,string name,Func<NpgsqlConnection,CancellationToken,Task<T>> read,bool? binds=null)=>Read(async(c,ct)=>
@@ -57,7 +74,8 @@ internal static class DirectReadChecks
                     page,"definitions","references","observations","unitCatalog","curveNames","referenceDisplay","unitReferenceDisplay");
             }
             Same($"{view.Name} curve names match their page",await Direct(view,"curve names",(c,ct)=>reads.CurveNames(c,view.Pin(),ct)),view.Page("curveNames"));
-            Same($"{view.Name} reference page matches its page",await Direct(view,"reference page",(c,ct)=>reads.References(c,view.Pin(),"currencies",0,"",ct)),view.Page("references"),
+            // Its rows link units, commodities and measurement bases, which the page names from their exact rows.
+            Same($"{view.Name} reference page matches its page",await Direct(view,"reference page",(c,ct)=>reads.References(c,view.Pin(),"quantity_specifications",0,"",ct)),view.Page("references"),
                 "table","rows","references","offset","pageSize","maximumOffset","hasMore","search","referenceRevision","definitionRevisionId");
             foreach(var curve in view.Page("evaluations").AsObject())
             {

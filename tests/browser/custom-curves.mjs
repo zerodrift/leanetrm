@@ -1,3 +1,5 @@
+import {sideSession} from './side-session.mjs';
+
 /** Browser behavior over the same authorized custom-curve operations used by agents. */
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
@@ -39,9 +41,18 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('editing terms invalidates the previous result',"document.querySelector('#custom-curves-result').hidden");
  await evaluate('window.dropCustomSave=true');await click('#custom-curves-save');
  await check('an uncertain save keeps the original request available for review',"!document.querySelector('#custom-curves-pending').hidden&&document.querySelector('#custom-curves-result').hidden");
+ const authority=await sideSession(url),author=(await authority.call('admin')).members.find(m=>m.login==='editor');
+ const restricted=await authority.replaceRoles(author,['viewer']);
+ try{await click('#custom-curves-retry');await check('a denied retry retains an earlier uncertain custom-curve save',"!document.querySelector('#custom-curves-pending').hidden&&Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.custom-curves.request.'))");}
+ finally{await authority.replaceRoles(restricted,author.roles);}
  await click('#custom-curves-retry');
- await check('retry reuses the exact request identity after a lost response',"(()=>{const sent=window.customCurveRequests.filter(r=>r.path.endsWith('/custom-curves/save'));return sent.length===2&&sent[0].body.requestId===sent[1].body.requestId&&JSON.stringify(sent[0].body)===JSON.stringify(sent[1].body);})()");
+ await check('retry reuses the exact request identity after a lost response',"(()=>{const sent=window.customCurveRequests.filter(r=>r.path.endsWith('/custom-curves/save'));return sent.length===3&&sent.map(r=>r.status).join(',')==='200,403,200'&&sent.every(r=>JSON.stringify(r.body)===JSON.stringify(sent[0].body));})()");
  await check('a draft saves the graph and presentation layout through the backend',"window.customCurveRequests.some(r=>r.path.endsWith('/custom-curves/save')&&r.status===200&&r.body.definition.code==='synthetic_browser_prompt'&&r.body.requestId&&Object.keys(r.body.layout).length>=4)&&document.querySelector('#custom-curves-state').textContent.includes('Draft')&&document.querySelector('#error').hidden");
+ await evaluate("(()=>{const original=window.fetch;let failed=false;window.confirmedCurveWrites=0;window.fetch=async(...args)=>{const path=String(args[0]);if(path==='/api/custom-curves'&&window.confirmedCurveWrites&&!failed){failed=true;return new Response(JSON.stringify({code:'synthetic_refresh'}),{status:503});}const response=await original(...args);if(path.endsWith('/custom-curves/save')&&response.ok)window.confirmedCurveWrites++;return response;};})()");
+ await set('#custom-curves-name','Synthetic browser prompt revised');await click('#custom-curves-save');
+ await check('failed library reads after confirmed saving are visible without retaining the write',"!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.custom-curves.request.'))");
+ await click('#custom-curves-reload');
+ await check('library recovery reloads the confirmed draft without repeating its save',"window.confirmedCurveWrites===1&&document.querySelector('#custom-curves-name').value==='Synthetic browser prompt revised'&&document.querySelector('#error').hidden");
  await evaluate(`(async()=>{const original=window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/save')&&request.status===200).at(-1),saved=original.payload,boot=await(await fetch('/api/bootstrap?includeFrames=false')).json();const response=await fetch('/api/custom-curves/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({...original.body,requestId:crypto.randomUUID(),id:saved.id,version:saved.version,generation:saved.generation,expectedState:saved.state,definition:{...saved.definition,name:'Synthetic browser prompt concurrent edit'}})});if(!response.ok)throw Error('Concurrent draft edit failed');window.concurrentCurve=await response.json();})()`);
  await set('#custom-curves-name','Synthetic browser prompt local edit');await click('#custom-curves-save');
  await check('a concurrent draft change rejects stale editing',"!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-pending').hidden");

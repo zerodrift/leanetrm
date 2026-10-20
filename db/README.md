@@ -416,9 +416,28 @@ refuse delegated agent contexts. Providers stay unqualified until their adapters
 ship. As a new migration it stops automatic hosted updates until the
 operator qualifies a new baseline (D135).
 
+## Page-assistant models and prices
+
+[0051_model_catalog.sql](migrations/0051_model_catalog.sql) adds the page
+assistant's models and price revisions ([ai-assistant.md](../docs/ai-assistant.md)
+§5.1, §5.3). A model is a provider's vendor identifier, immutable and unique per
+provider, with an audited display name; adding a vendor's first model creates its
+provider without a credential. Capability versions come with qualification (§12
+step 4). A price revision is immutable and effective-dated: a rate set per million
+tokens in an exact currency row of a sealed reference revision, with an optional
+long-prompt tier, or a withdrawal that prices nothing. Revisions append, and the
+highest sequence whose half-open interval contains an instant governs it. The audit
+gains the model it concerns, tied to that model's provider, and the Providers
+directory lists provider changes only. Like credential replacement (0045), each
+command rechecks current authority after its principal and model row waits, before
+returning a replay and after its writes, and the migration first verifies the exact
+authority helpers it relies on and the definition it replaces. No model or
+price is installed. As a new migration it stops automatic hosted updates until the
+operator qualifies a new baseline (D135).
+
 ## Unambiguous swap discount defaults
 
-[0048_unambiguous_discount_defaults.sql](migrations/0048_unambiguous_discount_defaults.sql)
+[0052_unambiguous_discount_defaults.sql](migrations/0052_unambiguous_discount_defaults.sql)
 adds `currency_discount_default_key`: one currency discount default per exact
 catalog, definition revision, reference catalog/revision, currency, effective
 instant and publication. A later publication may still replace a mapping at the
@@ -426,6 +445,6 @@ same instant, consistent with D99. Retained tied mappings stop the migration; it
 never merges or deletes them, so such an installation needs an explicitly reviewed
 reconciliation before upgrading. `security.swap_discount_default` keeps its owner
 and grants and raises `swap_discount_ambiguous` rather than choosing between tied
-latest mappings (D165). The migration takes the security epoch and trading
+latest mappings (D166). The migration takes the security epoch and trading
 publication fences and refuses an unexpected lookup definition. As a new migration
 it stops automatic hosted updates until the operator qualifies a new baseline (D135).

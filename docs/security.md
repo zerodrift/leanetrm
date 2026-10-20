@@ -316,7 +316,7 @@ not full agent credential exchange or qualified hostile-code isolation.
 
 Migration 0043 adds `ManageModelProviders`, held by Access Administrator, for the
 page assistant's Settings › AI ([ai-assistant.md](ai-assistant.md) §5). Provider,
-credential and audit tables force RLS with no runtime table grants; three definer
+credential and audit tables force RLS with no runtime table grants; definer
 operations recheck the permission and refuse delegated agent contexts, so an agent
 never administers providers or keys. A provider key is write-only. The API
 validates it, digests it with HMAC-SHA-256 under a private retry key, bound to the
@@ -335,3 +335,14 @@ Credential replacement rechecks current authority after its principal and provid
 row waits, before returning a replay, and after storage writes. Expiry during a
 wait raises an authorization error and rolls back the operation, including its
 audit row; the SQL boundary enforces this independently of the API's final check.
+
+Migration 0051 adds models and price revisions under the same permission and table
+rules, with five more definer operations that recheck it and refuse delegated agent
+contexts. Like credential replacement, each model command rechecks current
+authority after its principal and model row waits, before returning a replay, and
+after its writes. Add price also requires the actor's current `ReadMarketData`
+access to the currency's sealed reference revision (D131), checked before and again
+after its writes, otherwise `currency_unavailable`, so a model administrator prices
+models through an operator-assigned role that holds it (D152). Withdraw price names
+no currency and needs no such access. Currency choices and labels are the reader's
+own scoped reference read.

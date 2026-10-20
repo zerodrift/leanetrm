@@ -79,6 +79,10 @@ def run_checks(url,query=None,manifest=None):
     c.call('profile',{'profile':'risk'});c.call('trade-formats/save',{**request,'expectedRevision':1},expected=403)
     print('PASS deal precision: per-deal persistence, independent formats, expected-revision conflicts, role/unit bounds and read-only authority.',flush=True)
     power_catalog=c.call('power/catalog',{'snapshotId':frame['id']})
+    # Contract identities here are name-based, so their order says nothing about delivery dates.
+    deliveries=[[k['from'] for k in v['contracts']] for v in power_catalog['curves']]
+    assert any(len(d)>1 for d in deliveries) and all(d==sorted(d) for d in deliveries)
+    print('PASS power catalog: each curve lists its contracts in delivery order.',flush=True)
     peak=next(p for p in power_catalog['presets'] if p['product']=='pjm' and p['block']=='peak' and p['minutes']==60)
     energy=next(q for q in power_catalog['quantityChoices'] if q['basis']=='total_energy')
     power_contract=next(v for v in contracts if v['curve']=='ice_pjc')

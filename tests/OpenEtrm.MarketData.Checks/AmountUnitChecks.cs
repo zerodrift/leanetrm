@@ -50,6 +50,30 @@ internal static class AmountUnitChecks
             Equal(price.ToString(new(3, CashTieRule.ToEven, false, false), new(R("usd"), "USD"), new(R("q_mwh"), "MWh")), "3.100 USD/MWh");
             Reject("display_reference", () => price.ToString(precise, new(R("usd"), "USD"), new(R("q_kwh"), "kWh")));
         });
+        Check("display labels count Unicode scalars and preserve accepted symbols exactly", () =>
+        {
+            var eightyAscii = new string('u', 80);
+            var eightySupplementary = string.Concat(Enumerable.Repeat("\U0001F50C", 80));
+            foreach (var symbol in new[] { "MWh", "m\u00B3", "\u00B0C", " MWh ", eightyAscii, eightySupplementary })
+            {
+                var label = new AmountLabel(R("q_mwh"), symbol);
+                Equal(A("1", "q_mwh").ToString(precise, label), "1.000000 " + symbol);
+                var catalog = new UnitConverter([new(R("mwh"), R("energy"), symbol)], [], [Q("q_mwh", "mwh", "energy")]);
+                Equal(catalog.Symbol(R("q_mwh")), symbol);
+            }
+            Reject("display_reference", () => new AmountLabel(R("q_mwh"), eightyAscii + "u"));
+            Reject("display_reference", () => new AmountLabel(R("q_mwh"), eightySupplementary + "\U0001F50C"));
+        });
+        Check("unit catalogs reject symbols that cannot label an amount", () =>
+        {
+            var invalid = new[] { null!, "", " ", "\u00A0\u1680\u2000\u200A\u2028\u2029\u202F\u205F\u3000", "M\u0001Wh", "M\u007FWh", "M\u0085Wh",
+                "\uD800", "\uDC00", "x\uD800y", new string('u', 81), string.Concat(Enumerable.Repeat("\U0001F50C", 81)) };
+            foreach (var symbol in invalid)
+            {
+                Reject("display_reference", () => new AmountLabel(R("q_mwh"), symbol));
+                Reject("unit_conversion", () => new UnitConverter([new(R("mwh"), R("energy"), symbol)], [], [Q("q_mwh", "mwh", "energy")]));
+            }
+        });
         Check("tick precision counts required decimal places rather than tick multiples", () =>
         {
             if (AmountFormat.ForTick(D("0.025")).DecimalPlaces != 3 || AmountFormat.ForTick(D("0.0005")).DecimalPlaces != 4 || AmountFormat.ForTick(D("5")).DecimalPlaces != 0) throw new Exception("Wrong tick display scale.");

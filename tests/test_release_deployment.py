@@ -413,6 +413,46 @@ class StateMachineChecks(unittest.TestCase):
                 self.assertEqual(self.state()['phase'], 'idle')
                 self.assertEqual(deploy.environment(self.env)['API_IMAGE'], self.live_image)
 
+    def test_recovery_rejects_drifted_serving_boundaries(self):
+        original = deploy.inspect_container
+        for boundary in ['port', 'network', 'private_mount', 'user']:
+            with self.subTest(boundary=boundary):
+                state = {'phase': 'checking', 'targetCommit': COMMIT, 'targetImage': self.new_image,
+                         'previousImageId': self.old_image, 'previousImage': self.old_image, 'previousCommit': 'd' * 40}
+                deploy.atomic_json(self.root / 'state.json', state)
+                self.live_image = self.new_image
+                deploy.write_environment(self.env, {**self.values, 'API_IMAGE': self.new_image})
+
+                def drifted(name):
+                    value = original(name)
+                    if boundary == 'port':
+                        value['HostConfig']['PortBindings']['8080/tcp'][0]['HostIp'] = '0.0.0.0'
+                    elif boundary == 'network':
+                        value['NetworkSettings']['Networks']['unexpected-public-network'] = {}
+                    elif boundary == 'private_mount':
+                        value['Mounts'][0]['RW'] = True
+                    else:
+                        value['Config']['User'] = '0:0'
+                    return value
+
+                with patch.object(deploy, 'inspect_container', drifted):
+                    with self.assertRaises(deploy.ReleaseError):
+                        deploy.Deployment(self.settings).recover()
+                self.assertEqual(self.state(), state)
+                self.assertEqual(deploy.environment(self.env), {**self.values, 'API_IMAGE': self.new_image})
+
+    def test_recovery_rejects_drifted_environment(self):
+        state = {'phase': 'checking', 'targetCommit': COMMIT, 'targetImage': self.new_image,
+                 'previousImageId': self.old_image, 'previousImage': self.old_image, 'previousCommit': 'd' * 40}
+        deploy.atomic_json(self.root / 'state.json', state)
+        self.live_image = self.new_image
+        values = {**self.values, 'API_IMAGE': self.new_image, 'GATEWAY_ADDRESS': '0.0.0.0'}
+        deploy.write_environment(self.env, values)
+        with self.assertRaisesRegex(deploy.ReleaseError, 'environment drift'):
+            deploy.Deployment(self.settings).recover()
+        self.assertEqual(self.state(), state)
+        self.assertEqual(deploy.environment(self.env), values)
+
 
 class RetentionChecks(unittest.TestCase):
     def test_only_recorded_owned_unused_images_are_removed(self):

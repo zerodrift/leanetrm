@@ -1,3 +1,5 @@
+import {sideSession} from './side-session.mjs';
+
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,errors,url}){
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
@@ -30,11 +32,26 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await submit('#admin-form');
   const retained=await evaluate("JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.admin.request.'))))");
   await check('lost response retains exact command identity for reconciliation',`!document.querySelector('#admin-pending').hidden&&!!${JSON.stringify(retained.operationId)}&&!document.querySelector('#error').hidden`);
-  await set('#admin-name','Changed uncertain details');await submit('#admin-form');
-  await check('changed form cannot repurpose outstanding administrative request',"document.querySelector('#error').textContent.includes('outstanding request')&&!document.querySelector('#admin-pending').hidden");
+  const authority=await sideSession(url);
+  const controller=await authority.call('admin/create',{operationId:crypto.randomUUID(),login:'synthetic_retry_admin_'+Date.now(),name:'Synthetic retry administrator',kind:'human',roles:['access_administrator']});
+  const independent=authority;await independent.call('profile',{profile:controller.login});
+  const originalAdmin=(await independent.call('admin')).members.find(m=>m.login==='admin');
+  const restrictedAdmin=await independent.replaceRoles(originalAdmin,['viewer']);
+  try{
+   await click('#admin-retry');
+   await check('a denied retry preserves an earlier uncertain administrative commit',`!document.querySelector('#admin-pending').hidden&&JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.admin.request.')))).operationId===${JSON.stringify(retained.operationId)}`);
+   await check('denied administration clears privileged rows and fields while retaining its retry',"document.querySelector('#admin-members').children.length===0&&document.querySelector('#admin-audit').children.length===0&&document.querySelector('#admin-roles').children.length===0&&document.querySelector('#admin-form').hidden&&document.querySelector('#admin-name').value===''&&!document.querySelector('#admin-pending').hidden");
+  }finally{await independent.replaceRoles(restrictedAdmin,originalAdmin.roles);}
+  await submit('#admin-form');
+  await check('a cleared form cannot start another mutation while the earlier request is unconfirmed',`!document.querySelector('#admin-pending').hidden&&JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.admin.request.')))).operationId===${JSON.stringify(retained.operationId)}&&window.__requests.filter(r=>r.path==='/api/admin/create'&&r.body.operationId===${JSON.stringify(retained.operationId)}).length===2`);
   await click('#admin-retry');
-  await check('retry uses original operation identity and succeeds idempotently',`(()=>{const requests=window.__requests.filter(r=>r.path==='/api/admin/create'&&r.body.operationId===${JSON.stringify(retained.operationId)});const audit=window.__responses.filter(r=>r.path==='/api/admin').at(-1).data.audit;return requests.length===2&&JSON.stringify(requests[0].body)===JSON.stringify(requests[1].body)&&audit.filter(a=>a.operationId===${JSON.stringify(retained.operationId)}).length===1&&document.querySelector('#admin-pending').hidden&&document.querySelector('#error').hidden;})()`);
+  await check('retry uses original operation identity and succeeds idempotently',`(()=>{const requests=window.__requests.filter(r=>r.path==='/api/admin/create'&&r.body.operationId===${JSON.stringify(retained.operationId)});const audit=window.__responses.filter(r=>r.path==='/api/admin').at(-1).data.audit;return requests.length===3&&requests.every(r=>JSON.stringify(r.body)===JSON.stringify(requests[0].body))&&audit.filter(a=>a.operationId===${JSON.stringify(retained.operationId)}).length===1&&document.querySelector('#admin-pending').hidden&&document.querySelector('#error').hidden;})()`);
   await check('retry preserves original name rather than modified form',"document.querySelector('#admin-name').value==='Synthetic uncertain account'&&!document.querySelector('#admin-members').textContent.includes('Changed uncertain details')");
+  await evaluate("(()=>{const original=window.fetch;let failed=false;window.confirmedAdminWrites=0;window.fetch=async(...args)=>{const path=String(args[0]);if(path==='/api/admin'&&window.confirmedAdminWrites&&!failed){failed=true;return new Response(JSON.stringify({code:'synthetic_refresh'}),{status:503});}const response=await original(...args);if(path==='/api/admin/update'&&response.ok)window.confirmedAdminWrites++;return response;};})()");
+  await set('#admin-name','Synthetic uncertain account revised');await submit('#admin-form');
+  await check('failed reads after confirmed administration remain visible without retaining the write',"!document.querySelector('#error').hidden&&document.querySelector('#admin-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.admin.request.'))");
+  await click('#admin-refresh');
+  await check('administrative read recovery does not resubmit the confirmed write',"window.confirmedAdminWrites===1&&document.querySelector('#admin-members').textContent.includes('Synthetic uncertain account revised')&&document.querySelector('#error').hidden");
   await click('#admin-new');await set('#admin-name','Malformed response test');await set('#admin-login','malformed_'+Date.now());await set('#admin-kind','human');await evaluate("document.querySelector('#admin-roles input[value=viewer]').checked=true;window.__badGateway=true;window.fetch=async(...args)=>{const r=await window.__trackedFetch(...args);if(window.__badGateway&&String(args[0])==='/api/admin/create'){window.__badGateway=false;return new Response('<html>Bad Gateway</html>',{status:502,headers:{'Content-Type':'text/html'}});}return r;}");await submit('#admin-form');
   const malformed=await evaluate("JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.admin.request.'))))");
   await check('malformed 502 after commit retains administrative request',"!document.querySelector('#admin-pending').hidden&&!document.querySelector('#error').hidden");await click('#admin-retry');

@@ -109,6 +109,19 @@ replacements and accepted-operation retries then fail with SQLSTATE 42501, with
 all provider, credential and audit rows unchanged. Ordinary creation, replacement
 and replay continue through the provider administration integration suite.
 
+The model and price commands (migration 0051) get the same treatment. Eight direct
+SQL cases let the administrator's grants or request context expire while a command
+waits at the last point its recheck must follow: its principal row, its model row,
+the replay lookup, or its audit write, the last one. Each check names the recheck
+that must refuse it, from the error's PL/pgSQL context: the replay lookup's, the
+model lock's or the final one.
+A market-data grant expiring during an Add price write leaves it
+`currency_unavailable`. Every model, price, provider and audit row stays unchanged.
+Before 0051 applies, its body runs in a rolled-back transaction, once after
+`provider_directory`'s definition changes and once after `actor()`'s privileges
+change; both times it refuses the helper. Under a caller search path that prints
+those definitions differently, it still recognizes its helpers and applies.
+
 ## Hosted job
 
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on
@@ -924,13 +937,66 @@ report joins cannot establish emptiness. These checks use disposable resources
 and synthetic material. They establish scoped read contracts; larger-workload,
 cold-process and hosted latency qualification remain separate measurements.
 
+## Plan-independent page reads
+
+Definition, reference and unit-catalog reads had no `ORDER BY`. Without
+statistics PostgreSQL read them through index scans, often on unique keys other
+than the primary key; after autovacuum's first `ANALYZE`, about a minute into a
+disposable cluster, it switched to heap scans. A page recorded before that pass
+and its later direct read then returned the same rows in another order. The
+direct-read check now repeats every direct read with index scans disabled and
+with sequential and bitmap scans disabled. Against the unordered reads it failed:
+six definition, thirteen reference and six unit-catalog tables differed only in
+row order. An explicit `ANALYZE` between the recorded pages and the direct reads
+also reproduced the original failure.
+
+Each read now orders its rows by the table's primary key within its revision;
+both passes and the `ANALYZE` reproduction match their pages. The recorded
+reference page links units, commodities and measurement bases, so it also fails
+when a linked read is unordered. The power catalog, which inherited contract
+order, now lists each curve's contracts by delivery date. Its check over the
+exchange example's name-based contract identities failed first. The complete
+command passed on 2026-10-19 on macOS 26.6.2 arm64 with .NET 10.0.402, Node
+24.22.0, stock PostgreSQL 16.14 and Chrome for Testing 153.0.8010.12, including
+330 standard and 8 exchange browser checks. Disposable resources completed
+teardown. Swap-catalog daily months still follow contract-identity order, and
+the power-import lists, automation directories and tied discount defaults depend
+on incidental order or ties; they need separate checks.
+
+## Explicit index fixings for swaps
+
+Local 2026-10-19 checks cover exact monthly publication schedules and partially
+fixed daily gas/power periods. Independent arithmetic verifies actual/projected
+PV, unchanged averaging weights and quote risk only for unresolved observations.
+An actual present in storage but absent from the selected snapshot fails rather
+than being fetched implicitly. Manual boundary overrides reject. Identical booking
+retries retain their original outcome after an actual correction; changed terms
+conflict and current write authority remains required.
+
+The owned 0049-to-0050 upgrade preserves existing financial, reference and market
+rows, certified history, definition identities and exact legacy retries. It adds
+no guessed fixing rules to sealed bundles. Runtime checks cover forced RLS,
+additional permissive policies, independently revoked market/reference access,
+unbound sessions and authority expiry during a blocked write. Rejected writes
+leave no trade or publication.
+
+After integrating migrations 0046–0049, the complete local verification command
+passed, including 298 managed market-data checks, 148 frontend checks, 353
+standard browser checks and 37 swap storage checks. The Release API build passed
+without warnings. Verification used
+.NET SDK 10.0.402, Node 24.22.0, PostgreSQL 16.14 and Chrome 155 on macOS arm64;
+all database/browser resources were owned, disposable and synthetic. Independent
+adversarial review found no remaining concrete blocker. These checks do not
+qualify live publisher data, broader peak/holiday observation authoring,
+settlement/payment lifecycle operations or a hosted deployment.
+
 ## Unambiguous swap discount defaults
 
 Focused checks on 2026-10-19 first reproduced the plan-dependent tie in the
 currency discount-default lookup. One publication accepted two mappings for the
 same definition revision, currency and instant, an upgrade over a retained tie
 succeeded silently, the lookup returned one of the tied mappings, and an edited
-lookup body could be replaced without review. With migration 0048 the tied write
+lookup body could be replaced without review. With migration 0052 the tied write
 fails on `currency_discount_default_key`, a later publication still replaces a
 mapping at the same instant and a certified earlier context keeps its original
 mapping. With the key removed inside a rolled-back transaction, the lookup raises

@@ -25,7 +25,7 @@ def page_view(c, name, context=None):
             'initialFrameIds': full['initialFrameIds'], 'frameId': frame['id'],
             'workspace': full, 'catalog': c.call('workspace/catalog'),
             'curveNames': c.call('curve-names'),
-            'references': c.call('reference/catalog?table=currencies'),
+            'references': c.call('reference/catalog?table=quantity_specifications'),
             'evaluations': evaluations,
             'history': {'curve': 'local_power', 'contractId': contract,
                         'response': c.call('history', {'snapshotId': frame['id'],

@@ -36,14 +36,24 @@ public sealed class PreviewDatabase : IAsyncDisposable
     private readonly Func<string>? hostedSession;
     public PreviewManifest Manifest { get; }
     public const int ReferenceMaximumOffset=100000;
-    public static readonly string[] ReferenceTables = ["currencies", "dimensions", "units", "unit_conversions", "commodities",
-        "measurement_bases", "quantity_specifications", "quote_specifications", "value_specifications", "locations",
-        "clock_rules", "calendars", "calendar_days", "commodity_units", "location_types", "commodity_locations",
-        "exchanges", "clearing_houses", "exchange_clearing_houses",
-        "interest_rate_definitions", "price_index_definitions", "sources", "product_evidence",
-        "delivery_profiles", "settlement_targets", "cash_rounding_conventions",
-        "futures_products", "futures_series", "futures_execution_policies", "futures_milestones", "futures_lot_resolutions", "futures_product_terms", "futures_basis_settlements"];
-    private static readonly string[] DefinitionTables = ["revisions", "contracts", "curves", "series", "curve_members", "curve_inputs", "constituent_mappings", "rate_curves", "rate_curve_points", "revision_periods"];
+    // Each reference and definition table with its primary key within a revision. Every read returns
+    // rows in key order, so identical pins give identical rows in the same order whatever plan the database uses.
+    private static readonly (string Table,string Key)[] ReferenceKeys = [("currencies","code"), ("dimensions","code"), ("units","code"),
+        ("unit_conversions","from_unit_code,to_unit_code"), ("commodities","code"), ("measurement_bases","code"), ("quantity_specifications","code"),
+        ("quote_specifications","code"), ("value_specifications","code"), ("locations","code"), ("clock_rules","code"), ("calendars","code"),
+        ("calendar_days","calendar_code,business_date"), ("commodity_units","commodity_code,unit_code"), ("location_types","code"),
+        ("commodity_locations","commodity_code,location_code"), ("exchanges","code"), ("clearing_houses","code"),
+        ("exchange_clearing_houses","exchange_code,clearing_house_code"), ("interest_rate_definitions","code"), ("price_index_definitions","code"),
+        ("sources","code"), ("product_evidence","product_code,source_code,fact_group"), ("delivery_profiles","code"), ("settlement_targets","code"),
+        ("cash_rounding_conventions","code"), ("futures_products","code"), ("futures_series","code"),
+        ("futures_execution_policies","series_code,implementation"), ("futures_milestones","series_code,milestone"),
+        ("futures_lot_resolutions","series_code"), ("futures_product_terms","product_code"), ("futures_basis_settlements","series_code")];
+    public static readonly string[] ReferenceTables = [..ReferenceKeys.Select(r=>r.Table)];
+    private static readonly (string Table,string Key)[] DefinitionTables = [("revisions","id"), ("contracts","id"), ("curves","code"), ("series","id"),
+        ("curve_members","curve_code,contract_id"), ("curve_inputs","curve_code,slot"), ("constituent_mappings","curve_code,slot,target_contract_id"),
+        ("rate_curves","code"), ("rate_curve_points","curve_code,maturity"), ("revision_periods","revision_id"),
+        ("index_fixing_observations","index_code,observation_from,observation_to")];
+    private static string ReferenceKey(string table)=>ReferenceKeys.Single(r=>r.Table==table).Key;
     internal static readonly ImmutableArray<string> UnitTables = ["dimensions", "units", "unit_conversions", "commodities", "measurement_bases", "quantity_specifications"];
 
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
@@ -132,10 +142,10 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         if(selectedRevision is {} requested&&requested!=Manifest.RevisionId&&!(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==requested))throw new PreviewDeniedException();
         var selectedManifest=selectedRevision is {} id?Manifest with {RevisionId=id}:Manifest;
         var definitions = new Dictionary<string, ImmutableArray<JsonElement>>();
-        foreach (var table in DefinitionTables)
+        foreach (var (table,key) in DefinitionTables)
         {
             var revisionColumn = table == "revisions" ? "id" : "revision_id";
-            definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
+            definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2 ORDER BY {key}) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
         }
         if (definitions["revisions"].Length != 1 || definitions["revisions"][0].Text("state") != "sealed") throw new PreviewDeniedException();
         PreviewData.RequireBundlePin(selectedManifest, definitions["revisions"][0]);
@@ -187,7 +197,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             }
             if(scope==ReferenceReadScope.TradeValuation&&table=="futures_milestones")
                 predicate+=" AND milestone IN ('first_trading','last_trading')";
-            return await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{table} WHERE catalog_id=$1 AND revision_id=$2{predicate})t",parameters,ct);
+            return await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{table} WHERE catalog_id=$1 AND revision_id=$2{predicate} ORDER BY {ReferenceKey(table)})t",parameters,ct);
         }
         if(scope==ReferenceReadScope.AllVisible)
         {
@@ -250,20 +260,6 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         var visible=await Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT reference_catalog_id,reference_revision_id FROM market_data.revisions WHERE catalog_id=$1 AND id=$2 AND state='sealed')t",[Manifest.CatalogId,definition],ct);
         if(visible.Length!=1||visible[0].Id("reference_catalog_id")!=revision.CatalogId||visible[0].Id("reference_revision_id")!=revision.RevisionId)
             throw new MarketDataException(UnitTables.Contains(table)?"unit_catalog":"reference_catalog","The exact reference catalog is unavailable in this context.");
-        var order=table switch
-        {
-            "unit_conversions"=>"from_unit_code,to_unit_code",
-            "commodity_units"=>"commodity_code,unit_code",
-            "calendar_days"=>"calendar_code,business_date",
-            "commodity_locations"=>"commodity_code,location_code",
-            "exchange_clearing_houses"=>"exchange_code,clearing_house_code",
-            "product_evidence"=>"product_code,source_code,fact_group",
-            "futures_milestones"=>"series_code,milestone",
-            "futures_execution_policies"=>"series_code,implementation",
-            "futures_lot_resolutions" or "futures_basis_settlements"=>"series_code",
-            "futures_product_terms"=>"product_code",
-            _=>"code"
-        };
         const int pageSize=200;
         // Table and key identifiers come only from the fixed public catalog.
         // Search is literal, including SQL wildcard characters, and never runs
@@ -273,7 +269,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
                 SELECT r.* FROM ref_data.{table} r
                 WHERE catalog_id=$1 AND revision_id=$2
                   AND ($3='' OR strpos(lower(row_to_json(r)::text),lower($3))>0)
-                ORDER BY {order} LIMIT 201 OFFSET $4
+                ORDER BY {ReferenceKey(table)} LIMIT 201 OFFSET $4
             ) t
             """,[revision.CatalogId,revision.RevisionId,search,offset],ct);
         var rows=found.Take(pageSize).ToImmutableArray();
@@ -285,7 +281,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         {
             var codes=columns.SelectMany(column=>Codes(rows,column)).Distinct().ToArray();
             if(codes.Length==0)continue;
-            var linked=await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{target} WHERE catalog_id=$1 AND revision_id=$2 AND code=ANY($3::text[]))t",[revision.CatalogId,revision.RevisionId,codes],ct);
+            var linked=await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{target} WHERE catalog_id=$1 AND revision_id=$2 AND code=ANY($3::text[]) ORDER BY {ReferenceKey(target)})t",[revision.CatalogId,revision.RevisionId,codes],ct);
             references[target]=references.TryGetValue(target,out var existing)
                 ? existing.Concat(linked).DistinctBy(row=>row.GetProperty("code").GetString()).ToImmutableArray():linked;
         }
@@ -352,7 +348,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             throw new MarketDataException("unit_catalog","The exact configured unit catalog is unavailable in this context.");
         var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
         foreach(var table in UnitTables)
-            references.Add(table,await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{table} WHERE catalog_id=$1 AND revision_id=$2)t",[revision.CatalogId,revision.RevisionId],ct));
+            references.Add(table,await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{table} WHERE catalog_id=$1 AND revision_id=$2 ORDER BY {ReferenceKey(table)})t",[revision.CatalogId,revision.RevisionId],ct));
         return new(revision,references.ToImmutable());
     }
 
@@ -515,7 +511,7 @@ public sealed class PreviewData
             row.Text("state") != "sealed")
             throw new MarketDataException("reference_pin_mismatch", "The persisted sealed bundle must match every exact manifest reference pin.");
     }
-    public static ObservationRole ParseRole(string role) => role switch {"trader_mark"=>ObservationRole.TraderMark,"daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,"parameter"=>ObservationRole.Parameter,_=>throw Unsupported()};
+    public static ObservationRole ParseRole(string role) => role switch {"trader_mark"=>ObservationRole.TraderMark,"daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,"parameter"=>ObservationRole.Parameter,"index_fixing"=>ObservationRole.IndexFixing,_=>throw Unsupported()};
     private static MarketDataException Unsupported()=>new("unsupported_definition","The selected definition uses an unsupported kind.");
     private static T Single<T>(IEnumerable<T> source)
     { var values=source.Take(2).ToArray(); return values.Length==1?values[0]:throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous."); }
@@ -537,7 +533,7 @@ public sealed class PreviewData
         var selections=frame.ObservationIds.Select(id=>
         {
             var o=Observation(id);
-            return new SelectedObservation(new(S(o.Id("series_id")),InputUse.Variable),new(new(manifest.CatalogId,id),S(o.Id("series_id")),R(o.Text("source_code")),ParseRole(o.Text("role")),
+            return new SelectedObservation(new(S(o.Id("series_id")),o.Text("role")=="index_fixing"?InputUse.FrozenFact:InputUse.Variable),new(new(manifest.CatalogId,id),S(o.Id("series_id")),R(o.Text("source_code")),ParseRole(o.Text("role")),
                 o.Text("publication_state") switch {"final"=>PublicationState.Final,"preliminary"=>PublicationState.Preliminary,_=>throw Unsupported()},o.Instant("observed_at"),o.Number("value")));
         }).ToImmutableArray();
         return new(frame.Id,revision,frame.At,frame.At,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,selections);
