@@ -59,7 +59,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#collection-job-from','-14');await set('#collection-job-through','-2');await evaluate('window.dropCollectionSave=true');await submit('#collection-job-form');
   const retainedCollection=await evaluate('window.collectionRequests.at(-1).body');
   await check('an uncertain collection edit retains reconciliation outside the collapsed editor',"!document.querySelector('#job-pending').hidden&&!document.querySelector('#job-pending').closest('details')&&document.querySelector('#collection-job-save').disabled");
-  await command('Page.navigate',{url:url+'/'});await wait("!document.querySelector('#nav-jobs').hidden&&"+idle);await click('#nav-jobs');
+  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-jobs')?.hidden===false&&"+idle);await click('#nav-jobs');
   const authority=await sideSession(url),controller=await authority.call('admin/create',{operationId:crypto.randomUUID(),login:'synthetic_collection_admin_'+Date.now(),name:'Synthetic collection administrator',kind:'human',roles:['access_administrator']});await authority.call('profile',{profile:controller.login});
   const originalAdmin=(await authority.call('admin')).members.find(m=>m.login==='admin'),restricted=await authority.replaceRoles(originalAdmin,['viewer']);
   try{await click('#job-retry-request');await check('a denied collection retry preserves the earlier uncertain operation',`!document.querySelector('#job-pending').hidden&&Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.jobs.request.')&&JSON.parse(sessionStorage[k]).operationId===${JSON.stringify(retainedCollection.requestId)})`);}
