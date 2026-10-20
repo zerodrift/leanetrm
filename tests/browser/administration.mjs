@@ -1,6 +1,6 @@
 import {sideSession} from './side-session.mjs';
 
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,errors,url}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url}){
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__responses=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{const path=String(args[0]),body=args[1]?.body?JSON.parse(args[1].body):null;window.__requests.push({path,body});const response=await window.__originalFetch(...args);window.__responses.push({path,status:response.status,data:await response.clone().json()});return response;};window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
@@ -60,7 +60,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('admin account table filter limits displayed rows',"document.querySelectorAll('#admin-members tbody tr:not([hidden])').length===1&&document.querySelector('#admin-members tbody').textContent.includes('Synthetic uncertain account')");
   await evaluate('window.scrollTo(0,0)');await shot('admin-desktop');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
-  await check('admin mobile layout avoids page-wide horizontal overflow',"document.documentElement.scrollWidth<=window.innerWidth+1");await shot('admin-mobile');
+  await check('admin mobile layout avoids page-wide horizontal overflow',fitsWidth);await shot('admin-mobile');
   await check('admin visible text exposes no internal GUIDs',"!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(document.body.innerText)");
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   const actorLogin='browser_admin_'+Date.now();await click('#admin-new');await set('#admin-name','Revocation actor '+Date.now());await set('#admin-login',actorLogin);await set('#admin-kind','human');await evaluate("document.querySelector('#admin-roles input[value=access_administrator]').checked=true");await submit('#admin-form');

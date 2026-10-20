@@ -1,5 +1,5 @@
 import {setupTradingReplies} from './trading-responses.mjs';
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,errors}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url,errors}){
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1250,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);
   await setupTradingReplies(evaluate);
@@ -27,7 +27,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#risk-export');
   await check('risk download reauthorizes the exact pinned request and includes its inputs',"(async()=>{const r=JSON.parse(await window.__riskBlob.text());const requests=window.__riskRequests;return r.inputs.positions.length===r.work.positionCount&&r.inputs.observations.length>0&&r.factors[0].factor.priceUnit.multiplier==='1'&&JSON.stringify(requests.at(-1))===JSON.stringify(requests.at(-2));})()");
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
-  await check('shock controls and charts avoid page-wide mobile overflow',"document.documentElement.scrollWidth<=innerWidth+1");await evaluate("document.querySelector('#risk-card').scrollIntoView({block:'start'})");await shot('risk-mobile');
+  await check('shock controls and charts avoid page-wide mobile overflow',fitsWidth);await evaluate("document.querySelector('#risk-card').scrollIntoView({block:'start'})");await shot('risk-mobile');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1250,deviceScaleFactor:1,mobile:false});
   await evaluate('window.__previousRiskBlob=window.__riskBlob;window.__denyRisk=true');await click('#risk-export');
   await check('denied risk export creates no download and clears risk and holdings caches',"window.__riskBlob===window.__previousRiskBlob&&document.querySelector('#risk-card').hidden&&document.querySelector('#risk-results').children.length===0&&document.querySelector('#risk-plots').children.length===0&&document.querySelector('#futures-holdings').children.length===0");

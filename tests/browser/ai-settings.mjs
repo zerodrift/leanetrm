@@ -2,7 +2,7 @@ import {sideSession} from './side-session.mjs';
 
 // Settings › AI against the assistant check's preview, after its HTTP checks: identifiers are
 // unique to this run and assertions look only at this run's rows.
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,errors,url}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url}){
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{window.__requests.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null});return window.__originalFetch(...args);};window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await window.__originalFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
@@ -178,11 +178,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate('window.scrollTo(0,0)');await shot('ai-settings-desktop');
   await click('#ai-tab-models');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
-  // Mobile emulation widens the layout viewport to the content, so overflow is measured against the client width.
-  const fits="document.documentElement.scrollWidth<=document.documentElement.clientWidth+1";
-  await check('AI settings avoid page-wide horizontal overflow on a phone',fits);await shot('ai-settings-mobile');
+  await check('AI settings avoid page-wide horizontal overflow on a phone',fitsWidth);await shot('ai-settings-mobile');
   await click('#ai-tab-providers');await evaluate('window.scrollTo(0,0)');
-  await check('the provider card avoids page-wide horizontal overflow on a phone',`!document.querySelector('#ai-provider-card').hidden&&${fits}`);await shot('ai-providers-mobile');
+  await check('the provider card avoids page-wide horizontal overflow on a phone',`!document.querySelector('#ai-provider-card').hidden&&${fitsWidth}`);await shot('ai-providers-mobile');
   await click('#ai-tab-models');
   await check('AI settings expose no internal GUIDs',"!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(document.body.innerText)");
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});

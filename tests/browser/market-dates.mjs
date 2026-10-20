@@ -1,5 +1,5 @@
 /** Calendar presentation consumes authorized backend coverage and exact close IDs. */
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url}){
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`
@@ -61,7 +61,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('an incomplete graph receives no permissive workspace-date fallback',"window.marketDateRequests.at(-1).status===422&&window.marketDateRequests.at(-1).body.definition.nodes.some(n=>n.kind==='output'&&!n.inputs.values)&&document.querySelector('#market-date-dialog').open&&document.querySelector('#market-date-scope').textContent.includes('Complete a valid curve graph')&&document.querySelectorAll('#market-date-grid button').length===0");
  await click('#market-date-close');await set('#custom-curves-template','ng_prompt');await click('#market-date-open');
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
- await check('the calendar remains within a narrow viewport with labeled date controls',"document.documentElement.scrollWidth<=window.innerWidth+1&&document.querySelector('#market-date-dialog').getBoundingClientRect().width<=window.innerWidth&&document.querySelector('#market-date-grid').getAttribute('role')==='grid'&&document.querySelector('#market-date-open').getAttribute('aria-haspopup')==='dialog'");
+ await check('the calendar remains within a narrow viewport with labeled date controls',fitsWidth+"&&document.querySelector('#market-date-dialog').getBoundingClientRect().width<=document.documentElement.clientWidth&&document.querySelector('#market-date-grid').getAttribute('role')==='grid'&&document.querySelector('#market-date-open').getAttribute('aria-haspopup')==='dialog'");
  await shot('market-calendar-mobile');
  await click('#market-date-close');await click('#custom-curves-preview');
  await evaluate('window.denyCalendar=true');await click('.custom-curve-node[data-node-id=select] button');await set('#custom-curve-property-count','2');await click('#custom-curves-preview');await click('#market-date-open');
