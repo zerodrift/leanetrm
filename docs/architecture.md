@@ -589,6 +589,9 @@ The currency's configured default supplies the discount curve unless the
 instrument explicitly selects discounting=false. Calculation inputs retain the
 exact resolved mapping/curve, context, payment date, selected observations and
 numerical policies. Missing defaults or coverage are structured errors.
+A publication holds at most one default per exact definition revision, currency
+reference and effective instant; a later publication may replace it. A tied
+latest default is rejected, never chosen (D166).
 Log-linear interpolation applies to discount factors between explicit pillars;
 there is no extrapolation. The first rates implementation uses its declared UTC
 date basis, with user-local display kept separate from contractual dates.
