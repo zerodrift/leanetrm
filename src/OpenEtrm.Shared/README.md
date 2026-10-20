@@ -1,10 +1,21 @@
 # Shared utilities
 
-Small, dependency-free .NET utilities used by executable temporal acceptance
+Small, dependency-free .NET utilities used by executable temporal and numerical acceptance
 cases. The named contract-sequence resolver stays in the market domain because
 it carries exact contract/reference identities. Keep business definitions, storage and authorization in their owning
 modules. Add common behavior here when it has a concrete consumer; do not turn
 this folder into a general framework.
+
+## Exact integer rounding
+
+`IntegerRounding.RoundQuotient` rounds a signed integer fraction once, with a
+positive denominator and an explicitly selected nearest/ties-to-even or
+nearest/ties-away-from-zero rule. Amount formatting, increment rounding and rate
+factor construction share this operation. Their callers retain responsibility
+for units, scale, financial conventions, supported bounds and structured errors.
+The utility selects no precision or financial policy and has no floating-point
+intermediate. Checks compare signed fractions with an independent decimal oracle
+and cover 300-digit half ties and unsupported inputs.
 
 ## Temporal payloads
 
