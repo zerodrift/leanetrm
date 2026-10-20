@@ -29,12 +29,14 @@ if (args is ["--power-imports"])
 {
     PowerImportChecks.Run();return;
 }
+if(args is ["--model-providers"]){await ModelProviderChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
     FuturesExecutionChecks.Run();
     HostedAccessChecks.Run();
     CredentialCustodyChecks.Run();
+    await ModelProviderChecks.Run();
     PowerImportChecks.Run();
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();

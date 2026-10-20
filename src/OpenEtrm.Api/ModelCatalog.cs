@@ -32,10 +32,12 @@ public sealed record WithdrawPriceRequest(Guid OperationId,Guid ModelId,int? Exp
 // Currency choices and labels come from the reader's own scoped reference read (D124, D131).
 public sealed partial class ModelCatalog
 {
-    // Row-level security limits this to sealed currencies the reader may currently see.
+    // Row-level security limits this to sealed currencies the reader may currently see. Revisions can
+    // repeat a currency, so each choice also names its catalog and revision.
     const string CurrencyChoices="SELECT coalesce(json_agg(json_build_object('catalogId',c.catalog_id,'revisionId',c.revision_id,'code',c.code,"
-        +"'displayCode',c.display_code,'name',c.name) ORDER BY c.display_code,c.catalog_id,c.revision_id),'[]')::text "
-        +"FROM ref_data.currencies c JOIN ref_data.revisions r ON(r.catalog_id,r.id)=(c.catalog_id,c.revision_id) WHERE r.state='sealed'";
+        +"'displayCode',c.display_code,'name',c.name,'catalogCode',g.code,'revisionKey',r.revision_key) ORDER BY c.display_code,g.code,r.revision_key,c.code),'[]')::text "
+        +"FROM ref_data.currencies c JOIN ref_data.revisions r ON(r.catalog_id,r.id)=(c.catalog_id,c.revision_id) JOIN ref_data.catalogs g ON g.id=c.catalog_id "
+        +"WHERE r.state='sealed'";
 
     public async Task<JsonObject> Directory(NpgsqlConnection connection,CancellationToken ct)
     {

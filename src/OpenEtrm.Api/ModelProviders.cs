@@ -49,7 +49,7 @@ public sealed partial class ModelProviders(CredentialCustody custody,PreviewMani
     }
 
     // A vendor key is 8 to 512 visible ASCII characters; \z, unlike $, admits no final newline.
-    [GeneratedRegex(@"^[!-~]{8,512}\z")] private static partial Regex KeyFormat();
+    [GeneratedRegex(@"^[!-~]{8,512}\z")] internal static partial Regex KeyFormat();
 
     internal static async Task<JsonElement> Read(NpgsqlConnection connection,string sql,object[] values,CancellationToken ct)
     {

@@ -12,23 +12,36 @@ PAST, LATER, LAST = '2020-01-01T00:00:00Z', '2099-01-01T00:00:00Z', '2099-07-01T
 # Synthetic rates per million tokens; no vendor's real price ships (D150).
 RATES = {'uncachedInput': '1.234', 'cacheRead': '0.0123', 'cacheWrite': '2.5', 'output': '9.87'}
 TIER = {'threshold': 123456, 'rates': {'uncachedInput': '2.468', 'cacheRead': '0.0246', 'cacheWrite': '5', 'output': '19.74'}}
+APPEND_PRICE = ('assistant.append_price(text,uuid,uuid,integer,uuid,uuid,text,numeric,numeric,numeric,numeric,bigint,'
+                'numeric,numeric,numeric,numeric,timestamp with time zone,timestamp with time zone)')
 
 
-def check_upgrade(query, migration):
-    """Before 0051 applies: it refuses a helper whose definition or privileges differ from those it was written against."""
+def check_guard(query, migration, number, guard, changes):
+    """Before migration `number` applies: it refuses a helper whose definition or privileges differ from those it was written against."""
     body = migration.strip().replace('BEGIN;', '', 1).removesuffix('COMMIT;')
-    for change, helper in (("ALTER FUNCTION assistant.provider_directory() SET work_mem='64kB';", 'assistant.provider_directory()'),
-                           ('GRANT EXECUTE ON FUNCTION assistant.actor() TO openetrm_runtime;', 'assistant.actor()')):
+    for change, helper in changes:
         try:
             query(f'BEGIN;{change}{body}ROLLBACK;')
         except RuntimeError as error:
-            assert f'model_catalog: unexpected helper {helper}' in str(error), error
+            assert f'{guard}: unexpected helper {helper}' in str(error), error
         else:
-            raise AssertionError(f'Migration 0051 applied over a changed {helper}')
-    print('PASS migration 0051 refuses a changed definition or privilege of a helper it relies on', flush=True)
+            raise AssertionError(f'Migration {number} applied over a changed {helper}')
+    print(f'PASS migration {number} refuses a changed definition or privilege of a helper it relies on', flush=True)
     # A caller's search path changes how pinned definitions print; the migration sets its own.
     query(f'BEGIN;SET LOCAL search_path=security,assistant,public;{body}ROLLBACK;')
-    print('PASS migration 0051 recognizes its helpers under any caller search path', flush=True)
+    print(f'PASS migration {number} recognizes its helpers under any caller search path', flush=True)
+
+
+def check_upgrade(query, migration):
+    check_guard(query, migration, '0051', 'model_catalog',
+                (("ALTER FUNCTION assistant.provider_directory() SET work_mem='64kB';", 'assistant.provider_directory()'),
+                 ('GRANT EXECUTE ON FUNCTION assistant.actor() TO openetrm_runtime;', 'assistant.actor()')))
+
+
+def check_rule_upgrade(query, migration):
+    check_guard(query, migration, '0053', 'model_cache_read',
+                ((f"ALTER FUNCTION {APPEND_PRICE} SET work_mem='64kB';", APPEND_PRICE),
+                 ('GRANT EXECUTE ON FUNCTION assistant.currency_readable(uuid,uuid,text) TO openetrm_runtime;', 'assistant.currency_readable(uuid,uuid,text)')))
 
 
 def run_checks(url, query, psql, manifest, environment):
@@ -81,10 +94,24 @@ def run_checks(url, query, psql, manifest, environment):
     directory = admin.call(MODELS)
     check('no model, price or model audit ships, and an administrator without market-data access has no currency choices',
           directory['models'] == [] and directory['audit'] == [] and directory['currencies'] == [])
-    usd = next(c for c in pricing.call(MODELS)['currencies']
+    # Sealed revisions can repeat a currency, so a choice names its catalog and revision. These two repeat USD
+    # and sort one way by identifier and the other by catalog code and revision key.
+    other_catalog, alternate, other = '10000000-0000-0000-0000-000000000002', '00000000-0000-4000-8000-000000000051', '00000000-0000-4000-8000-000000000052'
+    query(f"INSERT INTO security.reference_catalog_scopes VALUES('{other_catalog}','{manifest['tenantId']}','{manifest['workspaceId']}','read_only');"
+          + ''.join(f"INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES('{catalog}','{revision}','{key}');"
+                    f"INSERT INTO ref_data.currencies VALUES('{catalog}','{revision}','usd','USD','US Dollar',2);"
+                    f"UPDATE ref_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{catalog}','{revision}');"
+                    for catalog, revision, key in ((manifest['referenceCatalogId'], alternate, 'model_price_alternate'), (other_catalog, other, 'model_price_other'))))
+    choices = pricing.call(MODELS)['currencies']
+    usd = next(c for c in choices
                if (c['catalogId'], c['revisionId'], c['code']) == (manifest['referenceCatalogId'], manifest['referenceRevisionId'], 'usd'))
-    check('a pricing administrator chooses among sealed currencies it can read, labelled from the reference row',
-          usd['displayCode'] == 'USD' and usd['name'])
+    named = query("SELECT g.code||' '||r.revision_key FROM ref_data.catalogs g JOIN ref_data.revisions r ON r.catalog_id=g.id "
+                  f"WHERE(r.catalog_id,r.id)=('{usd['catalogId']}','{usd['revisionId']}');")
+    repeated = [c for c in choices if c['displayCode'] == 'USD']
+    names, identities = [(c['catalogCode'], c['revisionKey']) for c in repeated], [(c['catalogId'], c['revisionId']) for c in repeated]
+    check('a pricing administrator chooses among sealed currencies it can read, labelled from the reference row and named by catalog and revision',
+          usd['displayCode'] == 'USD' and usd['name'] and f"{usd['catalogCode']} {usd['revisionKey']}" == named
+          and len(repeated) >= 3 and names == sorted(set(names)) and identities != sorted(identities))
     currency = {key: usd[key] for key in ('catalogId', 'revisionId', 'code')}
     usd_row = f"'{currency['catalogId']}','{currency['revisionId']}','usd'"
 
@@ -141,6 +168,8 @@ def run_checks(url, query, psql, manifest, environment):
     check('an unpriced model shows no price from now on',
           [(m['priceSequence'], m['prices'], m['schedule']) for m in listing['models'] if m['id'] == anthropic['id']]
           == [(0, [], [{'from': listing['asOf'], 'to': None, 'sequence': None, 'priced': False}])])
+    check('the directory states which models must price cache reads, as Add price requires',
+          {m['vendor']: m['cacheReadRequired'] for m in listing['models']} == {'anthropic': False, 'openai': True})
 
     def price_request(model, sequence, rates=RATES, tier=None, starts=PAST, ends=None, chosen=None):
         return {'operationId': str(uuid4()), 'modelId': model, 'expectedSequence': sequence, 'currency': chosen or currency,
@@ -285,18 +314,20 @@ def run_checks(url, query, psql, manifest, environment):
         + refused("PERFORM assistant.credential_slot(gen_random_uuid(),'meta',0,repeat('0',64));", 'model_admin_conflict') + "\n"
         "SELECT assistant.provider_directory()::text;\n"
         "SELECT assistant.credential_slot(gen_random_uuid(),'meta',1,repeat('0',64))::text;\n"
-        # Each automatically caching vendor's first model, priced without cache read; prints nothing.
-        "DO $$ DECLARE v assistant.vendor; BEGIN FOREACH v IN ARRAY ARRAY['google','xai','meta']::assistant.vendor[] LOOP BEGIN\n"
-        " PERFORM assistant.add_price(gen_random_uuid(),(assistant.add_model(gen_random_uuid(),v,'model-synthetic-cache','Synthetic cache model')->>'id')::uuid,"
-        "0,gen_random_uuid(),gen_random_uuid(),'usd',1,NULL,1,1,NULL,NULL,NULL,NULL,NULL,'2020-01-01',NULL);\n"
+        # A model of each automatically caching vendor, priced without cache read; prints nothing.
+        "DO $$ DECLARE v assistant.vendor; m uuid; BEGIN FOREACH v IN ARRAY ARRAY['google','xai','meta']::assistant.vendor[] LOOP\n"
+        " m=(assistant.add_model(gen_random_uuid(),v,'model-synthetic-cache','Synthetic cache model')->>'id')::uuid; BEGIN\n"
+        " PERFORM assistant.add_price(gen_random_uuid(),m,0,gen_random_uuid(),gen_random_uuid(),'usd',1,NULL,1,1,NULL,NULL,NULL,NULL,NULL,'2020-01-01',NULL);\n"
         " RAISE EXCEPTION 'Expected rejection';\n"
-        "EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'model_admin_input' THEN RAISE; END IF; END; END LOOP; END $$;").splitlines()
-    isolated, created, providers, slot = (json.loads(line) for line in lines[-4:])
+        "EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'model_admin_input' THEN RAISE; END IF; END; END LOOP; END $$;\n"
+        "SELECT assistant.model_directory()::text;").splitlines()
+    isolated, created, providers, slot, catalog = (json.loads(line) for line in lines[-5:])
     check("another workspace can neither see nor change this workspace's models, and adding its first model creates that provider without a credential",
           isolated['models'] == [] and isolated['audit'] == [] and created['vendor'] == 'meta' and created['version'] == 1
           and [(p['vendor'], p['version'], p['credential']) for p in providers['providers']] == [('meta', 1, None)])
     check('a provider created by Add model takes its first key at provider version 1', slot['credentialVersion'] == 1)
-    check('a rate set offers cache read on every protocol that caches automatically')
+    check('a rate set offers cache read on every protocol that caches automatically, as the directory states',
+          {(m['vendor'], m['cacheReadRequired']) for m in catalog['models']} == {('google', True), ('xai', True), ('meta', True)})
 
     # Two sessions of one administrator send each model command at once: the second waits for the
     # first and replays its outcome. Pricing needs market-data access, so the administrator gains a viewer grant.
