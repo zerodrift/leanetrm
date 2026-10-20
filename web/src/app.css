@@ -355,14 +355,13 @@ form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}
 #ai-models-pending button,#ai-providers-pending button,#ai-key-pending button{margin:6px 8px 0 0}
 .ai-rename{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:20px}.ai-rename label{flex:1 1 240px;margin:0}.ai-rename input{width:100%}
 .ai-price{border-top:1px solid var(--border);padding-top:16px;margin-top:20px}.ai-price .table-wrap{overflow-x:auto}.ai-currency select{display:block;margin-top:6px;min-width:min(100%,320px)}
-.ai-rates{width:auto;border-collapse:collapse;margin:8px 0 16px}.ai-rates th,.ai-rates td{text-align:left;padding:6px 12px 6px 0;vertical-align:middle;white-space:normal}.ai-rates input:not([type]){width:100%;max-width:130px}
+.ai-rates{width:auto;border-collapse:collapse;margin:8px 0 16px}.ai-rates th,.ai-rates td{text-align:left;padding:6px 12px 6px 0;vertical-align:middle}.ai-rates input:not([type]){width:130px}
 .ai-none{display:inline-flex;align-items:center;gap:6px;margin:0 0 0 10px;font-weight:400}.ai-none input{width:auto}
 .ai-choice{border:0;padding:0;margin:0 0 16px;min-width:0}.ai-choice legend{font-size:13px;font-weight:500;color:var(--text-2);padding:0;margin-bottom:6px}.ai-choice label{display:inline-flex;align-items:center;gap:6px;margin:0 14px 6px 0;font-weight:400;white-space:nowrap}.ai-choice input[type=radio]{min-height:0;padding:0;margin:0}.ai-choice input:not([type=radio]){width:auto}
 #ai-tier-threshold{width:150px;margin-right:6px}
 .ai-served{display:block;margin:0 0 10px}.ai-served textarea,.ai-served input{display:block;width:min(100%,480px);margin-top:6px}
 .ai-sources input[inputmode=url]{width:min(320px,70vw)}.ai-sources textarea{width:min(360px,70vw)}.ai-sources th[scope=row]{white-space:nowrap}
 #ai-capability-efforts label{margin-right:14px}
-@media(max-width:760px){.ai-rates{width:100%;table-layout:fixed}.ai-rates .ai-none{margin:6px 0 0}}
 
 /* Profile dialog */
 dialog{border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 60px rgba(18,34,27,.18);color:var(--text);padding:24px;width:460px;max-width:calc(100vw - 28px);max-height:90vh}

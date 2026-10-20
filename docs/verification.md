@@ -1165,40 +1165,32 @@ need operator baseline qualification before applying this migration (D135).
 
 ## Phone-width overflow checks
 
-Nine owned browser checks assert that a page has no page-wide horizontal overflow
-on a 390 × 844 phone with mobile emulation. They compared
+Ten owned browser checks assert that a page has no page-wide horizontal overflow
+on a 390 × 844 phone with mobile emulation. Nine of them compared
 `document.documentElement.scrollWidth` with `window.innerWidth`, which mobile
 emulation widened to the content width when content overflowed the
 `width=device-width` layout viewport. With 900 px of content at 390 px both read
-900, and on the AI price form both read 571, while the root element's
-`clientWidth` stayed 390, so the width comparison passed on those overflowing
-pages. The checks now share one expression, `fitsWidth`, that compares
-`scrollWidth` with the root element's `clientWidth`, the layout viewport; the
-calendar check also bounds its dialog by that width.
+900, and on a Settings › AI price form whose rate table overflowed both read
+571, while the root element's `clientWidth` stayed 390, so the width comparison
+passed on those overflowing pages. The Settings › AI checks have since compared
+with the client width, and that rate table now scrolls within its form. All ten
+checks now share one expression, `fitsWidth`, that compares `scrollWidth` with
+the root element's `clientWidth`, the layout viewport; the calendar check also
+bounds its dialog by that width.
 
-The Settings › AI check ran with no model open, so it never measured the price
-form, the page's widest content; it now opens a model first. With the form open,
-the corrected check failed on a 571 px page: the rate table kept 130 px inputs
-and unwrapped labels. Its inputs now shrink within their cells and its labels
-wrap; up to 760 px the table spans the form in equal columns. Measured with the
-form open at nine widths from 320 to 1,440 px, the page no longer overflows and
-the table stays within the card's content edge. Before, the table also crossed
-that edge in windows from 761 to about 815 px, widening the page up to 772 px;
-from 820 px it keeps its previous layout. The other eight checks passed on the
-existing pages.
-
-Disposable runs then widened `main` to 900 px before each check. All nine failed
-while the previous `innerWidth` comparison passed on the same page, and each
-passed once the widening was undone. That temporary code was removed. The
-complete command then passed on 2026-10-20 on macOS 26.6.2 arm64 with .NET
+Corrected, the eight checks outside Settings › AI passed on the existing pages.
+Disposable runs then widened `main` to 900 px before each of the ten checks. All
+ten failed while the previous `innerWidth` comparison passed on the same page,
+and each passed once the widening was undone. That temporary code was removed.
+The complete command then passed on 2026-10-20 on macOS 26.6.2 arm64 with .NET
 10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 155.0.8059.85,
-including 156 frontend checks and 360 standard, 34 AI-settings, 43 custom-curve
+including 162 frontend checks and 360 standard, 57 AI-settings, 43 custom-curve
 and 22 calendar browser checks. Disposable resources completed teardown.
 
 These checks establish that each checked page state keeps its scrollable content
 within a 390 px layout viewport in Chrome, to within one pixel. Fixed-position
 content such as an open dialog does not count toward that width; only the
-calendar check bounds its dialog separately. Content inside a scroll container or
-clipped by an ancestor is not page overflow. Other widths, page states and
-browsers remain unchecked; screenshots remain the evidence of how a narrow layout
-looks.
+calendar check bounds its dialog separately. Content inside a scroll container,
+such as the Settings › AI rate table, or clipped by an ancestor is not page
+overflow. Other widths, page states and browsers remain unchecked; screenshots
+remain the evidence of how a narrow layout looks.

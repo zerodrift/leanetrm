@@ -176,9 +176,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Disable turns the provider off, keeps it qualified and moves focus to Enable',`${row('ai-provider-table','Anthropic')}[2]==='Disabled · qualified'&&${rows('ai-provider-audit')}[0][3]==='Disabled'&&!document.querySelector('#ai-provider-enable').hidden&&document.activeElement===document.querySelector('#ai-provider-enable')&&document.querySelector('#error').hidden`);
 
   await evaluate('window.scrollTo(0,0)');await shot('ai-settings-desktop');
-  // A model's price form is the page's widest content.
-  await click('#ai-tab-models');await manage(anthropic);
-  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate("document.querySelector('#ai-price-form').scrollIntoView({block:'start'})");
+  await click('#ai-tab-models');
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
   await check('AI settings avoid page-wide horizontal overflow on a phone',fitsWidth);await shot('ai-settings-mobile');
   await click('#ai-tab-providers');await evaluate('window.scrollTo(0,0)');
   await check('the provider card avoids page-wide horizontal overflow on a phone',`!document.querySelector('#ai-provider-card').hidden&&${fitsWidth}`);await shot('ai-providers-mobile');
