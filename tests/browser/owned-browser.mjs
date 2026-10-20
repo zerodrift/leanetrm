@@ -113,13 +113,14 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
   const directory=await mkdtemp(join(root,'browser-'));
   const chrome=spawn(browserPath,[...certificateFlags,'--headless=new','--no-first-run','--disable-background-networking','--disable-component-update','--disable-sync','--disable-extensions','--disable-default-apps','--metrics-recording-only',`--user-data-dir=${directory}`,'--remote-debugging-port=0','about:blank'],{stdio:'ignore'});
   let socket,sequence=0,passed=0,primaryError;
-  const pending=new Map(),errors=[];
+  const pending=new Map(),errors=[],listeners=new Map();
   try{
     socket=new WebSocket(await waitForBrowserPage(directory,chrome));
     await new Promise((accept,reject)=>{const timeout=setTimeout(()=>reject(Error('Browser connection timed out')),5000);socket.onopen=()=>{clearTimeout(timeout);accept();};socket.onerror=error=>{clearTimeout(timeout);reject(error);};});
     socket.onmessage=event=>{
       const message=JSON.parse(event.data);
       if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails.text);
+      if(message.method)for(const listener of listeners.get(message.method)??[])listener(message.params);
       if(message.id){const p=pending.get(message.id);if(!p)return;pending.delete(message.id);clearTimeout(p.timeout);message.error?p.reject(Error(JSON.stringify(message.error))):p.accept(message.result);}
     };
     socket.onclose=()=>{for(const p of pending.values()){clearTimeout(p.timeout);p.reject(Error('Browser connection closed.'));}pending.clear();};
@@ -132,9 +133,11 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
     async function persona(id){await click('#profile-open');await set('#profile',id);await click('#open');}
     // An optional detail expression reports observed state only when the check fails.
     async function check(label,expression,detail){if(!await evaluate(expression))throw Error('FAIL '+label+(detail===undefined?'':' · observed '+JSON.stringify(await evaluate(detail).catch(error=>'unavailable: '+error.message))));passed++;console.log('PASS '+label);}
+    // Protocol events such as screencast frames reach only explicitly registered listeners.
+    function on(method,listener){listeners.set(method,[...listeners.get(method)??[],listener]);}
     async function shot(name){if(!/^[a-z-]+$/.test(name))throw Error('Invalid screenshot name');const result=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(root,name+'.png'),Buffer.from(result.data,'base64'));}
     await command('Emulation.setTimezoneOverride',{timezoneId:'UTC'});
-    await run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,errors,url:url.origin});
+    await run({command,on,evaluate,wait,click,set,submit,persona,check,shot,idle,errors,url:url.origin,root});
     if(errors.length)throw Error('Uncaught browser exceptions: '+JSON.stringify(errors));
     return passed;
   }catch(error){primaryError=error;throw error;}
