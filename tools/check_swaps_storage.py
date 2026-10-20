@@ -77,14 +77,34 @@ def run_checks(query, manifest, psql, environment):
     query(runtime(bind+reject(booking().replace('SELECT ', 'PERFORM ', 1), message='historical_read_only')))
     check('bound historical context cannot write a backdated swap')
     default = f"SELECT security.swap_discount_default('{catalog}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','usd','{REVISION}','2020-12-18T16:00:00Z')->>'id';"
+    def mappings(source, ids, effective):
+        """Publish copies of one retained mapping under explicit identities and instant."""
+        identities = ','.join(f"'{i}'" for i in ids)
+        return f"""SELECT pg_advisory_xact_lock(730849102);
+         INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';
+         INSERT INTO trading.currency_discount_defaults SELECT d.catalog_id,m.id,d.definition_revision_id,d.reference_catalog_id,d.reference_revision_id,d.currency_code,d.curve_code,d.interpolation_policy,
+          (SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}'),'{effective}'
+          FROM trading.currency_discount_defaults d CROSS JOIN unnest(ARRAY[{identities}]::uuid[]) m(id) WHERE d.catalog_id='{catalog}' AND d.id='{source}';"""
+    def read_after(owner_sql, sql):
+        """Read as the runtime after owner writes in one rolled-back transaction."""
+        return f"BEGIN; {owner_sql} SET SESSION AUTHORIZATION preview_runtime; SELECT security.use_context('{issue()}'); {sql} ROLLBACK;"
     previous = query(runtime(bind+default))
-    query(f"""BEGIN; SELECT pg_advisory_xact_lock(730849102);
-     INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';
-     INSERT INTO trading.currency_discount_defaults SELECT catalog_id,'{uuid4()}',definition_revision_id,reference_catalog_id,reference_revision_id,currency_code,curve_code,interpolation_policy,
-      (SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}'),'2020-12-18T15:00:00Z'
-      FROM trading.currency_discount_defaults WHERE catalog_id='{catalog}' AND definition_revision_id='{REVISION}' LIMIT 1;
-     COMMIT;""")
-    check('retained currency default stays frozen across a later backdated mapping', query(runtime(bind+default)) == previous and query(runtime(default)) != previous)
+    query('BEGIN;'+mappings(previous, [uuid4()], '2020-12-18T15:00:00Z')+'COMMIT;')
+    latest = query(runtime(default))
+    check('retained currency default stays frozen across a later backdated mapping', query(runtime(bind+default)) == previous and latest != previous)
+    tie = mappings(latest, [uuid4(), uuid4()], '2020-12-18T15:30:00Z')
+    query('BEGIN;'+reject(tie.replace('SELECT ', 'PERFORM ', 1), '23505', 'duplicate key value violates unique constraint "currency_discount_default_key"')+'ROLLBACK;')
+    check('one publication cannot assert two defaults for one currency key and instant')
+    replacement = str(uuid4())
+    check('a later publication still replaces a default at the same instant',
+          query(read_after(mappings(latest, [replacement], '2020-12-18T15:00:00Z'), default)) == replacement)
+    # Without the key, the lookup itself still refuses to choose between tied mappings.
+    unkeyed = 'ALTER TABLE trading.currency_discount_defaults DROP CONSTRAINT currency_discount_default_key;'
+    query(read_after(unkeyed+tie, reject(default.replace('SELECT ', 'PERFORM ', 1), message='swap_discount_ambiguous')))
+    check('lookup rejects tied latest defaults instead of choosing one')
+    correction = str(uuid4())
+    check('a later publication resolves a tied default',
+          query(read_after(unkeyed+tie+mappings(latest, [correction], '2020-12-18T15:30:00Z'), default)) == correction)
     children = []
     try:
         locker = subprocess.Popen(psql, env={**environment, 'PGAPPNAME': 'swap_expiry_lock'}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True); children.append(locker)

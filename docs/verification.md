@@ -923,3 +923,25 @@ futures-only and swaps-only holdings retain complete valuation reads; failed
 report joins cannot establish emptiness. These checks use disposable resources
 and synthetic material. They establish scoped read contracts; larger-workload,
 cold-process and hosted latency qualification remain separate measurements.
+
+## Unambiguous swap discount defaults
+
+Focused checks on 2026-10-19 first reproduced the plan-dependent tie in the
+currency discount-default lookup. One publication accepted two mappings for the
+same definition revision, currency and instant, an upgrade over a retained tie
+succeeded silently, the lookup returned one of the tied mappings, and an edited
+lookup body could be replaced without review. With migration 0048 the tied write
+fails on `currency_discount_default_key`, a later publication still replaces a
+mapping at the same instant and a certified earlier context keeps its original
+mapping. With the key removed inside a rolled-back transaction, the lookup raises
+`swap_discount_ambiguous`, and a later single mapping resolves the tie. Over
+retained synthetic fixtures the upgrade preserves every mapping and the lookup's
+owner, grants and security settings; it stops on a retained tie or an unexpected
+lookup definition.
+
+The complete synthetic verification command passed with stock PostgreSQL 16.14,
+.NET 10.0.402, Node 24.22.0 and Chrome for Testing 153 on macOS 26.6.2 arm64.
+Independent adversarial review found no blocker. It also exercised the guard in
+bound historical contexts against a committed tie in a separate disposable
+cluster. All resources were disposable and synthetic. Hosted installations still
+need operator baseline qualification before applying this migration (D135).

@@ -134,6 +134,11 @@ def main():
                 from check_futures_policy_upgrade import run_checks as check_policy_upgrade
                 legacy_reference,legacy_market,_,legacy_manifest=fixture(ROOT)
                 check_policy_upgrade(query,legacy_reference,legacy_market,legacy_manifest,migration.read_text())
+            if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0048_unambiguous_discount_defaults.sql':
+                from check_discount_default_upgrade import run_checks as check_default_upgrade
+                from swap_fixture import fixture as swap_fixture
+                from preview_fixture import trading_fixture
+                check_default_upgrade(query,[reference,market,swap_fixture()[0],security,trading_fixture(manifest['catalogId'],swap_defaults=True)],migration.read_text())
             query(migration.read_text())
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution

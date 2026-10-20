@@ -1120,7 +1120,10 @@ intervals and the explicit rate-date basis retain their meaning.
 
 Currency defaults and supplemental immutable daily-market bundles respect the
 common effective/knowledge context. A later backdated mapping does not alter a
-certified earlier view. The shared backend blotter displays projected swap PV and
+certified earlier view. Migration 0048 rejects a second default for the same
+definition revision, exact currency reference, instant and publication, and the
+lookup raises `swap_discount_ambiguous` instead of choosing between tied latest
+mappings (D165). The shared backend blotter displays projected swap PV and
 futures execution P&L as separate nullable measures, with typed product partitions
 in pivots. Saved account layouts retain their choices. New trade offers Futures
 or Financial swap; both have backed booking and latest-head amendment operations.

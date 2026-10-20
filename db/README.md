@@ -415,3 +415,17 @@ has no table access; three definer operations recheck `ManageModelProviders` and
 refuse delegated agent contexts. Providers stay unqualified until their adapters
 ship. As a new migration it stops automatic hosted updates until the
 operator qualifies a new baseline (D135).
+
+## Unambiguous swap discount defaults
+
+[0048_unambiguous_discount_defaults.sql](migrations/0048_unambiguous_discount_defaults.sql)
+adds `currency_discount_default_key`: one currency discount default per exact
+catalog, definition revision, reference catalog/revision, currency, effective
+instant and publication. A later publication may still replace a mapping at the
+same instant, consistent with D99. Retained tied mappings stop the migration; it
+never merges or deletes them, so such an installation needs an explicitly reviewed
+reconciliation before upgrading. `security.swap_discount_default` keeps its owner
+and grants and raises `swap_discount_ambiguous` rather than choosing between tied
+latest mappings (D165). The migration takes the security epoch and trading
+publication fences and refuses an unexpected lookup definition. As a new migration
+it stops automatic hosted updates until the operator qualifies a new baseline (D135).
