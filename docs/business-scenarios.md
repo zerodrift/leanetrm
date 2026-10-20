@@ -106,7 +106,9 @@ D165 and D172 now implement this mechanism for monthly and 31-day daily periods.
 `check_index_fixings.py` and `IndexFixingChecks.cs` cover partly fixed periods,
 missing and wrong actuals, frozen actuals under shocks and corrections. A
 pre-correction snapshot, retained context or certified cutoff keeps the original
-value. This exact two-day oracle is not yet a check.
+value. This exact two-day oracle is not yet a check. Fixing publication, accepted
+trade fixings and cash obligations are designed in the
+[settlement plan](settlement-plan.md) (P39).
 
 ### SET02 — Futures daily settlement preserves open exposure
 

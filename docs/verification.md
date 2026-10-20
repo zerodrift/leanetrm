@@ -1306,10 +1306,10 @@ booking coverage, negative authorization checks, an explicit certified-context
 marker, serialized selections and the cross-side due-payment order. A follow-up
 review confirmed the resolutions.
 
-On the final tree, the complete `tools/check_all.py` command passed on 2026-10-20
-in all 38 stages, including 335 managed core checks, 75 rate checks, 162 frontend
-tests, 360 standard browser checks, 41 swap storage checks and 623 preview HTTP
-checks. Verification used .NET SDK 10.0.402, Node 24.22.0, PostgreSQL 16.14 and
+After merging master, including D171's collected-interval delivery value, the
+complete `tools/check_all.py` command passed on 2026-10-20 in all 39 stages,
+including 343 managed core checks, 75 rate checks, 162 frontend tests, 360
+standard browser checks, 41 swap storage checks and 623 preview HTTP checks. Verification used .NET SDK 10.0.402, Node 24.22.0, PostgreSQL 16.14 and
 Chrome 155 on macOS arm64; all database and browser resources were owned,
 disposable and synthetic. These checks do not qualify live publisher data,
 settlement or payment lifecycle operations, or a hosted deployment.
