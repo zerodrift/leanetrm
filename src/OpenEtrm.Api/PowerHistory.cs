@@ -9,7 +9,11 @@ public sealed record PowerHistoryRequest(Guid SourceId,string From,string To,str
 public sealed record PowerHistoryPeriodRequest(Guid SourceId,string FromDate,string ThroughDate,string KnownAt);
 public static class PowerHistory
 {
-    private sealed record SourceMetadata(JsonElement Display,OpenEtrm.MarketData.Power.ClockRule Clock,int Minutes);
+    internal sealed record SourceMetadata(JsonElement Display,OpenEtrm.MarketData.Power.ClockRule Clock,int Minutes);
+    internal sealed record Observation(DateTimeOffset Start,DateTimeOffset End,UnitPrice Price,DateTimeOffset KnownAt,Guid BatchId,int? Revision);
+    internal sealed record History(DateTimeOffset KnownAt,Guid ContextId,Observation[] Rows);
+    internal static async Task<SourceMetadata> Source(NpgsqlConnection connection,Guid id,CancellationToken ct)=>
+        (await Sources(connection,id,ct)).SingleOrDefault()??throw new PreviewDeniedException();
     private static async Task<SourceMetadata[]> Sources(NpgsqlConnection connection,Guid? id,CancellationToken ct)
     {
         const string sql="""
@@ -65,15 +69,25 @@ public static class PowerHistory
         =>await Read(connection,request,(await Sources(connection,request.SourceId,ct)).SingleOrDefault()??throw new PreviewDeniedException(),ct);
     private static async Task<object> Read(NpgsqlConnection connection,PowerHistoryRequest request,SourceMetadata metadata,CancellationToken ct)
     {
-        var from=SchedulePreview.ParseAt(request.From);var to=SchedulePreview.ParseAt(request.To);var cutoff=SchedulePreview.ParseAt(request.KnownAt);
-        await using var command=ScheduleStore.Command(connection,"SELECT power_data.read_prices($1,$2,$3,$4)::text",request.SourceId,from,to,cutoff);
-        using var document=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);var root=document.RootElement;var source=root.GetProperty("source");
+        var history=await ReadPrices(connection,request.SourceId,SchedulePreview.ParseAt(request.From),SchedulePreview.ParseAt(request.To),SchedulePreview.ParseAt(request.KnownAt),ct);
+        return new {source=metadata.Display,priceUnit=metadata.Display.GetProperty("priceUnit").GetString(),knownAt=history.KnownAt,contextId=history.ContextId,
+            rows=history.Rows.Select(row=>new {row.Start,row.End,row.Price,formattedPrice=row.Price.Value.ToString(),row.KnownAt,revision=row.Revision,row.BatchId,sourceId=request.SourceId}).ToArray()};
+    }
+    // One authorized reader for display and settlement. Preserve the immutable
+    // batch identity instead of discarding provenance while formatting history.
+    internal static async Task<History> ReadPrices(NpgsqlConnection connection,Guid sourceId,DateTimeOffset from,DateTimeOffset to,DateTimeOffset cutoff,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT power_data.read_prices($1,$2,$3,$4)::text",sourceId,from,to,cutoff);
+        string payload;
+        try { payload=(string)(await command.ExecuteScalarAsync(ct))!; }
+        catch(PostgresException e) when(e.SqlState=="P0001" && e.MessageText=="collection_window")
+        { throw new MarketDataException("collection_window","Supply an explicit retained price cutoff no later than the database clock and a supported delivery window."); }
+        using var document=JsonDocument.Parse(payload);var root=document.RootElement;var source=root.GetProperty("source");
         var revision=new ReferenceRevision(source.GetProperty("reference_catalog_id").GetGuid(),source.GetProperty("reference_revision_id").GetGuid());
         var unit=new PriceUnit(new(revision,source.GetProperty("currency_code").GetString()!),new(revision,source.GetProperty("quantity_code").GetString()!),ExactDecimal.Parse("1"));
-        return new{source=metadata.Display,priceUnit=metadata.Display.GetProperty("priceUnit").GetString(),knownAt=cutoff,contextId=root.GetProperty("contextId").GetGuid(),rows=root.GetProperty("rows").EnumerateArray().Select(row=>
-        {
-            var price=new UnitPrice(ExactDecimal.Parse(row.GetProperty("price").GetString()!),unit);
-            return new{start=row.GetProperty("starts_at").GetDateTimeOffset(),end=row.GetProperty("ends_at").GetDateTimeOffset(),price,formattedPrice=price.Value.ToString(),knownAt=row.GetProperty("known_at").GetDateTimeOffset(),revision=row.GetProperty("provider_revision").Clone()};
-        }).ToArray()};
+        return new(cutoff,root.GetProperty("contextId").GetGuid(),root.GetProperty("rows").EnumerateArray().Select(row=>new Observation(
+            row.GetProperty("starts_at").GetDateTimeOffset(),row.GetProperty("ends_at").GetDateTimeOffset(),
+            new(ExactDecimal.Parse(row.GetProperty("price").GetString()!),unit),row.GetProperty("known_at").GetDateTimeOffset(),
+            row.GetProperty("batch_id").GetGuid(),row.GetProperty("provider_revision").ValueKind==JsonValueKind.Null?null:row.GetProperty("provider_revision").GetInt32())).ToArray());
     }
 }
