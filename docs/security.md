@@ -395,6 +395,37 @@ error body only to classify a 400 and never stores, logs or returns it. Streamed
 reasoning text is discarded, and signed reasoning stays in the reply it returns for
 replay within a turn. It reads at most the runtime set's response bytes and waits at
 most its idle timeout for headers and each read. It takes an HTTP handler rather than
-a client, which would buffer a whole response before the bound applied. No route
-calls it yet; the handler it will use, with no proxy, no redirects and default
-certificate validation, comes with Test.
+a client, which would buffer a whole response before the bound applied.
+
+Provider Test (migration 0062, step 4) is the first route that calls a provider:
+- **Handler:** requests go through one handler that ignores proxy settings in the
+  environment, follows no redirect, keeps default certificate validation and adds no
+  tracing header.
+- **Check endpoint:** the local preview accepts one override, set only by the launcher's
+  checks: an http or https origin whose host is a loopback IP literal, written exactly as
+  it parses. Any other value stops the API from starting. Each request keeps its adapter's
+  path there.
+- **Opening a test:** happens in the administrator's request context and transaction.
+  `open_test` refuses delegated agents and rechecks `ManageModelProviders` after its
+  principal and row waits and after its writes. It pins the price in force and returns
+  the attested key still sealed. The API decrypts the key and checks the request in that
+  transaction, so a refusal records nothing, and nothing is sent until the record commits.
+- **Closing a test:** the handler closes the record with a 32-byte token held only in
+  memory, whose SHA-256 digest the record keeps.
+  - `close_test` needs no request context, so a deadline, an abort or a permission lost
+    meanwhile still records the usage.
+  - The close runs whatever ended the stream. A close that fails transiently is retried
+    until it lands. Any other failure is logged, and the test stays in progress until the
+    next worker start closes it as interrupted.
+  - A missing or wrong token is `agent_runtime_unavailable`.
+  - The answer is read through the replay path under the administrator's current
+    authority.
+- **Worker:** one agent worker per database holds session-level advisory lock 730849160 on
+  an unpooled connection, so a start that fails releases the lock it took.
+  - The API consults the worker only after the permission check, and probes its connection
+    within its own timeout before each test. A worker that cannot start is logged; it
+    refuses new tests, but a retry still returns a finished test's outcome.
+  - A test is opened only under the current generation while that generation's worker
+    still holds the lock, so another process's API refuses tests.
+  - A worker start closes, once, every test an earlier generation left open.
+- **Hosted:** none of this exists under `--hosted-pilot`.

@@ -537,3 +537,56 @@ administrator records a model's capabilities ([ai-assistant.md](../docs/ai-assis
 migration first verifies the helpers it relies on and the definition it replaces. As a
 new migration it stops automatic hosted updates until the operator qualifies a new
 baseline (D135).
+
+## Page-assistant provider tests
+
+[0062_provider_tests.sql](migrations/0062_provider_tests.sql) adds model-call records,
+opened for now only by provider Test ([ai-assistant.md](../docs/ai-assistant.md) §5.1,
+§5.3, §7.4, §9). `assistant.model_calls` is immutable. Each call names, by foreign key:
+- its model's exact capability version;
+- the attested key and terms of the model's provider;
+- the price revision in force at its start, a rate set;
+- the administrator and request identity;
+- the agent-worker generation.
+
+A call also records:
+- the digest of the per-test token that closes it;
+- its reasoning effort and output limit, which the version must allow;
+- its cost method, `token_cost_v1`.
+
+`assistant.model_call_outcomes` holds at most one immutable outcome per call. Each records:
+- when it was recorded, which a retried close can put well after the stream ended;
+- the outcome code and the served identifier;
+- each usage dimension's count with its source: reported, not billed, or unknown, which has no count;
+- the usage status;
+- the exact cost.
+
+Recognized usage knows every priced dimension and reports no more reasoning than output. Only
+recognized usage is priced, by `token_cost_v1` under the pinned revision, and tokens in a
+dimension it does not offer leave the call unpriced. Two triggers hold, for the owner too:
+- a call's effort, output limit and rate-set pin;
+- an outcome's cost, and a served identifier its call neither requested nor accepts
+  appearing only with a mismatch.
+
+`assistant.worker_generation` holds the database's agent-worker generation, which advances
+one at a time and names the backend that started it.
+
+Three definer operations make up the protocol:
+- **`start_worker`**: needs the session-level advisory lock 730849160. It advances the
+  generation and closes once, as interrupted with unknown usage, every call an earlier
+  generation left open.
+- **`open_test`**: runs in the administrator's context.
+  - A retry of a test returns its outcome, with or without a worker generation, or
+    `test_in_progress` while it runs.
+  - A new test needs the current generation, whose worker still holds the lock, and
+    refuses in this order: `model_unqualified`, `model_provider_unqualified`,
+    `parameter_required`, `model_unpriced`.
+  - It returns the attested key, still sealed.
+  - Like the 0051 commands, it rechecks current authority after its principal and row
+    waits and after its writes.
+- **`close_test`**: needs the test's own token, not a request context. A later close
+  changes nothing.
+
+Nothing is seeded but the generation row, at 0. The migration first verifies the helpers
+it relies on. As a new migration it stops automatic hosted updates until the operator
+qualifies a new baseline (D135).

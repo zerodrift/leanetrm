@@ -25,9 +25,12 @@ attestations bound to the current key and terms, and provider Enable and Disable
 through the API and on the Settings › AI tabs: a provider's card records terms,
 attests and enables it, and a model's card records capabilities under the efforts its
 provider's applied mapping states and enables it. Model Enable is the first consumer of
-a provider's enabled state; calls will consume both. Test comes next, with the
-Providers tab's endpoint and last test. No route calls a provider yet. The turn's
-working-data pin (§7.2), which binds a captured context, is not implemented.
+a provider's enabled state; calls will consume both. Test, through the API, sends one
+fixed synthetic prompt through the model's adapter and records the call, its outcome,
+usage by dimension and exact cost (`token_cost_v1`) under the agent worker's generation
+(§5.1, §5.3, §7.4, §9). Its Settings › AI control, with the Providers tab's endpoint and
+last test, comes next. The turn's working-data pin (§7.2), which binds a captured
+context, is not implemented.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -133,8 +136,9 @@ Facts the body relies on and does not restate:
 - **Resources.** Each scope has runtime and authenticator pools of eight connections
   with 5-second timeouts. Every request issues a request context, and
   `security.request_contexts` rows are never reclaimed. Money is exact decimal with at
-  most 18 fractional digits (P15). The API makes no outbound calls; only the
-  delivery-price collector does (D133), where "provider" means a PJM or ERCOT source.
+  most 18 fractional digits (P15). Apart from provider Test in the local preview (§9),
+  the API makes no outbound calls; only the delivery-price collector does (D133), where
+  "provider" means a PJM or ERCOT source.
   A new migration stops automatic hosted updates until an operator qualifies a
   baseline (D135).
 
@@ -249,7 +253,8 @@ audit as history.
   no price in force and is refused (`model_unpriced`). Tokens in a "not offered"
   dimension store no cost (`cost_unpriced`). `usage_unrecognized` and `usage_unknown`
   store no cost, never a partial one.
-- `token_cost_v1` computes cost once on the server and owns the tier rule. Reasoning
+- `token_cost_v1` computes cost once, in PostgreSQL, whose numeric keeps every cost
+  exact at any magnitude, and owns the tier rule. Reasoning
   is an informational subset of output, never priced; reasoning above output is
   `usage_unrecognized`. Costs and sums are exact at 18 digits; `token_cost_display_v1`
   trims and groups, so nonzero never shows as zero; `token_cost_report_v1` gives cost
@@ -783,7 +788,12 @@ credential entries read only "key replaced".
   independent scope at the test deadline or an abort (`limit_elapsed`,
   `request_cancelled`). A same-identity retry returns the outcome or
   `test_in_progress`, never a second request. A test succeeds only for a well-formed
-  response ending normally or at the output limit with recognized usage.
+  response ending normally or at the output limit with recognized usage. Otherwise its
+  outcome says why: `model_refused`, `usage_unrecognized`, `model_mismatch`,
+  `context_window_exceeded`, the provider error's code (§7.5), `limit_elapsed` (the test's
+  deadline or its request's), `request_cancelled` (the client left), or `interrupted`
+  when a later worker closed it (§7.4) or the handler failed before the stream's final
+  event.
 - **Agents** (`ManageAgents`): name, description, instructions, model, temperature and
   reasoning where applicable, §7.5 limits, grant duration, tools and allowed roles.
   Only enabled, qualified, priced models on enabled, qualified providers are offered;
@@ -908,7 +918,7 @@ Every structured error code in this document has a check that produces it where 
 specified, and every rule stated as "never" has a check that attempts it. Checks use
 synthetic data and the fake provider. The cases that coverage does not imply:
 
-- **Numbers (C#):** tier thresholds with cache tokens; unknown prompt dimensions with
+- **Numbers** (`token_cost_v1` in SQL, the rest in C#): tier thresholds with cache tokens; unknown prompt dimensions with
   and without a tier; a revision appended during an open call; totals over two
   revisions of one currency code; input-limit accounting for the crossing attempt,
   pre-send failures, not-billed overloads and a reset after send; Usage days across a
