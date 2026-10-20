@@ -460,3 +460,21 @@ model, so Settings › AI never restates the rule. The replaced definitions keep
 checks, owners and grants, and the migration first verifies them and the authority
 helpers they rely on. As a new migration it stops automatic hosted updates until the
 operator qualifies a new baseline (D135).
+
+## Page-assistant provider qualification
+
+[0058_provider_qualification.sql](migrations/0058_provider_qualification.sql) adds
+provider qualification ([ai-assistant.md](../docs/ai-assistant.md) §5.1, §6.3): usage
+mapping versions confirmed from published documentation, installed with their date
+and sources, and for each vendor the confirmed version its adapter applies (one, the
+Messages mapping `messages_v1`); vendor terms that administrators record as immutable,
+sourced and dated versions; and attestations bound to a credential and terms version.
+A provider gains an enabled state, off until Enable, which needs its adapter's
+confirmed mapping and an attestation of its current key and terms. Replace key and new terms each leave the provider unattested and disable it
+in the same transaction. Four definer operations, Record terms, Attest, Enable and
+Disable, advance the provider's version and, like credential replacement (0045),
+recheck current authority after their principal and provider row waits, before
+returning a replay and after their writes. No terms or attestation is installed. The
+migration first verifies the authority and replay helpers it relies on and the
+definitions it replaces. As a new migration it stops automatic hosted updates until
+the operator qualifies a new baseline (D135).

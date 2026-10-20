@@ -52,7 +52,7 @@ public sealed partial class ModelCatalog
     }
 
     public Task<JsonElement> AddModel(NpgsqlConnection connection,AddModelRequest body,CancellationToken ct)=>
-        body is {OperationId:var operation,Vendor:{} vendor,Identifier:{} identifier,DisplayName:{} name}&&operation!=Guid.Empty&&ModelProviders.Vendors.Any(v=>v.Code==vendor)
+        body is {OperationId:var operation,Vendor:{} vendor,Identifier:{} identifier,DisplayName:{} name}&&operation!=Guid.Empty&&ModelProviders.Supported(vendor)
             ?ModelProviders.Read(connection,"SELECT assistant.add_model($1,$2::assistant.vendor,$3,$4)::text",
                 [operation,vendor,Text(identifier,"model_identifier_invalid"),Text(name)],ct)
             :throw Input();
@@ -95,13 +95,14 @@ public sealed partial class ModelCatalog
     }
     // A null end is open-ended.
     static object End(string? text)=>text is null?DBNull.Value:Instant(text);
-    static ModelAdministrationException Input()=>Refused("model_admin_input");
+    internal static ModelAdministrationException Input()=>Refused("model_admin_input");
     static ModelAdministrationException Refused(string code)=>new(code,Refusal(code));
     // The documented message for each refusal, whether this boundary or the database refuses.
     internal static string Refusal(string code)=>code switch
     {
         "model_identifier_invalid"=>"Enter the vendor's model identifier: up to 128 letters, digits, '.', '_' or '-', starting with a letter or digit.",
         "currency_unavailable"=>"Choose a currency of a sealed reference revision that your role can currently read.",
+        "model_provider_unqualified"=>"Enable a provider once this release confirms its usage mapping and its current key and terms are attested.",
         _=>"Supply every required field in its documented form, with the version you are changing."
     };
 }

@@ -55,11 +55,12 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
                 "WHERE p.permission='ManageModelProviders';") == 'access_administrator')
     tables = "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='assistant' AND c.relkind='r'"
     check('every page-assistant table forces row security',
-          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '5')
+          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '9')
     functions = "SELECT string_agg(proname,',' ORDER BY proname) FROM pg_proc WHERE pronamespace='assistant'::regnamespace"
     check('the administration operations are the only definers and all the runtime may execute',
           query(f"{functions} AND prosecdef;") == query(f"{functions} AND has_function_privilege('preview_runtime',oid,'EXECUTE');")
-          == 'add_model,add_price,credential_slot,model_directory,provider_directory,rename_model,replace_credential,withdraw_price')
+          == 'add_model,add_price,attest,credential_slot,disable_provider,enable_provider,model_directory,provider_directory,record_terms,'
+          'rename_model,replace_credential,withdraw_price')
     for table in ('providers', 'credentials', 'administration_audit'):
         contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
         check(f'the runtime reads {table} only through administration operations')
@@ -80,9 +81,12 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
                                     'key': 'sk-synthetic-denied-0000'}, expected=403)]
     check('provider administration requires ManageModelProviders', all(d['code'] == 'access_denied' for d in denied))
     directory = admin.call('settings/ai/providers')
-    check('every vendor is listed unqualified, without a credential or audit entry',
+    check("every vendor is listed disabled and unqualified, without a credential, terms, attestation or audit entry, "
+          "and the confirmed usage mapping its adapter applies shows before anything is administered",
           [p['vendor'] for p in directory['providers']] == VENDORS and directory['audit'] == []
-          and all(not p['qualified'] and p['credential'] is None and p['version'] == 0 for p in directory['providers']))
+          and all(not p['enabled'] and not p['qualified'] and p['credential'] is None and p['terms'] is None and p['attestation'] is None
+                  and p['version'] == 0 for p in directory['providers'])
+          and [p['mapping'] and p['mapping']['mapping'] for p in directory['providers']] == ['messages_v1', None, None, None, None])
 
     secret_parts = [secrets.token_hex(16) for _ in range(7)]
     keys = ['sk-synthetic-' + part + suffix for part, suffix in zip(secret_parts, ('WXYZ', 'ABCD', 'QRST', 'LMNO', 'EFGH', 'IJKL', 'MNOP'))]
@@ -212,7 +216,7 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
             "SELECT jsonb_build_object('directory',assistant.provider_directory(),"
             f"'slot',assistant.credential_slot('{initial['operationId']}','anthropic',0,'{digest}'));").splitlines()[-1])
         check("another workspace sees none of this workspace's providers, credentials, audit or request identities",
-              isolated['directory'] == {'providers': [], 'audit': []} and 'replayed' not in isolated['slot']
+              isolated['directory']['providers'] == [] and isolated['directory']['audit'] == [] and 'replayed' not in isolated['slot']
               and isolated['slot']['credentialVersion'] == 1 and isolated['slot']['providerId'] != anthropic)
 
         stored = query("SELECT string_agg(row_to_json(c)::text,'') FROM assistant.credentials c;") + \

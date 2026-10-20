@@ -16,13 +16,17 @@ risk), which run on the trade reads' shared path. From step 3, `ManageModelProvi
 provider and write-only credential storage with key custody, model identities and
 effective-dated price revisions are implemented, with the Providers and Models & prices
 reads and Replace key, Add model, Rename, Add price and Withdraw price, on those two
-Settings › AI tabs. Model capability versions (§5.1), and with them model status,
-Enable, Disable, Attest and Test, come with step 4's qualification, which first consumes
-them, as do the Providers tab's endpoint, terms, owner visibility, attestation and last
-test. Step 4 has begun with the provider-neutral boundary (§6.1) and the Messages
-adapter with its usage mapping `messages_v1` (§6.2), which pass the Messages
-conformance suite against a fake provider (§6.3); no route calls a provider yet. The
-turn's working-data pin (§7.2), which binds a captured context, is not implemented.
+Settings › AI tabs. Step 4 has begun with the provider-neutral boundary (§6.1) and the
+Messages adapter with its usage mapping `messages_v1` (§6.2), which pass the Messages
+conformance suite against a fake provider (§6.3), and with provider qualification: the
+confirmed usage mapping each adapter applies, sourced and dated terms versions,
+attestations bound to the current key and terms, and provider Enable and Disable
+(§6.3), through the API but not yet on the Providers tab. Nothing consumes a provider's
+enabled state yet; model Enable and calls will. Model capability versions (§5.1), and
+with them model status, model Enable and Disable, and Test, come next, as do the
+Providers tab's endpoint, terms, owner visibility, attestation and last test. No route
+calls a provider yet. The turn's working-data pin (§7.2), which binds a captured
+context, is not implemented.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -162,8 +166,9 @@ foreign keys, audited operations with operation identities and expected versions
 
 | Table | Contents | Mutability |
 | --- | --- | --- |
-| Providers | Vendor. Versions: retention, training-use terms and whether the account owner can view content, each with source and date. State: enabled; attestation bound to the current credential | Identity plus immutable versions |
+| Providers | Vendor. Versions: the vendor's retention and training-use terms and whether the account owner can view content, each with source and date, for the account type they apply to. State: enabled; attestation bound to the current credential and terms versions | Identity plus immutable versions |
 | Credentials | Provider, credential version, nonce, ciphertext, tag, last four characters, set by and at | Replace-only; never readable |
+| Confirmed mappings | Vendor, usage-mapping version, confirmation date and sources, installed by a reviewed migration (§6.3); and, per vendor, the confirmed mapping its adapter applies in the release | Confirmations immutable; a release repoints its adapters' mappings |
 | Models | Provider, vendor identifier (immutable), display name (audited presentation field). Versions: output limit, temperature support and range, reasoning control, identifier-stability source, accepted served identifiers, tool and streaming confirmation, each sourced and dated. State: enabled | Identity plus immutable versions |
 | Price revisions | Model identity, kind (rate set or withdrawal); for a rate set, exact currency reference, rates and optional tier; `effective_from`/`effective_to`, append sequence, `recorded_at` | Immutable; corrections and withdrawals append |
 | Agents, agent versions | Agent: name, principal, published version, active or retired. Version: description, instructions, exact model version, temperature, reasoning, caching switch, tools, allowed roles, limits (§7.5), grant duration | Head moves forward; versions immutable |
@@ -179,7 +184,8 @@ foreign keys, audited operations with operation identities and expected versions
 
 Prices and the display name belong to the model identity, so a rename never leaves a
 model unpriced. Each provider and model identity row also has its own version, which
-advances with each audited change to that row (Replace key, a rename) and which
+advances with each audited change to that row (Replace key, Record terms, Attest,
+Enable, Disable, a rename) and which
 commands name as their expected version. It is not one of the immutable provider or
 model versions that agents and calls pin. Grants use the existing
 `security.agent_delegations` and `security.delegation_permissions`, with the grant
@@ -386,13 +392,21 @@ audit as history.
   response past the byte bound (`model_provider_response_too_large`); and error bodies
   echoing request text and a masked synthetic key that must appear nowhere. The fake
   asserts every request path. No check calls a real provider.
-- A provider is enableable only with its usage mapping confirmed from published
-  documentation; the vendor's published retention and training terms for the account
-  type and whether the account owner can view content, each sourced and dated; and an
-  administrator attestation, bound to the current credential, that the account is of
-  that type, does not permit training on submitted content and has no data-sharing
-  opt-in. Otherwise `model_provider_unqualified`. Meta is shown but unqualified until
-  its usage fields are confirmed; phase 1 is accepted without it.
+- A provider is enableable only when the usage mapping its adapter applies is
+  confirmed from published documentation, which a reviewed migration records with its
+  date and sources and the exact mapping version the release applies; the vendor's
+  published retention and training terms for the account type and whether the account
+  owner can view content, each sourced and dated, which an administrator records as an
+  immutable terms version; and an administrator attestation, bound to the current
+  credential and terms versions, that the account is of that type, does not permit
+  training on submitted content and has no data-sharing opt-in. Otherwise
+  `model_provider_unqualified`. A terms field is 1 to 1000 characters without
+  surrounding spaces, control characters, bidirectional controls or line separators,
+  spelled out so the rule never depends on the database's locale; its source an `https`
+  URL naming a host, without user information or a port, in at most 2048 visible ASCII
+  characters; and its checked date one that has begun somewhere, so no administrator's
+  today is refused (UTC+14). Meta is shown but unqualified until its usage fields are
+  confirmed; phase 1 is accepted without it.
 - A model is enableable only when tool calling and streaming are confirmed from
   published documentation and pass conformance (`model_unqualified`).
 - Conformance is not real-provider qualification; O09 stays open.
@@ -740,12 +754,12 @@ credential entries read only "key replaced".
   on an enabled, qualified provider. Unpriced models show "No price".
 - **Providers** (`ManageModelProviders`): each vendor's protocol, endpoint (an
   override marked as a check endpoint), qualification, terms, owner visibility,
-  attestation, credential status, last test and state; Replace key, Attest, Test,
-  Enable, Disable. Replace key clears the attestation and disables the provider in one
-  transaction; only Enable with a current attestation resumes calls, never Attest
-  alone. The tab states that enabling sends users' questions and visible data to the
-  vendor account, that its owner may see them, and that its spending limit is the only
-  cumulative cap.
+  attestation, credential status, last test and state; Replace key, Record terms,
+  Attest, Test, Enable, Disable. Replace key and Record terms each clear the
+  attestation and disable the provider in one transaction; only Enable with a current
+  attestation resumes calls, never Attest alone. The tab states that enabling sends
+  users' questions and visible data to the vendor account, that its owner may see them,
+  and that its spending limit is the only cumulative cap.
 - **Test** sends one fixed synthetic prompt without workspace data or tools to a
   priced model the administrator picks, on a qualified provider; either may be
   disabled. Temperature and reasoning are validated as for a version; output is capped

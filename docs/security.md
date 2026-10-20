@@ -351,6 +351,20 @@ states. It first verifies the definitions it replaces and the authority helpers 
 rely on, as 0051 does, keeps their owners and grants, and leaves the new helper
 unexecutable by the runtime.
 
+Migration 0058 adds provider qualification under the same permission and table
+rules, with four more definer operations: Record terms, Attest, Enable and Disable.
+Each refuses delegated agent contexts, so an agent never records terms, attests or
+enables a provider, and each rechecks current authority after its principal and
+provider row waits, before returning a replay, and after its writes. Only Enable
+enables a provider, and only one whose adapter applies a confirmed usage mapping and
+whose current key and terms versions an administrator has attested
+(`model_provider_unqualified`). Replace key and new terms disable the provider in the
+same transaction, so a changed key or changed terms never stay in use on an earlier
+attestation. Mappings, terms versions and attestations are immutable, and the runtime
+reads none of them directly. The migration verifies the definitions it replaces and
+the authority and replay helpers it relies on, keeps their owners and grants, and
+leaves its own helpers unexecutable by the runtime.
+
 The Messages adapter (step 4) sends the key only in its `x-api-key` header, after
 checking its format, so a malformed key never reaches a header error. It reads an
 error body only to classify a 400 and never stores, logs or returns it. Streamed

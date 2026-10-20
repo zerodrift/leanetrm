@@ -161,7 +161,10 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         assert 'ManageModelProviders' in admin_access['permissions']
         admin.call('/api/settings/ai/providers',expected=404)
         admin.call('/api/settings/ai/models',expected=404)
-        for path,body in (('/api/settings/ai/providers/key',{'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0,'key':'sk-synthetic-hosted-0000'}),
+        # A request token is bound to its route's scope, so an unmapped route refuses a token that a mapped one accepts.
+        provider={'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0}
+        for path,body in (('/api/settings/ai/providers/key',{**provider,'key':'sk-synthetic-hosted-0000'}),
+                          *((f'/api/settings/ai/providers/{action}',provider) for action in ('terms','attest','enable','disable')),
                           ('/api/settings/ai/models/add',{'operationId':str(uuid4()),'vendor':'anthropic','identifier':'hosted-model','displayName':'Hosted model'})):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
