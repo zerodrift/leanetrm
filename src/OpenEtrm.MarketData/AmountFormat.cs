@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
@@ -28,10 +29,8 @@ public sealed record AmountFormat
     internal BigInteger RoundedInteger(BigInteger numerator, BigInteger denominator)
     {
         if (denominator <= 0) throw new MarketDataException("numeric_division", "A positive denominator is required.");
-        var value = BigInteger.DivRem(BigInteger.Abs(numerator) * BigInteger.Pow(10, DecimalPlaces), denominator, out var remainder);
-        var comparison = (remainder * 2).CompareTo(denominator);
-        if (comparison > 0 || comparison == 0 && (TieRule == CashTieRule.AwayFromZero || !value.IsEven)) value++;
-        return value * numerator.Sign;
+        return IntegerRounding.RoundQuotient(numerator * BigInteger.Pow(10, DecimalPlaces), denominator,
+            TieRule == CashTieRule.ToEven ? MidpointRounding.ToEven : MidpointRounding.AwayFromZero);
     }
     internal ExactDecimal RoundFraction(BigInteger numerator, BigInteger denominator) =>
         ExactDecimal.FromScaled(RoundedInteger(numerator, denominator) * BigInteger.Pow(10, 18 - DecimalPlaces));

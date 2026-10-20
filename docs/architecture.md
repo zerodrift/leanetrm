@@ -599,8 +599,12 @@ Other pure-core averaging strategies are not yet booking choices. Storage uses
 immutable typed side definitions, exact reset references and explicit membership
 slots. The shared blotter separates projected swap PV from futures execution P&L.
 Draft swap quote risk and actual-versus-projected observation valuation are
-supported. Actual fixing lifecycle events, settlement/payment processing and
-recurring payment strips are not implemented.
+supported. Managed monthly strips compose those existing side definitions and
+retain each payment's exact quantity allocation, curve lookup, discount factor
+and PV (D170). Their per-month, equal-total or calendar-day-weighted-total quantity
+basis is explicit; trade quantity scales the completed unit instrument once.
+The persisted booking/editor contract still supports one month. Actual fixing
+lifecycle events and settlement/payment processing are not implemented.
 
 The currency's configured default supplies the discount curve unless the
 instrument explicitly selects discounting=false. Calculation inputs retain the
@@ -638,7 +642,7 @@ contexts also reject conflicting contents under one observation identity. Rate-b
 valuation retains each side's exact currency-default mapping/curve definition,
 used pillar dates/rates/factors and interpolation policy. An explicit scalar
 common-factor convenience operation remains limited to identical payment dates;
-independent dates require per-side factors. Recurring periods and fixing/payment
+independent dates require per-side factors. Persisted recurring periods and fixing/payment
 lifecycle transitions remain work; retained actual inputs do not settle a trade.
 Futures execution P&L remains a separate implemented operation; generic futures PV/schedules reject
 without the required retained variation-margin/settlement lifecycle state.

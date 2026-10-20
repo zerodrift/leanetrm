@@ -3,8 +3,14 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 
+if(args is ["--monthly-swaps"]){MonthlySwapChecks.Run();return;}
+if(args is ["--commodity-lookups"]){CommodityLookupChecks.Run();return;}
+if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();return;}
+if(args is ["--snapshot-inputs"]){SnapshotInputChecks.Run();return;}
+
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
 if(args is ["--index-fixings"]){IndexFixingChecks.Run();return;}
+if(args is ["--risk-propagation"]){RiskPropagationChecks.Run();return;}
 
 if (args.Length > 0)
 {
@@ -370,10 +376,14 @@ passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();
 passed += FuturesChecks.Run();
 passed += ExchangeFuturesChecks.Run();
 passed += SwapChecks.Run();
+passed += CommodityLookupChecks.Run();
+passed += SnapshotInputChecks.Run();
+passed += MonthlySwapChecks.Run();
 passed += IndexFixingChecks.Run();
 passed += PaymentRuleChecks.Run();
 passed += IndependentSideChecks.Run();
 passed += RiskChecks.Run();
+passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");

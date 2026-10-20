@@ -32,11 +32,36 @@ public static class DiscountInterpolation
         var low = BigInteger.Min(a, b); var high = BigInteger.Max(a, b);
         // The root lies between the two positive endpoint factors. The search
         // and exact half-integer comparison also handle genuine rounding ties.
-        while (high - low > BigInteger.One)
+        if (high - low > BigInteger.One)
         {
-            var middle = (low + high) / 2;
-            if (BigInteger.Pow(middle, days) <= power) low = middle;
-            else high = middle;
+            // AM-GM bounds the root by this exact weighted arithmetic mean.
+            // Its integer floor is at least floor(root), in either endpoint order.
+            high = ((days - n) * a + n * b) / days;
+            var highPower = BigInteger.Pow(high, days);
+            var twicePower = power << 1;
+            if (highPower <= power) low = high;
+            while (high - low > BigInteger.One)
+            {
+                // Bisection bounds work for arbitrarily separated endpoints.
+                // Once high^d <= 2P, integer Newton converges near the root.
+                var newton = highPower <= twicePower;
+                var candidate = newton
+                    ? ((days - 1) * high + power / (highPower / high)) / days
+                    : (low + high) / 2;
+                var candidatePower = BigInteger.Pow(candidate, days);
+                if (candidatePower <= power)
+                {
+                    low = candidate;
+                    // Newton from an upper bound is at least floor(root), so
+                    // a point also below the root is its exact integer floor.
+                    if (newton) break;
+                }
+                else
+                {
+                    high = candidate;
+                    highPower = candidatePower;
+                }
+            }
         }
         var comparison = (power << days).CompareTo(BigInteger.Pow(2 * low + 1, days));
         if (comparison > 0 || comparison == 0 && !low.IsEven) low++;

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using System.Text.RegularExpressions;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
@@ -87,11 +88,8 @@ public readonly partial record struct ExactDecimal : IComparable<ExactDecimal>
     {
         if (increment.scaled.Sign <= 0 || !Enum.IsDefined(tieRule))
             throw new MarketDataException("rounding_policy", "A positive increment and supported tie rule are required.");
-        var magnitude = BigInteger.Abs(scaled);
-        var quotient = BigInteger.DivRem(magnitude, increment.scaled, out var remainder);
-        var compare = (remainder * 2).CompareTo(increment.scaled);
-        if (compare > 0 || compare == 0 && (tieRule == CashTieRule.AwayFromZero || !quotient.IsEven)) quotient++;
-        return new ExactDecimal(quotient * increment.scaled * scaled.Sign);
+        return new ExactDecimal(IntegerRounding.RoundQuotient(scaled, increment.scaled,
+            tieRule == CashTieRule.ToEven ? MidpointRounding.ToEven : MidpointRounding.AwayFromZero) * increment.scaled);
     }
     public string ToString(AmountFormat format) => format.Format(this);
     public override string ToString()

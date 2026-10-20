@@ -3,6 +3,8 @@ using System.Globalization;
 using OpenEtrm.Rates;
 using OpenEtrm.MarketData;
 
+if(args is ["--monthly-swap-benchmark"]){MonthlySwapRateChecks.Benchmark();return;}
+
 var passed=0;
 void Check(string label,Action test){test();Console.WriteLine("PASS "+label);passed++;}
 void Reject(string code,Action test){try{test();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected "+code);}
@@ -104,4 +106,8 @@ Check("undiscounted helper still requires structurally exact currency context an
     Reject("discount_context",()=>PaymentDiscount.Resolve(false,R("currency"),new(2020,1,1),snapshot,null));
 });
 passed += SwapValuationChecks.Run();
+passed += MonthlySwapRateChecks.Run();
+passed += DiscountLookupChecks.Run();
+passed += ZeroRateLookupChecks.Run();
+passed += DiscountInterpolationChecks.Run();
 Console.WriteLine($"{passed} rate convention checks passed.");

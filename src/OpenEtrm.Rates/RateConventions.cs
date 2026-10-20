@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using OpenEtrm.MarketData;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.Rates;
 
@@ -40,9 +41,7 @@ public static class RateConventions
     private static string Rounded(BigInteger numerator, BigInteger denominator, int decimals)
     {
         var scale = BigInteger.Pow(10, decimals);
-        var quotient = BigInteger.DivRem(numerator * scale, denominator, out var remainder);
-        var comparison = (remainder * 2).CompareTo(denominator);
-        if (comparison > 0 || comparison == 0 && !quotient.IsEven) quotient++;
+        var quotient = IntegerRounding.RoundQuotient(numerator * scale, denominator, MidpointRounding.ToEven);
         var whole = BigInteger.DivRem(quotient, scale, out var fraction);
         return whole.ToString(CultureInfo.InvariantCulture) + "." + fraction.ToString("D" + decimals, CultureInfo.InvariantCulture);
     }
