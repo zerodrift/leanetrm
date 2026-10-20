@@ -365,6 +365,14 @@ reads none of them directly. The migration verifies the definitions it replaces 
 the authority and replay helpers it relies on, keeps their owners and grants, and
 leaves its own helpers unexecutable by the runtime.
 
+Migration 0059 gives model display names the character rule of terms text, so a
+display name can no longer begin or end with a Unicode space or carry a bidirectional
+embedding, override or isolate, which could reorder how it reads, or a line separator.
+One helper lists those code points for both rules, and the runtime cannot execute it.
+The migration verifies the two definitions it replaces and keeps their owners and
+grants. It stops on any stored display name that breaks the rule and names the affected
+models, rather than renaming them outside the audit.
+
 The Messages adapter (step 4) sends the key only in its `x-api-key` header, after
 checking its format, so a malformed key never reaches a header error. It reads an
 error body only to classify a 400 and never stores, logs or returns it. Streamed
