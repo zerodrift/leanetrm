@@ -226,7 +226,7 @@ version and relationship tables. Their bounded uses are:
 | Tables in `ref_data` | Current consumer or executable baseline case |
 | --- | --- |
 | `catalogs`, `revisions` | Every exact reference key, draft/seal checks and scoped catalog ownership/sharing |
-| `currencies` | Quote and interest currency links; managed Money rejects cross-currency addition |
+| `currencies` | Quote and interest currency links; managed Money rejects cross-currency addition; page-assistant price revisions bind an exact row of a sealed revision |
 | `dimensions`, `units`, `commodities`, `commodity_units` | Futures lot/quote validation and compatible commodity-unit foreign keys |
 | `unit_conversions` | Capture an explicit multiplicative conversion; write checks reject mismatched endpoint dimensions. Quantity/price conversion consumer validates exact ratios, versions, commodities and bases |
 | `measurement_bases`, `quantity_specifications` | Typed quantity/price multiplication and explicit ratio orientation in scaling curves |

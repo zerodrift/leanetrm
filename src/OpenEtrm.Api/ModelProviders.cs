@@ -51,7 +51,7 @@ public sealed partial class ModelProviders(CredentialCustody custody,PreviewMani
     // A vendor key is 8 to 512 visible ASCII characters; \z, unlike $, admits no final newline.
     [GeneratedRegex(@"^[!-~]{8,512}\z")] private static partial Regex KeyFormat();
 
-    static async Task<JsonElement> Read(NpgsqlConnection connection,string sql,object[] values,CancellationToken ct)
+    internal static async Task<JsonElement> Read(NpgsqlConnection connection,string sql,object[] values,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,sql,values);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);

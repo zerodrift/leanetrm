@@ -7,71 +7,41 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import UUID, uuid4
+from assistant_context import Contexts, expect, holding, refused, state, waiting
 from preview_client import PreviewClient
 
 VENDORS = ['anthropic', 'openai', 'google', 'xai', 'meta']
-ISSUER = 'https://preview.invalid'
 REPLACE = 'settings/ai/providers/key'
 
 
-def check_wait_authority(query, psql, environment, administrator, manifest, check):
+def check_wait_authority(query, psql, environment, contexts, check):
     # Exercise the granted SQL entry point directly: the API's final permission
     # check must not be the only thing preventing an expired database operation.
-    tenant, workspace = (str(UUID(manifest[key])) for key in ('tenantId', 'workspaceId'))
     provider = query("SELECT id FROM assistant.providers WHERE vendor='anthropic';")
     version = query(f"SELECT version FROM assistant.providers WHERE id='{provider}';")
     replay = json.loads(query("SELECT json_build_object('operation',operation_id,'digest',key_digest,'expected',request->>'expectedVersion') "
-                              "FROM assistant.administration_audit WHERE request->>'vendor'='anthropic' ORDER BY recorded_at LIMIT 1;"))
-    grants = json.loads(query(f"SELECT json_agg(json_build_object('id',id,'until',granted_to)) FROM security.role_grants WHERE principal_id='{administrator}';"))
-    state = "SELECT md5(string_agg(value,E'\\n' ORDER BY value)) FROM(" + ' UNION ALL '.join(
-        f"SELECT row_to_json(t)::text value FROM assistant.{table} t" for table in ('providers','credentials','administration_audit')) + ')s;'
-    for lock, expiry, retry in [('principal','grant',False),('provider','context',False),('principal','grant',True),
-                                ('credential','context',False),('audit','context',True)]:
-        holder = pending = None
-        before = query(state)
-        try:
-            if expiry == 'grant':
-                query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '3 seconds' WHERE principal_id='{administrator}';")
-            token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
-                          f"'{ISSUER}','admin','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',{2 if expiry=='context' else 60});")
-            holder = subprocess.Popen(psql, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            row = f"security.principals WHERE id='{administrator}'" if lock=='principal' else f"assistant.providers WHERE id='{provider}'"
-            locking = f"SELECT id FROM {row} FOR NO KEY UPDATE" if lock in ('principal','provider') else \
-                f"LOCK TABLE assistant.{'credentials' if lock=='credential' else 'administration_audit'} IN ACCESS EXCLUSIVE MODE"
-            holder.stdin.write(f"BEGIN;{locking};\n\\echo LOCKED\n");holder.stdin.flush()
-            while holder.stdout.readline().strip() != 'LOCKED':
-                assert holder.poll() is None, 'The synthetic row-lock holder exited.'
-            operation = str(replay['operation']) if retry else str(uuid4())
-            expected = replay['expected'] if retry else version
-            digest = replay['digest'] if retry else '0'*64
-            app = 'synthetic-provider-expiry-'+uuid4().hex
-            pending = subprocess.Popen([*psql,'--set=VERBOSITY=verbose'], env={**environment,'PGAPPNAME':app}, stdin=subprocess.PIPE,
-                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            pending.stdin.write("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
-                f"SELECT security.use_context('{token}');SELECT assistant.replace_credential('{operation}','anthropic',{expected},'{provider}',{int(version)+1},"
-                f"decode(repeat('00',12),'hex'),decode(repeat('11',16),'hex'),decode(repeat('22',16),'hex'),'TEST','{digest}');COMMIT;")
-            pending.stdin.close();pending.stdin=None
-            deadline = time.monotonic()+4
-            while query(f"SELECT count(*) FROM pg_stat_activity WHERE application_name='{app}' AND wait_event_type='Lock';") != '1':
-                assert time.monotonic()<deadline and pending.poll() is None, 'The operation never reached its intended row wait.'
-                time.sleep(.02)
-            time.sleep(3.2)
-            expired = query(f"SELECT bool_and(granted_to<clock_timestamp()) FROM security.role_grants WHERE principal_id='{administrator}';") if expiry=='grant' else query(f"SELECT expires_at<clock_timestamp() FROM security.request_contexts WHERE id='{token}';")
-            assert expired=='t', 'The synthetic authority must expire before the row lock is released.'
-            holder.stdin.write('ROLLBACK;\n');holder.stdin.close();holder.stdin=None;holder.communicate(timeout=10)
-            _, stderr = pending.communicate(timeout=10)
-            check(f'{lock} wait rechecks expired {expiry} authority before '+('replaying an earlier result' if retry else 'replacing a credential'),
-                  pending.returncode!=0 and '42501' in stderr)
-            check('an expired provider operation leaves all provider, credential and audit rows unchanged',query(state)==before)
-        finally:
-            for process in (pending,holder):
-                if process is not None and process.poll() is None:process.kill();process.wait(timeout=10)
-            for grant in grants:
-                query(f"UPDATE security.role_grants SET granted_to='{grant['until']}'::timestamptz WHERE id='{grant['id']}';")
+                              "FROM assistant.administration_audit WHERE action='replace_key' AND request->>'vendor'='anthropic' "
+                              "ORDER BY recorded_at LIMIT 1;"))
+    rows = state('providers', 'credentials', 'administration_audit')
+    locks = {'principal': f"SELECT id FROM security.principals WHERE id='{contexts.administrator}' FOR NO KEY UPDATE",
+             'provider': f"SELECT id FROM assistant.providers WHERE id='{provider}' FOR NO KEY UPDATE",
+             'credential': 'LOCK TABLE assistant.credentials IN ACCESS EXCLUSIVE MODE',
+             'audit': 'LOCK TABLE assistant.administration_audit IN ACCESS EXCLUSIVE MODE'}
+    for lock, expiry, retry in [('principal', 'grant', False), ('provider', 'context', False), ('principal', 'grant', True),
+                                ('credential', 'context', False), ('audit', 'context', True)]:
+        before = query(rows)
+        operation, expected, digest = (replay['operation'], replay['expected'], replay['digest']) if retry else (uuid4(), version, '0' * 64)
+        failure = contexts.expiring(psql, environment, expiry, locks[lock],
+                                    f"SELECT assistant.replace_credential('{operation}','anthropic',{expected},'{provider}',{int(version) + 1},"
+                                    "decode(repeat('00',12),'hex'),decode(repeat('11',16),'hex'),decode(repeat('22',16),'hex'),'TEST',"
+                                    f"'{digest}');")
+        check(f'{lock} wait rechecks expired {expiry} authority before ' + ('replaying an earlier result' if retry else 'replacing a credential'),
+              failure is not None and '42501' in failure)
+        check('an expired provider operation leaves all provider, credential and audit rows unchanged', query(rows) == before)
 
 
 def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
-    tenant, workspace = (str(UUID(manifest[key])) for key in ('tenantId', 'workspaceId'))
+    contexts = Contexts(query, manifest)
     passed = 0
 
     def check(name, condition=True):
@@ -80,55 +50,26 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
         passed += 1
         print('PASS ' + name, flush=True)
 
-    def expect(sql, code):
-        return f"DO $$ BEGIN {sql} RAISE EXCEPTION 'Expected rejection'; EXCEPTION WHEN SQLSTATE '{code}' THEN NULL; END $$;"
-
-    def runtime(profile, statement):
-        token = query("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
-                      f"'{ISSUER}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-        return query(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{token}'); {statement} COMMIT;")
-
-    def rolled_back(setup, subject, login_kind, context_workspace, delegation, statement):
-        # Identities made for one check live only in a transaction that binds their context and rolls back.
-        return query(f"BEGIN; {setup}\nSET SESSION AUTHORIZATION preview_authenticator;\n"
-                     f"SELECT security.issue_context('{ISSUER}','{subject}','{login_kind}','{tenant}','{context_workspace}',{delegation},"
-                     "'preview_runtime',60) AS token \\gset\n"
-                     f"SET SESSION AUTHORIZATION preview_runtime;\nSELECT security.use_context(:'token');\n{statement}\nROLLBACK;")
-
-    administrator = query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='{ISSUER}' AND subject='admin';")
-    role = "(SELECT id FROM security.roles WHERE code='access_administrator')"
-    window = "CURRENT_TIMESTAMP-INTERVAL '1 day',CURRENT_TIMESTAMP+INTERVAL '1 day'"
-
     check('only the access administrator role manages model providers',
           query("SELECT string_agg(r.code,',') FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id "
                 "WHERE p.permission='ManageModelProviders';") == 'access_administrator')
     tables = "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='assistant' AND c.relkind='r'"
-    check('every model administration table forces row security',
-          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '3')
+    check('every page-assistant table forces row security',
+          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '5')
     functions = "SELECT string_agg(proname,',' ORDER BY proname) FROM pg_proc WHERE pronamespace='assistant'::regnamespace"
-    check('the three administration operations are the only definers and all the runtime may execute',
+    check('the administration operations are the only definers and all the runtime may execute',
           query(f"{functions} AND prosecdef;") == query(f"{functions} AND has_function_privilege('preview_runtime',oid,'EXECUTE');")
-          == 'credential_slot,provider_directory,replace_credential')
+          == 'add_model,add_price,credential_slot,model_directory,provider_directory,rename_model,replace_credential,withdraw_price')
     for table in ('providers', 'credentials', 'administration_audit'):
-        runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
+        contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
         check(f'the runtime reads {table} only through administration operations')
-    runtime('viewer', expect('PERFORM assistant.provider_directory();', '42501'))
+    contexts.runtime('viewer', expect('PERFORM assistant.provider_directory();', '42501'))
     check('administration operations recheck ManageModelProviders in the database')
-    agent, delegation = uuid4(), uuid4()
-    rolled_back(f"INSERT INTO security.principals VALUES('{agent}','agent',true);"
-                f"INSERT INTO security.identity_bindings VALUES('{ISSUER}','provider_agent','{agent}','agent_credential');"
-                f"INSERT INTO security.workspace_memberships VALUES('{tenant}','{workspace}','{agent}','provider_agent','Synthetic agent',true,1);"
-                f"INSERT INTO security.role_grants VALUES('{uuid4()}','{agent}',{role},'{tenant}','{workspace}',{window},false);"
-                f"INSERT INTO security.agent_delegations VALUES('{delegation}','{agent}','{administrator}','{tenant}','{workspace}',{window},false);"
-                f"INSERT INTO security.delegation_permissions VALUES('{delegation}','ManageModelProviders');",
-                'provider_agent', 'agent_credential', workspace, f"'{delegation}'",
-                "DO $$ BEGIN IF NOT security.has_permission('ManageModelProviders') THEN RAISE EXCEPTION 'Delegation is not current'; END IF; "
-                "PERFORM assistant.provider_directory(); RAISE EXCEPTION 'Expected rejection'; EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END $$;")
+    contexts.delegated_agent(expect('PERFORM assistant.provider_directory();', '42501'))
     check('an agent never administers providers, even under a current delegation of ManageModelProviders')
     for arguments in ("'00000000-0000-0000-0000-000000000000','anthropic',0,repeat('0',64)",
                       f"'{uuid4()}','anthropic',-1,repeat('0',64)", f"'{uuid4()}','anthropic',0,'not-a-digest'"):
-        runtime('admin', f"DO $$ BEGIN PERFORM assistant.credential_slot({arguments}); RAISE EXCEPTION 'Expected rejection'; "
-                         "EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'model_admin_input' THEN RAISE; END IF; END $$;")
+        contexts.runtime('admin', refused(f'PERFORM assistant.credential_slot({arguments});', 'model_admin_input'))
     check('the database itself refuses an empty operation, a negative version or a malformed digest')
 
     admin, again, viewer = PreviewClient(url), PreviewClient(url), PreviewClient(url)
@@ -192,10 +133,9 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
         anthropic, openai = (query(f"SELECT id FROM assistant.providers WHERE vendor='{vendor}';") for vendor in ('anthropic', 'openai'))
         for arguments in (f"gen_random_uuid(),'anthropic',2,'{openai}',3,{sealed}", f"gen_random_uuid(),'anthropic',2,'{anthropic}',4,{sealed}",
                           f"gen_random_uuid(),'meta',0,gen_random_uuid(),2,{sealed}"):
-            runtime('admin', f"DO $$ BEGIN PERFORM assistant.replace_credential({arguments}); RAISE EXCEPTION 'Expected rejection'; "
-                             "EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'model_admin_conflict' THEN RAISE; END IF; END $$;")
+            contexts.runtime('admin', refused(f'PERFORM assistant.replace_credential({arguments});', 'model_admin_conflict'))
         check('the database stores a credential only in the slot it hands out: its provider, the next version, and 1 for a new provider')
-        check_wait_authority(query, psql, environment, administrator, manifest, check)
+        check_wait_authority(query, psql, environment, contexts, check)
 
         before = counts()
         refusals = [admin.call(REPLACE, {**request(keys[2], 0, vendor='google'), **body}, expected=422)
@@ -210,32 +150,19 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
             key_file = Path(environment[variable])
             os.chmod(key_file, 0o640)
             try:
-                refused = admin.call(REPLACE, request(keys[2], 0, vendor='google'), expected=422)
+                unavailable = admin.call(REPLACE, request(keys[2], 0, vendor='google'), expected=422)
             finally:
                 os.chmod(key_file, 0o600)
             check(f'a key file readable beyond its owner is credential_unavailable: {key_file.name}',
-                  refused['code'] == 'credential_unavailable')
+                  unavailable['code'] == 'credential_unavailable')
         check('an unavailable key file writes nothing', counts() == before)
 
         def holding_credentials(work):
             # Another session holds credential storage, so a replacement waits after its slot was read.
-            holder = subprocess.Popen(psql, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            try:
-                holder.stdin.write("BEGIN; LOCK TABLE assistant.credentials IN EXCLUSIVE MODE;\n\\echo LOCKED\n")
-                holder.stdin.flush()
-                while holder.stdout.readline().strip() != 'LOCKED':
-                    assert holder.poll() is None, holder.stderr.read()
-                return work()
-            finally:
-                if holder.poll() is None:
-                    holder.stdin.write('ROLLBACK;\n'); holder.stdin.close()
-                holder.wait(timeout=10)
+            return holding(psql, environment, 'LOCK TABLE assistant.credentials IN EXCLUSIVE MODE', work)
 
-        def waiting(count):
-            deadline = time.monotonic() + 4
-            while query("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%assistant.replace_credential(%';") != str(count):
-                assert time.monotonic() < deadline, f'{count} replacement(s) did not reach credential storage'
-                time.sleep(.05)
+        def replacing(count):
+            waiting(query, count, 'assistant.replace_credential')
 
         colleague = PreviewClient(url); colleague.bootstrap(); colleague.call('profile', {'profile': 'admin'})
         colleague.call('admin/create', {'operationId': str(uuid4()), 'login': 'provider_admin', 'name': 'Synthetic provider administrator',
@@ -249,7 +176,7 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
         with ThreadPoolExecutor(2) as pool:
             def stalled():
                 pending = pool.submit(admin.call, REPLACE, timed_out, expected=503)
-                waiting(1)
+                replacing(1)
                 return pending.result(timeout=20)
             unknown = holding_credentials(stalled)
             check('a replacement held at credential storage past its deadline reports an unknown outcome',
@@ -260,9 +187,9 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
 
             def overlap():
                 original = pool.submit(admin.call, REPLACE, overlapping)
-                waiting(1)
+                replacing(1)
                 duplicate = pool.submit(again.call, REPLACE, overlapping)
-                waiting(2)
+                replacing(2)
                 return original, duplicate
             original, duplicate = holding_credentials(overlap)
             outcomes = original.result(timeout=20), duplicate.result(timeout=20)
@@ -271,9 +198,9 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
 
             def race():
                 winner = pool.submit(admin.call, REPLACE, first_meta)
-                waiting(1)
+                replacing(1)
                 loser = pool.submit(colleague.call, REPLACE, second_meta, expected=409)
-                waiting(2)
+                replacing(2)
                 return winner, loser
             winner, loser = holding_credentials(race)
             won, lost = winner.result(timeout=20), loser.result(timeout=20)
@@ -281,12 +208,7 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
                   won['credential']['lastFour'] == 'IJKL' and lost['code'] == 'model_admin_conflict' and credentials('meta') == '1')
 
         digest = query(f"SELECT key_digest FROM assistant.administration_audit WHERE operation_id='{initial['operationId']}';")
-        second_workspace = uuid4()
-        isolated = json.loads(rolled_back(
-            f"INSERT INTO security.workspaces VALUES('{tenant}','{second_workspace}','provider_isolation');"
-            f"INSERT INTO security.workspace_memberships VALUES('{tenant}','{second_workspace}','{administrator}','admin','Synthetic administrator',true,1);"
-            f"INSERT INTO security.role_grants VALUES('{uuid4()}','{administrator}',{role},'{tenant}','{second_workspace}',{window},false);",
-            'admin', 'human_interactive', second_workspace, 'NULL',
+        isolated = json.loads(contexts.second_workspace(
             "SELECT jsonb_build_object('directory',assistant.provider_directory(),"
             f"'slot',assistant.credential_slot('{initial['operationId']}','anthropic',0,'{digest}'));").splitlines()[-1])
         check("another workspace sees none of this workspace's providers, credentials, audit or request identities",

@@ -13,10 +13,12 @@ shortcuts and draft date schedules), calculations (the power hour calculation an
 resolution), the date picker's projection of the library and the other trading reads
 (catalogs, the futures-only Blotter and holdings, deal formats, drafts, previews and
 risk), which run on the trade reads' shared path. From step 3, `ManageModelProviders`,
-provider and write-only credential storage with key custody, and the Providers read and
-Replace key operations are implemented; models, prices and the Settings › AI tabs are
-not. The turn's working-data pin (§7.2), which binds a captured context, is not
-implemented.
+provider and write-only credential storage with key custody, model identities and
+effective-dated price revisions are implemented, with the Providers and Models & prices
+reads and Replace key, Add model, Rename, Add price and Withdraw price; the Settings ›
+AI tabs are not. Model capability versions (§5.1) come with step 4's qualification,
+which first consumes them. The turn's working-data pin (§7.2), which binds a captured
+context, is not implemented.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -159,7 +161,7 @@ foreign keys, audited operations with operation identities and expected versions
 | Providers | Vendor. Versions: retention, training-use terms and whether the account owner can view content, each with source and date. State: enabled; attestation bound to the current credential | Identity plus immutable versions |
 | Credentials | Provider, credential version, nonce, ciphertext, tag, last four characters, set by and at | Replace-only; never readable |
 | Models | Provider, vendor identifier (immutable), display name (audited presentation field). Versions: output limit, temperature support and range, reasoning control, identifier-stability source, accepted served identifiers, tool and streaming confirmation, each sourced and dated. State: enabled | Identity plus immutable versions |
-| Price revisions | Model identity, exact currency reference, rates, optional tier, `effective_from`/`effective_to`, append sequence, `recorded_at` | Immutable; corrections append |
+| Price revisions | Model identity, kind (rate set or withdrawal); for a rate set, exact currency reference, rates and optional tier; `effective_from`/`effective_to`, append sequence, `recorded_at` | Immutable; corrections and withdrawals append |
 | Agents, agent versions | Agent: name, principal, published version, active or retired. Version: description, instructions, exact model version, temperature, reasoning, caching switch, tools, allowed roles, limits (§7.5), grant duration | Head moves forward; versions immutable |
 | Model administration audit | Operation identity, actor, target, redacted request, before and after; usage exports | Append-only |
 | Grant audit | Operation identity, delegation, delegator, agent principal and version, provider and model identity, permissions, expiry, actor, outcome, time | Append-only |
@@ -172,8 +174,12 @@ foreign keys, audited operations with operation identities and expected versions
 | Worker generation | Current agent-worker generation (§7.4) | Advanced at worker start |
 
 Prices and the display name belong to the model identity, so a rename never leaves a
-model unpriced. Grants use the existing `security.agent_delegations` and
-`security.delegation_permissions`, with the grant audit as history.
+model unpriced. Each provider and model identity row also has its own version, which
+advances with each audited change to that row (Replace key, a rename) and which
+commands name as their expected version. It is not one of the immutable provider or
+model versions that agents and calls pin. Grants use the existing
+`security.agent_delegations` and `security.delegation_permissions`, with the grant
+audit as history.
 
 ### 5.2 Credentials
 
@@ -181,10 +187,10 @@ model unpriced. Grants use the existing `security.agent_delegations` and
   any SQL parameter, log or audit write; the audit keeps a redaction marker and a
   keyed hash of the workspace, request identity, vendor and key, so an identical retry
   is recognized and a different one is a conflict. Malformed input is
-  `model_admin_input`, and a body that does not bind, such as one with an unknown
-  field, is a bad request; reusing a request identity for another request or acting on
-  a stale provider version is `model_admin_conflict`; an outcome the API cannot confirm
-  is `model_admin_outcome_unknown`.
+  `model_admin_input`, and a body that does not bind, such as one with an unknown or
+  repeated field, is a bad request; reusing a request identity for another request or
+  acting on a stale provider version is `model_admin_conflict`; an outcome the API
+  cannot confirm is `model_admin_outcome_unknown`.
 - The browser holds the key only in the form field and the in-flight request, never in
   storage, a URL or the pending-command record, and clears the field when the request
   settles. After an uncertain outcome the tab shows current credential status; Retry
@@ -208,22 +214,26 @@ model unpriced. Grants use the existing `security.agent_delegations` and
 
 ### 5.3 Prices and cost
 
-- Rates are exact decimals per million tokens (at most 12 fractional digits) for
-  uncached input, cache read, cache write and output. A rate may be "not offered",
-  except cache read on protocols that cache automatically.
-- Each revision binds a currency row of a sealed reference revision. The price
+- Rates are exact decimals per million tokens, below 10^12 with at most 12 fractional
+  digits, for uncached input, cache read, cache write and output. Uncached input and
+  output are always offered; cache read and cache write may be "not offered", except
+  cache read on protocols that cache automatically.
+- Each rate revision binds a currency row of a sealed reference revision. The price
   operation rechecks the actor's current `ReadMarketData` access to that catalog
   (D131), otherwise `currency_unavailable`; choices and Usage labels use the same
   scoped read (D124).
-- An optional long-prompt tier has a threshold and a complete second rate set. When
-  uncached input + cache read + cache write exceeds the threshold, the second set
-  prices every dimension, output included. If the pinned revision has a tier and a
-  prompt dimension is unknown, cost is unknown.
+- An optional long-prompt tier has a threshold, a token count from 1 to below 10^12,
+  and a second rate set offering exactly the dimensions the first offers. When uncached
+  input + cache read + cache write exceeds the threshold, the second set prices every
+  dimension, output included. If the pinned revision has a tier and a prompt dimension
+  is unknown, cost is unknown.
 - Prices are operational configuration, not certified knowledge (no D67). When a call
   opens (§7.1), its transaction pins the committed revision with the highest append
   sequence whose [`effective_from`, `effective_to`) contains the call's start instant.
   Later appends never reprice it; Usage flags calls priced by a superseded revision.
-- No price in force refuses the call (`model_unpriced`). Tokens in a "not offered"
+- A withdrawal revision appends like a correction but carries only its interval, so it
+  needs no `ReadMarketData`. A call that pins a withdrawal, or finds no revision, has
+  no price in force and is refused (`model_unpriced`). Tokens in a "not offered"
   dimension store no cost (`cost_unpriced`). `usage_unrecognized` and `usage_unknown`
   store no cost, never a partial one.
 - `token_cost_v1` computes cost once on the server and owns the tier rule. Reasoning
@@ -683,10 +693,12 @@ credential entries read only "key replaced".
   `blotterCsv` in `web/src/blotter-layout.ts`) moved to a shared export module.
 - **Models & prices** (`ManageModelProviders`): models per provider with status,
   rates, tier and the revision in force or scheduled; Add, Edit, Enable, Disable, Add
-  price. Every field is entered and none inferred; no models or prices ship. Edits
-  other than the display name create a model version. Models start disabled; Enable
-  needs a qualified model on an enabled, qualified provider. Unpriced models show "No
-  price".
+  price, Withdraw price. Every field is entered and none inferred: a request names each
+  field, null where it means "not offered", no tier or open-ended. No models or prices
+  ship. Edits other than the display name create a model version. Adding a vendor's
+  first model creates its provider at version 1 without a credential; this tab's audit
+  records it as that Add model. Models start disabled; Enable needs a qualified model
+  on an enabled, qualified provider. Unpriced models show "No price".
 - **Providers** (`ManageModelProviders`): each vendor's protocol, endpoint (an
   override marked as a check endpoint), qualification, terms, owner visibility,
   attestation, credential status, last test and state; Replace key, Attest, Test,
@@ -811,9 +823,9 @@ security.md, reference-data.md, hosted-pilot.md).
 3. Provider, credential, model, price and audit tables; `ManageModelProviders`; key
    custody in `run_preview.py`; Models & prices and Providers with Replace key. Every
    provider unqualified.
-4. The fake provider; adapters and mappings; conformance; usage and cost; model-call
-   records for tests; qualification and attestation; Test, Enable, Disable. Meta stays
-   unqualified unless its usage fields are confirmed.
+4. The fake provider; adapters and mappings; model capability versions; conformance;
+   usage and cost; model-call records for tests; qualification and attestation; Test,
+   Enable, Disable. Meta stays unqualified unless its usage fields are confirmed.
 5. Agents, grants and turns: the remaining tables; `ManageAgents`, `UseAgents`,
    `ReadModelUsage` and the agent reader role; creation, Publish, Retire; the Users &
    access and provisioning changes; context pinning and reserve; read tools and
