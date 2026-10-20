@@ -80,4 +80,7 @@ public static class PublishedSchedules
 public sealed record ContractFieldDraft(string? Label,string? Start,string? End,string? LastTrading,string? CutoffUtc);
 public sealed record DatedContractDefinition(string Label,DateOnly Start,DateOnly End,DateTimeOffset LastTradingAt,
     DateReceipt StartReference,DateReceipt EndReference,DateReceipt LastTradingReference,string CutoffUtc);
-public sealed record BoundContractDefinition(string Code,string Name,ScheduleContext Context,ImmutableArray<DatedContractDefinition> Contracts);
+public sealed record BoundContractDefinition(string Code,string Name,ScheduleContext Context,ImmutableArray<DatedContractDefinition> Contracts,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? DefinitionId=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] int? Version=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? EngineVersion=null);

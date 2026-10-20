@@ -19,6 +19,10 @@ public static class FuturesRisk
         var (basis,portfolio)=Prepare(trades,snapshot,model,implementation,cancellation);
         return portfolio.RiskFactors(basis,portfolio.Declare(snapshot),cancellation);
     }
+    // Stored mixed-book operations reuse the same lifecycle, lot and pricing
+    // binding validation as the dedicated futures report.
+    public static ValuationPortfolio CreatePortfolio(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,CurveModel model,
+        string implementation,CancellationToken cancellation=default)=>Prepare(trades,snapshot,model,implementation,cancellation).Item2;
     private static (CurveBuild,ValuationPortfolio) Prepare(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,CurveModel model,
         string implementation,CancellationToken cancellation)
     {

@@ -47,6 +47,14 @@ internal static class DateWorkspaceChecks
             Reject("calendar_definition",()=>DateWorkspace.Calendar(Make(-1)));
             Reject("date_coverage",()=>DateWorkspace.Calendar(Make(96,(new(2021,2,1),false))));
         });
+        Check("explicit last trading may occur after the exclusive delivery end",()=>{
+            var context=new ScheduleContext("2021-01-15",0);
+            DateReceipt Literal(string expression)=>PublishedSchedules.Resolve([],expression,context);
+            var atEnd=DateWorkspace.Contract(new("Synthetic next-day cutoff","2021-01-05","2021-01-06","2021-01-06","04:00"),Literal);
+            var afterEnd=DateWorkspace.Contract(new("Synthetic later cutoff","2021-01-06","2021-01-07","2021-01-08","04:00"),Literal);
+            if(atEnd.Expiry!=new DateTimeOffset(2021,1,6,4,0,0,TimeSpan.Zero)||afterEnd.Expiry!=new DateTimeOffset(2021,1,8,4,0,0,TimeSpan.Zero))
+                throw new Exception("A literal last-trading instant was clipped to the delivery period.");
+        });
         Check("a referenced calendar replaces, and never mixes with, an inline calendar",()=>{
             var reference=new ReferenceCalendar(new(Guid.Empty,Guid.Empty,"synthetic_business"),new(2020,12,1),new(2021,6,1),96,[(new DateOnly(2021,1,1),false)]);
             var bound=DateWorkspace.Compile(request with{Calendar=null},reference);

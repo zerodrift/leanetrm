@@ -77,6 +77,13 @@ It reads no observations, economic model or unit-conversion catalog. Full
 workspace inspection remains available and is loaded explicitly before a screen
 consumes its definitions, references or source pins. The browser keeps these two
 contracts separate and rejects hydration from a changed identity or selection.
+Bootstrap contains only working session selections. Resolved historical aliases
+and stored-close headers come from freshly authorized navigation or workspace
+reads. Historical alias identities are scoped to the session, exact certified
+context and complete resolved pins; returning to the same selection preserves its
+identity without caching financial values or authority.
+Historical choices contain original input snapshots and visible stored closes.
+Manual working variants require explicit close registration for historical reuse.
 First pricing can explicitly include the complete catalog projection from its
 same authorized model read, avoiding a second model load. Selected source facts
 remain separate from the catalog's empty, on-demand observation projection.
@@ -516,6 +523,16 @@ schedule version and occurrence before applying a literal side date. Booking
 retains that exact date; this helper does not establish a moving schedule binding.
 Shared managed date-set, monthly-anchor and rolling utilities remain authoritative;
 the browser neither generates sequences nor evaluates date expressions.
+
+The contract-date editor has a durable shared library (D167). Draft saves require
+market-definition authoring permission; publication requires separate sealing
+permission. Date fields retain literal values or exact published schedule-version
+foreign keys, occurrence indexes and business-day offsets. Each version retains
+its certified validation context and explicit UTC cutoff. Resolution selects an
+exact published definition version and context; a later schedule publication does
+not substitute a new source version. Publication visibility follows certified
+knowledge time and current schedule/calendar authority. This library resolves
+date rules only; instrument activation and booked side integration remain separate.
 
 Reference choices come from the selected database revisions, including currencies,
 units, commodities, indices, calendars and curve bindings. Supported payment
@@ -970,6 +987,18 @@ the working decimal range. Summary output can therefore succeed when oversized o
 recurring individual holding projections cancel exactly. A detailed request still
 rejects unrepresentable holding results. No rounding is silently introduced.
 
+The generated-close worker selects the separate explicit policy
+`exact_rational_portfolio_repricing_v1` for book summaries (D169). Base, up and
+down cash and central differences remain rational values in its saved report;
+formatting does not change the retained results. Its authorized portfolio adapter
+loads futures and swaps from exact retained trade revisions. Futures execution
+P&L and swap present value remain separate measures, while their groups share the
+same immutable quote scenarios and affected curve work. Each swap supplies its
+own resolved payment-discount inputs; interest-rate inputs remain fixed during
+commodity quote shocks. The worker preflights whole selected books before
+publishing generated marks. This path does not extend the legacy decimal policy
+or implement settlement, variation margin, rate shocks or complete daily P&L.
+
 Reports consume the same authorized calculations as screens and agent operations.
 A day-over-day P&L request identifies its books/portfolio, opening and closing
 market/effective instants, both knowledge contexts, reporting currency policy and
@@ -989,8 +1018,12 @@ differences. Its current trading consumer measures unprocessed futures execution
 P&L/open sensitivity, rather than full futures PV. See the qualified boundaries in
 [implemented scope](implementation.md#shared-quote-input-scenarios-and-open-futures-sensitivity).
 Generic side-based instrument PV is exercised through the shared path in managed
-checks. The persisted portfolio API currently consumes futures execution P&L.
-Durable risk jobs/receipts and broader shock families remain work.
+checks. The interactive portfolio API consumes futures execution P&L. Generated
+pilot-close jobs also consume retained swap holdings through the shared portfolio
+adapter and publish exact mixed-book reports in a separate transaction after the
+marks commit. A report failure retains that partial state; a replacement attempt
+reuses the same close and occurrence. Broader durable risk operations and shock
+families remain work.
 
 Apply a factor shock once per scenario, independent of how many computations
 consume it. This does not imply that every different pricer can share one

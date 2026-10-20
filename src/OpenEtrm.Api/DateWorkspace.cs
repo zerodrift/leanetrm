@@ -132,13 +132,14 @@ public sealed class DateWorkspace
         }
         return new(expression!,date,reference.Symbol,reference.Index,reference.BusinessDays,calendar,source);
     }
-    public static ContractDates Contract(ContractDatesDraft draft,Func<string,DateReceipt> resolve)
+    public static ContractDates Contract(ContractDatesDraft draft,Func<string,DateReceipt> resolve)=>Contract(draft,(_,expression)=>resolve(expression));
+    public static ContractDates Contract(ContractDatesDraft draft,Func<string,string,DateReceipt> resolve)
     {
         if(string.IsNullOrWhiteSpace(draft.Label)||draft.Label.Length>80 ||
             !TimeOnly.TryParseExact(draft.CutoffUtc,"HH:mm",CultureInfo.InvariantCulture,DateTimeStyles.None,out var cutoff))
             throw Error("contract_dates","Name the contract and select an explicit UTC last-trading time (hours and minutes).");
-        var start=resolve(draft.DeliveryStart!);var end=resolve(draft.DeliveryEnd!);var last=resolve(draft.LastTrading!);
-        if(start.Date>=end.Date || last.Date>=end.Date)throw Error("contract_dates","Delivery end must follow start and last trading.");
+        var start=resolve("start",draft.DeliveryStart!);var end=resolve("end",draft.DeliveryEnd!);var last=resolve("last_trading",draft.LastTrading!);
+        if(start.Date>=end.Date)throw Error("contract_dates","Delivery end must follow start.");
         return new(draft.Label,start.Date,end.Date,new DateTimeOffset(last.Date.ToDateTime(cutoff,DateTimeKind.Utc)),start,end,last,draft.CutoffUtc!);
     }
     public CurveDatesSaved KeepCurve(string owner,CurveDatesSaved value)

@@ -1,5 +1,6 @@
 """Bounded page-read checks for an owned synthetic preview."""
 from check_direct_reads import PROFILE, page_view, trade_view
+from preview_client import initial_frame
 
 HISTORICAL = {'effectiveOn': '2020-12-17', 'mode': 'current', 'selection': 'latest_correction'}
 
@@ -31,7 +32,7 @@ def run_checks(c, check, direct_reads):
     check('unit conversion catalog contains only its consumed reference tables',
           set(catalog['unitCatalog']['references']) == unit_tables)
 
-    frame = next(f for f in full['frames'] if f['at'].startswith('2020-12-18'))
+    frame = initial_frame(full, '2020-12-18')
     by_id = {o['id']: o for o in full['observations']}
     fact_fields = ('series_id', 'source_code', 'source_event_id', 'observed_at', 'role')
 
@@ -59,7 +60,7 @@ def run_checks(c, check, direct_reads):
               all(set(p['lineage']) <= set(ids) for p in sources['points']))
 
     # A different context must not retain the preceding response's rows.
-    earlier = min(full['frames'], key=lambda f: f['at'])
+    earlier = initial_frame(full, min(f['at'][:10] for f in full['frames'] if f['id'] in full['initialFrameIds']))
     other = c.call('evaluate', {'snapshotId': earlier['id'], 'curve': 'local_power',
                               'includeSources': True})
     earlier_facts = {fact(by_id[i]) for i in earlier['observationIds']}

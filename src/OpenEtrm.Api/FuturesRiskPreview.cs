@@ -21,7 +21,7 @@ public sealed class FuturesRiskPreview(FuturesStore store)
     {
         var quantity=data.References["quantity_specifications"].Single(q=>q.Text("code")==unit.Quantity.Code);
         var symbol=data.References["units"].Single(u=>u.Text("code")==quantity.Text("unit_code")).Text("symbol");
-        return $"{unit.Multiplier} {Currency(data,unit.Currency)} / {symbol}";
+        return Presentation.PriceUnitLabel.Format(unit,Currency(data,unit.Currency),symbol);
     }
     private static string Currency(PreviewData data,ReferenceKey currency)=>data.References["currencies"].Single(c=>c.Text("code")==currency.Code).Text("display_code");
     private static object Factor(PreviewData data,QuoteFactor factor)

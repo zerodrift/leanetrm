@@ -228,9 +228,10 @@ public sealed partial class SwapStore(PreviewDatabase database)
     Commodity:One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quote.Quantity.Code)).Text("commodity_code"),TraderId:row.OptionalId("trader_id"),TraderRevision:row.OptionalText("trader_revision") is {} tv?int.Parse(tv,CultureInfo.InvariantCulture):null,Memo:row.OptionalText("memo"),TradeDate:row.OptionalText("trade_date")??row.Text("booking_date"),LegalEntityId:row.OptionalId("legal_entity_id"),LegalEntityRevision:row.OptionalText("legal_entity_revision") is {} lev?int.Parse(lev,CultureInfo.InvariantCulture):null,CounterpartyId:row.OptionalId("counterparty_id"),CounterpartyRevision:row.OptionalText("counterparty_revision") is {} cpv?int.Parse(cpv,CultureInfo.InvariantCulture):null);
  }
  private static void ValidateProjections(FinancialSwapValue value,JsonElement row)
+  =>ValidateProjections(value.Sides[1].Payments.SelectMany(p=>p.Cashflow.Prices).Select(r=>r.Term.Lookup!.Contract.Key.Id),row);
+ private static void ValidateProjections(IEnumerable<Guid> actual,JsonElement row)
  {
   var stored=row.GetProperty("projection_contracts");
-  var actual=value.Sides[1].Payments.SelectMany(p=>p.Cashflow.Prices).Select(r=>r.Term.Lookup!.Contract.Key.Id);
   if(stored.ValueKind!=JsonValueKind.Array||!actual.SequenceEqual(stored.EnumerateArray().Select(v=>v.GetGuid())))
    throw Error("swap_projection","The retained reset references do not match this side's exact schedule.");
  }

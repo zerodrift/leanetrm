@@ -14,9 +14,12 @@ public sealed record MarketDateFrame(Guid Id,DateTimeOffset At,string Name,strin
 public sealed record MarketDateChoice(string Date,ImmutableArray<MarketDateFrame> Frames);
 public sealed record UnavailableMarketDate(string Date,string Reason);
 public sealed record MarketDatesResponse(ScheduleContext? Context,string? Curve,string TimeZone,string SelectionPolicy,
-    ImmutableArray<MarketDateChoice> Dates,ImmutableArray<UnavailableMarketDate> Unavailable,string? MinDate,string? MaxDate);
+    ImmutableArray<MarketDateChoice> Dates,ImmutableArray<UnavailableMarketDate> Unavailable,string? MinDate,string? MaxDate)
+{
+    public FrameCatalogInfo? FrameCatalog{get;init;}
+}
 public delegate Task<IResult> MarketDatesOperation(HttpContext context,
-    Func<NpgsqlConnection,PinnedContext,ImmutableArray<InputFrame>,CancellationToken,Task<IResult>> work);
+    Func<NpgsqlConnection,PinnedContext,ImmutableArray<InputFrame>,FrameCatalogInfo,CancellationToken,Task<IResult>> work);
 
 // Calendar availability is a business read. It qualifies exact retained snapshot
 // choices without filling prices, selecting a close, or widening knowledge.
@@ -25,8 +28,8 @@ public static class MarketDates
     public const string SelectionPolicy="exact_snapshot_no_close_substitution_v1";
     public static void MapMarketDates(this RouteGroupBuilder api,PreviewDatabase database,MarketDatesOperation operation)
     {
-        api.MapPost("/market/dates",(HttpContext context,MarketDatesRequest body)=>operation(context,async(connection,pin,frames,ct)=>
-            Results.Ok(await Read(database,connection,pin,frames,body,ct))));
+        api.MapPost("/market/dates",(HttpContext context,MarketDatesRequest body)=>operation(context,async(connection,pin,frames,catalog,ct)=>
+            Results.Ok((await Read(database,connection,pin,frames,body,ct)) with{FrameCatalog=catalog})));
     }
     public static async Task<MarketDatesResponse> Read(PreviewDatabase database,NpgsqlConnection connection,PinnedContext pin,
         ImmutableArray<InputFrame> frames,MarketDatesRequest request,CancellationToken ct)

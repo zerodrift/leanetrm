@@ -153,11 +153,16 @@ public sealed record FinancialSwapEvaluation
 
 public static class FinancialSwapValuation
 {
+    public static CurrencyDefaultDiscounting CreateDiscounting(FinancialSwapInstrument instrument,MarketSnapshot snapshot,CurrencyDiscountCurve? currencyDefault)
+    {
+        if(instrument is null)throw new MarketDataException("swap_context","An explicit instrument is required.");
+        return new(instrument.Sides.Select(m=>m.Side.GenerateSchedule()),snapshot,instrument.Discounting,currencyDefault);
+    }
     public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault)
     {
         if(instrument is null||market is null)throw new MarketDataException("swap_context","An explicit instrument and built market scenario are required.");
         if(discounting!=instrument.Discounting)throw new MarketDataException("swap_valuation","Discounting must match the immutable instrument definition.");
-        var inputs=new CurrencyDefaultDiscounting(instrument.Sides.Select(m=>m.Side.GenerateSchedule()),market.Snapshot,discounting,currencyDefault);
+        var inputs=CreateDiscounting(instrument,market.Snapshot,currencyDefault);
         var value=instrument.PV(new SideValuationContext(market,inputs));
         return new(value,value.Sides.Select(s=>new DiscountedSideValuation(s,s.Value.Payments.Select(p=>new DiscountedSidePayment(p,inputs.Inputs[p.Plan.Key],value.Snapshot)).ToImmutableArray())).ToImmutableArray());
     }

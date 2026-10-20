@@ -87,6 +87,5 @@ def run_checks(Client, check):
     check('same contract expressions resolve under a different user context', later['contracts'][0]['start'] == '2021-02-01' and later['contracts'][0]['end'] == '2021-03-01')
     literal = {**spec, 'contracts': [{**spec['contracts'][0], 'start': '2021-01-03'}]}
     check('contract date fields accept literal dates and references together', viewer.call('date-schedules/contracts/preview', literal)['contracts'][0]['startReference']['source']['kind'] == 'literal')
-    candidate = viewer.call('date-schedules/contracts/save', spec)
-    check('candidate save is idempotent with pinned context', viewer.call('date-schedules/contracts/save', spec) == candidate)
-    check('candidate definitions stay private while published schedules are shared', approver.call('date-schedules')['contractDefinitions'] == [] and any(v['state'] == 'published' for v in approver.call('date-schedules')['versions']))
+    viewer.call('date-schedules/contracts/save', {**spec,'requestId':str(__import__('uuid').uuid4())}, expected=403)
+    check('shared contract-date save requires authoring permission, while preview creates no stored definition', approver.call('date-schedules')['contractDefinitions'] == [])
