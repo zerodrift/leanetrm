@@ -62,7 +62,8 @@ before changing any policy. The mandatory volatile visibility helper still check
 current authority for every candidate row; neither permissions nor historical
 visibility are cached. Write policies, role targets and grants remain unchanged.
 Provider credential replacement also revalidates current authority after row
-waits and before returning an outcome (0045), including an idempotent replay.
+waits and before returning an outcome (0045), including an idempotent replay; the
+page assistant's model and price commands do the same (0051).
 Blotter navigation requests a booking directory without pricing unused entry
 contracts. Choosing a new futures trade explicitly loads the priced catalog and
 replaces both catalog and report under one shared context before opening entry.

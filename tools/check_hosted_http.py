@@ -160,8 +160,11 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         print('PASS hosted startup projects current identity permissions without granting market-data authority',flush=True)
         assert 'ManageModelProviders' in admin_access['permissions']
         admin.call('/api/settings/ai/providers',expected=404)
-        refused,_=admin.call('/api/settings/ai/providers/key',{'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0,'key':'sk-synthetic-hosted-0000'},expected=400)
-        assert refused['code']=='request_token'
+        admin.call('/api/settings/ai/models',expected=404)
+        for path,body in (('/api/settings/ai/providers/key',{'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0,'key':'sk-synthetic-hosted-0000'}),
+                          ('/api/settings/ai/models/add',{'operationId':str(uuid4()),'vendor':'anthropic','identifier':'hosted-model','displayName':'Hosted model'})):
+            refused,_=admin.call(path,body,expected=400)
+            assert refused['code']=='request_token'
         print('PASS hosted mode maps no page-assistant administration route, even for a provider administrator',flush=True)
         retained, _ = client.call('/api/bootstrap')
         assert retained['frames'] == boot['frames']

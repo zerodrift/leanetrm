@@ -45,7 +45,7 @@ def main():
     parser.add_argument('--with-exchange',action='store_true',help='Publish the independent exchange futures dataset in this newly owned database')
     parser.add_argument('--party-check', action='store_true', help='Run party-editor integration checks in an owned fixture')
     parser.add_argument('--identity-check', action='store_true', help='Run economic-key integration checks in the owned standard fixture, then clean up')
-    parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider administration in an owned fixture')
+    parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
     parser.add_argument('--browser-check',action='store_true',help='Run checked-in browser scenarios in the newly owned standard fixture')
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
@@ -135,6 +135,9 @@ def main():
                 from check_futures_policy_upgrade import run_checks as check_policy_upgrade
                 legacy_reference,legacy_market,_,legacy_manifest=fixture(ROOT)
                 check_policy_upgrade(query,legacy_reference,legacy_market,legacy_manifest,migration.read_text())
+            if args.assistant_check and migration.name=='0051_model_catalog.sql':
+                from check_model_catalog import check_upgrade as check_catalog_upgrade
+                check_catalog_upgrade(query,migration.read_text())
             query(migration.read_text())
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
@@ -335,6 +338,8 @@ def main():
             elif args.assistant_check:
                 from check_model_providers import run_checks as check_model_providers
                 check_model_providers(url,query,psql,manifest,temporary,app_env,dotnet)
+                from check_model_catalog import run_checks as check_model_catalog
+                check_model_catalog(url,query,psql,manifest,app_env)
             elif args.identity_check:
                 from check_units_preview import run_checks as check_units
                 check_units(url)
