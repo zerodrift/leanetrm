@@ -427,5 +427,17 @@ Provider Test (migration 0062, step 4) is the first route that calls a provider:
     refuses new tests, but a retry still returns a finished test's outcome.
   - A test is opened only under the current generation while that generation's worker
     still holds the lock, so another process's API refuses tests.
-  - A worker start closes, once, every test an earlier generation left open.
+  - A worker start closes, once, every test an earlier generation left open. Migration
+    0065 has it wait for in-flight opens before it stamps its start, so a test it closes
+    never closes before it started.
 - **Hosted:** none of this exists under `--hosted-pilot`.
+
+Migration 0064 has the Providers directory also state each provider's latest test, as
+`test_state` gives it, which carries no token digest, generation or sealed key, and
+whether that test ran under the key and terms attested now. The directory keeps its
+definer, owner and grants, still rechecks `ManageModelProviders` and refuses delegated
+agents, and shows only tests of the caller's workspace. The providers route adds each
+vendor's endpoint, the adapter's constant or, in the local preview under the check
+override, where requests actually go, marked as a check endpoint. A test request the
+page retains is kept per identity like the other commands, and a refusal that can come
+after the test was recorded keeps it rather than inviting a second, billed test.

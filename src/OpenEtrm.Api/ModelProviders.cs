@@ -21,17 +21,19 @@ public sealed record RecordTermsRequest(Guid OperationId,string? Vendor,int? Exp
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ProviderRequest(Guid OperationId,string? Vendor,int? ExpectedVersion);
 
-// A vendor the Providers tab lists, with the protocol its adapter speaks (docs/ai-assistant.md §6.1).
-public sealed record ModelVendor(string Code,string Name,string Protocol);
+// A vendor the Providers tab lists, with the protocol its adapter speaks (docs/ai-assistant.md §6.1) and, when
+// that adapter ships in this release, its fixed endpoint (§5.2).
+public sealed record ModelVendor(string Code,string Name,string Protocol,Uri? Endpoint=null);
 
 // Model-provider administration (docs/ai-assistant.md §5, §6.3, §9): the Providers directory, Replace
 // key, Record terms, Attest, Enable and Disable. A key is checked, digested and sealed here, so only its
 // sealed form, last four characters and keyed digest reach the database. The database decides
-// qualification and every terms field's form.
-public sealed partial class ModelProviders(CredentialCustody custody,PreviewManifest manifest)
+// qualification and every terms field's form. Under the preview's check endpoint, the directory shows
+// where requests actually go, marked as a check endpoint.
+public sealed partial class ModelProviders(CredentialCustody custody,PreviewManifest manifest,Uri? checkEndpoint)
 {
-    public static readonly ImmutableArray<ModelVendor> Vendors=[new("anthropic","Anthropic","Messages API"),new("openai","OpenAI","Responses API"),
-        new("google","Google","generateContent"),new("xai","xAI","Responses API"),new("meta","Meta","Responses API")];
+    public static readonly ImmutableArray<ModelVendor> Vendors=[new("anthropic","Anthropic","Messages API",MessagesAdapter.Endpoint),
+        new("openai","OpenAI","Responses API"),new("google","Google","generateContent"),new("xai","xAI","Responses API"),new("meta","Meta","Responses API")];
     // A vendor without a provider row has had nothing administered for it.
     static readonly JsonElement Unadministered=JsonSerializer.Deserialize<JsonElement>(
         """{"version":0,"enabled":false,"qualified":false,"credential":null,"terms":null,"attestation":null}""");
@@ -40,12 +42,13 @@ public sealed partial class ModelProviders(CredentialCustody custody,PreviewMani
     {
         var directory=await Read(connection,"SELECT assistant.provider_directory()::text",[],ct);
         var states=directory.GetProperty("providers").EnumerateArray().ToDictionary(p=>p.GetProperty("vendor").GetString()!);
-        // The confirmed usage mapping the vendor's adapter applies, or none.
-        var mappings=directory.GetProperty("mappings");
+        // The confirmed usage mapping the vendor's adapter applies, or none; its latest test, or none.
+        var (mappings,tests)=(directory.GetProperty("mappings"),directory.GetProperty("tests"));
         object Provider(ModelVendor v,JsonElement state)=>new{vendor=v.Code,v.Name,v.Protocol,
+            endpoint=v.Endpoint is {} fixedEndpoint?new{url=(checkEndpoint is null?fixedEndpoint:new Uri(checkEndpoint,fixedEndpoint.PathAndQuery)).ToString(),check=checkEndpoint is not null}:null,
             mapping=mappings.TryGetProperty(v.Code,out var applied)?applied:(JsonElement?)null,version=state.GetProperty("version").GetInt32(),
             enabled=state.GetProperty("enabled").GetBoolean(),qualified=state.GetProperty("qualified").GetBoolean(),credential=state.GetProperty("credential"),
-            terms=state.GetProperty("terms"),attestation=state.GetProperty("attestation")};
+            terms=state.GetProperty("terms"),attestation=state.GetProperty("attestation"),lastTest=tests.TryGetProperty(v.Code,out var last)?last:(JsonElement?)null};
         return new{providers=Vendors.Select(v=>Provider(v,states.GetValueOrDefault(v.Code,Unadministered))),audit=directory.GetProperty("audit")};
     }
 

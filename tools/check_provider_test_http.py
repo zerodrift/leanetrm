@@ -118,6 +118,11 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
           and first['maxOutputTokens'] == 256 and first['reasoning'] == 'low' and first['identifier'] == MODEL)
     requests = sent()
     check('a retry of a finished test returns its outcome and sends nothing', test(operation=first['operationId']) == first and sent() == requests)
+    listed = {p['vendor']: p for p in admin.call('settings/ai/providers')['providers']}
+    check("the Providers tab lists each shipped adapter's endpoint, here the check endpoint marked as one, and each provider's last test",
+          (listed['anthropic']['endpoint'], listed['anthropic']['lastTest']) == ({'url': f'{fake.url}/v1/messages', 'check': True},
+                                                                                 first | {'underCurrentAttestation': True})
+          and all((p['endpoint'], p['lastTest']) == (None, None) for vendor, p in listed.items() if vendor != 'anthropic'))
 
     def outcome(response, **expected):
         fake.respond(response)

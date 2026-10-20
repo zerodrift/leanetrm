@@ -28,8 +28,10 @@ provider's applied mapping states and enables it. Model Enable is the first cons
 a provider's enabled state; calls will consume both. Test, through the API, sends one
 fixed synthetic prompt through the model's adapter and records the call, its outcome,
 usage by dimension and exact cost (`token_cost_v1`) under the agent worker's generation
-(§5.1, §5.3, §7.4, §9). Its Settings › AI control, with the Providers tab's endpoint and
-last test, comes next. The turn's working-data pin (§7.2), which binds a captured
+(§5.1, §5.3, §7.4, §9). A provider's card tests one of its models, retaining a test whose
+outcome was not confirmed, and the Providers tab shows each vendor's endpoint, marked when
+it is the preview's check endpoint, and its last test, marked when it ran under a key or
+terms no longer attested. The turn's working-data pin (§7.2), which binds a captured
 context, is not implemented.
 
 The page assistant ships in three phases, each with its own design:
@@ -906,7 +908,9 @@ security.md, reference-data.md, hosted-pilot.md).
 5. Agents, grants and turns: the remaining tables; `ManageAgents`, `UseAgents`,
    `ReadModelUsage` and the agent reader role; creation, Publish, Retire; the Users &
    access and provisioning changes; context pinning and reserve; read tools and
-   Navigate; worker and pools; the stream; Agents and Usage tabs; changed checks.
+   Navigate; worker and pools; the stream; Agents and Usage tabs; changed checks. Once
+   turns record model calls, the Providers directory's last test, which migration 0064
+   takes as a provider's latest call, leaves them out, with an index for that lookup.
 6. The panel with consent; grants and Revoke in the profile dialog; grant history in
    Users & access; navigation history; the background indicator.
 7. Cards and Show card.

@@ -175,6 +175,78 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#ai-tab-providers');await openProvider('Anthropic');await click('#ai-provider-disable');
   await check('Disable turns the provider off, keeps it qualified and moves focus to Enable',`${row('ai-provider-table','Anthropic')}[2]==='Disabled · qualified'&&${rows('ai-provider-audit')}[0][3]==='Disabled'&&!document.querySelector('#ai-provider-enable').hidden&&document.activeElement===document.querySelector('#ai-provider-enable')&&document.querySelector('#error').hidden`);
 
+  // Test, from the provider's card, whether or not the provider and model are enabled. The fake provider answers
+  // each test as the model it names, and the launcher counts what reaches it.
+  const fact=name=>`${rows('ai-test-table')}.find(r=>r[0]===${JSON.stringify(name)})?.[1]`;
+  const anthropicDirectory="(async()=>(await(await window.__originalFetch('/api/settings/ai/providers')).json()).providers.find(p=>p.vendor==='anthropic'))()";
+  const retainedTest="JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.ai.test.request.'))))";
+  const testOffered="document.querySelector('#ai-test-pending').checkVisibility()";
+  await check('the provider card and table name the check endpoint its requests reach, and a vendor without an adapter has none',
+    `document.querySelector('#ai-provider-facts').textContent.includes('/v1/messages (check endpoint)')&&${row('ai-provider-table','Anthropic')}[9].endsWith('/v1/messages (check endpoint)')&&${row('ai-provider-table','Google')}[9]==='No adapter in this release'`);
+  const testChoices=await evaluate(`(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/models')).json();return {model:d.models.find(m=>m.identifier===${JSON.stringify(anthropic)}).id,
+    excluded:d.models.filter(m=>m.vendor!=='anthropic'||!m.capability).map(m=>m.id),unrecorded:d.models.some(m=>m.vendor==='anthropic'&&!m.capability)};})()`);
+  const modelId=testChoices.model;
+  await set('#ai-test-model',modelId);
+  await check("the test offers only this vendor's models with capabilities, and the chosen model's efforts",
+    `(()=>{const o=[...document.querySelector('#ai-test-model').options];return ${JSON.stringify(testChoices.unrecorded)}&&o.some(x=>x.value===${JSON.stringify(modelId)}&&x.textContent.includes(${JSON.stringify(anthropic)}))`
+    +`&&!o.some(x=>${JSON.stringify(testChoices.excluded)}.includes(x.value));})()&&JSON.stringify([...document.querySelector('#ai-test-effort').options].map(o=>o.value))==='["","low","high"]'`);
+  await submit('#ai-test-form');
+  await check('a test names its reasoning effort before it is sent',`${shown}.includes('reasoning effort')&&${sent('providers/test')}.length===0`);
+  await set('#ai-test-effort','low');await submit('#ai-test-form');
+  await check('a test sends only its identity, model and effort, and the card shows its outcome, usage and exact cost, unmarked under the attested key and terms',
+    `(()=>{const b=${sent('providers/test')}.at(-1)?.body;return JSON.stringify(Object.keys(b).sort())==='["modelId","operationId","reasoning"]'&&b.modelId===${JSON.stringify(modelId)}&&b.reasoning==='low';})()`
+    +`&&${fact('Outcome')}==='Succeeded'&&${fact('Model')}===${JSON.stringify(anthropic)}&&${fact('Served as')}===${JSON.stringify(anthropic)}&&${fact('Reasoning effort')}==='low'`
+    +`&&${fact('Uncached input')}==='21 tokens'&&${fact('Output')}==='9 tokens'&&/^0\\.000114744 USD/.test(${fact('Cost')})&&document.querySelector('#error').hidden`
+    +`&&(r=>r.startsWith('Succeeded · ')&&!r.endsWith('earlier key or terms'))(${row('ai-provider-table','Anthropic')}[10])&&document.querySelector('#ai-test-summary').textContent===''`);
+  // A lost response retains the test's request; Retry reads its outcome under the same identity and never tests again.
+  await evaluate("(()=>{window.__dropTest=true;const send=window.fetch;window.fetch=async(...args)=>{const r=await send(...args);if(window.__dropTest&&String(args[0])==='/api/settings/ai/providers/test'){window.__dropTest=false;throw new TypeError('Synthetic lost test response');}return r;};})()");
+  await set('#ai-test-effort','high');await submit('#ai-test-form');
+  const testing=await evaluate(retainedTest);
+  const recorded=await evaluate(anthropicDirectory+".then(p=>p.lastTest)");
+  await check('a lost test response retains the request while the card shows the test the server recorded',
+    `${testOffered}&&${JSON.stringify(testing?.path)}==='settings/ai/providers/test'&&${JSON.stringify(recorded?.operationId)}===${JSON.stringify(testing?.operationId)}`
+    +`&&${fact('Reasoning effort')}==='high'&&${fact('Outcome')}==='Succeeded'&&document.querySelector('#ai-test-form button[type=submit]').disabled`);
+  await click('#ai-test-retry');
+  await check('retry resends the identical request and reads the same test, whose record is unchanged',
+    `(async()=>{const s=${sent('providers/test')}.filter(r=>r.body.operationId===${JSON.stringify(testing.operationId)}),t=(await ${anthropicDirectory}).lastTest;return s.length===2&&JSON.stringify(s[0].body)===JSON.stringify(s[1].body)&&JSON.stringify(t)===${JSON.stringify(JSON.stringify(recorded))}&&!${testOffered}&&document.querySelector('#error').hidden;})()`);
+  // A refusal proves nothing was opened, so it releases the request: here a directory stating an effort the model's version does not accept.
+  await evaluate(`(()=>{window.__stubTestEfforts=true;const send=window.fetch;window.fetch=async(...args)=>{const r=await send(...args);if(window.__stubTestEfforts&&String(args[0])==='/api/settings/ai/models'&&!args[1]?.body){const d=await r.json();d.models.find(m=>m.identifier===${JSON.stringify(anthropic)}).capability.reasoningEfforts.push('medium');return new Response(JSON.stringify(d),{status:200,headers:{'Content-Type':'application/json'}});}return r;};})()`);
+  await click('#ai-providers-refresh');await openProvider('Anthropic');await set('#ai-test-model',modelId);await set('#ai-test-effort','medium');await submit('#ai-test-form');
+  await check('a test the server refuses is not retained, and the page says why',
+    `${sent('providers/test')}.at(-1)?.body.reasoning==='medium'&&${shown}.includes('capability version records')&&!${testOffered}&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.ai.test.request.'))`);
+  await evaluate('window.__stubTestEfforts=false');await click('#ai-providers-refresh');await openProvider('Anthropic');
+  // Answers that leave a test's outcome unknown keep its request, for its own identity only, until Retry or Discard: a test
+  // still in progress, and a refusal read after the test may have run. These answers are synthetic, so nothing reaches the server.
+  const synthetic=(code,status)=>evaluate(`(()=>{window.__synthetic=true;const send=window.fetch;window.fetch=async(...args)=>{if(window.__synthetic&&String(args[0])==='/api/settings/ai/providers/test'){window.__synthetic=false;`
+    +`return new Response(JSON.stringify({code:${JSON.stringify(code)}}),{status:${status},headers:{'Content-Type':'application/json'}});}return send(...args);};})()`);
+  await synthetic('test_in_progress',409);
+  await set('#ai-test-model',modelId);await set('#ai-test-effort','high');await submit('#ai-test-form');
+  await check('a test still in progress is retained, and the page names it and says its outcome is not recorded yet',
+    `${testOffered}&&${shown}.includes('no recorded outcome yet')&&document.querySelector('#ai-test-pending-text').textContent.includes(${JSON.stringify(`(Anthropic · ${anthropic})`)})&&${retainedTest}.body.reasoning==='high'`);
+  await persona(manager);await click('#nav-ai');await click('#ai-tab-providers');
+  await check('another identity is not offered a test it did not send',"document.querySelector('#ai-test-pending').hidden");
+  await persona(pricer);await click('#nav-ai');await click('#ai-tab-providers');
+  await check('a retained test is offered again after an identity switch, before any provider card opens',`${testOffered}&&document.querySelector('#ai-provider-card').hidden`);
+  await evaluate("(()=>{window.__failProviders=true;const send=window.fetch;window.fetch=async(...args)=>{if(window.__failProviders&&String(args[0])==='/api/settings/ai/providers'&&!args[1]?.body){window.__failProviders=false;"
+    +"return new Response(JSON.stringify({code:'synthetic_unavailable'}),{status:503,headers:{'Content-Type':'application/json'}});}return send(...args);};})()");
+  await click('#ai-providers-refresh');
+  await check('a failed directory read leaves the retained test with its Retry and Discard in reach',
+    `${testOffered}&&!document.querySelector('#error').hidden&&document.querySelector('#ai-test-retry').checkVisibility()&&document.querySelector('#ai-test-discard').checkVisibility()`);
+  await click('#ai-test-discard');
+  await check('Discard forgets the retained test without sending it',`!${testOffered}&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.ai.test.request.'))`);
+  await click('#ai-providers-refresh');await openProvider('Anthropic');
+  await synthetic('access_denied',403);
+  await set('#ai-test-model',modelId);await set('#ai-test-effort','low');await submit('#ai-test-form');
+  await check('a refusal the server can send after a test ran keeps its request',`${testOffered}&&${retainedTest}?.body.reasoning==='low'`);
+  await click('#ai-test-discard');await click('#ai-providers-refresh');await openProvider('OpenAI');
+  await check('a vendor without an adapter offers no model to test, and its card says why',
+    "document.querySelector('#ai-test-model').options.length===1&&!document.querySelector('#ai-test-note').hidden&&document.querySelector('#ai-test-note').textContent.includes('No adapter for OpenAI')");
+  await openProvider('Anthropic');
+  // A new key ends the attestation the last test ran under, and the page says so.
+  await click('#ai-provider-key');await set('#ai-key-value','sk-browser-synthetic-key-0004');await submit('#ai-key-form');
+  await check('a last test that ran under a key or terms no longer attested is marked, and the card says to attest before testing again',
+    `${row('ai-provider-table','Anthropic')}[10].endsWith('earlier key or terms')&&document.querySelector('#ai-test-summary').textContent.includes('Attest the current key and terms, then test again')`);
+
   await evaluate('window.scrollTo(0,0)');await shot('ai-settings-desktop');
   await click('#ai-tab-models');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
@@ -190,7 +262,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const member=(await authority.call('admin')).members.find(m=>m.login===pricer);
   await authority.replaceRoles(member,['viewer']);
   await click('#ai-models-refresh');
-  await check('a revoked administrator keeps no model, price, capability, terms or audit rows on screen',`!document.querySelector('#error').hidden&&['ai-model-table','ai-model-audit','ai-price-history','ai-capability-table','ai-provider-table','ai-terms-table','ai-provider-audit'].every(id=>document.querySelector('#'+id).children.length===0)&&document.querySelector('#ai-model-card').hidden&&document.querySelector('#ai-provider-card').hidden`);
+  await check('a revoked administrator keeps no model, price, capability, terms, test or audit rows on screen',`!document.querySelector('#error').hidden&&['ai-model-table','ai-model-audit','ai-price-history','ai-capability-table','ai-provider-table','ai-terms-table','ai-test-table','ai-provider-audit'].every(id=>document.querySelector('#'+id).children.length===0)&&document.querySelector('#ai-model-card').hidden&&document.querySelector('#ai-provider-card').hidden`);
   await persona('viewer');
   await check('switching to a viewer hides AI settings',"document.querySelector('#nav-ai').hidden&&document.querySelector('#ai-page').hidden");
   await check('no uncaught JavaScript exceptions',JSON.stringify(errors.length===0));
