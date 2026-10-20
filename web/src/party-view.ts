@@ -10,7 +10,7 @@ export function setupPartyEditors(o:{api:Api;act:(work:()=>Promise<void>)=>Promi
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
  const effective=zonedInput(get<HTMLInputElement>('party-effective'),o.zone,o.api);
- const pending=new PendingCommand();let directory:Directory|undefined,selected:Party|undefined,generation=0;
+ const pending=new PendingCommand(code=>['party_conflict','party_input','party_limit','trade_party','access_denied','request_format','request_token','historical_read_only','definition_rejected'].includes(code??''));let directory:Directory|undefined,selected:Party|undefined,generation=0;
  const storageKey=()=>`openetrm.parties.request.${o.profile()}`;
  function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The command remains available in memory for this visit. */}}
  function sync(){get<HTMLFieldSetElement>('party-fields').disabled=o.busy()||!directory?.canEdit||!!pending.command;field('party-code').disabled=!!selected;get<HTMLButtonElement>('party-new').disabled=o.busy()||!directory?.canEdit||!!pending.command;field('party-kind').disabled=o.busy()||!!pending.command;get('party-pending').hidden=!directory||!pending.command;}
@@ -44,21 +44,20 @@ export function setupPartyEditors(o:{api:Api;act:(work:()=>Promise<void>)=>Promi
   const response=await o.api<Directory>('parties/catalog',{snapshotId,kind});
   if(started!==generation||snapshotId!==o.source()||kind!==field('party-kind').value)return false;
   directory=response;selected=directory.versions.find(p=>p.id===selectedId);
-  try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?JSON.parse(stored):undefined;}catch{pending.clear();}
+  try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}
   get<HTMLFormElement>('party-form').hidden=false;render();return true;
  }
  async function send(command:RequestCommand){
-  const started=generation,owner=o.profile();
+  const started=generation,owner=o.profile(),previouslyUncertain=pending.sending();store();let result:Party;
   try{
-   const result=await o.api<Party>(command.path,{...command.body,operationId:command.operationId});
-   if(started!==generation||owner!==o.profile())return;
-   pending.clear();store();selected=result;
-   if(await load())get('party-saved').textContent=`Saved ${result.name} · revision ${result.revision}. Trade entry uses versions effective at its execution time.`;
+   result=await o.api<Party>(command.path,{...command.body,operationId:command.operationId});
+   if(started!==generation||owner!==o.profile()||pending.command!==command)return;
   }catch(error){
-   if(started!==generation||owner!==o.profile())throw error;
-   if(['party_conflict','party_input','party_limit','trade_party','access_denied','request_format','request_token','historical_read_only','definition_rejected'].includes((error as {code?:string}).code??'')){pending.clear();store();}
-   sync();throw error;
+   if(started!==generation||owner!==o.profile()||pending.command!==command)return;
+   pending.failed((error as {code?:string}).code,previouslyUncertain);store();sync();throw error;
   }
+  pending.clear();store();selected=result;
+  if(await load())get('party-saved').textContent=`Saved ${result.name} · revision ${result.revision}. Trade entry uses versions effective at its execution time.`;
  }
  get<HTMLFormElement>('party-form').onsubmit=e=>{e.preventDefault();void o.act(async()=>{
   if(!directory?.canEdit)throw Error('Return to working data with party edit permission.');

@@ -27,10 +27,15 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=publicText(text);return node;};
   let directory:Directory|undefined,selected:Member|undefined;
-  const pending=new PendingAdministration();
+  const pending=new PendingAdministration(knownAdministrationRejection);
   const storageKey=()=>`openetrm.admin.request.${profile()}`;
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* In-memory retry identity is still retained for this visit. */}}
   function pendingNote(){get('admin-pending').hidden=!pending.command;}
+  function clearDirectory(){
+    directory=undefined;selected=undefined;get<HTMLFormElement>('admin-form').reset();get('admin-form').hidden=true;
+    get('admin-new').hidden=true;
+    for(const id of ['admin-members','admin-audit','admin-roles'])get(id).replaceChildren();
+  }
   function fill(member?:Member){
     selected=member;get<HTMLFormElement>('admin-form').reset();
     get('admin-form').hidden=directory?.canCreate===false&&!member;
@@ -60,30 +65,34 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
   }
   async function load(){
     // A denied reload must not leave a cached directory visible.
-    const selectedId=selected?.id;selected=undefined;get<HTMLFormElement>('admin-form').reset();get('admin-form').hidden=true;get('admin-pending').hidden=true;
-    directory=undefined;get('admin-members').replaceChildren();get('admin-audit').replaceChildren();get('admin-roles').replaceChildren();
+    const selectedId=selected?.id;clearDirectory();get('admin-pending').hidden=true;
     directory=await api<Directory>('admin');
     selected=directory.members.find(m=>m.id===selectedId);get('admin-form').hidden=false;
-    try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?JSON.parse(stored):undefined;}catch{pending.clear();}
+    try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}
     render();
   }
   async function send(command:AdministrativeCommand){
+    const owner=profile(),previouslyUncertain=pending.sending();store();let member:Member;
     try{
-      const member=await api<Member>(command.path,{...command.body,operationId:command.operationId});
-      pending.clear();store();selected=member;await updated();await load();
+      member=await api<Member>(command.path,{...command.body,operationId:command.operationId});
+      if(owner!==profile()||pending.command!==command)return;
     }catch(error){
+      if(owner!==profile()||pending.command!==command)return;
       const code=(error as {code?:string}).code;
-      if(knownAdministrationRejection(code)){pending.clear();store();}
-      pendingNote();throw error;
+      if(code==='access_denied')clearDirectory();
+      pending.failed(code,previouslyUncertain);store();pendingNote();throw error;
     }
+    pending.clear();store();selected=member;await updated();await load();
   }
   get<HTMLFormElement>('admin-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
+    if(pending.command)throw Error('Reconcile the outstanding request before starting another account change.');
+    if(!directory)throw Error('Reload accounts to verify current administrative access.');
     const roles=[...get('admin-roles').querySelectorAll<HTMLInputElement>('input:checked')].map(n=>n.value).sort();
     const body:Record<string,unknown>=selected?{id:selected.id,expectedVersion:selected.version,name:field('admin-name').value,enabled:get<HTMLInputElement>('admin-enabled').checked,roles}:{login:field('admin-login').value,name:field('admin-name').value,kind:field('admin-kind').value,roles};
     const command=pending.begin(selected?'admin/update':'admin/create',body);store();pendingNote();await send(command);
   });};
   get('admin-retry').onclick=()=>void run(async()=>{if(pending.command)await send(pending.command);});
   get('admin-discard').onclick=()=>{if(busy())return;pending.clear();store();pendingNote();};
-  get('admin-new').onclick=()=>{if(!busy())fill();};get('admin-refresh').onclick=()=>void run(load);
-  return {load,reset(){directory=undefined;selected=undefined;pending.clear();get('admin-members').replaceChildren();get('admin-audit').replaceChildren();get('admin-roles').replaceChildren();get<HTMLFormElement>('admin-form').reset();},refresh(){render();}};
+  get('admin-new').onclick=()=>{if(!busy()&&directory&&!pending.command)fill();};get('admin-refresh').onclick=()=>void run(load);
+  return {load,reset(){clearDirectory();pending.clear();},refresh(){render();}};
 }

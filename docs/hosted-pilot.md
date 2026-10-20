@@ -189,6 +189,10 @@ sudo python3 /opt/openetrm/operations/deploy_release.py \
   --config /etc/openetrm/deployment-operator.json --recover
 ```
 
+Recovery reuses promotion's serving-container and environment checks before
+recording success. A changed user, gateway binding, network, private mount or
+installation setting leaves the interrupted deployment unreconciled.
+
 Inspect the private state receipt and systemd journal to distinguish waiting for
 CI, deferred collection, quarantine, retry backoff and operator recovery. Private
 operator settings and schema/ingress baselines are installation artifacts, not

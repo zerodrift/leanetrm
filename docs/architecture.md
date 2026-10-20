@@ -362,6 +362,8 @@ NULL party fields remain unchanged until an explicit amendment supplies them.
 Party editors append scoped immutable name/code versions with expected heads,
 nondecreasing effective instants and idempotent commands. Read/maintenance
 permissions are separate from trade access; broader party attributes remain work.
+Party names retain up to 80 Unicode scalar values consistently through authoring,
+storage and retained trade reads; supplementary characters count once.
 
 Trade editors render common Trade Terms, then a product-specific instrument
 editor and its independent side editors where needed. The common header exposes

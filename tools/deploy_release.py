@@ -434,9 +434,10 @@ class Deployment:
         if self.state.get('candidateId'):
             self.candidate_id = self.state['candidateId']; self.clean_candidate()
         actual = inspect_container(self.settings['apiContainer'])
-        require(actual['State']['Running'] and actual['HostConfig']['ReadonlyRootfs'], 'serving container is not ready')
-        http_checks(self.settings['publicOrigin'], certificate=self.settings.get('tlsCertificate'))
+        require_actual(actual, self.settings, actual['Image'])
         values = environment(self.settings['environmentFile'])
+        require_environment(values, self.settings)
+        http_checks(self.settings['publicOrigin'], certificate=self.settings.get('tlsCertificate'))
         if actual['Image'] == self.state['targetImage']:
             require(values['API_IMAGE'] == self.state['targetImage'], 'serving image and environment disagree')
             self.save('idle', activeCommit=self.state['targetCommit'], activeImage=self.state['targetImage'], retryAfter=0)

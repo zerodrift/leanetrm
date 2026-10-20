@@ -20,6 +20,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Page.navigate',{url:url+'/'});await ready();await persona('editor');await editor();await set('#reference-edit-row','megawatt_hour');await wait(idle);
  const originalSymbol=await evaluate("document.querySelector('#reference-edit-symbol').value"),sample=originalSymbol+' browser';
  await check('reference authors edit display metadata while identity and financial fields remain absent',"!document.querySelector('#reference-edit-symbol').disabled&&!document.querySelector('#reference-edit-code')&&!document.querySelector('#reference-edit-factor_numerator')&&!document.querySelector('#reference-edit-dimension_code')");
+ await check('reference inputs describe the server Unicode character limit without a UTF16 cap',"(()=>{const field=window.referenceRequests.filter(r=>r.path.includes('/reference/editor?')).at(-1).payload.fields.find(f=>f.key==='symbol'),input=document.querySelector('#reference-edit-symbol');return field.maxLength===80&&input.maxLength===-1&&document.querySelector('#'+input.getAttribute('aria-describedby')).textContent.includes('80');})()");
  await set('#reference-edit-symbol',sample);await evaluate('window.dropReferenceSave=true');await click('#reference-edit-save');
  const originalSave=await evaluate("window.referenceRequests.find(r=>r.path.endsWith('/reference/save')).body");
  await check('a lost committed reference save retains its exact request and blocks a new edit',"!document.querySelector('#reference-edit-retry').disabled&&document.querySelector('#reference-edit-save').disabled&&!document.querySelector('#error').hidden");
@@ -41,6 +42,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Page.navigate',{url:url+'/'});await ready();await click('#nav-reference');await set('#reference-table','units');await wait(idle);await click('#reference-edit-retry');
  await check('publisher retry after reload reconciles the exact retained apply request',`JSON.stringify(window.referenceRequests.find(r=>r.path.endsWith('/reference/apply')).body)===${JSON.stringify(JSON.stringify(originalApply))}&&document.querySelector('#error').hidden`);await click('#nav-market');await click('#example');
  await check('confirmed recovery displays the restored label',`document.querySelector('#unit').textContent.includes(${JSON.stringify(originalSymbol)})&&!document.querySelector('#unit').textContent.includes(${JSON.stringify(sample)})&&document.querySelector('#error').hidden`);
+ await persona('editor');await editor();await set('#reference-edit-row','megawatt_hour');await wait(idle);
+ const scalarSymbol='𝛼'.repeat(80);await set('#reference-edit-symbol',scalarSymbol);await click('#reference-edit-save');
+ await check('a valid 80-scalar symbol is saved with all supplementary characters intact',`window.referenceRequests.filter(r=>r.path.endsWith('/reference/save')).at(-1).status===200&&window.referenceRequests.filter(r=>r.path.endsWith('/reference/save')).at(-1).body.values.symbol===${JSON.stringify(scalarSymbol)}&&document.querySelector('#error').hidden`);
+ await set('#reference-edit-symbol',scalarSymbol+'𝛼');await click('#reference-edit-save');
+ await check('the backend rejects an 81-scalar symbol before retaining a metadata draft',"window.referenceRequests.filter(r=>r.path.endsWith('/reference/save')).at(-1).status===422&&!document.querySelector('#error').hidden&&document.querySelector('#reference-edit-retry').disabled");
  // Both responses follow actual successful commits. Capture each boundary's
  // result before assertions so a failing case does not hide the other one.
  await persona('editor');await editor();await set('#reference-edit-row','megawatt_hour');await wait(idle);

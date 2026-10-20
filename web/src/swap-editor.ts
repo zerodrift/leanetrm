@@ -58,7 +58,11 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  function projectionControls(){
   const candidates=sources().filter(i=>i.samplings.some(s=>s.resetFrequency===field('swap-reset-frequency').value));
   choose('swap-projection',candidates.map(i=>({value:indexKey(i),label:curveName(i.curve)})),field('swap-projection').value);
-  const i=selectedIndex();const units=i?.quantityChoices??[];const old=field('swap-quantity-unit').value;choose('swap-quantity-unit',units.map(u=>({value:JSON.stringify(u.specification),label:u.unit})),units.some(u=>JSON.stringify(u.specification)===old)?old:units[0]?JSON.stringify(units[0].specification):'');quantityUnitLabel();text('swap-price-unit',i?`${i.currency}/${i.unit}${i.quoteMultiplier==='1'?'':' × '+i.quoteMultiplier}`:'choose projection curve');samplingControls();
+  const i=selectedIndex(),units=i?.quantityChoices??[],old=field('swap-quantity-unit').value;
+  const retained=units.some(u=>JSON.stringify(u.specification)===old);
+  if(old&&!retained)field('swap-quantity').value='';
+  choose('swap-quantity-unit',units.map(u=>({value:JSON.stringify(u.specification),label:u.unit})),retained?old:units[0]?JSON.stringify(units[0].specification):'');
+  quantityUnitLabel();text('swap-price-unit',i?`${i.currency}/${i.unit}${i.quoteMultiplier==='1'?'':' × '+i.quoteMultiplier}`:'choose projection curve');samplingControls();
   const currencies=[...new Map(sources().map(i=>[i.currencyCode,{value:i.currencyCode,label:i.currency}])).values()];
   for(const side of ['fixed','floating'])choose(`swap-${side}-currency`,currencies,field(`swap-${side}-currency`).value);
   text('swap-coverage',i?`${i.currency}/${i.unit} × ${i.quoteMultiplier}. Projection curve: ${curveName(i.curve)}. Available delivery periods: ${i.contracts.map(c=>deliveryLabel(c.deliveryFrom,c.deliveryTo)).join(', ')}. Default discount curve: ${i.defaultDiscountCurve?curveName(i.defaultDiscountCurve):'not configured'}.`:'Choose the floating index, reset frequency and exact projection curve. Frequencies are offered only where the selected market data supplies the observations.');

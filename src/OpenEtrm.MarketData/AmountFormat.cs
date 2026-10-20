@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Globalization;
 using System.Numerics;
+using System.Text;
 
 namespace OpenEtrm.MarketData;
 
@@ -49,12 +51,27 @@ public sealed record AmountFormat
 
 public sealed record AmountLabel
 {
+    public const int MaximumSymbolLength = 80;
     public ReferenceKey Key { get; }
     public string Symbol { get; }
+    public static bool IsSupportedSymbol(string? symbol)
+    {
+        if (string.IsNullOrEmpty(symbol)) return false;
+        var remaining = symbol.AsSpan();
+        var length = 0; var hasNonWhitespace = false;
+        while (!remaining.IsEmpty)
+        {
+            if (++length > MaximumSymbolLength ||
+                Rune.DecodeFromUtf16(remaining, out var character, out var consumed) != OperationStatus.Done || Rune.IsControl(character)) return false;
+            hasNonWhitespace |= !Rune.IsWhiteSpace(character);
+            remaining = remaining[consumed..];
+        }
+        return hasNonWhitespace;
+    }
     public AmountLabel(ReferenceKey key, string symbol)
     {
         Money.RequireKey(key);
-        if (string.IsNullOrWhiteSpace(symbol) || symbol.Length > 80 || symbol.Any(char.IsControl))
+        if (!IsSupportedSymbol(symbol))
             throw new MarketDataException("display_reference", "Supply a resolved currency or quantity label.");
         Key = key; Symbol = symbol;
     }

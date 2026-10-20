@@ -151,6 +151,9 @@ calendar where consumed. Generated date-only rows retain the rule evidence.
 New entry has commodity-filtered indices/units and separate reset-frequency and
 averaging-method fields. Earlier manual-date revisions remain inspectable without
 inferred replacement conventions; amendments must select the new rules explicitly.
+If a selected exact quantity reference becomes unavailable, entry clears the
+numeric quantity before initializing another working unit. It never reinterprets
+the retained number in that new unit.
 The swap editor can resolve published schedule symbols against its exact retained
 context, review the source version/occurrence and apply a literal delivery date.
 Suggestions obey that same cutoff. Payment-policy choices come from the backend's

@@ -17,6 +17,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   for(const side of ['fixed','floating']){await set(`#swap-${side}-payment-frequency`,'monthly');await set(`#swap-${side}-payment-rule`,side==='fixed'?'days_after_period_end':'day_of_following_month');await set(`#swap-${side}-payment-number`,'18');await set(`#swap-${side}-${side==='fixed'?'day-basis':'short-month'}`,side==='fixed'?'calendar_days':'reject');await set(`#swap-${side}-payment-adjustment`,'unadjusted');}
   await set('#swap-fixing','2020-12-31T12:00');await set('#swap-reset-frequency','daily');await set('#swap-averaging','arithmetic');await set('#swap-discounting','none');}
  await start('daily_gas');
+ const projection=await evaluate("document.querySelector('#swap-projection').value"),workingUnit=await evaluate("document.querySelector('#swap-quantity-unit').value");
+ const therm=await evaluate("[...document.querySelector('#swap-quantity-unit').options].find(o=>o.textContent==='therm (IT)').value");
+ await set('#swap-quantity-unit',therm);await set('#swap-quantity','10');await set('#swap-projection',projection);
+ await check('refreshing an eligible projection preserves the explicitly selected quantity reference',`document.querySelector('#swap-quantity-unit').value===${JSON.stringify(therm)}&&document.querySelector('#swap-quantity').value==='10'`);
+ await set('#swap-projection','');await set('#swap-projection',projection);
+ await check('removing an exact quantity reference clears its numeric value before another unit is initialized',`document.querySelector('#swap-quantity').value===''&&document.querySelector('#swap-quantity-unit').value===${JSON.stringify(workingUnit)}`);
  await check('payment choices are supplied by the backend supported-policy catalog',"window.__swaps.filter(r=>r.path==='/api/swaps/catalog').at(-1).data.paymentOptions.rules.length===document.querySelector('#swap-fixed-payment-rule').options.length-1");
  await check('swap dates can use the shared schedule-symbol resolver',"!!document.querySelector('#swap-date-lookup')");
  await click('#swap-date-lookup>summary');await wait("document.querySelector('#swap-date-lookup-symbols').options.length>0");

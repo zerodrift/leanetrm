@@ -20,24 +20,9 @@ public sealed record PowerQuantitySettlement(PowerSettlementResult Summary,Exact
 
 public static class PowerSettlement
 {
-    private static readonly BigInteger Scale=BigInteger.Pow(10,18);
-    private static BigInteger Integer(ExactDecimal value)
-    {
-        var text=value.ToString();var parts=text.TrimStart('-').Split('.');
-        var result=BigInteger.Parse(parts[0],CultureInfo.InvariantCulture)*Scale+
-            BigInteger.Parse((parts.Length==2?parts[1]:"").PadRight(18,'0'),CultureInfo.InvariantCulture);
-        return text.StartsWith('-')?-result:result;
-    }
-    private static string Rounded(BigInteger numerator,BigInteger denominator,int decimals)
-    {
-        var sign=numerator.Sign; numerator=BigInteger.Abs(numerator);
-        var scale=BigInteger.Pow(10,decimals);
-        var q=BigInteger.DivRem(numerator*scale,denominator,out var remainder);
-        if(remainder*2>denominator || remainder*2==denominator&&!q.IsEven)q++;
-        var whole=BigInteger.DivRem(q,scale,out var fraction);
-        return ExactDecimal.Parse((sign<0&&q!=0?"-":"")+whole.ToString(CultureInfo.InvariantCulture)+
-            (decimals==0?"":"."+fraction.ToString("D"+decimals,CultureInfo.InvariantCulture))).ToString();
-    }
+    private static readonly BigInteger Scale=ExactDecimal.WorkingScale;
+    private static string Rounded(BigInteger numerator,BigInteger denominator,int decimals)=>
+        ExactDecimal.Parse(new AmountFormat(decimals,CashTieRule.ToEven,false,false).FormatFraction(numerator,denominator)).ToString();
     private static Dictionary<DateTimeOffset,PowerFixing> Validate(PowerInterval[] periods,PowerFixing[] rows,PowerIndex index)
     {
         if(index is null)throw new MarketDataException("settlement_index","An exact index specification is required.");
@@ -80,7 +65,7 @@ public static class PowerSettlement
         {
             var price=new UnitPrice(fixings[p.Interval.Start].Total,new PriceUnit(index.Currency,schedule.EnergyDefinition.Key,one));
             cash=cash.Add(p.Energy.Times(price));
-            priceDuration+=Integer(price.Value)*(p.Interval.End-p.Interval.Start).Ticks;
+            priceDuration+=price.Value.ScaledValue*(p.Interval.End-p.Interval.Start).Ticks;
         }
         var rounded=cash.ToMoney(new(policy.AmountScale,CashTieRule.ToEven,false,false));
         var energy=schedule.Total.FormatValue(new(18,CashTieRule.ToEven,false,true));
@@ -93,12 +78,12 @@ public static class PowerSettlement
         BigInteger duration=0,priceDuration=0;
         foreach(var p in periods)
         {
-            var ticks=(p.End-p.Start).Ticks; duration+=ticks;priceDuration+=Integer(fixings[p.Start].Total)*ticks;
+            var ticks=(p.End-p.Start).Ticks; duration+=ticks;priceDuration+=fixings[p.Start].Total.ScaledValue*ticks;
         }
         var hourTicks=new BigInteger(TimeSpan.TicksPerHour);
-        var numerator=priceDuration*Integer(flatMegawatts); var denominator=Scale*Scale*hourTicks;
+        var numerator=priceDuration*flatMegawatts.ScaledValue; var denominator=Scale*Scale*hourTicks;
         var gcd=BigInteger.GreatestCommonDivisor(numerator,denominator);
-        return new(Rounded(duration,hourTicks,18),Rounded(duration*Integer(flatMegawatts),Scale*hourTicks,18),
+        return new(Rounded(duration,hourTicks,18),Rounded(duration*flatMegawatts.ScaledValue,Scale*hourTicks,18),
             Rounded(priceDuration,Scale*duration,policy.PriceScale),Rounded(numerator,denominator,policy.AmountScale),
             (numerator/gcd).ToString(CultureInfo.InvariantCulture),(denominator/gcd).ToString(CultureInfo.InvariantCulture),index,policy);
     }
@@ -112,7 +97,7 @@ public static class PowerSettlement
         {
             if(g.Sum(p=>(p.End-p.Start).Ticks)!=TimeSpan.TicksPerHour ||g.Any(p=>p.Start<g.Key||p.End>g.Key.AddHours(1)))
                 throw new MarketDataException("settlement_hour","Hourly diagnostics require full, aligned UTC hours.");
-            BigInteger sum=0;foreach(var p in g)sum+=Integer(fixings[p.Start].Total)*(p.End-p.Start).Ticks;
+            BigInteger sum=0;foreach(var p in g)sum+=fixings[p.Start].Total.ScaledValue*(p.End-p.Start).Ticks;
             return Rounded(sum,Scale*TimeSpan.TicksPerHour,policy.PriceScale);
         });
     }

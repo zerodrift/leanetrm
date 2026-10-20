@@ -36,11 +36,12 @@ public sealed record TradeBookingTerms
 
 internal static class PartyDefinition
 {
+    private const int MaximumNameLength = 80;
     internal static void Validate(PartyKey key, string code, string name)
     {
         if (key.CatalogId == Guid.Empty || key.Id == Guid.Empty || key.Revision <= 0 || string.IsNullOrWhiteSpace(code) ||
             code.Length > 48 || !char.IsAsciiLetterLower(code[0]) || code.Any(c => !char.IsAsciiLetterLower(c) && !char.IsAsciiDigit(c) && c != '_') ||
-            string.IsNullOrWhiteSpace(name) || name.Length > 80 || name.Contains('\0'))
+            string.IsNullOrWhiteSpace(name) || name.EnumerateRunes().Take(MaximumNameLength + 1).Count() > MaximumNameLength || name.Contains('\0'))
             throw new MarketDataException("trade_party", "A party requires an exact catalog/identity/version, business code and name.");
     }
 }

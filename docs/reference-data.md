@@ -122,6 +122,25 @@ The initial authoring bounds are 100,000 copied reference rows per version and
 latest 20 saved versions. Reaching a bound raises `reference_limit` and does not
 prune historical versions or create a partial copy.
 
+Unit symbols must contain a non-whitespace character, contain no C0/C1 controls and use
+at most 80 Unicode scalar values, matching managed amount labels. Supplementary
+characters count once. Migration 0049 validates existing rows and refuses an
+unusable symbol without truncation or replacement. The editor receives explicit
+scalar limits from the database descriptor: 80 for symbols, 300 for other text
+and 48 for decimal entry. Missing or malformed bounds fail the editor read.
+
+## Delivery price catalog integrity
+
+Delivery-price storage couples its market catalog from each collection job to
+the attempt, batch and price, including the price source's catalog. Exact
+composite foreign keys enforce these relationships independently of collector
+validation. Migration 0048 refuses inconsistent retained catalogs rather than
+repairing or discarding them. Its transactional backfill adds only the known
+parent catalog keys; existing prices, source references and commit receipts stay
+unchanged. The migration requires stopped admission and drained calls under a
+separately qualified schema upgrade. Owned stock-database checks cover retained
+rows, cross-catalog rejection and rollback; they do not qualify a live installation.
+
 ## Location types and geography
 
 One Location model uses the existing exact-version `location_types` relationship.
