@@ -114,7 +114,7 @@ public sealed record MarketSnapshot(
     public bool HasSameInputs(MarketSnapshot? other) => other is not null &&
         Id == other.Id && Definitions == other.Definitions && ValuationAt == other.ValuationAt && MarketCutoff == other.MarketCutoff &&
         SelectionPolicy == other.SelectionPolicy && !Selections.IsDefault && !other.Selections.IsDefault &&
-        Selections.Length == other.Selections.Length && Selections.ToHashSet().SetEquals(other.Selections);
+        Selections.Length == other.Selections.Length && (ReferenceEquals(this, other) || Selections.ToHashSet().SetEquals(other.Selections));
 }
 
 public readonly record struct CurveRequest(CurveKey Curve, ContractKey Contract);
@@ -136,6 +136,7 @@ public sealed record CurveEvaluation(BuiltValue Result, InputUse Use,
 public sealed record CurveBuild
 {
     internal CurveModel Model { get; }
+    internal ImmutableDictionary<InputKey, SelectedObservation> SelectedInputs { get; }
     public MarketSnapshot Snapshot { get; }
     public Guid SnapshotId => Snapshot.Id;
     public DefinitionRevision Definitions => Snapshot.Definitions;
@@ -146,9 +147,9 @@ public sealed record CurveBuild
     public int ReusedConstituents { get; }
     public Risk.QuoteShock? Shock { get; }
     internal CurveBuild(CurveModel model,MarketSnapshot snapshot,string numericalPolicy,ImmutableArray<BuiltValue> values,
-        int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,int reusedConstituents=0,Risk.QuoteShock? shock=null)
+        ImmutableDictionary<InputKey, SelectedObservation> selectedInputs,int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,int reusedConstituents=0,Risk.QuoteShock? shock=null)
     {
-        Model=model; Snapshot=snapshot; NumericalPolicy=numericalPolicy; Values=values;
+        Model=model; Snapshot=snapshot; NumericalPolicy=numericalPolicy; Values=values; SelectedInputs=selectedInputs;
         EvaluatedConstituents=evaluatedConstituents; Evaluations=evaluations;
         ReusedConstituents=reusedConstituents; Shock=shock;
     }

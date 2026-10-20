@@ -213,6 +213,7 @@ Check("explicit autumn grid preserves both repeated hours as distinct UTC slots"
 });
 passed += ScheduleChecks.Run();
 passed += BitemporalChecks.Run();
+passed += IntegerRoundingChecks.Run();
 Console.WriteLine($"{passed} shared temporal checks passed.");
 
 sealed record NamedDates(string Name, DateSet Dates);

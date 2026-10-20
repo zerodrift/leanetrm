@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Trading;
 
@@ -16,6 +17,8 @@ public sealed partial class CurveModel
     private readonly ImmutableDictionary<ReferenceKey, QuoteSpecification> quotes;
     private readonly ImmutableDictionary<ContractKey, MarketContract> contracts;
     private readonly ImmutableDictionary<CurveKey, Curve> curves;
+    private readonly FrozenDictionary<CurveKey, FrozenSet<ContractKey>> curveMembers;
+    private readonly FrozenDictionary<(CurveKey, InputSlot, ContractKey), ContractKey> mappingSources;
     private readonly ImmutableDictionary<ReferenceKey, FuturesSeriesSpecification> futures;
 
     private readonly ImmutableDictionary<ReferenceKey, ValueSpecification> valueSpecs;
@@ -39,7 +42,12 @@ public sealed partial class CurveModel
         this.series = Unique(series, v => v.Key);
         priceSeries = Unique(this.series.Values.Where(v => v.Quote is not null && v.Contract is not null),
             v => (v.Contract!.Value, v.Quote!.Value)).ToImmutableDictionary(v => v.Key, v => v.Value.Key);
+        curveMembers = this.curves.ToFrozenDictionary(pair => pair.Key,
+            pair => (pair.Value.Constituents.IsDefault ? [] : pair.Value.Constituents).ToFrozenSet());
         Validate();
+        mappingSources = this.curves.Values.SelectMany(curve => curve.Inputs.SelectMany(input =>
+            input.Mappings.Select(map => (Key: (curve.Key, input.Slot, map.Target), map.Source))))
+            .ToFrozenDictionary(map => map.Key, map => map.Source);
     }
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<ReferenceKey,FuturesContract> contractInstruments = new();
@@ -93,7 +101,7 @@ public sealed partial class CurveModel
         if (!contracts.TryGetValue(contract.Key, out var retainedContract) || retainedContract != contract ||
             !futures.TryGetValue(specification.Key, out var retainedSeries) || retainedSeries != specification ||
             !quotes.TryGetValue(quote.Key, out var retainedQuote) || retainedQuote != quote ||
-            !curves.TryGetValue(request.Curve, out var curve) || !curve.Constituents.Contains(contract.Key) ||
+            !curves.TryGetValue(request.Curve, out var curve) || !curveMembers[curve.Key].Contains(contract.Key) ||
             request.Contract != contract.Key || curve.Quote != quote.Key)
             Fail("futures_definition", "Held futures terms must equal the exact definitions used to build the market scenario.");
     }
@@ -105,7 +113,7 @@ public sealed partial class CurveModel
         if (!contracts.TryGetValue(contract.Key, out var retained) || retained != contract ||
             !quotes.TryGetValue(quote.Key, out var retainedQuote) || retainedQuote != quote ||
             !curves.TryGetValue(request.Curve, out var curve) || request.Contract != contract.Key ||
-            !curve.Constituents.Contains(contract.Key) || curve.Quote != quote.Key ||
+            !curveMembers[curve.Key].Contains(contract.Key) || curve.Quote != quote.Key ||
             curve.Settlement.Kind != SettlementKind.Index || curve.Settlement.IndexA != index ||
             curve.Settlement.IndexB is not null || quote.Kind != QuoteKind.Outright || contract.Kind != ContractKind.Forward)
             Fail("swap_definition", "A floating projection requires the exact model-owned outright index contract and quote.");
@@ -196,7 +204,7 @@ public sealed partial class CurveModel
             var output = Quote(curve);
             if (curve.Constituents.IsDefaultOrEmpty || curve.Inputs.IsDefault)
                 Fail("missing_members", "Explicit constituents and input collection are required.");
-            if (curve.Constituents.Distinct().Count() != curve.Constituents.Length)
+            if (curveMembers[curve.Key].Count != curve.Constituents.Length)
                 Fail("duplicate_member", "A constituent cannot appear twice in one curve.");
             foreach (var member in curve.Constituents)
             {
@@ -257,7 +265,7 @@ public sealed partial class CurveModel
                     Fail("mapping_coverage", "Every target requires exactly one explicit source mapping per slot.");
                 foreach (var map in input.Mappings)
                 {
-                    if (!curve.Constituents.Contains(map.Target) || !source.Constituents.Contains(map.Source))
+                    if (!curveMembers[curve.Key].Contains(map.Target) || !curveMembers[source.Key].Contains(map.Source))
                         Fail("mapping_member", "Mapped constituents must belong to the named curves.");
                     var targetContract = contracts[map.Target]; var sourceContract = contracts[map.Source];
                     if (targetContract.DeliveryFrom != sourceContract.DeliveryFrom || targetContract.DeliveryTo != sourceContract.DeliveryTo)
@@ -377,13 +385,13 @@ public sealed partial class CurveModel
                 Fail("frozen_fact", "Frozen inputs require final contract settlement or an explicit final index fixing.");
         }
         var result = requests.Select(r => Evaluate(r, InputUse.Variable)).ToImmutableArray();
-        return new CurveBuild(this, snapshot, NumericalPolicy, result, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock);
+        return new CurveBuild(this, snapshot, NumericalPolicy, result, inputs, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock);
 
         BuiltValue Evaluate(CurveRequest request, InputUse use)
         {
             cancellation.ThrowIfCancellationRequested();
             if (memo.TryGetValue((request, use), out var cached)) return cached;
-            if (!curves.TryGetValue(request.Curve, out var curve) || !curve.Constituents.Contains(request.Contract))
+            if (!curves.TryGetValue(request.Curve, out var curve) || !curveMembers[curve.Key].Contains(request.Contract))
                 throw new MarketDataException("request_member", "Requested curve constituent is absent.");
             var contract = contracts[request.Contract];
             if (use == InputUse.Variable && snapshot.ValuationAt >= contract.Expiry)
@@ -413,12 +421,12 @@ public sealed partial class CurveModel
                 BuiltValue Read(InputSlot slot)
                 {
                     var input = curve.Inputs.Single(x => x.Slot == slot);
-                    var map = input.Mappings.Single(m => m.Target == request.Contract);
-                    var source = contracts[map.Source];
+                    var sourceKey = mappingSources[(request.Curve, slot, request.Contract)];
+                    var source = contracts[sourceKey];
                     var sourceUse = snapshot.ValuationAt < source.Expiry ? InputUse.Variable :
                         input.ExpiryRule == SourceExpiryRule.FreezeFinalFuture ? InputUse.FrozenFact :
                         throw new MarketDataException("source_expired", "Source expired and its policy requires a live value.");
-                    var sourceRequest = new CurveRequest(input.Source, map.Source);
+                    var sourceRequest = new CurveRequest(input.Source, sourceKey);
                     dependencies.Add(new(slot, sourceRequest, sourceUse));
                     return Evaluate(sourceRequest, sourceUse);
                 }

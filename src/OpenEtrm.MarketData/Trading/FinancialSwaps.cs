@@ -102,6 +102,7 @@ public sealed record FloatingSide : Side
     public ImmutableArray<FloatingObservation> ObservationSchedule => Projections.Select(p =>
         new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity)).ToImmutableArray();
     public FloatingProjectionBinding PricingBinding { get; }
+    public override DefinitionIdentity PricingBindingIdentity => DefinitionIdentity.For(PricingBinding);
     public ImmutableArray<SwapProjection> Projections => PricingBinding.Projections;
     [IdentityField]
     public SwapObservationCalendar? Calendar { get; }
@@ -271,7 +272,7 @@ public sealed record FinancialSwapInstrument : SidedInstrument
     public const string Undiscounted = "explicitly_undiscounted_v1";
     [IdentityField]
     public bool Discounting { get; }
-    public DefinitionIdentity PricingBindingIdentity => DefinitionIdentity.For(Floating.PricingBinding);
+    public override DefinitionIdentity PricingBindingIdentity => Floating.PricingBindingIdentity;
     public FixedSide Fixed => (FixedSide)Sides[0].Side;
     public FloatingSide Floating => (FloatingSide)Sides[1].Side;
     public override ReferenceKey Currency => Fixed.Price.Unit.Currency;
@@ -291,9 +292,12 @@ public sealed record FinancialSwapInstrument : SidedInstrument
 
     public override InstrumentValuation PV(SideValuationContext context)
     {
-        var value = base.PV(context);
+        return RequireDiscounting(base.PV(context), Discounting);
+    }
+    internal static InstrumentValuation RequireDiscounting(InstrumentValuation value, bool discounting)
+    {
         if (value.Sides.SelectMany(s => s.Value.Payments).Any(p =>
-            Discounting == (p.Discount.Source == DiscountFactorSource.Undiscounted)))
+            discounting == (p.Discount.Source == DiscountFactorSource.Undiscounted)))
             throw new MarketDataException("swap_valuation", "Payment discounting must match the immutable instrument definition.");
         return value;
     }

@@ -14,7 +14,7 @@ public sealed partial class CurveModel
             if(!series.TryGetValue(selected.Input.Series,out var definition) || definition.Quote is not {} quoteKey ||
                 definition.Contract is not {} contract || snapshot.ValuationAt>=contracts[contract].Expiry)continue;
             var quote=quotes[quoteKey];var obs=selected.Observation;
-            var direct=curves.Values.Where(c=>c.Rule==CurveRule.Direct && c.Quote==quoteKey && c.Constituents.Contains(contract) &&
+            var direct=curves.Values.Where(c=>c.Rule==CurveRule.Direct && c.Quote==quoteKey && curveMembers[c.Key].Contains(contract) &&
                 c.DirectSource==obs.Source && c.DirectRole==obs.Role).Select(c=>c.Key).OrderBy(c=>c.Code,StringComparer.Ordinal).ToImmutableArray();
             if(!direct.IsEmpty && obs.State==PublicationState.Final)result.Add(new(selected.Input,quoteKey,PriceUnit.FromQuote(quote),contract,obs.Key,obs.Source,obs.Role,obs.Value,direct,quote.TradingTick));
         }
@@ -46,9 +46,9 @@ public sealed partial class CurveModel
             if(bump.Input.Use!=InputUse.Variable || !series.TryGetValue(bump.Input.Series,out var definition) ||
                 definition.Quote!=bump.Quote || !quotes.TryGetValue(bump.Quote,out var quote) || PriceUnit.FromQuote(quote)!=bump.Unit)
                 throw new MarketDataException("risk_factor","A shock requires the exact variable price series, quote and price unit.");
-            var selected=snapshot.Selections.SingleOrDefault(s=>s.Input==bump.Input)
-                ??throw new MarketDataException("risk_factor","The exact selected variable observation is absent.");
-            var matching=curves.Values.Where(c=>c.Rule==CurveRule.Direct && c.Quote==bump.Quote && c.Constituents.Contains(definition.Contract!.Value));
+            if(!@base.SelectedInputs.TryGetValue(bump.Input,out var selected))
+                throw new MarketDataException("risk_factor","The exact selected variable observation is absent.");
+            var matching=curves.Values.Where(c=>c.Rule==CurveRule.Direct && c.Quote==bump.Quote && curveMembers[c.Key].Contains(definition.Contract!.Value));
             if(!matching.Any(c=>c.DirectSource==selected.Observation.Source && c.DirectRole==selected.Observation.Role) ||
                 selected.Observation.State!=PublicationState.Final || snapshot.ValuationAt>=contracts[definition.Contract!.Value].Expiry)
                 Fail("risk_factor","Only an explicitly selected live direct quote is shockable; frozen facts and derived output shocks are unsupported.");

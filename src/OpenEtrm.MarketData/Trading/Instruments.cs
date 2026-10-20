@@ -12,6 +12,8 @@ internal static class TradingInstant
 public abstract record Side
 {
     public Guid Id { get; }
+    public virtual DefinitionIdentity? PricingBindingIdentity => null;
+    internal virtual ImmutableArray<Side> IdentityComponents => [this];
     public abstract ImmutableArray<CurveRequest> Dependencies { get; }
     public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) => Dependencies;
     public abstract SidePaymentSchedule GenerateSchedule();
@@ -61,6 +63,7 @@ public abstract record Instrument
 {
     public Guid Id { get; }
     public DefinitionIdentity EconomicIdentity => DefinitionIdentity.For(this);
+    public virtual DefinitionIdentity? PricingBindingIdentity => null;
     public abstract ReferenceKey Currency { get; }
     public abstract Quantity UnitQuantity { get; }
     public abstract InstrumentValuation PV(SideValuationContext context);

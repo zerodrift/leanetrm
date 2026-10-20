@@ -36,35 +36,59 @@ public sealed record PaymentDiscount
     }
 
     public static PaymentDiscount Resolve(bool discounting, ReferenceKey currency, DateOnly paymentDate,
-        MarketSnapshot snapshot, CurrencyDiscountCurve? currencyDefault)
+        MarketSnapshot snapshot, CurrencyDiscountCurve? currencyDefault) =>
+        new Resolver(discounting, snapshot, currencyDefault).Resolve(currency, paymentDate);
+
+    // One valuation owns this resolver. Full curve validation is retained, while
+    // every payment uses the same exact immutable snapshot and mapping.
+    internal sealed class Resolver(bool discounting, MarketSnapshot snapshot, CurrencyDiscountCurve? currencyDefault)
     {
-        if (snapshot is null || currency.Revision.CatalogId == Guid.Empty || currency.Revision.RevisionId == Guid.Empty ||
-            string.IsNullOrWhiteSpace(currency.Code) || snapshot.Id == Guid.Empty ||
-            snapshot.Definitions.CatalogId == Guid.Empty || snapshot.Definitions.RevisionId == Guid.Empty ||
-            snapshot.ValuationAt.Offset != TimeSpan.Zero || snapshot.MarketCutoff.Offset != TimeSpan.Zero ||
-            snapshot.MarketCutoff > snapshot.ValuationAt || snapshot.Selections.IsDefault ||
-            snapshot.SelectionPolicy != InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering ||
-            snapshot.ValuationAt.Year is < 1901 or > 2199 || paymentDate.Year is < 1901 or > 2199 ||
-            paymentDate <= DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime))
-            throw new MarketDataException("discount_context", "An exact supported currency/context and future UTC payment date are required.");
-        if (!discounting) return new(false, ExactDecimal.Parse("1"), currency, null, paymentDate, snapshot, []);
-        if (currencyDefault is null)
-            throw new MarketDataException("discount_curve_missing", "The selected currency has no configured default discount curve in this context.");
-        var mapping = currencyDefault;
-        if (mapping.Id == Guid.Empty || mapping.Definition is null || mapping.Currency != currency ||
-            mapping.Definition.Currency != currency || mapping.InterpolationPolicy != DiscountInterpolation.Policy)
-            throw new MarketDataException("discount_curve", "The exact configured currency, curve definition and interpolation policy must agree.");
-        var rates = new ZeroRateCurve(mapping.Definition).Build(snapshot);
-        var exact = rates.Values.SingleOrDefault(v => v.Maturity == paymentDate);
-        if (exact is not null)
-            return new(true, ExactDecimal.Parse(exact.DiscountFactor), currency, mapping, paymentDate, snapshot, [exact]);
-        var left = rates.Values.LastOrDefault(v => v.Maturity < paymentDate);
-        var right = rates.Values.FirstOrDefault(v => v.Maturity > paymentDate);
-        if (left is null || right is null)
-            throw new MarketDataException("discount_coverage", "Payment must be at a stored pillar or bracketed by two pillars; extrapolation is unsupported.");
-        var factor = DiscountInterpolation.Factor(left.Maturity, ExactDecimal.Parse(left.DiscountFactor),
-            right.Maturity, ExactDecimal.Parse(right.DiscountFactor), paymentDate, mapping.InterpolationPolicy);
-        return new(true, factor, currency, mapping, paymentDate, snapshot, [left, right]);
+        private ZeroRateLookup? rates;
+        private readonly Dictionary<DateOnly, PaymentDiscount> resolved = [];
+
+        internal PaymentDiscount Resolve(ReferenceKey currency, DateOnly paymentDate)
+        {
+            if (snapshot is null || currency.Revision.CatalogId == Guid.Empty || currency.Revision.RevisionId == Guid.Empty ||
+                string.IsNullOrWhiteSpace(currency.Code) || snapshot.Id == Guid.Empty ||
+                snapshot.Definitions.CatalogId == Guid.Empty || snapshot.Definitions.RevisionId == Guid.Empty ||
+                snapshot.ValuationAt.Offset != TimeSpan.Zero || snapshot.MarketCutoff.Offset != TimeSpan.Zero ||
+                snapshot.MarketCutoff > snapshot.ValuationAt || snapshot.Selections.IsDefault ||
+                snapshot.SelectionPolicy != InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering ||
+                snapshot.ValuationAt.Year is < 1901 or > 2199 || paymentDate.Year is < 1901 or > 2199 ||
+                paymentDate <= DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime))
+                throw new MarketDataException("discount_context", "An exact supported currency/context and future UTC payment date are required.");
+            if (!discounting) return new(false, ExactDecimal.Parse("1"), currency, null, paymentDate, snapshot, []);
+            if (currencyDefault is null)
+                throw new MarketDataException("discount_curve_missing", "The selected currency has no configured default discount curve in this context.");
+            var mapping = currencyDefault;
+            if (mapping.Id == Guid.Empty || mapping.Definition is null || mapping.Currency != currency ||
+                mapping.Definition.Currency != currency || mapping.InterpolationPolicy != DiscountInterpolation.Policy)
+                throw new MarketDataException("discount_curve", "The exact configured currency, curve definition and interpolation policy must agree.");
+            if (resolved.TryGetValue(paymentDate, out var cached)) return cached;
+            if (rates is null)
+            {
+                rates = new(new ZeroRateCurve(mapping.Definition).Build(snapshot));
+            }
+            var index = rates.FindPillar(paymentDate);
+            PaymentDiscount value;
+            if (index >= 0)
+            {
+                var exact = rates.Build.Values[index];
+                value = new(true, ExactDecimal.Parse(exact.DiscountFactor), currency, mapping, paymentDate, snapshot, [exact]);
+            }
+            else
+            {
+                var rightIndex = ~index;
+                if (rightIndex == 0 || rightIndex == rates.Build.Values.Length)
+                    throw new MarketDataException("discount_coverage", "Payment must be at a stored pillar or bracketed by two pillars; extrapolation is unsupported.");
+                var left = rates.Build.Values[rightIndex - 1]; var right = rates.Build.Values[rightIndex];
+                var factor = DiscountInterpolation.Factor(left.Maturity, ExactDecimal.Parse(left.DiscountFactor),
+                    right.Maturity, ExactDecimal.Parse(right.DiscountFactor), paymentDate, mapping.InterpolationPolicy);
+                value = new(true, factor, currency, mapping, paymentDate, snapshot, [left, right]);
+            }
+            resolved.Add(paymentDate, value);
+            return value;
+        }
     }
 }
 
@@ -75,6 +99,7 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
 {
     public MarketSnapshot Snapshot { get; }
     public ImmutableDictionary<SidePaymentKey, PaymentDiscount> Inputs { get; }
+    private readonly ImmutableDictionary<Guid, ImmutableArray<SidePaymentFactor>> factorsBySide;
     public CurrencyDefaultDiscounting(IEnumerable<SidePaymentSchedule> schedules, MarketSnapshot snapshot,
         bool discounting, CurrencyDiscountCurve? currencyDefault)
     {
@@ -85,21 +110,23 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
             throw new MarketDataException("discount_context", "At least one valid side schedule is required.");
         Snapshot = snapshot;
         var selected = ImmutableDictionary.CreateBuilder<SidePaymentKey, PaymentDiscount>();
+        var resolver = new PaymentDiscount.Resolver(discounting, snapshot, currencyDefault);
         foreach (var schedule in plans)
         foreach (var payment in schedule.Payments)
         {
-            if (!selected.TryAdd(payment.Key, PaymentDiscount.Resolve(discounting, payment.Currency,
-                payment.PaymentDate, snapshot, currencyDefault)))
+            if (!selected.TryAdd(payment.Key, resolver.Resolve(payment.Currency, payment.PaymentDate)))
                 throw new MarketDataException("side_payment_factors", "Side payment identities must be distinct in this discount context.");
         }
         Inputs = selected.ToImmutable();
+        factorsBySide = Inputs.GroupBy(p => p.Key.SideId).ToImmutableDictionary(g => g.Key,
+            g => g.Select(p => new SidePaymentFactor(p.Key, p.Value.Factor, Snapshot,
+                p.Value.Enabled ? DiscountFactorSource.CurrencyDefault : DiscountFactorSource.Undiscounted)).ToImmutableArray());
     }
     public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot)
     {
         if (!Snapshot.HasSameInputs(snapshot))
             throw new MarketDataException("discount_context", "Discount inputs must retain the complete selected side valuation context.");
-        return Inputs.Where(p => p.Key.SideId == schedule.SideId).Select(p => new SidePaymentFactor(p.Key, p.Value.Factor,
-            Snapshot, p.Value.Enabled ? DiscountFactorSource.CurrencyDefault : DiscountFactorSource.Undiscounted)).ToImmutableArray();
+        return factorsBySide.TryGetValue(schedule.SideId, out var factors) ? factors : [];
     }
 }
 
@@ -158,18 +185,28 @@ public static class FinancialSwapValuation
         if(instrument is null)throw new MarketDataException("swap_context","An explicit instrument is required.");
         return new(instrument.Sides.Select(m=>m.Side.GenerateSchedule()),snapshot,instrument.Discounting,currencyDefault);
     }
-    public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault)
+    public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
+        Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
+    public static FinancialSwapEvaluation Evaluate(MonthlyFinancialSwap instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
+        Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
+    private static FinancialSwapEvaluation Evaluate(SidedInstrument? instrument,CurveBuild market,bool discounting,
+        CurrencyDiscountCurve? currencyDefault,bool? declaredDiscounting)
     {
         if(instrument is null||market is null)throw new MarketDataException("swap_context","An explicit instrument and built market scenario are required.");
-        if(discounting!=instrument.Discounting)throw new MarketDataException("swap_valuation","Discounting must match the immutable instrument definition.");
-        var inputs=CreateDiscounting(instrument,market.Snapshot,currencyDefault);
+        if(discounting!=declaredDiscounting)throw new MarketDataException("swap_valuation","Discounting must match the immutable instrument definition.");
+        var inputs=new CurrencyDefaultDiscounting(instrument.Sides.Select(m=>m.Side.GenerateSchedule()),market.Snapshot,discounting,currencyDefault);
         var value=instrument.PV(new SideValuationContext(market,inputs));
         return new(value,value.Sides.Select(s=>new DiscountedSideValuation(s,s.Value.Payments.Select(p=>new DiscountedSidePayment(p,inputs.Inputs[p.Plan.Key],value.Snapshot)).ToImmutableArray())).ToImmutableArray());
     }
-    public static FinancialSwapValue Price(FinancialSwapInstrument instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault)
+    public static FinancialSwapValue Price(FinancialSwapInstrument instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
+        Price(instrument,market,quantity,discounting,currencyDefault,instrument?.Discounting);
+    public static FinancialSwapValue Price(MonthlyFinancialSwap instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
+        Price(instrument,market,quantity,discounting,currencyDefault,instrument?.Discounting);
+    private static FinancialSwapValue Price(SidedInstrument? instrument,CurveBuild market,Quantity quantity,bool discounting,
+        CurrencyDiscountCurve? currencyDefault,bool? declaredDiscounting)
     {
         if(instrument is null||quantity is null||(instrument.UnitQuantity is not {} basis||quantity.Specification!=basis.Specification)||quantity.Amount.CompareTo(default)<=0)
             throw new MarketDataException("swap_quantity","Supply a positive trade quantity in the exact financial swap unit.");
-        return Evaluate(instrument,market,discounting,currencyDefault).Scale(quantity);
+        return Evaluate(instrument,market,discounting,currencyDefault,declaredDiscounting).Scale(quantity);
     }
 }
