@@ -26,6 +26,9 @@ public static class MarketCloses
         if(pin.Context is not null)throw new MarketDataException("historical_read_only","Register closes in the current workspace.");
         if(request.RequestId==Guid.Empty||request.SnapshotId!=frame.Id||string.IsNullOrWhiteSpace(request.Name)||request.Name.Length>80)
             throw new MarketDataException("pilot_close_input","Select an exact existing frame and name this retained close.");
+        // A close records main-market pins only, so it cannot keep a separate swap-bundle selection (D172).
+        if(frame.SwapMarketSelections is not null)
+            throw new MarketDataException("close_swap_market_pins","A close cannot record this frame's selected swap-market revisions.");
         var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,
             observationScope:ObservationReadScope.ExactPins,referenceScope:ReferenceReadScope.TradeValuation);
         // Qualify exactly the declared frame; no implicit membership, latest

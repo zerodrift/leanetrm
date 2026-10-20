@@ -560,8 +560,8 @@ browser, provider or agent defaults.
   unverified operational prices are distinguished from verified values.
 - [ERCOT market prices](https://www.ercot.com/mktinfo/prices): LMP/SPP products and
   price-correction stages are explicit.
-- [Natural-gas methodology](https://www.spglobal.com/content/dam/spglobal/ci/en/documents/platts/en/our-methodology/methodology-specifications/natural-gas/us-canada-natural-gas-methodology.pdf):
-  publisher-specific stages and trade/flow-day calendars need exact selection.
+- Natural-gas index publications: publisher-specific stages and trade/flow-day
+  calendars need exact selection.
 
 Research informs qualification; these links do not select an installation's
 contract, grant data rights or establish a production implementation.

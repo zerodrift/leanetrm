@@ -100,8 +100,9 @@ Priced trading workspace reads retain the complete catalog and report while
 loading only their consumed first/last-trading milestones and exact primary
 snapshot observation pins. Missing required facts still fail under current
 authorization and the selected historical cutoff. Full metadata reads retain
-all milestone kinds. Generic observation reads retain their same-fact history;
-supplemental swap markets still resolve their visible corrections.
+all milestone kinds. Generic observation reads retain their same-fact history.
+Supplemental swap markets price their snapshot's exact pins and resolve visible
+corrections only in a certified context's own frames (D172).
 Built-in calendar availability reads the union of every offered snapshot's exact
 observation pins. Each snapshot still validates all its pins, including those
 outside the selected curve. Custom-curve availability retains its broader
@@ -571,6 +572,9 @@ selected snapshot must contain its exact final `index_fixing` observation as a
 frozen fact. Unresolved observations retain their declared projection and original
 averaging weights. A partly fixed period combines actuals and projections; missing
 due actuals fail explicitly. Frozen actuals contribute cash but no live quote risk.
+Every bundle, including the separate daily swap bundle, prices its snapshot's exact
+pins (D172). A corrected actual reaches valuation only through a new snapshot that
+selects it, or through a certified context's latest-correction policy at its cutoff.
 The bounded implementation consumes qualified, explicit dated schedules; it does
 not invent publisher conventions, peak calendars or holiday/DST publication rules.
 Old projection-only definitions retain their original boundary and replay meaning.
@@ -653,6 +657,7 @@ used pillar dates/rates/factors and interpolation policy. An explicit scalar
 common-factor convenience operation remains limited to identical payment dates;
 independent dates require per-side factors. Persisted recurring periods and fixing/payment
 lifecycle transitions remain work; retained actual inputs do not settle a trade.
+Valuation rejects a due payment (`side_payment_due`) before resolving any discount factor.
 Futures execution P&L remains a separate implemented operation; generic futures PV/schedules reject
 without the required retained variation-margin/settlement lifecycle state.
 
@@ -1453,7 +1458,8 @@ distribution; a fast synthetic run does not establish an unlimited data envelope
 Navigation uses an authorized catalog read without observation history.
 Evaluation can explicitly request the selected frame's source observations and
 same-fact correction versions. Both anchor pins and returned versions retain the
-same RLS and historical cutoff; calculations still consume the exact frame pins.
+same RLS and historical cutoff; calculations still consume the exact frame pins,
+in every market bundle the frame reads (D172).
 The browser replaces source rows with that response and formats only displayed
 results through the managed formatter. There is no cross-request authority cache.
 The full workspace read remains available for existing inspection clients.

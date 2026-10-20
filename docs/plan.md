@@ -148,7 +148,9 @@ bindings. The valuation path combines final, exactly pinned actual fixings with
 remaining projections under unchanged observation weights. Due missing fixings
 are structured errors. Actuals retain frozen lineage and cannot become live quote
 risk. Legacy projection-only definitions and idempotent retries remain retained;
-new raw/manual boundary writes are closed. Public fixtures are synthetic. Real
+new raw/manual boundary writes are closed. Every bundle, including the separate
+daily swap bundle, prices its snapshot's exact pins; a corrected actual needs a
+new snapshot or a certified cutoff (D172). Public fixtures are synthetic. Real
 publisher schedules, peak-product observations, licensed actual data ingestion and
 fixing/payment lifecycle operations require separate qualification.
 
@@ -921,8 +923,9 @@ Priced trading workspace reads explicitly limit milestone metadata to the requir
 first/last-trading facts and primary observations to the selected snapshot pins.
 Checks compare complete retained catalog/report responses, reject missing required
 facts and prove unused metadata/corrections are not read. Generic/full metadata
-reads and supplemental swap correction resolution retain their existing scope;
-end-to-end cold-entry performance requires separate qualification.
+reads retain their existing scope. Supplemental swap markets resolve corrections
+only in a certified context's own frames (D172). End-to-end cold-entry
+performance requires separate qualification.
 Reference reads avoid a duplicate permissive scope check only where the mandatory
 restrictive visibility policy already checks the same current authority per row.
 Exact policy/helper guards and expiry, scope, historical and policy-composition

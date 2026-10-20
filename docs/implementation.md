@@ -227,9 +227,10 @@ business-day observations, calendar-day weighting using the preceding/following
 eligible observation, and explicitly supplied positive daily quantity weights.
 Business-day rules require a covered exact calendar. Every required projection
 must be present in date order; unsupported rules and gaps fail explicitly. The
-bounded delivery interval is at most 366 days. This first forecast model rejects
-valuation at or after the declared first fixing; retained actual fixings and
-settlement remain future work.
+bounded delivery interval is at most 366 days. Legacy projection-only sides reject
+valuation at or after their declared first fixing. Indexed sides consume exact
+pinned actual fixings from their qualified schedules (D165, D172); settlement
+remains future work.
 
 Each side applies its own quote multiplier and payment factors to exact rational
 cash amounts. Exact side PVs survive signed instrument aggregation and later
