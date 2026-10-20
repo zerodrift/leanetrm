@@ -8,6 +8,59 @@ using OpenEtrm.Shared.Temporal;
 
 internal static class MonthlySwapRateChecks
 {
+    public static void Benchmark()
+    {
+        Run();
+        foreach (var months in new[] { 120, 360 })
+        {
+            var f = new Fixture(months); var swap = f.Swap(MonthlyQuantityBasis.PerMonth);
+            var market = f.Model.Build(f.Snapshot, swap.Dependencies);
+            var expected = Enumerable.Range(0, months).Sum(n => (n + 1) * f.Factors[n]);
+            FinancialSwapValue Price() => FinancialSwapValuation.Price(swap, market, new(D(100), f.Quote.Quantity), true, f.Mapping);
+            var provider = new CurrencyDefaultDiscounting(swap.Sides.Select(s => s.Side.GenerateSchedule()), f.Snapshot, true, f.Mapping);
+            var books = new[] { Guid.NewGuid(), Guid.NewGuid() };
+            var positions = Enumerable.Range(0, 10000).Select(n => new RiskPosition(Guid.NewGuid(), Guid.NewGuid(), books[n % 2], swap.Id,
+                new(D(100), f.Quote.Quantity), new(new Money(default, f.Quote.Currency), f.Quote.Quantity), new(default, f.Quote.Currency))).ToImmutableArray();
+            var portfolio = new ValuationPortfolio([swap], positions,
+                new(ValuationMeasure.PresentValue, ImmutableDictionary<Guid, FuturesMarketBinding>.Empty, provider));
+            var bump = new QuoteBump(new(f.CommoditySeries[^1], InputUse.Variable), f.Quote.Key,
+                PriceUnit.FromQuote(f.Quote), ExactDecimal.Parse("0.01"), QuoteBump.Convention);
+            RiskRun Risk() => RiskEngine.Calculate(f.Model, f.Snapshot, portfolio, [bump], RiskEngine.NumericalPolicy);
+            var measuredPrice = Measure(Price); Equal(measuredPrice.Result.PresentValue.Amount, expected);
+            var measuredRisk = Measure(Risk);
+            foreach (var row in measuredRisk.Result.Factors[0].Positions)
+            { Equal(row.Base.Amount, expected); Equal(row.Delta.Value, 100 * f.Factors[^1]); }
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new {
+                workload="synthetic_monthly_swap_dated_yield_and_shared_trade_shock_v1", months,
+                uniqueContracts=months, curves=1, ratePillars=months, snapshotSelections=2*months,
+                uniqueInstruments=1, sidePayments=2*months, positions=positions.Length, books=2,
+                riskScenarios=measuredRisk.Result.Work.ScenarioCount,
+                unitPricerCalls=measuredRisk.Result.Work.UnitPricerCalls,
+                rebuiltCurveNodes=measuredRisk.Result.Work.RebuiltCurveNodes,
+                reusedCurveNodes=measuredRisk.Result.Work.ReusedCurveNodes,
+                evaluatedBaseCurveNodes=market.EvaluatedConstituents,
+                priceMilliseconds=measuredPrice.Milliseconds,priceAllocatedBytes=measuredPrice.Allocated,
+                riskMilliseconds=measuredRisk.Milliseconds,riskAllocatedBytes=measuredRisk.Allocated,
+                managedHeapBytes=GC.GetTotalMemory(false),residentBytes=System.Diagnostics.Process.GetCurrentProcess().WorkingSet64,
+                runtime=System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+                os=System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                architecture=System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
+                processors=Environment.ProcessorCount,databaseReads=0,
+                constructionExcluded=true,priceIncludesCurveBuild=false,riskIncludesCurveBuild=true
+            }));
+        }
+    }
+    private static (T Result, double[] Milliseconds, long[] Allocated) Measure<T>(Func<T> action)
+    {
+        _=action();var milliseconds=new double[5];var allocated=new long[5];T result=default!;
+        for(var n=0;n<5;n++)
+        {
+            var before=GC.GetAllocatedBytesForCurrentThread();var clock=System.Diagnostics.Stopwatch.StartNew();
+            result=action();clock.Stop();milliseconds[n]=clock.Elapsed.TotalMilliseconds;
+            allocated[n]=GC.GetAllocatedBytesForCurrentThread()-before;
+        }
+        return(result,milliseconds,allocated);
+    }
     public static int Run()
     {
         var passed = 0;

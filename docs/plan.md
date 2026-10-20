@@ -148,6 +148,14 @@ new raw/manual boundary writes are closed. Public fixtures are synthetic. Real
 publisher schedules, peak-product observations, licensed actual data ingestion and
 fixing/payment lifecycle operations require separate qualification.
 
+Managed multi-year monthly pricing now composes existing fixed/floating monthly
+sides, preserving exact per-payment lookups and DFs. Per-month quantity, an
+equal-month allocation of total quantity and a calendar-day-weighted allocation
+are explicit versioned choices; rational allocation precedes external trade
+scaling. Independent 10/30-year price, discount and shared-trade shock checks
+qualify this managed consumer. Persistent multi-year booking and the risk
+screen's booked-swap integration remain work. See [pricing lookups](pricing-lookups.md).
+
 Financial gas and power swaps now have local booking/amendment operations, a
 shared trade blotter and an editor with independently valued side tables. The
 booking model supports one whole delivery month, monthly-index or complete daily
@@ -173,7 +181,7 @@ Shared tables now guard row activation during selection/scrolling and use a sing
 scroll container for schedule inspection.
 The managed core additionally validates calendar-based and quantity-weighted
 rules; those need persisted authoring before booking controls are exposed.
-Fixing lifecycle events, recurring payment strips, persisted portfolio swap risk,
+Fixing lifecycle events, persisted recurring payment strips, persisted portfolio swap risk,
 physical products and PPAs remain work. Draft swap quote risk supports unresolved
 observations; final index fixings remain frozen inputs.
 FixedSide and FloatingSide now independently generate and value their own
@@ -181,7 +189,7 @@ schedules through Side.PV. Each side currently has one payment; payment/delivery
 dates and DFs can differ. Side results retain normalized unit quantities, lookup
 terms/weights, prices/lineage, exact cash/PV and discount construction evidence.
 Instrument.PV only sums membership-signed side PVs under one full context; trade
-quantity scales afterward. Recurring periods and fixing lifecycle events remain
+quantity scales afterward. Persisted recurring periods and fixing lifecycle events remain
 work; the browser inspector now exposes the actual valued payment and reset rows. Options retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open and no option model is enabled.
