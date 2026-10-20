@@ -21,7 +21,7 @@ import {dataSections} from './data-sections.js';
 import {type Preferences,newPreferences,loadPreferences,savePreferences,validTimeZone} from './preferences.js';
 import {setupShortcutEditor,scheduleErrorMessage} from './shortcut-view.js';
 import {setupTouProducts} from './tou-products.js';
-import {validateMarketNavigation,navigationGroups,navigationCategoryName,type MarketNavigation} from './market-navigation.js';
+import {validateMarketNavigation,navigationGroups,navigationCategoryName,type MarketNavigation,type FrameSummary} from './market-navigation.js';
 
 const exampleId=new URLSearchParams(location.search).get('example')??'baseline';
 if(!['baseline','exchange'].includes(exampleId))throw Error('Choose an available example.');
@@ -32,6 +32,7 @@ const text=(id:string,value:string)=>{$(id).textContent=publicText(value);};
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,content?:string){const node=document.createElement(tag);if(content!==undefined)node.textContent=publicText(content);return node;}
 function choose(id:string,options:{value:string;name:string}[],value:string){const node=select(id);node.replaceChildren(...options.map(o=>{const option=el('option',o.name);option.value=o.value;return option;}));node.value=value;}
 let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,contract='',historyData:PriceHistory|undefined,pricingContract='',showAllContracts=false,input='',draftFor='',busy=false,page='market';
+let sourceOnlyCurve=false;
 let contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 let navigation:MarketNavigation|undefined,marketGeneration=0;
 type ReferencePage={table:string;rows:Row[];references:Record<string,Row[]>;referenceDisplay?:ReferenceDisplay|null;offset:number;pageSize:number;maximumOffset:number;hasMore:boolean;search:string;referenceRevision:{catalogId:string;revisionId:string};definitionRevisionId:string;context:Context|null;profile:string;referenceScope:'selected_table'};
@@ -65,7 +66,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();parties.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();deliveryPrices.sync();marketCalendar.sync();if(initialWorkspaceReady)customCurves.sync();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();parties.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();marketCalendar.sync();if(initialWorkspaceReady)customCurves.sync();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -102,7 +103,7 @@ function action(name:string,run:()=>Promise<void>){const button=el('button',name
 function decimalTick(){if(!workspace||!curve||marketType(selectedCurve(),data())!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][]){
   const referenceScope=[data().profile,page,select('reference-table').value,referencePage?.referenceRevision,referencePage?.offset,referencePage?.search,historicalContext()];
-  const marketScope=[data().profile,curve,result?.snapshotId??'',target==='history-values'?contract:'',target==='revisions'?input:'',...(['inputs','mappings'].includes(target)?[showAllContracts?'all':pricingContract]:[])];
+  const marketScope=[data().profile,curve,result?.snapshotId??'',target==='history-values'?contract:'',target==='revisions'?input:'',...(['inputs','mappings'].includes(target)?[showAllContracts||target==='inputs'&&sourceOnlyCurve?'all':pricingContract]:[])];
   renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows});
 }
 
@@ -126,7 +127,7 @@ function invalidateMarketDates(){
  marketDateGeneration++;marketDatesLoaded=false;
  marketCalendar.invalidate(contextDirty?'Apply the changed history and knowledge context first.':'Open the calendar to check available closes.');
 }
-async function openMarketCalendar(){
+async function openMarketCalendar(allowCatalogRefresh=true):Promise<void>{
  if(!navigation||contextDirty)return;
  if(marketDatesLoaded){marketCalendar.show();return;}
  const definition=page==='custom-curves'?customCurves.dateDefinition():undefined;
@@ -137,6 +138,11 @@ async function openMarketCalendar(){
   const catalog=await api<MarketDates>('market/dates',request);
   if(navigation!==owner||generation!==marketDateGeneration)return;
   const frames=catalog.dates.flatMap(group=>group.frames),ids=new Set(frames.map(close=>close.id)),allowed=new Set([...select('snapshot').options].map(option=>option.value));
+  if(allowCatalogRefresh&&catalog.frameCatalog?.durableSelection==='exact_recorded_close_pins_v1'&&frames.some(close=>!allowed.has(close.id))){
+   const selected=select('snapshot').value;await reload(selected);
+   if(selected&&select('snapshot').value!==selected){clearPrices();throw Error('The selected close is outside the current saved-close catalog. Choose an available close explicitly.');}
+   return openMarketCalendar(false);
+  }
   if(catalog.selectionPolicy!=='exact_snapshot_no_close_substitution_v1'||catalog.timeZone!==prefs.timeZone||catalog.curve!==request.curve||
    JSON.stringify(catalog.context??null)!==JSON.stringify(historicalContext()??null)||ids.size!==frames.length||
    catalog.dates.some(group=>!/^\d{4}-\d{2}-\d{2}$/.test(group.date)||!group.frames.length)||frames.some(close=>!allowed.has(close.id)||!owner.frames.some(frame=>frame.id===close.id&&frame.at===close.at)))
@@ -238,11 +244,11 @@ function renderHistory(){
 async function history(){if(!result||!contract)return;const owner=result,selected=contract,started=marketGeneration,scope=marketSelection();clearChart($('history-chart'));historyData=undefined;$('history-card').hidden=true;const next=await api<PriceHistory>('history',{snapshotId:result.snapshotId,curve:result.curve,...(result.kind==='rates'?{seriesId:contract}:{contractId:contract})});if(result!==owner||contract!==selected||started!==marketGeneration||scope!==marketSelection())throw Error('The account or market selection changed. Reload before continuing.');historyData=next;renderHistory();}
 function renderInputs(){
   if(!result||!result.points.length){text('inputs',result?'No price sources are needed for an empty delivery window.':'Choose a market date to view price sources.');text('input-count','');return;}
-  const used=new Set(pricingPoints().flatMap(p=>p.lineage));if([...used].some(id=>!pricingFrame().observationIds.includes(id)))throw Error('A required source observation is missing from this market date.');const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
+  const used=new Set(sourcePoints().flatMap(p=>p.lineage));if([...used].some(id=>!pricingFrame().observationIds.includes(id)))throw Error('A required source observation is missing from this market date.');const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
   table('inputs',[isRates()?'Maturity':'Delivery period','Input','Source','Value','Units',''],obs.map(o=>{const series=row('series','id',val(o,'series_id')),c=series.contract_id?row('contracts','id',val(series,'contract_id')):undefined;return [c?deliveryLabel(val(c,'delivery_from'),val(c,'delivery_to')):data().definitions.rate_curve_points.some(p=>p.curve_code===curve&&p.series_id===series.id)?displayDate(val(data().definitions.rate_curve_points.find(p=>p.curve_code===curve&&p.series_id===series.id)!,'maturity')):'All months',sourceName(series),referenceName('sources',val(o,'source_code')),val(o,'value'),inputUnit(series),action(canCorrect()?'Correct price':'View versions',async()=>{input=val(o,'id');renderRevisions();})];}),[3]);renderRevisions();
 }
 function renderRevisions(){
-  if(!input||!pricingFrame().observationIds.includes(input)||!pricingPoints().some(p=>p.lineage.includes(input))){$('revision-card').hidden=true;return;}
+  if(!input||!pricingFrame().observationIds.includes(input)||!sourcePoints().some(p=>p.lineage.includes(input))){$('revision-card').hidden=true;return;}
   const o=observation(input),series=row('series','id',val(o,'series_id'));$('revision-card').hidden=false;text('correction-description',`${sourceName(series)} · ${instant(val(o,'observed_at'))} · ${inputUnit(series)}`);
   const editor=canCorrect();$('correction-form').hidden=!editor;text('changes-title',`${editor?'Correct':'Versions of'} this ${isRates()?'rate':'price'}`);
   text('edit-help',isRates()?'Enter an annual decimal rate: 0.025 means 2.5%. Earlier versions stay available.':'Earlier prices stay available. Saving adds a new version for you to view.');
@@ -259,8 +265,10 @@ function pricingPoints(){
   if(!result||!result.points.length)throw Error('The contract pricing details are unavailable.');
   return showAllContracts?result.points:[pricingPoint()];
 }
+function sourcePoints(){return sourceOnlyCurve&&result?result.points:pricingPoints();}
 function drawPricingGraph(target:HTMLElement,graph:PricingGraph){renderPricingGraph(target,graph,curveName,unit);}
 function renderDependencies(){
+  sourceOnlyCurve=false;select('source-contract').closest<HTMLElement>('.pricing-toolbar')!.hidden=false;
   document.body.classList.toggle('showing-all-contracts',showAllContracts&&!!result);
   for(const id of ['source-flow','dependencies','mappings','inputs'])$(id).replaceChildren();$('revision-card').hidden=true;
   for(const id of ['source-all','pricing-all']){text(id,showAllContracts?'Show selected contract':'Show all contracts');$(id).setAttribute('aria-pressed',String(showAllContracts));}
@@ -281,8 +289,14 @@ function renderDependencies(){
     table('mappings',['Maturity','Calculation','Discount factor'],points.map(p=>[displayDate(pointDate(p)),`1 ÷ (1 + ${p.annualRate} × ${p.actualDays} / 365)`,p.discountFactor!]),[2]);
   }else{
     const graphs=points.map(point=>pricingGraph(result!,point));
-    if(showAllContracts){for(const container of [sources,dependencies]){const host=el('section');renderWorkbook(host,curveWorkbook(result,unit,curveName));container.append(host);}}
-    else for(const graph of graphs)for(const container of [sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';drawPricingGraph(section,graph);container.append(section);}
+    const workbook=showAllContracts||graphs.every(graph=>graph.nodes.length===1)?curveWorkbook(result,unit,curveName):undefined;
+    sourceOnlyCurve=workbook?.connections.length===0;
+    const workbookTargets:DocumentFragment[]=[];
+    if(showAllContracts||sourceOnlyCurve)workbookTargets.push(sources);
+    if(showAllContracts)workbookTargets.push(dependencies);
+    for(const container of workbookTargets){const host=el('section');renderWorkbook(host,workbook!);container.append(host);}
+    if(!showAllContracts)for(const graph of graphs)for(const container of sourceOnlyCurve?[dependencies]:[sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';drawPricingGraph(section,graph);container.append(section);}
+    select('source-contract').closest<HTMLElement>('.pricing-toolbar')!.hidden=sourceOnlyCurve;
     table('mappings',['Delivery period','Step','Curve','Calculation','Result','Units'],graphs.flatMap(graph=>graph.nodes.map((n,i)=>[deliveryLabel(graph.root.deliveryFrom,graph.root.deliveryTo),String(i+1),`${curveName(n.curve)} · ${deliveryLabel(n.deliveryFrom,n.deliveryTo)}`,pricingEquation(n,graph),n.value,unit(n.quote)])),[4]);
     $('mappings').append(el('p',`Settlement: ${settlementText()}.`));
   }
@@ -337,9 +351,10 @@ function validateWorkspace(next:Workspace,owner:MarketNavigation,started:number,
   if(next.referenceScope!=='definition_closure'||next.observationScope!=='on_demand'||!Array.isArray(next.observations)||next.observations.length||!Array.isArray(next.curveNames))throw Error('The market catalog is missing or inconsistent. Refresh and try again.');
   const revision=next.definitions?.revisions?.[0];
   const sameRevision=revision&&val(revision,'catalog_id')===owner.definitionRevision.catalogId&&val(revision,'id')===owner.definitionRevision.revisionId&&val(revision,'reference_catalog_id')===owner.referenceRevision.catalogId&&val(revision,'reference_revision_id')===owner.referenceRevision.revisionId;
-  const summaries=next.frames?.map(({id,name,at})=>({id,name,at}));
+  const summarize=({id,name,at,originCloseId}:FrameSummary)=>({id,name,at,originCloseId:originCloseId??null});
+  const summaries=next.frames?.map(summarize);
   if(navigation!==owner||started!==marketGeneration||scope!==marketSelection()||contextDirty||next.profile!==owner.profile||!sameRevision||
-     JSON.stringify((next as Workspace & {context?:Context}).context??null)!==JSON.stringify(owner.context)||JSON.stringify(summaries)!==JSON.stringify(owner.frames)||
+     JSON.stringify((next as Workspace & {context?:Context}).context??null)!==JSON.stringify(owner.context)||JSON.stringify(summaries)!==JSON.stringify(owner.frames.map(summarize))||
      JSON.stringify(next.initialFrameIds)!==JSON.stringify(owner.initialFrameIds)||next.futuresConvention!==owner.futuresConvention)
     throw Error('The account or market selection changed, or the market catalog is inconsistent. Reload before continuing.');
   return next;
@@ -401,7 +416,7 @@ async function loadIdentity(initialAccess?:unknown){
   // Navigation follows current permissions; the backend still authorizes every operation.
   const read=can('ReadMarketData'),author=read&&(can('WriteMarketDefinitions')||can('SealMarketDefinitions')),manage=can('ManageAccess')&&can('ManageIdentities');
   for(const id of ['nav-market','nav-custom-curves','nav-delivery','nav-power','nav-reference','nav-schedules'])$(id).hidden=!read;
-  $('nav-configuration').hidden=!author;$('schedule-inspector').hidden=!author;
+  $('nav-configuration').hidden=!read;$('schedule-inspector').hidden=!author;
   $('nav-parties').hidden=!read||!permissions.includes('ReadTradeParties');$('nav-admin').hidden=!manage;$('nav-ai').hidden=hostedPilot||!can('ManageModelProviders');$('nav-futures').hidden=!read||!permissions.includes('ReadTrades');$('trading-menu').hidden=$('nav-futures').hidden;
   if(read){await loadNavigation();renderFrames('');renderContext();setPage('market');}
   else if(manage){setPage('admin');await administration.load();renderLayout();}
@@ -414,7 +429,7 @@ $('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').on
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);});
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
-function dirtyContext(){marketGeneration++;customCurves.contextChanged();deliveryPrices.reset();parties.reset();clearReference();futures.reset();power.reset();contextDirty=true;clearPrices();text('environment-context-note','Context changed · choose View this context to apply it.');}
+function dirtyContext(){marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();parties.reset();clearReference();futures.reset();power.reset();contextDirty=true;clearPrices();text('environment-context-note','Context changed · choose View this context to apply it.');}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 $('nav-parties').onclick=()=>void act(async()=>{if(contextDirty)await applyContext();setPage('parties');await parties.load();});
 const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=>administrationScope+':'+currentProfile,profileChoices);
@@ -422,17 +437,18 @@ $('nav-admin').onclick=()=>void act(async()=>{setPage('admin');await administrat
 // Settings › AI exists only in the local preview; hosted mode maps none of its routes (docs/ai-assistant.md §11).
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 $('nav-ai').onclick=()=>void act(async()=>{setPage('ai');await aiSettings.load();});
-const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext);
+const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile);
 $('date-context').addEventListener('input',dirtyContext);
 async function applyContext(){
+  jobs.contextChanged();
   const context=await dateEditor.context();
   const snapshot=await api<{context:Context}>('market/context',{effectiveOn:context.effectiveOn,knownAt:context.knownAt,mode:'at',selection:'latest_correction'});
   futures.reset();dateEditor.setContext(snapshot.context);contextDirty=false;clearPrices();await reload('');
-  text('environment-context-note','Historical view · latest corrections known at the chosen time. Changes are disabled.');
+  text('environment-context-note','Historical view · working snapshots use the latest known corrections; stored closes retain their original inputs. Changes are disabled.');
 }
 $('close-view-context').onclick=()=>{$<HTMLDetailsElement>('date-context').open=false;};
 $('apply-view-context').onclick=()=>void act(async()=>{await applyContext();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();});
-async function currentInputs(){customCurves.contextChanged();parties.reset();unitConverter.reset();futures.reset();power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');text('environment-context-note','Current workspace · exact selected inputs');}
+async function currentInputs(){jobs.contextChanged();customCurves.contextChanged();parties.reset();unitConverter.reset();futures.reset();power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');text('environment-context-note','Current workspace · exact selected inputs');}
 $('current-view-context').onclick=()=>void act(async()=>{await currentInputs();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();});
 $('return-working').onclick=()=>void act(async()=>{await currentInputs();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();});
 const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScopeChanged:invalidateMarketDates,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});

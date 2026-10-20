@@ -1,7 +1,8 @@
 import {displayDate,displayInstant,publicText,timeLabels} from './market-view.js';
+import {frameCatalogNote,type FrameCatalog} from './frame-catalog.js';
 
 export type MarketClose={id:string;at:string;name:string;businessDateUTC:string};
-export type MarketDates={context:unknown;curve:string|null;timeZone:string;selectionPolicy:string;dates:{date:string;frames:MarketClose[]}[];unavailable:{date:string;reason:string}[];minDate:string|null;maxDate:string|null};
+export type MarketDates={context:unknown;curve:string|null;timeZone:string;selectionPolicy:string;dates:{date:string;frames:MarketClose[]}[];unavailable:{date:string;reason:string}[];minDate:string|null;maxDate:string|null;frameCatalog?:FrameCatalog};
 
 // Gregorian layout only. Available business dates and exact closes come from
 // the authorized backend; this component never infers a publication calendar.
@@ -80,7 +81,7 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
    catalog=nextCatalog;pending=false;message=nextCatalog.dates.length?`${nextCatalog.timeZone} · available closes only`:'No complete close is available for this selection.';
    if(options.selected()&&!allCloses().some(frame=>frame.id===options.selected()))message='The selected close is unavailable for this curve. Choose an available calendar date.';
    const selected=catalog.dates.find(group=>group.frames.some(frame=>frame.id===options.selected()));shownMonth=(selected?.date??catalog.minDate??catalog.dates[0]?.date??'').slice(0,7);chosenDate=selected?.date??'';
-   scope.textContent=`${nextCatalog.timeZone}. Select an available date, then an exact close when several exist. Financial history and knowledge controls remain separate.`;header();if(dialog.open)render();
+   scope.textContent=`${nextCatalog.timeZone}. Select an available date, then an exact close when several exist. ${frameCatalogNote(nextCatalog.frameCatalog)} Financial history and knowledge controls remain separate.`;header();if(dialog.open)render();
   },
   loading(){pending=true;message='Checking available closes…';header();},
   unavailable(note:string){reset(note);},

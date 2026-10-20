@@ -72,12 +72,16 @@ conflicting bindings and cancellation. Streaming book summaries retain one facto
 pair at a time and expose unit calls, reuse and quantity applications.
 
 This qualifies the managed calculation path, not production throughput. The
-persisted portfolio API remains futures-only; booking database bounds, large
-historical reads, serialization/concurrent service load, generic booked swap risk,
-rate/volatility shocks, durable risk jobs and complete futures settlement PV need
-separate implementation/qualification. Futures execution P&L remains an explicit
-measure. Working-decimal output still rejects unrepresentable results without an
-explicit rounding contract.
+interactive portfolio API remains futures-only. The generated pilot-close worker
+adds a retained futures-and-swaps adapter and durable exact reports (D169), with
+separate futures execution-P&L and swap-PV measures. Its explicit rational-summary
+policy preserves nonterminating amounts without rounding and keeps rate inputs
+fixed under commodity quote shocks. Existing working-decimal output still rejects
+unrepresentable results. Booking database bounds, large historical reads,
+serialization/concurrent service load, broader booked risk operations,
+rate/volatility shocks and complete futures settlement PV need separate
+implementation/qualification. The earlier benchmark does not measure the new
+worker, publication or report-read path.
 
 
 Temporary futures and swap editors expose Price and Risk before booking. Trade
@@ -344,7 +348,7 @@ Do not build a broad date scripting language or duplicate holiday/expiry catalog
 The separate daily/BALMO month-end selection remains open.
 
 Monthly anchors, explicit calendar/adjustment choices, indexed date expressions
-and private curve contract date drafts now run in the browser preview. See
+and the shared versioned contract-date library now run in the browser preview. See
 [implemented scope](implementation.md#independent-schedules-publication-and-contract-dates).
 Schedule drafts and immutable publications now persist in PostgreSQL with certified
 effective/known resolution. Qualified futures-series generation and activation of
@@ -1025,4 +1029,8 @@ documented current consumers. Delivery-price navigation consumes authorized sour
 metadata in commodity/operator/market/location order and keeps inclusive market
 delivery dates distinct from user-zone interval timestamps. Synthetic schedule
 examples use the existing monthly publication operation; literal daily contract
-examples remain session candidates, not published exchange contracts.
+examples can be explicitly saved and published as shared date-rule definitions;
+they do not become published exchange contracts. Exact source versions and a
+certified validation context remain pinned, with resolution under a separately
+selected context (D167). Contract activation and booked-side integration remain
+outside this library.

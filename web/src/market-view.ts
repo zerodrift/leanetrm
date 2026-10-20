@@ -1,7 +1,7 @@
 export type Row = Record<string, string | number | null>;
 export type ReferenceRevision={catalogId:string;revisionId:string};
 export type ReferenceDisplay={sourceRevision:ReferenceRevision;displayRevision:ReferenceRevision;version:number;references:Record<string,Row[]>};
-export type Frame = {id:string; name:string; at:string; observationIds:string[];curveContracts:Record<string,string[]>};
+export type Frame = {id:string; name:string; at:string; originCloseId?:string|null;observationIds:string[];curveContracts:Record<string,string[]>};
 export type Workspace = {futuresConvention:string;curveNames?:{code:string;name:string}[]|null;powerCurveCodes:string[];unitCatalogError?:string|null;unitCatalog?:{revision:unknown;references:Record<string,Row[]>};referenceDisplay?:ReferenceDisplay|null;unitReferenceDisplay?:ReferenceDisplay|null;profile:string;example:{at:string;curve:string}|null; definitions:Record<string,Row[]>; references:Record<string,Row[]>;referenceScope?:'definition_closure'|'all_visible';observationScope?:'on_demand';observations:Row[]; frames:Frame[]; initialFrameIds:string[]};
 import type {PricingNode} from './pricing-view.js';
 import type {FrameSummary} from './market-navigation.js';

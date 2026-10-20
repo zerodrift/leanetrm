@@ -17,10 +17,11 @@ The managed API exposes:
 
 | Operation | Contract |
 | --- | --- |
-| `GET /api/jobs?page=0` | Authorized jobs, 100 per page, recent run metadata, profiles and shared infrastructure |
+| `GET /api/jobs?page=0&collectionPage=0` | Authorized automation and collection jobs, independently paged at 100 rows, recent run metadata, profiles and shared infrastructure |
 | `POST /api/jobs/create` | Exact request identity and explicit execution terms |
 | `POST /api/jobs/update` | Amend an idle active/paused job's name, next due time, expiry, interval and run limits, with its expected version |
 | `POST /api/jobs/control` | Pause, resume, cancel or run again, with expected job version |
+| `POST /api/jobs/collection/update` | Amend an existing collection job's name, schedule switch and inclusive delivery-day offsets, with its exact generation |
 | `POST /api/infrastructure/availability` | Pause/resume scheduling or drain an idle approved worker node, with exact node version |
 | `POST /api/infrastructure/resolve` | Preserve observed availability and fence a previous uncertain conditional node update |
 
@@ -31,7 +32,8 @@ rejection can discard its pending request. Once a response is uncertain, later
 authorization/policy rejections preserve that original identity until reconciled. The UI retains uncertain requests in
 session storage, separately for each signed-in workspace/account.
 
-Click a job name to open its saved terms. The backend supplies whether editing is
+New job entry starts collapsed. Click a job name or its explicit Edit/View details
+action to open its saved terms. The backend supplies whether editing is
 currently available and the read-only reason. Owners and current job managers use
 the same update operation; neither the displayed role name nor browser controls
 grant authority. Updates retain ownership, delegation, operation and the exact
@@ -65,6 +67,40 @@ Two operations are executable:
   financial result or committed business effect. Only one create is admitted per
   run. The client cannot supply commands, environment variables, credentials,
   mounts, ports or arbitrary Docker options.
+
+## Delivery-price collection schedules
+
+The same Jobs page lists existing `power_data.jobs` separately, with provider,
+paused/scheduled/disabled state, retained cadence, delivery-day offsets, source
+count and latest attempt. These rows run through the registered collection
+service, rather than the automation scheduler or an arbitrary container job.
+Viewing them requires current market-data access or `ManageJobs` in the exact
+registered workspace/catalog scope. Approved metadata excludes collector login,
+credentials, source configuration and provider responses.
+
+A current scoped `ManageJobs` grant permits editing the name, schedule switch and
+inclusive UTC calendar-day offsets. The supported offset range is -31 through -1;
+the UI obtains these bounds from the backend. The registered service, source
+bindings, operator-enabled gate and qualified `0 8 * * *` UTC cadence are fixed.
+Pausing the schedule does not disable an explicit operator collection. A disabled
+operator gate, ineligible service, unqualified sources or active collector worker
+makes the settings read-only and supplies a reason. No job or schedule is enabled
+by this migration or by opening its editor.
+
+Updates use the existing collector execution fence, lock the exact job and
+revalidate caller scope, job-management authority and registered service/source
+eligibility after waits. A stale generation or changed replay conflicts. The
+immutable command binds the exact job/catalog and retains before-terms plus a
+control-only receipt. Replays require current authority; they do not return cached
+source or service details. The browser validates the receipt, preserves an
+uncertain request across reload or later denial and keeps reconciliation visible
+outside collapsed editors. A confirmed write followed by a failed directory read
+requires only a read refresh.
+
+This operation collects delivery prices under the existing whole-batch,
+exact-reference admission rules. It does not create a forward curve, publish a
+market close or perform valuation/risk. Operator provisioning and collection
+worker installation remain separate reviewed steps.
 
 ## Identity and database boundaries
 
@@ -240,5 +276,124 @@ Remaining work includes real disposable Swarm failure/recovery qualification,
 host reboot and Docker Engine restart through an explicitly selected management
 provider, full agent/provider execution and scoped tool-credential exchange,
 child-agent ancestry/budget enforcement, broader recurrence/calendar authoring,
-scheduled financial operations with pinned historical contexts, external stop
+broader scheduled financial operations, external stop
 attestations, workload artifacts/logs and a qualified Swarm release migration.
+## Generated pilot closes
+
+The explicitly selected `generated_pilot_close_v1` operation consumes a retained
+exact input close, chosen books and root curves, a synthetic source, an explicit
+seed and a clearing-tick movement bound for every native leaf. Its
+`seeded_clearing_tick_move_v1` generator derives each movement from the seed,
+due instant, exact series and anchor observation identity. It does not download
+settlements or describe its observations as official exchange prices. Source
+contracts, units, quote increments and dependency definitions remain unchanged.
+Prices outside the selected quote domain fail; they are not clamped or retried.
+
+Calendar-day UTC scheduling is an explicit simulation policy, not an exchange
+holiday calendar. A job may run once or every elapsed UTC day, with no automatic
+activation. Recurring occurrences retain the same immutable selected anchor; they
+do not silently choose the most recent generated close. Root membership retains
+only the exact anchored contracts still live
+at the due instant; an empty root or missing book factor fails. The selected
+`carry_exact_anchor_frozen_facts_v1` policy retains every exact anchored final
+settlement and published index fixing as a frozen fact. Parameters retain their
+separate exact-anchor policy. Publication rejects omitted, substituted or
+preliminary frozen facts; it never generates or shocks actual index fixings.
+No final settlement or missing observation is manufactured.
+
+Before marks are written, the managed application adapter values every selected
+book and requires the configured roots to cover all its declared factors. Both
+supported futures and swaps participate; an unsupported product fails the whole
+selection. Unit-level pricers declare factors and compute their own values. The
+book adapter applies external quantities and reuses eligible canonical unit
+valuations and immutable scenarios across independently labeled measure groups.
+Shared sides may retain different per-instrument discount providers. Discount
+inputs remain fixed during commodity-quote shocks. The selected
+`exact_rational_portfolio_repricing_v1` policy stores exact rational money and
+risk derivatives; it does not silently round an unrepresentable decimal result.
+The existing interactive futures-only book operation retains its separate
+exact18 contract.
+
+The scheduler login issues a short-lived context for its registered service and
+exact run fence. Its installed mapping has an exact market-catalog foreign key;
+startup matches the selected manifest and runtime login before claiming work.
+Claims and live contexts remain confined to that configured catalog.
+A separate restricted runtime login performs managed reads and
+fenced publication; it loads neither an authenticator nor the human owner's
+credentials. The worker references the existing API adapter assembly without
+starting an HTTP application. That application-layer coupling is intentional for
+this consumer; it is not a separate general-purpose pricing service.
+
+Pilot execution additionally requires both protected files selected by
+`OPENETRM_PILOT_RUNTIME_CONNECTION_FILE` and `OPENETRM_PILOT_MANIFEST_FILE`.
+The first contains the dedicated runtime connection; the second names the exact
+market catalog and workspace. The installed `automation.pilot_runtime_logins`
+mapping must match that catalog, runtime login and registered scheduler. Missing
+or mismatched inputs reject startup before a financial claim. Both the service
+and the job owner need the operation's current market/trade, valuation/scenario,
+import/publication and job permissions. Migrations install no service account,
+permission grant, profile or enabled schedule.
+
+The first transaction retains its certified preflight context and commits native
+marks. The second captures a certified calculation cutoff at that exact mark
+commit, excluding later trade amendments, and retains the full report. Current
+owner and service permissions, source scopes, deadlines and leases are required
+at each phase. Publication uses a private operation-local permission window;
+the service context cannot use generic observation imports or close publication.
+A lease replacement reuses committed marks and reports under a new fence.
+The current worker does not renew its lease inside a calculation transaction.
+Each phase must finish within its explicitly configured lease (at most 120
+seconds) and overall deadline; a longer job timeout does not extend that lease.
+No large-book latency guarantee is established by the small synthetic fixture.
+
+The catalog distinguishes exact current-working configuration metadata from its
+current certified book directory. It never chooses an anchor on the user's
+behalf. Actual calculation always binds the selected close, due instant and
+certified knowledge context. Durable closes are discoverable through the same
+scoped market-frame navigation; readers retain explicit exact close identity.
+
+## Generated-close report storage
+
+Generated pilot marks and their portfolio report have separate commits. A close
+can therefore exist while its calculation fails or its worker loses the lease.
+The occurrence remains incomplete until its exact immutable report is published.
+A replacement worker reuses committed marks and a committed report rather than
+generating a different close. Successful completion requires the report as well
+as fresh service and job-owner authority. After a finish operation waits on its
+database update, its exact run fence, worker, lease, deadline and job expiry are
+checked again; an expired finish rolls back the complete occurrence transition.
+
+Report totals keep futures execution P&L and swap present value as separate
+measures and retain currency groups. They are not a combined settlement PV or
+variation-margin result. Quote exposure comes from shared deterministic
+base/up/down repricing; discount inputs stay fixed during these commodity quote
+scenarios. Results retain exact rational cash and derivatives. Display rounding
+does not alter stored numerators or denominators.
+
+Migration `0057_pilot_close_reports.sql` retains exact run, close, certified
+calculation context, model and reference revisions. Typed child foreign keys
+retain trade revisions and bindings, external quantities, canonical unit models,
+market dependencies, native factor observations and quote units, and payment
+discount mappings and observations. A retained futures database instrument alias
+remains distinct from its canonical contract valuation identity. Policy and work
+objects contain scalar settings and counters; financial relationships are not
+stored as JSON links.
+
+Readers need current market/trade, valuation and scenario permission and access
+to the owning job. The selected historical view must see the report publication
+and its exact sources. The calculation context is evidence and never replaces a
+reader's selected cutoff. A retained historical view must select the close's UTC
+business date; a current view can read the explicitly requested dated report.
+Retained trade and discount-mapping effective times must not follow the close.
+The fixed report reader obtains its rowsets in one
+MVCC statement, with full authority checks before and after the database read
+and a final managed check before returning the formatted envelope. Raw table
+reads retain forced row-level security. This query shape is not evidence of a
+50,000-position report latency guarantee.
+
+The current publisher rejects reports above 20,000 unit models, 100,000 holdings,
+4,096 factors, 256 book/currency/measure totals, 1,048,576 factor result rows or
+40,000 payment discount records. Rational integer components are limited to
+4,096 decimal digits. Unsupported or incomplete results fail rather than being
+truncated. Schema upgrades require stopped write and worker admission and drained
+calls; publishing an application image does not install this migration.

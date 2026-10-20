@@ -8,7 +8,12 @@ public enum ValuationMeasure { PresentValue=1, ExecutionPnl }
 // Operation-owned immutable inputs. A missing discount provider is explicitly
 // unavailable, never an instruction to substitute undiscounted cashflows.
 public sealed record ValuationSetup(ValuationMeasure Measure,
-    ImmutableDictionary<Guid,FuturesMarketBinding> FuturesBindings,ISideDiscounting? Discounting);
+    ImmutableDictionary<Guid,FuturesMarketBinding> FuturesBindings,ISideDiscounting? Discounting)
+{
+    // Providers belong to instruments: two instruments can share the same side
+    // while selecting different retained discounting terms.
+    public ImmutableDictionary<Guid,ISideDiscounting> InstrumentDiscounting{get;init;}=ImmutableDictionary<Guid,ISideDiscounting>.Empty;
+}
 
 public sealed class UnitValuationContext
 {
@@ -25,8 +30,8 @@ public sealed class UnitValuationContext
         IReadOnlyDictionary<CurveRequest,BuiltValue>? values=null,UnitPricingContract? declaration=null,
         IReadOnlyDictionary<CurveRequest,ImmutableArray<QuoteFactor>>? factors=null)
     {
-        if(market is not null&&declaration is null&&setup.Discounting is not null)
-            SideValuationContext.Validate(snapshot,setup.Discounting);
+        if(market is not null&&declaration is null&&(setup.Discounting??setup.InstrumentDiscounting.Values.FirstOrDefault()) is {} provider)
+            SideValuationContext.Validate(snapshot,provider);
         Snapshot=snapshot;Setup=setup;Market=market;this.values=values??ImmutableDictionary<CurveRequest,BuiltValue>.Empty;this.declaration=declaration;this.factors=factors;
     }
     internal UnitValuationContext For(UnitPricingContract contract)=>new(Snapshot,Setup,Market,values,contract,factors);
@@ -46,9 +51,11 @@ public sealed class UnitValuationContext
     }
     internal SideValuationContext SideContext()
     {
-        if(Market is null||declaration is null||Setup.Discounting is null)
+        if(Market is null||declaration is null)
             throw new MarketDataException("side_context","Supply the declared market and explicit payment discount inputs.");
-        return new(Market,Setup.Discounting,values,declaration.Dependencies);
+        var provider=Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id)
+            ??throw new MarketDataException("side_context","Supply this instrument's explicit payment discount inputs.");
+        return new(Market,provider,values,declaration.Dependencies);
     }
 }
 
@@ -143,6 +150,9 @@ public sealed class ValuationPortfolio
         Instruments=instruments.OrderBy(i=>i.Id).ToImmutableArray();
         Positions=positions.OrderBy(p=>p.TradeId).ThenBy(p=>p.BindingId).ToImmutableArray();
         indexes=Instruments.Select((i,n)=>(i.Id,n)).ToDictionary(p=>p.Id,p=>p.n);
+        if(Setup.InstrumentDiscounting is null||Setup.Discounting is not null&&!Setup.InstrumentDiscounting.IsEmpty||
+            Setup.InstrumentDiscounting.Any(p=>!indexes.ContainsKey(p.Key)||p.Value is null))
+            throw Error("side_context","Select one explicit shared discount provider or exact held-instrument providers.");
         if(Positions.Select(p=>(p.TradeId,p.BindingId)).Distinct().Count()!=Positions.Length||
             Positions.GroupBy(p=>p.TradeId).Any(g=>g.Select(p=>p.BookId).Distinct().Count()!=1))
             throw Error("risk_position","Trade bindings must be distinct and one trade must have one book.");

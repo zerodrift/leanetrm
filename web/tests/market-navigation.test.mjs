@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateMarketNavigation,navigationGroups} from '../dist/market-navigation.js';
+import {frameCatalogNote} from '../dist/frame-catalog.js';
 
 const navigation={kind:'market_navigation',profile:'viewer',context:null,
  definitionRevision:{catalogId:'catalog',revisionId:'definitions'},referenceRevision:{catalogId:'reference',revisionId:'revision'},
@@ -23,4 +24,12 @@ test('navigation rejects missing or conflicting metadata rather than inventing a
   n=>n.context={effectiveOn:'2020-12-17'},n=>n.frames[0].observationIds=[]]){
   const value=structuredClone(navigation);change(value);assert.throws(()=>validateMarketNavigation(value),/navigation/);
  }
+});
+test('stored closes retain their origin and explicit bounded-catalog policy',()=>{
+ const value=structuredClone(navigation);value.frames[0].originCloseId='stored-close';
+ assert.throws(()=>validateMarketNavigation(value),/navigation/);
+ value.frameCatalog={durableSelection:'exact_recorded_close_pins_v1',selectionPolicy:'preserved_session_plus_latest_visible_closes_v1',maximumFrames:128,durableLimit:108,hasMoreDurableCloses:true};
+ assert.equal(validateMarketNavigation(value).frames[0].originCloseId,'stored-close');
+ assert.match(frameCatalogNote(value.frameCatalog),/recent/);assert.match(frameCatalogNote(value.frameCatalog),/original inputs/);
+ const unsupported=structuredClone(value);unsupported.frameCatalog.durableSelection='infer_latest';assert.throws(()=>validateMarketNavigation(unsupported),/navigation/);
 });

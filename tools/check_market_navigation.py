@@ -4,7 +4,15 @@ from uuid import UUID
 
 def run_checks(c, check, query, manifest):
     c.call('profile', {'profile': 'viewer'})
-    navigation = c.call('workspace/navigation')
+    original = query("SELECT pg_get_functiondef('automation.pilot_context_live(uuid)'::regprocedure);")
+    try:
+        query("""CREATE OR REPLACE FUNCTION automation.pilot_context_live(token uuid) RETURNS boolean
+        LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+        BEGIN RAISE EXCEPTION 'An ordinary request evaluated a pilot-only authority graph';END;$$;""")
+        navigation = c.call('workspace/navigation')
+        check('ordinary navigation does not evaluate a registered-worker authority graph')
+    finally:
+        query(original)
     full = c.call('workspace/catalog')
 
     def compare(nav, workspace):
@@ -27,15 +35,20 @@ def run_checks(c, check, query, manifest):
         return (sorted(nav['curves'], key=lambda r: r['code']) == sorted(expected, key=lambda r: r['code'])
                 and nav['definitionRevision'] == {'catalogId': revision['catalog_id'], 'revisionId': revision['id']}
                 and nav['referenceRevision'] == {'catalogId': revision['reference_catalog_id'], 'revisionId': revision['reference_revision_id']}
-                and nav['frames'] == [{key: frame[key] for key in ['id', 'name', 'at']} for frame in workspace['frames']]
-                and all(nav[key] == workspace[key] for key in ['profile', 'context', 'example', 'futuresConvention', 'initialFrameIds','referenceDisplay'])
+                and nav['frames'] == [{**{key: frame[key] for key in ['id', 'name', 'at']},'originCloseId':frame.get('originCloseId')} for frame in workspace['frames']]
+                and all(nav[key] == workspace[key] for key in ['profile', 'context', 'example', 'futuresConvention', 'initialFrameIds','referenceDisplay','frameCatalog'])
                 and nav['curveNames'] == c.call('curve-names'))
 
     check('navigation explicitly contains only its directory and frame-summary contract',
           set(navigation) == {'kind', 'profile', 'context', 'definitionRevision', 'referenceRevision',
-                              'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay'}
+                              'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay','frameCatalog'}
           and navigation['kind'] == 'market_navigation'
-          and all(set(frame) == {'id', 'name', 'at'} for frame in navigation['frames']))
+          and all(set(frame) == {'id', 'name', 'at','originCloseId'} and frame['originCloseId'] is None for frame in navigation['frames']))
+    check('ordinary navigation declares its bounded exact stored-close discovery policy',
+          navigation['frameCatalog']=={'durableSelection':'exact_recorded_close_pins_v1',
+                                      'selectionPolicy':'preserved_session_plus_latest_visible_closes_v1',
+                                      'maximumFrames':128,'durableLimit':128-len(navigation['frames']),
+                                      'hasMoreDurableCloses':False})
     check('working navigation supplies only its exact unapplied display-metadata identity',
           navigation['referenceDisplay'] == {'sourceRevision':navigation['referenceRevision'],
                                              'displayRevision':navigation['referenceRevision'],

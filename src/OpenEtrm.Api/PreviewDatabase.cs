@@ -25,13 +25,24 @@ public sealed record PreviewExample(DateTimeOffset At,string Curve);
 public sealed record PreviewSeedFrame(DateTimeOffset At, Guid[] ObservationIds, Dictionary<string,Guid[]> CurveContracts);
 public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, ImmutableArray<Guid> ObservationIds,
     ImmutableDictionary<string,ImmutableArray<Guid>> CurveContracts,
-    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ContextId=null);
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ContextId=null,
+    [property:System.Text.Json.Serialization.JsonIgnore] ImmutableArray<Guid> FrozenObservationIds=default)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? OriginCloseId{get;init;}
+    public InputFrame SelectRevision(Guid previous,Guid selected,string name)=>this with
+    {
+        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,ObservationIds=ObservationIds.Replace(previous,selected),
+        FrozenObservationIds=FrozenObservationIds.IsDefault?default:FrozenObservationIds.Contains(previous)?FrozenObservationIds.Replace(previous,selected):FrozenObservationIds
+    };
+}
 public sealed class PreviewDeniedException : Exception;
 
 public sealed class PreviewDatabase : IAsyncDisposable
 {
-    private readonly NpgsqlDataSource authenticator;
+    private readonly NpgsqlDataSource? authenticator;
     private readonly NpgsqlDataSource runtime;
+    private readonly bool ownsSources=true;
     private readonly string runtimeLogin;
     private readonly Func<string>? hostedSession;
     public PreviewManifest Manifest { get; }
@@ -55,6 +66,13 @@ public sealed class PreviewDatabase : IAsyncDisposable
         ("index_fixing_observations","index_code,observation_from,observation_to")];
     private static string ReferenceKey(string table)=>ReferenceKeys.Single(r=>r.Table==table).Key;
     internal static readonly ImmutableArray<string> UnitTables = ["dimensions", "units", "unit_conversions", "commodities", "measurement_bases", "quantity_specifications"];
+
+    // The scheduler's application adapter receives an already-qualified runtime
+    // source. It has no authenticator capability or HTTP host construction.
+    internal PreviewDatabase(PreviewManifest manifest,NpgsqlDataSource runtime)
+    {
+        Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;
+    }
 
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
     {
@@ -95,6 +113,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
 
     public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, bool administration=false)
     {
+        if(authenticator is null)throw new InvalidOperationException("This direct reader has no identity-issuing capability.");
         if (string.IsNullOrWhiteSpace(profile) || profile.Length>48) throw new PreviewDeniedException();
         await using var issue = authenticator.CreateCommand(hostedSession is null?"SELECT security.issue_context($1,$2,$3,$4,$5,NULL,$6::name,60)":"SELECT security.issue_hosted_context($1,$2::name)");
         foreach (var value in hostedSession is null?new object[] { Manifest.IdentityIssuer, profile, "human_interactive", Manifest.TenantId, Manifest.WorkspaceId, runtimeLogin }:new object[]{hostedSession(),runtimeLogin})
@@ -122,6 +141,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
 
     public async Task ValidateHostedBoundary(CancellationToken ct)
     {
+        if(authenticator is null)throw new InvalidOperationException("This direct reader has no authenticator capability.");
         foreach(var entry in new[]{(Source:runtime,Role:"openetrm_runtime",Other:"openetrm_authenticator"),(Source:authenticator,Role:"openetrm_authenticator",Other:"openetrm_runtime")})
         {
             await using var command=entry.Source.CreateCommand("""
@@ -394,7 +414,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         while (await reader.ReadAsync(ct))rows.Add(ReferenceJson.PreserveNumericLexemes(reader.GetString(0)));
         return rows.ToImmutable();
     }
-    public async ValueTask DisposeAsync() { await runtime.DisposeAsync(); await authenticator.DisposeAsync(); }
+    public async ValueTask DisposeAsync() { if(ownsSources){await runtime.DisposeAsync();if(authenticator is not null)await authenticator.DisposeAsync();} }
 }
 
 public sealed class PreviewData
@@ -520,6 +540,7 @@ public sealed class PreviewData
     {
         var pins=frame.ObservationIds.Select(id=>
         {
+            if(!frame.FrozenObservationIds.IsDefault&&frame.FrozenObservationIds.Contains(id))return id;
             var current=Observation(id);
             while(true){var successors=correctionRows[current.Id("id")].ToArray();
                 if(successors.Length==0)return current.Id("id");
@@ -530,10 +551,12 @@ public sealed class PreviewData
     }
     public MarketSnapshot Snapshot(InputFrame frame)
     {
+        if(frame.ObservationIds.Distinct().Count()!=frame.ObservationIds.Length)
+            throw new MarketDataException("snapshot_inputs","A frame must name each native observation once; mixed uses of the same observation require a distinct explicit input contract.");
         var selections=frame.ObservationIds.Select(id=>
         {
             var o=Observation(id);
-            return new SelectedObservation(new(S(o.Id("series_id")),o.Text("role")=="index_fixing"?InputUse.FrozenFact:InputUse.Variable),new(new(manifest.CatalogId,id),S(o.Id("series_id")),R(o.Text("source_code")),ParseRole(o.Text("role")),
+            return new SelectedObservation(new(S(o.Id("series_id")),o.Text("role")=="index_fixing"||!frame.FrozenObservationIds.IsDefault&&frame.FrozenObservationIds.Contains(id)?InputUse.FrozenFact:InputUse.Variable),new(new(manifest.CatalogId,id),S(o.Id("series_id")),R(o.Text("source_code")),ParseRole(o.Text("role")),
                 o.Text("publication_state") switch {"final"=>PublicationState.Final,"preliminary"=>PublicationState.Preliminary,_=>throw Unsupported()},o.Instant("observed_at"),o.Number("value")));
         }).ToImmutableArray();
         return new(frame.Id,revision,frame.At,frame.At,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,selections);

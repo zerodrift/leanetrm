@@ -42,6 +42,37 @@ internal static class BookValuationChecks
         var summary=RiskEngine.Calculate(model,snapshot,portfolio,[bump],RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
         if(summary.Work.QuantityApplications!=6||summary.Work.RepeatedInstrumentReferences!=2||!summary.Factors[0].Positions.IsEmpty||!summary.Factors[0].Totals.SequenceEqual(result.Factors[0].Totals))
             throw new Exception("Explicit book-only risk must preserve the full report totals without holding-row materialization.");
+        var otherCalls=0;
+        var other=new Probe(Guid.NewGuid(),instrument.Currency,instrument.UnitQuantity.Specification,[request],inputs=>
+        {otherCalls++;return inputs.Price(request).ExactTimes(new Quantity(ExactDecimal.Parse("2"),instrument.UnitQuantity.Specification));});
+        var otherPortfolio=new ValuationPortfolio([other],[Position(a,"4") with{ValuationId=other.Id}],portfolio.Setup);
+        var prepared=RiskEngine.Prepare(model,snapshot,[portfolio,otherPortfolio]);
+        if(prepared.Factors.Length!=1||prepared.Factors[0].Input!=bump.Input||otherCalls!=0)
+            throw new Exception("A shared risk plan must discover only declared factors without calling a pricer.");
+        var before=calls;
+        var groups=RiskEngine.Calculate(prepared,[bump],RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
+        if(calls-before!=3||otherCalls!=3||groups.Groups.Length!=2||groups.Work.UnitPricerCalls!=6||
+            groups.Work.RebuiltCurveNodes!=summary.Work.RebuiltCurveNodes||groups.Work.ReusedCurveNodes!=summary.Work.ReusedCurveNodes||
+            groups.Groups[0].BaseValues.Single(v=>v.BookId==a).Value.ToMoney().Amount.ToString()!="3"||
+            groups.Groups[1].BaseValues.Single().Value.ToMoney().Amount.ToString()!="24"||
+            groups.Groups[1].Factors.Single().Totals.Single().Delta.Value.ToString()!="8")
+            throw new Exception("Different valuation groups must share curve scenarios and retain independently scaled base values and risk.");
+        var noBumps=RiskEngine.Calculate(prepared,[],RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
+        if(!noBumps.Groups[0].Factors.IsEmpty||noBumps.Work.ScenarioCount!=1||noBumps.Groups[1].BaseValues.Single().Value.ToMoney().Amount.ToString()!="24")
+            throw new Exception("A base-only report must retain book values even when there are no selected live shocks.");
+        try{RiskEngine.Prepare(model,snapshot,[portfolio,portfolio]);throw new Exception("The same unit and holding cannot be counted in two measures.");}
+        catch(MarketDataException e)when(e.Code=="risk_contract"){}
+        var fractional=new Probe(Guid.NewGuid(),instrument.Currency,instrument.UnitQuantity.Specification,[request],inputs=>
+            ExactMoney.FromMoney(new(inputs.Price(request).Value.CompareTo(ExactDecimal.Parse("3")) switch
+                {0=>default,>0=>ExactDecimal.Parse("0.1"),_=>ExactDecimal.Parse("-0.1")},instrument.Currency)));
+        var fractionalPortfolio=new ValuationPortfolio([fractional],[Position(a,"1") with{ValuationId=fractional.Id}],portfolio.Setup);
+        var exact=RiskEngine.CalculateExact(RiskEngine.Prepare(model,snapshot,[fractionalPortfolio]),[bump with{Size=ExactDecimal.Parse("0.3")}],RiskEngine.ExactNumericalPolicy);
+        var fractionalValues=exact.Groups.Single().Factors.Single().Totals.Single().Values;
+        if(fractionalValues.Base.Numerator!="0"||fractionalValues.Base.Denominator!="1"||
+            fractionalValues.Up.Numerator!="1"||fractionalValues.Up.Denominator!="10"||
+            fractionalValues.Down.Numerator!="-1"||fractionalValues.Down.Denominator!="10"||
+            fractionalValues.Delta.Value.Numerator!="1"||fractionalValues.Delta.Value.Denominator!="3"||fractionalValues.Gamma.Value.Numerator!="0")
+            throw new Exception("Exact book repricing must retain nonterminating cash and sensitivities without changing external quantity or rounding.");
         var cashCalls=0;
         var cash=new Probe(Guid.NewGuid(),instrument.Currency,instrument.UnitQuantity.Specification,[],_=>
         {cashCalls++;return ExactMoney.FromMoney(new(ExactDecimal.Parse("7"),instrument.Currency));});
@@ -80,7 +111,7 @@ internal static class BookValuationChecks
             catch(OperationCanceledException){}
         }
         Console.WriteLine("PASS book valuation: unit Instrument.Value is shared across trades/books; external quantities retain exact scenario results");
-        return 12;
+        return 17;
     }
     [EconomicDefinition("synthetic_probe_unit_v1")]
     internal sealed record Probe:Instrument

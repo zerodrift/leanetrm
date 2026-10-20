@@ -3,6 +3,7 @@ import json
 from decimal import Decimal
 from datetime import datetime
 from uuid import UUID, uuid4
+from preview_client import initial_frame
 
 
 VIEW = {'mode': 'trades', 'bookIds': [], 'portfolioIds': [], 'groupBy': [],
@@ -37,7 +38,7 @@ def _changed_value(observation, quote):
 def run_checks(c, check, query, manifest):
     c.call('profile', {'profile': 'editor'}); c.call('market/current', {})
     data = c.call('workspace')
-    frame = next(f for f in data['frames'] if f['at'].startswith('2020-12-18') and not f.get('contextId'))
+    frame = initial_frame(data, '2020-12-18')
     corrected_ids = {o.get('corrects_id') for o in data['observations']}
     future_ids = {r['id'] for r in data['definitions']['contracts'] if r['kind'] == 'future'}
     series = next(s for s in data['definitions']['series'] if s.get('contract_id') in future_ids
@@ -104,7 +105,7 @@ def run_supplemental_checks(c, check, query, manifest):
     """Invoke after the existing swap fixture has booked supplemental daily trades."""
     c.call('profile', {'profile': 'trader'}); c.call('market/current', {})
     data = c.call('workspace')
-    frame = next(f for f in data['frames'] if f['at'].startswith('2020-12-18') and not f.get('contextId'))
+    frame = initial_frame(data, '2020-12-18')
     before = _workspace(c, _context(frame)); retained = _context(frame, before['catalog']['context'])
     before = _workspace(c, retained)
     held = next(h for h in before['blotter']['holdings'] if h['instrumentType'] == 'financial_swap'

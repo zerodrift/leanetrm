@@ -5,6 +5,7 @@ import json
 import ssl
 from urllib.parse import urlsplit
 from urllib.request import HTTPCookieProcessor, Request
+from preview_client import initial_frame
 
 
 def _raw(client, origin, csrf, path, body=None, encoding=None, headers=None, tls=None):
@@ -89,7 +90,7 @@ def _checks(raw, frame, check):
 def run_checks(c, check, query, manifest):
     c.call('profile', {'profile': 'trader'}); c.call('market/current', {})
     data = c.call('workspace')
-    frame = next(f for f in data['frames'] if f['at'].startswith('2020-12-18') and not f.get('contextId'))
+    frame = initial_frame(data, '2020-12-18')
     def raw(path, body=None, encoding=None, headers=None):
         return _raw(c, c.url, c.token, path, body, encoding, headers)
     body = _checks(raw, frame, check)

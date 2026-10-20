@@ -6,7 +6,7 @@ namespace OpenEtrm.Api;
 
 public sealed record NavigationCategory(string Code,string Name);
 public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory Category);
-public sealed record NavigationFrame(Guid Id,string Name,DateTimeOffset At);
+public sealed record NavigationFrame(Guid Id,string Name,DateTimeOffset At,Guid? OriginCloseId=null);
 public sealed record NavigationRead(DefinitionRevision DefinitionRevision,ReferenceRevision ReferenceRevision,
     ImmutableArray<NavigationCurve> Curves,ImmutableArray<CurveName> CurveNames,ReferenceDisplayData? ReferenceDisplay=null);
 public sealed record MarketNavigation(string Profile,ScheduleContext? Context,DefinitionRevision DefinitionRevision,
@@ -14,6 +14,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     ImmutableArray<NavigationFrame> Frames,ImmutableArray<CurveName> CurveNames,ImmutableArray<NavigationCurve> Curves,ReferenceDisplayData? ReferenceDisplay=null)
 {
     public string Kind=>"market_navigation";
+    public FrameCatalogInfo? FrameCatalog{get;init;}
 
     internal static async Task<ImmutableArray<NavigationCurve>> ReadCurves(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)
     {

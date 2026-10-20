@@ -3,6 +3,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using OpenEtrm.Automation;
+using OpenEtrm.Api;
+using OpenEtrm.MarketData;
+using System.Text.Json;
 
 var file = Environment.GetEnvironmentVariable("OPENETRM_WORKER_CONNECTION_FILE")
     ?? throw new InvalidOperationException("An explicit protected worker connection file is required.");
@@ -28,7 +31,42 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
  FROM pg_roles WHERE rolname=current_user
 """))
     if (!Equals(await boundary.ExecuteScalarAsync(), true)) throw new InvalidOperationException("The scheduler requires an isolated unprivileged service login.");
-var store = new JobWorkerStore(source);
+var pilotRuntimeFile=Environment.GetEnvironmentVariable("OPENETRM_PILOT_RUNTIME_CONNECTION_FILE");
+var pilotManifestFile=Environment.GetEnvironmentVariable("OPENETRM_PILOT_MANIFEST_FILE");
+if((pilotRuntimeFile is null)!=(pilotManifestFile is null))throw new InvalidOperationException("Pilot close execution requires both explicit runtime and manifest files.");
+NpgsqlDataSource? pilotSource=null;
+PilotCloseProcessor? pilot=null;
+try
+{
+if(pilotRuntimeFile is not null)
+{
+    var runtime=new NpgsqlConnectionStringBuilder(File.ReadAllText(pilotRuntimeFile).Trim());
+    if(runtime.Host!=connection.Host||runtime.Port!=connection.Port||runtime.Database!=connection.Database||string.IsNullOrWhiteSpace(runtime.Username)||runtime.Username==connection.Username||
+        !Path.IsPathFullyQualified(runtime.Host!)&&runtime.SslMode!=SslMode.VerifyFull)
+        throw new InvalidOperationException("The pilot runtime requires a separate explicit login to the same qualified database host.");
+    runtime.MaxPoolSize=2;runtime.CommandTimeout=5;runtime.Timeout=5;runtime.Timezone="UTC";
+    pilotSource=NpgsqlDataSource.Create(runtime.ConnectionString);
+    await using(var boundary=pilotSource.CreateCommand("""
+SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
+ AND pg_has_role(current_user,'openetrm_runtime','MEMBER')
+ AND NOT pg_has_role(current_user,'openetrm_scheduler','MEMBER')
+ AND NOT pg_has_role(current_user,'openetrm_authenticator','MEMBER')
+ AND NOT pg_has_role(current_user,'openetrm_security_owner','MEMBER')
+ AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,c.relowner,'MEMBER'))
+ AND NOT EXISTS(SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,n.nspowner,'MEMBER'))
+ AND NOT EXISTS(SELECT 1 FROM pg_database d WHERE d.datname=current_database() AND pg_has_role(current_user,d.datdba,'MEMBER'))
+ FROM pg_roles WHERE rolname=current_user
+"""))if(!Equals(await boundary.ExecuteScalarAsync(),true))throw new InvalidOperationException("The pilot runtime requires an isolated unprivileged runtime login.");
+    var manifest=JsonSerializer.Deserialize<PreviewManifest>(File.ReadAllText(pilotManifestFile!),new JsonSerializerOptions{PropertyNameCaseInsensitive=true})
+        ??throw new InvalidOperationException("The pilot worker requires its exact protected market manifest.");
+    if(manifest.Mode is not("hosted-pilot" or "local-synthetic-preview")||manifest.CatalogId==Guid.Empty||manifest.TenantId==Guid.Empty||manifest.WorkspaceId==Guid.Empty)throw new InvalidOperationException("The pilot market and workspace bindings must be explicit.");
+    await using(var workspace=source.CreateCommand("SELECT automation.pilot_worker_matches($1,$2,$3,$4::name)"))
+    {workspace.Parameters.AddWithValue(manifest.TenantId);workspace.Parameters.AddWithValue(manifest.WorkspaceId);workspace.Parameters.AddWithValue(manifest.CatalogId);workspace.Parameters.AddWithValue(runtime.Username);if(!Equals(await workspace.ExecuteScalarAsync(),true))throw new InvalidOperationException("The pilot market, workspace and runtime login must match this registered worker.");}
+    pilot=new(source,pilotSource,manifest);
+}
+await using(var configured=source.CreateCommand("SELECT automation.pilot_worker_configured()"))
+    if(!Equals(await configured.ExecuteScalarAsync(),pilot is not null))throw new InvalidOperationException("Installed pilot runtime mapping and explicit worker files must agree.");
+var store = new JobWorkerStore(source,pilot is not null);
 string kind;
 await using (var mode = source.CreateCommand("SELECT automation.worker_kind()")) kind = (string)(await mode.ExecuteScalarAsync())!;
 using var swarm = kind == "controller" ? SwarmConnection.Load() : null;
@@ -39,17 +77,19 @@ var controller = gateway is null ? null : new InfrastructureController(gateway, 
     new WorkloadController(gateway, store, new WorkloadStore(source), leaseSeconds));
 if (args is ["--once"])
 {
-    var worker = new Scheduler(store, pollSeconds, leaseSeconds, null, controller);
+    var worker = new Scheduler(store, pollSeconds, leaseSeconds, null, controller,pilot);
     await worker.Tick(CancellationToken.None);
     return;
 }
 if (args.Length != 0) throw new InvalidOperationException("Choose service mode or --once explicitly.");
 var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.ClearProviders(); builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
-builder.Services.AddHostedService(services => new Scheduler(store, pollSeconds, leaseSeconds, services.GetRequiredService<ILogger<Scheduler>>(), controller));
+builder.Services.AddHostedService(services => new Scheduler(store, pollSeconds, leaseSeconds, services.GetRequiredService<ILogger<Scheduler>>(), controller,pilot));
 await builder.Build().RunAsync();
+}
+finally{if(pilotSource is not null)await pilotSource.DisposeAsync();}
 
-sealed class Scheduler(JobWorkerStore store, int pollSeconds, int leaseSeconds, ILogger<Scheduler>? logger, InfrastructureController? controller) : BackgroundService
+sealed class Scheduler(JobWorkerStore store, int pollSeconds, int leaseSeconds, ILogger<Scheduler>? logger, InfrastructureController? controller,PilotCloseProcessor? pilot) : BackgroundService
 {
     private readonly Guid id = Guid.NewGuid();
     public async Task Tick(CancellationToken ct)
@@ -57,6 +97,22 @@ sealed class Scheduler(JobWorkerStore store, int pollSeconds, int leaseSeconds, 
         if (controller is not null) { await controller.Tick(ct); return; }
         var claim = await store.Claim(id, leaseSeconds, ct);
         if (claim is null) return;
+        if(claim.Operation==PilotCloseJobs.Operation)
+        {
+            if(pilot is null)throw new AutomationException("pilot_configuration","This worker has no qualified pilot runtime and market manifest.");
+            try
+            {
+                await pilot.Process(claim,ct);
+                await store.Finish(claim,true,null,ct);
+                logger?.LogInformation("Generated pilot close completed: {RunId}",claim.Id);
+            }
+            catch(MarketDataException error)
+            {
+                await store.Finish(claim,false,error.Code,ct);
+                logger?.LogWarning("Pilot occurrence rejected ({ErrorCode}): {RunId}",error.Code,claim.Id);
+            }
+            return;
+        }
         if (claim.Operation != "worker_check")
             throw new AutomationException("job_operation", "This service has no handler for the claimed operation.");
         // A real readiness operation verifies this independently running service's

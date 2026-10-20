@@ -1,4 +1,5 @@
 """Priced trading consumes required milestones without inspecting unrelated metadata."""
+from preview_client import initial_frame
 
 
 def run_checks(c, check, query):
@@ -9,7 +10,7 @@ def run_checks(c, check, query):
         selected = (c.call('market/context', {'effectiveOn': on, 'mode': 'current',
                     'selection': 'latest_correction'})['context'] if on else None)
         metadata = c.call('workspace/catalog')
-        frame = next(f for f in metadata['frames'] if f['at'].startswith(on or '2020-12-18'))
+        frame = initial_frame(metadata, on or '2020-12-18')
         check('the trading scope fixture includes unrelated milestone metadata',
               any(m['milestone'] not in ('first_trading', 'last_trading')
                   for m in metadata['references']['futures_milestones']))

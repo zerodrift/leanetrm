@@ -528,21 +528,31 @@ start at 15:30 UTC. Users can replace a reference with a literal date. The same
 context resolves every field, and receipts retain source identity, version,
 implementation, calendar and context. Changing context clears stale output.
 
-This produces contract-date candidates, not activated/pricable curves. Units,
-market specification qualification, dependency mappings and marks remain separate
-from schedule creation. Candidates stay private to the demo persona/session;
-schedule drafts and publications are shared with currently authorized readers
-and survive browser/session reload while the preview database exists. The owned
-preview database is removed when its launcher stops.
+The shared contract-date library now retains reviewed date rules as durable
+workspace drafts and immutable published versions (D167), replacing the earlier
+session-only candidate list. Units, market specification qualification, dependency
+mappings and marks remain separate from schedule creation. Explicit save and
+publish operations do not activate or price contracts. Each field has a literal
+date or an exact published schedule-version foreign key; occurrence indexes,
+business-day offsets, the validation-context foreign key and UTC cutoff are
+retained. Readers can resolve a selected published version in an explicit context
+without rebinding its sources to newer schedule publications. Drafts require
+current authoring access, publication has its separate permission, and historical
+visibility uses certified commit receipts. Migration 0054 and its qualification
+requirements are described in [the schedule contract](schedules-and-contract-sequences.md#shared-contract-date-library).
+The owned preview database is removed when its launcher stops.
 
 Migration [0007](../db/migrations/0007_date_schedules.sql) adds two market setup
 tables, justified by this authoring consumer. It adds no reference catalog or
 external dependency. RLS uses existing scoped read, definition-writing and sealing
 permissions. Runtime cannot update publication state or canonical reference names.
 API operations are under `/api/date-schedules`: list/capture, save, publish,
-resolve and candidate contract preview/save. API and UI share the same operations.
+resolve and contract preview/save/publish/exact-version resolve. API and UI share
+the same operations. Contract save/publish responses are control-only receipts;
+their request identities retain a SHA-256 command hash and exact version foreign
+key, followed by an independently authorized library read.
 
-Verification: 27 shared temporal checks, 11 contract-sequence checks, 20 schedule
+Earlier schedule-slice verification: 27 shared temporal checks, 11 contract-sequence checks, 20 schedule
 adapter/resolution checks, 57 frontend checks, 140 HTTP checks, 13 adversarial
 schedule-storage checks and ten persisted-adapter checks. Storage checks include
 published/identity immutability, stale generations, finite dates, scope isolation,
@@ -1030,8 +1040,11 @@ table filters present. These remain preview QA, not production qualification.
 
 ### Per-contract pricing explanation
 
-Both **Price sources** and **How it’s priced** open on one contract/maturity
-with linked selectors. **Show all contracts** displays a spreadsheet-style worksheet with
+For curves with evaluated dependencies and for rates, **Price sources** and
+**How it’s priced** open on one contract/maturity with linked selectors. A supplied
+curve with no evaluated dependencies shows all contract prices and their source
+observations immediately in a plain table, without single-price boxes or redundant
+contract controls. **Show all contracts** displays a spreadsheet-style worksheet with
 one table per curve, dated contract/price rows and connections between tables; the source table combines and deduplicates their observation
 lineage. **Show selected contract** returns to the retained selection. This shared
 presentation mode applies to rates too, and never changes the selected market
@@ -1242,3 +1255,30 @@ memory. It excludes production reads/transport and does not lift booking databas
 bounds or implement generic booked-swap/rate/volatility risk. Full futures PV and
 variation margin remain unsupported. Core policy and futures convention have new
 v2 identifiers; older calculation artifacts retain their original meaning.
+
+## Generated pilot closes and mixed-book reports
+
+The explicitly configured generated-close operation uses the existing job
+directory, schedules, leases and replacement fences (D169). It retains an exact
+anchor, selected books and root curves, synthetic source, seed, native clearing
+tick bounds and versioned calculation policies. The worker preflights whole
+selected books before writing marks. Its dedicated service runtime cannot import
+observations outside the validated publication operation.
+
+The retained portfolio adapter loads futures execution-P&L holdings and swap-PV
+holdings, preserves their separate measures and shares immutable quote scenarios.
+External quantities scale shared unit valuations. Exact rational summaries retain
+base/up/down cash and derivatives without implicit rounding; rate inputs stay
+fixed during commodity quote shocks. The earlier decimal output policy is
+unchanged. Supplemental swap model bundles are rejected by this operation.
+
+Generated marks and immutable reports have separate commits. A replacement reuses
+published inputs and reports; a close without its report remains an incomplete
+occurrence. Saved report relationships use exact versioned foreign keys for trades,
+bindings, market factors, units and discount inputs. Reading a report requires
+current authority and respects the explicitly selected historical view. Stored
+closes are discoverable in later sessions with their original variable and frozen
+pins. These capabilities do not implement settlement, variation margin, complete
+daily economic P&L or historical VaR, and the managed benchmark does not qualify
+their database or end-to-end throughput. Hosted activation and installation data
+remain separate release operations.

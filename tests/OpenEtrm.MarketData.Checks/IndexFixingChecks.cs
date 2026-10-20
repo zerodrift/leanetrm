@@ -60,6 +60,32 @@ internal static class IndexFixingChecks
             Equal(string.Join(',', resets.Select(r => r.Price.Price.Value.ToString())), "10,20,33");
             Equal(resets[0].Price.Lineage.Single(), snapshot.Selections.Single(s => s.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact)).Observation.Key);
         });
+        Check("whole-book risk values shared indexed units with frozen actuals and shocks only unresolved resets", () =>
+        {
+            var book=Guid.NewGuid();
+            RiskPosition Position(string quantity)=>new(Guid.NewGuid(),Guid.NewGuid(),book,swap.Id,
+                new(ExactDecimal.Parse(quantity),swap.UnitQuantity.Specification),new(new Money(default,swap.Currency),swap.UnitQuantity.Specification),new(default,swap.Currency));
+            var portfolio=new ValuationPortfolio([swap],[Position("100"),Position("250")],
+                new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,
+                    new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            var prepared=RiskEngine.Prepare(daily.Model,snapshot,[portfolio]);
+            Equal(prepared.Factors.Length,1);
+            Equal(prepared.Factors.Single().Input.Series,daily.Series[2].Key);
+            var factor=prepared.Factors.Single();
+            var run=RiskEngine.CalculateExact(prepared,[new(factor.Input,factor.Quote,factor.Unit,factor.TradingTick,QuoteBump.Convention)],RiskEngine.ExactNumericalPolicy);
+            Equal(run.Groups.Single().BaseValues.Single().Value.ToMoney().Amount.ToString(),"2100");
+            var risk=run.Groups.Single().Factors.Single().Totals.Single().Values;
+            Equal(risk.Delta.Value.Numerator,"350");Equal(risk.Delta.Value.Denominator,"3");Equal(risk.Gamma.Value.Numerator,"0");
+            Equal(run.Work.UniqueValuations,1);Equal(run.Work.UnitPricerCalls,3);Equal(run.Work.PositionCount,2);
+            var fixedSnapshot=daily.Snapshot(daily.Fixings[2].FixingAt,3);
+            var fixedPlan=RiskEngine.Prepare(daily.Model,fixedSnapshot,[portfolio]);
+            Equal(fixedPlan.Factors.Length,0);
+            var fixedRun=RiskEngine.CalculateExact(fixedPlan,[],RiskEngine.ExactNumericalPolicy);
+            Equal(fixedRun.Groups.Single().BaseValues.Single().Value.ToMoney().Amount.ToString(),"1750");
+            Equal(fixedRun.Groups.Single().Factors.Length,0);Equal(fixedRun.Work.ScenarioCount,1);Equal(fixedRun.Work.UnitPricerCalls,1);
+            var missing=daily.Snapshot(at,1);
+            Reject("index_fixing_missing",()=>RiskEngine.CalculateExact(RiskEngine.Prepare(daily.Model,missing,[portfolio]),[],RiskEngine.ExactNumericalPolicy));
+        });
         Check("cancellation during the sole fully fixed repricing cannot return successful zero risk", () =>
         {
             var s = monthly.Snapshot(monthly.Fixings[0].FixingAt, 1); var instrument = monthly.Swap();
