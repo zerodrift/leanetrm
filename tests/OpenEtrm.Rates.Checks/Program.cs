@@ -106,4 +106,5 @@ Check("undiscounted helper still requires structurally exact currency context an
 passed += SwapValuationChecks.Run();
 passed += MonthlySwapRateChecks.Run();
 passed += DiscountLookupChecks.Run();
+passed += ZeroRateLookupChecks.Run();
 Console.WriteLine($"{passed} rate convention checks passed.");
