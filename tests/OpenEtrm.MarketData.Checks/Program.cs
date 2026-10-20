@@ -3,6 +3,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 
+if(args is ["--monthly-swaps"]){MonthlySwapChecks.Run();return;}
 if(args is ["--commodity-lookups"]){CommodityLookupChecks.Run();return;}
 if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();return;}
 if(args is ["--snapshot-inputs"]){SnapshotInputChecks.Run();return;}
@@ -376,6 +377,7 @@ passed += ExchangeFuturesChecks.Run();
 passed += SwapChecks.Run();
 passed += CommodityLookupChecks.Run();
 passed += SnapshotInputChecks.Run();
+passed += MonthlySwapChecks.Run();
 passed += IndexFixingChecks.Run();
 passed += PaymentRuleChecks.Run();
 passed += IndependentSideChecks.Run();

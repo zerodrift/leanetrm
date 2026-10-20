@@ -164,12 +164,12 @@ internal sealed class CommodityLookupFixture
     public MarketSnapshot WithActuals(int count) => Snapshot with {
         Id = Guid.NewGuid(), ValuationAt = Fixing(count - 1).FixingAt, MarketCutoff = Fixing(count - 1).FixingAt,
         Selections = Snapshot.Selections.AddRange(Enumerable.Range(0, count).Select(Actual)) };
-    public FinancialSwapInstrument Swap(bool indexed = false, bool monthly = false)
+    public FinancialSwapInstrument Swap(bool indexed = false, bool monthly = false, int? monthOrdinal = null)
     {
-        var first = monthly ? contracts.Length - 1 : firstMonth;
+        var first = monthly ? monthOrdinal ?? contracts.Length - 1 : firstMonth;
         var count = monthly ? 1 : 31;
         var averaging = monthly ? FloatingAveraging.MonthlyIndexPrice : FloatingAveraging.CalendarDayArithmetic;
-        var from = contracts[first].DeliveryFrom; var to = contracts[^1].DeliveryTo;
+        var from = contracts[first].DeliveryFrom; var to = monthly ? contracts[first].DeliveryTo : contracts[^1].DeliveryTo;
         var payment = new DateTimeOffset(to.AddDays(2).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
         var unit = new Quantity(ExactDecimal.Parse("1"), Quote.Quantity);
         var fixedSide = new FixedSide(Guid.NewGuid(), new(ExactDecimal.Parse("4"), Quote), unit, from, to, payment, FixedSide.Implementation, Quote);

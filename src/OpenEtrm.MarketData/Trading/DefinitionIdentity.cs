@@ -132,12 +132,13 @@ public sealed class InstrumentIdentityMap
             throw new MarketDataException("instrument_identity", "An exact instrument identity cannot reinterpret its immutable economics.");
         if (instrument is FuturesContract future && definitions.TryGetValue(key, out var economic) && economic is FuturesContract retainedFuture && retainedFuture.Series != future.Series)
             throw new MarketDataException("instrument_identity", "An exact series key cannot reinterpret immutable contract terms.");
-        var members = (instrument is SidedInstrument composed ? composed.Sides : []).Select(m => (m.Side.Id, Identity: (Economics:DefinitionIdentity.For(m.Side),Binding:m.Side is FloatingSide floating?DefinitionIdentity.For(floating.PricingBinding):null))).ToArray();
+        var members = (instrument is SidedInstrument composed ? composed.Sides : []).SelectMany(m => m.Side.IdentityComponents)
+            .Select(side => (side.Id, Identity: (Economics: DefinitionIdentity.For(side), Binding: side.PricingBindingIdentity))).ToArray();
         if (members.GroupBy(m => m.Id).Any(g => g.Select(m => m.Identity).Distinct().Count() != 1) ||
             members.Any(m => sides.TryGetValue(m.Id, out var retainedSide) && retainedSide != m.Identity))
             throw new MarketDataException("side_identity", "An exact side identity cannot reinterpret its immutable economics.");
         definitions.TryGetValue(key, out var retained);
-        if (retained is FinancialSwapInstrument a && instrument is FinancialSwapInstrument b && a.PricingBindingIdentity != b.PricingBindingIdentity)
+        if (retained is not null && retained.PricingBindingIdentity != instrument.PricingBindingIdentity)
             throw new MarketDataException("valuation_binding", "Shared contractual terms cannot replace explicitly different pricing bindings.");
         foreach (var member in members) sides[member.Id] = member.Identity;
         identities[instrument.Id] = key;
