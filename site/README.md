@@ -10,6 +10,13 @@ The files use project-owned HTML, CSS and an SVG icon. There are no JavaScript
 or third-party runtime dependencies. They are separate from the signed-in
 application's browser build.
 
+Public walkthrough links use Cloudflare's per-link `email_off` exemption so
+they remain direct mail links without an injected decoding script. See the
+[provider's email obfuscation documentation](https://developers.cloudflare.com/waf/tools/scrape-shield/email-address-obfuscation/#prevent-cloudflare-from-obfuscating-email).
+
+The stylesheet URL carries its first 12 SHA-256 hex characters as a cache version.
+Update it when the stylesheet changes; the content checks enforce the match.
+
 Run the content and asset checks from the repository root:
 
 ```sh

@@ -123,6 +123,13 @@ summary:focus-visible {
 .button:hover {
   background: #24442b;
 }
+.button.secondary {
+  background: transparent;
+  color: var(--green);
+}
+.button.secondary:hover {
+  background: var(--soft);
+}
 .button.small {
   min-height: 39px;
   padding: 8px 17px;
@@ -182,8 +189,9 @@ h1 em {
 }
 .actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 24px;
+  gap: 12px 24px;
 }
 .text-link {
   display: inline-flex;
@@ -197,6 +205,9 @@ h1 em {
   letter-spacing: 0.3px;
   color: var(--muted);
   margin: 17px 0 0;
+}
+.pilot-contact {
+  margin: 7px 0 0;
 }
 .illustration {
   background: #fff;
