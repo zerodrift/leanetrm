@@ -52,4 +52,5 @@ await withOwnedBrowser(target,process.argv[3],async({command,evaluate,wait,set,c
   await evaluate("document.querySelector('#signin').requestSubmit()");
   await wait("location.pathname==='/'&&!document.querySelector('#admin-page')?.hidden&&"+idle);
   await check('hosted administration-only startup avoids every market read and access round trip',"JSON.stringify(window.__hostedStartupAccess)===JSON.stringify(['true'])&&!window.__hostedStartupReads.includes('/api/access')&&!window.__hostedStartupReads.includes('/api/workspace/navigation')&&window.__hostedStartupReads.includes('/api/admin')&&document.querySelector('#nav-market').hidden&&document.querySelector('#error').hidden");
+  await check('hosted mode hides Settings › AI even from a provider administrator',"document.querySelector('#nav-ai').hidden&&document.querySelector('#ai-page').hidden&&!window.__hostedStartupReads.some(path=>path.startsWith('/api/settings/ai'))");
 });

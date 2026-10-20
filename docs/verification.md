@@ -124,6 +124,19 @@ those definitions differently, it still recognizes its helpers and applies. Migr
 0053 gets the same checks, after Add price's helper definition changes and after the
 currency read's privileges change.
 
+Settings › AI has its own browser scenario, which runs after those HTTP checks in the
+same isolated preview (`--assistant-check --browser-check`). From the page's own
+session it creates an administrator without market-data access and a pricing
+administrator, then enters every choice explicitly: a blank rate, tier choice or end
+is refused before any request, a tier offers exactly the base set's rates, and cache
+read cannot be left unpriced where the directory requires it. Repeated currencies are
+told apart by catalog and revision. After a lost response to a committed price or key
+replacement, the page keeps the request and shows what was saved; Retry resends it
+under the same identity and the audit still records one change. The key never
+reaches session storage, local storage or the URL, its field clears when the request
+settles, and Retry asks for it again. A revoked administrator keeps no model, price
+or audit rows on screen, a viewer sees no AI settings, and hosted mode hides them.
+
 ## Hosted job
 
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on

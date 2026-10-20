@@ -50,7 +50,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
                '--dotnet', str(dotnet), '--no-build', '--check']
     check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)])
     check('isolated party maintenance and power browser', [*preview, '--party-check', '--browser-check', '--browser', str(browser)])
-    check('isolated page-assistant administration', [*preview, '--assistant-check'])
+    check('isolated page-assistant administration and browser', [*preview, '--assistant-check', '--browser-check', '--browser', str(browser)])
     check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     check('published index fixing price and risk', [*preview, '--index-fixing-check'])
     check('standard futures execution policies', [*preview, '--execution-check'])

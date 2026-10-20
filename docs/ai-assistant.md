@@ -15,10 +15,12 @@ resolution), the date picker's projection of the library and the other trading r
 risk), which run on the trade reads' shared path. From step 3, `ManageModelProviders`,
 provider and write-only credential storage with key custody, model identities and
 effective-dated price revisions are implemented, with the Providers and Models & prices
-reads and Replace key, Add model, Rename, Add price and Withdraw price; the Settings ›
-AI tabs are not. Model capability versions (§5.1) come with step 4's qualification,
-which first consumes them. The turn's working-data pin (§7.2), which binds a captured
-context, is not implemented.
+reads and Replace key, Add model, Rename, Add price and Withdraw price, on those two
+Settings › AI tabs. Model capability versions (§5.1), and with them model status,
+Enable, Disable, Attest and Test, come with step 4's qualification, which first consumes
+them, as do the Providers tab's endpoint, terms, owner visibility, attestation and last
+test. The turn's working-data pin (§7.2), which binds a captured context, is not
+implemented.
 
 The page assistant ships in three phases, each with its own design:
 

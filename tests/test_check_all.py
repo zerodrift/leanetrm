@@ -60,7 +60,7 @@ class CheckAllTests(unittest.TestCase):
         # Party race/revocation checks allocate their own disposable session pool.
         self.assertTrue(any('--party-check' in command and '--browser-check' in command for command in commands))
         # So does page-assistant administration: the standard run already spends the whole session pool.
-        self.assertTrue(any('--assistant-check' in command for command in commands))
+        self.assertTrue(any('--assistant-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--unit-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--exchange-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('mixed-gas' in command for command in commands))
