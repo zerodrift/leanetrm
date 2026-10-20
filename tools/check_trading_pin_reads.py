@@ -1,4 +1,4 @@
-"""Exact primary trading pins; supplemental markets still resolve corrections."""
+"""Exact primary trading pins; supplemental markets resolve corrections only in certified contexts (D172)."""
 import json
 from decimal import Decimal
 from datetime import datetime
@@ -10,18 +10,18 @@ VIEW = {'mode': 'trades', 'bookIds': [], 'portfolioIds': [], 'groupBy': [],
         'measures': [], 'pivotConvention': None}
 
 
-def _context(frame, retained=None):
+def trading_context(frame, retained=None):
     return {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1',
             'knowledgeMode': 'retained' if retained else 'current',
             **({'contextId': retained['contextId']} if retained else {})}
 
 
-def _workspace(c, context):
+def trading_workspace(c, context):
     return c.call('trading/workspace', {'context': context, 'view': VIEW,
                                        'bookingCatalog': 'priced_contracts'})
 
 
-def _legacy(c, context, convention):
+def legacy_trading_reads(c, context, convention):
     return {'catalog': c.call('futures/catalog', {**context, 'convention': convention}),
             'blotter': c.call('trading/blotter', {'context': context, 'view': VIEW})}
 
@@ -47,27 +47,27 @@ def run_checks(c, check, query, manifest):
     quote = next(q for q in data['references']['quote_specifications'] if q['code'] == series['quote_code'])
     changed_value = _changed_value(original, quote)
     c.call('profile', {'profile': 'trader'})
-    before = _workspace(c, _context(frame))
+    before = trading_workspace(c, trading_context(frame))
     old_cut = before['catalog']['context']
-    before = _workspace(c, _context(frame, old_cut))
+    before = trading_workspace(c, trading_context(frame, old_cut))
     c.call('profile', {'profile': 'editor'})
     changed = c.call('corrections', {'snapshotId': frame['id'], 'observationId': original['id'],
                                    'value': changed_value})
     successor = str(UUID(changed['observationId']))
     try:
         c.call('profile', {'profile': 'trader'})
-        old_now = _workspace(c, _context(frame))
+        old_now = trading_workspace(c, trading_context(frame))
         cut = old_now['catalog']['context']
-        old_pin, new_pin = _context(frame, cut), _context(changed['frame'], cut)
-        old_result, new_result = _workspace(c, old_pin), _workspace(c, new_pin)
+        old_pin, new_pin = trading_context(frame, cut), trading_context(changed['frame'], cut)
+        old_result, new_result = trading_workspace(c, old_pin), trading_workspace(c, new_pin)
         check('priced trading retains the explicitly selected original observation after a correction',
-              old_result == _legacy(c, old_pin, data['futuresConvention']))
+              old_result == legacy_trading_reads(c, old_pin, data['futuresConvention']))
         check('priced trading retains the explicitly selected corrected observation',
-              new_result == _legacy(c, new_pin, data['futuresConvention'])
+              new_result == legacy_trading_reads(c, new_pin, data['futuresConvention'])
               and old_result['catalog']['contracts'] != new_result['catalog']['contracts'])
         check('priced trading replays the original cutoff after later correction publication',
-              _workspace(c, _context(frame, old_cut)) == before)
-        c.call('trading/workspace', {'context': _context(changed['frame'], old_cut),
+              trading_workspace(c, trading_context(frame, old_cut)) == before)
+        c.call('trading/workspace', {'context': trading_context(changed['frame'], old_cut),
                'view': VIEW, 'bookingCatalog': 'priced_contracts'}, expected=422)
         check('a later corrected pin cannot enter an earlier trading cutoff')
         # A read-only fault makes inspecting an unselected successor observable.
@@ -82,7 +82,7 @@ def run_checks(c, check, query, manifest):
             c.call('futures/catalog', {**old_pin, 'convention': data['futuresConvention']}, expected=403)
             check('standalone full trading reads still inspect same-fact correction history')
             check('priced workspace does not inspect unselected primary correction rows',
-                  _workspace(c, old_pin) == old_result)
+                  trading_workspace(c, old_pin) == old_result)
         finally:
             query('DROP POLICY synthetic_unselected_trading_pin ON market_data.observations;DROP FUNCTION public.synthetic_unselected_trading_pin(uuid);')
         anchor = str(UUID(original['id']))
@@ -106,8 +106,8 @@ def run_supplemental_checks(c, check, query, manifest):
     c.call('profile', {'profile': 'trader'}); c.call('market/current', {})
     data = c.call('workspace')
     frame = initial_frame(data, '2020-12-18')
-    before = _workspace(c, _context(frame)); retained = _context(frame, before['catalog']['context'])
-    before = _workspace(c, retained)
+    before = trading_workspace(c, trading_context(frame)); retained = trading_context(frame, before['catalog']['context'])
+    before = trading_workspace(c, retained)
     held = next(h for h in before['blotter']['holdings'] if h['instrumentType'] == 'financial_swap'
                 and h['definitionRevisionId'] != manifest['revisionId'] and h['curve'] == 'daily_gas')
     market = next(m for m in manifest['swapMarkets'] if m['revisionId'] == held['definitionRevisionId'])
@@ -131,14 +131,26 @@ def run_supplemental_checks(c, check, query, manifest):
               FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}' AND id='{predecessor}';""")
         query('BEGIN;' + ''.join(statements) + 'COMMIT;')
     append([(successor, original['id'], value) for original, successor, value in corrections])
+    def held_value(read):
+        return next(h for h in read['blotter']['holdings'] if h['tradeId'] == held['tradeId'])['presentValue']
     try:
-        current = _workspace(c, _context(frame)); cut = _context(frame, current['catalog']['context'])
-        current = _workspace(c, cut)
-        check('supplemental swap markets still resolve their visible latest correction',
-              current == _legacy(c, cut, data['futuresConvention'])
-              and next(h for h in current['blotter']['holdings'] if h['tradeId'] == held['tradeId'])['presentValue'] != held['presentValue'])
+        current = trading_workspace(c, trading_context(frame)); cut = trading_context(frame, current['catalog']['context'])
+        current = trading_workspace(c, cut)
+        check("supplemental swap markets keep their snapshot's exact pins after a later correction (D172)",
+              current == legacy_trading_reads(c, cut, data['futuresConvention']) and held_value(current) == held['presentValue'])
         check('supplemental swap correction does not change retained prior PV or provenance',
-              _workspace(c, retained) == before)
+              trading_workspace(c, retained) == before)
+        # A certified context resolves the latest correction known at its cutoff in every bundle.
+        c.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': current['catalog']['context']['knownAt'],
+                                  'mode': 'at', 'selection': 'latest_correction'})
+        historical = c.call('workspace')
+        alias = next(f for f in historical['frames'] if f['at'] == frame['at'] and 'originCloseId' not in f)
+        certified = {'snapshotId': alias['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'retained',
+                     'contextId': historical['context']['contextId']}
+        resolved = trading_workspace(c, certified)
+        check('a certified context after a supplemental correction resolves it identically through scoped and legacy reads',
+              resolved == legacy_trading_reads(c, certified, data['futuresConvention']) and held_value(resolved) != held['presentValue'])
     finally:
         append([(str(uuid4()), successor, original['value']) for original, successor, _ in corrections])
+        c.call('market/current', {})
         c.call('profile', {'profile': 'viewer'})

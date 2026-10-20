@@ -1141,6 +1141,67 @@ adversarial review found no remaining concrete blocker. These checks do not
 qualify live publisher data, broader peak/holiday observation authoring,
 settlement/payment lifecycle operations or a hosted deployment.
 
+### Acceptance oracle, wrong actuals and exact snapshot pins
+
+Local 2026-10-20 checks extend `--index-fixing-check` with check-owned synthetic
+frames. A one-month monthly-index swap on 10,000 MMBtu (IT) receives a published
+3.20 USD/MMBtu February index and pays 3.00. It values at 2,000 USD undiscounted
+before fees, with unit gross sides of 3.20 and 3.00 and lineage to the pinned
+actual. On its payment date it rejects with `side_payment_due`. The discount
+context now checks every side for a due payment before any discount lookup.
+Before this, the API path reported `discount_context` even for undiscounted swaps,
+and another side's missing discount curve could hide a due payment. Managed rate
+checks cover valuation, discount creation and direct construction.
+
+For a due January actual, five inputs cannot price or book: another source, a
+trader mark, a preliminary value, no actual, or only February's actual. The
+database writer rejects the same pin sets independently and admits the exact
+January actual. The February projection needs a live future that expires on
+January 28, before the index publishes on January 31. Between the two, price and
+booking reject with `source_expired`, and at publication the pinned actual prices.
+
+Exact snapshot pins (D172) are checked in both the main and the separate daily
+swap bundle:
+
+- A correction or explicit revision selection prices only through its own new
+  snapshot, and that snapshot's frame JSON names its separate-bundle selection.
+- The original snapshot, a pre-correction retained context and a certified
+  context before the correction keep their original actuals. A certified context
+  after the correction resolves the latest correction in both bundles, repeatably
+  and read-only.
+- Identical booking retries return their original results, including a retry
+  through the corrected snapshot. The trade booked before the corrections values
+  at 31, 32 and 33 USD at the original, corrected and selected snapshots,
+  identically through the scoped and full trading reads. A new booking from the
+  corrected snapshot stores the corrected actual and revalues at 32 and 31 USD at
+  the corrected and original snapshots.
+- Corrections need current import authority and refuse observations the snapshot
+  does not pin. A close cannot be registered from a snapshot with separate-bundle
+  selections.
+
+Temporary mutations confirmed that the checks fail if the resolver ignores the
+actual's source, if daily-bundle loading follows corrections again, or if a
+correction no longer has to be pinned by its snapshot.
+
+The supplemental pin-read check in `check_trading_pin_reads.py` previously required
+the same snapshot to pick up a later daily-bundle correction. It now asserts D172:
+the same snapshot keeps the held daily swap's PV, and a certified context after the
+correction resolves it identically through the scoped and full trading reads.
+
+Independent adversarial review found no critical defects. Its findings were
+resolved before this record: decision and documentation wording, retry and
+booking coverage, negative authorization checks, an explicit certified-context
+marker, serialized selections and the cross-side due-payment order. A follow-up
+review confirmed the resolutions.
+
+On the final tree, the complete `tools/check_all.py` command passed on 2026-10-20
+in all 38 stages, including 335 managed core checks, 75 rate checks, 162 frontend
+tests, 360 standard browser checks, 41 swap storage checks and 623 preview HTTP
+checks. Verification used .NET SDK 10.0.402, Node 24.22.0, PostgreSQL 16.14 and
+Chrome 155 on macOS arm64; all database and browser resources were owned,
+disposable and synthetic. These checks do not qualify live publisher data,
+settlement or payment lifecycle operations, or a hosted deployment.
+
 ## Unambiguous swap discount defaults
 
 Focused checks on 2026-10-19 first reproduced the plan-dependent tie in the

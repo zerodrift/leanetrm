@@ -30,10 +30,21 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Guid? OriginCloseId{get;init;}
+    // Pins explicitly selected in separate swap bundles, by bundle revision (D172).
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableDictionary<Guid,ImmutableArray<Guid>>? SwapMarketSelections{get;init;}
+    // Set only on frames a certified context resolves under its explicit latest-correction policy (D172).
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ResolvesLatestCorrection{get;init;}
     public InputFrame SelectRevision(Guid previous,Guid selected,string name)=>this with
     {
         Id=Guid.NewGuid(),Name=name,OriginCloseId=null,ObservationIds=ObservationIds.Replace(previous,selected),
         FrozenObservationIds=FrozenObservationIds.IsDefault?default:FrozenObservationIds.Contains(previous)?FrozenObservationIds.Replace(previous,selected):FrozenObservationIds
+    };
+    public InputFrame SelectSwapMarketRevision(Guid market,ImmutableArray<Guid> pins,Guid previous,Guid selected,string name)=>this with
+    {
+        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,
+        SwapMarketSelections=(SwapMarketSelections??ImmutableDictionary<Guid,ImmutableArray<Guid>>.Empty).SetItem(market,pins.Replace(previous,selected))
     };
 }
 public sealed class PreviewDeniedException : Exception;
@@ -159,7 +170,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=true,
         ObservationReadScope observationScope=ObservationReadScope.FactHistory)
     {
-        if(selectedRevision is {} requested&&requested!=Manifest.RevisionId&&!(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==requested))throw new PreviewDeniedException();
+        if(selectedRevision is {} requested&&!DeclaredBundle(requested))throw new PreviewDeniedException();
         var selectedManifest=selectedRevision is {} id?Manifest with {RevisionId=id}:Manifest;
         var definitions = new Dictionary<string, ImmutableArray<JsonElement>>();
         foreach (var (table,key) in DefinitionTables)
@@ -377,18 +388,36 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         var result=ImmutableArray.CreateBuilder<(PreviewData,InputFrame)>();
         foreach(var market in Manifest.SwapMarkets??[])
         {
-            await using var available=ScheduleStore.Command(connection,"SELECT count(*) FROM market_data.revisions WHERE catalog_id=$1 AND id=$2",Manifest.CatalogId,market.RevisionId);
-            if((long)(await available.ExecuteScalarAsync(ct))! == 0)continue;
+            if(!await SwapMarketAvailable(connection,market,ct))continue;
             var seed=market.Frames.SingleOrDefault(f=>f.At==selected.At)??throw new MarketDataException("swap_context","No explicit daily-market frame exists for the selected As of time.");
-            var data=await Read(connection,ct,market.RevisionId,sharedReferences,seed.ObservationIds.ToImmutableArray());
-            var frame=new InputFrame(selected.Id,"Selected swap market",selected.At,seed.ObservationIds.ToImmutableArray(),seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),selected.ContextId);
-            result.Add((data,data.SelectPinned(frame)));
+            var pins=SwapMarketPins(selected,market)!.Value;
+            var data=await Read(connection,ct,market.RevisionId,sharedReferences,pins);
+            var frame=new InputFrame(selected.Id,"Selected swap market",selected.At,pins,seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),selected.ContextId);
+            // A snapshot prices its exact pins; only a certified context's own frames apply its
+            // latest-correction policy at that cutoff (D172).
+            result.Add((data,selected.ResolvesLatestCorrection?data.SelectPinned(frame):frame));
         }
         return result.ToImmutable();
     }
 
-    public async Task<Guid> Correct(NpgsqlConnection connection, Guid observationId, string value, CancellationToken ct)
+    public async Task<bool> SwapMarketAvailable(NpgsqlConnection connection,PreviewSwapMarket market,CancellationToken ct)
     {
+        await using var available=ScheduleStore.Command(connection,"SELECT count(*) FROM market_data.revisions WHERE catalog_id=$1 AND id=$2",Manifest.CatalogId,market.RevisionId);
+        return (long)(await available.ExecuteScalarAsync(ct))!>0;
+    }
+
+    // A separate swap bundle uses the pins its snapshot selected, otherwise the bundle
+    // frame declared for the snapshot's instant; null when neither exists (D172).
+    public ImmutableArray<Guid>? SwapMarketPins(InputFrame frame,PreviewSwapMarket market)=>
+        frame.SwapMarketSelections is {} selections&&selections.TryGetValue(market.RevisionId,out var pins)?pins:
+        market.Frames.SingleOrDefault(f=>f.At==frame.At)?.ObservationIds.ToImmutableArray();
+
+    // The main market revision or an explicitly allow-listed supplemental swap bundle.
+    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
+
+    public async Task<Guid> Correct(NpgsqlConnection connection, Guid revision, Guid observationId, string value, CancellationToken ct)
+    {
+        if (!DeclaredBundle(revision)) throw new PreviewDeniedException();
         var parsed = ExactDecimal.Parse(value);
         var id = Guid.NewGuid();
         await using var command = new NpgsqlCommand("""
@@ -399,7 +428,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
                source_event_id,$2,role,publication_state,observed_at,clock_timestamp(),$3::numeric,id
             FROM market_data.observations WHERE catalog_id=$4 AND definition_revision_id=$5 AND id=$6
             """, connection);
-        foreach (var parameter in new object[] { id, id.ToString(), parsed.ToString(), Manifest.CatalogId, Manifest.RevisionId, observationId })
+        foreach (var parameter in new object[] { id, id.ToString(), parsed.ToString(), Manifest.CatalogId, revision, observationId })
             command.Parameters.Add(new NpgsqlParameter { Value = parameter });
         if (await command.ExecuteNonQueryAsync(ct) != 1) throw new MarketDataException("missing_observation", "The selected observation is unavailable.");
         return id;
@@ -536,6 +565,7 @@ public sealed class PreviewData
     private static T Single<T>(IEnumerable<T> source)
     { var values=source.Take(2).ToArray(); return values.Length==1?values[0]:throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous."); }
     public JsonElement Observation(Guid id)=>Single(observationRows[id]);
+    public bool HasObservation(Guid id)=>observationRows.Contains(id);
     public InputFrame SelectPinned(InputFrame frame)
     {
         var pins=frame.ObservationIds.Select(id=>

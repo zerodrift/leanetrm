@@ -18,6 +18,6 @@ public static class MarketContextStore
 
     public static InputFrame Select(InputFrame seed,PreviewData data,ScheduleContext context)
     {
-        return data.SelectPinned(seed) with {Id=Guid.NewGuid(),Name="Certified market inputs",ContextId=context.ContextId};
+        return data.SelectPinned(seed) with {Id=Guid.NewGuid(),Name="Certified market inputs",ContextId=context.ContextId,ResolvesLatestCorrection=true};
     }
 }

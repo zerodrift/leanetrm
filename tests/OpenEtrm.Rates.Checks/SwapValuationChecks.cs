@@ -153,6 +153,23 @@ internal static class SwapValuationChecks
                 p.Cashflow.Discount.Source != DiscountFactorSource.Undiscounted)))
                 throw new Exception("An undiscounted side unexpectedly consumed rate inputs");
         });
+        Check("a due payment reports its lifecycle rejection before any currency-default discount lookup", () =>
+        {
+            // No market input is requested: only the order of the two guards is under test.
+            var due = snapshot with { ValuationAt = payment, MarketCutoff = payment };
+            var market = model.Build(due, []);
+            foreach (var (discounting, selected) in new[] { (false, (CurrencyDiscountCurve?)null), (true, mapping) })
+            {
+                var swap = new FinancialSwapInstrument(Guid.NewGuid(), instrument.Sides, FinancialSwapInstrument.Implementation, discounting);
+                Reject("side_payment_due", () => FinancialSwapValuation.Price(swap, market, new(ExactDecimal.Parse("100"), quote.Quantity), discounting, selected));
+                Reject("side_payment_due", () => FinancialSwapValuation.CreateDiscounting(swap, due, selected));
+            }
+            Reject("side_payment_due", () => new CurrencyDefaultDiscounting(instrument.Sides.Select(m => m.Side.GenerateSchedule()), due, false, null));
+            // A later side's missing discount curve cannot hide another side's due payment.
+            var later = new FixedSide(Guid.NewGuid(), fixedSide.Price, unit, contract.DeliveryFrom, contract.DeliveryTo,
+                At("2021-03-18T12:00:00Z"), FixedSide.Implementation, quote);
+            Reject("side_payment_due", () => new CurrencyDefaultDiscounting([later.GenerateSchedule(), floating.GenerateSchedule()], due, true, null));
+        });
         Check("reusable payment inputs retain the supplied frozen context and each side's payment date", () =>
         {
             var frozen=snapshot with { Selections=snapshot.Selections.SetItem(0,snapshot.Selections[0] with {
