@@ -94,7 +94,8 @@ async function api<T>(path:string,body?:unknown):Promise<T>{
 function pageStatus(){return page==='custom-curves'?'Custom curves · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant providers, models and prices.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:'Choose a curve and a market date to get started.';}
 async function act(work:()=>Promise<void>){
   // Context changes, writes and reads are serialized. Never retry a mutation.
-  if(busy)return;busy=true;syncControls();$('error').hidden=true;text('status','Loading…');
+  // Errors and notices describe the previous action; the next one starts clean.
+  if(busy)return;busy=true;syncControls();$('error').hidden=true;$('notice').hidden=true;text('status','Loading…');
   try{await work();text('status',pageStatus());}
   catch(error){text('error',error instanceof Error?error.message:'Something went wrong. Please refresh the page.');$('error').hidden=false;text('status','Please check the message above.');}
   finally{busy=false;syncControls();}

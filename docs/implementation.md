@@ -1146,7 +1146,9 @@ The swap editor uses aligned vertical columns and initializes only unset peer
 delivery/currency fields; subsequent edits remain independent.
 
 Owned standard previews include sixteen explicit monthly/daily gas/power examples
-across the same four weekdays, alongside the original eight futures. Seeding uses
+across the same four weekdays, alongside the original eight futures. The examples
+share Book B, so Book A stays futures-only: the blotter offers shared futures shocks
+only for a selection without swaps. Seeding uses
 stable authorized commands and retries without duplicates. No live feed, actual
 fixing ingestion, recurring payment strips, swap risk, physical delivery, PPA or
 fee/reconciliation workflow is enabled by this slice. Broader core averaging

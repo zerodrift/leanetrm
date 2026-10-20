@@ -22,15 +22,17 @@ def seed_swaps(url, run_id, owned_root, client=None):
     client.bootstrap(); client.call('profile', {'profile': 'trader'})
     workspace = client.call('workspace')
     frames = execution_frames(workspace)
-    choices = [('test_gas', REV, 'monthly_index_price', '3', BOOKS[0], True),
-               ('test_power', REV, 'monthly_index_price', '40', BOOKS[1], True),
-               ('test_gas', REVISION, 'calendar_day_arithmetic', '3', BOOKS[0], False),
-               ('test_power', REVISION, 'calendar_day_arithmetic', '40', BOOKS[1], False)]
+    # Swaps share Book B so seeded Book A stays futures-only, where shared futures shocks apply.
+    book = BOOKS[1]
+    choices = [('test_gas', REV, 'monthly_index_price', '3', True),
+               ('test_power', REV, 'monthly_index_price', '40', True),
+               ('test_gas', REVISION, 'calendar_day_arithmetic', '3', False),
+               ('test_power', REVISION, 'calendar_day_arithmetic', '40', False)]
     commands = []
     for frame in sorted(frames, key=lambda f: f['at']):
         context = {'snapshotId': frame['id'], 'convention': 'independent_side_financial_swap_v2', 'knowledgeMode': 'current'}
         catalog = client.call('swaps/catalog', context)
-        for commodity, revision, averaging, strike, book, discounting in choices:
+        for commodity, revision, averaging, strike, discounting in choices:
             eligible = sorted((i for i in catalog['indices'] if i['commodity'] == commodity and i['definitionRevisionId'] == revision and averaging in i['averaging']), key=lambda i: i['curve'])
             if not eligible or book not in [b['id'] for b in catalog['books']]:
                 raise ValueError('Required exact synthetic index, curve or book is unavailable.')
