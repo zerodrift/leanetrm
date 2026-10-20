@@ -90,6 +90,7 @@ if(args.Length==1)
         }
     }
     finally {CultureInfo.CurrentCulture=previous;}
+    passed+=PowerContractSelectionChecks.Run(new PreviewData(realManifest,definitions,references,observations),frame);
     // A power curve settled on an index difference is unsupported by the hour preview; it must not hide the other curves.
     JsonElement With(JsonElement row,string field,string value){var copy=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(row)!;copy[field]=JsonSerializer.SerializeToElement(value);return JsonSerializer.SerializeToElement(copy);}
     var target=references["settlement_targets"].Single(r=>r.Text("code")=="test_power_target");

@@ -230,6 +230,14 @@ The standalone [power TOU preview](power-preview.md) now connects editable masks
 to actual selected curve contracts and synthetic flat settlements. It qualifies
 current-input calculations, explicit clock captures and fixed-MW integration;
 durable TOU/product publication and historical clock selection remain work.
+The bounded collected-interval HTTP consumer now connects explicit curve/source
+associations, one operating day and a certified price cutoff to the same typed
+settlement arithmetic (D171). It supports interval MW with explicit shape and
+already-shaped interval MWh, preserving source batches and UTC/DST identity.
+Published-final fixing admission, booked cash obligations and payment remain work;
+see [the consumer contract](power-preview.md#collected-interval-delivery-value) and
+[the broader settlement design](settlement-plan.md). The browser's original flat
+synthetic example retains its meaning.
 The next quantity entry contract supports explicit total MWh and flat MW choices.
 It must retain side delivery/allocation rules and typed generated quantities,
 preserve total energy through interval allocation, and reject missing conversion

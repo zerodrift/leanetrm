@@ -29,6 +29,7 @@ static class ModelProviderChecks
         await TransportAndCancellation();
         await ServedModel();
         await RefusedBeforeSending();
+        CheckEndpoint();
     }
 
     static async Task TextCall()
@@ -365,6 +366,9 @@ static class ModelProviderChecks
     {
         async Task Refused(string code,ModelRequest request,string key=Key)
         {
+            // Validate is the check Stream applies first, so a caller can refuse before recording anything.
+            try{MessagesAdapter.Validate(request,key);throw new Exception("Validate accepted a request that must be refused with "+code);}
+            catch(ModelCallException e) when(e.Code==code){}
             var fake=new FakeProvider();
             try{await foreach(var _ in new MessagesAdapter(fake,Limits).Stream(request,key,CancellationToken.None)){}}
             catch(ModelCallException e) when(e.Code==code&&!Withheld.Any(w=>e.Message.Contains(w,StringComparison.Ordinal))){Require(fake.Bodies.Count==0,code+" sends nothing");return;}
@@ -388,6 +392,24 @@ static class ModelProviderChecks
             catch(ArgumentException){Require(fake.Bodies.Count==0,name+" sends nothing");}
         }
         Console.WriteLine("PASS Messages refusals before sending: reasoning, identifiers, keys, request shape and replies are checked first");
+    }
+
+    // The preview's one provider endpoint override (§5.2): none, or an origin whose host is a loopback IP
+    // literal, written exactly as the origin it parses to.
+    static void CheckEndpoint()
+    {
+        Require(ModelTransport.CheckEndpoint(null) is null,"without an override, adapters keep their own endpoints");
+        foreach(var accepted in new[]{"http://127.0.0.1:41234","https://127.0.0.1:41234","http://127.0.0.2:41234","http://[::1]:41234"})
+            Require(ModelTransport.CheckEndpoint(accepted)?.GetLeftPart(UriPartial.Authority)==accepted,"a loopback IP-literal origin is a check endpoint: "+accepted);
+        foreach(var refused in new[]{"","127.0.0.1:41234","http://localhost:41234","http://10.0.0.1:41234","http://[::2]:41234","ftp://127.0.0.1:41234",
+            "http://127.0.0.1:41234/","http://127.0.0.1:41234/v1/messages","http://127.0.0.1:41234?x=1","http://127.0.0.1:41234#x","http://synthetic@127.0.0.1:41234",
+            "http://127.1:41234","http://0x7f000001:41234","http://127.0.0.1:41234 "})
+        {
+            try{ModelTransport.CheckEndpoint(refused);}
+            catch(InvalidOperationException){continue;}
+            throw new Exception("Accepted the provider endpoint override "+refused);
+        }
+        Console.WriteLine("PASS the preview's provider endpoint override is only a loopback IP-literal origin");
     }
 
     // A local fake provider: each request must reach exactly the documented endpoint with only the

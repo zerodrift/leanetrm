@@ -207,6 +207,118 @@ applies, before and during that rolled-back repoint (migration 0061). Before 006
 applies, its body is refused after the directory's definition changes and after the
 provider state helper's privileges change.
 
+Provider tests (migration 0062) are checked next, first over HTTP. The API reaches a
+loopback fake provider through the preview's provider endpoint override, and every proxy
+variable names a trap:
+
+- **Worker:** before serving, the API takes the agent-worker lock and starts a generation,
+  and tests run under it. A request that gives up while the worker's connection is slow to
+  answer leaves the worker usable.
+- **The request:** a test sends exactly one request to the Messages path, with the key
+  only in its `x-api-key` header. It carries the fixed synthetic prompt without workspace
+  data or tools, within the test output limit and at the chosen effort.
+- **Outcomes:**
+  - success, at an end of turn, at the output limit and when served by an accepted
+    identifier, priced exactly;
+  - a refusal before output;
+  - a mismatch, and a malformed served identifier, which is not kept;
+  - unrecognized usage;
+  - a request for a tool the test never offered, and a stop at the context window, each
+    billed as reported;
+  - 401, 429, 500 and 529, each with its classification;
+  - a too-long and an invalid request;
+  - a malformed stream, and one past the byte bound;
+  - a redirect, which is not followed.
+
+  Every failure after sending asserts its usage: unknown, or unrecognized for a mismatch.
+- **Efforts:** each reasoning effort the applied mapping states passes the adapter's own
+  effort check and is sent. If the database also stated an effort the adapter does not
+  send, the test would be refused before anything is recorded or sent; the check states
+  one for itself, then removes it.
+- **Refusals:** route refusals send nothing: NUL in the effort, an empty model, and a key
+  the preview's key file cannot open among them. The last also records nothing.
+- **Deadline:** a stalled provider closes the test at its deadline with unknown usage. A
+  retry meanwhile is `test_in_progress`, and afterwards returns the outcome without a
+  second request. A second test in the same session waits for the first, so the request
+  deadline cuts it short; that is recorded as its elapsed limit, not an abort.
+- **Abort:** an aborted request closes the test as cancelled.
+- **Late close:** a close the database cannot take at once is retried until it lands, so
+  the outcome keeps the usage the handler read. A close that fails other than
+  transiently is logged, and the test stays in progress.
+- **Lost permission:** an administrator who loses the permission mid-test still has the
+  usage recorded, and is refused the answer.
+- **Takeover:** a session that takes the agent-worker lock over closes the running test
+  as interrupted, and the test whose close failed too.
+  - While it holds the lock, tests are refused, yet a retry of a finished test returns
+    its outcome and a viewer is refused for want of permission.
+  - Once the lock is free, a worker start that fails after taking it is logged, refuses
+    the test and leaves no lock behind, while a retry of a finished test still returns its
+    outcome.
+  - While a start would succeed, a viewer's refused request takes no lock and starts no
+    generation.
+  - The API acquires the lock again for the next test.
+- **Egress:** no request reaches a proxy or redirect target, and the key's last four
+  characters appear in no answer, request body or log line.
+
+Then in SQL:
+
+- **Cost:** `token_cost_v1` is exact over revisions built for the check:
+  - a prompt at the tier threshold keeps the first rate set;
+  - cache tokens can carry a prompt over the threshold, and then every dimension takes the tier's rates;
+  - tokens in a dimension that is not offered leave the call unpriced, and none there cost nothing, with and without a tier;
+  - an unknown count yields no partial cost;
+  - the smallest and largest costs keep all 18 places, at a magnitude beyond C# `decimal`.
+- **Worker:** a session without the agent-worker lock cannot start a generation, nor can
+  another session while it is held, and the generation advances one at a time, even for
+  the owner.
+- **Opening:**
+  - a test needs every input, and a new test the current generation, whose worker still
+    holds the lock;
+  - refusals come in their documented order: `model_unqualified`,
+    `model_provider_unqualified`, `parameter_required`, `model_unpriced`;
+  - a model edited twice is tested under its second version's efforts and output limit;
+  - a test opening while its key is replaced waits for the replacement, then refuses the
+    new, unattested key;
+  - an unpriced model covers no revision, a withdrawal, one not yet in force and one ended;
+  - the database refuses a viewer, a delegated agent, a session without a request context
+    and another workspace;
+  - refusals record nothing;
+  - an open record pins the current capability version, the attested key and terms, the
+    revision in force at its start, the cost method, the generation and the token digest,
+    and returns the key sealed.
+- **Retries and closing:**
+  - a retry is `test_in_progress` while the test is open, and a conflict for another
+    model, effort or administrator;
+  - a close with another test's token, a changed token, none, or for an unknown call is
+    refused;
+  - the token closes a test once, and a later close changes nothing;
+  - a retry then returns the outcome, with or without a worker generation;
+  - a revision appended while a test was open does not change its cost;
+  - accepted served identifiers are priced, unknown, unrecognized and mismatched usage
+    store no cost, and a test that reached no vendor costs exactly zero.
+- **Owner-level constraints:** these hold every count with its source, recognized usage,
+  successes, and mismatches, which name neither a malformed nor an accepted identifier.
+  They also hold an outcome's exact cost and a call's effort, output limit and rate-set
+  pin. Calls and outcomes are immutable.
+- **Lost permission:** a test whose administrator loses the permission still records its
+  usage.
+- **Recovery:**
+  - once its worker's connection ends, a generation opens no more tests, even after
+    another session takes the lock without starting one;
+  - the next worker closes each test left open as interrupted, once: a further worker and
+    a late close change nothing;
+  - a worker that starts while a test is opening waits for the open to commit, then closes
+    that test.
+- **Expired context:** three cases let the request context expire while a test waits for
+  its principal, its model row or its record write, and each names the recheck that
+  refuses it.
+- **Guard:** before 0062 applies, its body is refused after a pricing helper's definition
+  changes and after a qualification helper's privileges change.
+
+The Messages conformance suite also checks that the adapter's `Validate` refuses
+everything `Stream` refuses before sending, and that the provider endpoint override is
+only a loopback IP-literal origin.
+
 Settings › AI has its own browser scenario, which runs after those HTTP checks in the
 same isolated preview (`--assistant-check --browser-check`). From the page's own
 session it creates an administrator without market-data access and a pricing

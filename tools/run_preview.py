@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--port', type=int, default=0, help='Loopback HTTP port; 0 chooses an unused port')
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
+    parser.add_argument('--power-actual-check',action='store_true',help='Qualify exact collected-price interval settlement sources')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
@@ -54,7 +55,7 @@ def main():
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
     fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check
-    if args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.power_actual_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -155,6 +156,9 @@ def main():
             if args.assistant_check and migration.name=='0061_directory_efforts.sql':
                 from check_model_versions import check_directory_upgrade
                 check_directory_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0062_provider_tests.sql':
+                from check_provider_tests import check_upgrade as check_tests_upgrade
+                check_tests_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -186,6 +190,9 @@ def main():
 
             print('PASS fresh hosted seed validates on an empty stock database without synthetic users, observations or trades',flush=True)
         query(reference)
+        if args.power_actual_check:
+            from check_power_actual_storage import prepare_market
+            market=prepare_market(market,manifest)
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
@@ -204,6 +211,9 @@ def main():
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
+        if args.power_actual_check:
+            from check_power_actual_storage import run_checks as check_power_actual_storage
+            check_power_actual_storage(query,manifest)
         if args.index_fixing_check:
             from check_index_fixing_upgrade import run_checks as check_index_fixing_upgrade
             check_index_fixing_upgrade(query,psql,env,ROOT)
@@ -245,7 +255,15 @@ def main():
         shutil.copytree(dll.parent,temporary/'api')
         frozen_dll=temporary/'api'/dll.name
         log=(temporary/'app.log').open('w')
-        child=subprocess.Popen([str(dotnet),str(frozen_dll),'--local-preview'],cwd=ROOT,env=app_env,stdout=log,stderr=subprocess.STDOUT)
+        api_env=app_env
+        if args.assistant_check:
+            # Provider tests reach a loopback fake provider through the preview's check endpoint, and every proxy
+            # setting names a trap that no request may reach (docs/ai-assistant.md §5.2, §13).
+            from fake_model_provider import FakeProvider,Trap
+            fake_provider,proxy_trap=FakeProvider(),Trap()
+            api_env={**app_env,'OPENETRM_PREVIEW_PROVIDER_ENDPOINT':fake_provider.url,'no_proxy':'','NO_PROXY':'',
+                     **{name:proxy_trap.url for name in ('http_proxy','https_proxy','all_proxy','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')}}
+        child=subprocess.Popen([str(dotnet),str(frozen_dll),'--local-preview'],cwd=ROOT,env=api_env,stdout=log,stderr=subprocess.STDOUT)
         deadline=time.monotonic()+20
         while time.monotonic()<deadline:
             if child.poll() is not None:
@@ -277,7 +295,10 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.swap_risk_holdings_check:
+            if args.power_actual_check:
+                from check_power_actual_http import run_checks as check_power_actual_http
+                check_power_actual_http(url,query,manifest)
+            elif args.swap_risk_holdings_check:
                 from check_swap_risk_holdings import run_checks as check_swap_risk_holdings
                 check_swap_risk_holdings(url,query,manifest,dotnet,temporary,app_env,psql)
             elif args.pilot_close_check:
@@ -392,6 +413,10 @@ def main():
                 check_model_qualification(url,query,psql,manifest,app_env)
                 from check_model_versions import run_checks as check_model_versions
                 check_model_versions(url,query,psql,manifest,app_env)
+                from check_provider_test_http import run_checks as check_provider_test_http
+                check_provider_test_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                from check_provider_tests import run_checks as check_provider_tests
+                check_provider_tests(url,query,psql,manifest,app_env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

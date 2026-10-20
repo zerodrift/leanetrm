@@ -7,6 +7,7 @@ if(args is ["--monthly-swaps"]){MonthlySwapChecks.Run();return;}
 if(args is ["--commodity-lookups"]){CommodityLookupChecks.Run();return;}
 if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();return;}
 if(args is ["--snapshot-inputs"]){SnapshotInputChecks.Run();return;}
+if(args is ["--power-interval-quantities"]){PowerIntervalQuantityChecks.Run();return;}
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
 if(args is ["--index-fixings"]){IndexFixingChecks.Run();return;}
@@ -372,6 +373,7 @@ passed += TypedPriceChecks.Run();
 passed += AmountUnitChecks.Run();
 passed += PilotCloseChecks.Run();
 passed += PowerQuantityChecks.Run();
+passed += PowerIntervalQuantityChecks.Run();
 passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();
 passed += FuturesChecks.Run();
 passed += ExchangeFuturesChecks.Run();

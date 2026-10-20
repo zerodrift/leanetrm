@@ -92,22 +92,10 @@ public sealed class PreviewDatabase : IAsyncDisposable
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidOperationException("Missing preview manifest.");
         if (Manifest.Mode != (hosted is null ? "local-synthetic-preview" : "hosted-pilot")) throw new InvalidOperationException("Manifest does not match the explicitly selected host mode.");
         if (hosted is not null && Manifest.IdentityIssuer != hosted.IdentityIssuer) throw new InvalidOperationException("The exact hosted identity issuer must match the manifest.");
-        NpgsqlDataSource Source(string variable, string login)
-        {
-            var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable(variable)
-                ?? throw new InvalidOperationException($"Missing {variable}."));
-            if (Path.GetFullPath(config.Host!) != root || config.Username != login || config.Database != "postgres")
-                throw new InvalidOperationException("Preview connections must use its private owned socket and dedicated test login.");
-            // JSON timestamp transport follows the API UTC contract, independently
-            // of the database host, process environment or display preference.
-            config.Timezone = "UTC";
-            config.CommandTimeout = 5; config.Timeout = 5; config.MaxPoolSize = 8;
-            return NpgsqlDataSource.Create(config.ConnectionString);
-        }
         if (hosted is null)
         {
-            authenticator = Source("OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator");
-            runtime = Source("OPENETRM_PREVIEW_RUNTIME", "preview_runtime");
+            authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", true);
+            runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", true);
             runtimeLogin = "preview_runtime";
         }
         else
@@ -121,6 +109,25 @@ public sealed class PreviewDatabase : IAsyncDisposable
             runtimeLogin=app.Username!;
         }
     }
+
+    private static NpgsqlDataSource PreviewSource(string root, string variable, string login, bool pooled)
+    {
+        var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable(variable)
+            ?? throw new InvalidOperationException($"Missing {variable}."));
+        if (Path.GetFullPath(config.Host!) != root || config.Username != login || config.Database != "postgres")
+            throw new InvalidOperationException("Preview connections must use its private owned socket and dedicated test login.");
+        // JSON timestamp transport follows the API UTC contract, independently
+        // of the database host, process environment or display preference.
+        config.Timezone = "UTC";
+        config.CommandTimeout = 5; config.Timeout = 5;
+        if (pooled) config.MaxPoolSize = 8; else config.Pooling = false;
+        return NpgsqlDataSource.Create(config.ConnectionString);
+    }
+
+    // The local preview's agent worker connects on the runtime login outside the request pools
+    // (docs/ai-assistant.md §7.4). Its connections are not pooled, so closing one ends its session
+    // and releases any session lock it held.
+    public static NpgsqlDataSource AgentSource(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", false);
 
     public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, bool administration=false)
     {

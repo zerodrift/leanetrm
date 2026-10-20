@@ -150,6 +150,10 @@ public sealed partial class ModelCatalog
         "model_unqualified"=>"Enable a model once its capabilities are recorded under the usage mapping its vendor's adapter applies.",
         "model_provider_disabled"=>"Enable the model's provider before the model.",
         "model_mapping_unconfirmed"=>"Record capabilities once this release confirms a usage mapping for the model's vendor.",
+        "model_unpriced"=>"Test a model once a rate set is in force for it now.",
+        "parameter_required"=>"Choose one of the reasoning efforts the model's capability version records.",
+        "test_in_progress"=>"This test has no recorded outcome yet. Repeat the identical request to read it once it is recorded.",
+        "agent_runtime_unavailable"=>"Tests run only while this preview holds the agent worker, which another preview process may hold or whose connection was lost. Try again shortly.",
         _=>"Supply every required field in its documented form, with the version you are changing."
     };
 }
