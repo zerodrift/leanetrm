@@ -124,13 +124,13 @@ Five timed samples after one warm-up on the final implementation gave:
 
 | Term | Commodity contracts / rate pillars | One-instrument price | One-factor risk across 10,000 bindings | Allocated bytes, price / risk |
 | --- | ---: | ---: | ---: | ---: |
-| 10 years | 120 / 120 | 1.61 ms | 117.88 ms | 2.21 MB / 96.48 MB |
-| 30 years | 360 / 360 | 5.21 ms | 132.45 ms | 6.42 MB / 107.08 MB |
+| 10 years | 120 / 120 | 1.61 ms | 119.29 ms | 2.21 MB / 96.48 MB |
+| 30 years | 360 / 360 | 6.26 ms | 127.39 ms | 6.42 MB / 107.08 MB |
 
 These are medians. The fixtures contain 240/720 selected inputs and 240/720 side
 payments respectively. The three risk scenarios rebuild 122/362 curve nodes and
 reuse 238/718; base builds evaluate 120/360 nodes. Managed-heap/resident point
-measurements were 51.19/99.27 MB and 70.68/125.29 MB respectively.
+measurements were 54.80/107.99 MB and 76.36/136.18 MB respectively.
 
 ```sh
 dotnet run --project tests/OpenEtrm.Rates.Checks -c Release -- --monthly-swap-benchmark
