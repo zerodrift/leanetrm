@@ -339,6 +339,8 @@ api.MapPost("/power/catalog",(HttpContext c,PowerCatalogRequest body)=>PowerOper
     Results.Ok(await scheduleReads.PowerCatalog(connection,Pin(session,body.SnapshotId),ct))));
 api.MapPost("/power/preview",(HttpContext c,PowerPreviewRequest body)=>PowerOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(PowerPreview.Calculate(await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds),Frame(session,body.SnapshotId),body,await scheduleReads.PublishedProducts(connection,Pin(session),ct)))));
+api.MapPost("/power/settlement",(HttpContext c,PowerActualSettlementRequest body)=>PowerOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await PowerActualSettlement.Calculate(connection,await PowerActualSettlement.ReadData(database,connection,ct),Frame(session,body.SnapshotId),body,await scheduleReads.PublishedProducts(connection,Pin(session),ct),ct))));
 api.MapGet("/tou-products",(Func<HttpContext,Task<IResult>>)(c=>PowerOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await scheduleReads.TouProducts(connection,Pin(session),ct)))));
 api.MapPost("/tou-products/save",(HttpContext c,TouProductSaveRequest body)=>PowerOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>

@@ -606,6 +606,15 @@ basis is explicit; trade quantity scales the completed unit instrument once.
 The persisted booking/editor contract still supports one month. Actual fixing
 lifecycle events and settlement/payment processing are not implemented.
 
+The bounded [collected interval delivery-value operation](power-preview.md#collected-interval-delivery-value)
+connects an exact curve/source association to native power price history and the
+shared typed settlement arithmetic (D171). Its price cutoff is explicit, its
+current model/TOU definitions are pinned, and missing intervals/units fail closed.
+It retains UTC/DST and observation lineage; MW shape/duration applies once and
+already-shaped MWh is consumed directly. This unsaved HTTP consumer does not
+establish publisher finality or trade cash/payment lifecycle. The broader
+[settlement design](settlement-plan.md) remains a versioned delivery proposal (P39).
+
 The currency's configured default supplies the discount curve unless the
 instrument explicitly selects discounting=false. Calculation inputs retain the
 exact resolved mapping/curve, context, payment date, selected observations and

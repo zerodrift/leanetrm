@@ -54,23 +54,35 @@ public static class PowerSettlement
     public static PowerQuantitySettlement Calculate(PowerQuantitySchedule schedule,PowerFixing[] rows,PowerIndex index,PowerSettlementPolicy policy)
     {
         if(schedule is null || policy is null)throw new MarketDataException("power_quantity","Supply a typed quantity schedule and explicit settlement policy.");
+        return Calculate(schedule.Intervals.ToArray(),schedule.EnergyDefinition,rows,index,policy);
+    }
+    public static PowerQuantitySettlement Calculate(PowerEnergyInterval[] quantities,QuantitySpecification energyDefinition,
+        PowerFixing[] rows,PowerIndex index,PowerSettlementPolicy policy)
+    {
+        if(policy is null || !PowerIntervalQuantities.IsEnergy(energyDefinition) || quantities is null ||
+            quantities.Any(q=>q is null || q.Interval is null || q.Energy is null))
+            throw new MarketDataException("power_quantity","Supply typed interval energy, its exact specification and an explicit settlement policy.");
         policy.Validate();
-        var periods=schedule.Intervals.Select(p=>p.Interval).ToArray();
+        var periods=quantities.Select(p=>p.Interval).ToArray();
         var fixings=Validate(periods,rows,index);
-        if(index.EnergyUnit!=schedule.EnergyDefinition.Unit || index.EnergyQuantity!=schedule.EnergyDefinition.Key)
+        if(index.EnergyUnit!=energyDefinition.Unit || index.EnergyQuantity!=energyDefinition.Key ||
+            quantities.Any(q=>q.Energy.Specification!=energyDefinition.Key))
             throw new MarketDataException("settlement_index","The scheduled energy specification must match the selected index's exact commodity and measurement basis.");
-        var one=ExactDecimal.Parse("1");BigInteger priceDuration=0;
+        var one=ExactDecimal.Parse("1");BigInteger priceDuration=0,duration=0;
         var cash=ExactMoney.FromMoney(new(default,index.Currency));
-        foreach(var p in schedule.Intervals)
+        var total=new ExactQuantity(0,1,energyDefinition.Key);
+        foreach(var p in quantities)
         {
-            var price=new UnitPrice(fixings[p.Interval.Start].Total,new PriceUnit(index.Currency,schedule.EnergyDefinition.Key,one));
+            var price=new UnitPrice(fixings[p.Interval.Start].Total,new PriceUnit(index.Currency,energyDefinition.Key,one));
             cash=cash.Add(p.Energy.Times(price));
+            total=total.Add(p.Energy);
+            duration+=(p.Interval.End-p.Interval.Start).Ticks;
             priceDuration+=price.Value.ScaledValue*(p.Interval.End-p.Interval.Start).Ticks;
         }
         var rounded=cash.ToMoney(new(policy.AmountScale,CashTieRule.ToEven,false,false));
-        var energy=schedule.Total.FormatValue(new(18,CashTieRule.ToEven,false,true));
-        return new(new(schedule.Hours,energy,Rounded(priceDuration,Scale*schedule.Duration.Ticks,policy.PriceScale),rounded.Amount.ToString(),
-            cash.Numerator,cash.Denominator,index,policy),schedule.Total,rounded);
+        var format=new AmountFormat(18,CashTieRule.ToEven,false,true);
+        return new(new(format.FormatFraction(duration,TimeSpan.TicksPerHour),total.FormatValue(format),Rounded(priceDuration,Scale*duration,policy.PriceScale),rounded.Amount.ToString(),
+            cash.Numerator,cash.Denominator,index,policy),total,rounded);
     }
     public static PowerSettlementResult Calculate(PowerInterval[] periods,PowerFixing[] rows,PowerIndex index,ExactDecimal flatMegawatts,PowerSettlementPolicy policy)
     {
