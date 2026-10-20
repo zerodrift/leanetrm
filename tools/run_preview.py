@@ -50,8 +50,7 @@ def main():
     parser.add_argument('--identity-check', action='store_true', help='Run economic-key integration checks in the owned standard fixture, then clean up')
     parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
     parser.add_argument('--browser-check',action='store_true',help='Run checked-in browser scenarios in the newly owned standard fixture')
-    parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used with --browser-check or --record-walkthroughs')
-    parser.add_argument('--record-walkthroughs',nargs='?',const='',metavar='NAMES',help='Record the scripted walkthroughs (optionally only comma-separated clip names) into .local/walkthroughs, then clean up')
+    parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
     fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check
@@ -65,8 +64,6 @@ def main():
         parser.error('Port must be between 0 and 65535')
     if args.browser_check and (not args.check or args.example!='standard' or args.browser is None or not args.browser.is_file()):
         parser.error('--browser-check requires --check, --example standard and an installed --browser executable')
-    if args.record_walkthroughs is not None and (args.check or args.example!='standard' or args.browser is None or not args.browser.is_file()):
-        parser.error('--record-walkthroughs requires the seeded standard example without checks and an installed --browser executable')
     if args.with_custom_curves and args.example!='standard':
         parser.error('--with-custom-curves requires the standard fixture')
     bins = {n: args.pg_bin.resolve()/n for n in ('initdb','pg_ctl','psql')}
@@ -465,12 +462,6 @@ def main():
                 print('PASS sixteen synthetic swap examples seed idempotently across all four weekdays',flush=True)
                 from check_seeded_preview import run_swap_book_checks
                 run_swap_book_checks(session,seeded)
-        elif args.record_walkthroughs is not None:
-            target=temporary/'browser-target.json'
-            target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-            names=[args.record_walkthroughs] if args.record_walkthroughs else []
-            browser_process=subprocess.Popen(['node',str(ROOT/'tools/walkthroughs/record.mjs'),str(target),str(args.browser.resolve()),str(ROOT/'.local/walkthroughs'),*names],cwd=ROOT,env=env,start_new_session=True)
-            if browser_process.wait(timeout=1200):raise RuntimeError('Walkthrough recording failed')
         else:
             child.wait()
     except KeyboardInterrupt:

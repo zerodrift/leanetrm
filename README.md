@@ -101,8 +101,6 @@ Read the [project instructions](AGENTS.md), [architecture](docs/architecture.md)
 - `python3 tools/check_standalone.py` checks dependency boundaries.
 - Add `--check` to the preview command to run the HTTP integration checks, then clean up.
 - `npm test --prefix web` runs the browser-independent presentation checks.
-- `--record-walkthroughs` records the scripted product walkthroughs; see
-  [Local verification and CI](docs/verification.md#recorded-walkthroughs).
 - [Local verification and CI](docs/verification.md) has the complete check command
   and hosted-runner boundaries.
 

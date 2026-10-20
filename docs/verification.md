@@ -203,24 +203,6 @@ headers, and replays hand-written synthetic recordings:
 Message and request identifiers, reasoning, signatures, error text and the key reach
 no event, and nothing is written to the console. No check calls a real provider.
 
-## Recorded walkthroughs
-
-```sh
-python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
-  --record-walkthroughs --browser /path/to/browser
-```
-
-The command starts a new standard preview with its seeded synthetic examples,
-records the scripted walkthroughs in `tools/walkthroughs/clips.mjs` at 1920×1080
-and removes the preview. Append comma-separated clip names to the flag to record a
-subset. Each clip writes an MP4 and a WebVTT track of its one-line step captions to
-the ignored `.local/walkthroughs/`, with `captions.md` listing every caption and its
-start time; clips marked `gif` also get a 1280-pixel GIF. Recording needs `ffmpeg`
-on `PATH`. Every clip runs in a fresh browser profile and asserts the values its
-captions state, so a UI change that breaks a script stops the run and leaves
-`<clip>-failure.png` showing the screen at that step. Clips aim for 60–90 seconds;
-the recorder reports any outside that range.
-
 ## Hosted job
 
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on
