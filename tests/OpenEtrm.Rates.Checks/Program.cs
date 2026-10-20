@@ -104,4 +104,5 @@ Check("undiscounted helper still requires structurally exact currency context an
     Reject("discount_context",()=>PaymentDiscount.Resolve(false,R("currency"),new(2020,1,1),snapshot,null));
 });
 passed += SwapValuationChecks.Run();
+passed += DiscountLookupChecks.Run();
 Console.WriteLine($"{passed} rate convention checks passed.");
