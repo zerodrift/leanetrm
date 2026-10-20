@@ -99,6 +99,7 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
 {
     public MarketSnapshot Snapshot { get; }
     public ImmutableDictionary<SidePaymentKey, PaymentDiscount> Inputs { get; }
+    private readonly ImmutableDictionary<Guid, ImmutableArray<SidePaymentFactor>> factorsBySide;
     public CurrencyDefaultDiscounting(IEnumerable<SidePaymentSchedule> schedules, MarketSnapshot snapshot,
         bool discounting, CurrencyDiscountCurve? currencyDefault)
     {
@@ -117,13 +118,15 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
                 throw new MarketDataException("side_payment_factors", "Side payment identities must be distinct in this discount context.");
         }
         Inputs = selected.ToImmutable();
+        factorsBySide = Inputs.GroupBy(p => p.Key.SideId).ToImmutableDictionary(g => g.Key,
+            g => g.Select(p => new SidePaymentFactor(p.Key, p.Value.Factor, Snapshot,
+                p.Value.Enabled ? DiscountFactorSource.CurrencyDefault : DiscountFactorSource.Undiscounted)).ToImmutableArray());
     }
     public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot)
     {
         if (!Snapshot.HasSameInputs(snapshot))
             throw new MarketDataException("discount_context", "Discount inputs must retain the complete selected side valuation context.");
-        return Inputs.Where(p => p.Key.SideId == schedule.SideId).Select(p => new SidePaymentFactor(p.Key, p.Value.Factor,
-            Snapshot, p.Value.Enabled ? DiscountFactorSource.CurrencyDefault : DiscountFactorSource.Undiscounted)).ToImmutableArray();
+        return factorsBySide.TryGetValue(schedule.SideId, out var factors) ? factors : [];
     }
 }
 

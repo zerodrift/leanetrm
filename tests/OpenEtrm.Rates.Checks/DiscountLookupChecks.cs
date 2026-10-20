@@ -102,6 +102,30 @@ internal static class DiscountLookupChecks
             var plan = Schedule(dates[0]);
             Reject("side_payment_factors", () => new CurrencyDefaultDiscounting([plan, plan], snapshot, true, mapping));
         });
+        Check("each side receives only its exact currency and payment factors from a shared provider", () =>
+        {
+            var plans = new[] { Schedule(dates[0]), Schedule(dates[1], quote with { Currency = R("EUR") }) };
+            var context = new CurrencyDefaultDiscounting(plans, snapshot, false, null);
+            foreach (var plan in plans)
+            {
+                var factor = context.Resolve(plan, snapshot).Single();
+                if (factor.Payment != plan.Payments[0].Key || factor.Payment.Currency != plan.Currency ||
+                    factor.DiscountFactor.ToString() != "1" || factor.Source != DiscountFactorSource.Undiscounted || factor.Snapshot != snapshot)
+                    throw new Exception("A different side's factors were returned");
+            }
+            if (!context.Resolve(Schedule(dates[0]), snapshot).IsEmpty)
+                throw new Exception("An unknown side received another side's factors");
+            Reject("discount_context", () => context.Resolve(plans[0], snapshot with { MarketCutoff = snapshot.MarketCutoff.AddTicks(-1) }));
+        });
+        Check("a reused side identity cannot reinterpret stored factors at another payment date", () =>
+        {
+            var original = Schedule(dates[0]);
+            var context = new CurrencyDefaultDiscounting([original], snapshot, false, null);
+            var changed = new FixedSide(original.SideId, new UnitPrice(ExactDecimal.Parse("3"), quote),
+                new Quantity(ExactDecimal.Parse("1"), quote.Quantity), start, start.AddDays(1),
+                new DateTimeOffset(dates[1].ToDateTime(TimeOnly.MinValue), TimeSpan.Zero), FixedSide.Implementation, quote);
+            Reject("side_payment_factors", () => changed.PV(new SideValuationContext(snapshot, context)));
+        });
         Check("far-future supported dates keep exact day counts and no implicit extrapolation", () =>
         {
             var future = new DateOnly(2199, 12, 31);
