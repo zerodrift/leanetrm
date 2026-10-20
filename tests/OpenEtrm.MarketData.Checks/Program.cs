@@ -8,6 +8,7 @@ if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();r
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
 if(args is ["--index-fixings"]){IndexFixingChecks.Run();return;}
+if(args is ["--risk-propagation"]){RiskPropagationChecks.Run();return;}
 
 if (args.Length > 0)
 {
@@ -377,6 +378,7 @@ passed += IndexFixingChecks.Run();
 passed += PaymentRuleChecks.Run();
 passed += IndependentSideChecks.Run();
 passed += RiskChecks.Run();
+passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");

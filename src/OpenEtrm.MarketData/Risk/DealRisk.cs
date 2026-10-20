@@ -31,12 +31,11 @@ public static class DealRisk
         if(factors.Length>128||factors.Length==0&&!dependencies.IsEmpty)
             throw new MarketDataException("risk_factor","A draft with projected dependencies requires one to 128 live declared price factors.");
         var baseValue=price(market);var results=ImmutableArray.CreateBuilder<DealFactorRisk>();
-        foreach(var batch in factors.Chunk(16))
+        if(factors.Length>0)
         {
             ct.ThrowIfCancellationRequested();
-            var bumps=batch.Select(f=>new QuoteBump(f.Input,f.Quote,f.Unit,f.TradingTick,QuoteBump.Convention)).ToImmutableArray();
-            var scenarios=model.BuildScenarios(snapshot,dependencies,bumps,ct);
-            foreach(var (factor,scenario) in batch.Zip(scenarios.Factors))
+            var bumps=factors.Select(f=>new QuoteBump(f.Input,f.Quote,f.Unit,f.TradingTick,QuoteBump.Convention)).ToImmutableArray();
+            foreach(var (factor,scenario) in factors.Zip(model.Scenarios(market,bumps,ct)))
                 results.Add(new(factor,scenario.Bump,Measure(baseValue,price(scenario.Up),price(scenario.Down),scenario.Bump)));
         }
         ct.ThrowIfCancellationRequested();
