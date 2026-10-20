@@ -383,6 +383,12 @@ applies, on an enabled, qualified provider (`model_unqualified`,
 efforts they draw on are immutable, the runtime reads neither directly, and the
 migration's helpers are unexecutable by the runtime.
 
+Migration 0061 has the Providers directory also state each applied mapping's
+reasoning efforts. The directory keeps its definer, owner and grants, still rechecks
+`ManageModelProviders` and refuses delegated agents, and the migration verifies the
+definitions it relies on and replaces. Settings › AI offers only the efforts the
+directory states, and the server validates every capability it is sent.
+
 The Messages adapter (step 4) sends the key only in its `x-api-key` header, after
 checking its format, so a malformed key never reaches a header error. It reads an
 error body only to classify a 400 and never stores, logs or returns it. Streamed

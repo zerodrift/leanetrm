@@ -198,18 +198,35 @@ recheck that refuses it. Before 0060 applies, its body is refused after the mode
 state helper's definition changes, after the provider qualification helper's
 privileges change and over a confirmed mapping whose sources repeat.
 
+The Providers directory states the reasoning efforts of the mapping each adapter
+applies, before and during that rolled-back repoint (migration 0061). Before 0061
+applies, its body is refused after the directory's definition changes and after the
+provider state helper's privileges change.
+
 Settings › AI has its own browser scenario, which runs after those HTTP checks in the
 same isolated preview (`--assistant-check --browser-check`). From the page's own
 session it creates an administrator without market-data access and a pricing
 administrator, then enters every choice explicitly: a blank rate, tier choice or end
 is refused before any request, a tier offers exactly the base set's rates, and cache
 read cannot be left unpriced where the directory requires it. Repeated currencies are
-told apart by catalog and revision. After a lost response to a committed price or key
-replacement, the page keeps the request and shows what was saved; Retry resends it
-under the same identity and the audit still records one change. The key never
-reaches session storage, local storage or the URL, its field clears when the request
-settles, and Retry asks for it again. A revoked administrator keeps no model, price
-or audit rows on screen, a viewer sees no AI settings, and hosted mode hides them.
+told apart by catalog and revision. A provider's card records terms only with every
+source and attests only once its statement is confirmed; the statement names the key
+version, the key's last four characters and the terms version it binds, a new key
+clears a confirmation given for the old one, and an attested pair offers no second
+attestation and says why. The card enables and disables the qualified provider. A model's card
+offers the reasoning efforts its directory states, which a stubbed directory changes,
+or explains that no mapping is confirmed; Enable refuses a model without capabilities
+and keeps no request, capabilities name the other served identifiers or that the vendor
+reports only the model's own, and the recorded version shows each fact with its source
+and date before Enable and Disable, after which focus moves to the control now
+offered, or stays on the one used when the change is refused. After a lost response to a committed price, key replacement or provider
+Enable, the page keeps the request through an identity switch and shows what was
+saved; Retry resends it under the same identity and the audit still records one
+change. The key never reaches session storage, local storage or the URL, its field
+clears when the request settles, and Retry asks for it again. Measured against the
+client width at 390 px, neither tab overflows the page. A revoked administrator keeps
+no model, price, capability, terms or audit rows on screen, a viewer sees no AI
+settings, and hosted mode hides them.
 
 The Messages adapter has a conformance suite
 (`dotnet run --project tests/OpenEtrm.Api.Checks -- --model-providers`, also part of

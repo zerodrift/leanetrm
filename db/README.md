@@ -526,3 +526,14 @@ before returning a replay and after their writes. The audit's model actions gain
 three. No version is installed. The migration first verifies the helpers it relies on
 and the definitions it replaces. As a new migration it stops automatic hosted updates
 until the operator qualifies a new baseline (D135).
+
+## Page-assistant directory efforts
+
+[0061_directory_efforts.sql](migrations/0061_directory_efforts.sql) has the Providers
+directory state, with the usage mapping each vendor's adapter applies, the reasoning
+efforts that mapping's adapter sends, so Settings › AI offers exactly those when an
+administrator records a model's capabilities ([ai-assistant.md](../docs/ai-assistant.md)
+§9). Nothing else changes, and the replaced directory keeps its owner and grants. The
+migration first verifies the helpers it relies on and the definition it replaces. As a
+new migration it stops automatic hosted updates until the operator qualifies a new
+baseline (D135).

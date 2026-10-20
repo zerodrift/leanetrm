@@ -152,6 +152,9 @@ def main():
             if args.assistant_check and migration.name=='0060_model_versions.sql':
                 from check_model_versions import check_upgrade as check_versions_upgrade
                 check_versions_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0061_directory_efforts.sql':
+                from check_model_versions import check_directory_upgrade
+                check_directory_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture

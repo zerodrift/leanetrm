@@ -80,9 +80,10 @@ def run_checks(url, query, psql, manifest, environment):
         client.bootstrap(); client.call('profile', {'profile': profile})
     before = providers()
     anthropic, openai = before['anthropic'], before['openai']
-    check("a provider starts disabled and unqualified, without terms or attestation, and only a vendor whose adapter applies a confirmed mapping names it",
+    check("a provider starts disabled and unqualified, without terms or attestation, and only a vendor whose adapter applies a confirmed mapping names it, with the efforts it states",
           all(not p['enabled'] and not p['qualified'] and p['terms'] is None and p['attestation'] is None for p in before.values())
-          and anthropic['mapping'] == {'mapping': 'messages_v1', 'confirmedOn': '2026-10-20', 'sources': mappings[0]['sources']}
+          and anthropic['mapping'] == {'mapping': 'messages_v1', 'confirmedOn': '2026-10-20', 'sources': mappings[0]['sources'],
+                                       'efforts': ['low', 'medium', 'high', 'xhigh', 'max']}
           and all(p['mapping'] is None for v, p in before.items() if v != 'anthropic'))
     check('the earlier checks left keys for the Anthropic, OpenAI, Google and xAI providers',
           all(before[v]['credential'] is not None for v in ('anthropic', 'openai', 'google', 'xai')))
