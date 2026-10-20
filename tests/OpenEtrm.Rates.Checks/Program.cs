@@ -109,4 +109,5 @@ passed += SwapValuationChecks.Run();
 passed += MonthlySwapRateChecks.Run();
 passed += DiscountLookupChecks.Run();
 passed += ZeroRateLookupChecks.Run();
+passed += DiscountInterpolationChecks.Run();
 Console.WriteLine($"{passed} rate convention checks passed.");
