@@ -33,6 +33,19 @@ public sealed class MessagesAdapter(HttpMessageHandler handler,ModelTransportLim
         }
     }
 
+    // Refuses a request this adapter cannot send as given, before anything is sent: an invalid identifier,
+    // a reasoning effort it does not send (parameter_required), or a key it cannot use. A malformed
+    // request is a defect in its caller.
+    public static void Validate(ModelRequest request,string key)
+    {
+        if(!ModelTarget.Valid(request.Model.Identifier))throw new ModelCallException("model_identifier_invalid",ModelCatalog.Refusal("model_identifier_invalid"));
+        if(request.Parameters.Reasoning is not {} effort||!Efforts.Contains(effort))throw new ModelCallException("parameter_required","Choose one of the model's documented reasoning efforts.");
+        ArgumentOutOfRangeException.ThrowIfLessThan(request.Parameters.MaxOutputTokens,1);
+        if(request.Messages.IsDefaultOrEmpty||request.Tools.IsDefault||request.Model.AcceptedServed.IsDefault||request.System.Length==0||request.Messages[^1] is ModelReply)
+            throw new ArgumentException("A request has a system instruction, lists its tools and accepted identifiers, and ends with the user's text or tool results.",nameof(request));
+        if(!ModelProviders.KeyFormat().IsMatch(key))throw new ModelCallException("credential_unavailable","The provider key cannot be used.");
+    }
+
     // Every parameter whose vendor default could change behavior or billing is sent: adaptive thinking
     // with its text omitted, an explicit effort, standard-only capacity and global inference. Sampling
     // parameters are never sent: current models accept only their defaults, and earlier ones none with
@@ -40,13 +53,8 @@ public sealed class MessagesAdapter(HttpMessageHandler handler,ModelTransportLim
     // opt-in whose report the usage mapping checks. Nothing is sent when a value is missing.
     static HttpRequestMessage Compose(ModelRequest request,string key)
     {
+        Validate(request,key);
         var (model,parameters)=(request.Model.Identifier,request.Parameters);
-        if(!ModelTarget.Valid(model))throw new ModelCallException("model_identifier_invalid",ModelCatalog.Refusal("model_identifier_invalid"));
-        if(parameters.Reasoning is not {} effort||!Efforts.Contains(effort))throw new ModelCallException("parameter_required","Choose one of the model's documented reasoning efforts.");
-        ArgumentOutOfRangeException.ThrowIfLessThan(parameters.MaxOutputTokens,1);
-        if(request.Messages.IsDefaultOrEmpty||request.Tools.IsDefault||request.Model.AcceptedServed.IsDefault||request.System.Length==0||request.Messages[^1] is ModelReply)
-            throw new ArgumentException("A request has a system instruction, lists its tools and accepted identifiers, and ends with the user's text or tool results.",nameof(request));
-        if(!ModelProviders.KeyFormat().IsMatch(key))throw new ModelCallException("credential_unavailable","The provider key cannot be used.");
         var messages=new JsonArray(request.Messages.Select(m=>(JsonNode?)Message(m,model)).ToArray());
         var system=new JsonObject{["type"]="text",["text"]=request.System};
         if(parameters.Caching)
@@ -58,7 +66,7 @@ public sealed class MessagesAdapter(HttpMessageHandler handler,ModelTransportLim
         var body=new JsonObject
         {
             ["model"]=model,["max_tokens"]=parameters.MaxOutputTokens,["stream"]=true,["system"]=new JsonArray(system),["messages"]=messages,
-            ["thinking"]=new JsonObject{["type"]="adaptive",["display"]="omitted"},["output_config"]=new JsonObject{["effort"]=effort},
+            ["thinking"]=new JsonObject{["type"]="adaptive",["display"]="omitted"},["output_config"]=new JsonObject{["effort"]=parameters.Reasoning},
             ["service_tier"]="standard_only",["inference_geo"]="global"
         };
         if(!request.Tools.IsEmpty)

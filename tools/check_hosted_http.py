@@ -16,6 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import build_opener, HTTPCookieProcessor, HTTPSHandler, HTTPRedirectHandler, Request
 from uuid import uuid4
+from check_provider_tests import HOLDERS, released
 
 
 def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, control_url=None, run_id=None):
@@ -129,6 +130,13 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         finally:
             if probe.poll() is None:probe.terminate();probe.wait(timeout=10)
             query('DROP TABLE public.hosted_ownership_probe;')
+        # The page assistant's agent worker exists only in the local preview. Its session ends first, so a hosted worker
+        # would find the lock free.
+        worker = ("SELECT json_build_object('generation',(SELECT row_to_json(w) FROM assistant.worker_generation w),"
+                  f"'calls',(SELECT count(*) FROM assistant.model_calls),'holders',(SELECT json_agg(pid ORDER BY pid) FROM({HOLDERS})h))::text;")
+        query(f'SELECT pg_terminate_backend(pid) FROM({HOLDERS})h;')
+        released(query)
+        before_worker = query(worker)
         api = start()
         anonymous = Client(); anonymous.call('/', expected=302); anonymous.call('/api/bootstrap', expected=401)
         anonymous.call('/api/bootstrap?includeFrames=false', expected=401)
@@ -167,10 +175,13 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
                           *((f'/api/settings/ai/providers/{action}',provider) for action in ('terms','attest','enable','disable')),
                           ('/api/settings/ai/models/add',{'operationId':str(uuid4()),'vendor':'anthropic','identifier':'hosted-model','displayName':'Hosted model'}),
                           *((f'/api/settings/ai/models/{action}',{'operationId':str(uuid4()),'modelId':str(uuid4()),'expectedVersion':1})
-                            for action in ('edit','enable','disable'))):
+                            for action in ('edit','enable','disable')),
+                          ('/api/settings/ai/providers/test',{'operationId':str(uuid4()),'modelId':str(uuid4()),'reasoning':'low'})):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
         print('PASS hosted mode maps no page-assistant administration route, even for a provider administrator',flush=True)
+        assert query(worker) == before_worker
+        print('PASS a hosted start takes no agent-worker lock and changes no worker generation or model call',flush=True)
         retained, _ = client.call('/api/bootstrap')
         assert retained['frames'] == boot['frames']
         assert all(cookie.secure for cookie in client.cookies)

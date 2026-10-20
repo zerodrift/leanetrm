@@ -1,17 +1,49 @@
+using System.Net;
 using System.Net.ServerSentEvents;
 using System.Text;
 using System.Text.Json;
 
 namespace OpenEtrm.Api;
 
-// What every provider adapter reads (docs/ai-assistant.md §5.2, §7.5): a response body held to the
-// runtime set's byte bound and idle timeout, server-sent events parsed by the platform's reader with
-// strict UTF-8, so a malformed byte is never replaced, and JSON whose repeated names are refused
-// rather than resolved.
+// How every provider adapter sends and reads (docs/ai-assistant.md §5.2, §7.5): through one handler that
+// ignores proxies and follows no redirect; a response body held to the runtime set's byte bound and idle
+// timeout; server-sent events parsed by the platform's reader with strict UTF-8, so a malformed byte is
+// never replaced; and JSON whose repeated names are refused rather than resolved.
 static class ModelTransport
 {
     static readonly UTF8Encoding Strict=new(false,true);
     static readonly JsonDocumentOptions Unambiguous=new(){AllowDuplicateProperties=false};
+
+    // Proxy settings in the environment are ignored, redirects are not followed, certificates are validated as
+    // usual and no tracing header is added. With a check endpoint, each request goes to that origin instead,
+    // keeping its adapter's path.
+    public static HttpMessageHandler Handler(Uri? checkEndpoint)
+    {
+        var sockets=new SocketsHttpHandler{UseProxy=false,AllowAutoRedirect=false,UseCookies=false,AutomaticDecompression=DecompressionMethods.None,
+            ConnectTimeout=RuntimeSet.ProviderConnect,ActivityHeadersPropagator=null};
+        return checkEndpoint is null?sockets:new CheckEndpointHandler(checkEndpoint,sockets);
+    }
+
+    // The preview's one provider endpoint override, so checks can reach a fake provider: an http or https origin
+    // whose host is a loopback IP literal, written exactly as the origin it parses to. Anything else stops the
+    // preview from starting.
+    public static Uri? CheckEndpoint(string? configured)
+    {
+        if(configured is null)return null;
+        return Uri.TryCreate(configured,UriKind.Absolute,out var origin)&&origin.Scheme is "http" or "https"&&origin.UserInfo.Length==0
+            &&origin.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6&&IPAddress.TryParse(origin.DnsSafeHost,out var address)
+            &&IPAddress.IsLoopback(address)&&origin.GetLeftPart(UriPartial.Authority)==configured
+            ?origin:throw new InvalidOperationException("A provider endpoint override must be a loopback IP-literal origin.");
+    }
+
+    sealed class CheckEndpointHandler(Uri origin,HttpMessageHandler inner):DelegatingHandler(inner)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)
+        {
+            request.RequestUri=new Uri(origin,request.RequestUri!.PathAndQuery);
+            return base.SendAsync(request,ct);
+        }
+    }
 
     // Every name and string is decoded once here, so an escaped lone surrogate is malformed JSON
     // rather than a failure wherever the value is later read.

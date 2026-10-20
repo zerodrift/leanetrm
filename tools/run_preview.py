@@ -155,6 +155,9 @@ def main():
             if args.assistant_check and migration.name=='0061_directory_efforts.sql':
                 from check_model_versions import check_directory_upgrade
                 check_directory_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0062_provider_tests.sql':
+                from check_provider_tests import check_upgrade as check_tests_upgrade
+                check_tests_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -242,7 +245,15 @@ def main():
         shutil.copytree(dll.parent,temporary/'api')
         frozen_dll=temporary/'api'/dll.name
         log=(temporary/'app.log').open('w')
-        child=subprocess.Popen([str(dotnet),str(frozen_dll),'--local-preview'],cwd=ROOT,env=app_env,stdout=log,stderr=subprocess.STDOUT)
+        api_env=app_env
+        if args.assistant_check:
+            # Provider tests reach a loopback fake provider through the preview's check endpoint, and every proxy
+            # setting names a trap that no request may reach (docs/ai-assistant.md §5.2, §13).
+            from fake_model_provider import FakeProvider,Trap
+            fake_provider,proxy_trap=FakeProvider(),Trap()
+            api_env={**app_env,'OPENETRM_PREVIEW_PROVIDER_ENDPOINT':fake_provider.url,'no_proxy':'','NO_PROXY':'',
+                     **{name:proxy_trap.url for name in ('http_proxy','https_proxy','all_proxy','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')}}
+        child=subprocess.Popen([str(dotnet),str(frozen_dll),'--local-preview'],cwd=ROOT,env=api_env,stdout=log,stderr=subprocess.STDOUT)
         deadline=time.monotonic()+20
         while time.monotonic()<deadline:
             if child.poll() is not None:
@@ -389,6 +400,10 @@ def main():
                 check_model_qualification(url,query,psql,manifest,app_env)
                 from check_model_versions import run_checks as check_model_versions
                 check_model_versions(url,query,psql,manifest,app_env)
+                from check_provider_test_http import run_checks as check_provider_test_http
+                check_provider_test_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                from check_provider_tests import run_checks as check_provider_tests
+                check_provider_tests(url,query,psql,manifest,app_env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
