@@ -149,6 +149,25 @@ that refuses it; every row stays unchanged. Before 0058 applies, its body is ref
 after Replace key's definition changes and after the provider state helper's
 privileges change.
 
+Display names (migration 0059) have their own model checks. Add model and Rename
+refuse a display name that begins with a no-break space, ends with an ideographic space
+or contains a right-to-left override, a line separator or a C1 next line, writing
+nothing. Even the table owner cannot store one, also from a session with
+`standard_conforming_strings` off, where both rules still accept ordinary text. Add
+model keeps a name with letters beyond ASCII exactly. Before 0059 applies, its body is
+refused after the display-name rule's definition changes, after the terms rule's
+privileges change and under repeatable read isolation, and it recognizes both rules
+under another caller search path. Over stored display names that follow the rule,
+including one of exactly 80 characters beyond ASCII, it applies and leaves those names
+and both rules' owners, grants and settings unchanged. Over stored names that break the
+rule in each of those ways but the C1 control, it stops, naming each model with its
+vendor and identifier and echoing no stored name. Without the migration the refusals
+fail, except for the C1 control: on PostgreSQL 16.14 (macOS arm64), `[[:cntrl:]]`
+matches exactly U+0001–U+001F and U+007F–U+009F under C, libc `en_US.UTF-8` and ICU
+`en-US` collations alike, so 0051's rule already refused it. Under those three
+collations the new rule gave the same result for every code point alone, embedded,
+leading and trailing.
+
 Settings › AI has its own browser scenario, which runs after those HTTP checks in the
 same isolated preview (`--assistant-check --browser-check`). From the page's own
 session it creates an administrator without market-data access and a pricing

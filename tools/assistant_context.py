@@ -20,9 +20,14 @@ def refused(sql, message):
             f"EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'{message}' THEN RAISE; END IF; END $$;")
 
 
+def migration_body(migration):
+    """A migration's statements without its own transaction, to run inside a check's."""
+    return migration.strip().replace('BEGIN;', '', 1).removesuffix('COMMIT;')
+
+
 def check_guard(query, migration, number, guard, changes):
     """Before migration `number` applies: it refuses a helper whose definition or privileges differ from those it was written against."""
-    body = migration.strip().replace('BEGIN;', '', 1).removesuffix('COMMIT;')
+    body = migration_body(migration)
     for change, helper in changes:
         try:
             query(f'BEGIN;{change}{body}ROLLBACK;')
