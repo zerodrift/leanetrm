@@ -129,12 +129,12 @@ public sealed record JobClaim(Guid Id, Guid JobId, string Operation, long Fence,
     DateTimeOffset LeaseUntil, DateTimeOffset DeadlineAt, DateTimeOffset DueAt, int? IntervalSeconds,
     JsonElement? Profile, string? ServiceId = null, bool LaunchPrepared = false, bool MustStop = false);
 
-public sealed class JobWorkerStore(NpgsqlDataSource source)
+public sealed class JobWorkerStore(NpgsqlDataSource source,bool pilotEnabled=false)
 {
     public async Task<JobClaim?> Claim(Guid workerId, int leaseSeconds, CancellationToken ct)
     {
-        await using var command = source.CreateCommand("SELECT automation.claim_next($1,$2)::text");
-        command.Parameters.AddWithValue(workerId); command.Parameters.AddWithValue(leaseSeconds);
+        await using var command = source.CreateCommand("SELECT automation.claim_next($1,$2,$3)::text");
+        command.Parameters.AddWithValue(workerId); command.Parameters.AddWithValue(leaseSeconds);command.Parameters.AddWithValue(pilotEnabled);
         var value = await command.ExecuteScalarAsync(ct);
         return value is string json ? JsonSerializer.Deserialize<JobClaim>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))
             ?? throw new AutomationException("job_protocol", "The worker claim is incomplete.") : null;

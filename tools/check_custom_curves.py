@@ -2,7 +2,7 @@
 from copy import deepcopy
 from decimal import Decimal
 from uuid import uuid4
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
 
 
 def run_checks(url, query=None, manifest=None):
@@ -116,7 +116,7 @@ def run_checks(url, query=None, manifest=None):
     # A certified cutoff before publication must never discover the later graph.
     historical=client.call('market/context',{'effectiveOn':'2020-12-18','knownAt':before['context']['knownAt'],'mode':'at','selection':'latest_correction'})
     assert not any(r['id']==saved['id'] for r in client.call('custom-curves')['recipes'])
-    retained_frame=next(f for f in client.bootstrap()['frames'] if f['at'].startswith('2020-12-18T16:00:00'))
+    retained_frame=initial_frame(client.call('workspace/navigation'),'2020-12-18')
     client.call('custom-curves/preview',{'definition':published['definition'],'snapshotId':retained_frame['id'],'id':saved['id'],'version':1},expected=422)
     client.call('custom-curves/save',{**body,'snapshotId':retained_frame['id'],'requestId':str(uuid4())},expected=403)
     client.call('market/current',{})
@@ -152,7 +152,7 @@ def run_checks(url, query=None, manifest=None):
     restated=client.call('custom-curves/preview',{'definition':templates['ng_average']['definition'],'snapshotId':frame['id']})
     assert Decimal(restated['rows'][0][1])-Decimal(average['rows'][0][1])==Decimal('.05')
     client.call('market/context',{'effectiveOn':'2020-12-18','knownAt':before['context']['knownAt'],'mode':'at','selection':'latest_correction'})
-    earlier_frame=next(f for f in client.bootstrap()['frames'] if f['at'].startswith('2020-12-18T16:00:00'))
+    earlier_frame=initial_frame(client.call('workspace/navigation'),'2020-12-18')
     earlier=client.call('custom-curves/preview',{'definition':templates['ng_average']['definition'],'snapshotId':earlier_frame['id']})
     assert earlier['rows']==average['rows']
     if query and manifest:

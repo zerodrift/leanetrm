@@ -370,6 +370,7 @@ passed += ExpiryTransitionChecks.Run();
 passed += PowerCurveChecks.Run();
 passed += TypedPriceChecks.Run();
 passed += AmountUnitChecks.Run();
+passed += PilotCloseChecks.Run();
 passed += PowerQuantityChecks.Run();
 passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();
 passed += FuturesChecks.Run();

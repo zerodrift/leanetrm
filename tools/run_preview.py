@@ -30,6 +30,9 @@ def main():
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
+    parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
+    parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
+    parser.add_argument('--swap-risk-holdings-check',action='store_true',help='Qualify stored swap risk materialization in an owned fixture')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
@@ -50,7 +53,8 @@ def main():
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
-    if args.index_fixing_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check
+    if args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -127,7 +131,7 @@ def main():
             from mixed_preview_fixture import fixture as mixed_fixture
             reference,market,security,manifest=mixed_fixture(export)
         else:
-            reference,market,security,manifest=fixture(ROOT,fixing_frames=args.index_fixing_check)
+            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if args.execution_check and migration.name=='0040_futures_execution_policies.sql':
                 from check_futures_policy_upgrade import run_checks as check_policy_upgrade
@@ -143,7 +147,7 @@ def main():
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
                 from preview_fixture import trading_fixture
-                check_default_upgrade(query,[reference,market,swap_fixture(fixing_frames=args.index_fixing_check)[0],security,trading_fixture(manifest['catalogId'],swap_defaults=True)],migration.read_text())
+                check_default_upgrade(query,[reference,market,swap_fixture(fixing_frames=fixing_frames)[0],security,trading_fixture(manifest['catalogId'],swap_defaults=True)],migration.read_text())
             query(migration.read_text())
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
@@ -170,7 +174,7 @@ def main():
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
-            swap_market,swap_manifest=swap_fixture(fixing_frames=args.index_fixing_check);query(swap_market)
+            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames);query(swap_market)
             manifest['swapMarkets']=[swap_manifest]
         query(security)
         if args.hosted_check:
@@ -258,7 +262,22 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.market_dates_check:
+            if args.swap_risk_holdings_check:
+                from check_swap_risk_holdings import run_checks as check_swap_risk_holdings
+                check_swap_risk_holdings(url,query,manifest,dotnet,temporary,app_env,psql)
+            elif args.pilot_close_check:
+                from check_pilot_close import run_checks as check_pilot_close
+                check_pilot_close(url,query,manifest,psql,app_env)
+                from check_pilot_worker import run_checks as check_pilot_worker
+                pilot_run=check_pilot_worker(url,query,manifest,dotnet,temporary,app_env,psql)
+                from check_pilot_reports import run_checks as check_pilot_reports
+                check_pilot_reports(url,query,manifest,pilot_run,owner_profile='approver',psql=psql,environment=app_env)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--pilot-close'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned pilot close browser checks failed')
+            elif args.market_dates_check:
                 from check_market_dates import run_checks as check_market_dates
                 check_market_dates(url,query,manifest)
                 if args.browser_check:
@@ -266,6 +285,14 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--market-dates'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=240):raise RuntimeError('Owned market date browser checks failed')
+            elif args.contract_dates_check:
+                from check_contract_dates import run_checks as check_contract_dates
+                check_contract_dates(url,query,manifest,psql,env)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--contract-dates'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned shared contract-date browser checks failed')
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
                 check_custom_curves(url,query,manifest)

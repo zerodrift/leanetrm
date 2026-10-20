@@ -180,6 +180,11 @@ public sealed record FinancialSwapEvaluation
 
 public static class FinancialSwapValuation
 {
+    public static CurrencyDefaultDiscounting CreateDiscounting(FinancialSwapInstrument instrument,MarketSnapshot snapshot,CurrencyDiscountCurve? currencyDefault)
+    {
+        if(instrument is null)throw new MarketDataException("swap_context","An explicit instrument is required.");
+        return new(instrument.Sides.Select(m=>m.Side.GenerateSchedule()),snapshot,instrument.Discounting,currencyDefault);
+    }
     public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
         Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
     public static FinancialSwapEvaluation Evaluate(MonthlyFinancialSwap instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>

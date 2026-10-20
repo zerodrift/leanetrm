@@ -6,6 +6,16 @@ from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 
 
+def initial_frame(workspace, effective_on):
+    """Select one exact original fixture frame, excluding saved current variants."""
+    initial_ids = set(workspace['initialFrameIds'])
+    frames = [frame for frame in workspace['frames']
+              if frame['id'] in initial_ids and frame['at'].startswith(effective_on + 'T')]
+    if len(frames) != 1:
+        raise AssertionError(f'The fixture requires one exact original input frame for {effective_on}; found {len(frames)}')
+    return frames[0]
+
+
 class PreviewClient:
     def __init__(self, url, example='baseline'):
         address = urlsplit(url)

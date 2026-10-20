@@ -68,9 +68,11 @@ distinct; independent all-in marks acquire no inferred upstream exposure.
 Checks cover long-dated monthly and daily prices, 10/30-year monthly strips under
 all three quantity bases, individual payment DFs, multiple books and shared trade
 bindings, offsets, frozen actuals, missing inputs and identity conflicts. Draft
-quote risk retains its 128-factor limit. Persisted portfolio risk remains
-futures-only; the managed mixed-instrument projection supports swaps, but that
-alone does not wire booked swaps into the existing risk screen/API.
+quote risk retains its 128-factor limit. The interactive portfolio-risk screen
+and its legacy API remain futures-only. Generated-close jobs use retained mixed
+futures/swap holdings and persist exact reports with separate execution-P&L and
+swap-PV measures (D169). That path does not create multi-year bookings or wire
+swaps into the interactive risk screen.
 
 ## Focused measurements
 

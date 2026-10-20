@@ -2,6 +2,7 @@
 import json
 import subprocess
 from pathlib import Path
+from preview_client import initial_frame
 
 # An author's pages also carry authoring rights, which differ between working and historical views.
 PROFILE = 'editor'
@@ -14,7 +15,7 @@ def page_view(c, name, context=None):
     A historical view refuses current-only TOU definitions; that refusal is its page read."""
     full = c.call('workspace')
     effective = context['effectiveOn'] if context else '2020-12-17'
-    frame = next(f for f in full['frames'] if f['at'].startswith(effective))
+    frame = initial_frame(full, effective)
     evaluations = {curve: c.call('evaluate', {'snapshotId': frame['id'], 'curve': curve})
                    for curve in ['local_power', 'interest_rates']}
     contract = evaluations['local_power']['points'][0]['contractId']
@@ -44,7 +45,7 @@ def trade_view(c):
     directory, a pivoted Blotter and trade detail under the re-read."""
     c.call('profile', {'profile': TRADER})
     full = c.call('workspace')
-    frame = next(f for f in full['frames'] if f['at'].startswith('2020-12-18'))
+    frame = initial_frame(full, '2020-12-18')
     report = {'mode': 'trades', 'bookIds': [], 'portfolioIds': [], 'groupBy': [],
               'measures': [], 'pivotConvention': None}
     pivot = {**report, 'mode': 'pivot', 'groupBy': ['book', 'market', 'contract'],
@@ -60,7 +61,7 @@ def trade_view(c):
                 'pivoted': c.call('trading/blotter', {'context': reread, 'view': pivot}),
                 'trade': {'request': trade, 'response': c.call('futures/editor', trade)}}
     selected = c.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
-    past = next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
+    past = initial_frame(c.call('workspace'), '2020-12-18')
     retained = {**current, 'snapshotId': past['id'], 'knowledgeMode': 'retained', 'contextId': selected['contextId']}
     recorded['historical'] = {'context': selected, 'frame': past,
                               'response': c.call('trading/workspace', {'context': retained, 'view': report})}

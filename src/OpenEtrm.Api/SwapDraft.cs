@@ -59,7 +59,7 @@ public sealed partial class SwapStore
         var run=DealRisk.Calculate(draft.Data.Model,snapshot,draft.Instrument.DependenciesAt(snapshot),
             market=>
             {
-                inputs??=new(draft.Instrument.Sides.Select(m=>m.Side.GenerateSchedule()),snapshot,draft.Instrument.Discounting,draft.Discount);
+                inputs??=FinancialSwapValuation.CreateDiscounting(draft.Instrument,snapshot,draft.Discount);
                 return draft.Instrument.PV(new SideValuationContext(market,inputs)).PresentValue.Scale(draft.Quantity.Amount);
             },body.BumpPolicy,body.NumericalPolicy,ct);
         return DraftRisk.Result(draft.Data,run,"present_value");

@@ -72,12 +72,16 @@ conflicting bindings and cancellation. Streaming book summaries retain one facto
 pair at a time and expose unit calls, reuse and quantity applications.
 
 This qualifies the managed calculation path, not production throughput. The
-persisted portfolio API remains futures-only; booking database bounds, large
-historical reads, serialization/concurrent service load, generic booked swap risk,
-rate/volatility shocks, durable risk jobs and complete futures settlement PV need
-separate implementation/qualification. Futures execution P&L remains an explicit
-measure. Working-decimal output still rejects unrepresentable results without an
-explicit rounding contract.
+interactive portfolio API remains futures-only. The generated pilot-close worker
+adds a retained futures-and-swaps adapter and durable exact reports (D169), with
+separate futures execution-P&L and swap-PV measures. Its explicit rational-summary
+policy preserves nonterminating amounts without rounding and keeps rate inputs
+fixed under commodity quote shocks. Existing working-decimal output still rejects
+unrepresentable results. Booking database bounds, large historical reads,
+serialization/concurrent service load, broader booked risk operations,
+rate/volatility shocks and complete futures settlement PV need separate
+implementation/qualification. The earlier benchmark does not measure the new
+worker, publication or report-read path.
 
 
 Temporary futures and swap editors expose Price and Risk before booking. Trade
@@ -153,8 +157,9 @@ sides, preserving exact per-payment lookups and DFs. Per-month quantity, an
 equal-month allocation of total quantity and a calendar-day-weighted allocation
 are explicit versioned choices; rational allocation precedes external trade
 scaling. Independent 10/30-year price, discount and shared-trade shock checks
-qualify this managed consumer. Persistent multi-year booking and the risk
-screen's booked-swap integration remain work. See [pricing lookups](pricing-lookups.md).
+qualify this managed consumer (D170). Persistent multi-year booking and the
+interactive risk screen's booked-swap integration remain work; generated-close
+jobs already retain mixed-product reports (D169). See [pricing lookups](pricing-lookups.md).
 
 Financial gas and power swaps now have local booking/amendment operations, a
 shared trade blotter and an editor with independently valued side tables. The
@@ -181,7 +186,7 @@ Shared tables now guard row activation during selection/scrolling and use a sing
 scroll container for schedule inspection.
 The managed core additionally validates calendar-based and quantity-weighted
 rules; those need persisted authoring before booking controls are exposed.
-Fixing lifecycle events, persisted recurring payment strips, persisted portfolio swap risk,
+Fixing lifecycle events, persisted recurring payment strips, interactive portfolio swap risk,
 physical products and PPAs remain work. Draft swap quote risk supports unresolved
 observations; final index fixings remain frozen inputs.
 FixedSide and FloatingSide now independently generate and value their own
@@ -353,7 +358,7 @@ Do not build a broad date scripting language or duplicate holiday/expiry catalog
 The separate daily/BALMO month-end selection remains open.
 
 Monthly anchors, explicit calendar/adjustment choices, indexed date expressions
-and private curve contract date drafts now run in the browser preview. See
+and the shared versioned contract-date library now run in the browser preview. See
 [implemented scope](implementation.md#independent-schedules-publication-and-contract-dates).
 Schedule drafts and immutable publications now persist in PostgreSQL with certified
 effective/known resolution. Qualified futures-series generation and activation of
@@ -1034,4 +1039,8 @@ documented current consumers. Delivery-price navigation consumes authorized sour
 metadata in commodity/operator/market/location order and keeps inclusive market
 delivery dates distinct from user-zone interval timestamps. Synthetic schedule
 examples use the existing monthly publication operation; literal daily contract
-examples remain session candidates, not published exchange contracts.
+examples can be explicitly saved and published as shared date-rule definitions;
+they do not become published exchange contracts. Exact source versions and a
+certified validation context remain pinned, with resolution under a separately
+selected context (D167). Contract activation and booked-side integration remain
+outside this library.

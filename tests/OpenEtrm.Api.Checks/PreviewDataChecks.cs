@@ -15,6 +15,12 @@ internal static class PreviewDataChecks
         var fixture=Fixture(405);
         PreviewData Data(ImmutableArray<JsonElement>? observations=null,Dictionary<string,ImmutableArray<JsonElement>>? references=null,
             Dictionary<string,ImmutableArray<JsonElement>>? definitions=null)=>new(fixture.Manifest,definitions??fixture.Definitions,references??fixture.References,observations??fixture.Observations);
+        PreviewSession Seeded(InputFrame frame)
+        {
+            var seed=new PreviewSeedFrame(frame.At,frame.ObservationIds.ToArray(),frame.CurveContracts.ToDictionary(pair=>pair.Key,pair=>pair.Value.ToArray()));
+            var session=new PreviewSession(fixture.Manifest with{Frames=[seed]});
+            var id=session.InitialFrames.Single();session.Frames[id]=frame with{Id=id};return session;
+        }
         var data=Data();
         Check("all independently keyed futures retain their exact prices and input identities",()=>
         {
@@ -52,6 +58,39 @@ internal static class PreviewDataChecks
             var branch=Change(second,"id",Guid.NewGuid());
             Reject("revision_conflict",()=>Data([..fixture.Observations,second,branch]).SelectPinned(fixture.Frame));
         });
+        Check("frozen settlement identity and use survive latest variable correction selection",()=>
+        {
+            var final=Change(fixture.Observations[0],"role","final_contract_settlement");
+            var correction=Change(Change(Change(final,"id",Guid.NewGuid()),"corrects_id",final.Id("id")),"value","101.001");
+            var corrected=Data([..fixture.Observations.SetItem(0,final),correction]);
+            var selected=corrected.SelectPinned(fixture.Frame with{FrozenObservationIds=[final.Id("id")]});
+            var frozen=corrected.Snapshot(selected).Selections.Single(s=>s.Observation.Key.Id==final.Id("id"));
+            if(selected.ObservationIds[0]!=final.Id("id")||frozen.Input.Use!=InputUse.FrozenFact||frozen.Observation.Value!=final.Number("value"))
+                throw new Exception("A retained frozen settlement was corrected or became a variable market factor.");
+        });
+        Check("index actuals and explicitly retained final settlements keep independent frozen uses",()=>
+        {
+            var actual=Change(fixture.Observations[0],"role","index_fixing");
+            var final=Change(fixture.Observations[1],"role","final_contract_settlement");
+            var selected=Data(fixture.Observations.SetItem(0,actual).SetItem(1,final)).Snapshot(
+                fixture.Frame with{FrozenObservationIds=[final.Id("id")]});
+            if(selected.Selections.Single(s=>s.Observation.Key.Id==actual.Id("id")).Input.Use!=InputUse.FrozenFact||
+                selected.Selections.Single(s=>s.Observation.Key.Id==final.Id("id")).Input.Use!=InputUse.FrozenFact||
+                selected.Selections.Count(s=>s.Input.Use==InputUse.Variable)!=403)
+                throw new Exception("Index actuals and retained final settlements must stay frozen without changing live inputs.");
+        });
+        Check("an explicitly selected frozen revision remains frozen without claiming the original stored close",()=>
+        {
+            var original=Change(fixture.Observations[0],"role","final_contract_settlement");
+            var replacement=Change(Change(Change(original,"id",Guid.NewGuid()),"corrects_id",original.Id("id")),"value","102.001");
+            var revised=Data([..fixture.Observations.SetItem(0,original),replacement]);
+            var identity=Guid.NewGuid();
+            var stored=fixture.Frame with{Id=identity,OriginCloseId=identity,FrozenObservationIds=[original.Id("id")]};
+            var edited=stored.SelectRevision(original.Id("id"),replacement.Id("id"),"Explicit synthetic revision");
+            if(edited.Id==stored.Id||edited.OriginCloseId is not null||stored.ObservationIds[0]!=original.Id("id")||
+                revised.Snapshot(edited).Selections.Single(s=>s.Observation.Key.Id==replacement.Id("id")).Input.Use!=InputUse.FrozenFact)
+                throw new Exception("An explicit revision changed frozen use or masqueraded as the original stored close.");
+        });
         Check("required futures joins preserve missing and ambiguous reference errors",()=>
         {
             foreach(var table in new[]{"futures_series","futures_products","futures_product_terms","futures_milestones"})
@@ -72,6 +111,119 @@ internal static class PreviewDataChecks
             if(Data(changed).Build(fixture.Frame,"future").Values[0].Price.Value.ToString()!="201.001"||
                 data.Build(fixture.Frame,"future").Values[0].Price.Value!=fixture.Observations[0].Number("value"))
                 throw new Exception("A different read shared selected data.");
+        });
+        Check("durable catalog planning preserves manual inputs and only commits cache changes explicitly",()=>
+        {
+            var session=new PreviewSession(fixture.Manifest);
+            session.Frames.Add(fixture.Frame.Id,fixture.Frame);
+            var identity=Guid.NewGuid();var stored=fixture.Frame with{Id=identity,OriginCloseId=identity,FrozenObservationIds=[fixture.Observations[0].Id("id")]};
+            var plan=session.PlanFrames(new([stored],127,false),null,[]);
+            if(session.Frames.Count!=1||session.Frames.ContainsKey(identity))throw new Exception("An uncommitted discovery changed session state.");
+            session.ApplyFrames(plan);
+            if(session.PersistentFrames.Length!=1||session.VisibleFrames.Length!=2||!session.Frames[identity].FrozenObservationIds.SequenceEqual(stored.FrozenObservationIds))
+                throw new Exception("A discovery replaced manual inputs or frozen uses.");
+            session.ApplyFrames(session.PlanFrames(new([],127,false),null,[]));
+            if(session.Frames.Count!=1||session.Frames[fixture.Frame.Id]!=fixture.Frame)throw new Exception("Refreshing visible stored closes removed a manual selection.");
+        });
+        Check("same-instant durable closes retain separate origins and stable exact historical aliases",()=>
+        {
+            var session=new PreviewSession(fixture.Manifest);
+            var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            var first=Guid.NewGuid();var second=Guid.NewGuid();
+            var stored=new[]{first,second}.Select(id=>fixture.Frame with{Id=id,OriginCloseId=id,ContextId=context.ContextId}).ToImmutableArray();
+            var plan=session.PlanFrames(new(stored,128,false),context,[]);session.ApplyFrames(plan);
+            var retained=plan.Frames.ToDictionary(frame=>frame.OriginCloseId!.Value,frame=>frame.Id);
+            if(retained.Count!=2||retained.Any(pair=>pair.Key==pair.Value)||plan.Frames.Any(frame=>!frame.ObservationIds.SequenceEqual(fixture.Frame.ObservationIds)))
+                throw new Exception("Historical close aliases collided or changed recorded inputs.");
+            var replay=session.PlanFrames(new(stored,128,false),context,[]);
+            if(replay.Frames.Any(frame=>retained[frame.OriginCloseId!.Value]!=frame.Id))throw new Exception("Refreshing one retained context changed its explicit frame identities.");
+            session.ForgetDiscoveredFrames();
+            if(session.PlanFrames(new(stored,128,false),context,[]).Frames.Any(frame=>retained[frame.OriginCloseId!.Value]!=frame.Id))
+                throw new Exception("Returning to a stored context changed its exact close alias identity.");
+        });
+        Check("initial certified aliases survive context replay without adopting manual current variants",()=>
+        {
+            var session=Seeded(fixture.Frame);
+            var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            var plan=session.PlanFrames(new([],126,false),context,session.SelectContextAliases(data,context));
+            session.ApplyFrames(plan);var identity=plan.Frames.Single().Id;
+            session.ForgetDiscoveredFrames();
+            var replay=session.PlanFrames(new([],126,false),context,session.SelectContextAliases(data,context));
+            if(replay.Frames.Single().Id!=identity)throw new Exception("An exact certified replay lost its original frame identity.");
+            var correction=Change(Change(Change(fixture.Observations[0],"id",Guid.NewGuid()),"corrects_id",fixture.Observations[0].Id("id")),"value","111.001");
+            var updated=Data([..fixture.Observations,correction]);
+            if(session.PlanFrames(new([],126,false),context,session.SelectContextAliases(updated,context)).Frames.Single().Id==identity)
+                throw new Exception("A changed resolved pin reused an earlier snapshot identity.");
+            session.ForgetDiscoveredFrames(resetAliasIdentities:true);
+            if(session.PlanFrames(new([],126,false),context,session.SelectContextAliases(data,context)).Frames.Single().Id==identity)
+                throw new Exception("Changing identity retained the previous user's alias map.");
+            var manual=fixture.Frame.SelectRevision(fixture.Observations[0].Id("id"),correction.Id("id"),"Explicit synthetic revision");
+            session.Frames.Add(manual.Id,manual);
+            if(session.SelectContextAliases(updated,context).Length!=1||session.PersistentFrames.Length!=2||session.Frames[manual.Id]!=manual)
+                throw new Exception("Historical alias selection adopted or removed a manual current variant.");
+        });
+        Check("certified initial aliases keep their directory order across authorized refreshes",()=>
+        {
+            var seed=new PreviewSeedFrame(fixture.Frame.At,fixture.Frame.ObservationIds.ToArray(),fixture.Frame.CurveContracts.ToDictionary(pair=>pair.Key,pair=>pair.Value.ToArray()));
+            var session=new PreviewSession(fixture.Manifest with{Frames=[seed with{At=seed.At.AddDays(-1)},seed]});
+            var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            session.ApplyFrames(session.PlanFrames(new([],124,false),context,session.SelectContextAliases(data,context)));
+            var initial=session.ContextAliases(context).Select(frame=>frame.Id).ToArray();
+            session.ApplyFrames(session.PlanFrames(new([],124,false),context,session.ContextAliases(context)));
+            if(!session.ContextAliases(context).Select(frame=>frame.Id).SequenceEqual(initial))
+                throw new Exception("Refreshing an unchanged context reordered its initial snapshot directory.");
+        });
+        Check("an unavailable exact manual pin removes its whole certified alias without changing the saved frame",()=>
+        {
+            var session=Seeded(fixture.Frame);var saved=session.PersistentFrames.Single();
+            var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            if(!session.SelectContextAliases(Data(fixture.Observations.RemoveAt(0)),context).IsEmpty||session.PersistentFrames.Single()!=saved)
+                throw new Exception("An unavailable manual pin was trimmed, replaced or erased from the session.");
+        });
+        Check("certified aliases reject malformed frozen markers and retained membership",()=>
+        {
+            var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            void Invalid(InputFrame frame)
+            {
+                var session=Seeded(frame);
+                Reject("snapshot_inputs",()=>session.SelectContextAliases(data,context));
+            }
+            Invalid(fixture.Frame with{FrozenObservationIds=[Guid.NewGuid()]});
+            Invalid(fixture.Frame with{ObservationIds=[..fixture.Frame.ObservationIds,fixture.Frame.ObservationIds[0]]});
+            Invalid(fixture.Frame with{CurveContracts=fixture.Frame.CurveContracts.SetItem("future",[fixture.Frame.CurveContracts["future"][0],fixture.Frame.CurveContracts["future"][0]])});
+            Invalid(fixture.Frame with{CurveContracts=fixture.Frame.CurveContracts.SetItem("future",[Guid.NewGuid()])});
+            Invalid(fixture.Frame with{CurveContracts=fixture.Frame.CurveContracts.Add("undefined_curve",[])});
+        });
+        Check("explicit empty market views retain usable curves and do not manufacture missing inputs",()=>
+        {
+            var definitions=new Dictionary<string,ImmutableArray<JsonElement>>(fixture.Definitions)
+            {
+                ["curves"]=[..fixture.Definitions["curves"],Change(fixture.Definitions["curves"].Single(),"code","completed_future")],
+                ["curve_members"]=[..fixture.Definitions["curve_members"],..fixture.Definitions["curve_members"].Select(row=>Change(row,"curve_code","completed_future"))]
+            };
+            var selectedData=Data(definitions:definitions);
+            var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            InputFrame Alias(InputFrame seed)
+            {
+                var session=Seeded(seed);
+                return session.SelectContextAliases(selectedData,context).Single();
+            }
+            var mixed=Alias(fixture.Frame with{CurveContracts=fixture.Frame.CurveContracts.Add("completed_future",[])});
+            if(selectedData.Build(mixed,"future").Values.Length!=405||Row(selectedData.Result(mixed,"completed_future")).Text("availability")!="no_remaining_contracts")
+                throw new Exception("An explicit empty view prevented another curve from retaining its exact inputs.");
+            var auxiliary=Alias(fixture.Frame with{CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty});
+            Reject("missing_curve_view",()=>selectedData.Build(auxiliary,"future"));
+            var empty=Alias(fixture.Frame with{ObservationIds=[],CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("completed_future",[])});
+            if(Row(selectedData.Result(empty,"completed_future")).Text("availability")!="no_remaining_contracts")
+                throw new Exception("An explicit empty view invented an observation requirement.");
+        });
+        Check("retained catalog capacity is explicit and never evicts a manual selection",()=>
+        {
+            var session=new PreviewSession(fixture.Manifest);
+            for(var i=0;i<PreviewSession.MaximumFrames;i++)
+            {var frame=fixture.Frame with{Id=Guid.NewGuid()};session.Frames.Add(frame.Id,frame);}
+            Reject("preview_limit",()=>session.PlanFrames(new([],0,true),null,[]));
+            if(session.Frames.Count!=PreviewSession.MaximumFrames)throw new Exception("Capacity failure evicted an explicit input selection.");
         });
         Console.WriteLine(count+" preview data checks passed.");
     }

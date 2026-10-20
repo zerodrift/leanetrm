@@ -83,7 +83,7 @@ public sealed class MarketReads(PreviewDatabase database)
         string curve,Guid? contractId,Guid? seriesId,CancellationToken ct)
     {
         var current=pin.RequireFrame();
-        var selected=frames.Select(pin.Require).Select(f=>f.At==current.At?current:f).OrderBy(f=>f.At).ToArray();
+        var selected=frames.Select(pin.Require).Where(frame=>frame.At!=current.At).Append(current).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id).ToArray();
         var data=await Data(connection,pin,ct);
         return [..selected.Select(f=>
         {

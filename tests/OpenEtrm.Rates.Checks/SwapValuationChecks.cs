@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
+using OpenEtrm.MarketData.Risk;
 
 internal static class SwapValuationChecks
 {
@@ -152,11 +153,54 @@ internal static class SwapValuationChecks
                 p.Cashflow.Discount.Source != DiscountFactorSource.Undiscounted)))
                 throw new Exception("An undiscounted side unexpectedly consumed rate inputs");
         });
+        Check("reusable payment inputs retain the supplied frozen context and each side's payment date", () =>
+        {
+            var frozen=snapshot with { Selections=snapshot.Selections.SetItem(0,snapshot.Selections[0] with {
+                Input=snapshot.Selections[0].Input with { Use=InputUse.FrozenFact } }) };
+            var laterFixed=new FixedSide(Guid.NewGuid(),fixedSide.Price,unit,contract.DeliveryFrom,
+                contract.DeliveryTo,At("2021-03-18T12:00:00Z"),FixedSide.Implementation,quote);
+            var separate=new FinancialSwapInstrument(Guid.NewGuid(),[new(laterFixed,ExactDecimal.Parse("-1")),
+                new(floating,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,true);
+            var factors=FinancialSwapValuation.CreateDiscounting(separate,frozen,mapping);
+            if(!ReferenceEquals(factors.Snapshot,frozen)||factors.Inputs.Count!=2||
+                factors.Resolve(laterFixed.GenerateSchedule(),frozen).Single().DiscountFactor.ToString()!="0.953002610966057441"||
+                factors.Resolve(floating.GenerateSchedule(),frozen).Single().DiscountFactor.ToString()!="0.971118981067694871")
+                throw new Exception("Reusable discounting replaced the exact frozen context or shared independent payment factors");
+            Reject("discount_context",()=>factors.Resolve(floating.GenerateSchedule(),snapshot));
+            var undiscounted=new FinancialSwapInstrument(Guid.NewGuid(),instrument.Sides,FinancialSwapInstrument.Implementation,false);
+            var explicitInputs=FinancialSwapValuation.CreateDiscounting(undiscounted,frozen with { Selections=[frozen.Selections[0]] },null);
+            if(explicitInputs.Inputs.Values.Any(p=>p.Enabled||p.Factor!=ExactDecimal.Parse("1")))
+                throw new Exception("An explicitly undiscounted instrument required a rate default");
+            Reject("discount_curve_missing",()=>FinancialSwapValuation.CreateDiscounting(separate,frozen,null));
+        });
         Check("invalid trade quantities fail before a discount mapping or side valuation is consumed", () =>
         {
             var market = model.Build(snapshot, instrument.Dependencies);
             Reject("swap_quantity", () => FinancialSwapValuation.Price(instrument, market, new(default, quote.Quantity), true, null));
             Reject("swap_quantity", () => FinancialSwapValuation.Price(instrument, market, new(ExactDecimal.Parse("1"), R("wrong")), true, null));
+        });
+        Check("shared sides retain each instrument's explicit discounting in the common risk portfolio",()=>
+        {
+            var plain=new FinancialSwapInstrument(Guid.NewGuid(),instrument.Sides,FinancialSwapInstrument.Implementation,false);
+            var book=Guid.NewGuid();
+            RiskPosition Holding(FinancialSwapInstrument i)=>new(Guid.NewGuid(),Guid.NewGuid(),book,i.Id,
+                new(ExactDecimal.Parse("100"),quote.Quantity),new(new Money(default,quote.Currency),quote.Quantity),new(default,quote.Currency));
+            var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
+            {InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty
+                .Add(instrument.Id,FinancialSwapValuation.CreateDiscounting(instrument,snapshot,mapping))
+                .Add(plain.Id,FinancialSwapValuation.CreateDiscounting(plain,snapshot,null))};
+            var portfolio=new ValuationPortfolio([instrument,plain],[Holding(instrument),Holding(plain)],setup);
+            var bump=new QuoteBump(new(commodity.Key,InputUse.Variable),quote.Key,PriceUnit.FromQuote(quote),ExactDecimal.Parse("0.01"),QuoteBump.Convention);
+            var risk=RiskEngine.Calculate(model,snapshot,portfolio,[bump],RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
+            var total=risk.Factors.Single().Totals.Single();
+            if(total.Base.Amount.ToString()!="19.71118981067694871"||total.UpPnl.Amount.ToString()!="1.971118981067694871"||
+                total.Delta.Value.ToString()!="197.1118981067694871"||total.Gamma.Value!=default)
+                throw new Exception("Instrument-specific discounting was replaced by another instrument sharing its sides.");
+            Reject("side_context",()=>RiskEngine.Calculate(model,snapshot,
+                new ValuationPortfolio([instrument,plain],portfolio.Positions,setup with{InstrumentDiscounting=setup.InstrumentDiscounting.Remove(plain.Id)}),
+                [bump],RiskEngine.NumericalPolicy));
+            Reject("side_context",()=>new ValuationPortfolio([instrument,plain],portfolio.Positions,
+                setup with{Discounting=FinancialSwapValuation.CreateDiscounting(instrument,snapshot,mapping)}));
         });
         Check("side discount contexts require schedules and a selected snapshot", () =>
         {
