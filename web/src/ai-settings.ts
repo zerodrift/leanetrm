@@ -10,10 +10,15 @@ type Dimension='uncachedInput'|'cacheRead'|'cacheWrite'|'output';
 type Rates=Record<Dimension,string|null>;
 type Price={sequence:number;kind:string;currency:CurrencyReference|null;rates:Rates|null;tier:{threshold:number;rates:Rates}|null;effectiveFrom:string;effectiveTo:string|null;recordedAt:string;recordedBy:string};
 type Segment={from:string;to:string|null;sequence:number|null;priced:boolean};
-type Model={id:string;vendor:string;identifier:string;displayName:string;version:number;priceSequence:number;cacheReadRequired:boolean;prices:Price[];schedule:Segment[]};
+type Capability={outputLimit:number;reasoningEfforts:string[];acceptedServed:string[]}&Record<`${Fact}Source`|`${Fact}CheckedOn`,string>;
+type Model={id:string;vendor:string;identifier:string;displayName:string;version:number;priceSequence:number;cacheReadRequired:boolean;prices:Price[];schedule:Segment[];
+  enabled:boolean;qualified:boolean;capability:(Capability&{version:number;mapping:string;recordedBy:string;recordedAt:string})|null};
 type Audit={at:string;actor:string;action:string;vendor:string;identifier?:string};
 type Models={asOf:string;models:Model[];audit:Audit[];currencies:Currency[]};
-type Provider={vendor:string;name:string;protocol:string;qualified:boolean;version:number;credential:{lastFour:string;setBy:string;setAt:string}|null};
+type Term='retention'|'training'|'ownerAccess';
+type Terms={version:number;accountType:string;recordedBy:string;recordedAt:string}&Record<Term|`${Term}Source`|`${Term}CheckedOn`,string>;
+type Provider={vendor:string;name:string;protocol:string;mapping:{mapping:string;confirmedOn:string;efforts:string[]}|null;version:number;enabled:boolean;qualified:boolean;
+  credential:{version:number;lastFour:string;setBy:string;setAt:string}|null;terms:Terms|null;attestation:{attestedBy:string;attestedAt:string}|null};
 type Providers={providers:Provider[];audit:Audit[]};
 export type PriceEntry={currency:CurrencyReference|undefined;cacheReadRequired:boolean;rates:Record<Dimension,{value:string;notOffered:boolean}>;tier:string;threshold:string;tierRates:Record<Dimension,string>};
 
@@ -23,8 +28,10 @@ const changes:Record<string,string>={add_model:'Model added',rename_model:'Displ
   record_terms:'Terms recorded',attest:'Attested',enable_provider:'Enabled',disable_provider:'Disabled',
   edit_model:'Capabilities recorded',enable_model:'Enabled',disable_model:'Disabled'};
 // Refusals that prove a first attempt wrote nothing, so its retained request can be released.
-const rejections=['model_admin_input','model_admin_conflict','model_identifier_invalid','currency_unavailable','access_denied','request_format','request_token'];
-const modelPaths=['settings/ai/models/add','settings/ai/models/rename','settings/ai/models/price','settings/ai/models/withdraw'],keyPath='settings/ai/providers/key';
+const rejections=['model_admin_input','model_admin_conflict','model_identifier_invalid','currency_unavailable','model_unqualified','model_provider_unqualified',
+  'model_provider_disabled','model_mapping_unconfirmed','access_denied','request_format','request_token'];
+const modelPaths=['add','rename','price','withdraw','edit','enable','disable'].map(path=>'settings/ai/models/'+path);
+const providerPaths=['terms','attest','enable','disable'].map(path=>'settings/ai/providers/'+path),keyPath='settings/ai/providers/key';
 const inconsistent=()=>Error('The AI settings directory is inconsistent. Refresh AI settings.');
 const grouped=(count:number)=>count.toLocaleString('en-US');
 
@@ -61,6 +68,59 @@ export function endChoice(choice:string,subject:'price'|'withdrawal'){
   throw Error(`Choose whether the ${subject} is open-ended or ends at a set time.`);
 }
 export function aiChange(action:string){if(!Object.hasOwn(changes,action))throw inconsistent();return changes[action];}
+export function stateLabel(state:{enabled:boolean;qualified:boolean}){
+  return state.enabled?(state.qualified?'Enabled':'Enabled · no longer qualified'):(state.qualified?'Disabled · qualified':'Disabled · not qualified');
+}
+export type Fact='outputLimit'|'reasoning'|'identifierStability'|'acceptedServed'|'tools'|'streaming';
+export const facts:Fact[]=['outputLimit','reasoning','identifierStability','acceptedServed','tools','streaming'];
+export const factNames:Record<Fact,string>={outputLimit:'the output limit',reasoning:'the reasoning efforts',identifierStability:"the identifier's stability",
+  acceptedServed:'the served identifiers',tools:'tool calling',streaming:'streaming'};
+const factLabels:Record<Fact,string>={outputLimit:'Output limit',reasoning:'Reasoning efforts',identifierStability:'Identifier',acceptedServed:'Served identifiers',
+  tools:'Tool calling',streaming:'Streaming'};
+export type CapabilityEntry={outputLimit:string;efforts:string[];served:string;onlyOwn:boolean;sources:Record<Fact,string>;checkedOn:Record<Fact,string>};
+// Every fact is entered with the published source it came from and the date that source was checked;
+// nothing blank is inferred. Model identifiers hold no spaces or commas, so either separates them.
+export function capabilityRequest(entry:CapabilityEntry){
+  const outputLimit=/^[0-9]+$/.test(entry.outputLimit)?Number(entry.outputLimit):NaN;
+  if(!Number.isSafeInteger(outputLimit))throw Error('Enter the output limit as a whole number of tokens.');
+  if(!entry.efforts.length)throw Error('Choose the reasoning efforts the model accepts.');
+  const served=entry.served.split(/[\s,]+/).filter(Boolean);
+  if(entry.onlyOwn&&served.length)throw Error('Either list the other identifiers its vendor may report as served, or choose that it reports only its own.');
+  if(!entry.onlyOwn&&!served.length)throw Error('Enter the other identifiers its vendor may report as served, or choose that it reports only its own.');
+  for(const fact of facts){
+    if(!entry.sources[fact])throw Error(`Enter the source for ${factNames[fact]}.`);
+    if(!entry.checkedOn[fact])throw Error(`Enter the date the source for ${factNames[fact]} was checked.`);
+  }
+  return {outputLimit,reasoningEfforts:entry.efforts,acceptedServed:served,
+    ...Object.fromEntries(facts.flatMap(fact=>[[fact+'Source',entry.sources[fact]],[fact+'CheckedOn',entry.checkedOn[fact]]]))};
+}
+export type TermsEntry={accountType:string;retention:string;retentionSource:string;retentionCheckedOn:string;training:string;trainingSource:string;trainingCheckedOn:string;
+  ownerAccess:string;ownerAccessSource:string;ownerAccessCheckedOn:string};
+const termNames=[['retention','retention','Retention'],['training','training-use','Training use'],['ownerAccess','owner-access','Owner access']] as const;
+// Terms are copied from the vendor's published documents and sent exactly as entered.
+export function termsRequest(entry:TermsEntry):TermsEntry{
+  if(!entry.accountType)throw Error('Enter the account type the terms apply to.');
+  for(const [term,name] of termNames){
+    if(!entry[term])throw Error(`Enter the ${name} terms.`);
+    if(!entry[`${term}Source`])throw Error(`Enter the source of the ${name} terms.`);
+    if(!entry[`${term}CheckedOn`])throw Error(`Enter the date the ${name} terms were checked.`);
+  }
+  return {...entry};
+}
+// What Attest affirms (§6.3), naming the key and terms versions it binds; two keys can share their last four.
+// An attested pair is not offered for attestation again, and the statement says why.
+export function attestationStatement(provider:{name:string;credential:{version:number;lastFour:string}|null;terms:{version:number;accountType:string}|null;attestation?:unknown}){
+  const {name,credential,terms}=provider;
+  if(!credential||!terms)return `Attest once ${name} has a key and recorded terms.`;
+  const statement=`I attest that the ${name} account whose current key, version ${credential.version}, ends in ${credential.lastFour} is of the account type `
+    +`“${terms.accountType}” that terms version ${terms.version} applies to, that it does not permit training on submitted content, and that it has no data-sharing opt-in.`;
+  return provider.attestation?`${statement} This key and these terms are attested; a new key or new terms need a new attestation.`:statement;
+}
+export function capabilityRows(capability:Capability){
+  const values:Record<Fact,string>={outputLimit:`${grouped(capability.outputLimit)} tokens`,reasoning:capability.reasoningEfforts.join(', '),identifierStability:'Not repointed',
+    acceptedServed:capability.acceptedServed.length?capability.acceptedServed.join(', '):'Only its own',tools:'Confirmed',streaming:'Confirmed'};
+  return facts.map(fact=>[factLabels[fact],values[fact],capability[`${fact}Source`],capability[`${fact}CheckedOn`]]);
+}
 export function segmentLabel(segment:{sequence:number|null;priced:boolean},prices:{sequence:number;kind:string;currency:CurrencyReference|null}[],labels:Map<string,string>){
   if(segment.sequence===null){if(segment.priced)throw inconsistent();return 'No price';}
   const price=prices.find(p=>p.sequence===segment.sequence);
@@ -68,65 +128,91 @@ export function segmentLabel(segment:{sequence:number|null;priced:boolean},price
   return segment.priced?`Revision ${price.sequence} · ${labels.get(currencyKey(price.currency!))??'currency not readable'}`:`No price · revision ${price.sequence}`;
 }
 
+
 // Settings › AI (docs/ai-assistant.md §9): Models & prices and Providers. Both tabs read both
-// directories, since adding a vendor's first model creates its provider.
+// directories, since adding a vendor's first model creates its provider and a model's capabilities
+// draw on the usage mapping its provider's adapter applies.
 export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const input=(id:string)=>get<HTMLInputElement>(id);
+  const text=(id:string)=>get<HTMLInputElement|HTMLTextAreaElement>(id).value;
   const form=(id:string)=>get<HTMLFormElement>(id);
   const choice=(name:string)=>document.querySelector<HTMLInputElement>(`input[name=${name}]:checked`)?.value??'';
   const instant=(at:string)=>displayInstant(at,options.zone());
   const [priceFrom,priceTo,withdrawFrom,withdrawTo]=['ai-price-from','ai-price-to','ai-withdraw-from','ai-withdraw-to'].map(id=>zonedInput(input(id),options.zone,options.api));
-  const pending=new PendingCommand(code=>!!code&&rejections.includes(code));
+  const rejected=(code:string|undefined)=>!!code&&rejections.includes(code);
+  const pending=new PendingCommand(rejected),providerPending=new PendingCommand(rejected);
   // The key itself is never part of the retained request (§5.2); a retry asks for it again.
-  const keyPending=new PendingCommand(code=>!!code&&(rejections.includes(code)||code==='credential_unavailable'));
-  let models:Models|undefined,providers:Providers|undefined,labels=new Map<string,string>(),selected:string|undefined,keyVendor:string|undefined,generation=0;
-  const storage={models:()=>`openetrm.ai.models.request.${options.identity()}`,key:()=>`openetrm.ai.key.request.${options.identity()}`};
+  const keyPending=new PendingCommand(code=>rejected(code)||code==='credential_unavailable');
+  let models:Models|undefined,providers:Providers|undefined,labels=new Map<string,string>(),selected:string|undefined,selectedVendor:string|undefined,keyVendor:string|undefined,generation=0;
+  // The key and terms the attestation statement names; a confirmation never carries over to another pair.
+  let statementPair='';
+  const storage=new Map<PendingCommand,()=>string>([[pending,()=>`openetrm.ai.models.request.${options.identity()}`],
+    [providerPending,()=>`openetrm.ai.providers.request.${options.identity()}`],[keyPending,()=>`openetrm.ai.key.request.${options.identity()}`]]);
 
-  // Each retained request owns its slot, so one command never rewrites the other's.
+  // Each retained request owns its slot, so one command never rewrites another's.
   function store(holder:PendingCommand){
-    const key=holder===pending?storage.models():storage.key();
+    const key=storage.get(holder)!();
     try{if(holder.command)sessionStorage.setItem(key,JSON.stringify(holder.command));else sessionStorage.removeItem(key);}catch{/* The in-memory request is retained for this visit. */}
   }
-  function stored(key:string,valid:(value:RequestCommand)=>boolean):RequestCommand|undefined{
+  function stored(holder:PendingCommand,valid:(value:RequestCommand)=>boolean):RequestCommand|undefined{
     try{
-      const value=JSON.parse(sessionStorage.getItem(key)??'null');
+      const value=JSON.parse(sessionStorage.getItem(storage.get(holder)!())??'null');
       return value&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object'&&valid(value)?{operationId:value.operationId,path:value.path,body:value.body,uncertain:true}:undefined;
     }catch{return undefined;/* Invalid browser state cannot grant authority. */}
   }
   function vendorName(code:string){const provider=providers?.providers.find(p=>p.vendor===code);if(!provider)throw inconsistent();return provider.name;}
   const model=()=>models?.models.find(m=>m.id===selected);
+  const provider=()=>providers?.providers.find(p=>p.vendor===selectedVendor);
   function current(){const found=model();if(!found)throw Error('Choose a model again after refreshing AI settings.');return found;}
+  function currentProvider(){const found=provider();if(!found)throw Error('Choose a provider again after refreshing AI settings.');return found;}
   function button(label:string,work:()=>void,className='secondary'){const b=document.createElement('button');b.type='button';b.className=className;b.textContent=publicText(label);b.onclick=()=>{if(!options.busy())work();};return b;}
   function fillChoices(id:string,first:string,choices:{value:string;label:string}[]){
     const node=get<HTMLSelectElement>(id),chosen=node.value,blank=new Option(first,'');
     node.replaceChildren(blank,...choices.map(c=>new Option(publicText(c.label),c.value)));node.value=choices.some(c=>c.value===chosen)?chosen:'';
   }
   const rateCells=(rates:Rates)=>dimensions.map(d=>rates[d]??'Not offered');
-  const hosts=['ai-model-table','ai-model-audit','ai-price-history','ai-price-schedule','ai-provider-table','ai-provider-audit'];
+  const hosts=['ai-model-table','ai-model-audit','ai-price-history','ai-price-schedule','ai-capability-table','ai-provider-table','ai-terms-table','ai-provider-audit'];
+  const efforts=()=>[...get('ai-capability-efforts').querySelectorAll<HTMLInputElement>('input:checked')].map(box=>box.value);
+  // One source and checked date per fact.
+  get('ai-capability-sources').replaceChildren(...facts.map(fact=>{
+    const row=document.createElement('tr'),name=document.createElement('th'),source=document.createElement('input'),checked=document.createElement('input');
+    name.scope='row';name.textContent=factLabels[fact];
+    // A text field keeps what was typed, spaces included; the server decides whether it is a source.
+    source.id='ai-source-'+fact;source.type='text';source.inputMode='url';source.autocomplete='off';source.spellcheck=false;source.setAttribute('aria-label',`Source for ${factNames[fact]}`);
+    checked.id='ai-checked-'+fact;checked.type='date';checked.setAttribute('aria-label',`Date the source for ${factNames[fact]} was checked`);
+    row.append(name,...[source,checked].map(control=>{const cell=document.createElement('td');cell.append(control);return cell;}));
+    return row;
+  }));
 
   function clearDirectories(){
     models=undefined;providers=undefined;labels=new Map();for(const id of hosts)get(id).replaceChildren();
-    get('ai-model-card').hidden=true;keyVendor=undefined;input('ai-key-value').value='';get('ai-model-asof').textContent='';
+    get('ai-model-card').hidden=true;get('ai-provider-card').hidden=true;keyVendor=undefined;input('ai-key-value').value='';get('ai-model-asof').textContent='';
   }
   function resetPrices(){
     for(const id of ['ai-price-form','ai-withdraw-form'])form(id).reset();
     for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.clear();
   }
-  function resetModelForms(){resetPrices();input('ai-rename-name').value=model()?.displayName??'';}
+  function resetCapabilities(){form('ai-capability-form').reset();get('ai-capability-efforts').replaceChildren();}
+  function resetModelForms(){resetPrices();resetCapabilities();input('ai-rename-name').value=model()?.displayName??'';}
   function select(id:string){if(!models?.models.some(m=>m.id===id))return;selected=id;resetModelForms();render();sync();get('ai-model-card').scrollIntoView({block:'nearest'});}
+  function selectProvider(vendor:string){
+    if(!providers?.providers.some(p=>p.vendor===vendor))return;
+    selectedVendor=vendor;for(const id of ['ai-terms-form','ai-attest-form'])form(id).reset();render();sync();get('ai-provider-card').scrollIntoView({block:'nearest'});
+  }
   function openKey(vendor:string){if(keyPending.command)return;keyVendor=vendor;input('ai-key-value').value='';sync();input('ai-key-value').focus();}
 
   function render(){
     if(!models||!providers)return;
     get('ai-model-asof').textContent=`Prices in force at ${instant(models.asOf)} · times in ${options.zone()}.`;
-    renderRegularTable(get('ai-model-table'),'ai-models',options.identity(),['Provider','Model','Identifier','In force','Uncached input','Cache read','Cache write','Output','Long-prompt tier','Next change'],models.models.map(m=>{
+    renderRegularTable(get('ai-model-table'),'ai-models',options.identity(),['Provider','Model','Identifier','State','In force','Uncached input','Cache read','Cache write','Output','Long-prompt tier','Next change'],models.models.map(m=>{
       const [now,next]=m.schedule;if(!now)throw inconsistent();
       const price=now.priced?m.prices.find(p=>p.sequence===now.sequence):undefined;
       // The name opens the model, so the action stays in view however wide the table scrolls.
-      return [vendorName(m.vendor),button(m.displayName,()=>select(m.id),'text-button'),m.identifier,segmentLabel(now,m.prices,labels),...(price?[...rateCells(price.rates!),price.tier?`Above ${grouped(price.tier.threshold)} tokens`:'No tier']:['','','','','']),
+      return [vendorName(m.vendor),button(m.displayName,()=>select(m.id),'text-button'),m.identifier,stateLabel(m),segmentLabel(now,m.prices,labels),
+        ...(price?[...rateCells(price.rates!),price.tier?`Above ${grouped(price.tier.threshold)} tokens`:'No tier']:['','','','','']),
         next?`${instant(next.from)} · ${segmentLabel(next,m.prices,labels)}`:'None scheduled'];
-    }),[4,5,6,7],options.busy);
+    }),[5,6,7,8],options.busy);
     renderRegularTable(get('ai-model-audit'),'ai-model-audit',options.identity(),['Saved','By','Model','Change'],models.audit.map(a=>[instant(a.at),a.actor,`${vendorName(a.vendor)} · ${a.identifier}`,aiChange(a.action)]),[],options.busy);
     const shown=model();get('ai-model-card').hidden=!shown;
     if(shown){
@@ -143,17 +229,50 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       fillChoices('ai-price-currency','Choose a currency…',models.currencies.map(c=>({value:currencyKey(c),label:labels.get(currencyKey(c))!})));
       get('ai-price-currency-note').hidden=models.currencies.length>0;
       input('ai-none-cacheRead').closest('label')!.hidden=shown.cacheReadRequired;
+      const capability=shown.capability,mapping=providers.providers.find(p=>p.vendor===shown.vendor)?.mapping;
+      get('ai-capability-summary').textContent=publicText(`${stateLabel(shown)}. `+(capability
+        ?`Version ${capability.version}, validated under usage mapping ${capability.mapping}, recorded by ${capability.recordedBy} at ${instant(capability.recordedAt)}.`
+        :'No capabilities are recorded, so the model cannot be enabled.'));
+      renderRegularTable(get('ai-capability-table'),'ai-capability',scope,['Fact','Value','Source','Checked on'],capability?capabilityRows(capability):[],[],options.busy);
+      // The efforts offered are those the vendor's applied mapping states; choices survive a refresh.
+      const chosen=new Set(efforts());
+      get('ai-capability-efforts').replaceChildren(...(mapping?.efforts??[]).map(effort=>{
+        const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=effort;box.checked=chosen.has(effort);label.append(box,' '+effort);return label;
+      }));
+      const note=get('ai-capability-note');note.hidden=!!mapping;
+      note.textContent=mapping?'':`This release confirms no usage mapping for ${vendorName(shown.vendor)}, so its models’ capabilities cannot be recorded.`;
+      if(mapping)form('ai-capability-form').removeAttribute('aria-describedby');else form('ai-capability-form').setAttribute('aria-describedby','ai-capability-note');
     }
-    renderRegularTable(get('ai-provider-table'),'ai-providers',options.identity(),['Provider','Protocol','Qualification','Key','Key set by','Key set',''],providers.providers.map(p=>[
-      p.name,p.protocol,p.qualified?'Qualified':'Not qualified',p.credential?`Ends in ${p.credential.lastFour}`:'Not set',p.credential?.setBy??'',p.credential?instant(p.credential.setAt):'',button('Replace key',()=>openKey(p.vendor))]),[],options.busy);
+    renderRegularTable(get('ai-provider-table'),'ai-providers',options.identity(),['Provider','Protocol','State','Usage mapping','Terms','Attestation','Key','Key set by','Key set'],providers.providers.map(p=>[
+      button(p.name,()=>selectProvider(p.vendor),'text-button'),p.protocol,stateLabel(p),p.mapping?`${p.mapping.mapping} · confirmed ${p.mapping.confirmedOn}`:'None confirmed',
+      p.terms?`Version ${p.terms.version} · ${p.terms.accountType}`:'Not recorded',p.attestation?`${p.attestation.attestedBy} · ${instant(p.attestation.attestedAt)}`:'Not attested',
+      p.credential?`Ends in ${p.credential.lastFour}`:'Not set',p.credential?.setBy??'',p.credential?instant(p.credential.setAt):'']),[],options.busy);
     renderRegularTable(get('ai-provider-audit'),'ai-provider-audit',options.identity(),['Saved','By','Provider','Change'],providers.audit.map(a=>[instant(a.at),a.actor,vendorName(a.vendor),aiChange(a.action)]),[],options.busy);
+    const vendor=provider();get('ai-provider-card').hidden=!vendor;
+    if(vendor){
+      get('ai-provider-title').textContent=vendor.name;
+      get('ai-provider-facts').textContent=publicText(`${vendor.protocol} · ${stateLabel(vendor)} · `
+        +`${vendor.mapping?`usage mapping ${vendor.mapping.mapping}, confirmed ${vendor.mapping.confirmedOn}`:'this release confirms no usage mapping'} · `
+        +(vendor.credential?`key ends in ${vendor.credential.lastFour}`:'no key set'));
+      const terms=vendor.terms;
+      get('ai-terms-summary').textContent=publicText(terms?`Version ${terms.version} for “${terms.accountType}”, recorded by ${terms.recordedBy} at ${instant(terms.recordedAt)}.`:'No terms are recorded.');
+      renderRegularTable(get('ai-terms-table'),'ai-terms',JSON.stringify([options.identity(),vendor.vendor]),['Terms','Text','Source','Checked on'],
+        terms?termNames.map(([term,,label])=>[label,terms[term],terms[`${term}Source`],terms[`${term}CheckedOn`]]):[],[],options.busy);
+      get('ai-attest-statement').textContent=publicText(attestationStatement(vendor));
+      const pair=JSON.stringify([vendor.vendor,vendor.credential?.version??null,terms?.version??null]);
+      if(pair!==statementPair){input('ai-attest-confirm').checked=false;statementPair=pair;}
+    }
     fillChoices('ai-model-vendor','Choose a provider…',providers.providers.map(p=>({value:p.vendor,label:p.name})));
   }
   function sync(){
     // Without a current directory, only a retained request may be resent.
-    const busy=options.busy(),held=!!pending.command||!models||!providers,noCurrency=!models?.currencies.length;
-    const controls=(id:string)=>form(id).querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button');
-    for(const [id,blocked] of [['ai-model-form',held],['ai-rename-form',held],['ai-price-form',held||noCurrency],['ai-withdraw-form',held]] as const)
+    const busy=options.busy(),missing=!models||!providers,held=!!pending.command||missing,providerHeld=!!providerPending.command||missing,noCurrency=!models?.currencies.length;
+    const shown=model(),vendor=provider(),unmapped=!!shown&&!providers?.providers.find(p=>p.vendor===shown.vendor)?.mapping;
+    // Attest is offered only for a key and terms not yet attested together.
+    const unattestable=!vendor?.credential||!vendor.terms||!!vendor.attestation;
+    const controls=(id:string)=>form(id).querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement|HTMLButtonElement>('input,select,textarea,button');
+    for(const [id,blocked] of [['ai-model-form',held],['ai-rename-form',held],['ai-price-form',held||noCurrency],['ai-withdraw-form',held],['ai-capability-form',held||unmapped],
+      ['ai-terms-form',providerHeld],['ai-attest-form',providerHeld||unattestable]] as const)
       for(const node of controls(id))node.disabled=busy||blocked;
     if(!busy&&!held&&!noCurrency){
       const tier=choice('ai-price-tier')==='tier';
@@ -161,9 +280,16 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       input('ai-tier-threshold').disabled=!tier;input('ai-price-to').disabled=choice('ai-price-end')!=='ends';
     }
     if(!busy&&!held)input('ai-withdraw-to').disabled=choice('ai-withdraw-end')!=='ends';
+    // Enable and Disable offer the change the current state allows; the server decides whether it may happen.
+    for(const [id,offered,blocked] of [['ai-model-enable',!shown?.enabled,held],['ai-model-disable',!!shown?.enabled,held],
+      ['ai-provider-enable',!vendor?.enabled,providerHeld],['ai-provider-disable',!!vendor?.enabled,providerHeld]] as const){
+      const action=get<HTMLButtonElement>(id);action.hidden=!offered;action.disabled=busy||blocked;
+    }
+    get<HTMLButtonElement>('ai-provider-key').disabled=busy||!!keyPending.command;
     get('ai-models-pending').hidden=!pending.command;
-    const vendor=String(keyPending.command?.body.vendor??keyVendor??''),name=providers?.providers.find(p=>p.vendor===vendor)?.name??vendor;
-    get('ai-key-form').hidden=!vendor;get('ai-key-title').textContent=vendor?`Replace the ${name} key`:'';
+    get('ai-providers-pending').hidden=!providerPending.command;
+    const keyed=String(keyPending.command?.body.vendor??keyVendor??''),name=providers?.providers.find(p=>p.vendor===keyed)?.name??keyed;
+    get('ai-key-form').hidden=!keyed;get('ai-key-title').textContent=keyed?`Replace the ${name} key`:'';
     get('ai-key-pending').hidden=!keyPending.command;
     get('ai-key-pending-text').textContent=keyPending.command?`A key replacement for ${name} is unconfirmed. The providers table shows the current key once it loads. To retry, enter the same key and choose Retry; a different key is refused. Discard the request once the table shows your key.`:'';
     get<HTMLButtonElement>('ai-key-submit').disabled=busy||!!keyPending.command;get<HTMLButtonElement>('ai-key-cancel').hidden=!!keyPending.command;
@@ -176,6 +302,12 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     models=nextModels;providers=nextProviders;labels=currencyLabels(models.currencies);
     render();sync();
   }
+  // A confirmed change clears only the form that made it.
+  const resets:Record<string,(command:RequestCommand)=>void>={
+    'settings/ai/models/add':()=>form('ai-model-form').reset(),
+    'settings/ai/models/rename':command=>{input('ai-rename-name').value=String(command.body.displayName);},
+    'settings/ai/models/price':resetPrices,'settings/ai/models/withdraw':resetPrices,'settings/ai/models/edit':resetCapabilities,
+    'settings/ai/providers/terms':()=>form('ai-terms-form').reset(),'settings/ai/providers/attest':()=>form('ai-attest-form').reset()};
   // Once sent, a request keeps its identity until it is confirmed, refused before any write, or discarded.
   async function send(holder:PendingCommand,extra:Record<string,unknown>={}){
     const command=holder.command,identity=options.identity();if(!command)return;
@@ -193,16 +325,13 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       sync();throw error;
     }
     holder.clear();store(holder);
-    if(holder===keyPending)keyVendor=undefined;
-    else if(command.path.endsWith('/add'))form('ai-model-form').reset();
-    else if(command.path.endsWith('/rename'))input('ai-rename-name').value=String(command.body.displayName);
-    else resetPrices();
+    if(holder===keyPending)keyVendor=undefined;else resets[command.path]?.(command);
     await load();
   }
-  async function change(path:string,body:Record<string,unknown>){
-    if(pending.command)throw Error('Retry or discard the retained request before making another change.');
+  async function change(holder:PendingCommand,path:string,body:Record<string,unknown>){
+    if(holder.command)throw Error('Retry or discard the retained request before making another change.');
     if(!models||!providers)throw Error('Refresh AI settings to confirm your current access before making a change.');
-    pending.begin(path,body);store(pending);await send(pending);
+    holder.begin(path,body);store(holder);await send(holder);
   }
   async function interval(from:typeof priceFrom,to:typeof priceTo,fromId:string,end:string,subject:'price'|'withdrawal'){
     if(!input(fromId).value)throw Error(`Enter when the ${subject} takes effect.`);
@@ -216,29 +345,60 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   for(const id of ['ai-price-form','ai-withdraw-form'])form(id).addEventListener('change',sync);
   // A dimension marked not offered has no rate in either set, so nothing typed there lingers unsent.
   for(const d of ['cacheRead','cacheWrite'])input('ai-none-'+d).addEventListener('change',()=>{if(input('ai-none-'+d).checked)for(const id of ['ai-rate-'+d,'ai-tier-'+d])input(id).value='';});
-  form('ai-model-form').onsubmit=event=>{event.preventDefault();void options.act(()=>change('settings/ai/models/add',
+  form('ai-model-form').onsubmit=event=>{event.preventDefault();void options.act(()=>change(pending,'settings/ai/models/add',
     {vendor:get<HTMLSelectElement>('ai-model-vendor').value,identifier:input('ai-model-identifier').value,displayName:input('ai-model-name').value}));};
   form('ai-rename-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{const m=current();
-    await change('settings/ai/models/rename',{modelId:m.id,expectedVersion:m.version,displayName:input('ai-rename-name').value});});};
+    await change(pending,'settings/ai/models/rename',{modelId:m.id,expectedVersion:m.version,displayName:input('ai-rename-name').value});});};
   form('ai-price-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
     const m=current(),chosen=models!.currencies.find(c=>currencyKey(c)===get<HTMLSelectElement>('ai-price-currency').value);
     const terms=priceTerms({currency:chosen&&{catalogId:chosen.catalogId,revisionId:chosen.revisionId,code:chosen.code},cacheReadRequired:m.cacheReadRequired,
       rates:Object.fromEntries(dimensions.map(d=>[d,{value:input('ai-rate-'+d).value,notOffered:d==='cacheRead'||d==='cacheWrite'?input('ai-none-'+d).checked:false}])) as PriceEntry['rates'],
       tier:choice('ai-price-tier'),threshold:input('ai-tier-threshold').value,tierRates:Object.fromEntries(dimensions.map(d=>[d,input('ai-tier-'+d).value])) as PriceEntry['tierRates']});
     const when=await interval(priceFrom,priceTo,'ai-price-from','ai-price-end','price');
-    await change('settings/ai/models/price',{modelId:m.id,expectedSequence:m.priceSequence,...terms,...when});
+    await change(pending,'settings/ai/models/price',{modelId:m.id,expectedSequence:m.priceSequence,...terms,...when});
   });};
   form('ai-withdraw-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
     const m=current(),when=await interval(withdrawFrom,withdrawTo,'ai-withdraw-from','ai-withdraw-end','withdrawal');
-    await change('settings/ai/models/withdraw',{modelId:m.id,expectedSequence:m.priceSequence,...when});
+    await change(pending,'settings/ai/models/withdraw',{modelId:m.id,expectedSequence:m.priceSequence,...when});
   });};
+  form('ai-capability-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
+    const m=current(),byFact=(prefix:string)=>Object.fromEntries(facts.map(fact=>[fact,input(prefix+fact).value])) as Record<Fact,string>;
+    const request=capabilityRequest({outputLimit:input('ai-capability-limit').value,efforts:efforts(),served:text('ai-capability-served'),onlyOwn:input('ai-capability-only-own').checked,
+      sources:byFact('ai-source-'),checkedOn:byFact('ai-checked-')});
+    await change(pending,'settings/ai/models/edit',{modelId:m.id,expectedVersion:m.version,...request});
+  });};
+  // A state change hides the control that made it, so once the action settles focus moves to the one now
+  // offered, or stays on the one used when nothing changed.
+  const counterpart={enable:'disable',disable:'enable'} as const;
+  function handOff(next:string,used:string){[next,used].map(id=>get<HTMLButtonElement>(id)).find(b=>!b.hidden&&!b.disabled)?.focus();}
+  for(const path of ['enable','disable'] as const)get('ai-model-'+path).onclick=()=>void options.act(async()=>{
+    const m=current();await change(pending,'settings/ai/models/'+path,{modelId:m.id,expectedVersion:m.version});
+  }).then(()=>handOff('ai-model-'+counterpart[path],'ai-model-'+path));
   get('ai-models-retry').onclick=()=>void options.act(()=>send(pending));
   get('ai-models-discard').onclick=()=>{if(options.busy())return;pending.clear();store(pending);sync();};
+  form('ai-terms-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
+    const p=currentProvider(),request=termsRequest({accountType:text('ai-terms-account'),
+      retention:text('ai-terms-retention'),retentionSource:text('ai-terms-retention-source'),retentionCheckedOn:text('ai-terms-retention-on'),
+      training:text('ai-terms-training'),trainingSource:text('ai-terms-training-source'),trainingCheckedOn:text('ai-terms-training-on'),
+      ownerAccess:text('ai-terms-owner'),ownerAccessSource:text('ai-terms-owner-source'),ownerAccessCheckedOn:text('ai-terms-owner-on')});
+    await change(providerPending,'settings/ai/providers/terms',{vendor:p.vendor,expectedVersion:p.version,...request});
+  });};
+  form('ai-attest-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
+    const p=currentProvider();
+    if(!input('ai-attest-confirm').checked)throw Error('Confirm the attestation statement before attesting.');
+    await change(providerPending,'settings/ai/providers/attest',{vendor:p.vendor,expectedVersion:p.version});
+  });};
+  for(const path of ['enable','disable'] as const)get('ai-provider-'+path).onclick=()=>void options.act(async()=>{
+    const p=currentProvider();await change(providerPending,'settings/ai/providers/'+path,{vendor:p.vendor,expectedVersion:p.version});
+  }).then(()=>handOff('ai-provider-'+counterpart[path],'ai-provider-'+path));
+  get('ai-provider-key').onclick=()=>{const p=provider();if(p&&!options.busy())openKey(p.vendor);};
+  get('ai-providers-retry').onclick=()=>void options.act(()=>send(providerPending));
+  get('ai-providers-discard').onclick=()=>{if(options.busy())return;providerPending.clear();store(providerPending);sync();};
   form('ai-key-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
     if(keyPending.command)throw Error('Retry or discard the unconfirmed key replacement first.');
-    const provider=providers?.providers.find(p=>p.vendor===keyVendor);if(!provider)throw Error('Choose a provider again after refreshing AI settings.');
+    const target=providers?.providers.find(p=>p.vendor===keyVendor);if(!target)throw Error('Choose a provider again after refreshing AI settings.');
     const key=input('ai-key-value').value;if(!key)throw Error('Enter the key.');
-    keyPending.begin(keyPath,{vendor:provider.vendor,expectedVersion:provider.version});store(keyPending);await send(keyPending,{key});
+    keyPending.begin(keyPath,{vendor:target.vendor,expectedVersion:target.version});store(keyPending);await send(keyPending,{key});
   });};
   get('ai-key-retry').onclick=()=>void options.act(async()=>{
     const key=input('ai-key-value').value;if(!key)throw Error('Enter the same key again to retry the replacement.');
@@ -252,10 +412,12 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   return {load,sync,
     refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();},
     reset(){
-      generation++;clearDirectories();selected=undefined;for(const id of ['ai-model-form','ai-rename-form','ai-key-form'])form(id).reset();resetModelForms();show('models');
+      generation++;clearDirectories();selected=undefined;selectedVendor=undefined;statementPair='';
+      for(const id of ['ai-model-form','ai-rename-form','ai-key-form','ai-terms-form','ai-attest-form'])form(id).reset();resetModelForms();show('models');
       // This identity's unconfirmed requests stay offered whether or not its directories can be read.
-      pending.command=stored(storage.models(),c=>modelPaths.includes(c.path));
-      keyPending.command=stored(storage.key(),c=>c.path===keyPath&&Object.keys(c.body).sort().join()==='expectedVersion,vendor');
+      pending.command=stored(pending,c=>modelPaths.includes(c.path));
+      providerPending.command=stored(providerPending,c=>providerPaths.includes(c.path));
+      keyPending.command=stored(keyPending,c=>c.path===keyPath&&Object.keys(c.body).sort().join()==='expectedVersion,vendor');
       sync();
     }};
 }

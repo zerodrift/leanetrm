@@ -33,6 +33,12 @@ def check_upgrade(query, migration):
     print('PASS migration 0060 refuses to apply over a confirmed mapping whose sources are not a list of distinct sources', flush=True)
 
 
+def check_directory_upgrade(query, migration):
+    check_guard(query, migration, '0061', 'directory_efforts',
+                (("ALTER FUNCTION assistant.provider_directory() SET work_mem='64kB';", 'assistant.provider_directory()'),
+                 ('GRANT EXECUTE ON FUNCTION assistant.provider_state(uuid) TO openetrm_runtime;', 'assistant.provider_state(uuid)')))
+
+
 def capabilities(model, expected, **changes):
     """A complete, synthetic capability version; each source is an explicitly invalid domain."""
     facts = {'outputLimit': 64000, 'reasoningEfforts': ['low', 'medium', 'high'], 'acceptedServed': ['model-synthetic-capable-served']}
@@ -116,7 +122,8 @@ def run_checks(url, query, psql, manifest, environment):
 
     rows = state('models', 'model_versions', 'administration_audit')
     unchanged = query(rows)
-    invalid = [{'outputLimit': value} for value in (0, -1, 10000001, None)] \
+    # 4294967297 would wrap to 1 if narrowed to a database integer unchecked.
+    invalid = [{'outputLimit': value} for value in (0, -1, 10000001, 2147483648, 4294967297, 9007199254740991, None)] \
         + [{'reasoningEfforts': value} for value in ([], ['turbo'], ['low', 'low'], ['Low'], ['low\0'], [None], None)] \
         + [{'acceptedServed': value} for value in (['model-synthetic-capable'], ['model-synthetic-x', 'model-synthetic-x'],
                                                    [f'model-synthetic-{n}' for n in range(17)], [None], None)] \
@@ -161,6 +168,8 @@ def run_checks(url, query, psql, manifest, environment):
 
     anthropic = provider('anthropic')
     check('the earlier checks left the Messages provider qualified and disabled', anthropic['qualified'] and not anthropic['enabled'])
+    check("the Providers directory states the reasoning efforts the applied mapping's adapter sends",
+          anthropic['mapping']['mapping'] == 'messages_v1' and anthropic['mapping']['efforts'] == ['low', 'medium', 'high', 'xhigh', 'max'])
     check('a qualified model on a disabled provider cannot be enabled', refusal('enable', command(capable['id'], 2), 409, 'model_provider_disabled'))
     anthropic = admin.call(f'{PROVIDERS}/enable', {'operationId': str(uuid4()), 'vendor': 'anthropic', 'expectedVersion': anthropic['version']})
     check('Enable against a stale model version is a conflict', refusal('enable', command(capable['id'], 1), 409, 'model_admin_conflict'))
@@ -197,21 +206,27 @@ def run_checks(url, query, psql, manifest, environment):
     check('once its provider is qualified and enabled again, Enable enables the model',
           admin.call(f'{MODELS}/enable', command(capable['id'], 5))['enabled'])
 
-    # A release repoints the Messages adapter to the second mapping, rolled back with the check.
-    repoint = SECOND_MAPPING + "UPDATE assistant.adapter_mappings SET mapping='synthetic_messages_v2' WHERE vendor='anthropic';"
+    # A release repoints the Messages adapter to the second mapping, rolled back with the check. A third,
+    # confirmed after it and not applied, states other efforts, so only the applied mapping's can match.
+    repoint = (SECOND_MAPPING + "UPDATE assistant.adapter_mappings SET mapping='synthetic_messages_v2' WHERE vendor='anthropic';"
+               "INSERT INTO assistant.confirmed_mappings VALUES('anthropic','synthetic_messages_v3','2026-10-20',ARRAY['https://example.invalid/usage']);"
+               "INSERT INTO assistant.mapping_efforts VALUES('anthropic','synthetic_messages_v3',ARRAY['low']);")
     unstated, stated = sql_edit(capable['id'], 7, "ARRAY['low']"), sql_edit(capable['id'], 7, "ARRAY['max']")
-    after_repoint, recorded_again, enabled_again = (json.loads(line) for line in contexts.rolled_back(
+    after_repoint, recorded_again, enabled_again, directory = (json.loads(line) for line in contexts.rolled_back(
         repoint, 'admin', 'human_interactive', contexts.workspace, 'NULL',
         f"SELECT assistant.disable_model(gen_random_uuid(),'{capable['id']}',6)::text;\n"
         + refused(f"PERFORM assistant.enable_model(gen_random_uuid(),'{capable['id']}',7);", 'model_unqualified') + '\n'
         + refused(f'PERFORM {unstated};', 'model_admin_input') + '\n'
         + f'SELECT {stated}::text;\n'
-        + f"SELECT assistant.enable_model(gen_random_uuid(),'{capable['id']}',8)::text;").splitlines()[-3:])
+        + f"SELECT assistant.enable_model(gen_random_uuid(),'{capable['id']}',8)::text;\n"
+        + 'SELECT assistant.provider_directory()::text;').splitlines()[-4:])
     check("once a release repoints the adapter's mapping, Enable refuses the model and Disable still turns it off, "
           'until a version recorded under the applied mapping and its efforts qualifies it again',
           not after_repoint['qualified'] and not after_repoint['enabled'] and recorded_again['qualified']
           and recorded_again['capability']['mapping'] == 'synthetic_messages_v2' and recorded_again['capability']['reasoningEfforts'] == ['max']
           and enabled_again['enabled'])
+    check("the Providers directory states the efforts of the mapping the adapter applies now",
+          directory['mappings']['anthropic']['mapping'] == 'synthetic_messages_v2' and directory['mappings']['anthropic']['efforts'] == ['high', 'max'])
     listed = model('model-synthetic-capable')
     check('the directory shows each model with its state and current capability version, and a model without one as unqualified',
           listed['enabled'] and listed['qualified'] and listed['capability']['version'] == 2

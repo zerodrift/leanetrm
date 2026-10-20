@@ -21,12 +21,13 @@ Messages adapter with its usage mapping `messages_v1` (§6.2), which pass the Me
 conformance suite against a fake provider (§6.3), and with provider qualification: the
 confirmed usage mapping each adapter applies, sourced and dated terms versions,
 attestations bound to the current key and terms, and provider Enable and Disable
-(§6.3), and model capability versions with model Enable and Disable (§5.1, §6.3), all
-through the API but not yet on the Settings › AI tabs. Model Enable is the first
-consumer of a provider's enabled state; calls will consume both. Test comes next, as do
-the tabs' controls and the Providers tab's endpoint, terms, owner visibility,
-attestation and last test. No route calls a provider yet. The turn's working-data pin
-(§7.2), which binds a captured context, is not implemented.
+(§6.3), and model capability versions with model Enable and Disable (§5.1, §6.3), each
+through the API and on the Settings › AI tabs: a provider's card records terms,
+attests and enables it, and a model's card records capabilities under the efforts its
+provider's applied mapping states and enables it. Model Enable is the first consumer of
+a provider's enabled state; calls will consume both. Test comes next, with the
+Providers tab's endpoint and last test. No route calls a provider yet. The turn's
+working-data pin (§7.2), which binds a captured context, is not implemented.
 
 The page assistant ships in three phases, each with its own design:
 
