@@ -15,6 +15,14 @@ internal static class CommodityLookupChecks
         static void Equal(string actual, string expected)
         { if (actual != expected) throw new Exception($"Expected {expected}, got {actual}"); }
         var f = new CommodityLookupFixture(7305);
+        Check("far-future monthly index uses its exact dated contract", () =>
+        {
+            var monthly = new CommodityLookupFixture(360, monthly: true);
+            // December2070 is ordinal359: outright3.25+0.359=3.609, fixed4, quantity100.
+            var value = monthly.Swap(monthly: true).Price(monthly.Build([monthly.Request(359)]),
+                new(ExactDecimal.Parse("100"), monthly.Quote.Quantity), ExactDecimal.Parse("1"), FinancialSwapInstrument.Undiscounted);
+            Equal(value.Amount.ToString(), "-39.1");
+        });
         Check("far-future daily swap retains the exact complete-month arithmetic", () =>
         {
             // Last 31 days: outright=3.25+i/1000, i=7274..7304. Average 10.539.
@@ -111,15 +119,16 @@ internal sealed class CommodityLookupFixture
     public CurveRequest Request(int n) => new(C("local"), contracts[n].Key);
     public SelectedObservation Selection(int n, bool spread) => Snapshot.Selections[n * 2 + (spread ? 1 : 0)];
 
-    public CommodityLookupFixture(int days)
+    public CommodityLookupFixture(int days, bool monthly = false)
     {
         var from = new DateOnly(2041, 1, 1); firstMonth = days - 31;
         quantities = [new(R("quantity"), R("gas"), R("energy"), R("unit"), R("energy_dimension"))];
         QuoteSpecification Q(string code, QuoteKind kind) => new(R(code), kind, R("currency"), R("quantity"),
             ExactDecimal.Parse("1"), ExactDecimal.Parse("0.001"), ExactDecimal.Parse("0.001"), ExactDecimal.Parse("-1000"), ExactDecimal.Parse("1000"));
         quotes = [Q("outright", QuoteKind.Outright), Q("basis", QuoteKind.Basis)];
+        DateOnly Boundary(int n) => monthly ? from.AddMonths(n) : from.AddDays(n);
         contracts = Enumerable.Range(0, days).Select(n => new MarketContract(new(revision, Id(n + 1)), ContractKind.Forward,
-            from.AddDays(n), from.AddDays(n + 1), new DateTimeOffset(from.AddDays(n + 1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)), null)).ToImmutableArray();
+            Boundary(n), Boundary(n + 1), new DateTimeOffset(Boundary(n + 1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)), null)).ToImmutableArray();
         var members = contracts.Select(c => c.Key).ToImmutableArray();
         Curve Direct(string code, ReferenceKey quote, SettlementTarget settlement) => new(C(code), quote, R("location"), R("uniform"), settlement,
             CurveRule.Direct, members, [], ObservationRole.TraderMark, R("source"), null);
@@ -155,18 +164,21 @@ internal sealed class CommodityLookupFixture
     public MarketSnapshot WithActuals(int count) => Snapshot with {
         Id = Guid.NewGuid(), ValuationAt = Fixing(count - 1).FixingAt, MarketCutoff = Fixing(count - 1).FixingAt,
         Selections = Snapshot.Selections.AddRange(Enumerable.Range(0, count).Select(Actual)) };
-    public FinancialSwapInstrument Swap(bool indexed = false)
+    public FinancialSwapInstrument Swap(bool indexed = false, bool monthly = false)
     {
-        var from = contracts[firstMonth].DeliveryFrom; var to = contracts[^1].DeliveryTo;
+        var first = monthly ? contracts.Length - 1 : firstMonth;
+        var count = monthly ? 1 : 31;
+        var averaging = monthly ? FloatingAveraging.MonthlyIndexPrice : FloatingAveraging.CalendarDayArithmetic;
+        var from = contracts[first].DeliveryFrom; var to = contracts[^1].DeliveryTo;
         var payment = new DateTimeOffset(to.AddDays(2).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
         var unit = new Quantity(ExactDecimal.Parse("1"), Quote.Quantity);
         var fixedSide = new FixedSide(Guid.NewGuid(), new(ExactDecimal.Parse("4"), Quote), unit, from, to, payment, FixedSide.Implementation, Quote);
-        var projections = Enumerable.Range(firstMonth, 31).Select(n => new SwapProjection(Request(n), contracts[n])).ToImmutableArray();
+        var projections = Enumerable.Range(first, count).Select(n => new SwapProjection(Request(n), contracts[n])).ToImmutableArray();
         var floating = indexed
-            ? new FloatingSide(Guid.NewGuid(), R("local_index"), Quote, unit, from, to, Enumerable.Range(0, 31).Select(Fixing).ToImmutableArray(), payment,
-                FloatingAveraging.CalendarDayArithmetic, projections, FloatingSide.IndexedImplementation)
-            : new FloatingSide(Guid.NewGuid(), R("local_index"), Quote, unit, from, to, Fixing(0).FixingAt, payment,
-                FloatingAveraging.CalendarDayArithmetic, projections, FloatingSide.Implementation);
+            ? new FloatingSide(Guid.NewGuid(), R("local_index"), Quote, unit, from, to, Enumerable.Range(first - firstMonth, count).Select(Fixing).ToImmutableArray(), payment,
+                averaging, projections, FloatingSide.IndexedImplementation)
+            : new FloatingSide(Guid.NewGuid(), R("local_index"), Quote, unit, from, to, Fixing(first - firstMonth).FixingAt, payment,
+                averaging, projections, FloatingSide.Implementation);
         return new(Guid.NewGuid(), [new(fixedSide, ExactDecimal.Parse("-1")), new(floating, ExactDecimal.Parse("1"))], FinancialSwapInstrument.Implementation, false);
     }
 }
