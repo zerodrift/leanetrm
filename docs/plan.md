@@ -236,6 +236,10 @@ Published-final fixing admission, booked cash obligations and payment remain wor
 see [the consumer contract](power-preview.md#collected-interval-delivery-value) and
 [the broader settlement design](settlement-plan.md). The browser's original flat
 synthetic example retains its meaning.
+The proposed [PPA design](ppa-design.md) (P40) orders the next power work as
+audited interval series, interval curves with explicit block shaping, PPA booking
+and valuation from reusable physical and financial sides, then PPA settlement on
+the settlement design's lifecycle. It is a design, not implemented capability.
 The next quantity entry contract supports explicit total MWh and flat MW choices.
 It must retain side delivery/allocation rules and typed generated quantities,
 preserve total energy through interval allocation, and reject missing conversion
