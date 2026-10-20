@@ -55,6 +55,22 @@ internal static class ZeroRateLookupChecks
             Reject("rate_lookup", () => new ZeroRateLookup(build with { Values = build.Values.SetItem(0, null!) }));
             Reject("rate_lookup", () => new ZeroRateLookup(null!));
         });
+        Check("missing or unsupported build metadata cannot become a successful financial lookup", () =>
+        {
+            foreach (var invalid in new[] {
+                build with { SnapshotId = Guid.Empty },
+                build with { Currency = default },
+                build with { Currency = new(new(Guid.Empty, reference.RevisionId), "USD") },
+                build with { Currency = new(new(reference.CatalogId, Guid.Empty), "USD") },
+                build with { Currency = R(" ") },
+                build with { NumericalPolicy = "unknown" },
+                build with { NumericalPolicy = null! },
+                build with { ReferenceDate = default },
+                build with { ReferenceDate = new(2200, 1, 1) },
+                build with { ReferenceDate = build.Values[0].Maturity },
+                build with { Values = build.Values.SetItem(0, build.Values[0] with { Maturity = build.ReferenceDate }) } })
+                Reject("rate_lookup", () => new ZeroRateLookup(invalid));
+        });
         Check("a record clone gets its own validated values while the original lookup remains immutable", () =>
         {
             var replacement = build.Values[^1] with { Maturity = new(2070, 2, 1) };
