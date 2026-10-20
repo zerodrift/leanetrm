@@ -9,10 +9,13 @@ class Page(HTMLParser):
     def __init__(self, text):
         super().__init__()
         self.links, self.assets, self.headings, self.scripts = [], [], [], []
+        self.anchors = []
         self.feed(text)
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
-        if tag == 'a': self.links.append(a.get('href', ''))
+        if tag == 'a':
+            self.links.append(a.get('href', ''))
+            self.anchors.append(a)
         if tag == 'link' and a.get('rel') in ('stylesheet', 'icon'): self.assets.append(a['href'])
         if tag == 'img': self.assets.append(a['src'])
         if tag == 'h1': self.headings.append(tag)
@@ -33,6 +36,17 @@ class PublicSite(unittest.TestCase):
     def test_workspace_is_an_explicit_same_domain_link(self):
         self.assertGreaterEqual(self.page.links.count('/app'), 2)
         self.assertTrue(all(not x.startswith('https://app.') for x in self.page.links))
+
+    def test_visitors_can_request_a_walkthrough_without_a_pilot_account(self):
+        contact = [a for a in self.page.anchors if a.get('href') == 'mailto:joe@trustygenius.com']
+        self.assertEqual(len(contact), 2, 'Offer contact beside the main actions and below pilot availability.')
+        self.assertTrue(any('button' in a.get('class', '').split() for a in contact))
+        self.assertEqual(self.text.count('Request a walkthrough'), 2)
+
+    def test_operator_and_support_provider_are_visible(self):
+        footer = self.text.split('<footer', 1)[1]
+        self.assertIn('© 2026 Trusty Genius LLC', footer)
+        self.assertIn('Built and supported by Trusty Genius', footer)
 
     def test_landing_is_readable_without_javascript_or_accounts(self):
         self.assertEqual(self.page.headings, ['h1'])
