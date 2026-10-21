@@ -120,7 +120,9 @@ handler, which refuses it. The hosted checks send the same variants of an accoun
 update, whose readable body its handler refuses, and the same query value through the
 TLS proxy and get the same answers. The provider Test checks expect `request_format`
 for an unknown member. In the party editor's browser checks, a name past the 32 KiB
-limit is answered 413 `request_too_large`; the page keeps no request and no party is
+limit is answered 413 `request_too_large`, and in the reference editor's, a symbol
+past it; in the contract-date library's, a save sent with a stale request token is
+answered 400 `request_token`. None of these pages keeps the request, and no party is
 saved.
 
 Direct runtime SQL checks also hold principal, provider, credential-storage and

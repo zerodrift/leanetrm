@@ -7,6 +7,9 @@ type Catalog={table:string;sourceRevision:Revision;baseRevisionId:string;display
 type Pending={path:'reference/save'|'reference/apply';body:Record<string,unknown>;uncertain:boolean};
 type Options={host:HTMLElement;api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;instant:(at:string)=>string;onApplied:()=>Promise<void>;onDenied?:()=>void};
 
+export function knownReferenceRejection(code:string|undefined):boolean{
+  return !!code&&['reference_edit','reference_conflict','reference_economic_change','reference_limit','historical_read_only','access_denied','request_format','request_too_large','request_token'].includes(code);
+}
 // Presentation only: the backend supplies fields, rights, retained versions and
 // activation proof. Inputs remain strings, including exact optional coordinates.
 export function setupReferenceEditor(options:Options){
@@ -71,7 +74,7 @@ export function setupReferenceEditor(options:Options){
       if(!confirmed)throw Object.assign(Error('The reference change has an unconfirmed response. Retry its retained request.'),{code:'reference_outcome_unknown'});
     }catch(error){
       if(identity!==options.identity()||pending!==command)return;const code=(error as {code?:string}).code;
-      if(!wasUncertain&&['reference_edit','reference_conflict','reference_economic_change','reference_limit','historical_read_only','access_denied','request_token'].includes(code??'')){pending=undefined;retain();}
+      if(!wasUncertain&&knownReferenceRejection(code)){pending=undefined;retain();}
       else{command.uncertain=true;retain();}
       if(code==='access_denied'){catalog=undefined;content.hidden=true;options.onDenied?.();}sync();throw error;
     }

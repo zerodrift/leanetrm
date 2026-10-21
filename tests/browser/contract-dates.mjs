@@ -18,6 +18,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('a failed library refresh after confirmed save does not offer a mutation retry',"document.querySelector('#curve-dates-pending').hidden&&!document.querySelector('#error').hidden&&document.querySelector('#curve-dates-status').textContent.includes('Saved draft')");
  await click('#curve-dates-reload');
  await check('reload opens the actual saved generation after a read failure',"document.querySelector('#error').hidden&&document.querySelector('#curve-dates-name').value==='Synthetic shared daily dates'");
+ // The API refuses an expired request token before any write, so the page keeps no request.
+ await evaluate("window.contractTokenSaves=[];window.staleContractToken=true;{const original=window.fetch;window.fetch=async(input,init)=>{if(!window.staleContractToken||!String(input).endsWith('/contracts/save'))return original(input,init);window.staleContractToken=false;const response=await original(input,{...init,headers:{...init.headers,'X-Preview-CSRF':'synthetic-stale-token'}});window.contractTokenSaves.push(response.status+' '+(await response.clone().json()).code);return response;};}");
+ await set('#curve-dates-name','Synthetic shared daily dates with a stale token');await click('#curve-dates-keep');
+ await check('a save refused for an expired request token keeps no request',"window.contractTokenSaves.join()==='400 request_token'&&!document.querySelector('#error').hidden&&document.querySelector('#curve-dates-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.contract-dates.request.'))");
  await persona('approver');await click('#nav-configuration');
  await evaluate("[...document.querySelectorAll('#curve-dates-saved .shortcut-saved-row')].find(row=>row.textContent.includes('Synthetic shared daily dates')).querySelector('button').click()");await wait(idle);
  await click('#curve-dates-publish');
