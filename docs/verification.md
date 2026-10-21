@@ -230,8 +230,8 @@ loopback fake provider through the preview's provider endpoint override, and eve
 variable names a trap:
 
 - **Worker:** before serving, the API takes the agent-worker lock and starts a generation,
-  and tests run under it. A request that gives up while the worker's connection is slow to
-  answer leaves the worker usable.
+  and tests run under it. No request waits for the worker's connection: with its backend
+  stopped, a test still runs under the generation, and the worker keeps its lock.
 - **The request:** a test sends exactly one request to the Messages path, with the key
   only in its `x-api-key` header. It carries the fixed synthetic prompt without workspace
   data or tools, within the test output limit and at the chosen effort.
@@ -472,9 +472,10 @@ and the worker with a session of its own holding the agent-worker lock):
     another person's, in another scope or with another agent, before admission and
     without waiting for it, and under any but the worker's current generation;
   - an admitted ask creates the conversation and the queued turn under the covering
-    grant with its accepted event; a repeat answers with its turn and writes nothing,
-    any other ask under its identity conflicts, and an identical ask sent while its
-    original still runs waits for it and answers with its turn;
+    grant with its accepted event and is answered as admitted; a repeat answers with its
+    turn, not as admitted, and writes nothing, any other ask under its identity
+    conflicts, and an identical ask sent while its original still runs waits for it and
+    answers with its turn, not as admitted;
   - a draft turn is admitted to a person who manages agents.
 - **Admission:** a person with an active turn is refused another, and an ask past the
   workspace's limit is refused; admission fails a turn still unpinned at the deadline
@@ -552,15 +553,71 @@ and the worker with a session of its own holding the agent-worker lock):
   read mark back or change anything else of it, rewrite a running turn's answer, clear a
   refused publication or complete its turn, move a turn backward or change one that
   ended. The Providers directory's latest test is never a later turn call. Before 0069
-  applies, it refuses a change to each pinned helper or to the privileges of one.
+  applies, it refuses a change to each pinned helper or to the privileges of one; before
+  0071 applies, it refuses a change to the ask it replaces or a helper the ask relies on,
+  or to the privileges of one.
+
+Turns over HTTP (`tools/check_agent_turn_http.py`, in the same run after the SQL turn
+checks, through the API against the loopback fake provider):
+
+- **Asking:** an ask is admitted, pinned over working data at its frame and run by the
+  worker to completion, keeping the streamed answer and closing its call with the usage
+  the stream reported before the terminal event. Its one request carries the key only
+  in its header, and sends the fixed preamble with the version's instructions, the
+  question, the version's output limit and effort, and no tools. The turn records the
+  frame's exact pins. A repeat answers with its turn as it stands and sends nothing. A
+  follow-up sends the earlier turn as history, labeled with its ending and pinned
+  context, before the question. An answer streamed in many deltas at once is coalesced
+  and published whole and in order, in pieces of at most 2,048 bytes.
+- **Knowledge:** working data is asked only at a frame of the session
+  (`snapshot_missing` without one or for another). While a historical view is
+  selected, its retained context is asked with a frame of it, pinned as named with the
+  frame's pins and capturing nothing, and working data is refused, as is any retained
+  context the session has not selected (`context_required`).
+- **Refusals:** an ask without a covering grant (`grant_required`) or while a turn is
+  active (`turn_active`) is refused, as are a question too long (`question_too_long`)
+  or missing (`turn_input`), a repeat whose request differs (`turn_conflict`), a
+  conversation with another agent (`conversation_agent_mismatch`) and Stop for an
+  unknown turn (`turn_not_found`), each with its status and sending nothing.
+- **Endings:**
+  - Stop cancels the call in flight, which closes `cancelled` with unknown usage, and
+    the turn ends cancelled, keeping the text published before, marked incomplete;
+  - mid-stream, a profile switch ends the session's turn `session_ended`, provider
+    Disable `model_provider_disabled`, and text after a role revocation is refused, so
+    the turn fails `access_changed`;
+  - a turn past its elapsed limit fails `limit_elapsed`, its call closed so, keeping
+    its text;
+  - an append that waits past the worker write's bound for the epoch row, while the
+    call still reads, stops the call, which closes `cancelled`, and the turn fails
+    `agent_runtime_unavailable`, keeping the text published before;
+  - a response stopped at the output limit fails `limit_output_tokens`, a refusal
+    `model_refused`, and an overload after sending, whose input is unknown,
+    `model_provider_overloaded` without a retry.
+- **One worker:** a worker that loses its connection releases the agent-worker lock and
+  stops and closes the call in flight, which closes `cancelled`, and the next worker
+  interrupts its turn; while another session holds the lock, an ask is refused
+  `agent_runtime_unavailable`, and once it is free the next ask starts a generation and
+  completes.
+- **Reads and the key:** a person lists their conversations, reads their unfinished
+  turn and marks a conversation read, and no other person sees them; no log line or
+  request body carries the key, and no request goes through a proxy.
+
+The managed checks split answer text into appends of at most 2,048 bytes, never inside
+a character and filling each to the bound where a character ends there, and send each
+earlier turn's ending, pinned context and answer, marked when incomplete or noted as
+missing, before the question. A table of call endings shows how each ends its turn:
+completed, at the output limit, at the deadline whatever was published, interrupted
+after text unless too large, otherwise with its failure's code, and retried only after
+a transport failure or overload whose input is known and that published nothing, while
+retries remain.
 
 The Users & access checks expect `agent_managed` for an agent create, the agent reader
 role, and an agent update with and without roles, which leaves the agent unchanged. Its
 browser scenario creates its own agent and finds it listed as an agent reader without
 Edit. The temporal storage checks create an agent through `ManageAgents` and show it
 reads market data only under a current delegation. The reference-policy agent holds the
-agent reader role. The hosted checks find every agent and grant route unmapped and the
-provisioned owner with exactly the six human roles.
+agent reader role. The hosted checks find every agent, grant and turn route unmapped and
+the provisioned owner with exactly the six human roles.
 
 The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is

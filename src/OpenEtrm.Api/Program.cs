@@ -50,9 +50,10 @@ if(hostedAuthentication is not null){hostedAuthentication.Tenant=database.Manife
 // worker starts its generation before serving, closing whatever an earlier one left open. Only checks set the
 // preview's provider endpoint override (§5.2).
 var checkEndpoint=hosted is null?ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PROVIDER_ENDPOINT")):null;
-await using var agentWorker=hosted is null?new AgentWorker(PreviewDatabase.AgentSource(root)):null;
-var providerTests=agentWorker is null?null:new ProviderTests(CredentialCustody.FromEnvironment(),agentWorker,
-    new MessagesAdapter(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider),app.Logger);
+await using var agentWorker=hosted is null?new AgentWorker(PreviewDatabase.AgentSource(root),PreviewDatabase.AgentWrites(root),app.Logger):null;
+var (custody,adapter)=agentWorker is null?(null,null):(CredentialCustody.FromEnvironment(),new MessagesAdapter(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider));
+var providerTests=agentWorker is null?null:new ProviderTests(custody!,agentWorker,adapter!,app.Logger);
+await using var turnWorker=agentWorker is null?null:new TurnWorker(agentWorker,custody!,adapter!,app.Logger);
 if(agentWorker is not null)await agentWorker.Generation(CancellationToken.None);
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
@@ -135,6 +136,11 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_unknown" => (404,p.MessageText,AgentGrants.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_conflict" => (409,p.MessageText,AgentGrants.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_input" => (422,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_input" or "question_too_long" => (422,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_conflict" or "conversation_agent_mismatch" or "knowledge_budget_reserved"
+                => (409,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "conversation_not_found" or "turn_not_found" => (404,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_required" => (403,p.MessageText,AgentTurns.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable" or "parameter_required"
                 or "model_limit_exceeded" or "instructions_too_long" or "grant_duration_exceeded"
                 => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
@@ -155,6 +161,8 @@ app.Use(async (context,next)=>
                 => (503,"model_admin_outcome_unknown","The outcome is unknown. Check Settings › AI and its audit, or repeat the identical request."),
             Exception when context.Items.ContainsKey("grant_attempted") && e is NpgsqlException or OperationCanceledException
                 => (503,"grant_outcome_unknown","The outcome is unknown. Read your grants, or repeat the identical request."),
+            Exception when context.Items.ContainsKey("turn_attempted") && e is NpgsqlException or OperationCanceledException
+                => (503,"turn_outcome_unknown","The outcome is unknown. Read your conversations, or repeat the identical request."),
             OperationCanceledException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
             NpgsqlException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
             OperationCanceledException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome is unknown. Retain the request identity and inspect the audit before retrying the exact command."),
@@ -231,10 +239,10 @@ app.Use(async(c,next)=>
 app.UseWhen(c=>c.Request.Method=="POST"&&c.Request.Path.Equals("/api/trading/workspace",StringComparison.Ordinal),branch=>branch.UseResponseCompression());
 
 await using var exchangeDatabase=hosted is null&&File.Exists(Path.Combine(root,"exchange-manifest.json"))?new PreviewDatabase(root,"exchange-manifest.json"):null;
-MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,hosted is null?"openetrm_preview":"__Host-openetrm_workspace");
-if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api").WithMetadata(new PreviewScope("exchange")),exchangeDatabase,"openetrm_exchange_preview");
+MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,hosted is null?"openetrm_preview":"__Host-openetrm_workspace","api");
+if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api").WithMetadata(new PreviewScope("exchange")),exchangeDatabase,"openetrm_exchange_preview","exchange");
 app.MapGet("/api/examples",()=>new[]{new {id="baseline",name=hosted is null?"Original synthetic example":"Private pilot workspace",url="/"},new {id="exchange",name="CME & ICE futures · synthetic prices",url="/?example=exchange"}}.Where(e=>e.id=="baseline"||exchangeDatabase is not null));
-void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName)
+void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName,string turnScope)
 {
 var sessions=new ConcurrentDictionary<string,PreviewSession>();
 var marketReads=new MarketReads(database);
@@ -249,7 +257,7 @@ async Task<string[]> CurrentPermissions(NpgsqlConnection connection,Cancellation
 api.MapGet("/health",()=>new {mode=database.Manifest.Mode,runId});
 api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool includeFrames=true,bool includeAccess=false)=>
 {
-    foreach(var item in sessions.Where(x=>DateTimeOffset.UtcNow-x.Value.Created>TimeSpan.FromMinutes(30)).ToArray()) sessions.TryRemove(item.Key,out _);
+    foreach(var item in sessions.Where(x=>DateTimeOffset.UtcNow>x.Value.Ends).ToArray()) sessions.TryRemove(item.Key,out _);
     PreviewSession session;
     if (context.Request.Cookies.TryGetValue(cookieName,out var cookie)&&sessions.TryGetValue(cookie,out var existing)) session=existing;
     else
@@ -257,7 +265,7 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
         if (sessions.Count>=64) throw new PreviewDeniedException();
         var id=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)); session=new PreviewSession(database.Manifest);
         sessions[id]=session;
-        context.Response.Cookies.Append(cookieName,id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=TimeSpan.FromMinutes(30),Path="/"});
+        context.Response.Cookies.Append(cookieName,id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=PreviewSession.Lifetime,Path="/"});
     }
     await session.Gate.WaitAsync(context.RequestAborted);
     try {
@@ -279,7 +287,7 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
 });
 PreviewSession Session(HttpContext context)
 {
-    if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow-session.Created>TimeSpan.FromMinutes(30)) throw new PreviewDeniedException();
+    if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow>session.Ends) throw new PreviewDeniedException();
     if(hosted is not null&&session.Profile!=HostedAuthentication.Current(context).Subject)throw new PreviewDeniedException();
     return session;
 }
@@ -353,6 +361,8 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
 {
     if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
+    // A profile switch cancels the turns the session asked (docs/ai-assistant.md §7.2).
+    turnWorker?.EndSession(session.Digest);
     session.ForgetDiscoveredFrames(resetAliasIdentities:true);session.Profile=body.Profile; session.MarketContext=null; return Task.FromResult(Results.Ok(new {profile=session.Profile}));
 }));
 PreviewSequenceCoverage ScheduleSource(string? code) => (database.Manifest.Schedules ?? []).SingleOrDefault(s=>s.Curve==code)
@@ -989,6 +999,38 @@ if(hosted is null)
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await AgentGrants.Grants(connection,ct)),c.RequestAborted))));
     api.MapPost("/assistant/grants/grant",(HttpContext c,GrantRequest body)=>GrantCommand(c,"UseAgents",(connection,ct)=>AgentGrants.Grant(connection,body,ct)));
     api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>GrantCommand(c,null,(connection,ct)=>AgentGrants.Revoke(connection,body,ct)));
+    // Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
+    // is selected, a retained context only when it is the selected one, and a frame only of the session's current market
+    // context. Working data is captured at its frame's date, so it needs one. Nothing else is pinned, and nothing falls back.
+    var agentTurns=new AgentTurns(database,turnScope,agentWorker!,turnWorker!,app.Logger);
+    (string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge)
+    {
+        var selected=session.MarketContext?.ContextId;
+        var (mode,retained)=knowledge switch
+        {
+            {Mode:"current",ContextId:null} when selected is null=>("current",(Guid?)null),
+            {Mode:"retained",ContextId:{} id} when id==selected=>("retained",id),
+            _=>throw new MarketDataException("context_required","Ask over the knowledge the page shows: current knowledge, or the selected historical view.")
+        };
+        var frame=knowledge.FrameId is {} chosen?Frame(session,chosen):null;
+        return mode=="current"&&frame is null?throw PinnedContext.Missing():(mode,retained,frame);
+    }
+    api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,session=>
+    {
+        var (mode,retained,frame)=Knowledge(session,body.Knowledge);
+        c.Items["turn_attempted"]=true;
+        return agentTurns.Ask(session,Profile(session),body,mode,retained,frame,c.RequestAborted);
+    }));
+    api.MapPost("/assistant/turns/stop",(HttpContext c,StopRequest body)=>Locked(c,session=>
+        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Stop(connection,body,ct)),c.RequestAborted)));
+    api.MapGet("/assistant/conversations",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversations(connection,ct)),c.RequestAborted))));
+    api.MapGet("/assistant/conversations/{id:guid}",(HttpContext c,Guid id,long after)=>Locked(c,session=>
+        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversation(connection,id,after,ct)),c.RequestAborted)));
+    api.MapGet("/assistant/turns/unfinished",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Unfinished(connection,ct)),c.RequestAborted))));
+    api.MapPost("/assistant/conversations/read",(HttpContext c,MarkReadRequest body)=>Locked(c,session=>
+        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.MarkRead(connection,body,ct)),c.RequestAborted)));
     api.MapPost("/settings/ai/providers/test",(HttpContext c,TestRequest body)=>Locked(c,async session=>
     {
         c.Items["model_admin_attempted"]=true;
@@ -1014,7 +1056,12 @@ public sealed record CorrectionRequest(Guid SnapshotId,Guid ObservationId,string
 public sealed record SelectionRequest(Guid SnapshotId,Guid ObservationId);
 public sealed partial class PreviewSession
 {
+    public static readonly TimeSpan Lifetime=TimeSpan.FromMinutes(30);
     public DateTimeOffset Created {get;}=DateTimeOffset.UtcNow;
+    public DateTimeOffset Ends=>Created+Lifetime;
+    // Names the session to the database, which binds its turns to it (docs/ai-assistant.md §7.2); random, so it reveals
+    // nothing of the session's cookie.
+    public string Digest {get;}=Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
     public SemaphoreSlim Gate {get;}=new(1,1);
     public string? Profile {get;set;}
     public ScheduleContext? MarketContext {get;set;}

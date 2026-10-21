@@ -20,7 +20,6 @@ public sealed class ProviderTests(CredentialCustody custody,AgentWorker worker,M
 {
     const string Instruction="This is a connectivity test from OpenETRM's page assistant settings. It carries no workspace data.";
     const string Prompt="Reply with the single word: ready.";
-    static readonly TimeSpan CloseScope=TimeSpan.FromSeconds(5),CloseRetry=TimeSpan.FromSeconds(2);
 
     sealed record Opened(Guid Call,ModelRequest Request,string Key)
     {
@@ -37,7 +36,7 @@ public sealed class ProviderTests(CredentialCustody custody,AgentWorker worker,M
         long? generation=null;
         var opened=await database.WithIdentity(profile,"ManageModelProviders",async(connection,ct)=>
         {
-            generation=await Generation(ct);
+            generation=await worker.Generation(ct);
             return await Open(connection,body,generation,token,ct);
         },aborted);
         if(opened is not null)
@@ -55,31 +54,14 @@ public sealed class ProviderTests(CredentialCustody custody,AgentWorker worker,M
         return outcome.GetProperty("test");
     }
 
-    // The worker's current generation; none while another session holds the lock or when the worker cannot start, which
-    // refuses a new test but still replays an earlier one.
-    async Task<long?> Generation(CancellationToken ct)
-    {
-        try{return await worker.Generation(ct);}
-        catch(NpgsqlException e)
-        {
-            logger.LogError("The agent worker could not start: {ErrorType}",e.GetType().Name);
-            return null;
-        }
-    }
-
     // The record of a new test, with the attested key and the request the adapter will send; null when the
     // request identity names an earlier test, which has nothing more to send.
     async Task<Opened?> Open(NpgsqlConnection connection,TestRequest body,long? generation,byte[] token,CancellationToken ct)
     {
         if(!(await Record(connection,body,generation,token,ct)).TryGetProperty("opened",out var opened))return null;
-        var vendor=opened.GetProperty("vendor").GetString()!;
-        // Only the Messages adapter ships, so only a model under its mapping is qualified.
-        if(vendor!="anthropic"||opened.GetProperty("mapping").GetString()!=MessagesAdapter.Mapping)
-            throw new InvalidOperationException("No adapter in this release applies the model's usage mapping.");
-        var key=custody.Open(opened.GetProperty("provider").GetGuid(),vendor,opened.GetProperty("credentialVersion").GetInt32(),
-            new(Bytes(opened,"nonce"),Bytes(opened,"ciphertext"),Bytes(opened,"tag")));
-        var request=new ModelRequest(new(opened.GetProperty("identifier").GetString()!,[..opened.GetProperty("acceptedServed").EnumerateArray().Select(i=>i.GetString()!)]),
-            Instruction,[new ModelUserText(Prompt)],[],new(opened.GetProperty("maxOutputTokens").GetInt32(),opened.GetProperty("reasoning").GetString(),false));
+        var key=ModelCalls.Key(custody,opened);
+        var request=new ModelRequest(ModelCalls.Target(opened),Instruction,[new ModelUserText(Prompt)],[],
+            new(opened.GetProperty("maxOutputTokens").GetInt32(),opened.GetProperty("reasoning").GetString(),false));
         MessagesAdapter.Validate(request,key);
         return new(opened.GetProperty("call").GetGuid(),request,key);
     }
@@ -90,82 +72,18 @@ public sealed class ProviderTests(CredentialCustody custody,AgentWorker worker,M
             [body.OperationId,body.ModelId,(object?)body.Reasoning??DBNull.Value,RuntimeSet.TestOutputTokens,Convert.ToHexStringLower(SHA256.HashData(token)),
                 (object?)generation??DBNull.Value],ct);
 
-    static byte[] Bytes(JsonElement opened,string name)=>Convert.FromHexString(opened.GetProperty(name).GetString()!);
-
     // Closes the record with the test's token, without a request context. A stream that ended without its final event
     // failed in this program, so the test was interrupted with unknown usage. The answer waits for the close as long as
     // one attempt may take; a close that fails transiently is retried until it lands, in the background once the answer
     // is due, so a brief failure never leaves the test open while this process lives. Any other failure is logged and
-    // leaves the test in progress until the next worker start closes it. A close after one landed changes nothing.
+    // leaves the test in progress until the next worker start closes it. Only the client leaving cancels a test; the
+    // test's deadline and the request's are its elapsed limit.
     async Task Close(Guid call,byte[] token,ModelEvent? end,bool left)
     {
-        var (outcome,usage,served)=end switch
-        {
-            ModelCompleted c=>(Outcome(c,left),c.Usage,c.Served),
-            ModelFailed f=>(Outcome(f,left),f.Usage,f.Served),
-            _=>("interrupted",ModelUsage.Unknown(MessagesAdapter.Mapping),null)
-        };
-        var closing=Closing([call,token,outcome,served is {} identifier&&ModelTarget.Valid(identifier)?identifier:DBNull.Value,Status(usage.Status),
-            ..Count(usage.UncachedInput),..Count(usage.CacheRead),..Count(usage.CacheWrite),..Count(usage.Output),..Count(usage.Reasoning)]);
+        var outcome=end is null?"interrupted":ModelCalls.Outcome(end,left?"request_cancelled":"limit_elapsed");
+        var closing=ModelCalls.Close(worker,"close_test",call,token,outcome,end);
         _=closing.ContinueWith(t=>logger.LogError("A provider test could not be closed: {ErrorType}",t.Exception!.GetBaseException().GetType().Name),
             TaskContinuationOptions.OnlyOnFaulted);
-        await Task.WhenAny(closing,Task.Delay(CloseScope));
+        await Task.WhenAny(closing,Task.Delay(RuntimeSet.WorkerWrite));
     }
-
-    async Task Closing(object[] arguments)
-    {
-        while(true)
-        {
-            try
-            {
-                using var scope=new CancellationTokenSource(CloseScope);
-                await using var connection=await worker.Connection(scope.Token);
-                await using var command=ScheduleStore.Command(connection,"SELECT assistant.close_test($1,$2,$3,$4::text,$5,$6::bigint,$7,$8::bigint,$9,$10::bigint,$11,$12::bigint,$13,$14::bigint,$15)",arguments);
-                await command.ExecuteNonQueryAsync(scope.Token);
-                return;
-            }
-            catch(Exception e) when(e is OperationCanceledException or NpgsqlException{IsTransient:true}){}
-            await Task.Delay(CloseRetry);
-        }
-    }
-
-    // A test succeeds only for a well-formed response that ends normally or at the output limit with recognized usage.
-    static string Outcome(ModelEvent end,bool left)=>end switch
-    {
-        ModelCompleted{Stop:ModelStop.EndTurn or ModelStop.OutputLimit,Usage.Status:UsageStatus.Recognized}=>"succeeded",
-        ModelCompleted{Stop:ModelStop.EndTurn or ModelStop.OutputLimit}=>"usage_unrecognized",
-        ModelCompleted{Stop:ModelStop.Refusal}=>"model_refused",
-        ModelCompleted{Stop:ModelStop.ContextWindow}=>"context_window_exceeded",
-        // The test offers no tool, so a tool request is not the documented response.
-        ModelCompleted=>"model_provider_transport",
-        // Only the client leaving cancels a test; the test's deadline and the request's are its elapsed limit.
-        ModelFailed{Failure:ModelFailure.Cancelled}=>left?"request_cancelled":"limit_elapsed",
-        ModelFailed{Failure:var failure}=>failure switch
-        {
-            ModelFailure.Authentication=>"model_provider_authentication",
-            ModelFailure.RateLimited=>"model_provider_rate_limited",
-            ModelFailure.Overloaded=>"model_provider_overloaded",
-            ModelFailure.InvalidRequest=>"model_provider_invalid_request",
-            ModelFailure.ContextWindow=>"context_window_exceeded",
-            ModelFailure.Transport=>"model_provider_transport",
-            ModelFailure.ResponseTooLarge=>"model_provider_response_too_large",
-            ModelFailure.ModelMismatch=>"model_mismatch",
-            _=>throw new ArgumentOutOfRangeException(nameof(end))
-        },
-        _=>throw new ArgumentException("A call ends with a completion or a failure.",nameof(end))
-    };
-
-    static string Status(UsageStatus status)=>status switch
-    {
-        UsageStatus.Recognized=>"recognized",
-        UsageStatus.Unrecognized=>"unrecognized",
-        _=>"unknown"
-    };
-
-    static object[] Count(TokenCount count)=>[count.Count is {} tokens?tokens:DBNull.Value,count.Source switch
-    {
-        TokenSource.Reported=>"reported",
-        TokenSource.NotBilled=>"not_billed",
-        _=>"unknown"
-    }];
 }

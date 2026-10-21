@@ -43,8 +43,12 @@ with a grant audit, and Retire revokes an agent's open grants. Turns are recorde
 database (§5.1, §7.2, §7.4, §7.5): an ask in the person's own context with admission,
 the pinned-context record and its reserve, a turn's one call with its checks, retries
 and input limit, cancellation and its sources, recovery at a worker start and the
-owner's reads, all checked in SQL. No worker, route or page uses them yet, so no one can
-ask; the worker, the stream, the panel and the Usage tab are not implemented.
+owner's reads, all checked in SQL. Through the API a person asks, stops and reads their
+turns, and the in-process worker runs each turn its process admitted: one call without
+tools, retried as §7.5 allows, streamed within the turn's elapsed limit, its text
+published in batches the database rechecks, then its usage closed and its ending
+recorded (§7.4–§7.6). Tools,
+the stream, the panel and the Usage tab are not implemented, so no page asks yet.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -513,8 +517,9 @@ audit as history.
   As of frame id when one is selected, as trading reads do, except that it never names
   an earlier capture over working data: a frame of the session's current market
   context (`snapshot_missing`), current only while no historical context is selected,
-  a retained context only when it is the selected one. Anything else is
-  `context_required`; the ask never falls back.
+  a retained context only when it is the selected one. Working data is captured at
+  its frame's date, so an ask over it names a frame (`snapshot_missing`). Anything
+  else is `context_required`; the ask never falls back.
 - The turn's immutable **pinned-context record** (knowledge mode, captured or retained
   context id, resolved cutoff and, with a frame, its pin set: frame id, At,
   observation ids, curve-contract selections) is its snapshot identity; the worker
@@ -523,8 +528,9 @@ audit as history.
   captures once in the user's context and its own short transaction and writes the
   record with the fencing token, within the request's deadline and cancellation. A
   failed capture fails the turn with the page read's error, and no other cutoff is
-  tried; an abort or the deadline fails it `request_cancelled`. Terminal writes use an
-  independent cancellation scope. Tool reads never capture.
+  tried; an abort or the deadline fails it `request_cancelled`, and any other failure
+  `agent_runtime_unavailable`. Terminal writes use an independent cancellation scope.
+  Tool reads never capture.
 - **Reserve.** Each admitted working-data ask permanently uses one of the catalog's
   4096 retained contexts. The assistant captures through a wrapper that, under lock
   730849102, refuses with `knowledge_budget_reserved` when fewer than the runtime
@@ -604,9 +610,11 @@ The tool set is fixed; each tool is switched on per agent version.
   recovery ends it interrupted, and everything else fails, even after published text,
   which stays marked incomplete.
 - **One worker per database.** A preview process holds a session-level advisory lock
-  (agent-worker class) on a dedicated connection and advances the worker generation.
-  Without the lock, or after losing that connection, assistant and provider-test
-  routes refuse with `agent_runtime_unavailable`. Before serving, it ends every
+  (agent-worker class) on a dedicated connection, which then listens for cancel
+  requests, and advances the worker generation; losing that connection ends the
+  generation, stops the process's turns and releases the lock. While another session
+  holds it, or the worker cannot start, assistant and provider-test routes refuse with
+  `agent_runtime_unavailable`. Before serving, it ends every
   non-terminal turn of an earlier generation as interrupted, marks their open calls
   `usage_unknown` and closes open test records, each exactly once. Every turn write
   requires a current generation.
@@ -620,8 +628,13 @@ The tool set is fixed; each tool is switched on per agent version.
 - Agent work uses its own runtime and authenticator pools per scope on the existing
   logins, never the UI pools; workspace concurrency stays below their size, and each
   tool read fits one 5-second command in one request context. No transaction, request
-  context or epoch lock is held across a model call, backoff or stream write. Text
-  deltas are coalesced, each batch with one publication recheck.
+  context or epoch lock is held across a model call, backoff or stream write. Worker
+  writes use a pool of their own on the runtime login. Text deltas are coalesced for
+  at most the runtime set's interval and published in pieces of at most 2,048 bytes,
+  each with its publication recheck. A worker write the database does not take within
+  the runtime set's bound stops the call in flight, which is still closed, and fails
+  the turn `agent_runtime_unavailable` unless the database ended it otherwise; ending
+  writes are retried while they fail transiently.
 - **Fencing.** Every worker write is a narrow security-definer operation presenting
   the turn's fencing token, held only in the admitting process (the database stores
   its digest). The record write is accepted only from queued without a record, the
@@ -643,7 +656,8 @@ The tool set is fixed; each tool is switched on per agent version.
 
 - Each agent version declares, and each turn records: maximum tool steps, total input
   tokens per turn, output tokens per call (not above the model's:
-  `model_limit_exceeded`), elapsed time, retry count and the caching switch. Exceeding
+  `model_limit_exceeded`), elapsed time from the ask, retry count and the caching
+  switch. Exceeding
   one ends the turn with `limit_tool_steps`, `limit_input_tokens`,
   `limit_output_tokens` or `limit_elapsed`; a tool request cut off by a limit is not
   run.
@@ -656,7 +670,8 @@ The tool set is fixed; each tool is switched on per agent version.
   never host configuration. Workspace concurrency; agent pool sizes; retry backoff;
   replay window; heartbeat interval (under 20 seconds); text coalescing interval; card
   data and event sizes; question and instruction lengths (set so a body stays under 32
-  KB: `question_too_long`, `instructions_too_long`); tool-result row and byte bounds;
+  KB: `question_too_long`, `instructions_too_long`); a worker write's bound and retry
+  interval; tool-result row and byte bounds;
   maximum grant duration; test output limit and deadline (below 15 seconds); admission
   deadline (above 15 seconds); retained-context reserve; provider timeouts and
   response byte bound; subscriber buffer. Oversize cards are `card_too_large`; text is

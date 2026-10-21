@@ -22,9 +22,11 @@ public sealed record TradingView
     public static async Task<TradingView> Capture(NpgsqlConnection connection,KnowledgeStore store,InputFrame? frame,CancellationToken ct)
     {
         if(frame is not {ContextId:null})throw PinnedContext.Missing();
-        var on=frame.At.UtcDateTime.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
+        var on=WorkingDate(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
         return new(frame,(await store.Capture(connection,new(on,null,"current"),ct)).Context,true);
     }
+    // The date working data is captured at for a frame: its instant's UTC date.
+    public static DateOnly WorkingDate(InputFrame frame)=>DateOnly.FromDateTime(frame.At.UtcDateTime);
     // Working data as of a context captured earlier. The read refuses a context effective on another date.
     public static TradingView Reread(InputFrame? frame,ScheduleContext context)=>
         frame is {ContextId:null}?new(frame,context,false):throw PinnedContext.Missing();

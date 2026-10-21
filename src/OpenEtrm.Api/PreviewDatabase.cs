@@ -129,9 +129,11 @@ public sealed class PreviewDatabase : IAsyncDisposable
     }
 
     // The local preview's agent worker connects on the runtime login outside the request pools
-    // (docs/ai-assistant.md §7.4). Its connections are not pooled, so closing one ends its session
-    // and releases any session lock it held.
+    // (docs/ai-assistant.md §7.4). The connection that holds its lock is not pooled, so closing it
+    // ends its session and releases the lock; its writes, which hold no session state, have a pool
+    // of their own.
     public static NpgsqlDataSource AgentSource(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", false);
+    public static NpgsqlDataSource AgentWrites(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", true);
 
     public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared)
     {

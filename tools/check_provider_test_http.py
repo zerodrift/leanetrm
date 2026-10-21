@@ -315,28 +315,17 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     check('a test whose administrator loses the permission while it runs still records its outcome and usage, and the answer is refused',
           denied['code'] == 'access_denied' and (stored['outcome'], stored['cost']['amount']) == ('succeeded', '0.000114744'))
 
-    # A request that gives up while the worker's connection is slow to answer leaves that connection usable: the probe
-    # runs within its own timeout, not the request's, so a cancellation never leaves the connection half-used.
+    # No request runs a command on the worker's connection, which only holds the lock and listens: with its backend
+    # stopped, a test still runs under the generation, and the worker keeps its lock.
     holder = int(query(f'SELECT pid FROM({HOLDERS})h;'))
-    body = json.dumps({'operationId': str(uuid4()), 'modelId': model, 'reasoning': 'low'}).encode()
+    fake.respond(stream(recording(MODEL)))
     os.kill(holder, signal.SIGSTOP)
     try:
-        try:
-            admin.opener.open(Request(f'{url}/api/{TEST}', data=body, method='POST',
-                                      headers={'Origin': url, 'Content-Type': 'application/json', 'X-Preview-CSRF': admin.token}), timeout=1)
-            raise AssertionError('The request answered while the worker connection could not')
-        except HTTPError:
-            raise
-        except (TimeoutError, URLError):
-            pass
-        # The backend answers again about 4 seconds after the request: past the point where a probe that followed the
-        # request would have broken the connection, within the probe's own 5-second timeout.
-        time.sleep(3)
+        outcome = test()['outcome']
     finally:
         os.kill(holder, signal.SIGCONT)
-    fake.respond(stream(recording(MODEL)))
-    check("a request that gives up while the worker's connection is slow to answer leaves the worker usable",
-          test()['outcome'] == 'succeeded' and int(query(f'SELECT pid FROM({HOLDERS})h;')) == holder)
+    check("no request waits for the worker's connection: with its backend stopped, a test still runs under the generation, and the "
+          "worker keeps its lock", outcome == 'succeeded' and int(query(f'SELECT pid FROM({HOLDERS})h;')) == holder)
 
     # A close that fails other than transiently is logged, and the answer is what a retry returns: the test stays in
     # progress until the next worker start, below, closes it.

@@ -181,6 +181,9 @@ def main():
             if args.assistant_check and migration.name=='0069_agent_turns.sql':
                 from check_agent_turns import check_upgrade as check_turns_upgrade
                 check_turns_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0071_admitted_asks.sql':
+                from check_agent_turns import check_admitted_upgrade
+                check_admitted_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -481,6 +484,8 @@ def main():
                 check_agent_grants(url,query,psql,manifest,app_env)
                 from check_agent_turns import run_checks as check_agent_turns
                 check_agent_turns(url,query,psql,manifest,app_env)
+                from check_agent_turn_http import run_checks as check_agent_turn_http
+                check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
