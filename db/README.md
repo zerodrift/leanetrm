@@ -601,7 +601,7 @@ HTTP routes, screen, limits and 20-year measurements are in
 sealed reference revision:
 - `additive_price_shape`: a quote specification;
 - `multiplicative_price_shape`: a dimensionless value specification;
-- `capacity_factor_forecast`: a value specification;
+- `capacity_factor_forecast`: a dimensionless value specification (MW per MW of capacity);
 - `metered_energy`: a quantity specification of the energy dimension.
 
 A series also pins its clock and a resolution of 5, 15, 30 or 60 minutes. A definition whose
@@ -615,8 +615,8 @@ intervals and records its actor, reason and request identity. Its rows in
 null value withdraws one. Every revision is certified on the shared knowledge gate:
 `security.capture_date_context` records its commit time as its `known_from` in
 `market_data.interval_series_knowledge_receipts`. All five tables are immutable, for the owner
-too, and runtime reads them only under current market access and, for a series and its
-revisions and values, the series' exact reference version.
+too, and runtime reads them only in a current (non-historical) context, under current market
+access and, for a series and its revisions and values, the series' exact reference version.
 
 Four definer operations make up the contract. Each needs a current, non-historical context and
 refuses without current authority with `interval_series_denied` (SQLSTATE 42501):
@@ -627,13 +627,18 @@ refuses without current authority with `interval_series_denied` (SQLSTATE 42501)
   a stale expected revision with `interval_series_revision_conflict` and, writing nothing, any
   interval of another duration, overlapping another in the revision or a stored interval at a
   different start (a withdrawn one included), or holding a non-canonical or out-of-bounds value
-  with `interval_series_values`. A stored interval changes only at its exact start. It rechecks
-  current authority after its writes.
+  with `interval_series_values`. A stored interval changes only at its exact start. Checks of
+  the request alone run before the shared knowledge gate lock; the replay, head and
+  stored-overlap checks and the writes run under it. It rechecks current authority after its
+  writes.
 - **`read_interval_series`** returns each interval's value in the latest revision known at an
-  explicit cutoff, with that head revision.
+  explicit cutoff, a revision known exactly at the cutoff included, with that head revision.
 - **`interval_series_changes`** returns each change with its previous value, actor, reason and
   knowledge time, and a summary per revision, at most 100,000 rows.
 
-Both reads take a whole number of intervals, at most 35,136, and a cutoff no later than now, and
-refuse anything else with `interval_series_window`. As a new migration it stops automatic hosted
+Both reads return the whole intervals inside a window no longer than 35,136 intervals, at a
+cutoff no later than now, and refuse anything else with `interval_series_window`;
+the API also requires the window's ends to be interval boundaries on the pinned clock. Each read
+retains one temporal context per cutoff, dated by the cutoff's UTC day, and rechecks reference
+access after certifying it. As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).

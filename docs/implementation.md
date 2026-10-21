@@ -1297,11 +1297,11 @@ revision, a clock and a resolution of 5, 15, 30 or 60 minutes
 ([migration 0064](../db/migrations/0064_interval_series.sql); the contract is
 described in [db/README.md](../db/README.md#audited-interval-series)). The kinds are
 `additive_price_shape` (a quote specification), `multiplicative_price_shape` (a
-dimensionless value specification), `capacity_factor_forecast` (a value
-specification) and `metered_energy` (a quantity specification of the energy
-dimension). Codes are unique within the catalog. A series has no owner binding: the
-curve for shapes and the asset for volumes arrive with their consumers in phases B
-and C.
+dimensionless value specification), `capacity_factor_forecast` (a dimensionless
+value specification: output MW per MW of capacity) and `metered_energy` (a quantity
+specification of the energy dimension). Codes are unique within the catalog. A
+series has no owner binding: the curve for shapes and the asset for volumes arrive
+with their consumers in phases B and C.
 
 **Revisions.** Each revision is an immutable delta that stores only the intervals it
 sets or withdraws, where a `null` value withdraws. It records its actor, a reason of
@@ -1324,26 +1324,42 @@ rechecks that every interval has the series' duration and refuses any interval t
 overlaps a stored one at a different start, withdrawn or not, so a stored interval
 changes only at its exact start. Values are canonical exact decimals of at most 18
 fractional digits, within the series' value specification bounds where it has one.
+The checks of the request alone (lengths, durations, order, decimals and bounds) run
+before the shared knowledge gate lock; the replay, head and stored-overlap checks and
+the writes run under it. The stored-overlap check probes two index ranges per new
+interval, one on each side of its start, so it never visits the revisions stored at
+that start.
 
 **Reads.** A values read returns up to 35,136 intervals (366 days of quarter-hour
-intervals) and the change log up to 100,000 rows, for a window of whole intervals
-and a cutoff no later than now. The change log gives each change's previous value,
-new value, actor, reason and knowledge time, and a summary per revision.
+intervals) and the change log up to 100,000 rows, at a cutoff no later than now. A
+revision whose knowledge time equals the cutoff is included. The window's From and
+To must each be where an interval of the series' pinned clock starts or ends, or the
+API refuses it with `interval_series_grid`; storage bounds its duration to 35,136
+intervals and returns the whole intervals inside it. A clock change can leave a gap
+with no interval, so a whole local day across a half-hour change is a valid window.
+The change log gives each change's previous value, new value, actor, reason and
+knowledge time, and a summary per revision. The values read visits every stored
+revision of each interval in its window, so its cost grows with the number of
+revisions per interval (measured below).
 
 **HTTP and permissions.** `src/OpenEtrm.Api/IntervalSeriesStore.cs` and `Program.cs`
-serve `GET /api/interval-series` (the catalog, choices and a fresh `knownAt`),
+serve `GET /api/interval-series` (the catalog, choices and a fresh `knownAt` from
+the database's clock, the clock reads compare their cutoff with),
 `POST /api/interval-series/define`, `revise`, `values` and `changes`. Reads need
 `ReadMarketData`, definitions `WriteMarketDefinitions` and revisions
 `ImportObservations`, and each also needs read access to the reference catalog the
-series pins. Every route refuses a historical session with
-`interval_series_historical`: operations work on current data, and history is read
-by sending an explicit `knownAt` rather than by switching the session. Instants are
-UTC with `Z` or `+00:00` and 0 or 1 to 6 fractional digits; reads render
-`+00:00`. Every request member is required: a missing or unknown member is refused
-and nothing is defaulted, but that refusal is an empty `400`, not a structured code.
-Only `revise` accepts bodies up to 8 MiB; every other route keeps 32 KiB,
-and a body whose declared length is over the limit is answered `413` with
-`request_size`. A save whose outcome is unknown answers `503` with
+series pins; a read rechecks that access after certifying its cutoff. Every route
+refuses a historical session with `interval_series_historical`, and a restrictive
+row-level policy hides all five tables from a runtime session in a historical view:
+operations work on current data, and history is read by sending an explicit
+`knownAt` rather than by switching the session. Each read's retained temporal context
+belongs to its cutoff alone, dated by the cutoff's UTC day, since series are not
+effective-dated. Instants are UTC with `Z` or `+00:00` and 0 or 1 to 6 fractional
+digits; reads render `+00:00`. Every request member is required: a missing or
+unknown member is refused and nothing is defaulted, but that refusal is an empty
+`400`, not a structured code. Only `revise` accepts bodies up to 8 MiB; every other
+route keeps 32 KiB, and a body whose declared length is over the limit is answered
+`413` with `request_size`. A save whose outcome is unknown answers `503` with
 `interval_series_outcome_unknown`; repeating the same request identity recovers the
 receipt.
 
@@ -1351,8 +1367,15 @@ receipt.
 series and shows values and the change log at a chosen Known at. An import reads a
 CSV file with the header `start,value`, UTC starts ending in `Z` and a value on
 every row; an import never withdraws an interval. Correct and Withdraw row actions
-require a reason. Presentation only: grid, values and authority are checked by the
-backend.
+require a reason. Any structured refusal from these routes releases the form, since
+nothing was saved; only an unknown outcome (`interval_series_outcome_unknown`, a reply
+lost or timed out in transport, or an answer without a code) keeps the request
+outstanding for an exact retry. Presentation only: grid, values and authority are
+checked by the backend. In Chrome 156 on the benchmark machine below, the largest
+window, 366 days of quarter-hour values with its 35,136-row change log, took 4.35 to
+4.38 s from Show until both tables were painted in three runs of the browser check,
+about 0.36 s of it before the change log arrived; one run before instant labels
+reused their formatters took 8.2 s.
 
 **Verification.**
 
@@ -1362,10 +1385,11 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/
   --interval-series-check --browser-check --browser /path/to/browser
 ```
 
-The managed checks cover the grid on synthetic clocks, including repeated and skipped
-hours and half-hour offsets. `tools/check_interval_series_storage.py` runs 13
-storage checks, `tools/check_interval_series_http.py` 10 HTTP checks and
-`tests/browser/interval-series.mjs` 29 browser checks. `tools/check_all.py` runs all
+The managed checks cover the grid and read-window boundaries on synthetic clocks,
+including repeated and skipped hours, half-hour offsets and a half-hour clock change.
+`tools/check_interval_series_storage.py` runs 19 storage checks,
+`tools/check_interval_series_http.py` 11 HTTP checks and
+`tests/browser/interval-series.mjs` 30 browser checks. `tools/check_all.py` runs all
 of them: the managed checks with the other managed suites, and the preview command
 above, browser checks included.
 
@@ -1385,35 +1409,45 @@ under the 8 MiB limit of `revise`. Each workload defines one series
 (`capacity_factor_forecast`, value specification `test_zero_rate`, clock
 `synthetic_eastern`), so there is one unique contract per workload and no
 scenarios: no valuation or shock is evaluated. The evaluated work is the intervals
-stored, read and logged below. Per workload it:
+stored, read and logged below. The workloads `hourly_20y` and `quarter_hour_20y`
+each:
 
-1. imports 2027-01-01T05:00Z to 2047-01-01T05:00Z with values cycling `0.1` to
+1. import 2027-01-01T05:00Z to 2047-01-01T05:00Z with values cycling `0.1` to
    `0.9`: `hourly_20y` as one revision of 175,320 intervals, `quarter_hour_20y` as
    four five-year revisions of 175,296, 175,392, 175,296 and 175,296 intervals
    (701,280 in all);
-2. reads one 366-day window from 2036-07-01T05:00Z at a cutoff after the import
+2. read one 366-day window from 2036-07-01T05:00Z at a cutoff after the import
    (8,784 and 35,136 intervals, the second the largest window allowed);
-3. appends a correction of 10,000 intervals from the start of that window;
-4. re-reads the window at the earlier cutoff and requires the same rows;
-5. reads the change log for 31 days from the same start.
+3. append a correction of 10,000 intervals from the start of that window;
+4. re-read the window at the earlier cutoff and require the same rows;
+5. read the change log for 31 days from the same start.
+
+The workload `hourly_rewrites` imports the same hourly span ten times, each a full
+rewrite of 175,320 intervals that shifts every value along the cycle, so each interval
+ends with ten stored revisions (1,753,200 stored intervals); it then reads the same
+366-day window, every row from the tenth rewrite. The workloads run in this order in
+one API process.
 
 The benchmark stops with the failing workload and step on any refusal, timeout or
 wrong count. It requires the declared interval counts to match the date spans, each
 receipt to match its revision, every read to return exactly the window's interval
-count with the expected values, and the change log to hold each interval's import
-and correction rows. `requestBytes` and `reviseSeconds` list the import requests,
-one per revision, as the client sent and timed them. `maxReviseSeconds` is the
-slowest revision request of the workload, the correction included, to be read against
-`requestTimeoutSeconds`: this client and the browser transport (`web/src/app.ts`) both
-abandon a request after 20 s, so a slower request fails the run instead of being
-reported. Read times include the client's decoding of the response. `tableBytes` and
-`indexBytes` are the growth, over the whole workload, of the five interval series
-tables. `apiResidentBytesAfter` is the resident memory of the launcher-owned API
-process sampled with `ps` after the workload, not a peak. `cpu` is the architecture
-and logical processor count.
+count with the expected values and revisions, and the change log to hold each
+interval's import and correction rows. `requestBytes` and `reviseSeconds` list the
+import requests, one per revision, as the client sent and timed them.
+`maxReviseSeconds` is the slowest revision request of the workload, the correction
+included, to be read against `requestTimeoutSeconds`: this client and the browser
+transport (`web/src/app.ts`) both abandon a request after 20 s, so a slower request
+fails the run instead of being reported. `revisionsPerInterval` is the number of
+stored revisions of every interval the rewrite workload's read visits. Read times
+include the client's decoding of the response. `tableBytes` and `indexBytes` are
+the growth, over the whole workload, of the five interval series tables.
+`apiResidentBytesAfter` is the resident memory of the launcher-owned API process
+sampled with `ps` after the workload, not a peak; since the workloads share one
+process, each figure follows the workloads before it. `cpu` is the architecture and
+logical processor count.
 
-Report (the API, migration and screen are those of revision `33e4690`; the commit that
-records this report changes only the benchmark, the launcher and documentation):
+Report (the API, migration, screen and benchmark are those of revision `9280f2a`; the
+commit that records this report changes only documentation):
 
 ```json
 {
@@ -1433,13 +1467,13 @@ records this report changes only the benchmark, the launcher and documentation):
       "intervals": 175320,
       "revisionIntervals": [175320],
       "requestBytes": [1227470],
-      "reviseSeconds": [1.287],
+      "reviseSeconds": [1.2],
       "read366DaysIntervals": 8784,
-      "read366DaysSeconds": 0.049,
-      "correction10000Seconds": 0.079,
+      "read366DaysSeconds": 0.044,
+      "correction10000Seconds": 0.073,
       "changes31DaysRows": 1488,
-      "changes31DaysSeconds": 0.026,
-      "maxReviseSeconds": 1.287,
+      "changes31DaysSeconds": 0.022,
+      "maxReviseSeconds": 1.2,
       "requestTimeoutSeconds": 20,
       "tableBytes": 17309696,
       "indexBytes": 26107904,
@@ -1452,17 +1486,34 @@ records this report changes only the benchmark, the launcher and documentation):
       "intervals": 701280,
       "revisionIntervals": [175296, 175392, 175296, 175296],
       "requestBytes": [1227308, 1227980, 1227308, 1227308],
-      "reviseSeconds": [1.322, 1.468, 1.153, 1.168],
+      "reviseSeconds": [1.267, 1.337, 1.122, 1.145],
       "read366DaysIntervals": 35136,
-      "read366DaysSeconds": 0.111,
-      "correction10000Seconds": 0.07,
+      "read366DaysSeconds": 0.103,
+      "correction10000Seconds": 0.066,
       "changes31DaysRows": 5952,
-      "changes31DaysSeconds": 0.052,
-      "maxReviseSeconds": 1.468,
+      "changes31DaysSeconds": 0.049,
+      "maxReviseSeconds": 1.337,
       "requestTimeoutSeconds": 20,
       "tableBytes": 66232320,
       "indexBytes": 97943552,
-      "apiResidentBytesAfter": 640253952
+      "apiResidentBytesAfter": 584269824
+    },
+    {
+      "name": "hourly_rewrites",
+      "clock": "synthetic_eastern",
+      "intervalMinutes": 60,
+      "intervals": 1753200,
+      "revisionIntervals": [175320, 175320, 175320, 175320, 175320, 175320, 175320, 175320, 175320, 175320],
+      "requestBytes": [1227475, 1227475, 1227475, 1227475, 1227475, 1227475, 1227475, 1227475, 1227475, 1227475],
+      "reviseSeconds": [1.294, 1.366, 1.301, 1.501, 1.352, 1.347, 1.362, 1.612, 1.588, 1.503],
+      "revisionsPerInterval": 10,
+      "read366DaysIntervals": 8784,
+      "read366DaysSeconds": 0.052,
+      "maxReviseSeconds": 1.612,
+      "requestTimeoutSeconds": 20,
+      "tableBytes": 163250176,
+      "indexBytes": 388669440,
+      "apiResidentBytesAfter": 970932224
     }
   ]
 }
@@ -1470,27 +1521,35 @@ records this report changes only the benchmark, the launcher and documentation):
 
 (The printed report lists the arrays one element per line; the values are unchanged.)
 
-Eleven runs on the same machine (eight of an earlier version of this benchmark with the
-same workloads and checks, three of this one) gave import revisions of 1.18 to 1.29 s
-(hourly) and 1.05 to 1.57 s (quarter-hour, 4.7 to 5.8 s for all four), reads of
-0.043 to 0.049 s and 0.103 to 0.114 s, corrections of 0.062 to 0.079 s and change
-logs of 0.017 to 0.054 s. The slowest revision request in any run took 1.57 s, against
-the 20 s timeout. Table growth was identical in every run. Quarter-hour index growth
-was 97,943,552 bytes in six runs and 175,013,888 bytes in five. Series identifiers are
-random. In the four earlier runs that recorded them, the larger growth occurred
-exactly when the quarter-hour series' identifier sorted before the hourly series',
-so that its keys entered the middle of the indexes instead of appending after the
-last key. In the three runs that sampled it, the API process held about 300 MB after
-the hourly workload and 608 to 640 MB after the quarter-hour workload.
+Three runs of revision `9280f2a` on the same machine, the one above included, gave
+import revisions of 1.20 to 1.23 s (hourly) and 1.12 to 1.55 s (quarter-hour, 4.9 to
+5.6 s for all four), reads of 0.044 to 0.045 s and 0.103 to 0.108 s, corrections of
+0.066 to 0.076 s and change logs of 0.022 to 0.025 s and 0.049 to 0.051 s. The ten
+rewrites took 1.29 to 1.69 s each, the first 1.29 to 1.31 s and the tenth 1.50 to
+1.67 s, and the 366-day read after them 0.052 to 0.056 s, against 0.044 to 0.045 s
+for the same window with one revision per interval. The slowest revision request in
+any run took 1.69 s, against the 20 s timeout. Table growth was identical in every
+run. Quarter-hour index growth was 97,943,552 bytes in one run and 175,013,888 bytes
+in two; rewrite index growth was 388,669,440 bytes in one and 384,425,984 bytes in
+two. Series identifiers are random. In four runs of an earlier version that recorded
+them, the larger quarter-hour growth occurred exactly when the quarter-hour series'
+identifier sorted before the hourly series', so that its keys entered the middle of
+the indexes instead of appending after the last key. The API process held 287 to
+300 MB after the hourly workload, 584 to 643 MB after the quarter-hour workload, which
+follows it in the same process, and 963 to 983 MB after the rewrites.
 
 What this qualifies: one editor session importing and reading a 20-year hourly and
-quarter-hour series through the authorized HTTP path, on one machine with a Debug
-build of the API and loopback HTTP. The benchmark generates no other load, but the
-host was not otherwise isolated. It does not qualify concurrent clients, a hosted
-network, the API's Release build, the memory of the database process, the API's peak
-memory, or the browser's cost to render a 35,136-row window, which is unmeasured. The
-interval series tables were not explicitly analyzed before the reads, so the reads
-used whatever planner statistics existed at the time.
+quarter-hour series through the authorized HTTP path, and rewriting the hourly series
+in full ten times, on one machine with a Debug build of the API and loopback HTTP.
+Stored revision depth is one revision per interval in `hourly_20y` and
+`quarter_hour_20y`, two for their 10,000 corrected intervals, and ten in
+`hourly_rewrites`; deeper revision histories are not measured. The benchmark generates no other load, but the host was
+not otherwise isolated. It does not qualify concurrent clients, a hosted network, the
+API's Release build, the memory of the database process or the API's peak memory.
+The browser's cost to render the largest window is measured by the browser check
+(Screen, above), not by this benchmark. The interval series tables were not
+explicitly analyzed before the reads, so the reads used whatever planner statistics
+existed at the time.
 
 ### Not done and limits
 
@@ -1499,28 +1558,41 @@ used whatever planner statistics existed at the time.
 - No owner bindings. A series is not tied to a curve or an asset, so access follows
   the market catalog and the pinned reference version only.
 - No historical session mode. Series pages and routes refuse a session in a
-  historical view; history is available only through an explicit `knownAt`.
+  historical view, and storage shows such a session no series rows; history is
+  available only through an explicit `knownAt`.
 - No agent tool entry point yet. The operations exist only as the authorized HTTP
   operations that the screen also uses.
-- A write validates and inserts while holding the transaction lock of the shared
-  knowledge gate, which every temporal read and certified write also takes, so those
-  operations wait for it. Revisions of 175,296 to 175,392 intervals took 1.05 to 1.57 s
-  end to end in the measurements above (one session, Debug build, loopback), which
-  bounds that wait for revisions of that size; a 200,000-interval revision was not
-  measured. The 200,000-interval cap exists because an earlier trial of a single
-  701,280-interval append exceeded the 5 s command timeout while holding that lock.
+- A write checks stored overlaps and inserts while holding the transaction lock of
+  the shared knowledge gate, which every temporal read and certified write also
+  takes, so those operations wait for it; only the checks of the request alone run
+  before it. Revisions of 175,296 to 175,392 intervals, including full rewrites over
+  up to nine stored revisions per interval, took 1.12 to 1.69 s end to end in the
+  measurements above (one session, Debug build, loopback), which bounds that wait for
+  revisions of that size; a 200,000-interval revision was not measured. The
+  200,000-interval cap exists because an earlier trial of a single 701,280-interval
+  append exceeded the 5 s command timeout while holding that lock.
 - A revision of 200,000 long decimals can exceed the 8 MiB body limit and is then
   refused `413` with `request_size`: that happens above roughly 38 characters per
   value, while the benchmark's values have 3. A chunked body with no declared length
   that exceeds the limit is answered with an empty `413`, because the structured
   answer needs the declared length.
-- The catalog's `knownAt` comes from the API host's clock, and a read refuses a
-  cutoff later than the database's clock (`interval_series_window`). With the API
-  host's clock ahead of the database's, an immediate read at the `knownAt` just
-  issued can fail. The preview runs both on one machine.
-- Each values or change-log read at a new cutoff or window date stores one retained
-  temporal context, and a catalog holds at most 4,096 of them, never reclaimed
+- An IANA-zone clock is used only while the installed tzdb release equals the one
+  its pinned clock rule declares (D127). After a tzdata update, every revision of an
+  existing series on an IANA-zone clock, and every read of one (whose window is
+  checked on that clock), is refused with `clock_tzdb`, and the series cannot be
+  re-pinned to a successor reference revision: open decision O27. Fixed-offset
+  clocks are unaffected.
+- Each values or change-log read at a new cutoff stores one retained temporal
+  context, and a catalog holds at most 4,096 of them, never reclaimed
   (`knowledge_limit`). This existing platform limit is open decision O07; every
-  such interval series read counts against it, and the benchmark stores four.
+  such interval series read counts against it, and the benchmark stores five.
 - Reads are bounded and not paged: windows over 35,136 intervals or change logs over
-  100,000 rows are refused, not truncated.
+  100,000 rows are refused, not truncated. A values read's cost grows with the
+  revisions stored per interval, which nothing bounds.
+- The screen renders a whole window at once. While the largest window is shown to an
+  editor, with Correct and Withdraw on each of its 35,136 rows, the next action that
+  disables the page's controls (any read, import, save, reload or opening Profile)
+  blocked the page for about 46 s in two diagnostic runs in Chrome 156. Disabling the
+  70,272 row buttons alone took 45 s there, against 0.02 s for every list on the
+  page, the column filters included, and 0.4 s to enable every control again. Choosing another series
+  first clears the window in about 0.2 s. A viewer's window has no row buttons.

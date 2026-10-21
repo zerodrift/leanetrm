@@ -1320,18 +1320,23 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/
 ```
 
 The managed checks expand segments onto clock grids, including repeated and skipped
-hours, and refuse misaligned, overlapping and out-of-range starts. The frontend checks
-cover the CSV layout. In the owned preview, 13 storage checks exercise the definer
-operations directly (viewer refusal, correction and withdrawal, change log, stale
-head, overlaps, replay, one bad row, reason and window bounds, commit-derived
-knowledge time, no direct writes), 10 HTTP checks exercise the routes as anonymous,
-viewer and editor sessions (refusals, retries, fall-back day, historical-session
-refusal, body limits, change log) and 29 browser checks drive the screen.
-`tools/check_all.py` runs all five layers.
+hours, refuse misaligned, overlapping and out-of-range starts, and check read-window
+boundaries, a half-hour clock change included. The frontend checks cover the CSV
+layout, which refusals release an outstanding request, and reuse of instant-label
+formatters. In the owned preview, 19 storage checks exercise the definer operations
+directly (specifications of each kind's dimension, viewer and reference-less
+refusal, correction and withdrawal, one context per cutoff, change log, inclusive
+cutoff, stale head, overlaps at both boundaries and on withdrawn-only intervals,
+replay, one bad row, validation under a held knowledge gate, reason and window
+bounds, commit-derived knowledge time, no direct writes, no rows in a historical
+session), 11 HTTP checks exercise the routes as anonymous, viewer and editor sessions
+(refusals, retries, fall-back day, off-grid read windows, historical-session refusal,
+body limits, change log) and 30 browser checks drive the screen, the largest window
+included. `tools/check_all.py` runs all five layers.
 
 The commands above passed on 2026-10-20 on macOS 26.6.2 arm64 with .NET
-10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156.0.8078.47: 354
-managed market-data checks, 173 frontend checks, and the 13 storage, 10 HTTP and 29
+10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156.0.8078.47: 357
+managed market-data checks, 176 frontend checks, and the 19 storage, 11 HTTP and 30
 browser checks above. The owned database and browser completed teardown.
 
 The 20-year workloads are a measurement, not a pass/fail suite, and are not part of
