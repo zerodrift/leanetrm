@@ -16,6 +16,18 @@ test('seconds labels name the offset only where a repeated clock needs it',()=>{
  assert.deepEqual(timeLabels(['2026-10-21T02:08:38.123456+00:00','2026-10-21T02:08:41+00:00'],'UTC',true),['Oct 21, 2026, 2:08:38 AM','Oct 21, 2026, 2:08:41 AM']);
  assert.equal(displayInstant('2026-10-21T02:08:38+00:00','UTC',true),'Oct 21, 2026, 2:08:38 AM');
  assert.equal(timeLabels(['2026-10-21T02:08:38+00:00'],'UTC')[0],'Oct 21, 2026, 2:08 AM');});
+test('repeated instant labels reuse their formatters and give identical text',()=>{
+ const values=['2026-11-01T05:30:00+00:00','2026-11-01T06:30:00+00:00','2026-11-01T07:30:00+00:00'];
+ const calls=[[values,'America/New_York',false],[values,'America/New_York',true],[values,'UTC',false],[values,'UTC',true]];
+ const first=calls.map(([v,zone,seconds])=>timeLabels(v,zone,seconds));
+ const Original=Intl.DateTimeFormat;let built=0;
+ Intl.DateTimeFormat=function(...args){built++;return new Original(...args);};
+ try{for(let round=0;round<100;round++)calls.forEach(([v,zone,seconds],i)=>{assert.deepEqual(timeLabels(v,zone,seconds),first[i]);assert.equal(displayInstant(v[2],zone,seconds),first[i][2]);});}
+ finally{Intl.DateTimeFormat=Original;}
+ // Labelling cost must not grow with the number of instants: formatters are built once per zone and precision.
+ assert.ok(built<=calls.length+2,`built ${built} formatters`);
+ assert.deepEqual(first[1],['Nov 1, 2026, 1:30:00 AM GMT-4','Nov 1, 2026, 1:30:00 AM GMT-5','Nov 1, 2026, 2:30:00 AM']);
+ assert.deepEqual(first[2],['Nov 1, 2026, 5:30 AM','Nov 1, 2026, 6:30 AM','Nov 1, 2026, 7:30 AM']);});
 test('delivery month stays contractual across user time zones',()=>{assert.equal(deliveryMonth('2021-01-01'),'Jan 2021');assert.match(displayInstant('2021-01-01T00:00:00Z','America/Chicago'),/Dec 31, 2020/);});
 test('daily, monthly and BALMO labels identify their exact delivery coverage',()=>{assert.equal(deliveryLabel('2026-01-16','2026-01-17'),'Jan 16, 2026');assert.equal(deliveryLabel('2026-02-01','2026-03-01'),'Feb 2026');assert.equal(deliveryLabel('2026-01-16','2026-02-01'),'Jan 16, 2026 – Jan 31, 2026');assert.throws(()=>deliveryLabel('2026-02-01','2026-02-01'));});
 test('missing history prices retain explicit availability rather than displaying zero',()=>{assert.equal(historyPriceLabel({value:'0',unavailableReason:null}),'0');assert.equal(historyPriceLabel({value:null,unavailableReason:'source_expired'}),'Past marking cutoff');assert.equal(historyPriceLabel({value:null,unavailableReason:'missing_observation'}),'No saved price');assert.throws(()=>historyPriceLabel({value:null}));assert.throws(()=>historyPriceLabel({value:'3',unavailableReason:'source_expired'}));});

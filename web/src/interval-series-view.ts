@@ -15,16 +15,19 @@ type Shown={scope:string;current:boolean;reading:Reading;log:ChangeLog};
 type Staged={start:string;label:string;withdraw:boolean;value:string};
 type Holder={path:string;pending:PendingCommand;suffix:string;panel:string;retry:string;discard:string;done:(receipt:Receipt,command:RequestCommand)=>Promise<void>};
 
-// Every refusal the series routes make before committing, a malformed number included; only an unknown outcome leaves a request outstanding.
-const rejected=(code?:string)=>!!code&&code!=='interval_series_outcome_unknown'&&(code.startsWith('interval_series_')||['access_denied','request_format','request_token','request_size','numeric_format','numeric_range'].includes(code));
+// A structured refusal from a series route means nothing was saved. Only an unknown outcome leaves a request
+// outstanding: one the server reports, a reply the transport never received (response_unknown, a timeout
+// included) or an answer without a structured code (request_failed, or no code at all).
+const unknownOutcomes=['interval_series_outcome_unknown','response_unknown','request_failed'];
+export const definiteRefusal=(code?:string)=>!!code&&!unknownOutcomes.includes(code);
 
 export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement>(id),choice=(id:string)=>get<HTMLSelectElement>(id);
  const from=zonedInput(field('interval-series-from'),o.zone,o.api),to=zonedInput(field('interval-series-to'),o.zone,o.api),known=zonedInput(field('interval-series-known'),o.zone,o.api);
  // A definition and a revision each keep their own outstanding request.
- const definition:Holder={path:'interval-series/define',pending:new PendingCommand(rejected),suffix:'.define',panel:'interval-series-define-pending',retry:'interval-series-define-retry',discard:'interval-series-define-discard',done:defined};
- const revision:Holder={path:'interval-series/revise',pending:new PendingCommand(rejected),suffix:'',panel:'interval-series-pending',retry:'interval-series-retry',discard:'interval-series-discard',done:revised};
+ const definition:Holder={path:'interval-series/define',pending:new PendingCommand(definiteRefusal),suffix:'.define',panel:'interval-series-define-pending',retry:'interval-series-define-retry',discard:'interval-series-define-discard',done:defined};
+ const revision:Holder={path:'interval-series/revise',pending:new PendingCommand(definiteRefusal),suffix:'',panel:'interval-series-pending',retry:'interval-series-retry',discard:'interval-series-discard',done:revised};
  const holders=[definition,revision];
  let catalog:Catalog|undefined,generation=0,latest:{seriesId:string;head:number}|undefined,shown:Shown|undefined,staged:Staged|undefined;
  const series=()=>catalog?.series.find(s=>s.id===choice('interval-series-select').value);

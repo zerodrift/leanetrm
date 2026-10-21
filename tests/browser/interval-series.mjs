@@ -94,6 +94,27 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the series page fits a 390 px phone with its forms open',fitsWidth);
  await command('Emulation.clearDeviceMetricsOverride');
 
+ // The largest window: 366 days of quarter-hour values and their change log, timed from Show until both tables are painted.
+ const quarterHours=await sideSession(url,'editor');
+ const quarter=await quarterHours.call('interval-series/define',{requestId:crypto.randomUUID(),code:'browser_quarter_hour',name:'Synthetic browser quarter-hour',
+  kind:'capacity_factor_forecast',specification:'test_zero_rate',clock:'synthetic_eastern',intervalMinutes:15});
+ await quarterHours.call('interval-series/revise',{requestId:crypto.randomUUID(),seriesId:quarter.seriesId,expectedRevision:0,reason:'Synthetic full window',
+  segments:[{start:'2027-01-01T05:00:00Z',values:Array.from({length:35136},(_,i)=>'0.'+(i%9+1))}]});
+ await click('#interval-series-refresh');await choose('browser_quarter_hour');
+ await set('#interval-series-from','2027-01-01T00:00');await set('#interval-series-to','2028-01-02T00:00');
+ // Painted is the first task after the frame that shows both tables.
+ const timing=await evaluate(`new Promise(accept=>{
+  const original=window.fetch;let replied;
+  window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/interval-series/changes'))replied=performance.now();return response;};
+  const started=performance.now();document.querySelector('#interval-series-form').requestSubmit();
+  const shown=()=>document.body.getAttribute('aria-busy')==='false'&&document.querySelectorAll('#interval-series-changes tbody tr').length>0;
+  const poll=()=>shown()?requestAnimationFrame(()=>setTimeout(()=>{window.fetch=original;accept({total:Math.round(performance.now()-started),afterReply:Math.round(performance.now()-replied)});})):setTimeout(poll,20);
+  setTimeout(poll,20);})`);
+ console.log(`MEASURE interval series 366-day quarter-hour window: ${timing.total} ms from Show until painted, ${timing.afterReply} ms of it after the change log arrived`);
+ await check('the largest window renders every value and change',`${values}.length===35136&&${table('interval-series-changes')}.length===35136&&${table('interval-series-revisions')}.length===1&&${values}[35135][2]==='0.${35135%9+1}'&&document.querySelector('#error').hidden`);
+ // Clear the window before the next action: an action disables the 70,272 row buttons first, which blocks the page for tens of seconds.
+ await choose('browser_capacity');
+
  await persona('viewer');await click('#nav-interval-series');await choose('browser_capacity');
  await set('#interval-series-from','2027-01-01T05:00');await set('#interval-series-to','2027-01-01T09:00');await submit('#interval-series-form');
  await check('viewers read values and the change log but see no Import, Correct or Withdraw',`${values}.length===3&&${table('interval-series-changes')}.length>0&&document.querySelector('#interval-series-revise-card').hidden&&document.querySelector('#interval-series-define').hidden&&!document.querySelector('#interval-series-values [data-interval-action]')&&![...document.querySelectorAll('#interval-series-page button')].some(b=>b.offsetParent!==null&&/^(Import|Correct|Withdraw)/.test(b.textContent))&&document.querySelector('#error').hidden`);
