@@ -174,12 +174,12 @@ privileges change.
 Display names (migration 0059) have their own model checks. Add model and Rename
 refuse a display name that begins with a no-break space, ends with an ideographic space
 or contains a right-to-left override, a line separator or a C1 next line, writing
-nothing. Even the table owner cannot store one, also from a session with
-`standard_conforming_strings` off, where both rules still accept ordinary text. Add
-model keeps a name with letters beyond ASCII exactly. Before 0059 applies, its body is
-refused after the display-name rule's definition changes, after the terms rule's
-privileges change and under repeatable read isolation, and it recognizes both rules
-under another caller search path. Over stored display names that follow the rule,
+nothing. The table's check constraint refuses one even from its owner, also from a
+session with `standard_conforming_strings` off, where both rules still accept ordinary
+text. Add model keeps a name with letters beyond ASCII exactly. Before 0059 applies,
+its body is refused after the display-name rule's definition changes, after the terms
+rule's privileges change and under repeatable read isolation, and it recognizes both
+rules under another caller search path. Over stored display names that follow the rule,
 including one of exactly 80 characters beyond ASCII, it applies and leaves those names
 and both rules' owners, grants and settings unchanged. Over stored names that break the
 rule in each of those ways but the C1 control, it stops, naming each model with its
@@ -350,9 +350,10 @@ API and in SQL):
 
 - **Roles:** only the access administrator manages agents; the trader, risk analyst and
   market data editor use agents, and each may delegate; the agent reader holds exactly
-  its three reads. Even for the owner, a human never holds the agent reader role and an
-  agent holds no other, while an earlier grant breaking that rule can still be revoked
-  and a revoked one stays revoked.
+  its three reads. A trigger on role grants refuses, even from the owner, an unrevoked
+  grant of the agent reader role to a human or of any other role to an agent; an
+  earlier grant breaking that rule can still be revoked, and a revoked one stays
+  revoked.
 - **Create:**
   - a name follows the display-name rule and is unique in the workspace whatever the
     case of its ASCII letters, and a create names nothing else;
@@ -384,11 +385,12 @@ API and in SQL):
     terms, both rolled back. A refused save writes nothing.
 - **Publish:** it publishes the newest version, under the current agent version, after
   rechecking the model, and a Retire under its request identity is refused, as is a
-  Publish under a Retire's. Even for the owner, the published version only moves
-  forward, versions are immutable, a version names a model of its agent's workspace
-  with an effort and an output limit its model version allows, and an agent starts at
-  version 1 with an agent principal, unpublished and active. A model edit after
-  publication marks the published version.
+  Publish under a Retire's. Triggers hold for every insert, update and delete, the
+  owner's included: the published version only moves forward, a version is never
+  updated or deleted, a version names a model of its agent's workspace with an effort
+  and an output limit its model version allows, and an agent starts at version 1 with
+  an agent principal, unpublished and active. A model edit after publication marks the
+  published version.
 - **Directory:** it offers only usable models, the roles that use agents and the tools
   with their permissions. It lists each agent once with its changes newest first, and
   another workspace's directory lists none of these agents, models or changes.
@@ -423,8 +425,8 @@ Grants (`tools/check_agent_grants.py`, in the same run, through the API and in S
   - a repeat answers as before and writes nothing, and a request identity used for
     another grant, or by another user, is refused;
   - a new grant replaces the earlier one to that agent, and no other, recorded with it,
-    even when the earlier one has expired, and even the owner cannot hold two unrevoked
-    delegations from one user to one agent;
+    even when the earlier one has expired, and a unique index refuses, even from the
+    owner, a second unrevoked delegation from one user to one agent;
   - held past the API's command timeout it reports `grant_outcome_unknown`, and
     repeating it grants exactly once.
 - **Coverage:** a grant covers a newer version with the same model identity and
@@ -454,9 +456,10 @@ Grants (`tools/check_agent_grants.py`, in the same run, through the API and in S
   administrator; a retired agent is neither offered nor granted; and a Retire under a
   grant's or a Revoke's request identity is refused, writing nothing, so that grant
   still repeats as it did.
-- **Audit and guard:** even the owner cannot change or delete the grant audit. Before
-  0068 applies, it refuses to start while any delegation is unrevoked, even an expired
-  one, revoking nothing, and refuses a change to each pinned helper.
+- **Audit and guard:** row triggers refuse any update or delete of the grant audit,
+  even from the owner. Before 0068 applies, it refuses to start while any delegation
+  is unrevoked, even an expired one, revoking nothing, and refuses a change to each
+  pinned helper.
 
 Turns (`tools/check_agent_turns.py`, in the same run, in SQL, playing the asking request
 and the worker with a session of its own holding the agent-worker lock):
@@ -597,16 +600,17 @@ and the worker with a session of its own holding the agent-worker lock):
   holds, never backward, and it is unread while later events exist; each scope keeps its
   own unfinished turn; another person reads and marks none of them, and a read naming no
   known scope is refused.
-- **Records and guard:** even the owner cannot change an event, move a conversation's
-  read mark back or change anything else of it, rewrite a running turn's answer, clear a
-  refused publication or complete its turn, move a turn backward or change one that
-  ended, nor change a step or what its read ran under; a step without input is a refusal
-  of its arguments and answers its own turn's call. The Providers directory's latest
-  test is never a later turn call. Before 0069 applies, it refuses a change to each
-  pinned helper or to the privileges of one; before 0071 applies, it refuses a change to
-  the ask it replaces or a helper the ask relies on, or to the privileges of one; before
-  0072 applies, it refuses a change to each definition it replaces or helper it relies
-  on, or to the privileges of one.
+- **Records and guard:** triggers and constraints refuse, even from the owner, any
+  update or delete of an event, a step or what its read ran under; deleting a
+  conversation or a turn; moving a conversation's read mark back or changing anything
+  else of it; and rewriting a running turn's answer, clearing a refused publication or
+  completing its turn, moving a turn backward or changing one that ended. A step without
+  input is a refusal of its arguments and answers its own turn's call. The Providers
+  directory's latest test is never a later turn call. Before 0069 applies, it refuses a
+  change to each pinned helper or to the privileges of one; before 0071 applies, it
+  refuses a change to the ask it replaces or a helper the ask relies on, or to the
+  privileges of one; before 0072 applies, it refuses a change to each definition it
+  replaces or helper it relies on, or to the privileges of one.
 
 Turns over HTTP (`tools/check_agent_turn_http.py`, in the same run after the SQL turn
 checks, through the API against the loopback fake provider):

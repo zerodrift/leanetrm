@@ -87,6 +87,12 @@ The migration creates three isolated PostgreSQL roles:
   has narrowly granted market/reference access with RLS bypass for those routines.
   It is never granted to runtime or authenticator roles.
 
+A rule said to hold even for a table's owner is a trigger or constraint on every
+insert, update and delete, whoever runs it. Truncating a table, or disabling or
+dropping its triggers and constraints, takes its owner: database-owner control is
+an administrative trust boundary, not an application permission
+([db/README.md](../db/README.md)).
+
 The trusted authenticator issues an opaque, short-lived request capability from
 verified issuer/subject/login-kind claims and an explicit workspace/delegation.
 The runtime binds it to its exact database login, backend PID and transaction ID.
