@@ -8,6 +8,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const choose=code=>evaluate(`(()=>{const s=document.querySelector('#interval-series-select');s.value=[...s.options].find(o=>o.textContent.includes(${JSON.stringify(code)})).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
  const headIs=(code,head)=>`(async()=>(await(await fetch('/api/interval-series')).json()).series.find(s=>s.code===${JSON.stringify(code)}).head===${head})()`;
  const importCsv=async(reason,csv)=>{await set('#interval-series-reason',reason);await set('#interval-series-csv',csv);await submit('#interval-series-import-form');};
+ const selected=text=>`document.querySelector('#interval-series-selected').textContent===${JSON.stringify(text)}`;
+ const press=async key=>{for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:{ArrowDown:40,ArrowUp:38,Enter:13}[key]});};
  await command('Runtime.enable');await command('Page.enable');await command('Page.navigate',{url:url+'/'});
  await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  // Every revise exchange is recorded; loseNextRevise drops one committed reply, as a broken connection would.
@@ -49,20 +51,33 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  // Known at has whole-second precision, so the chosen instant must fall between two revisions by more than a second.
  await pause(1200);await click('#interval-series-refresh');
  const before=await evaluate("document.querySelector('#interval-series-known').value");
- await click('#interval-series-values tbody tr:nth-child(2) button[data-interval-action="correct"]');
+ await check('Correct and Withdraw wait for a chosen interval and the values hold no buttons',`!document.querySelector('#interval-series-selection').hidden&&${selected('Choose a row to correct or withdraw its interval.')}&&document.querySelector('#interval-series-correct').disabled&&document.querySelector('#interval-series-withdraw').disabled&&!document.querySelector('#interval-series-values tbody button')`);
+ await click('#interval-series-values tbody tr:nth-child(2)');
+ await check('clicking a row chooses its interval and shows its current value',`${selected('Interval starting Jan 1, 2027, 6:00 AM · value 0.5')}&&document.querySelector('#interval-series-values tbody tr:nth-child(2)').getAttribute('aria-current')==='true'&&document.querySelectorAll('#interval-series-values tbody tr[aria-current]').length===1&&!document.querySelector('#interval-series-correct').disabled&&!document.querySelector('#interval-series-withdraw').disabled`);
+ await click('#interval-series-correct');
  await check('Correct stages one interval with its current value',"!document.querySelector('#interval-series-change-form').hidden&&document.querySelector('#interval-series-change-value').value==='0.5'&&document.querySelector('#interval-series-change-title').textContent.includes('6:00 AM')");
+ await click('#interval-series-values tbody tr:nth-child(1)');
+ await check('choosing another interval closes the open change',`document.querySelector('#interval-series-change-form').hidden&&${selected('Interval starting Jan 1, 2027, 5:00 AM · value 0.25')}`);
+ await click('#interval-series-values tbody tr:nth-child(2)');await click('#interval-series-correct');
  await set('#interval-series-reason','Synthetic bad correction');await set('#interval-series-change-value','1e3');await submit('#interval-series-change-form');
  await check('a malformed correction is refused, nothing is outstanding and the form stays open',"document.querySelector('#error').textContent.includes('up to 18 decimal places')&&document.querySelector('#interval-series-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.interval-series.request.'))&&!document.querySelector('#interval-series-change-form').hidden&&document.querySelector('#interval-series-change-value').value==='1e3'&&!document.querySelector('#interval-series-select').disabled&&!document.querySelector('#interval-series-revise-fields').disabled");
  await set('#interval-series-reason','Synthetic correction');await set('#interval-series-change-value','0.4');await submit('#interval-series-change-form');
- await check('a correction is a new revision of that interval',`${values}[1][2]==='0.4'&&${values}[1][3]==='3'&&${values}[0][3]==='1'&&document.querySelector('#interval-series-saved').textContent==='Saved revision 3 · 1 interval.'&&document.querySelector('#interval-series-change-form').hidden`);
+ await check('a correction is a new revision of that interval',`${values}[1][2]==='0.4'&&${values}[1][3]==='3'&&${values}[0][3]==='1'&&document.querySelector('#interval-series-saved').textContent==='Saved revision 3 · 1 interval.'&&document.querySelector('#interval-series-change-form').hidden&&${selected('Choose a row to correct or withdraw its interval.')}`);
  await set('#interval-series-known',before);await submit('#interval-series-form');
- await check('Known at before the correction shows the old value and offers no changes',`${values}[1][2]==='0.5'&&${values}[1][3]==='1'&&${values}.length===4&&!document.querySelector('#interval-series-values [data-interval-action]')&&!${table('interval-series-revisions')}.some(r=>r[0]==='3')`);
+ await check('Known at before the correction shows the old value and offers no changes',`${values}[1][2]==='0.5'&&${values}[1][3]==='1'&&${values}.length===4&&document.querySelector('#interval-series-selection').hidden&&!document.querySelector('#interval-series-values tbody tr[tabindex]')&&!${table('interval-series-revisions')}.some(r=>r[0]==='3')`);
  await click('#interval-series-refresh');
  const editor=(await(await sideSession(url)).call('admin')).members.find(m=>m.login==='editor').name;
  const named=JSON.stringify(editor);
  await check('the change log shows who changed what, why and the previous value',`(()=>{const log=${table('interval-series-changes')}.find(r=>r[2]==='3'),summary=${table('interval-series-revisions')}.find(r=>r[0]==='3');return !!log&&!!summary&&summary[1]===${named}&&summary[2]==='Synthetic correction'&&summary[5]==='1'&&log[3]==='0.5'&&log[4]==='0.4'&&log[5]===${named}&&log[6]==='Synthetic correction';})()`);
 
- await click('#interval-series-values tbody tr:nth-child(4) button[data-interval-action="withdraw"]');
+ await click('#interval-series-values tbody tr:nth-child(1)');await click('#interval-series-refresh');
+ await check('reloading clears the chosen interval',`${selected('Choose a row to correct or withdraw its interval.')}&&!document.querySelector('#interval-series-values tbody tr[aria-current]')&&document.querySelector('#interval-series-correct').disabled`);
+ // One row is the tab stop: the arrow keys move it and Enter chooses the row.
+ await evaluate(`document.querySelector('#interval-series-values tbody tr[tabindex="0"]').focus()`);
+ for(const key of ['ArrowDown','ArrowDown','ArrowDown','ArrowUp','ArrowDown','Enter'])await press(key);
+ await check('the keyboard moves between rows and Enter chooses one',`document.activeElement===document.querySelector('#interval-series-values tbody tr:nth-child(4)')&&document.querySelectorAll('#interval-series-values tbody tr[tabindex]').length===1&&${selected('Interval starting Jan 1, 2027, 8:00 AM · value 0.9')}`,
+  `({focused:document.activeElement?.outerHTML.slice(0,120),stops:document.querySelectorAll('#interval-series-values tbody tr[tabindex]').length,chosen:document.querySelector('#interval-series-selected').textContent})`);
+ await click('#interval-series-withdraw');
  await check('Withdraw asks for no value',"!document.querySelector('#interval-series-change-form').hidden&&document.querySelector('#interval-series-change-field').hidden&&document.querySelector('#interval-series-change-save').textContent==='Withdraw interval'");
  await set('#interval-series-reason','Synthetic withdrawal');await submit('#interval-series-change-form');
  await check('a withdrawn interval leaves the values and shows as withdrawn in the log',`${values}.length===3&&${table('interval-series-changes')}.some(r=>r[2]==='4'&&r[3]==='0.9'&&r[4]==='Withdrawn')`);
@@ -90,7 +105,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
 
  await check('Known from shows seconds and names the offset in the repeated hour',`${table('interval-series-revisions')}.map(r=>r[0]+'@'+r[3]).join()==='8@Nov 1, 2026, 1:30:00 AM GMT-5,7@Nov 1, 2026, 1:30:00 AM GMT-4'&&new Set(${table('interval-series-changes')}.map(r=>r[2]+'@'+r[7])).size===2&&${table('interval-series-changes')}.every(r=>r[7]===(r[2]==='8'?'Nov 1, 2026, 1:30:00 AM GMT-5':'Nov 1, 2026, 1:30:00 AM GMT-4'))&&/ known at [A-Z][a-z]{2} \\d+, 2026, \\d+:\\d\\d:\\d\\d [AP]M/.test(document.querySelector('#interval-series-values-note').textContent)`,"document.querySelector('#interval-series-values-note').textContent");
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
- await evaluate("document.querySelector('#interval-series-define').open=true;document.querySelector('#interval-series-values tbody tr button[data-interval-action=correct]').click();window.scrollTo(0,0)");
+ await evaluate("document.querySelector('#interval-series-define').open=true;document.querySelector('#interval-series-values tbody tr').click();document.querySelector('#interval-series-correct').click();window.scrollTo(0,0)");
  await check('the series page fits a 390 px phone with its forms open',fitsWidth);
  await command('Emulation.clearDeviceMetricsOverride');
 
@@ -112,11 +127,23 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   setTimeout(poll,20);})`);
  console.log(`MEASURE interval series 366-day quarter-hour window: ${timing.total} ms from Show until painted, ${timing.afterReply} ms of it after the change log arrived`);
  await check('the largest window renders every value and change',`${values}.length===35136&&${table('interval-series-changes')}.length===35136&&${table('interval-series-revisions')}.length===1&&${values}[35135][2]==='0.${35135%9+1}'&&document.querySelector('#error').hidden`);
- // Clear the window before the next action: an action disables the 70,272 row buttons first, which blocks the page for tens of seconds.
- await choose('browser_capacity');
+ // A column filter lists every distinct value of its column, so the per-interval columns have none.
+ await check('the largest window lists no per-interval column filters',"document.querySelectorAll('#interval-series-page .column-filter-row option').length<100",
+  "[...document.querySelectorAll('#interval-series-page .column-filter-row select')].map(s=>s.getAttribute('aria-label')+':'+s.options.length)");
+ // What the renderer holds with the largest window shown, then the next actions on it: starting a Correct on its last
+ // interval, and opening Profile, which disables and enables every control on the page.
+ await command('Performance.enable');
+ const heap=Object.fromEntries((await command('Performance.getMetrics')).metrics.map(m=>[m.name,m.value]));
+ const timed=action=>evaluate(`new Promise(accept=>{const started=performance.now();${action};
+  const settled=()=>document.body.getAttribute('aria-busy')==='false'?requestAnimationFrame(()=>setTimeout(()=>accept(Math.round(performance.now()-started)))):setTimeout(settled,20);setTimeout(settled);})`);
+ const correct=await timed("document.querySelector('#interval-series-values tbody tr:last-child').click();document.querySelector('#interval-series-correct').click()");
+ await check('a Correct on the last interval of the largest window stages its value',"document.querySelector('#interval-series-change-title').textContent==='Correct the interval starting Jan 1, 2028, 11:45 PM'&&document.querySelector('#interval-series-change-value').value==='0.9'");
+ const profile=await timed("document.querySelector('#profile-open').click()");
+ console.log(`MEASURE interval series next actions on the largest window: ${correct} ms to choose its last interval and start a Correct, ${profile} ms to open Profile; renderer JS heap ${Math.round(heap.JSHeapUsedSize/2**20)} MiB used of ${Math.round(heap.JSHeapTotalSize/2**20)} MiB, ${heap.Nodes} DOM nodes`);
+ await check('each next action on the largest window finishes within 5 s',`${correct}<5000&&${profile}<5000&&document.querySelector('#profile-dialog').open&&document.querySelector('#error').hidden`);
 
- await persona('viewer');await click('#nav-interval-series');await choose('browser_capacity');
+ await set('#profile','viewer');await click('#open');await click('#nav-interval-series');await choose('browser_capacity');
  await set('#interval-series-from','2027-01-01T05:00');await set('#interval-series-to','2027-01-01T09:00');await submit('#interval-series-form');
- await check('viewers read values and the change log but see no Import, Correct or Withdraw',`${values}.length===3&&${table('interval-series-changes')}.length>0&&document.querySelector('#interval-series-revise-card').hidden&&document.querySelector('#interval-series-define').hidden&&!document.querySelector('#interval-series-values [data-interval-action]')&&![...document.querySelectorAll('#interval-series-page button')].some(b=>b.offsetParent!==null&&/^(Import|Correct|Withdraw)/.test(b.textContent))&&document.querySelector('#error').hidden`);
+ await check('viewers read values and the change log but see no Import, Correct or Withdraw',`${values}.length===3&&${table('interval-series-changes')}.length>0&&document.querySelector('#interval-series-revise-card').hidden&&document.querySelector('#interval-series-define').hidden&&document.querySelector('#interval-series-selection').hidden&&!document.querySelector('#interval-series-values tbody tr[tabindex]')&&![...document.querySelectorAll('#interval-series-page button')].some(b=>b.offsetParent!==null&&/^(Import|Correct|Withdraw)/.test(b.textContent))&&document.querySelector('#error').hidden`);
  await check('no uncaught JavaScript exceptions',JSON.stringify(errors.length===0));
 }

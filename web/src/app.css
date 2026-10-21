@@ -185,6 +185,11 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .regular-table-scroll .column-filter-row th{padding:6px 8px;background:var(--surface-3)}
 .column-filter-row input,.column-filter-row select{width:100%;min-width:90px;min-height:30px;font-size:12px;padding:4px 7px}
 .table-filter-empty{font-size:13px;color:var(--text-3);padding:12px 8px;margin:0}
+.activatable-rows tbody tr{cursor:pointer}
+.activatable-rows tbody tr:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.activatable-rows tbody tr[aria-current="true"] td{background:var(--accent-soft)}
+.interval-series-selection{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px}
+.interval-series-selection p{margin:0}
 
 /* Curves & prices */
 .market-layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px;align-items:start}

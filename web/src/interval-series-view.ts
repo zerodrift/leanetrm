@@ -12,7 +12,8 @@ type Reading={series:{id:string};knownAt:string;head:number;rows:{start:string;e
 type ChangeLog={series:{id:string};revisions:{revision:number;actor:string;reason:string;knownFrom:string;intervals:number;intervalsInWindow:number}[];
   rows:{start:string;end:string;revision:number;previousRevision:number|null;previousValue:string|null;value:string|null;actor:string;reason:string;knownFrom:string}[]};
 type Shown={scope:string;current:boolean;reading:Reading;log:ChangeLog};
-type Staged={start:string;label:string;withdraw:boolean;value:string};
+type Interval={start:string;label:string;value:string};
+type Staged=Interval&{withdraw:boolean};
 type Holder={path:string;pending:PendingCommand;suffix:string;panel:string;retry:string;discard:string;done:(receipt:Receipt,command:RequestCommand)=>Promise<void>};
 
 // A structured refusal from a series route means nothing was saved. Only an unknown outcome leaves a request
@@ -29,7 +30,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  const definition:Holder={path:'interval-series/define',pending:new PendingCommand(definiteRefusal),suffix:'.define',panel:'interval-series-define-pending',retry:'interval-series-define-retry',discard:'interval-series-define-discard',done:defined};
  const revision:Holder={path:'interval-series/revise',pending:new PendingCommand(definiteRefusal),suffix:'',panel:'interval-series-pending',retry:'interval-series-retry',discard:'interval-series-discard',done:revised};
  const holders=[definition,revision];
- let catalog:Catalog|undefined,generation=0,latest:{seriesId:string;head:number}|undefined,shown:Shown|undefined,staged:Staged|undefined;
+ let catalog:Catalog|undefined,generation=0,latest:{seriesId:string;head:number}|undefined,shown:Shown|undefined,staged:Staged|undefined,chosen:Interval|undefined;
  const series=()=>catalog?.series.find(s=>s.id===choice('interval-series-select').value);
  const requireSeries=()=>{const selected=series();if(!selected)throw Error('Choose a series.');return selected;};
  // The head of the latest read at the catalog's own Known at; an earlier Known at never supplies the expected revision.
@@ -84,20 +85,16 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   sync();
  }
  function clearResults(){
-  shown=undefined;staged=undefined;get('interval-series-change-form').hidden=true;
+  shown=undefined;staged=undefined;chosen=undefined;get('interval-series-change-form').hidden=true;get('interval-series-selection').hidden=true;
   for(const id of ['interval-series-values','interval-series-revisions','interval-series-changes'])get(id).replaceChildren();
   get('interval-series-values-note').textContent='';
  }
- function rowActions(start:string,value:string,label:string){
-  const cell=document.createElement('div');
-  for(const [name,withdraw] of [['Correct',false],['Withdraw',true]] as const){
-   const button=document.createElement('button');button.type='button';button.textContent=name;button.dataset.intervalAction=name.toLowerCase();
-   button.setAttribute('aria-label',`${name} the interval starting ${label}`);
-   button.onclick=()=>{if(!o.busy()&&!revision.pending.command)stage({start,label,withdraw,value});};
-   cell.append(button);
-  }
-  return cell;
+ // Correct and Withdraw act on the one interval chosen from the values; choosing another closes a change begun on the last.
+ function chooseInterval(interval:Interval){
+  if(staged?.start!==interval.start){staged=undefined;get('interval-series-change-form').hidden=true;}
+  chosen=interval;showChosen();sync();
  }
+ function showChosen(){get('interval-series-selected').textContent=chosen?`Interval starting ${chosen.label} · value ${chosen.value}`:'Choose a row to correct or withdraw its interval.';}
  function render(){
   describe();
   if(!shown)return;
@@ -106,13 +103,15 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   // Knowledge times show seconds, with an offset where a repeated clock makes two of them alike. A revision has one Known from, shared by its change rows.
   const known=timeLabels([reading.knownAt,...log.revisions.map(r=>r.knownFrom)],zone,true),knownFrom=new Map(log.revisions.map((r,i)=>[r.revision,known[i+1]]));
   get('interval-series-values-note').textContent=`${count} ${count===1?'interval has':'intervals have'} a value · latest revision ${reading.head} known at ${known[0]}${catalog?.canRevise&&!current?' · Reload to correct current values.':''}`;
-  renderRegularTable(get('interval-series-values'),'interval-series-values',scope,['Start','End','Value','Revision',...(editable?['']:[])],
-   reading.rows.map((r,i)=>[labels[i],labels[count+i],r.value,String(r.revision),...(editable?[rowActions(r.start,r.value,labels[i])]:[])]),[2,3],o.busy);
+  renderRegularTable(get('interval-series-values'),'interval-series-values',scope,['Start','End','Value','Revision'],
+   reading.rows.map((r,i)=>[labels[i],labels[count+i],r.value,String(r.revision)]),[2,3],o.busy,
+   {noColumnFilter:[0,1,2],onRowActivate:editable?i=>chooseInterval({start:reading.rows[i].start,label:labels[i],value:reading.rows[i].value}):undefined});
+  get('interval-series-selection').hidden=!editable;showChosen();
   renderRegularTable(get('interval-series-revisions'),'interval-series-revisions',scope,['Revision','Changed by','Reason','Known from','Intervals','In this window'],
    log.revisions.map((r,i)=>[String(r.revision),r.actor,r.reason,known[i+1],String(r.intervals),String(r.intervalsInWindow)]),[0,4,5],o.busy);
   const changed=log.rows.length,spans=timeLabels([...log.rows.map(r=>r.start),...log.rows.map(r=>r.end)],zone);
   renderRegularTable(get('interval-series-changes'),'interval-series-changes',scope,['Start','End','Revision','Previous value','New value','Changed by','Reason','Known from'],
-   log.rows.map((r,i)=>[spans[i],spans[changed+i],String(r.revision),r.previousRevision===null?'None':r.previousValue??'Withdrawn',r.value??'Withdrawn',r.actor,r.reason,knownFrom.get(r.revision)??displayInstant(r.knownFrom,zone,true)]),[2,3,4],o.busy);
+   log.rows.map((r,i)=>[spans[i],spans[changed+i],String(r.revision),r.previousRevision===null?'None':r.previousValue??'Withdrawn',r.value??'Withdrawn',r.actor,r.reason,knownFrom.get(r.revision)??displayInstant(r.knownFrom,zone,true)]),[2,3,4],o.busy,{noColumnFilter:[0,1,3,4,7]});
   sync();
  }
  async function read(){
@@ -183,7 +182,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   for(const h of holders)get(h.panel).hidden=!loaded||!h.pending.command;
   // An outstanding definition must not hide inside the collapsed form.
   if(definition.pending.command)get<HTMLDetailsElement>('interval-series-define').open=true;
-  get('interval-series-values').querySelectorAll<HTMLButtonElement>('button[data-interval-action]').forEach(b=>{b.disabled=busy||reviseLost;});
+  for(const id of ['interval-series-correct','interval-series-withdraw'])get<HTMLButtonElement>(id).disabled=busy||reviseLost||!chosen;
  }
 
  choice('interval-series-select').onchange=()=>{latest=undefined;clearResults();describe();sync();};
@@ -204,6 +203,8 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  get<HTMLFormElement>('interval-series-change-form').onsubmit=event=>{event.preventDefault();if(o.busy()||!staged||!field('interval-series-reason').reportValidity())return;const change=staged;void o.act(async()=>{
   await revise(requireSeries(),[{start:change.start,values:[change.withdraw?null:field('interval-series-change-value').value]}]);
  });};
+ for(const [id,withdraw] of [['interval-series-correct',false],['interval-series-withdraw',true]] as const)
+  get(id).onclick=()=>{if(!o.busy()&&!revision.pending.command&&chosen)stage({...chosen,withdraw});};
  get('interval-series-change-cancel').onclick=()=>{if(!o.busy()){staged=undefined;get('interval-series-change-form').hidden=true;}};
  field('interval-series-file').onchange=()=>{
   const input=field('interval-series-file'),file=input.files?.[0];
@@ -233,6 +234,6 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
    for(const id of ['interval-series-code','interval-series-name','interval-series-reason','interval-series-csv','interval-series-file','interval-series-change-value'])field(id).value='';
    for(const id of ['interval-series-defined','interval-series-saved'])get(id).textContent='';
   },
-  refresh(){from.refresh();to.refresh();known.refresh();staged=undefined;get('interval-series-change-form').hidden=true;render();},
+  refresh(){from.refresh();to.refresh();known.refresh();staged=undefined;chosen=undefined;get('interval-series-change-form').hidden=true;render();},
  };
 }
