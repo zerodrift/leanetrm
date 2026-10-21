@@ -75,7 +75,8 @@ def run_checks(url, query, manifest):
     defined = client.call('interval-series/define', definition)
     series = defined['seriesId']
     refusals += [refused('interval-series/define', {**definition, 'requestId': str(uuid4())}, 422, 'interval_series_code'),
-                 refused('interval-series/revise', revise(0, hours[0], ['0.25'], ' '), 422, 'interval_series_reason')]
+                 refused('interval-series/revise', revise(0, hours[0], ['0.25'], ' '), 422, 'interval_series_reason'),
+                 refused('interval-series/revise', revise(0, hours[0], ['0.25'], 'x' + ' ' * 600), 422, 'interval_series_reason')]
     # A missing expected revision is refused while binding, never read as revision 0.
     unstated = revise(0, hours[0], ['0.25'])
     del unstated['expectedRevision']
@@ -83,6 +84,8 @@ def run_checks(url, query, manifest):
     first = revise(0, hours[0], ['0.25', '0.5', '0.75'], 'Initial synthetic forecast')
     receipt = client.call('interval-series/revise', first)
     values = client.call('interval-series/values', window(hours[0], hours[3]))
+    # A read renders instants with +00:00; sending its knownAt back reads the same values.
+    reread = client.call('interval-series/values', {**window(hours[0], hours[3]), 'knownAt': values['knownAt']})
     check('editor defines and imports an hourly series',
           all(refusals) and catalog['canDefine'] is True and catalog['canRevise'] is True
           and 'synthetic_eastern' in choices['clocks'] and 'test_zero_rate' in choices['specifications']['capacity_factor_forecast']
@@ -91,12 +94,14 @@ def run_checks(url, query, manifest):
           and defined == {'requestId': definition['requestId'], 'seriesId': series, 'revision': 0, 'intervals': 0}
           and receipt == {'requestId': first['requestId'], 'seriesId': series, 'revision': 1, 'intervals': 3}
           and values['head'] == 1 and values['series']['code'] == 'synthetic_http_capacity'
+          and values['knownAt'].endswith('+00:00') and reread['rows'] == values['rows'] and reread['knownAt'] == values['knownAt']
           and [(row['start'], row['end'], row['value'], row['revision']) for row in values['rows']] ==
               [(utc(hours[i]), utc(hours[i + 1]), value, 1) for i, value in enumerate(['0.25', '0.5', '0.75'])])
 
+    resent = client.call('interval-series/revise', first)
     listed = next(s for s in client.call('interval-series')['series'] if s['id'] == series)
     check('lost response is retried safely',
-          client.call('interval-series/revise', first) == receipt and listed['head'] == 1
+          resent == receipt and listed['head'] == 1
           and {k: listed[k] for k in ('code', 'kind', 'specification', 'clock', 'intervalMinutes')} ==
               {'code': 'synthetic_http_capacity', 'kind': 'capacity_factor_forecast', 'specification': 'test_zero_rate',
                'clock': 'synthetic_eastern', 'intervalMinutes': 60})
@@ -117,7 +122,7 @@ def run_checks(url, query, manifest):
 
     check('local and misaligned starts are rejected',
           all(refused('interval-series/revise', revise(2, start, ['0.5']), 422, 'interval_series_instant')
-              for start in ('2027-01-01T06:00:00+01:00', '2027-01-01T06:00:00'))
+              for start in ('2027-01-01T06:00:00+01:00', '2027-01-01T06:00:00', '2027-01-01T05:00:00.Z', '2027-01-01T05:00:00-00:00'))
           and refused('interval-series/revise', revise(2, '2027-01-01T05:30:00Z', ['0.5']), 422, 'interval_series_grid')
           and refused('interval-series/values', {**window(hours[0], hours[3]), 'from': '2027-01-01T06:00:00+01:00'},
                       422, 'interval_series_instant'))
@@ -138,7 +143,7 @@ def run_checks(url, query, manifest):
     check('body limits are route-specific',
           declared(client, 'interval-series/revise', huge) == (413, 'request_size')
           and declared(client, 'corrections', corrections) == (413, 'request_size')
-          and refused('interval-series/revise', revise(2, hours[0], [None] * 750001), 422, 'interval_series_size'))
+          and refused('interval-series/revise', revise(2, hours[0], [None] * 200001), 422, 'interval_series_size'))
 
     editor = query(f"""SELECT m.display_name FROM security.identity_bindings b JOIN security.workspace_memberships m ON m.principal_id=b.principal_id
       WHERE(b.issuer,b.subject)=('https://preview.invalid','editor') AND(m.tenant_id,m.workspace_id)=('{tenant}','{workspace}');""")

@@ -151,7 +151,7 @@ app.Use(async (context,next)=>
             Exception when context.Items.ContainsKey("reference_attempted") && e is NpgsqlException or OperationCanceledException => (503,"reference_outcome_unknown","The reference change outcome is unknown. Inspect saved versions or retry the retained exact request identity."),
             Exception when context.Items.ContainsKey("interval_series_attempted") && e is NpgsqlException or OperationCanceledException => (503,"interval_series_outcome_unknown","The save outcome is unknown. Retry the original request to recover its receipt."),
             OperationCanceledException => (503,"request_cancelled","The request was cancelled or exceeded its time limit."),
-            BadHttpRequestException { StatusCode: 413 } => (413,"request_size","Split the import into smaller revisions."),
+            BadHttpRequestException { StatusCode: 413 } => (413,"request_size","The request body is too large for this operation."),
             BadHttpRequestException or JsonException => (400,"request_format","The request is incomplete or malformed."),
             _ => (500,"preview_error","The preview could not complete the operation.")
         };

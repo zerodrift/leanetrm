@@ -11,7 +11,7 @@ public sealed record IntervalSeriesValue(DateTimeOffset Start,DateTimeOffset End
 // defaulted: a value that is not exactly one clock cell is an error.
 public static class IntervalSeriesGrid
 {
-    public const int MaximumRevisionIntervals=750_000;
+    public const int MaximumRevisionIntervals=200_000;
     public const string Implementation="interval_series_grid_v1";
     private static readonly DateTimeOffset FirstStart=new(2000,1,1,0,0,0,TimeSpan.Zero);
     private static readonly DateTimeOffset StartLimit=new(2100,1,1,0,0,0,TimeSpan.Zero);

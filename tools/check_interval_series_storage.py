@@ -154,6 +154,12 @@ def run_checks(query, manifest):
         reject(committed('editor', revise(series, uuid4(), 2, 'Bulk import', *bulk(fault))), 'P0001: interval_series_values')
     check('one bad row rejects the revision', control['revision'] == 3 and control['intervals'] == 1000 and revisions(series) == '2')
 
+    # The limit counts every character, so padding cannot carry an oversized reason into each change-log row.
+    longest = json.loads(query('BEGIN;' + runtime(issue('editor'), revise(series, uuid4(), 2, 'x' + ' ' * 499, *single(HOURS[3], '2027-01-01T09:00:00Z'))) + 'ROLLBACK;'))
+    reject(committed('editor', revise(series, uuid4(), 2, 'x' + ' ' * 600, *single(HOURS[3], '2027-01-01T09:00:00Z'))),
+           '23514: new row for relation "interval_series_revisions" violates check constraint "interval_series_revisions_reason_check"')
+    check('a reason is at most 500 characters, padding included', longest['revision'] == 3 and revisions(series) == '2')
+
     origin = "TIMESTAMPTZ '2027-01-01T00:00:00Z'"
     widest, wider = [(datetime(2027, 1, 1, tzinfo=timezone.utc) + timedelta(hours=count)).strftime('%Y-%m-%dT%H:%M:%SZ') for count in (35136, 35137)]
     full = read(series, '2027-01-01T00:00:00Z', widest, after)

@@ -33,7 +33,8 @@ internal static class IntervalSeriesChecks
    Equal(r[0].Value!.Value.ToString(),"-12.500000000000000001");Equal((r[1].Value is null).ToString(),"True");Equal(r[1].End.ToString("O"),"2027-01-01T05:30:00.0000000+00:00");});
   Check("non-canonical decimals are rejected",()=>{foreach(var v in new[]{"1e3","+1",".5","1,5"})Reject("numeric_format",()=>IntervalSeriesGrid.Expand(eastern,60,[S("2027-01-01T05:00:00Z",v)]));});
   Check("offset instants are rejected",()=>Reject("interval_series_instant",()=>IntervalSeriesGrid.Expand(eastern,60,[new(new DateTimeOffset(2027,1,1,6,0,0,TimeSpan.FromHours(1)),["1"])])));
-  Check("size, empty and resolution limits",()=>{Reject("interval_series_size",()=>IntervalSeriesGrid.Expand(eastern,5,[S("2027-01-01T05:00:00Z",new string?[750_001])]));
+  Check("size, empty and resolution limits",()=>{Reject("interval_series_size",()=>IntervalSeriesGrid.Expand(eastern,5,[S("2027-01-01T05:00:00Z",new string?[200_001])]));
+   Equal(IntervalSeriesGrid.Expand(eastern,5,[S("2027-01-01T05:00:00Z",new string?[200_000])]).Length.ToString(),"200000");
    Reject("interval_series_empty",()=>IntervalSeriesGrid.Expand(eastern,60,[]));Reject("interval_series_resolution",()=>IntervalSeriesGrid.Expand(eastern,10,[S("2027-01-01T05:00:00Z","1")]));});
 
   Check("every interval start lies in 2000-2099 and on a whole minute",()=>{
@@ -46,7 +47,7 @@ internal static class IntervalSeriesChecks
    Reject("interval_series_resolution",()=>IntervalSeriesGrid.Expand(eastern,10,[]));
    Reject("interval_series_empty",()=>IntervalSeriesGrid.Expand(eastern,60,null!));
    Reject("interval_series_empty",()=>IntervalSeriesGrid.Expand(eastern,60,[S("2027-01-01T05:00:00Z")]));
-   Reject("interval_series_size",()=>IntervalSeriesGrid.Expand(eastern,5,[S("1999-01-01T05:00:00Z",new string?[750_001])]));
+   Reject("interval_series_size",()=>IntervalSeriesGrid.Expand(eastern,5,[S("1999-01-01T05:00:00Z",new string?[200_001])]));
    Reject("interval_series_instant",()=>IntervalSeriesGrid.Expand(eastern,60,[S("2027-01-01T05:30:00Z","1"),S("1999-12-31T23:00:00Z","1")]));
    Reject("interval_series_grid",()=>IntervalSeriesGrid.Expand(eastern,60,[S("2027-01-01T05:00:00Z","bad","1"),S("2027-01-01T05:30:00Z","1")]));
    Reject("interval_series_overlap",()=>IntervalSeriesGrid.Expand(eastern,60,[S("2027-01-01T05:00:00Z","bad"),S("2027-01-01T05:00:00Z","1")]));

@@ -32,8 +32,8 @@ CREATE TABLE market_data.interval_series (
 CREATE TABLE market_data.interval_series_revisions (
  catalog_id uuid NOT NULL,series_id uuid NOT NULL,revision integer NOT NULL CHECK(revision>0),previous_revision integer,
  actor_id uuid NOT NULL,tenant_id uuid NOT NULL,workspace_id uuid NOT NULL,
- reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 500 AND reason !~ '^[[:space:]]*$'),
- request_id uuid NOT NULL,interval_count integer NOT NULL CHECK(interval_count BETWEEN 1 AND 750000),
+ reason text NOT NULL CHECK(length(reason) BETWEEN 1 AND 500 AND reason !~ '^[[:space:]]*$'),
+ request_id uuid NOT NULL,interval_count integer NOT NULL CHECK(interval_count BETWEEN 1 AND 200000),
  publication_order integer NOT NULL CHECK(publication_order>0),publication_xid xid8 NOT NULL,recorded_at ref_data.instant NOT NULL,
  PRIMARY KEY(catalog_id,series_id,revision),UNIQUE(catalog_id,publication_order),UNIQUE(catalog_id,publication_order,publication_xid),
  FOREIGN KEY(catalog_id,series_id) REFERENCES market_data.interval_series(catalog_id,id),
@@ -160,7 +160,7 @@ BEGIN
  -- Every interval has the series' duration and no other interval starts inside it, in this revision
  -- or stored at another start, withdrawn or not: a stored interval changes only at its exact start.
  -- Values are canonical exact decimals, within the value specification's bounds when the series has one.
- IF total IS NULL OR total NOT BETWEEN 1 AND 750000 OR cardinality(ends) IS DISTINCT FROM total OR cardinality(vals) IS DISTINCT FROM total
+ IF total IS NULL OR total NOT BETWEEN 1 AND 200000 OR cardinality(ends) IS DISTINCT FROM total OR cardinality(vals) IS DISTINCT FROM total
   OR EXISTS(SELECT 1 FROM(SELECT u.s,u.e,u.v,lead(u.s) OVER(ORDER BY u.s) following FROM unnest(starts,ends,vals) u(s,e,v)) u
    WHERE CASE WHEN u.s IS NULL OR u.e IS NULL OR NOT isfinite(u.s) OR NOT isfinite(u.e) THEN true
     WHEN u.e-u.s<>make_interval(mins=>selected.interval_minutes) OR u.following<u.e THEN true

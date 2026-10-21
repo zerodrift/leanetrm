@@ -607,7 +607,7 @@ specification or clock does not meet these rules is refused with `interval_serie
 (SQLSTATE 23514). Owner bindings, a curve for shapes and an asset for volumes, belong to later
 phases.
 
-Each revision in `market_data.interval_series_revisions` is a delta of at most 750,000
+Each revision in `market_data.interval_series_revisions` is a delta of at most 200,000
 intervals and records its actor, reason and request identity. Its rows in
 `market_data.interval_series_values` set the intervals it names, keyed by exact UTC start; a
 null value withdraws one. Every revision is certified on the shared knowledge gate:

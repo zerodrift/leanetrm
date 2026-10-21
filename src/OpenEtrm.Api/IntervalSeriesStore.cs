@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Power;
@@ -24,13 +25,17 @@ public sealed record IntervalSeriesCommandReceipt(Guid RequestId,Guid SeriesId,i
 // Audited interval series through the definer operations of migration 0064. This store expands
 // imports onto the series' pinned clock grid; storage rechecks authority, bounds and the head,
 // replays a retried request and certifies each revision's knowledge time at its commit.
-public sealed class IntervalSeriesStore(PreviewDatabase database)
+public sealed partial class IntervalSeriesStore(PreviewDatabase database)
 {
-    private static readonly string[] InstantFormats=["yyyy-MM-dd'T'HH:mm:ss'Z'","yyyy-MM-dd'T'HH:mm:ss.FFFFFF'Z'"];
+    // Zero-offset instants only, Z or +00:00, to the microsecond; reads render +00:00, so clients can send them back.
+    [GeneratedRegex(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|\+00:00)\z",RegexOptions.CultureInvariant)]
+    private static partial Regex InstantSyntax();
+    private static readonly string[] InstantFormats=["yyyy-MM-dd'T'HH:mm:ss.FFFFFF'Z'","yyyy-MM-dd'T'HH:mm:ss.FFFFFFzzz"];
 
     internal static DateTimeOffset ParseInstant(string? value)=>
+        value is not null&&InstantSyntax().IsMatch(value)&&
         DateTimeOffset.TryParseExact(value,InstantFormats,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out var at)?at:
-        throw new MarketDataException("interval_series_instant","Write each instant in UTC with a trailing Z, for example 2027-01-01T05:00:00Z.");
+        throw new MarketDataException("interval_series_instant","Write each instant in UTC with Z or +00:00, for example 2027-01-01T05:00:00Z.");
 
     // One sentence for each storage refusal; Program.cs gives each code its HTTP status.
     public static string Refusal(string code)=>code switch
@@ -90,7 +95,8 @@ public sealed class IntervalSeriesStore(PreviewDatabase database)
     public async Task<IntervalSeriesCommandReceipt> Revise(NpgsqlConnection connection,IntervalSeriesReviseRequest request,CancellationToken ct)
     {
         RequireRequest(request.RequestId);
-        if(string.IsNullOrWhiteSpace(request.Reason)||request.Reason.Trim().Length>500)
+        // Every character counts, padding included: the reason is copied into each change-log row.
+        if(string.IsNullOrWhiteSpace(request.Reason)||request.Reason.Length>500)
             throw new MarketDataException("interval_series_reason","Give a reason of 1 to 500 characters.");
         var (clock,minutes)=await Grid(connection,request.SeriesId,ct);
         // The grid refuses a missing segment or value list; nothing is dropped here.
