@@ -125,7 +125,8 @@ mode:
   a value its member's type cannot hold, such as a whole number beyond a 32-bit
   member's range, or holds an unknown member where its request type refuses one, as
   every Settings › AI and account request does.
-- `request_too_large` (413): a body over 32 KiB.
+- `request_too_large` (413): a body over the route's limit, 32 KiB, or 8 MiB for
+  `/api/interval-series/revise`.
 
 Each answer is a fixed code and message that echo nothing the request held, and
 neither refusal is logged, so no part of a refused provider key reaches an answer or

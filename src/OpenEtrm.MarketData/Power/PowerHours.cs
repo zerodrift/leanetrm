@@ -85,11 +85,10 @@ public static class PowerHours
         var occurrences=new Dictionary<(DateOnly,int,int),int>();
         for(var at=start;at<end;at+=step)
         {
-            var local=TimeZoneInfo.ConvertTime(at,zone);
-            var last=TimeZoneInfo.ConvertTime(at+step-TimeSpan.FromTicks(1),zone);
             // Reject transitions cutting through a cell; never stretch a local label.
-            if(local.Offset!=last.Offset || local.Minute%intervalMinutes!=0 || local.Second!=0)
+            if(!IsCell(zone,at,step))
                 throw new MarketDataException("power_clock","A clock transition cuts through a selected interval.");
+            var local=TimeZoneInfo.ConvertTime(at,zone);
             var day=DateOnly.FromDateTime(local.DateTime);
             var key=(day,local.Hour,local.Minute);
             var occurrence=occurrences.GetValueOrDefault(key)+1;occurrences[key]=occurrence;
@@ -98,6 +97,15 @@ public static class PowerHours
                 intervals.Add(new(at,at+step,day,local.Hour,local.Hour+1,local.Minute,(int)local.Offset.TotalMinutes,occurrence,holiday));
         }
         return intervals.ToArray();
+    }
+
+    // A cell starts on a whole local minute that is a multiple of its length and lies inside one
+    // UTC offset. A clock transition cutting through it makes it no cell: a local label is never stretched.
+    internal static bool IsCell(TimeZoneInfo zone,DateTimeOffset start,TimeSpan step)
+    {
+        var local=TimeZoneInfo.ConvertTime(start,zone);
+        var last=TimeZoneInfo.ConvertTime(start+step-TimeSpan.FromTicks(1),zone);
+        return local.Offset==last.Offset && local.Minute%(int)step.TotalMinutes==0 && local.TimeOfDay.Ticks%TimeSpan.TicksPerMinute==0;
     }
 
     public static string Label(PowerInterval interval,bool hourEnding) =>

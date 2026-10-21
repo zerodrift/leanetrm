@@ -553,7 +553,9 @@ readiness.
 Browser profiles remain under the preview owner's temporary root until its owned
 process group has stopped. A regression checks that a live descendant can still
 finish writing after the browser parent exits; parent exit alone does not permit
-profile deletion.
+profile deletion. macOS refuses to signal a group whose remaining members are
+already exiting; such a group is awaited until it is gone rather than reported as
+stuck, and one that outlives the refusal still fails cleanup.
 
 Debugger startup now qualifies the port, HTTP endpoint and page target within
 one shared 60-second readiness budget. Read-only probes tolerate transient
@@ -1569,3 +1571,53 @@ next steps use, and that unrelated startup failures fail the missing-directory
 check, under the injected timings in Chrome 155. Each fault held one parser
 position or answered one request; other positions, delays and browsers remain
 unchecked, and waits in other checks were not fault-tested.
+
+## Audited interval series
+
+Phase A of the PPA design (D173) is checked in five layers, all on synthetic data in
+owned disposable resources:
+
+```sh
+dotnet run --project tests/OpenEtrm.MarketData.Checks
+npm test --prefix web
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
+  --check --interval-series-check --browser-check --browser /path/to/browser
+```
+
+The managed checks expand segments onto clock grids, including repeated and skipped
+hours and a half-hour clock change, and refuse misaligned, overlapping and
+out-of-range starts. The frontend checks cover the CSV layout, which refusals release
+an outstanding request, and reuse of instant-label formatters. In the owned preview,
+20 storage checks exercise the definer operations directly (specifications of each
+kind's dimension, viewer and reference-less refusal, correction and withdrawal, one
+context per cutoff, change log, inclusive cutoff, stale head, overlaps at both
+boundaries and on withdrawn-only intervals, replay, one bad row, validation under a
+held knowledge gate, reason and window bounds, window ends inside stored or withdrawn
+intervals and in gaps, commit-derived knowledge time, no direct writes, no rows in a
+historical session), 12 HTTP checks exercise the routes as anonymous, viewer and
+editor sessions (refusals, retries, fall-back day, read windows that cut a stored
+interval, historical-session refusal, body limits, change log, reads and a refused
+revision on a clock pinned to another tzdb release) and 38 browser checks drive the
+screen: choosing an interval by click and by keyboard, Correct and Withdraw from the
+action bar, the largest window and the next actions on it, each required to finish
+within 5 s. `tools/check_all.py` runs all five layers.
+
+The commands above passed on 2026-10-21 on macOS 26.6.2 arm64 with .NET
+10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156.0.8078.47: 354
+managed market-data checks, 176 frontend checks, and the 20 storage, 12 HTTP and 38
+browser checks above, the preview command in three consecutive runs. The owned
+database and browser completed teardown in each.
+
+The 20-year workloads are a measurement, not a pass/fail suite, and are not part of
+`tools/check_all.py`:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
+  --interval-series-benchmark
+```
+
+It prints one JSON report among the launcher's log lines and exits nonzero if any step
+is refused, times out or returns a wrong interval count. Its workloads, environment and results are in
+[the implementation record](implementation.md#twenty-year-qualification). They
+establish one editor session's timings on one machine and do not qualify concurrent
+use, a hosted network or the API's Release build.

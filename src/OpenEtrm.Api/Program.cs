@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
@@ -136,6 +137,9 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_runtime_unavailable" => (503,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "amount_format" or "futures_lot" => (422,p.MessageText,"Supply exact supported contract lot terms or deal display precision."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_conflict" or "interval_series_revision_conflict" => (409,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_values" or "interval_series_window" or "interval_series_grid" or "interval_series_code"
+                || p.SqlState=="23514" && p.MessageText=="interval_series_definition" => (422,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_limit" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
             PostgresException p when p.SqlState=="42501" => (403,"access_denied","Database permissions rejected this operation."),
@@ -155,6 +159,7 @@ app.Use(async (context,next)=>
             NpgsqlException when context.Items.ContainsKey("futures_attempted") => (503,"futures_outcome_unknown","The trade request outcome is unknown. Reconcile or retry the retained operation identity."),
             Exception when context.Items.ContainsKey("automation_attempted") && e is NpgsqlException or OperationCanceledException => (503,"job_outcome_unknown","The operation outcome is unknown. Inspect current state or retry the retained exact request identity."),
             Exception when context.Items.ContainsKey("reference_attempted") && e is NpgsqlException or OperationCanceledException => (503,"reference_outcome_unknown","The reference change outcome is unknown. Inspect saved versions or retry the retained exact request identity."),
+            Exception when context.Items.ContainsKey("interval_series_attempted") && e is NpgsqlException or OperationCanceledException => (503,"interval_series_outcome_unknown","The save outcome is unknown. Retry the original request to recover its receipt."),
             OperationCanceledException => (503,"request_cancelled","The request was cancelled or exceeded its time limit."),
             BadHttpRequestException or JsonException => (400,"request_format",malformed),
             _ => (500,"preview_error","The preview could not complete the operation.")
@@ -172,9 +177,19 @@ app.Use(async (context,next)=>
     // nothing. An API answer names the refusal instead, echoing nothing that was read.
     if(apiPath.StartsWithSegments("/api")&&!context.Response.HasStarted&&context.Response.StatusCode is 400 or 413)
     {
-        var (code,message)=context.Response.StatusCode==413?("request_too_large",$"The request body exceeds its {bodyLimit/1024} KiB limit."):("request_format",malformed);
+        var limit=context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize??bodyLimit;
+        var (code,message)=context.Response.StatusCode==413?("request_too_large",$"The request body exceeds its {limit/1024} KiB limit."):("request_format",malformed);
         await context.Response.WriteAsJsonAsync(new {code,message},CancellationToken.None);
     }
+});
+
+// Interval series imports alone accept bodies up to 8 MiB; every other route keeps the 32 KiB limit.
+// Binding refuses a larger body with a bare 413, which the error middleware names request_too_large.
+app.Use((context,next)=>
+{
+    var size=context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=8*1024*1024;
+    return next(context);
 });
 
 if(hostedAuthentication is not null){app.UseAuthentication();app.UseRateLimiter();}
@@ -368,6 +383,21 @@ api.MapPost("/tou-products/save",(HttpContext c,TouProductSaveRequest body)=>Pow
     Results.Ok(await touStore.Save(connection,body,ct))));
 api.MapPost("/tou-products/publish",(HttpContext c,TouProductPublishRequest body)=>PowerOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await touStore.Publish(connection,body,ct))));
+var intervalSeries=new IntervalSeriesStore(database);
+// Interval series work on current data; history is read with each request's explicit knowledge time.
+// Writes never read back in their own transaction, whose revision cannot be certified before it commits.
+Task<IResult> IntervalSeriesOperation<T>(HttpContext c,string permission,Func<NpgsqlConnection,CancellationToken,Task<T>> work)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)
+        throw new MarketDataException("interval_series_historical","Return to working data to edit or read interval series; use Known at on this page for history.");
+    if(permission!="ReadMarketData")c.Items["interval_series_attempted"]=true;
+    return database.WithIdentity(Profile(session),permission,async(connection,ct)=>Results.Ok(await work(connection,ct)),c.RequestAborted);
+});
+api.MapGet("/interval-series",(Func<HttpContext,Task<IResult>>)(c=>IntervalSeriesOperation(c,"ReadMarketData",intervalSeries.Catalog)));
+api.MapPost("/interval-series/define",(HttpContext c,IntervalSeriesDefineRequest body)=>IntervalSeriesOperation(c,"WriteMarketDefinitions",(connection,ct)=>intervalSeries.Define(connection,body,ct)));
+api.MapPost("/interval-series/revise",(HttpContext c,IntervalSeriesReviseRequest body)=>IntervalSeriesOperation(c,"ImportObservations",(connection,ct)=>intervalSeries.Revise(connection,body,ct)));
+api.MapPost("/interval-series/values",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Values(connection,body,ct)));
+api.MapPost("/interval-series/changes",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Changes(connection,body,ct)));
 api.MapGet("/schedules",(Func<HttpContext,Task<IResult>>)(c=>ScheduleOperation(c,(session,data)=>
 {
     var sources=(database.Manifest.Schedules??[]).Select(source=>
