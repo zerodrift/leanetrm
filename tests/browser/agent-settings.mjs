@@ -113,6 +113,17 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await fill({tools:['read_trades'],roles:['market_data_editor']});await submit('#ai-agent-form');
   await check('an allowed role lacking a permission the tools need is refused by name, and nothing is kept',
     `${shown}.includes('The allowed role Market data editor lacks ReadTrades')&&!${retained}`);
+  // The server refuses a request it cannot read, or one larger than it accepts, before any write: the request is
+  // released, and the page states the ranges the entries keep.
+  const refused=await evaluate(`${sent('save')}.length`);
+  const unsaved=`document.querySelector('#ai-agents-pending').hidden&&!${retained}`
+    +`&&(await(await window.__originalFetch('/api/settings/ai/agents')).json()).agents.find(a=>a.name===${JSON.stringify(name)}).newest===null`;
+  await fill({toolSteps:'99999999999'});await submit('#ai-agent-form');
+  await check('tool steps beyond what the server can read are refused with the ranges the entries keep, and nothing is kept',
+    `(async()=>${shown}.includes('1 to 100 tool steps')&&${sent('save')}.at(-1).body.limits.toolSteps===99999999999&&${sent('save')}.length===${refused+1}&&${unsaved})()`);
+  await fill({instructions:'Quote only values you read.\n'+'x'.repeat(32*1024)});await submit('#ai-agent-form');
+  await check('instructions past the request size limit are refused the same way',
+    `(async()=>${shown}.includes('instructions within the limit stated with them')&&${sent('save')}.length===${refused+2}&&${unsaved})()`);
   await fill();await submit('#ai-agent-form');
   await check('a save creates a draft version that the table and card show, and the audit records it',
     `(()=>{const r=${row('ai-agent-table',name)};return r&&r[2]==='Version 1 · draft'&&r[3]==='Not published'&&document.querySelector('#error').hidden;})()`

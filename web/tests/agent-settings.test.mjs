@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {aiTabs,agentChange,agentState,modelChanged,agentRow,versionRows,modelChoices,agentSaveRequest,agentRefusal,boundsHelp,keptModel,outputHelp,agentMessage} from '../dist/agent-settings.js';
+import {aiTabs,agentChange,agentState,modelChanged,agentRow,versionRows,modelChoices,agentSaveRequest,agentRefusal,boundsHelp,keptModel,outputHelp,agentMessage,knownAgentRejection} from '../dist/agent-settings.js';
 
 const vendors=[{code:'anthropic',name:'Anthropic'},{code:'openai',name:'OpenAI'}];
 const roles=[{code:'market_data_editor',name:'Market data editor',permissions:['ReadMarketData','UseAgents']},
@@ -117,8 +117,22 @@ test('an allowed role lacking a permission is named with the permission, from th
 });
 
 test("the codes agents share with the model commands are explained in the agents' terms",()=>{
-  assert.match(agentMessage('model_admin_input'),/1 to 100 tool steps.*1 to 10,000,000 output tokens per call.*0 to 10 retries per call.*a grant of at least one day/);
-  assert.match(agentMessage('model_admin_conflict'),/^This agent changed, its name is taken/);
-  assert.match(agentMessage('model_unqualified'),/^The model is not qualified/);
-  for(const code of ['agent_retired','request_format',undefined])assert.equal(agentMessage(code),undefined);
+  const save='settings/ai/agents/save';
+  assert.match(agentMessage('model_admin_input',save),/1 to 100 tool steps.*1 to 10,000,000 output tokens per call.*0 to 10 retries per call.*a grant of at least one day/);
+  assert.match(agentMessage('model_admin_conflict',save),/^This agent changed, its name is taken/);
+  assert.match(agentMessage('model_unqualified',save),/^The model is not qualified/);
+  for(const code of ['agent_retired',undefined])assert.equal(agentMessage(code,save),undefined);
+});
+
+test("a request the server cannot read, or one larger than it accepts, wrote nothing: it is released, and the ranges explain it where entries were sent",()=>{
+  for(const code of ['request_format','request_too_large']){
+    assert.equal(knownAgentRejection(code),true,code);
+    // A limit beyond its range, or instructions or a grant past the limit stated with them, can make such a request.
+    for(const path of ['settings/ai/agents/create','settings/ai/agents/save'])
+      assert.match(agentMessage(code,path),/^Check the entries: .*instructions within the limit stated with them.*1 to 100 tool steps.*a grant of at least one day, within the limit stated with it\.$/,`${code} ${path}`);
+    // Publish and Retire send no entries, so such a refusal can only mean the page and the server disagree, which a refresh resolves.
+    for(const path of ['settings/ai/agents/publish','settings/ai/agents/retire'])assert.equal(agentMessage(code,path),undefined,`${code} ${path}`);
+  }
+  // An answer that does not show the request was refused before any write keeps it.
+  for(const code of [undefined,'request_failed','response_unknown','model_admin_outcome_unknown'])assert.equal(knownAgentRejection(code),false,String(code));
 });

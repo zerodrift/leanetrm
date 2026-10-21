@@ -13,7 +13,7 @@ type Directory={members:Member[];roles:{code:string;name:string;permissions:stri
 
 export function knownAdministrationRejection(code:string|undefined):boolean{
   return !!code&&['admin_conflict','admin_input','last_administrator','self_access_change','admin_limit','agent_managed',
-    'access_denied','request_format','request_token','definition_rejected'].includes(code);
+    'access_denied','request_format','request_too_large','request_token','definition_rejected'].includes(code);
 }
 export function accessChange(before:Member|null,after:Member):string{
   if(!before)return 'Account created';

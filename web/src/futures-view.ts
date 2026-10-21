@@ -5,6 +5,7 @@ import {setupSwapEditor} from './swap-editor.js';
 import {setupTradeEditor} from './trade-editor.js';
 import {futuresContractDescription,futuresContractKey,type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
+import {knownTradeRejection} from './trade-requests.js';
 import {setupRisk} from './risk-view.js';
 import {futuresInstrumentEditor} from './futures-instrument-editor.js';
 import {createTableWorkspace} from './table-workspace.js';
@@ -203,13 +204,12 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
       })});
     }
   }
-  function rejection(error:unknown){return ((error as {code?:string}).code??'').startsWith('swap_')&&!(error as {code?:string}).code?.endsWith('outcome_unknown')||['trade_operation_conflict','futures_revision_conflict','futures_amendment','futures_no_change','futures_trade','futures_conflict','futures_input','futures_lots','futures_execution','futures_convention','futures_book','futures_definition','futures_execution_policy','futures_limit','historical_read_only','access_denied','request_format','request_token','numeric_format','price_domain','quote_specification'].includes((error as {code?:string}).code??'');}
   async function send(command:RequestCommand){
     const retrying=uncertain;uncertain=true;store();
     try{await api(command.path,{...command.body,operationId:command.operationId});}
     catch(error){
       // A rejected retry says nothing about the original uncertain outcome.
-      if(!retrying&&rejection(error)){pending.clear();uncertain=false;store();}
+      if(!retrying&&knownTradeRejection((error as {code?:string}).code)){pending.clear();uncertain=false;store();}
       if(command.path==='futures/amend')editor.reset();if(command.path.startsWith('swaps/'))swapEditor.reset();if((error as {code?:string}).code==='access_denied')clear();sync();throw error;
     }
     pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load();
