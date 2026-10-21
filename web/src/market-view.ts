@@ -65,7 +65,7 @@ export function marketGroups(workspace:Workspace,by:'commodity'|'marketType',com
 export function displayDate(value:string){return new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(value+'T00:00:00Z'));}
 export function pointDate(point:Point){const date=point.maturity??point.deliveryFrom;if(!date)throw Error('This sample has no date.');return date;}
 export function pointIdentity(point:Point){const id=point.seriesId??point.contractId;if(!id)throw Error('This sample is unavailable.');return id;}
-export function displayInstant(value:string,zone:string){return new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:zone}).format(new Date(value));}
+export function displayInstant(value:string,zone:string,seconds=false){return new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',...(seconds?{second:'2-digit'}:{}),timeZone:zone}).format(new Date(value));}
 export function deliveryMonth(value:string){return new Intl.DateTimeFormat('en',{month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(value+'T00:00:00Z'));}
 export function deliveryLabel(from:string,to:string){
   const next=new Date(from+'T00:00:00Z'),end=new Date(to+'T00:00:00Z');
@@ -81,12 +81,12 @@ export function historyPriceLabel(point:HistoryPoint){
   if(point.unavailableReason==='missing_observation')return 'No saved price';
   throw Error('The price history availability is missing.');
 }
-// Display minutes without rounding or changing the underlying instant. Repeated
+// Display minutes (or seconds) without rounding or changing the underlying instant. Repeated
 // local clocks get an offset only where needed (e.g. the autumn DST fold).
-export function timeLabels(values:string[],zone:string){
-  const labels=values.map(v=>displayInstant(v,zone)),minutes=values.map(v=>Math.floor(new Date(v).getTime()/60000));
+export function timeLabels(values:string[],zone:string,seconds=false){
+  const labels=values.map(v=>displayInstant(v,zone,seconds)),units=values.map(v=>Math.floor(new Date(v).getTime()/(seconds?1000:60000)));
   const identities=new Map<string,Set<number>>();
-  labels.forEach((label,i)=>{if(!identities.has(label))identities.set(label,new Set());identities.get(label)!.add(minutes[i]);});
+  labels.forEach((label,i)=>{if(!identities.has(label))identities.set(label,new Set());identities.get(label)!.add(units[i]);});
   return labels.map((label,i)=>identities.get(label)!.size<2?label:`${label} ${new Intl.DateTimeFormat('en',{timeZone:zone,timeZoneName:'shortOffset'}).formatToParts(new Date(values[i])).find(p=>p.type==='timeZoneName')!.value}`);
 }
 export function frameOptions(frames:FrameSummary[],zone:string){

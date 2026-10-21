@@ -6,7 +6,7 @@ import {csvSegments} from './interval-series-csv.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Series={id:string;code:string;name:string;kind:string;specification:string;clock:string;intervalMinutes:number;head:number};
-type Catalog={knownAt:string;series:Series[];choices:{clocks:string[];specifications:Record<string,string[]>};canDefine:boolean;canRevise:boolean};
+type Catalog={knownAt:string;series:Series[];choices:{clocks:string[];resolutions:number[];specifications:Record<string,string[]>};canDefine:boolean;canRevise:boolean};
 type Receipt={requestId:string;seriesId:string;revision:number;intervals:number};
 type Reading={series:{id:string};knownAt:string;head:number;rows:{start:string;end:string;value:string;revision:number}[]};
 type ChangeLog={series:{id:string};revisions:{revision:number;actor:string;reason:string;knownFrom:string;intervals:number;intervalsInWindow:number}[];
@@ -15,8 +15,8 @@ type Shown={scope:string;current:boolean;reading:Reading;log:ChangeLog};
 type Staged={start:string;label:string;withdraw:boolean;value:string};
 type Holder={path:string;pending:PendingCommand;suffix:string;panel:string;retry:string;discard:string;done:(receipt:Receipt,command:RequestCommand)=>Promise<void>};
 
-// Every refusal the series routes make before committing; only an unknown outcome leaves a request outstanding.
-const rejected=(code?:string)=>!!code&&code!=='interval_series_outcome_unknown'&&(code.startsWith('interval_series_')||['access_denied','request_format','request_token','request_size'].includes(code));
+// Every refusal the series routes make before committing, a malformed number included; only an unknown outcome leaves a request outstanding.
+const rejected=(code?:string)=>!!code&&code!=='interval_series_outcome_unknown'&&(code.startsWith('interval_series_')||['access_denied','request_format','request_token','request_size','numeric_format','numeric_range'].includes(code));
 
 export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -58,6 +58,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   if(selectedId&&catalog.series.some(s=>s.id===selectedId))choice('interval-series-select').value=selectedId;
   choose('interval-series-kind','Choose a kind…',Object.keys(catalog.choices.specifications).map(kind=>[kind,friendly(kind)]));
   choose('interval-series-clock','Choose a clock…',catalog.choices.clocks.map(code=>[code,friendly(code)]));
+  choose('interval-series-minutes','Choose a resolution…',catalog.choices.resolutions.map(minutes=>[String(minutes),`${minutes} minutes`]));
   specifications();
   get('interval-series-define').hidden=!catalog.canDefine;get('interval-series-revise-card').hidden=!catalog.canRevise;
   describe();
@@ -74,8 +75,8 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  // Forget the catalog and everything read through it; typed entries and outstanding requests stay with their owners.
  function unload(){
   generation++;catalog=undefined;latest=undefined;clearResults();
-  for(const id of ['interval-series-select','interval-series-kind','interval-series-specification','interval-series-clock'])choice(id).replaceChildren();
-  choice('interval-series-minutes').value='';get('interval-series-summary').textContent='';
+  for(const id of ['interval-series-select','interval-series-kind','interval-series-specification','interval-series-clock','interval-series-minutes'])choice(id).replaceChildren();
+  get('interval-series-summary').textContent='';
   get('interval-series-define').hidden=true;get('interval-series-revise-card').hidden=true;
   sync();
  }
@@ -99,14 +100,16 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   if(!shown)return;
   const {reading,log,current,scope}=shown,zone=o.zone(),editable=!!catalog?.canRevise&&current;
   const count=reading.rows.length,labels=timeLabels([...reading.rows.map(r=>r.start),...reading.rows.map(r=>r.end)],zone);
-  get('interval-series-values-note').textContent=`${count} ${count===1?'interval has':'intervals have'} a value · latest revision ${reading.head} known at ${displayInstant(reading.knownAt,zone)}${catalog?.canRevise&&!current?' · Reload to correct current values.':''}`;
+  // Knowledge times show seconds, with an offset where a repeated clock makes two of them alike. A revision has one Known from, shared by its change rows.
+  const known=timeLabels([reading.knownAt,...log.revisions.map(r=>r.knownFrom)],zone,true),knownFrom=new Map(log.revisions.map((r,i)=>[r.revision,known[i+1]]));
+  get('interval-series-values-note').textContent=`${count} ${count===1?'interval has':'intervals have'} a value · latest revision ${reading.head} known at ${known[0]}${catalog?.canRevise&&!current?' · Reload to correct current values.':''}`;
   renderRegularTable(get('interval-series-values'),'interval-series-values',scope,['Start','End','Value','Revision',...(editable?['']:[])],
    reading.rows.map((r,i)=>[labels[i],labels[count+i],r.value,String(r.revision),...(editable?[rowActions(r.start,r.value,labels[i])]:[])]),[2,3],o.busy);
   renderRegularTable(get('interval-series-revisions'),'interval-series-revisions',scope,['Revision','Changed by','Reason','Known from','Intervals','In this window'],
-   log.revisions.map(r=>[String(r.revision),r.actor,r.reason,displayInstant(r.knownFrom,zone),String(r.intervals),String(r.intervalsInWindow)]),[0,4,5],o.busy);
+   log.revisions.map((r,i)=>[String(r.revision),r.actor,r.reason,known[i+1],String(r.intervals),String(r.intervalsInWindow)]),[0,4,5],o.busy);
   const changed=log.rows.length,spans=timeLabels([...log.rows.map(r=>r.start),...log.rows.map(r=>r.end)],zone);
   renderRegularTable(get('interval-series-changes'),'interval-series-changes',scope,['Start','End','Revision','Previous value','New value','Changed by','Reason','Known from'],
-   log.rows.map((r,i)=>[spans[i],spans[changed+i],String(r.revision),r.previousRevision===null?'None':r.previousValue??'Withdrawn',r.value??'Withdrawn',r.actor,r.reason,displayInstant(r.knownFrom,zone)]),[2,3,4],o.busy);
+   log.rows.map((r,i)=>[spans[i],spans[changed+i],String(r.revision),r.previousRevision===null?'None':r.previousValue??'Withdrawn',r.value??'Withdrawn',r.actor,r.reason,knownFrom.get(r.revision)??displayInstant(r.knownFrom,zone,true)]),[2,3,4],o.busy);
   sync();
  }
  async function read(){

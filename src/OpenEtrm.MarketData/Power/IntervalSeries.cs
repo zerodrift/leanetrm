@@ -13,13 +13,15 @@ public static class IntervalSeriesGrid
 {
     public const int MaximumRevisionIntervals=200_000;
     public const string Implementation="interval_series_grid_v1";
+    // The resolutions a series may have, in minutes; the catalog offers exactly these and storage constrains to them.
+    public static ImmutableArray<int> Resolutions { get; } = [5, 15, 30, 60];
     private static readonly DateTimeOffset FirstStart=new(2000,1,1,0,0,0,TimeSpan.Zero);
     private static readonly DateTimeOffset StartLimit=new(2100,1,1,0,0,0,TimeSpan.Zero);
 
     public static ImmutableArray<IntervalSeriesValue> Expand(PowerClock clock,int intervalMinutes,IReadOnlyList<IntervalSeriesSegment> segments)
     {
         ArgumentNullException.ThrowIfNull(clock);
-        if(intervalMinutes is not (5 or 15 or 30 or 60))
+        if(!Resolutions.Contains(intervalMinutes))
             throw new MarketDataException("interval_series_resolution","Choose a 5, 15, 30 or 60 minute resolution.");
         if(segments is null || segments.Count==0 || segments.Any(s=>s is null || s.Values.IsDefaultOrEmpty))
             throw new MarketDataException("interval_series_empty","Supply at least one segment, each with at least one value.");

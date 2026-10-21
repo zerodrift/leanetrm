@@ -35,7 +35,9 @@ internal static class IntervalSeriesChecks
   Check("offset instants are rejected",()=>Reject("interval_series_instant",()=>IntervalSeriesGrid.Expand(eastern,60,[new(new DateTimeOffset(2027,1,1,6,0,0,TimeSpan.FromHours(1)),["1"])])));
   Check("size, empty and resolution limits",()=>{Reject("interval_series_size",()=>IntervalSeriesGrid.Expand(eastern,5,[S("2027-01-01T05:00:00Z",new string?[200_001])]));
    Equal(IntervalSeriesGrid.Expand(eastern,5,[S("2027-01-01T05:00:00Z",new string?[200_000])]).Length.ToString(),"200000");
-   Reject("interval_series_empty",()=>IntervalSeriesGrid.Expand(eastern,60,[]));Reject("interval_series_resolution",()=>IntervalSeriesGrid.Expand(eastern,10,[S("2027-01-01T05:00:00Z","1")]));});
+   Reject("interval_series_empty",()=>IntervalSeriesGrid.Expand(eastern,60,[]));Reject("interval_series_resolution",()=>IntervalSeriesGrid.Expand(eastern,10,[S("2027-01-01T05:00:00Z","1")]));
+   Equal(string.Join(",",IntervalSeriesGrid.Resolutions),"5,15,30,60");
+   foreach(var minutes in IntervalSeriesGrid.Resolutions)Equal(IntervalSeriesGrid.Expand(eastern,minutes,[S("2027-01-01T05:00:00Z","1")]).Single().End.ToString("O"),DateTimeOffset.Parse("2027-01-01T05:00:00Z").AddMinutes(minutes).ToString("O"));});
 
   Check("every interval start lies in 2000-2099 and on a whole minute",()=>{
    Equal(IntervalSeriesGrid.Expand(eastern,60,[S("2000-01-01T00:00:00Z","1")]).Single().Start.ToString("O"),"2000-01-01T00:00:00.0000000+00:00");

@@ -88,7 +88,8 @@ def run_checks(url, query, manifest):
     reread = client.call('interval-series/values', {**window(hours[0], hours[3]), 'knownAt': values['knownAt']})
     check('editor defines and imports an hourly series',
           all(refusals) and catalog['canDefine'] is True and catalog['canRevise'] is True
-          and 'synthetic_eastern' in choices['clocks'] and 'test_zero_rate' in choices['specifications']['capacity_factor_forecast']
+          and 'synthetic_eastern' in choices['clocks'] and choices['resolutions'] == [5, 15, 30, 60]
+          and 'test_zero_rate' in choices['specifications']['capacity_factor_forecast']
           and 'test_power_outright' in choices['specifications']['additive_price_shape']
           and 'test_power_quantity' in choices['specifications']['metered_energy']
           and defined == {'requestId': definition['requestId'], 'seriesId': series, 'revision': 0, 'intervals': 0}

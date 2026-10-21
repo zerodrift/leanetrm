@@ -71,8 +71,10 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
                 WHERE(q.catalog_id,q.revision_id,q.dimension_code)=($2,$3,'energy')))))::text
             """,database.Manifest.CatalogId,database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId);
         using var listed=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);
+        var offered=listed.RootElement.GetProperty("choices");
         return new{knownAt=knownAt.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",CultureInfo.InvariantCulture),
-            series=listed.RootElement.GetProperty("series").Clone(),choices=listed.RootElement.GetProperty("choices").Clone(),
+            series=listed.RootElement.GetProperty("series").Clone(),
+            choices=new{clocks=offered.GetProperty("clocks").Clone(),specifications=offered.GetProperty("specifications").Clone(),resolutions=IntervalSeriesGrid.Resolutions},
             canDefine=await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct),
             canRevise=await PreviewDatabase.HasPermission(connection,"ImportObservations",ct)};
     }
@@ -80,7 +82,7 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
     public async Task<IntervalSeriesCommandReceipt> Define(NpgsqlConnection connection,IntervalSeriesDefineRequest request,CancellationToken ct)
     {
         RequireRequest(request.RequestId);
-        if(request.IntervalMinutes is not (5 or 15 or 30 or 60))
+        if(!IntervalSeriesGrid.Resolutions.Contains(request.IntervalMinutes))
             throw new MarketDataException("interval_series_resolution","Choose a 5, 15, 30 or 60 minute resolution.");
         if(string.IsNullOrWhiteSpace(request.Name)||request.Name!=request.Name.Trim()||request.Name.Length>80)
             throw new MarketDataException("interval_series_definition","Name the series in 1 to 80 characters without leading or trailing spaces.");
