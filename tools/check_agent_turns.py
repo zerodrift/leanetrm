@@ -49,6 +49,21 @@ def check_upgrade(query, migration):
         ('REVOKE EXECUTE ON FUNCTION assistant.start_worker() FROM openetrm_runtime;', 'assistant.start_worker()')))
 
 
+ASK = ('assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamp with time zone,text,bigint,text,'
+       'integer,integer,integer)')
+ASK_HELPERS = ('assistant.grant_actor(boolean)', 'assistant.is_instructions(text)', 'assistant.is_display_name(text)', 'assistant.holds_worker_lock(integer)',
+               'assistant.turn_state(assistant.turns)', 'assistant.turn_event(assistant.turns,text,jsonb)', 'assistant.end_turn_as(assistant.turns,text,text)',
+               'assistant.ask_authority(security.request_contexts,assistant.agents,integer)', 'assistant.call_blocker(uuid,integer,timestamp with time zone)')
+
+
+def check_admitted_upgrade(query, migration):
+    """Before 0071 applies: it refuses a changed ask or helper the ask relies on, or one whose privileges differ."""
+    check_guard(query, migration, '0071', 'admitted_asks', (
+        *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in (*ASK_HELPERS, ASK)),
+        ('GRANT EXECUTE ON FUNCTION assistant.turn_state(assistant.turns) TO openetrm_runtime;', 'assistant.turn_state(assistant.turns)'),
+        (f'REVOKE EXECUTE ON FUNCTION {ASK} FROM openetrm_runtime;', ASK)))
+
+
 def literal(value):
     return 'NULL' if value is None else "'" + str(value).replace("'", "''") + "'"
 
@@ -258,8 +273,8 @@ def run_checks(url, query, psql, manifest, environment):
     first = Turn()
     asked = ask(first)
     conversation = asked['turn']['conversationId']
-    check('an admitted ask creates the conversation and the queued turn under the covering grant, with its accepted event',
-          asked['turn']['state'] == 'queued' and asked['turn']['ordinal'] == 1 and asked['turn']['version'] == 1 and not asked['turn']['draft']
+    check('an admitted ask creates the conversation and the queued turn under the covering grant, with its accepted event, and is answered '
+          'as admitted', asked.get('admitted') is True and asked['turn']['state'] == 'queued' and asked['turn']['ordinal'] == 1 and asked['turn']['version'] == 1 and not asked['turn']['draft']
           and query(f"SELECT delegation_id||' '||cardinality(included_turns)||' '||generation||' '||token_digest||' '||runtime_set FROM assistant.turns "
                     f"WHERE id='{first.id}';") == f"{covering['id']} 0 {worker.generation} {first.digest} turns_v1"
           and kinds(first) == 'accepted', asked)
@@ -268,8 +283,8 @@ def run_checks(url, query, psql, manifest, environment):
     replayed = ask(Turn(), operation=operation)
     for request in ({'question': 'Something else?'}, {'conversation': conversation}, {'scope': 'exchange'}, {'mode': 'retained', 'context': str(uuid4())}):
         refusal('trader', 'turn_conflict', operation=operation, **request)
-    check('repeating the ask answers with its turn and writes nothing; any other ask under its identity conflicts',
-          replayed == asked and query(RECORDS) == records)
+    check('repeating the ask answers with its turn, not as admitted, and writes nothing; any other ask under its identity conflicts',
+          replayed == {'turn': asked['turn']} and query(RECORDS) == records, replayed)
     write_refused('turn_state_conflict', 'start_turn', first)
     contexts.runtime('viewer', expect(f'PERFORM {pin_sql(first)};', '42501'))
     for profile, token in (('risk', None), ('trader', secrets.token_bytes(32))):
@@ -347,8 +362,9 @@ def run_checks(url, query, psql, manifest, environment):
                               ending='COMMIT')
     thread.join(timeout=15)
     original.id = answers['answer']['turn']['id']
-    check('an identical ask sent while its original still runs waits for it and answers with its turn',
-          query(f"SELECT count(*)||' '||max(token_digest) FROM assistant.turns WHERE operation_id='{operation}';") == f'1 {original.digest}')
+    check('an identical ask sent while its original still runs waits for it and answers with its turn, not as admitted',
+          query(f"SELECT count(*)||' '||max(token_digest) FROM assistant.turns WHERE operation_id='{operation}';") == f'1 {original.digest}'
+          and 'admitted' not in answers['answer'], answers)
     lapsed = contexts.expiring(psql, environment, 'context', f"SELECT 1 FROM security.principals WHERE id='{trader_principal}' FOR NO KEY UPDATE",
                                f'SELECT {ask_sql(Turn(), operation=operation)};', subject='trader')
     check('a repeat whose authority lapses while it waits for its original is refused at its recheck', lapsed_in(lapsed, 'ask_turn'), lapsed)

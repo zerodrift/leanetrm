@@ -185,6 +185,8 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         admin.call('/api/settings/ai/agents',expected=404)
         admin.call('/api/assistant/agents',expected=404)
         admin.call('/api/assistant/grants',expected=404)
+        for path in ('/api/assistant/conversations',f'/api/assistant/conversations/{uuid4()}?after=0','/api/assistant/turns/unfinished'):
+            admin.call(path,expected=404)
         # A request token is bound to its route's scope, so an unmapped route refuses a token that a mapped one accepts.
         provider={'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0}
         for path,body in (('/api/settings/ai/providers/key',{**provider,'key':'sk-synthetic-hosted-0000'}),
@@ -197,10 +199,14 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
                           *((f'/api/settings/ai/agents/{action}',{'operationId':str(uuid4()),'agentId':str(uuid4()),'expectedVersion':1})
                             for action in ('save','publish','retire')),
                           ('/api/assistant/grants/grant',{'operationId':str(uuid4()),'agentId':str(uuid4()),'version':1}),
-                          ('/api/assistant/grants/revoke',{'operationId':str(uuid4()),'grantId':str(uuid4())})):
+                          ('/api/assistant/grants/revoke',{'operationId':str(uuid4()),'grantId':str(uuid4())}),
+                          ('/api/assistant/turns/ask',{'operationId':str(uuid4()),'conversationId':None,'agentId':str(uuid4()),'version':1,
+                                                       'question':'Hosted?','pageReport':{'page':'curves'},'knowledge':{'mode':'current','contextId':None,'frameId':None}}),
+                          ('/api/assistant/turns/stop',{'turnId':str(uuid4())}),
+                          ('/api/assistant/conversations/read',{'conversationId':str(uuid4()),'through':0})):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
-        print('PASS hosted mode maps no page-assistant administration or grant route, even for a provider administrator',flush=True)
+        print('PASS hosted mode maps no page-assistant administration, grant or turn route, even for a provider administrator',flush=True)
         assert query(worker) == before_worker
         print('PASS a hosted start takes no agent-worker lock and changes no worker generation or model call',flush=True)
         retained, _ = client.call('/api/bootstrap')

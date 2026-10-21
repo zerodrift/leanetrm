@@ -1,7 +1,7 @@
 namespace OpenEtrm.Api;
 
 // The runtime set (docs/ai-assistant.md §7.5): limits that ship with the application, never host configuration.
-// These are the ones provider Test uses; turns add theirs.
+// Every turn records the version its process applied.
 static class RuntimeSet
 {
     public static readonly TimeSpan ProviderConnect=TimeSpan.FromSeconds(5);
@@ -13,4 +13,20 @@ static class RuntimeSet
     public const int AgentInstructions=6000;
     // The longest grant a version may ask for (§7.1).
     public const int MaxGrantDays=90;
+    public const string Turns="turns_v1";
+    // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
+    public const int QuestionLength=4000;
+    // The turns a workspace runs at once.
+    public const int WorkspaceTurns=4;
+    // Above the request deadline of 15 seconds, so admission never takes an ask still pinning its context for a stuck one.
+    public const int AdmissionSeconds=30;
+    // The catalog's retained contexts a turn's capture leaves for page captures (§7.2).
+    public const int RetainedContextReserve=64;
+    // How long streamed text gathers before one publication, and the most UTF-8 bytes one publication carries.
+    public static readonly TimeSpan TextCoalescing=TimeSpan.FromMilliseconds(250);
+    public const int TextChunkBytes=2048;
+    // The wait before a turn's first retry, doubled for each later one.
+    public static readonly TimeSpan RetryBackoff=TimeSpan.FromSeconds(1);
+    // The longest one worker write may take, and the wait before a write that must land is tried again.
+    public static readonly TimeSpan WorkerWrite=TimeSpan.FromSeconds(5),WorkerRetry=TimeSpan.FromSeconds(2);
 }

@@ -162,7 +162,7 @@ public sealed partial class ModelCatalog
         "admin_limit"=>"A workspace has at most 256 members, agents included.",
         "parameter_required"=>"Choose one of the reasoning efforts the model's capability version records.",
         "test_in_progress"=>"This test has no recorded outcome yet. Repeat the identical request to read it once it is recorded.",
-        "agent_runtime_unavailable"=>"Tests run only while this preview holds the agent worker, which another preview process may hold or whose connection was lost. Try again shortly.",
+        "agent_runtime_unavailable"=>"The page assistant runs only while this preview holds the agent worker, which another preview process may hold or whose connection was lost. Try again shortly.",
         _=>"Supply every required field in its documented form, with the version you are changing."
     };
 }

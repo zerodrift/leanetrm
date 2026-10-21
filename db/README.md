@@ -815,3 +815,14 @@ matching visible row, so a row the sealer cannot see refuses the seal. The check
 trigger and leave `validate_revision` unchanged. All five tables are immutable definition rows under the read
 policies of the other market definition tables. As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).
+
+## Page-assistant ask answers
+
+[0071_admitted_asks.sql](migrations/0071_admitted_asks.sql) has `ask_turn` say when its
+answer admitted the turn ([ai-assistant.md](../docs/ai-assistant.md) §7.4, §8). Only the
+process that asked holds the turn's token, so only the answer that admits a turn may
+have that process pin the turn and hand it to the worker; a repeat answers with its turn
+as it stands, as before. In 0069 the two answers were alike. Nothing else changes; the
+replaced definition keeps its owner and grants. The migration first verifies the helpers
+the ask relies on and the definition it replaces. As a new migration it stops automatic
+hosted updates until the operator qualifies a new baseline (D135).

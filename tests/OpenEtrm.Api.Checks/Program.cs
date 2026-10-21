@@ -40,6 +40,7 @@ if (args is ["--schedules"])
     HostedAccessChecks.Run();
     CredentialCustodyChecks.Run();
     await ModelProviderChecks.Run();
+    TurnWorkerChecks.Run();
     PowerImportChecks.Run();
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();

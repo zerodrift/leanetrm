@@ -468,9 +468,10 @@ Provider Test (migration 0062, step 4) is the first route that calls a provider:
     authority.
 - **Worker:** one agent worker per database holds session-level advisory lock 730849160 on
   an unpooled connection, so a start that fails releases the lock it took.
-  - The API consults the worker only after the permission check, and probes its connection
-    within its own timeout before each test. A worker that cannot start is logged; it
-    refuses new tests, but a retry still returns a finished test's outcome.
+  - The API consults the worker only after the permission check, and runs no command on
+    its connection, which only holds the lock and, from step 5, listens. A worker that
+    cannot start is logged; it refuses new tests, but a retry still returns a finished
+    test's outcome.
   - A test is opened only under the current generation while that generation's worker
     still holds the lock, so another process's API refuses tests.
   - A worker start closes, once, every test an earlier generation left open. Migration
@@ -561,8 +562,9 @@ are refused:
   agent or the grant. Each write advances the epoch, so it fences a delivery-price
   attempt in progress.
 
-Turns (migration 0069, step 5) are recorded in the database; the worker and the API
-routes that use them come later ([ai-assistant.md](ai-assistant.md) §7.4):
+Turns (migrations 0069 and 0071, step 5) are recorded in the database; in the local
+preview the API asks, stops and reads them and an in-process worker runs them
+([ai-assistant.md](ai-assistant.md) §7.2, §7.4):
 
 - **Ask** runs in a person's own request context, unexpired and undelegated, as an
   enabled member, with `UseAgents` and `CreateDelegations`. It names an agent version
@@ -607,3 +609,31 @@ routes that use them come later ([ai-assistant.md](ai-assistant.md) §7.4):
   or record backward, change an ended turn or rewrite answer text, or change a
   conversation except to mark it read further. The runtime holds no privilege on the
   turn tables and executes none of the internal turn helpers.
+- **Routes:** ask, Stop and the owner's reads run in the session's request context as
+  its profile, one request at a time per session, in the route group's scope (`api`, or
+  `exchange` for the exchange example), and every POST needs the page's origin and
+  request token. The database knows the session by a random digest, never its cookie,
+  with its profile and end. Hosted mode maps none of these routes.
+- **Asking:** the API generates the turn's 32-byte token; admission stores only its
+  SHA-256 digest, and the record write and every worker write present the token. Only
+  the answer that admits a turn has the request write its record, in a short
+  transaction of its own, and hand the token to the worker, which holds it only in
+  memory; a repeat answers with its turn as it stands. However the record write fails,
+  the turn fails in a scope of its own: with the database's refusal, `access_denied`
+  for a refused permission, `request_cancelled` after an abort or the deadline, or
+  `agent_runtime_unavailable` otherwise. Once that lands its ending is the answer;
+  otherwise the error is, and the turn ends later: `ask_incomplete` at admission's
+  deadline while it has no record, or interrupted.
+- **The worker** holds the agent-worker lock on its unpooled connection, which then
+  listens on `assistant_turn_cancel`; its writes use a pool of their own. However that
+  connection ends, the generation ends with it: the process's turns stop their calls,
+  the lock is released, and the next start interrupts the turns. Each call opens in one
+  transaction with `open_turn_call`, the decrypted key and the adapter's checks, so
+  nothing is sent unless the open commits. The key stays in the worker's memory and
+  reaches only the request's header. A cancel notification, a profile switch, the
+  session's end or a publication the database refuses or does not take stops the call
+  in flight, and nothing more is published or sent; the call is closed with the usage
+  it has, a call this program abandons closing interrupted at the next start, and the
+  database decides the ending. A session's end is recorded before the turn ends, so the
+  turn ends cancelled `session_ended`; a write the database does not take, that end's
+  included, fails the turn `agent_runtime_unavailable`.
