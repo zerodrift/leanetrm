@@ -23,8 +23,14 @@ public sealed record AgentCommandRequest(Guid OperationId,Guid AgentId,int? Expe
 // database refuses them with admission_required until the caller repeats them under exclusive admission.
 public static class AgentAdministration
 {
-    public static Task<JsonElement> Directory(NpgsqlConnection connection,CancellationToken ct)=>
-        ModelProviders.Read(connection,"SELECT assistant.agent_directory()::text",[],ct);
+    // The directory, with the vendors' names and the runtime set's bounds the page states with the fields they bound.
+    public static async Task<object> Directory(NpgsqlConnection connection,CancellationToken ct)
+    {
+        var directory=(await ModelProviders.Read(connection,"SELECT assistant.agent_directory()::text",[],ct)).Deserialize<Dictionary<string,JsonElement>>()!;
+        directory["vendors"]=JsonSerializer.SerializeToElement(ModelProviders.Vendors.Select(v=>new {code=v.Code,name=v.Name}));
+        directory["bounds"]=JsonSerializer.SerializeToElement(new {instructions=RuntimeSet.AgentInstructions,grantDays=RuntimeSet.MaxGrantDays});
+        return directory;
+    }
 
     public static Task<JsonElement> Create(NpgsqlConnection connection,CreateAgentRequest body,CancellationToken ct)=>
         body is {OperationId:var operation,Name:{} name}&&operation!=Guid.Empty
@@ -51,13 +57,15 @@ public static class AgentAdministration
         Command(connection,"SELECT assistant.retire_agent($1,$2,$3)::text",body,ct);
 
     // The role and permission the database names when an allowed role lacks one a version needs (§5.4).
-    internal static string RoleRefusal(string? hint)
+    internal sealed record Lack(string Role,string Permission);
+    internal static Lack? Lacking(string? hint)
     {
-        var lacking=hint is null?null:JsonSerializer.Deserialize<Dictionary<string,string>>(hint);
-        return lacking is not null&&lacking.TryGetValue("role",out var role)&&lacking.TryGetValue("permission",out var permission)
-            ?$"The allowed role {role} lacks {permission}, which this version needs. Allow only roles that use agents and hold every permission its tools need."
-            :"An allowed role lacks a permission this version needs.";
+        var fields=hint is null?null:JsonSerializer.Deserialize<Dictionary<string,string>>(hint);
+        return fields is not null&&fields.TryGetValue("role",out var role)&&fields.TryGetValue("permission",out var permission)?new(role,permission):null;
     }
+    internal static string RoleRefusal(Lack? lack)=>lack is {Role:var role,Permission:var permission}
+        ?$"The allowed role {role} lacks {permission}, which this version needs. Allow only roles that use agents and hold every permission its tools need."
+        :"An allowed role lacks a permission this version needs.";
 
     static Task<JsonElement> Command(NpgsqlConnection connection,string sql,AgentCommandRequest body,CancellationToken ct)=>
         body is {OperationId:var operation,AgentId:var agent,ExpectedVersion:{} expected}&&operation!=Guid.Empty&&agent!=Guid.Empty

@@ -129,7 +129,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_provider_unqualified" or "model_provider_disabled" or "model_unqualified" or "model_mapping_unconfirmed"
                 or "model_unpriced" or "test_in_progress" or "model_changed" or "model_disabled" or "agent_retired"
                 => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_role_lacks_permission" => (422,p.MessageText,AgentAdministration.RoleRefusal(p.Hint)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_role_lacks_permission" => (422,p.MessageText,AgentAdministration.RoleRefusal(AgentAdministration.Lacking(p.Hint))),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable" or "parameter_required"
                 or "model_limit_exceeded" or "instructions_too_long" or "grant_duration_exceeded"
                 => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
@@ -162,7 +162,10 @@ app.Use(async (context,next)=>
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
         if (status==500) app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
         context.Response.StatusCode=status;
-        await context.Response.WriteAsJsonAsync(new {code,message},CancellationToken.None);
+        // A role refusal also names the role and permission as fields, so a page never parses its message.
+        object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
+            ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
+        await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
     }
     // Binding refuses a body or query value it cannot read, and a body over the limit, with a bare status before any
     // handler runs. No handler answers a bare 400 or 413, so pages release a request refused this way as one that wrote

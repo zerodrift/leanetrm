@@ -34,9 +34,11 @@ it is the preview's check endpoint, and its last test, marked when it ran under 
 terms no longer attested. From step 5, agent administration works through the API:
 `ManageAgents` and `UseAgents`, the agent reader role held only by agent principals,
 agents with immutable versions, and create, save, Publish and Retire (§5.4, §9), while
-Users & access no longer creates or changes agents. The Agents tab, grants, turns and
-the Usage tab are not implemented, nor is the turn's working-data pin (§7.2), which
-binds a captured context.
+Users & access no longer creates or changes agents. Settings › AI offers each tab by its
+own permission, and its Agents tab creates agents, saves drafts, publishes, marks an agent
+whose published model version is no longer current, and retires. Grants, turns and the
+Usage tab are not implemented, nor is the turn's working-data pin (§7.2), which binds a
+captured context.
 
 The page assistant ships in three phases, each with its own design:
 
