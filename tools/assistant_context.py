@@ -126,22 +126,24 @@ class Contexts:
             f"INSERT INTO security.role_grants VALUES('{uuid4()}','{self.administrator}',{ADMINISTRATOR_ROLE},'{self.tenant}','{workspace}',{WINDOW},false);",
             'admin', 'human_interactive', workspace, 'NULL', statement)
 
-    def expiring(self, psql, environment, expiry, lock, statement, grants='true', warm=None, held=None):
-        """Runs `statement` directly as the preview administrator while another session holds `lock`,
-        until the administrator's role grants that `grants` selects (`expiry` 'grant') or its request
-        context ('context') have expired. `warm` runs first in the same session, before the lock is
-        taken, so a first-use wait such as compiling a function lands elsewhere. `held` names a
-        (relation, lock mode) the session must already hold once it waits, proving where it waits.
-        Returns the statement's verbose error output, or None if it succeeded."""
+    def expiring(self, psql, environment, expiry, lock, statement, grants='true', warm=None, held=None, subject='admin',
+                 admission='security.use_context'):
+        """Runs `statement` directly as the person `subject`, preview administrator by default, bound by
+        `admission`, while another session holds `lock`, until their role grants that `grants` selects
+        (`expiry` 'grant') or their request context ('context') have expired. `warm` runs first in the
+        same session, before the lock is taken, so a first-use wait such as compiling a function lands
+        elsewhere. `held` names a (relation, lock mode) the session must already hold once it waits,
+        proving where it waits. Returns the statement's verbose error output, or None if it succeeded."""
+        principal = self.query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='{ISSUER}' AND subject='{subject}';")
         saved = json.loads(self.query(f"SELECT json_agg(json_build_object('id',id,'until',granted_to)) FROM security.role_grants "
-                                      f"WHERE principal_id='{self.administrator}';"))
+                                      f"WHERE principal_id='{principal}';"))
         pending = None
         try:
             if expiry == 'grant':
                 self.query("UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '3 seconds' "
-                           f"WHERE principal_id='{self.administrator}' AND ({grants});")
+                           f"WHERE principal_id='{principal}' AND ({grants});")
             token = self.query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
-                               f"'{ISSUER}','admin','human_interactive','{self.tenant}','{self.workspace}',NULL,'preview_runtime',"
+                               f"'{ISSUER}','{subject}','human_interactive','{self.tenant}','{self.workspace}',NULL,'preview_runtime',"
                                f"{2 if expiry == 'context' else 60});")
             application = 'synthetic-expiry-' + uuid4().hex
             pending = subprocess.Popen([*psql, '--set=VERBOSITY=verbose'], env={**environment, 'PGAPPNAME': application},
@@ -152,7 +154,7 @@ class Contexts:
                     assert pending.poll() is None, pending.stderr.read()
 
             def stalled():
-                pending.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statement}COMMIT;")
+                pending.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT {admission}('{token}');{statement}COMMIT;")
                 pending.stdin.close(); pending.stdin = None
                 deadline = time.monotonic() + 4
                 while self.query(f"SELECT count(*) FROM pg_stat_activity WHERE application_name='{application}' AND wait_event_type='Lock';") != '1':
@@ -163,7 +165,7 @@ class Contexts:
                                       f"WHERE a.application_name='{application}' AND l.relation='{held[0]}'::regclass "
                                       f"AND l.mode='{held[1]}' AND l.granted);") == 't', 'The operation waits before its intended point.'
                 time.sleep(3.2)
-                expired = (f"SELECT bool_and(granted_to<clock_timestamp()) FROM security.role_grants WHERE principal_id='{self.administrator}' AND ({grants});"
+                expired = (f"SELECT bool_and(granted_to<clock_timestamp()) FROM security.role_grants WHERE principal_id='{principal}' AND ({grants});"
                            if expiry == 'grant' else f"SELECT expires_at<clock_timestamp() FROM security.request_contexts WHERE id='{token}';")
                 assert self.query(expired) == 't', 'The synthetic authority must expire before the lock is released.'
             holding(psql, environment, lock, stalled)

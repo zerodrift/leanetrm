@@ -183,6 +183,8 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         admin.call('/api/settings/ai/providers',expected=404)
         admin.call('/api/settings/ai/models',expected=404)
         admin.call('/api/settings/ai/agents',expected=404)
+        admin.call('/api/assistant/agents',expected=404)
+        admin.call('/api/assistant/grants',expected=404)
         # A request token is bound to its route's scope, so an unmapped route refuses a token that a mapped one accepts.
         provider={'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0}
         for path,body in (('/api/settings/ai/providers/key',{**provider,'key':'sk-synthetic-hosted-0000'}),
@@ -193,10 +195,12 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
                           ('/api/settings/ai/providers/test',{'operationId':str(uuid4()),'modelId':str(uuid4()),'reasoning':'low'}),
                           ('/api/settings/ai/agents/create',{'operationId':str(uuid4()),'name':'Hosted agent'}),
                           *((f'/api/settings/ai/agents/{action}',{'operationId':str(uuid4()),'agentId':str(uuid4()),'expectedVersion':1})
-                            for action in ('save','publish','retire'))):
+                            for action in ('save','publish','retire')),
+                          ('/api/assistant/grants/grant',{'operationId':str(uuid4()),'agentId':str(uuid4()),'version':1}),
+                          ('/api/assistant/grants/revoke',{'operationId':str(uuid4()),'grantId':str(uuid4())})):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
-        print('PASS hosted mode maps no page-assistant administration route, even for a provider administrator',flush=True)
+        print('PASS hosted mode maps no page-assistant administration or grant route, even for a provider administrator',flush=True)
         assert query(worker) == before_worker
         print('PASS a hosted start takes no agent-worker lock and changes no worker generation or model call',flush=True)
         retained, _ = client.call('/api/bootstrap')

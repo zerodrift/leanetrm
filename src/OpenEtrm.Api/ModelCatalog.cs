@@ -157,7 +157,7 @@ public sealed partial class ModelCatalog
         "model_limit_exceeded"=>"Ask for no more output tokens per call than the model version allows.",
         "grant_duration_exceeded"=>$"A grant lasts at most {RuntimeSet.MaxGrantDays} days.",
         "instructions_too_long"=>string.Create(CultureInfo.InvariantCulture,$"Instructions are limited to {RuntimeSet.AgentInstructions:N0} characters."),
-        "agent_retired"=>"This agent is retired and can no longer change.",
+        "agent_retired"=>"This agent is retired: it can no longer be changed or granted.",
         "agent_managed"=>"Users & access neither creates nor changes agents, and grants the agent reader role to no one.",
         "admin_limit"=>"A workspace has at most 256 members, agents included.",
         "parameter_required"=>"Choose one of the reasoning efforts the model's capability version records.",

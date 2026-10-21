@@ -696,3 +696,23 @@ accepted, and reads never load the pinned clock. Each read
 retains one temporal context per cutoff, dated by the cutoff's UTC day, and rechecks reference
 access after certifying it. As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).
+
+## Page-assistant grants
+
+[0068_agent_grants.sql](migrations/0068_agent_grants.sql) lets a person grant an agent
+version its reads ([ai-assistant.md](../docs/ai-assistant.md) §7.1). A grant is a
+delegation from the person to the agent principal, in the existing delegation tables,
+for the permissions the version's tools need and until now plus its grant duration, all
+taken from the stored version; the request names only the version. A unique index on
+unrevoked delegations keeps one current grant per person and agent, so a grant revokes
+the person's earlier one to that agent. The new grant audit, immutable, records each
+grant with the version, model identity and permissions it was given for, and each end of
+one: replaced, revoked or with Retire. `retire_agent` now also revokes the agent's open
+grants and refuses a request identity a grant or Revoke used; otherwise it is as before,
+and the replaced definition keeps its owner and grants. Grant and Revoke write control
+tables, so outside exclusive admission they refuse with `admission_required` once every
+check has passed; `use_grant_admission` binds that admission. The migration first
+verifies the helpers it relies on and the definition it replaces. Since a grant is a
+delegation with a grant record, it fails, revoking nothing, while any delegation is
+unrevoked, even an expired one. As a new migration it stops automatic hosted updates
+until the operator qualifies a new baseline (D135).
