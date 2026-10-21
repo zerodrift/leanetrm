@@ -416,6 +416,9 @@ def main():
                 from check_market_read_authority import run_checks as check_market_authority
                 check_market_authority(query,manifest)
             elif args.assistant_check:
+                # First, while nothing else can be writing to the application log.
+                from check_request_refusals import run_checks as check_request_refusals
+                check_request_refusals(url,temporary/'app.log')
                 from check_model_providers import run_checks as check_model_providers
                 check_model_providers(url,query,psql,manifest,temporary,app_env,dotnet)
                 from check_model_catalog import run_checks as check_model_catalog

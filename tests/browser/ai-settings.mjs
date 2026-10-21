@@ -62,6 +62,17 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a rename changes the display name and keeps the identifier',`${row('ai-model-table',anthropic)}[1]==='Browser model renamed'&&document.querySelector('#ai-model-title').textContent==='Browser model renamed'&&${row('ai-model-audit',anthropic)}[3]==='Display name changed'`);
 
   await evaluate('window.scrollTo(0,0)');await shot('ai-models-desktop');
+  // The server refuses a request larger than it accepts, or one it cannot read, before any write: the request is
+  // released, and the page states the ranges the entries keep.
+  const renames=await evaluate(sent('models/rename')+'.length');
+  const unchanged=`document.querySelector('#ai-models-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.ai.models.request.'))`
+    +`&&(await(await window.__originalFetch('/api/settings/ai/models')).json()).models.find(m=>m.identifier===${JSON.stringify(anthropic)}).displayName==='Browser model renamed'`;
+  await set('#ai-rename-name','Browser model '+'x'.repeat(32*1024));await submit('#ai-rename-form');
+  await check("a display name past the request size limit is refused with the entries' ranges, and nothing is kept",
+    `(async()=>${shown}.includes('a display name has 1 to 80 characters')&&${sent('models/rename')}.length===${renames+1}&&${unchanged})()`);
+  await set('#ai-rename-name','Browser model \ud800');await submit('#ai-rename-form');
+  await check('a display name holding a lone surrogate, which the server cannot read, is refused the same way',
+    `(async()=>${shown}.includes('a display name has 1 to 80 characters')&&${sent('models/rename')}.at(-1).body.displayName.endsWith('\\ud800')&&${sent('models/rename')}.length===${renames+2}&&${unchanged})()`);
   await set('#ai-model-vendor','openai');await set('#ai-model-identifier',openai);await set('#ai-model-name','Browser automatic cache');await submit('#ai-model-form');
   await manage(openai);
   await check('cache read must be priced where caching is automatic',"document.querySelector('#ai-none-cacheRead').closest('label').hidden&&document.querySelector('#ai-price-currency').value===''&&document.querySelector('#ai-rate-uncachedInput').value===''");

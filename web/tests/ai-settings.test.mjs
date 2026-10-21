@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {currencyKey,currencyLabels,priceTerms,endChoice,aiChange,segmentLabel,capabilityRequest,termsRequest,stateLabel,attestationStatement,capabilityRows,
-  testOutcome,testRows,lastTestLabel,lastTestSummary,endpointLabel,testableModels,testRequest} from '../dist/ai-settings.js';
+  testOutcome,testRows,lastTestLabel,lastTestSummary,endpointLabel,testableModels,testRequest,knownAiRejection,aiRefusal} from '../dist/ai-settings.js';
 
 const usd={catalogId:'c1',revisionId:'r1',code:'usd',displayCode:'USD',name:'US Dollar',catalogCode:'synthetic_reference',revisionKey:'initial_v1'};
 const entry=(changes={})=>({currency:{catalogId:'c1',revisionId:'r1',code:'usd'},cacheReadRequired:false,
@@ -204,4 +204,23 @@ test('a test request names its model and reasoning effort; nothing blank is infe
   assert.deepEqual(testRequest({modelId:'m1',reasoning:'high'}),{modelId:'m1',reasoning:'high'});
   assert.throws(()=>testRequest({modelId:'',reasoning:'high'}),/^Error: Choose the model to test\.$/);
   assert.throws(()=>testRequest({modelId:'m1',reasoning:''}),/^Error: Choose the reasoning effort\.$/);
+});
+
+test("a request the server cannot read, or one larger than it accepts, wrote nothing: it is released, and the ranges explain it where entries were sent",()=>{
+  for(const code of ['request_format','request_too_large']){
+    assert.equal(knownAiRejection(code),true,code);
+    const refused=()=>Object.assign(Error('The app could not complete that request. Please refresh and try again.'),{code});
+    for(const path of ['settings/ai/models/rename','settings/ai/models/edit','settings/ai/providers/terms','settings/ai/providers/key']){
+      const shown=aiRefusal(refused(),path);
+      assert.equal(shown.code,code);
+      for(const range of ['a display name has 1 to 80 characters','terms text 1 to 1,000','an output limit is 1 to 10,000,000 tokens','a key has 8 to 512 visible ASCII characters'])
+        assert.ok(shown.message.includes(range),`${path}: ${range}`);
+    }
+    // A command without entries is refused this way only when the page and the server disagree, which a refresh resolves.
+    for(const path of ['settings/ai/models/enable','settings/ai/providers/attest','settings/ai/providers/test']){const error=refused();assert.equal(aiRefusal(error,path),error,path);}
+  }
+  // An answer that does not show the request was refused before any write keeps it, and other refusals keep their messages.
+  for(const code of [undefined,'request_failed','response_unknown','model_admin_outcome_unknown'])assert.equal(knownAiRejection(code),false,code);
+  const conflict=Object.assign(Error('Synthetic conflict message'),{code:'model_admin_conflict'});
+  assert.equal(aiRefusal(conflict,'settings/ai/models/rename'),conflict);
 });

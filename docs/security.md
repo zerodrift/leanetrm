@@ -112,6 +112,28 @@ and context expiry. Historical market selectors cannot restore old authority.
 Runtime has no direct state-column update permission. The permission-checked
 market sealing routine still validates exact references and bundle completeness.
 
+## Requests the API cannot read
+
+The API reads a request body of at most 32 KiB. Binding reads the query values and the
+`application/json` body, in UTF-8, that a route declares before its handler runs, and
+refuses one it cannot read there, so nothing is written. No handler answers a bare 400
+or 413, so every `/api` route names these refusals, in the local preview and in hosted
+mode:
+
+- `request_format` (400): a query value that does not parse, or a body that is
+  malformed, including one holding an escaped lone surrogate, repeats a member, holds
+  a value its member's type cannot hold, such as a whole number beyond a 32-bit
+  member's range, or holds an unknown member where its request type refuses one, as
+  every Settings › AI and account request does.
+- `request_too_large` (413): a body over 32 KiB.
+
+Each answer is a fixed code and message that echo nothing the request held, and
+neither refusal is logged, so no part of a refused provider key reaches an answer or
+the application log. A refusal that names its own code, such as `request_token`,
+keeps it. Settings › AI releases a first attempt refused either way, since nothing was
+written. For a form with entries it states the ranges they keep; for one without, a
+refusal can only mean the page and the server disagree, and it asks for a refresh.
+
 ## Agents
 
 An agent action requires all of: the agent's own current scoped grants, an explicit

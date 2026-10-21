@@ -194,7 +194,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
                 test(reasoning='lo\u0000w', expected=422)]
     check('a test the database or the boundary refuses sends nothing, with its documented code',
           [r and r.get('code') for r in refusals]
-          == ['parameter_required', 'model_unpriced', 'model_admin_conflict', 'parameter_required', 'access_denied', None, 'model_admin_input',
+          == ['parameter_required', 'model_unpriced', 'model_admin_conflict', 'parameter_required', 'access_denied', 'request_format', 'model_admin_input',
               'model_admin_input', 'model_admin_input']
           and sent() == requests)
 

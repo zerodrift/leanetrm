@@ -27,7 +27,8 @@ var webRoot=Path.GetFullPath(hosted?.WebDirectory ?? Environment.GetEnvironmentV
 await using var hostedAuthentication=hosted is null?null:new HostedAuthentication(hosted);
 var builder=WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); builder.Logging.AddSimpleConsole(o=>o.SingleLine=true); builder.Logging.SetMinimumLevel(LogLevel.Warning);
-builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=32*1024; });
+const int bodyLimit=32*1024;
+builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=bodyLimit; });
 if(hosted is null)builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
 else {HostedAuthentication.Configure(builder,hosted);builder.Services.AddSingleton(hostedAuthentication!);}
 builder.Services.AddSingleton<IAntiforgeryAdditionalDataProvider,PreviewAntiforgeryScope>();
@@ -35,6 +36,8 @@ builder.Services.AddAntiforgery(o=> { o.HeaderName="X-Preview-CSRF"; o.Cookie.Na
 // A member repeated in any letter case is ambiguous, so it never binds.
 builder.Services.ConfigureHttpJsonOptions(o=>{o.SerializerOptions.PropertyNamingPolicy=JsonNamingPolicy.CamelCase;o.SerializerOptions.AllowDuplicateProperties=false;
     o.SerializerOptions.Converters.Add(new ExactDecimalJsonConverter());});
+// In every environment, binding refuses what it cannot read with a bare status, which the API then names.
+builder.Services.Configure<RouteHandlerOptions>(o=>o.ThrowOnBadRequest=false);
 builder.Services.AddResponseCompression(o=>{o.EnableForHttps=true;o.Providers.Add<GzipCompressionProvider>();o.MimeTypes=["application/json"];});
 builder.Services.Configure<GzipCompressionProviderOptions>(o=>o.Level=CompressionLevel.Fastest);
 var app=builder.Build();
@@ -70,6 +73,7 @@ app.Use(async (context,next)=>
     context.Items["client_aborted"]=context.RequestAborted;
     using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted); deadline.CancelAfter(TimeSpan.FromSeconds(15));
     context.RequestAborted=deadline.Token;
+    const string malformed="The request is incomplete or malformed.";
     try
     {
         await next(context);
@@ -152,7 +156,7 @@ app.Use(async (context,next)=>
             Exception when context.Items.ContainsKey("automation_attempted") && e is NpgsqlException or OperationCanceledException => (503,"job_outcome_unknown","The operation outcome is unknown. Inspect current state or retry the retained exact request identity."),
             Exception when context.Items.ContainsKey("reference_attempted") && e is NpgsqlException or OperationCanceledException => (503,"reference_outcome_unknown","The reference change outcome is unknown. Inspect saved versions or retry the retained exact request identity."),
             OperationCanceledException => (503,"request_cancelled","The request was cancelled or exceeded its time limit."),
-            BadHttpRequestException or JsonException => (400,"request_format","The request is incomplete or malformed."),
+            BadHttpRequestException or JsonException => (400,"request_format",malformed),
             _ => (500,"preview_error","The preview could not complete the operation.")
         };
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
@@ -162,6 +166,14 @@ app.Use(async (context,next)=>
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
             ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
+    }
+    // Binding refuses a body or query value it cannot read, and a body over the limit, with a bare status before any
+    // handler runs. No handler answers a bare 400 or 413, so pages release a request refused this way as one that wrote
+    // nothing. An API answer names the refusal instead, echoing nothing that was read.
+    if(apiPath.StartsWithSegments("/api")&&!context.Response.HasStarted&&context.Response.StatusCode is 400 or 413)
+    {
+        var (code,message)=context.Response.StatusCode==413?("request_too_large",$"The request body exceeds its {bodyLimit/1024} KiB limit."):("request_format",malformed);
+        await context.Response.WriteAsJsonAsync(new {code,message},CancellationToken.None);
     }
 });
 

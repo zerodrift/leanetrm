@@ -107,6 +107,20 @@ Median PostgreSQL CPU decreased while API CPU stayed similar, and neither contai
 throttled during the measured requests. This isolates the policy cost; it does
 not qualify subsequent migrations, hosted transport or a page-load time budget.
 
+The isolated page-assistant run (`--assistant-check`) first checks requests the API
+cannot read (`tools/check_request_refusals.py`). Replace key, Edit model and Save
+agent each refuse an expected version or tool-step limit beyond its 32-bit range,
+broken JSON, an unknown member, a repeated member and an escaped lone surrogate with
+400 `request_format`, and a body over 32 KiB with 413 `request_too_large`. A query
+value that does not parse is `request_format` too. Each answer holds only its code and
+a message, which is the same for every answer with that code and holds none of the
+text sent, and the application log stays byte for byte unchanged, so no character of
+the refused key reaches it. Each route's readable body, by contrast, reaches its
+handler, which refuses it. The hosted checks send the same variants of an account
+update, whose readable body its handler refuses, and the same query value through the
+TLS proxy and get the same answers. The provider Test checks expect `request_format`
+for an unknown member.
+
 Direct runtime SQL checks also hold principal, provider, credential-storage and
 audit locks until a synthetic role grant or request context has expired. New key
 replacements and accepted-operation retries then fail with SQLSTATE 42501, with
@@ -411,7 +425,10 @@ or explains that no mapping is confirmed; Enable refuses a model without capabil
 and keeps no request, capabilities name the other served identifiers or that the vendor
 reports only the model's own, and the recorded version shows each fact with its source
 and date before Enable and Disable, after which focus moves to the control now
-offered, or stays on the one used when the change is refused. After a lost response to a committed price, key replacement or provider
+offered, or stays on the one used when the change is refused. A display name past the
+32 KiB request limit, and one holding a lone surrogate, which the server cannot read,
+are refused with the ranges every entry keeps; the page keeps no request and the name
+is unchanged. After a lost response to a committed price, key replacement or provider
 Enable, the page keeps the request through an identity switch and shows what was
 saved; Retry resends it under the same identity and the audit still records one
 change. The provider's card and table name the check endpoint, and a vendor without an
