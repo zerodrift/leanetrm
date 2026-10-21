@@ -36,6 +36,9 @@ export function calendarSummary(c:LibraryCalendar){
 // A calendar is chosen by its exact reference version, never by code alone.
 export const calendarKey=(c:CalendarRef)=>[c.catalogId,c.revisionId,c.code].join('|');
 export function visibleVersions<T extends {state:string}>(versions:T[],author:boolean){return author?versions:versions.filter(v=>v.state==='published');}
+export function knownContractDateRejection(code:string|undefined):boolean{
+  return !!code&&['access_denied','contract_dates','contract_date_conflict','schedule_conflict','schedule_unpublished','schedule_context','temporal_context','request_format','request_too_large','request_token'].includes(code);
+}
 export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:Api,isBusy:()=>boolean,zone:()=>string,onContextChanged:()=>void=()=>{},identity:()=>string=()=>''){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const input=(id:string)=>get<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>(id);
@@ -47,7 +50,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   let library=empty(),selected:Version|undefined,shownDates:SavedDates|undefined,shownCurve:Candidate|undefined;
   let pinnedContext:Context|undefined,exactKnownAt:string|undefined;
   let contractSelected:ContractVersion|undefined,contractDirty=false,generation=0;
-  const pending=new PendingCommand(code=>['access_denied','contract_dates','contract_date_conflict','schedule_conflict','schedule_unpublished','schedule_context','temporal_context','csrf'].includes(code??''));
+  const pending=new PendingCommand(knownContractDateRejection);
   const storageKey=()=>`openetrm.contract-dates.request.${identity()}`;
   const fence=()=>({generation,identity:identity()});
   const current=(started:ReturnType<typeof fence>)=>started.generation===generation&&started.identity===identity();
