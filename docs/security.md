@@ -124,7 +124,7 @@ mode:
   malformed, including one holding an escaped lone surrogate, repeats a member, holds
   a value its member's type cannot hold, such as a whole number beyond a 32-bit
   member's range, or holds an unknown member where its request type refuses one, as
-  every Settings › AI and account request does.
+  every Settings › AI, grant and account request does.
 - `request_too_large` (413): a body over the route's limit, 32 KiB, or 8 MiB for
   `/api/interval-series/revise`.
 
@@ -510,5 +510,44 @@ administrator role, and never runs under a delegated context:
 - **Publish** publishes the newest version after the same model and provider checks;
   the published version only moves forward.
 - **Retire** is permanent: it disables the principal and its membership, which keeps
-  its member slot, and history stays. Revoking an agent's grants and cancelling its
-  turns join with grants and turns.
+  its member slot, and revokes its open grants, recording each against the
+  administrator in the grant audit; history stays. Cancelling its turns joins with
+  turns.
+
+Grants (migration 0068, step 5) delegate an agent version's reads to its agent
+([ai-assistant.md](ai-assistant.md) §7.1). Each grant command runs in a person's own
+request context, unexpired and undelegated, as an enabled member; agents and services
+are refused:
+
+- **Grant** needs current `UseAgents`, and `CreateDelegations`, which every delegated
+  read requires of its delegator. The request names only the agent version; the database
+  takes the delegator from the bound context and the agent principal, the permissions of
+  the version's tools and the expiry, now plus the version's grant duration, from the
+  stored version. That version must be the agent's published version, by an allowed role
+  held now, or its newest version while still a draft, by a holder of `ManageAgents`
+  (`agent_not_allowed`); the agent must be active (`agent_retired`); the user must hold
+  every permission the version needs (`grant_permission_missing`, naming one); and the
+  duration must be within the runtime set's bound, which the API passes
+  (`grant_duration_exceeded`). Nothing is granted partially. A grant revokes the user's
+  earlier one to that agent, expired or not: a unique index on unrevoked delegations
+  keeps one current grant per user and agent, even for the owner.
+- **Coverage:** a grant covers a version while it is unrevoked and unexpired, from the
+  user to the version's agent, given for a version with the same model identity, and
+  lists every permission the version needs. A newer capability version of that model
+  asks nothing again, and a covering grant keeps its own expiry.
+- **Revoke** names a grant, needs no `UseAgents` and succeeds only for its delegator;
+  another user's grant is answered exactly like an unknown one (`grant_unknown`).
+  Revoking a grant already revoked, replaced or ended by Retire answers when it ended
+  and writes nothing.
+- **Grant audit:** each grant, and each end of one (replaced, revoked or with Retire),
+  appends an immutable record in the same transaction, naming the version, model
+  identity and permissions the grant was given for. A grant is a delegation with such a
+  record; the user's grants list only those.
+- **Repeats and admission:** request identities are scoped by the audit a command
+  writes. A repeat answers only the identical request from the same user, whose
+  principal row serializes their commands, and grant, Revoke and Retire each refuse an
+  identity another of them recorded in the grant audit. Grant and Revoke write control
+  tables only under exclusive admission. Refusals and no-ops answer from the shared
+  pass, which takes no exclusive admission and locks only the user's principal row, the
+  agent or the grant. Each write advances the epoch, so it fences a delivery-price
+  attempt in progress.

@@ -36,7 +36,10 @@ terms no longer attested. From step 5, agent administration works through the AP
 agents with immutable versions, and create, save, Publish and Retire (§5.4, §9), while
 Users & access no longer creates or changes agents. Settings › AI offers each tab by its
 own permission, and its Agents tab creates agents, saves drafts, publishes, marks an agent
-whose published model version is no longer current, and retires. Grants, turns and the
+whose published model version is no longer current, and retires. Users grant an agent
+version its reads and revoke their grants through the API (§7.1): one current grant per
+user and agent, covering later versions with the same model identity and permissions,
+with a grant audit, and Retire revokes an agent's open grants. Turns, the panel and the
 Usage tab are not implemented, nor is the turn's working-data pin (§7.2), which binds a
 captured context.
 
@@ -463,11 +466,16 @@ audit as history.
   every permission V needs. A new model version under the same identifier does not ask
   again, and a covering grant keeps its own expiry.
 - **Revoke** takes a delegation id, succeeds only for its delegator, needs no
-  `UseAgents`, and answers another user's id exactly like an unknown one. Revocation,
-  replacement included, cancels the grant's running turns. Each grant and revocation
-  appends a grant audit record in the same transaction; the profile dialog lists the
-  user's grants with Revoke, and `ManageIdentities` with `ManageAccess` holders see
-  all of them in Users & access.
+  `UseAgents`, and answers another user's id exactly like an unknown one
+  (`grant_unknown`). Revocation, replacement included, cancels the grant's running
+  turns. Each grant and revocation appends a grant audit record in the same
+  transaction; the profile dialog lists the user's grants with Revoke, and
+  `ManageIdentities` with `ManageAccess` holders see all of them in Users & access.
+- **Grant and Revoke requests** carry an operation identity. A request without it, or
+  naming no positive version or no grant, is `grant_input`; one under an identity that
+  another grant, Revoke or Retire recorded is `grant_conflict`; an outcome the API
+  cannot confirm is `grant_outcome_unknown`, and repeating the identical request
+  answers as its original did.
 - **Agent context.** Every tool read runs in a request context for the agent
   principal, issued through `security.issue_context` (login kind `agent_credential`)
   with the turn's grant, fixed at ask and never taken from browser input, model output

@@ -131,6 +131,10 @@ app.Use(async (context,next)=>
                 or "model_unpriced" or "test_in_progress" or "model_changed" or "model_disabled" or "agent_retired"
                 => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_role_lacks_permission" => (422,p.MessageText,AgentAdministration.RoleRefusal(AgentAdministration.Lacking(p.Hint))),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "agent_not_allowed" or "grant_permission_missing" => (403,p.MessageText,AgentGrants.Refusal(p.MessageText,p.Hint)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_unknown" => (404,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_conflict" => (409,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_input" => (422,p.MessageText,AgentGrants.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable" or "parameter_required"
                 or "model_limit_exceeded" or "instructions_too_long" or "grant_duration_exceeded"
                 => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
@@ -147,6 +151,8 @@ app.Use(async (context,next)=>
             PostgresException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome cannot be confirmed. Retain the original request and inspect the audit before retrying."),
             Exception when context.Items.ContainsKey("model_admin_attempted") && e is NpgsqlException or OperationCanceledException
                 => (503,"model_admin_outcome_unknown","The outcome is unknown. Check Settings › AI and its audit, or repeat the identical request."),
+            Exception when context.Items.ContainsKey("grant_attempted") && e is NpgsqlException or OperationCanceledException
+                => (503,"grant_outcome_unknown","The outcome is unknown. Read your grants, or repeat the identical request."),
             OperationCanceledException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
             NpgsqlException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
             OperationCanceledException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome is unknown. Retain the request identity and inspect the audit before retrying the exact command."),
@@ -954,6 +960,21 @@ if(hosted is null)
     api.MapPost("/settings/ai/agents/save",(HttpContext c,SaveAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Save(connection,body,ct)));
     api.MapPost("/settings/ai/agents/publish",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Publish(connection,body,ct)));
     api.MapPost("/settings/ai/agents/retire",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Retire(connection,body,ct),control:true));
+    // Grants (§7.1, §8): the agents a user may use and the user's grants. Grant and Revoke write control tables, so like
+    // Create and Retire they repeat under exclusive admission only once every check has passed; Revoke needs no UseAgents.
+    Task<IResult> GrantCommand(HttpContext c,string? permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,async session=>
+    {
+        c.Items["grant_attempted"]=true;
+        try{return Results.Ok(await database.WithIdentity(Profile(session),permission,command,c.RequestAborted));}
+        catch(PostgresException p) when(p.SqlState=="P0001"&&p.MessageText=="admission_required")
+        {return Results.Ok(await database.WithIdentity(Profile(session),permission,command,c.RequestAborted,Admission.Grants));}
+    });
+    api.MapGet("/assistant/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+        database.WithIdentity(Profile(session),"UseAgents",async(connection,ct)=>Results.Ok(await AgentGrants.Usable(connection,ct)),c.RequestAborted))));
+    api.MapGet("/assistant/grants",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await AgentGrants.Grants(connection,ct)),c.RequestAborted))));
+    api.MapPost("/assistant/grants/grant",(HttpContext c,GrantRequest body)=>GrantCommand(c,"UseAgents",(connection,ct)=>AgentGrants.Grant(connection,body,ct)));
+    api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>GrantCommand(c,null,(connection,ct)=>AgentGrants.Revoke(connection,body,ct)));
     api.MapPost("/settings/ai/providers/test",(HttpContext c,TestRequest body)=>Locked(c,async session=>
     {
         c.Items["model_admin_attempted"]=true;

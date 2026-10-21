@@ -49,7 +49,7 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
 }
 // How a request binds its context: shared, like every request, or exclusive, taking the epoch row before binding so
 // a control-table write cannot deadlock against requests already admitted (docs/ai-assistant.md §5.4).
-public enum Admission { Shared, Administration, Agents }
+public enum Admission { Shared, Administration, Agents, Grants }
 public sealed class PreviewDeniedException : Exception;
 
 public sealed class PreviewDatabase : IAsyncDisposable
@@ -143,7 +143,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
         await using var connection = await runtime.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         await using (var bind = new NpgsqlCommand(admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
-            Admission.Agents=>"SELECT assistant.use_agent_admission($1)",_=>"SELECT security.use_context($1)"}, connection, transaction))
+            Admission.Agents=>"SELECT assistant.use_agent_admission($1)",Admission.Grants=>"SELECT assistant.use_grant_admission($1)",
+            _=>"SELECT security.use_context($1)"}, connection, transaction))
         { bind.Parameters.AddWithValue(token); await bind.ExecuteNonQueryAsync(ct); }
         if(hostedSession is not null)await using(var sessionCheck=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction))await sessionCheck.ExecuteNonQueryAsync(ct);
         if(permission is not null && !await HasPermission(connection,permission,ct)) throw new PreviewDeniedException();

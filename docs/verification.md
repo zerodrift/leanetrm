@@ -397,13 +397,70 @@ API and in SQL):
 - **Guard:** before 0066 applies, it refuses to start while an agent principal holds a
   current role, revoking nothing, and refuses a change to each pinned helper.
 
+Grants (`tools/check_agent_grants.py`, in the same run, through the API and in SQL):
+
+- **Offers:** a user holding an allowed role is offered the published version with its
+  model, the permissions its tools need and its grant duration; only the newest draft is
+  offered, and only to a user who also manages agents; a user without an allowed role is
+  offered nothing, and one without `UseAgents` is refused.
+- **Grant:**
+  - it names a request identity and a positive agent version and nothing else;
+  - it is refused, writing nothing and leaving the epoch alone, without `UseAgents`, for
+    a version the user may not use (a draft without agent management, an older draft, an
+    unknown version or agent), for a missing permission, named in the refusal, and
+    beyond the runtime set's duration bound;
+  - the database itself refuses a grant, or the offers, without `UseAgents` or
+    `CreateDelegations`, and every grant operation in the context of an agent, a service
+    or a person acting under a delegation;
+  - it is a delegation from the user to the agent principal for exactly the version's
+    permissions, until now plus its duration, recorded once in the grant audit with its
+    version, model and permissions, and it advances the epoch;
+  - the offer names it, the user's grants list it and another user's never do;
+  - a repeat answers as before and writes nothing, and a request identity used for
+    another grant, or by another user, is refused;
+  - a new grant replaces the earlier one to that agent, and no other, recorded with it,
+    even when the earlier one has expired, and even the owner cannot hold two unrevoked
+    delegations from one user to one agent;
+  - held past the API's command timeout it reports `grant_outcome_unknown`, and
+    repeating it grants exactly once.
+- **Coverage:** a grant covers a newer version with the same model identity and
+  permissions, fewer permissions or a newer capability version of that model, keeping
+  its expiry, and not one naming another model identity or needing another permission.
+  An expired grant covers nothing, reads nothing and is not listed, yet stays unrevoked.
+- **Delegated reads:** an agent created through `ManageAgents` reads market data with
+  the user's current grant, and not without a delegation, under a replaced grant or
+  after Revoke.
+- **Admission and context:** while another request is admitted, a refused or repeated
+  grant answers at once and a grant that writes waits for exclusive admission; outside
+  it, a grant or Revoke passing every check is refused with `admission_required`; and a
+  grant during a delivery-price attempt fences it. An expired request context lists and
+  revokes nothing, even under exclusive admission; a grant whose roles, or a Revoke
+  whose context, expire while it waits is refused at its last recheck; and a Revoke
+  never waits for a request that only refers to its grant. A person in another workspace
+  is offered, granted and revokes none of this workspace's agents and grants.
+- **Revoke:** another user's grant is answered exactly like an unknown one; a Revoke
+  names a request identity and a grant and nothing else; it revokes the delegation,
+  recorded once, and advances the epoch, after which the grant reads nothing, is not
+  listed and covers nothing; a repeat, or a second Revoke, answers the revocation and
+  writes nothing, and revoking a grant its replacement or Retire ended answers when it
+  ended; request identities do not cross between grant and Revoke; a user who no longer
+  uses agents still lists and revokes their grants; and one whose membership is disabled
+  lists and revokes nothing.
+- **Retire** revokes the agent's open grants and no other, recording each against the
+  administrator; a retired agent is neither offered nor granted; and a Retire under a
+  grant's or a Revoke's request identity is refused, writing nothing, so that grant
+  still repeats as it did.
+- **Audit and guard:** even the owner cannot change or delete the grant audit. Before
+  0068 applies, it refuses to start while any delegation is unrevoked, even an expired
+  one, revoking nothing, and refuses a change to each pinned helper.
+
 The Users & access checks expect `agent_managed` for an agent create, the agent reader
 role, and an agent update with and without roles, which leaves the agent unchanged. Its
 browser scenario creates its own agent and finds it listed as an agent reader without
-Edit. The temporal storage checks create an agent through `ManageAgents`
-and show it reads market data only under a current delegation. The reference-policy
-agent holds the agent reader role. The hosted checks find every agent route unmapped and
-the provisioned owner with exactly the six human roles.
+Edit. The temporal storage checks create an agent through `ManageAgents` and show it
+reads market data only under a current delegation. The reference-policy agent holds the
+agent reader role. The hosted checks find every agent and grant route unmapped and the
+provisioned owner with exactly the six human roles.
 
 The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is
