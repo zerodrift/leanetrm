@@ -28,11 +28,13 @@ class PreviewClient:
         self.token = ''
 
     def call(self, path, body=None, expected=200, headers=None):
+        """POST a body, serialized unless it is already bytes, or GET without one."""
         request_headers = {'Origin': self.url, **(headers or {})}
         if body is not None:
             request_headers.update({'Content-Type':'application/json','X-Preview-CSRF':self.token})
             request_headers.update(headers or {})
-        request = Request(self.url+self.api_prefix+path, data=None if body is None else json.dumps(body).encode(), headers=request_headers, method='GET' if body is None else 'POST')
+        data = body if body is None or isinstance(body, bytes) else json.dumps(body).encode()
+        request = Request(self.url+self.api_prefix+path, data=data, headers=request_headers, method='GET' if body is None else 'POST')
         try:
             response = self.opener.open(request, timeout=20)
         except HTTPError as error:

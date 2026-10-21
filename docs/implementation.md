@@ -227,9 +227,10 @@ business-day observations, calendar-day weighting using the preceding/following
 eligible observation, and explicitly supplied positive daily quantity weights.
 Business-day rules require a covered exact calendar. Every required projection
 must be present in date order; unsupported rules and gaps fail explicitly. The
-bounded delivery interval is at most 366 days. This first forecast model rejects
-valuation at or after the declared first fixing; retained actual fixings and
-settlement remain future work.
+bounded delivery interval is at most 366 days. Legacy projection-only sides reject
+valuation at or after their declared first fixing. Indexed sides consume exact
+pinned actual fixings from their qualified schedules (D165, D172); settlement
+remains future work.
 
 Each side applies its own quote multiplier and payment factors to exact rational
 cash amounts. Exact side PVs survive signed instrument aggregation and later
@@ -809,7 +810,7 @@ columns; synchronized sampling/covariance/VaR estimators remain later work.
 
 ## Security boundary
 
-[security.md](security.md) documents six common role templates, persisted identities,
+[security.md](security.md) documents seven common role templates, persisted identities,
 scoped grants/delegations, protected catalog ownership/sharing and enforced RLS.
 Database requests bind trusted authenticated identity to an exact login/transaction,
 with a revocation fence and actual-current expiry checks. An agent has a separate
@@ -1292,13 +1293,13 @@ remain separate release operations.
 ## Audited interval series
 
 Phase A of the [PPA design](ppa-design.md) (§5, §10; proposal P40) is implemented as
-an audited store of values per UTC interval (D172). Nothing consumes a series yet:
+an audited store of values per UTC interval (D173). Nothing consumes a series yet:
 interval curves (phase B) and PPA valuation (phase C) are not built, so no price,
 quantity or settlement is derived from a stored value.
 
 **Definition.** A series pins a kind, one exact specification in a sealed reference
 revision, a clock and a resolution of 5, 15, 30 or 60 minutes
-([migration 0064](../db/migrations/0064_interval_series.sql); the contract is
+([migration 0067](../db/migrations/0067_interval_series.sql); the contract is
 described in [db/README.md](../db/README.md#audited-interval-series)). The kinds are
 `additive_price_shape` (a quote specification), `multiplicative_price_shape` (a
 dimensionless value specification), `capacity_factor_forecast` (a dimensionless
@@ -1361,11 +1362,11 @@ operations work on current data, and history is read by sending an explicit
 `knownAt` rather than by switching the session. Each read's retained temporal context
 belongs to its cutoff alone, dated by the cutoff's UTC day, since series are not
 effective-dated. Instants are UTC with `Z` or `+00:00` and 0 or 1 to 6 fractional
-digits; reads render `+00:00`. Every request member is required: a missing or
-unknown member is refused and nothing is defaulted, but that refusal is an empty
-`400`, not a structured code. Only `revise` accepts bodies up to 8 MiB; every other
-route keeps 32 KiB, and a body whose declared length is over the limit is answered
-`413` with `request_size`. A save whose outcome is unknown answers `503` with
+digits; reads render `+00:00`. Every request member is required: a missing, unknown or
+unreadable member is refused `400` with `request_format`, and nothing is defaulted.
+Only `revise` accepts bodies up to 8 MiB; every other route keeps 32 KiB. A body over
+its route's limit, with or without a declared length, is refused `413` with
+`request_too_large`, whose message names that limit. A save whose outcome is unknown answers `503` with
 `interval_series_outcome_unknown`; repeating the same request identity recovers the
 receipt.
 
@@ -1588,10 +1589,8 @@ existed at the time.
   200,000-interval cap exists because an earlier trial of a single 701,280-interval
   append exceeded the 5 s command timeout while holding that lock.
 - A revision of 200,000 long decimals can exceed the 8 MiB body limit and is then
-  refused `413` with `request_size`: that happens above roughly 38 characters per
-  value, while the benchmark's values have 3. A chunked body with no declared length
-  that exceeds the limit is answered with an empty `413`, because the structured
-  answer needs the declared length.
+  refused `413` with `request_too_large`: that happens above roughly 38 characters
+  per value, while the benchmark's values have 3.
 - A revision expands onto the pinned clock, and an IANA-zone clock is used only
   while the installed tzdb release equals the one its clock rule declares (D127).
   After a tzdata update, every revision of an existing series on an IANA-zone clock

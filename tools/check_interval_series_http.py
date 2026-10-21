@@ -29,7 +29,7 @@ def prepare_market(market, manifest):
 
 
 def declared(client, path, body):
-    """(status, code) of the server's answer to a POST that declares the body's size with Expect: 100-continue.
+    """(status, code, message) of the server's answer to a POST that declares the body's size with Expect: 100-continue.
 
     The body is never sent, so an early refusal cannot race the upload; a server that asks for it
     (100 Continue) has accepted the size, and the read times out."""
@@ -43,7 +43,33 @@ def declared(client, path, body):
         response = HTTPResponse(connection)
         response.begin()
         answer = response.read()
-    return response.status, json.loads(answer)['code'] if answer else None
+    refusal = json.loads(answer) if answer else {}
+    return response.status, refusal.get('code'), refusal.get('message')
+
+
+def chunked(client, path, size):
+    """(status, code, message) of the answer to a POST whose body, over `size` bytes, is sent chunked with no
+    declared length, so only reading it can find it too large."""
+    address = urlsplit(client.url)
+    jar = next(h.cookiejar for h in client.opener.handlers if isinstance(h, HTTPCookieProcessor))
+    head = (f'POST {client.api_prefix}{path} HTTP/1.1\r\nHost: {address.netloc}\r\nOrigin: {client.url}\r\n'
+            f'Cookie: {"; ".join(f"{c.name}={c.value}" for c in jar)}\r\nX-Preview-CSRF: {client.token}\r\n'
+            f'Content-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n')
+    body = b'{"value":"' + b'1' * size + b'"}'
+    with socket.create_connection((address.hostname, address.port), timeout=10) as connection:
+        connection.sendall(head.encode())
+        try:
+            for start in range(0, len(body), 16384):
+                piece = body[start:start + 16384]
+                connection.sendall(f'{len(piece):x}\r\n'.encode() + piece + b'\r\n')
+            connection.sendall(b'0\r\n\r\n')
+        except OSError:
+            pass  # The server may answer and close before the whole body is sent.
+        response = HTTPResponse(connection)
+        response.begin()
+        answer = response.read()
+    refusal = json.loads(answer) if answer else {}
+    return response.status, refusal.get('code'), refusal.get('message')
 
 
 def run_checks(url, query, manifest):
@@ -99,7 +125,8 @@ def run_checks(url, query, manifest):
     # A missing expected revision is refused while binding, never read as revision 0.
     unstated = revise(0, hours[0], ['0.25'])
     del unstated['expectedRevision']
-    client.call('interval-series/revise', unstated, expected=400)
+    if client.call('interval-series/revise', unstated, expected=400)['code'] != 'request_format':
+        raise AssertionError('A missing request member must be refused as request_format')
     first = revise(0, hours[0], ['0.25', '0.5', '0.75'], 'Initial synthetic forecast')
     receipt = client.call('interval-series/revise', first)
     values = client.call('interval-series/values', window(hours[0], hours[3]))
@@ -170,8 +197,11 @@ def run_checks(url, query, manifest):
     huge = revise(2, hours[0], ['0.5'] * (9 * 1024 * 1024 // 7))
     corrections = {'snapshotId': str(uuid4()), 'observationId': str(uuid4()), 'value': '1' * (33 * 1024)}
     check('body limits are route-specific',
-          declared(client, 'interval-series/revise', huge) == (413, 'request_size')
-          and declared(client, 'corrections', corrections) == (413, 'request_size')
+          declared(client, 'interval-series/revise', huge)[:2] == (413, 'request_too_large')
+          and '8192 KiB' in declared(client, 'interval-series/revise', huge)[2]
+          and declared(client, 'corrections', corrections)[:2] == (413, 'request_too_large')
+          and '32 KiB' in declared(client, 'corrections', corrections)[2]
+          and chunked(client, 'corrections', 40 * 1024)[:2] == (413, 'request_too_large')
           and refused('interval-series/revise', revise(2, hours[0], [None] * 200001), 422, 'interval_series_size'))
 
     editor = query(f"""SELECT m.display_name FROM security.identity_bindings b JOIN security.workspace_memberships m ON m.principal_id=b.principal_id

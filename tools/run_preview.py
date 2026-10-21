@@ -165,6 +165,15 @@ def main():
             if args.assistant_check and migration.name=='0062_provider_tests.sql':
                 from check_provider_tests import check_upgrade as check_tests_upgrade
                 check_tests_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0064_directory_tests.sql':
+                from check_provider_tests import check_directory_upgrade as check_tests_directory_upgrade
+                check_tests_directory_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0065_worker_start_time.sql':
+                from check_provider_tests import check_start_upgrade
+                check_start_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0066_agent_administration.sql':
+                from check_agent_administration import check_upgrade as check_agents_upgrade
+                check_agents_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -174,6 +183,9 @@ def main():
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
             reference,market,manifest=prepare_execution(reference,market,manifest)
+        if args.index_fixing_check:
+            from check_index_fixings import prepare as prepare_index_fixings
+            reference,market,manifest=prepare_index_fixings(reference,market,manifest)
         if args.custom_curves_check or args.with_custom_curves or args.market_dates_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest)
@@ -188,10 +200,12 @@ def main():
             calendar_request=prepared/'calendar.json';calendar_sql=prepared/'calendar.sql'
             calendar_request.write_text(json.dumps({'referenceCatalogId':prepared_ids['reference'],'referenceRevisionId':prepared_ids['referenceRevision'],'from':'2026-03-08','through':'2026-11-02','clocks':[{'code':'pjm','kind':'iana','fixedOffsetSeconds':None,'ianaZone':'America/New_York','tzdbVersion':installed_tzdb()}]}))
             subprocess.run([str(dotnet),str(dll),'--render-power-days',str(calendar_request),str(calendar_sql)],cwd=ROOT,env=env,check=True,timeout=30)
-            combined=(prepared/'seed.sql').read_text().replace('COMMIT;','')+calendar_sql.read_text().replace('BEGIN;','').replace('COMMIT;',"DO $$BEGIN IF NOT EXISTS(SELECT 1 FROM power_data.operating_days WHERE operating_date='2026-03-08' AND ends_at-starts_at=interval '23 hours') OR NOT EXISTS(SELECT 1 FROM power_data.operating_days WHERE operating_date='2026-11-01' AND ends_at-starts_at=interval '25 hours') THEN RAISE EXCEPTION 'Incorrect retained operating-day bounds';END IF;END$$;ROLLBACK;")
+            # The owner holds the six human roles by name, never the agent reader role.
+            human_roles=f"DO $$BEGIN IF(SELECT string_agg(r.code,',' ORDER BY r.code) FROM security.role_grants g JOIN security.roles r ON r.id=g.role_id WHERE g.principal_id='{prepared_ids['owner']}' AND NOT g.revoked)<>'access_administrator,market_data_approver,market_data_editor,risk_analyst,trader,viewer' THEN RAISE EXCEPTION 'The hosted owner must hold exactly the human roles';END IF;END$$;"
+            combined=(prepared/'seed.sql').read_text().replace('COMMIT;','')+calendar_sql.read_text().replace('BEGIN;','').replace('COMMIT;',"DO $$BEGIN IF NOT EXISTS(SELECT 1 FROM power_data.operating_days WHERE operating_date='2026-03-08' AND ends_at-starts_at=interval '23 hours') OR NOT EXISTS(SELECT 1 FROM power_data.operating_days WHERE operating_date='2026-11-01' AND ends_at-starts_at=interval '25 hours') THEN RAISE EXCEPTION 'Incorrect retained operating-day bounds';END IF;END$$;"+human_roles+"ROLLBACK;")
             query(combined)
 
-            print('PASS fresh hosted seed validates on an empty stock database without synthetic users, observations or trades',flush=True)
+            print('PASS fresh hosted seed validates on an empty stock database without synthetic users, observations or trades, and grants its owner the human roles',flush=True)
         query(reference)
         if args.power_actual_check:
             from check_power_actual_storage import prepare_market
@@ -425,6 +439,9 @@ def main():
                 from check_market_read_authority import run_checks as check_market_authority
                 check_market_authority(query,manifest)
             elif args.assistant_check:
+                # First, while nothing else can be writing to the application log.
+                from check_request_refusals import run_checks as check_request_refusals
+                check_request_refusals(url,temporary/'app.log')
                 from check_model_providers import run_checks as check_model_providers
                 check_model_providers(url,query,psql,manifest,temporary,app_env,dotnet)
                 from check_model_catalog import run_checks as check_model_catalog
@@ -437,11 +454,24 @@ def main():
                 check_provider_test_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
                 from check_provider_tests import run_checks as check_provider_tests
                 check_provider_tests(url,query,psql,manifest,app_env)
+                from check_agent_administration import run_checks as check_agent_administration
+                check_agent_administration(url,query,psql,manifest,app_env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    # Roles holding one of Settings › AI's permissions each, so the browser sees every tab offered by its own.
+                    query("INSERT INTO security.roles(id,code,name) VALUES(gen_random_uuid(),'synthetic_agents_admin','Synthetic agents administrator'),"
+                          "(gen_random_uuid(),'synthetic_models_admin','Synthetic models administrator');"
+                          "INSERT INTO security.role_permissions SELECT id,'ManageAgents' FROM security.roles WHERE code='synthetic_agents_admin';"
+                          "INSERT INTO security.role_permissions SELECT id,'ManageModelProviders' FROM security.roles WHERE code='synthetic_models_admin';")
+                    # The browser's two tests reach the provider; its retry and refused test must not.
+                    from fake_model_provider import echo
+                    reached=len(fake_provider.received);fake_provider.respond(echo(),echo())
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--assistant'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned page-assistant settings browser checks failed')
+                    # Settings › AI and its Agents tab run in one browser process.
+                    if browser_process.wait(timeout=300):raise RuntimeError('Owned page-assistant settings browser checks failed')
+                    if len(fake_provider.received)!=reached+2:raise RuntimeError('The browser tests did not reach the provider exactly twice')
+                    print('PASS the browser tests reached the provider exactly twice: a retry and a refused test sent nothing',flush=True)
             elif args.identity_check:
                 from check_units_preview import run_checks as check_units
                 check_units(url)

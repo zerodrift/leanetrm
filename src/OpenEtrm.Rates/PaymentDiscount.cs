@@ -110,6 +110,8 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
             throw new MarketDataException("discount_context", "At least one valid side schedule is required.");
         Snapshot = snapshot;
         var selected = ImmutableDictionary.CreateBuilder<SidePaymentKey, PaymentDiscount>();
+        // Lifecycle state precedes discounting: a due payment on any side is never a discount input.
+        foreach (var schedule in plans) schedule.RequireUndue(snapshot);
         var resolver = new PaymentDiscount.Resolver(discounting, snapshot, currencyDefault);
         foreach (var schedule in plans)
         foreach (var payment in schedule.Payments)

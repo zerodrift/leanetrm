@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 from urllib.request import build_opener, HTTPCookieProcessor, HTTPSHandler, HTTPRedirectHandler, Request
 from uuid import uuid4
 from check_provider_tests import HOLDERS, released
+from check_request_refusals import is_refusal, one_message_per_code, unreadable
 
 
 def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, control_url=None, run_id=None):
@@ -78,7 +79,7 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
                 chosen.setdefault('Origin', origin)
                 chosen['Content-Type'] = 'application/x-www-form-urlencoded' if form else 'application/json'
                 if self.csrf and not form: chosen['X-Preview-CSRF'] = self.csrf
-                payload = (urlencode(body) if form else json.dumps(body)).encode()
+                payload = body if isinstance(body, bytes) else (urlencode(body) if form else json.dumps(body)).encode()
             else: payload = None
             try: response = self.opener.open(Request(origin + path, payload, chosen), timeout=10)
             except HTTPError as error: response = error
@@ -157,7 +158,19 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         startup, _ = client.call('/api/bootstrap?includeFrames=false&includeAccess=true')
         current, _ = client.call('/api/access')
         assert startup['access'] == {'profile':first,'permissions':current['permissions']} and startup['frames']==[]
-        client.call('/api/bootstrap?includeAccess=unknown',expected=400)
+        refusal,_=client.call('/api/bootstrap?includeAccess=unknown',expected=400)
+        assert is_refusal(refusal,'request_format','unknown'),refusal
+        # This readable update reaches its handler, which refuses it without changing an account; each unreadable variant
+        # is refused before the handler runs.
+        update={'operationId':str(uuid4()),'id':str(uuid4()),'expectedVersion':1,'name':'Synthetic hosted name'}
+        handled,_=client.call('/api/admin/update',update,expected=422)
+        assert handled['code']=='admin_input',handled
+        answers=[refusal]
+        for case,payload,status,code in unreadable(update,'name',{**update,'expectedVersion':99999999999}):
+            answers.append(client.call('/api/admin/update',payload,expected=status)[0])
+            assert is_refusal(answers[-1],code,update['name']),(case,answers[-1])
+        assert one_message_per_code(answers),answers
+        print('PASS hosted mode refuses an unreadable query value or body before its handler runs, with a structured answer that echoes nothing',flush=True)
         admin=Client();admin.login('admin_human',password);admin_boot=admin.bootstrap()
         admin_startup,_=admin.call('/api/bootstrap?includeFrames=false&includeAccess=true')
         admin_access,_=admin.call('/api/access')
@@ -166,9 +179,10 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         admin.call('/api/workspace/catalog',expected=403)
         admin.call('/api/power-imports',expected=403)
         print('PASS hosted startup projects current identity permissions without granting market-data authority',flush=True)
-        assert 'ManageModelProviders' in admin_access['permissions']
+        assert 'ManageModelProviders' in admin_access['permissions'] and 'ManageAgents' in admin_access['permissions']
         admin.call('/api/settings/ai/providers',expected=404)
         admin.call('/api/settings/ai/models',expected=404)
+        admin.call('/api/settings/ai/agents',expected=404)
         # A request token is bound to its route's scope, so an unmapped route refuses a token that a mapped one accepts.
         provider={'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0}
         for path,body in (('/api/settings/ai/providers/key',{**provider,'key':'sk-synthetic-hosted-0000'}),
@@ -176,7 +190,10 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
                           ('/api/settings/ai/models/add',{'operationId':str(uuid4()),'vendor':'anthropic','identifier':'hosted-model','displayName':'Hosted model'}),
                           *((f'/api/settings/ai/models/{action}',{'operationId':str(uuid4()),'modelId':str(uuid4()),'expectedVersion':1})
                             for action in ('edit','enable','disable')),
-                          ('/api/settings/ai/providers/test',{'operationId':str(uuid4()),'modelId':str(uuid4()),'reasoning':'low'})):
+                          ('/api/settings/ai/providers/test',{'operationId':str(uuid4()),'modelId':str(uuid4()),'reasoning':'low'}),
+                          ('/api/settings/ai/agents/create',{'operationId':str(uuid4()),'name':'Hosted agent'}),
+                          *((f'/api/settings/ai/agents/{action}',{'operationId':str(uuid4()),'agentId':str(uuid4()),'expectedVersion':1})
+                            for action in ('save','publish','retire'))):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
         print('PASS hosted mode maps no page-assistant administration route, even for a provider administrator',flush=True)

@@ -28,7 +28,8 @@ var webRoot=Path.GetFullPath(hosted?.WebDirectory ?? Environment.GetEnvironmentV
 await using var hostedAuthentication=hosted is null?null:new HostedAuthentication(hosted);
 var builder=WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); builder.Logging.AddSimpleConsole(o=>o.SingleLine=true); builder.Logging.SetMinimumLevel(LogLevel.Warning);
-builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=32*1024; });
+const int bodyLimit=32*1024;
+builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=bodyLimit; });
 if(hosted is null)builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
 else {HostedAuthentication.Configure(builder,hosted);builder.Services.AddSingleton(hostedAuthentication!);}
 builder.Services.AddSingleton<IAntiforgeryAdditionalDataProvider,PreviewAntiforgeryScope>();
@@ -36,6 +37,8 @@ builder.Services.AddAntiforgery(o=> { o.HeaderName="X-Preview-CSRF"; o.Cookie.Na
 // A member repeated in any letter case is ambiguous, so it never binds.
 builder.Services.ConfigureHttpJsonOptions(o=>{o.SerializerOptions.PropertyNamingPolicy=JsonNamingPolicy.CamelCase;o.SerializerOptions.AllowDuplicateProperties=false;
     o.SerializerOptions.Converters.Add(new ExactDecimalJsonConverter());});
+// In every environment, binding refuses what it cannot read with a bare status, which the API then names.
+builder.Services.Configure<RouteHandlerOptions>(o=>o.ThrowOnBadRequest=false);
 builder.Services.AddResponseCompression(o=>{o.EnableForHttps=true;o.Providers.Add<GzipCompressionProvider>();o.MimeTypes=["application/json"];});
 builder.Services.Configure<GzipCompressionProviderOptions>(o=>o.Level=CompressionLevel.Fastest);
 var app=builder.Build();
@@ -44,10 +47,12 @@ await using var database=new PreviewDatabase(root,hosted:hosted,hostedSession:ho
 if(hosted is not null)await database.ValidateHostedBoundary(CancellationToken.None);
 if(hostedAuthentication is not null){hostedAuthentication.Tenant=database.Manifest.TenantId;hostedAuthentication.Workspace=database.Manifest.WorkspaceId;app.UseForwardedHeaders();}
 // The page assistant's worker and provider client exist only in the local preview (docs/ai-assistant.md §11). The
-// worker starts its generation before serving, closing whatever an earlier one left open.
+// worker starts its generation before serving, closing whatever an earlier one left open. Only checks set the
+// preview's provider endpoint override (§5.2).
+var checkEndpoint=hosted is null?ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PROVIDER_ENDPOINT")):null;
 await using var agentWorker=hosted is null?new AgentWorker(PreviewDatabase.AgentSource(root)):null;
 var providerTests=agentWorker is null?null:new ProviderTests(CredentialCustody.FromEnvironment(),agentWorker,
-    new MessagesAdapter(ModelTransport.Handler(ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PROVIDER_ENDPOINT"))),RuntimeSet.Provider),app.Logger);
+    new MessagesAdapter(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider),app.Logger);
 if(agentWorker is not null)await agentWorker.Generation(CancellationToken.None);
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
@@ -69,6 +74,7 @@ app.Use(async (context,next)=>
     context.Items["client_aborted"]=context.RequestAborted;
     using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted); deadline.CancelAfter(TimeSpan.FromSeconds(15));
     context.RequestAborted=deadline.Token;
+    const string malformed="The request is incomplete or malformed.";
     try
     {
         await next(context);
@@ -113,16 +119,20 @@ app.Use(async (context,next)=>
             TemporalException t => (422,t.Code,t.Message),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/date-schedules") => (409,"schedule_conflict","This schedule changed or the reference already exists. Reload before editing."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="admin_conflict" => (409,"admin_conflict","This account or request changed. Reload administration before editing."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="admin_limit" && context.Items.ContainsKey("model_admin_attempted") => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "last_administrator" or "self_access_change" or "admin_input" or "admin_limit" => (422,p.MessageText,"The administrative change was rejected. Keep a current administrator and supply explicit account details and roles."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_managed" => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/admin") => (409,"admin_conflict","That account or request already exists. Reload administration."),
             ModelAdministrationException m => (422,m.Code,m.Message),
             ModelCallException m => (422,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_conflict" || p.SqlState=="23505" && context.Items.ContainsKey("model_admin_attempted")
                 => (409,"model_admin_conflict","This provider, model or request changed, or its current state does not allow the change. Reload Settings › AI before repeating the change under a new request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_provider_unqualified" or "model_provider_disabled" or "model_unqualified" or "model_mapping_unconfirmed"
-                or "model_unpriced" or "test_in_progress"
+                or "model_unpriced" or "test_in_progress" or "model_changed" or "model_disabled" or "agent_retired"
                 => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_role_lacks_permission" => (422,p.MessageText,AgentAdministration.RoleRefusal(AgentAdministration.Lacking(p.Hint))),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable" or "parameter_required"
+                or "model_limit_exceeded" or "instructions_too_long" or "grant_duration_exceeded"
                 => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_runtime_unavailable" => (503,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
@@ -151,25 +161,34 @@ app.Use(async (context,next)=>
             Exception when context.Items.ContainsKey("reference_attempted") && e is NpgsqlException or OperationCanceledException => (503,"reference_outcome_unknown","The reference change outcome is unknown. Inspect saved versions or retry the retained exact request identity."),
             Exception when context.Items.ContainsKey("interval_series_attempted") && e is NpgsqlException or OperationCanceledException => (503,"interval_series_outcome_unknown","The save outcome is unknown. Retry the original request to recover its receipt."),
             OperationCanceledException => (503,"request_cancelled","The request was cancelled or exceeded its time limit."),
-            BadHttpRequestException { StatusCode: 413 } => (413,"request_size","The request body is too large for this operation."),
-            BadHttpRequestException or JsonException => (400,"request_format","The request is incomplete or malformed."),
+            BadHttpRequestException or JsonException => (400,"request_format",malformed),
             _ => (500,"preview_error","The preview could not complete the operation.")
         };
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
         if (status==500) app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
         context.Response.StatusCode=status;
+        // A role refusal also names the role and permission as fields, so a page never parses its message.
+        object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
+            ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
+        await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
+    }
+    // Binding refuses a body or query value it cannot read, and a body over the limit, with a bare status before any
+    // handler runs. No handler answers a bare 400 or 413, so pages release a request refused this way as one that wrote
+    // nothing. An API answer names the refusal instead, echoing nothing that was read.
+    if(apiPath.StartsWithSegments("/api")&&!context.Response.HasStarted&&context.Response.StatusCode is 400 or 413)
+    {
+        var limit=context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize??bodyLimit;
+        var (code,message)=context.Response.StatusCode==413?("request_too_large",$"The request body exceeds its {limit/1024} KiB limit."):("request_format",malformed);
         await context.Response.WriteAsJsonAsync(new {code,message},CancellationToken.None);
     }
 });
 
-// Interval series imports alone accept bodies up to 8 MiB; every other route keeps Kestrel's 32 KiB limit.
-// A declared oversize body is refused here, inside the error mapping: endpoint binding would answer an
-// unexplained empty 413. A chunked body over the limit still fails while binding reads it.
+// Interval series imports alone accept bodies up to 8 MiB; every other route keeps the 32 KiB limit.
+// Binding refuses a larger body with a bare 413, which the error middleware names request_too_large.
 app.Use((context,next)=>
 {
     var size=context.Features.Get<IHttpMaxRequestBodySizeFeature>();
     if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=8*1024*1024;
-    if(context.Request.ContentLength>size?.MaxRequestBodySize)throw new BadHttpRequestException("The request body is too large.",StatusCodes.Status413PayloadTooLarge);
     return next(context);
 });
 
@@ -643,29 +662,50 @@ api.MapPost("/corrections",(HttpContext c,CorrectionRequest body)=>Locked(c,asyn
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to current input editing before changing observations.");
     var frame=Frame(session,body.SnapshotId);
-    if (!frame.ObservationIds.Contains(body.ObservationId)) throw new MarketDataException("snapshot_input","Only an explicitly selected observation can be corrected here.");
+    // The correction replaces the pin in whichever bundle of this snapshot holds it (D172).
+    var held=frame.ObservationIds.Contains(body.ObservationId)?[]:(database.Manifest.SwapMarkets??[])
+        .Select(m=>(m.RevisionId,Pins:database.SwapMarketPins(frame,m)??[])).Where(m=>m.Pins.Contains(body.ObservationId)).ToArray();
+    if (held.Length>1) throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous.");
+    if (!frame.ObservationIds.Contains(body.ObservationId)&&held.Length==0) throw new MarketDataException("snapshot_input","Only an explicitly selected observation can be corrected here.");
     if (session.Frames.Count>=128) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
     if (string.IsNullOrWhiteSpace(body.Value)) throw new MarketDataException("missing_value","Enter an exact decimal value.");
     c.Items["correction_attempted"]=true;
-    var id=await database.WithIdentity(Profile(session),"ImportObservations",(connection,ct)=>database.Correct(connection,body.ObservationId,body.Value,ct),c.RequestAborted);
-    var updated=frame.SelectRevision(body.ObservationId,id,"Edited inputs");
+    var revision=held.Length==1?held[0].RevisionId:database.Manifest.RevisionId;
+    var id=await database.WithIdentity(Profile(session),"ImportObservations",(connection,ct)=>database.Correct(connection,revision,body.ObservationId,body.Value,ct),c.RequestAborted);
+    var updated=held.Length==0?frame.SelectRevision(body.ObservationId,id,"Edited inputs")
+        :frame.SelectSwapMarketRevision(revision,held[0].Pins,body.ObservationId,id,"Edited inputs");
     session.Frames.Add(updated.Id,updated);
     return Results.Ok(new {frame=updated,observationId=id});
 }));
+// The pin a chosen revision replaces: the one pin of the same exact source fact and time.
+static Guid SameFact(PreviewData data,ImmutableArray<Guid> pins,Guid chosenId)
+{
+    var chosen=data.Observation(chosenId);
+    var previous=pins.Where(id=>
+    {
+        var o=data.Observation(id);
+        return o.Id("series_id")==chosen.Id("series_id")&&o.Text("source_event_id")==chosen.Text("source_event_id")&&o.Text("source_code")==chosen.Text("source_code")&&o.Text("role")==chosen.Text("role")&&o.Instant("observed_at")==chosen.Instant("observed_at");
+    }).ToArray();
+    if (previous.Length!=1) throw new MarketDataException("selection_mismatch","Select a revision of the same exact source fact and time.");
+    return previous[0];
+}
 api.MapPost("/select-observation",(HttpContext c,SelectionRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to current input editing before changing selected revisions.");
     var frame=Frame(session,body.SnapshotId);
     var updated=await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>
     {
-        var data=await database.Read(connection,ct); var chosen=data.Observation(body.ObservationId);
-        var previous=frame.ObservationIds.Where(id=>
-        {
-            var o=data.Observation(id);
-            return o.Id("series_id")==chosen.Id("series_id")&&o.Text("source_event_id")==chosen.Text("source_event_id")&&o.Text("source_code")==chosen.Text("source_code")&&o.Text("role")==chosen.Text("role")&&o.Instant("observed_at")==chosen.Instant("observed_at");
-        }).ToArray();
-        if (previous.Length!=1) throw new MarketDataException("selection_mismatch","Select a revision of the same exact source fact and time.");
-        return frame.SelectRevision(previous[0],body.ObservationId,"Explicit revision selection");
+        // The chosen revision replaces the pin of the same source fact in the bundle that holds it (D172).
+        var data=await database.Read(connection,ct);
+        if(!data.HasObservation(body.ObservationId))
+            foreach(var market in database.Manifest.SwapMarkets??[])
+            {
+                if(database.SwapMarketPins(frame,market) is not {} pins||!await database.SwapMarketAvailable(connection,market,ct))continue;
+                var bundle=await database.Read(connection,ct,market.RevisionId);
+                if(bundle.HasObservation(body.ObservationId))
+                    return frame.SelectSwapMarketRevision(market.RevisionId,pins,SameFact(bundle,pins,body.ObservationId),body.ObservationId,"Explicit revision selection");
+            }
+        return frame.SelectRevision(SameFact(data,frame.ObservationIds,body.ObservationId),body.ObservationId,"Explicit revision selection");
     },c.RequestAborted);
     if (session.Frames.Count>=128) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
     session.Frames.Add(updated.Id,updated); return Results.Ok(new {frame=updated});
@@ -848,14 +888,14 @@ api.MapPost("/jobs/update",(HttpContext c,JobUpdate body)=>Locked(c,session=>dat
 api.MapGet("/access",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
     database.WithIdentity(Profile(session),null,async(connection,ct)=>
         Results.Ok(new {permissions=await CurrentPermissions(connection,ct)}),c.RequestAborted))));
-// The principal kinds security.principals accepts; each maps to one login kind.
-(string Code,string Name)[] IdentityKinds=[("human","Human"),("service","Service"),("agent","Agent")];
+// The principal kinds security.principals accepts; each maps to one login kind. Agents are created through agent administration.
+(string Code,string Name,bool Creatable)[] IdentityKinds=[("human","Human",true),("service","Service",true),("agent","Agent",false)];
 api.MapGet("/admin",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>
     {
         await using var command=ScheduleStore.Command(connection,"SELECT security.administration_directory()::text");
         var directory=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>((string)(await command.ExecuteScalarAsync(ct))!)!;
-        directory["kinds"]=JsonSerializer.SerializeToElement(IdentityKinds.Select(k=>new {code=k.Code,name=k.Name}));
+        directory["kinds"]=JsonSerializer.SerializeToElement(IdentityKinds.Select(k=>new {code=k.Code,name=k.Name,creatable=k.Creatable}));
         directory["canCreate"]=JsonSerializer.SerializeToElement(hosted is null);
         return Results.Ok(directory);
     },c.RequestAborted))));
@@ -867,7 +907,7 @@ async Task<IResult> AdminMutation(HttpContext c,object body,string action)=>awai
         var request=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(body,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase}))!.AsObject();request["action"]=action;
         await using var command=ScheduleStore.Command(connection,"SELECT security.apply_administration($1::jsonb)::text",request.ToJsonString());
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
-    },c.RequestAborted,administration:true);
+    },c.RequestAborted,admission:Admission.Administration);
     if(result.GetProperty("kind").GetString()=="human")session.CustomProfiles[result.GetProperty("login").GetString()!]=result.GetProperty("name").GetString()!;
     return Results.Ok(result);
 });
@@ -876,7 +916,7 @@ api.MapPost("/admin/update",(HttpContext c,AdminUpdate body)=>AdminMutation(c,bo
 // Settings › AI administers the page assistant, which exists only in the local preview (P37).
 if(hosted is null)
 {
-    var (modelProviders,modelCatalog)=(new ModelProviders(CredentialCustody.FromEnvironment(),database.Manifest),new ModelCatalog());
+    var (modelProviders,modelCatalog)=(new ModelProviders(CredentialCustody.FromEnvironment(),database.Manifest,checkEndpoint),new ModelCatalog());
     Task<IResult> ModelRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
         database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
     Task<IResult> ModelCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,session=>
@@ -898,6 +938,22 @@ if(hosted is null)
     api.MapPost("/settings/ai/models/edit",(HttpContext c,EditModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EditModel(connection,body,ct)));
     api.MapPost("/settings/ai/models/enable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EnableModel(connection,body,ct)));
     api.MapPost("/settings/ai/models/disable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.DisableModel(connection,body,ct)));
+    // Agents (§5.4, §9). Create and Retire write control tables: the database refuses them with admission_required once
+    // every check has passed under the shared admission, and they are repeated under exclusive admission, so a refusal
+    // or a repeat never takes the epoch row exclusively.
+    Task<IResult> AgentCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command,bool control=false)=>Locked(c,async session=>
+    {
+        c.Items["model_admin_attempted"]=true;
+        try{return Results.Ok(await database.WithIdentity(Profile(session),"ManageAgents",command,c.RequestAborted));}
+        catch(PostgresException p) when(control&&p.SqlState=="P0001"&&p.MessageText=="admission_required")
+        {return Results.Ok(await database.WithIdentity(Profile(session),"ManageAgents",command,c.RequestAborted,Admission.Agents));}
+    });
+    api.MapGet("/settings/ai/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+        database.WithIdentity(Profile(session),"ManageAgents",async(connection,ct)=>Results.Ok(await AgentAdministration.Directory(connection,ct)),c.RequestAborted))));
+    api.MapPost("/settings/ai/agents/create",(HttpContext c,CreateAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Create(connection,body,ct),control:true));
+    api.MapPost("/settings/ai/agents/save",(HttpContext c,SaveAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Save(connection,body,ct)));
+    api.MapPost("/settings/ai/agents/publish",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Publish(connection,body,ct)));
+    api.MapPost("/settings/ai/agents/retire",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Retire(connection,body,ct),control:true));
     api.MapPost("/settings/ai/providers/test",(HttpContext c,TestRequest body)=>Locked(c,async session=>
     {
         c.Items["model_admin_attempted"]=true;

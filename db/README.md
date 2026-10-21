@@ -591,12 +591,64 @@ Nothing is seeded but the generation row, at 0. The migration first verifies the
 it relies on. As a new migration it stops automatic hosted updates until the operator
 qualifies a new baseline (D135).
 
+## Page-assistant provider directory tests
+
+[0064_directory_tests.sql](migrations/0064_directory_tests.sql) has the Providers
+directory state each provider's latest test, by its start, as `test_state` gives it, open
+or closed, and whether it ran under the key and terms attested now, so the Providers tab
+shows its last test and when new ones have outdated it
+([ai-assistant.md](../docs/ai-assistant.md) §9). Nothing else changes; the replaced
+definition keeps its owner and grants. The migration first verifies the helpers it relies
+on and the definition it replaces. As a new migration it stops automatic hosted updates
+until the operator qualifies a new baseline (D135).
+
+## Page-assistant worker start time
+
+[0065_worker_start_time.sql](migrations/0065_worker_start_time.sql) has
+`assistant.start_worker` lock the generation row before it stamps its start. In 0062 the
+stamp could be taken before the start waited for an in-flight test open, so a test the
+start then closed as interrupted could read as closed before it started. Nothing else
+changes; the replaced definition keeps its owner and grants. The migration first verifies
+the lock helper it relies on and the definition it replaces. As a new migration it stops
+automatic hosted updates until the operator qualifies a new baseline (D135).
+
+## Page-assistant agent administration
+
+[0066_agent_administration.sql](migrations/0066_agent_administration.sql) adds
+`ManageAgents` (access administrator), `UseAgents` (trader, risk analyst and market data
+editor, each of which may delegate) and the agent reader role, which holds
+`ReadMarketData`, `ReadTrades` and `ReadTradeParties`
+([ai-assistant.md](../docs/ai-assistant.md) §5.4). A trigger on role grants keeps that
+role to agent principals and agent principals to it, even for the owner, while any
+grant can still be revoked; the migration first fails, revoking nothing, if an agent
+principal holds a current role.
+`apply_administration` refuses to create agents, to change an agent principal and to
+grant the agent reader role (`agent_managed`), and its directory marks that role as not
+assignable; otherwise both are as before.
+
+Agents and their immutable versions and allowed roles are new tables. An agent keeps
+its name, unique in its workspace ignoring the case of ASCII letters whatever the
+database's locale, and its principal; each audited change advances its version, its
+published version only moves forward and Retire is final. A version pins an exact model version and
+states an effort that version records, an output limit within its own, tools from the
+fixed set, its limits and a grant duration in days. Each allowed role row must name a
+role holding `UseAgents` and every permission the version's tools need
+(`agent_role_lacks_permission`). The model administration audit gains an agent column.
+Each command's request names its action, and the administrator's principal row
+serializes their commands, so an identical repeat waits for its original and answers as
+it does. Save takes the runtime set's bounds on instructions and grant duration as
+parameters and applies them after a repeat's replay. Create and Retire write control tables, so outside exclusive admission they refuse with
+`admission_required` once every check has passed; `use_agent_admission` binds that
+admission. The migration first verifies the helpers it relies on and the two
+definitions it replaces. As a new migration it stops automatic hosted updates until the
+operator qualifies a new baseline (D135).
+
 ## Audited interval series
 
-[0064_interval_series.sql](migrations/0064_interval_series.sql) stores one value per UTC
+[0067_interval_series.sql](migrations/0067_interval_series.sql) stores one value per UTC
 interval with immutable revisions ([ppa-design.md](../docs/ppa-design.md) §5, phase A). The
 HTTP routes, screen, limits and 20-year measurements are in
-[implementation.md](../docs/implementation.md#audited-interval-series) (D172).
+[implementation.md](../docs/implementation.md#audited-interval-series) (D173).
 `market_data.interval_series` defines a series by its kind and one exact specification in a
 sealed reference revision:
 - `additive_price_shape`: a quote specification;

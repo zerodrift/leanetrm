@@ -107,6 +107,20 @@ Median PostgreSQL CPU decreased while API CPU stayed similar, and neither contai
 throttled during the measured requests. This isolates the policy cost; it does
 not qualify subsequent migrations, hosted transport or a page-load time budget.
 
+The isolated page-assistant run (`--assistant-check`) first checks requests the API
+cannot read (`tools/check_request_refusals.py`). Replace key, Edit model and Save
+agent each refuse an expected version or tool-step limit beyond its 32-bit range,
+broken JSON, an unknown member, a repeated member and an escaped lone surrogate with
+400 `request_format`, and a body over 32 KiB with 413 `request_too_large`. A query
+value that does not parse is `request_format` too. Each answer holds only its code and
+a message, which is the same for every answer with that code and holds none of the
+text sent, and the application log stays byte for byte unchanged, so no character of
+the refused key reaches it. Each route's readable body, by contrast, reaches its
+handler, which refuses it. The hosted checks send the same variants of an account
+update, whose readable body its handler refuses, and the same query value through the
+TLS proxy and get the same answers. The provider Test checks expect `request_format`
+for an unknown member.
+
 Direct runtime SQL checks also hold principal, provider, credential-storage and
 audit locks until a synthetic role grant or request context has expired. New key
 replacements and accepted-operation retries then fail with SQLSTATE 42501, with
@@ -257,6 +271,9 @@ variable names a trap:
   - While a start would succeed, a viewer's refused request takes no lock and starts no
     generation.
   - The API acquires the lock again for the next test.
+- **Directory:** the Providers tab lists each shipped adapter's endpoint, here the check
+  endpoint marked as one, and each provider's last test; vendors without an adapter have
+  neither.
 - **Egress:** no request reaches a proxy or redirect target, and the key's last four
   characters appear in no answer, request body or log line.
 
@@ -308,12 +325,85 @@ Then in SQL:
   - the next worker closes each test left open as interrupted, once: a further worker and
     a late close change nothing;
   - a worker that starts while a test is opening waits for the open to commit, then closes
-    that test.
+    that test, never before it started (migration 0065).
 - **Expired context:** three cases let the request context expire while a test waits for
   its principal, its model row or its record write, and each names the recheck that
   refuses it.
-- **Guard:** before 0062 applies, its body is refused after a pricing helper's definition
-  changes and after a qualification helper's privileges change.
+- **Last test:** the Providers directory (migration 0064) shows each provider's latest
+  test, open and then closed, none for a provider never tested, and none of this
+  workspace's to another. It states whether that test ran under the key and terms attested
+  now, which stops being true once new terms are attested.
+- **Guards:** before 0062 applies, its body is refused after a pricing helper's definition
+  changes and after a qualification helper's privileges change. Before 0064 applies, its
+  body is refused after the attestation or test state helper or the definition it
+  replaces changes, and after the provider state helper's privileges change. Before 0065
+  applies, its body is refused after the worker start's definition or the lock helper's
+  privileges change. The directory and the worker start keep the owner and grants those
+  guards verified.
+
+Agent administration (`tools/check_agent_administration.py`, in the same run, through the
+API and in SQL):
+
+- **Roles:** only the access administrator manages agents; the trader, risk analyst and
+  market data editor use agents, and each may delegate; the agent reader holds exactly
+  its three reads. Even for the owner, a human never holds the agent reader role and an
+  agent holds no other, while an earlier grant breaking that rule can still be revoked
+  and a revoked one stays revoked.
+- **Create:**
+  - a name follows the display-name rule and is unique in the workspace whatever the
+    case of its ASCII letters, and a create names nothing else;
+  - a created agent is an enabled agent principal bound by its own id at the manifest
+    issuer, a member under its name and an agent reader, recorded once in each audit,
+    and issued request contexts by its agent credential alone, never as a person or a
+    service;
+  - a repeat writes nothing, and a request identity used elsewhere, a Users & access
+    change the suite makes included, is refused;
+  - the 256-member limit counts agents, in agent administration and in Users & access.
+- **Admission:** while another request is admitted, a refused or repeated create answers
+  at once and a create that writes waits for exclusive admission; outside it, a create
+  that passes every check is refused with `admission_required`.
+- **Save:**
+  - an identical save sent while its original still runs, held at the agent's row, waits
+    for it and answers as it does;
+  - every field is named, and nothing else;
+  - text, limits, the grant's duration and the effort follow their rules, and
+    instructions beyond 6,000 characters are too long, even beyond the 32,000-character
+    storage ceiling. The database applies the bounds the API passes after a repeat's
+    replay, so a repeat answers as before under lower ones, while a new save is refused
+    beyond them or without them;
+  - tools and roles come from their sets, each named once;
+  - each allowed role holds `UseAgents` and the tools' permissions, and a refusal names
+    the role and the permission;
+  - a save names a known agent and the current version of a known, enabled, qualified,
+    priced model on an enabled, qualified provider. `model_unqualified` and
+    `model_provider_unqualified` come from a repointed mapping and directly recorded
+    terms, both rolled back. A refused save writes nothing.
+- **Publish:** it publishes the newest version, under the current agent version, after
+  rechecking the model, and a Retire under its request identity is refused, as is a
+  Publish under a Retire's. Even for the owner, the published version only moves
+  forward, versions are immutable, a version names a model of its agent's workspace
+  with an effort and an output limit its model version allows, and an agent starts at
+  version 1 with an agent principal, unpublished and active. A model edit after
+  publication marks the published version.
+- **Directory:** it offers only usable models, the roles that use agents and the tools
+  with their permissions. It lists each agent once with its changes newest first, and
+  another workspace's directory lists none of these agents, models or changes.
+- **Retire:** it disables the principal and its membership, so an agent issued request
+  contexts until then is issued none. A repeat writes nothing, a retired agent cannot change, and the Users & access
+  audit records the loss of access. A refused Retire answers while another request is
+  admitted.
+- **Authority:** a viewer never administers agents, and a delegated agent runs none of
+  the five operations.
+- **Guard:** before 0066 applies, it refuses to start while an agent principal holds a
+  current role, revoking nothing, and refuses a change to each pinned helper.
+
+The Users & access checks expect `agent_managed` for an agent create, the agent reader
+role, and an agent update with and without roles, which leaves the agent unchanged. Its
+browser scenario creates its own agent and finds it listed as an agent reader without
+Edit. The temporal storage checks create an agent through `ManageAgents`
+and show it reads market data only under a current delegation. The reference-policy
+agent holds the agent reader role. The hosted checks find every agent route unmapped and
+the provisioned owner with exactly the six human roles.
 
 The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is
@@ -335,14 +425,64 @@ or explains that no mapping is confirmed; Enable refuses a model without capabil
 and keeps no request, capabilities name the other served identifiers or that the vendor
 reports only the model's own, and the recorded version shows each fact with its source
 and date before Enable and Disable, after which focus moves to the control now
-offered, or stays on the one used when the change is refused. After a lost response to a committed price, key replacement or provider
+offered, or stays on the one used when the change is refused. A display name past the
+32 KiB request limit, and one holding a lone surrogate, which the server cannot read,
+are refused with the ranges every entry keeps; the page keeps no request and the name
+is unchanged. After a lost response to a committed price, key replacement or provider
 Enable, the page keeps the request through an identity switch and shows what was
 saved; Retry resends it under the same identity and the audit still records one
-change. The key never reaches session storage, local storage or the URL, its field
-clears when the request settles, and Retry asks for it again. Measured against the
-client width at 390 px, neither tab overflows the page. A revoked administrator keeps
-no model, price, capability, terms or audit rows on screen, a viewer sees no AI
+change. The provider's card and table name the check endpoint, and a vendor without an
+adapter has none. The test offers only the provider's models with capabilities and the
+chosen model's efforts, names its reasoning effort before it is sent and sends only its
+identity, model and effort. The card's last test, which a later test by another
+administrator would replace, then shows its outcome, usage by dimension and exact cost.
+After a lost response to a test at another effort, the page keeps the request while the
+card shows the test the server recorded, and Retry reads that same test. A test the
+server refuses, here for an effort a stubbed directory offers, keeps no request. A test
+still in progress, and a refusal the server can send after a test ran, keep the request
+for its own identity only: the page offers it after an identity switch, before any card
+opens, and after a failed directory read, and Discard forgets it without sending it. The
+last test is unmarked while its key and terms are attested; a new key marks it as run
+under an earlier key or terms, and the card says to attest before testing again. The
+launcher then confirms that only the two tests reached the fake provider. The key never reaches
+session storage, local storage or the URL, its field clears when the request settles,
+and Retry asks for it again. Measured against the client width at 390 px, neither tab overflows the page. A revoked administrator keeps
+no model, price, capability, terms, test or audit rows on screen, a viewer sees no AI
 settings, and hosted mode hides them.
+
+An Agents scenario follows in the same run. Through an independent session it qualifies
+and enables the provider and adds a priced, enabled model, so it relies on no earlier
+state; the launcher adds a role holding each of Settings › AI's two permissions alone. A
+trader is offered no AI settings. An identity holding only `ManageAgents` lands on
+Settings › AI, is offered the Agents tab alone and reads only the agents directory; one
+holding only `ManageModelProviders` is offered Models & prices and Providers alone; an
+administrator of models and agents is offered all three. The tab says what a save,
+Publish and Retire do. A refused create keeps no request; Create lists the agent with
+nothing saved or published, sending only its identity and name, and opens its card. The
+card offers exactly the directory's models, each at its current capability version, the
+chosen model version's efforts, chosen anew, and its output limit, the roles that use
+agents and every tool, and states the bounds the API passes. A refresh keeps what the
+card has entered and chosen, and so does the next refresh after one that failed. A save
+without a caching choice is refused before any request, and an allowed role lacking a
+permission the tools need is refused by name and keeps nothing. A save creates a draft
+and sends every field with the model version the directory listed. A chosen role that a
+stubbed directory no longer lists as using agents is named rather than offered, after a
+refresh as when its agent opens, and is offered still chosen once listed again; Publish
+publishes the draft. After a capability edit the agent is marked "model changed" until a
+version on the current model version is published, and the form, refreshed or reopened,
+leaves unchosen a model chosen at the earlier capability version and says why. A lost
+save response keeps the exact request for its own identity only; a refusal after that
+uncertain attempt keeps it, and Retry reads the stored version, recorded once. A save
+confirmed before its reload failed keeps no request, and the next read fills the form
+from the version it made without calling that version newer. A form filled before
+another administrator saved a newer version says so, and its save is refused before any
+request until it starts again from the newest version; Publish keeps what the form holds
+unsaved. A Retire whose answer never came is kept until Discard, which sends nothing. A
+Retire confirmation never carries over to another agent's card; Retire needs a
+confirmation that it is permanent, after which the agent offers no change. At 390 px the
+tab and card fit the page, and no internal identifier shows. A change refused on its
+first attempt because access ended keeps no request, and the administrator keeps no
+agent, version, audit or form data, whether the next change or the next read is refused.
 
 The Messages adapter has a conformance suite
 (`dotnet run --project tests/OpenEtrm.Api.Checks -- --model-providers`, also part of
@@ -1228,6 +1368,15 @@ teardown. Swap-catalog daily months still follow contract-identity order, and
 the power-import lists, automation directories and tied discount defaults depend
 on incidental order or ties; they need separate checks.
 
+A failed direct-read comparison now names the fields that differ and a bounded
+excerpt of its first difference, instead of reporting only that the direct read
+differs from the page. With the definition reads unordered again, the first pass
+reports `definitions` and the first differing `curve_inputs` row; a database-free
+check covers the report. The complete command passed on 2026-10-20 on Ubuntu
+24.04.5 x86_64 with .NET 10.0.402, Node 24.22.0, stock PostgreSQL 16.15, Python
+3.13.16 and Chromium 141.0.7390.37 with its normal sandbox, including 162 frontend
+tests, 623 standard and 24 mixed HTTP checks and 360 standard-preview browser checks.
+
 ## Explicit index fixings for swaps
 
 Local 2026-10-19 checks cover exact monthly publication schedules and partially
@@ -1254,6 +1403,67 @@ all database/browser resources were owned, disposable and synthetic. Independent
 adversarial review found no remaining concrete blocker. These checks do not
 qualify live publisher data, broader peak/holiday observation authoring,
 settlement/payment lifecycle operations or a hosted deployment.
+
+### Acceptance oracle, wrong actuals and exact snapshot pins
+
+Local 2026-10-20 checks extend `--index-fixing-check` with check-owned synthetic
+frames. A one-month monthly-index swap on 10,000 MMBtu (IT) receives a published
+3.20 USD/MMBtu February index and pays 3.00. It values at 2,000 USD undiscounted
+before fees, with unit gross sides of 3.20 and 3.00 and lineage to the pinned
+actual. On its payment date it rejects with `side_payment_due`. The discount
+context now checks every side for a due payment before any discount lookup.
+Before this, the API path reported `discount_context` even for undiscounted swaps,
+and another side's missing discount curve could hide a due payment. Managed rate
+checks cover valuation, discount creation and direct construction.
+
+For a due January actual, five inputs cannot price or book: another source, a
+trader mark, a preliminary value, no actual, or only February's actual. The
+database writer rejects the same pin sets independently and admits the exact
+January actual. The February projection needs a live future that expires on
+January 28, before the index publishes on January 31. Between the two, price and
+booking reject with `source_expired`, and at publication the pinned actual prices.
+
+Exact snapshot pins (D172) are checked in both the main and the separate daily
+swap bundle:
+
+- A correction or explicit revision selection prices only through its own new
+  snapshot, and that snapshot's frame JSON names its separate-bundle selection.
+- The original snapshot, a pre-correction retained context and a certified
+  context before the correction keep their original actuals. A certified context
+  after the correction resolves the latest correction in both bundles, repeatably
+  and read-only.
+- Identical booking retries return their original results, including a retry
+  through the corrected snapshot. The trade booked before the corrections values
+  at 31, 32 and 33 USD at the original, corrected and selected snapshots,
+  identically through the scoped and full trading reads. A new booking from the
+  corrected snapshot stores the corrected actual and revalues at 32 and 31 USD at
+  the corrected and original snapshots.
+- Corrections need current import authority and refuse observations the snapshot
+  does not pin. A close cannot be registered from a snapshot with separate-bundle
+  selections.
+
+Temporary mutations confirmed that the checks fail if the resolver ignores the
+actual's source, if daily-bundle loading follows corrections again, or if a
+correction no longer has to be pinned by its snapshot.
+
+The supplemental pin-read check in `check_trading_pin_reads.py` previously required
+the same snapshot to pick up a later daily-bundle correction. It now asserts D172:
+the same snapshot keeps the held daily swap's PV, and a certified context after the
+correction resolves it identically through the scoped and full trading reads.
+
+Independent adversarial review found no critical defects. Its findings were
+resolved before this record: decision and documentation wording, retry and
+booking coverage, negative authorization checks, an explicit certified-context
+marker, serialized selections and the cross-side due-payment order. A follow-up
+review confirmed the resolutions.
+
+After merging master, including D171's collected-interval delivery value, the
+complete `tools/check_all.py` command passed on 2026-10-20 in all 39 stages,
+including 343 managed core checks, 75 rate checks, 162 frontend tests, 360
+standard browser checks, 41 swap storage checks and 623 preview HTTP checks. Verification used .NET SDK 10.0.402, Node 24.22.0, PostgreSQL 16.14 and
+Chrome 155 on macOS arm64; all database and browser resources were owned,
+disposable and synthetic. These checks do not qualify live publisher data,
+settlement or payment lifecycle operations, or a hosted deployment.
 
 ## Unambiguous swap discount defaults
 
@@ -1309,9 +1519,62 @@ such as the Settings › AI rate table, or clipped by an ancestor is not page
 overflow. Other widths, page states and browsers remain unchecked; screenshots
 remain the evidence of how a narrow layout looks.
 
+## Browser checks after navigation
+
+CDP `Page.reload` returns before the reloaded document commits, and
+`Page.navigate` can return while the new document is still being parsed. A wait
+after either must hold only for the new document, once the elements its next
+step uses are parsed, and a check of an injected startup failure must establish
+that the injection caused it. Three checks fell short, although none failed in
+ordinary runs:
+
+- The Blotter check that clears browser preferences reloads the page and waited
+  for the Trader label on an idle page, which the page before the reload already
+  showed. It now also waits for a `performance.timeOrigin` different from the
+  one read before `Page.reload`.
+- Hosted sign-in waited only for the `#signin` form, after loading `/auth` and
+  after each redirect back to it, and then filled the form's login and password
+  fields. It now waits for both fields. The administration sign-in wait compares
+  `#admin-page`'s `hidden` with `false`, so a missing element no longer counts
+  as shown; that wait could not pass early before, because the page is not idle
+  until parsing completes.
+- The check that a missing stored-name directory fails initial hydration
+  accepted any startup failure. Its injected script now records that it removed
+  `curveNames` from a successful `/api/workspace/navigation` response, and the
+  check requires that record.
+
+Disposable runs on 2026-10-20 injected one fault at a time through the CDP Fetch
+domain into the checks before and after the change. With the reload's document
+answered 204, so that no new document committed, the previous wait passed on
+the earlier page within 6 ms of `Page.reload` and all 361 standard browser
+checks passed; the new wait timed out. With that document held for 1.5 s
+instead, `Page.reload` was acknowledged within 2 ms and Chrome answered the
+wait's first evaluation only after the commit, so both waits passed; the
+previous wait depended on that ordering, which the protocol does not document.
+A parser-blocking script held for 1.5 s right after the sign-in form's token
+field stopped the previous hosted check with `TypeError: Cannot set properties
+of null (setting 'value')`; the new waits held at all three sign-ins and the
+hosted check passed. Answering `/api/examples` with 503, or
+`/api/workspace/navigation` with 500, during the missing-directory startup let
+the previous check pass; the new check failed. The fault injector wrapped the
+checks' CDP connection outside the repository.
+
+With 14 CPU-bound processes competing on 14 cores, five standard previews passed
+their 361 browser checks, taking 396–453 s each instead of about 160 s, and ten
+hosted previews passed their 14 browser checks. The complete command then passed
+on 2026-10-20 on macOS 26.6.2 arm64 with .NET 10.0.402, Node 24.22.0, stock
+PostgreSQL 16.14 and Chrome 155.0.8059.85, including 170 frontend checks and 361
+standard and 14 hosted browser checks. Disposable resources completed teardown.
+
+These checks establish that the changed waits accept only the page state their
+next steps use, and that unrelated startup failures fail the missing-directory
+check, under the injected timings in Chrome 155. Each fault held one parser
+position or answered one request; other positions, delays and browsers remain
+unchecked, and waits in other checks were not fault-tested.
+
 ## Audited interval series
 
-Phase A of the PPA design (D172) is checked in five layers, all on synthetic data in
+Phase A of the PPA design (D173) is checked in five layers, all on synthetic data in
 owned disposable resources:
 
 ```sh

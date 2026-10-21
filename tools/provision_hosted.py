@@ -45,7 +45,7 @@ INSERT INTO security.reference_catalog_scopes VALUES('{r}','{t}','{w}','owner');
 INSERT INTO security.principals VALUES('{owner}','human',true);
 INSERT INTO security.identity_bindings VALUES('{origin}/local','{owner}','{owner}','human_interactive');
 INSERT INTO security.workspace_memberships VALUES('{t}','{w}','{owner}','pending_owner','Pending private invitation',true,1);
-INSERT INTO security.role_grants SELECT gen_random_uuid(),'{owner}',id,'{t}','{w}',clock_timestamp(),'9999-12-31',false FROM security.roles;
+INSERT INTO security.role_grants SELECT gen_random_uuid(),'{owner}',id,'{t}','{w}',clock_timestamp(),'9999-12-31',false FROM security.roles WHERE code IN('viewer','trader','risk_analyst','market_data_editor','market_data_approver','access_administrator');
 INSERT INTO security.hosted_accounts(principal_id,issuer,tenant_id,workspace_id) VALUES('{owner}','{origin}/local','{t}','{w}');
 INSERT INTO security.hosted_invitations(token_digest,principal_id,purpose,expires_at) VALUES('{digest}','{owner}','claim',clock_timestamp()+interval '24 hours');
 INSERT INTO trading.publications VALUES('{c}',1,pg_current_xact_id());

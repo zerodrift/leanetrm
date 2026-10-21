@@ -28,9 +28,17 @@ provider's applied mapping states and enables it. Model Enable is the first cons
 a provider's enabled state; calls will consume both. Test, through the API, sends one
 fixed synthetic prompt through the model's adapter and records the call, its outcome,
 usage by dimension and exact cost (`token_cost_v1`) under the agent worker's generation
-(§5.1, §5.3, §7.4, §9). Its Settings › AI control, with the Providers tab's endpoint and
-last test, comes next. The turn's working-data pin (§7.2), which binds a captured
-context, is not implemented.
+(§5.1, §5.3, §7.4, §9). A provider's card tests one of its models, retaining a test whose
+outcome was not confirmed, and the Providers tab shows each vendor's endpoint, marked when
+it is the preview's check endpoint, and its last test, marked when it ran under a key or
+terms no longer attested. From step 5, agent administration works through the API:
+`ManageAgents` and `UseAgents`, the agent reader role held only by agent principals,
+agents with immutable versions, and create, save, Publish and Retire (§5.4, §9), while
+Users & access no longer creates or changes agents. Settings › AI offers each tab by its
+own permission, and its Agents tab creates agents, saves drafts, publishes, marks an agent
+whose published model version is no longer current, and retires. Grants, turns and the
+Usage tab are not implemented, nor is the turn's working-data pin (§7.2), which binds a
+captured context.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -203,9 +211,10 @@ audit as history.
   keyed hash of the workspace, request identity, vendor and key, so an identical retry
   is recognized and a different one is a conflict. Malformed input is
   `model_admin_input`, and a body that does not bind, such as one with an unknown or
-  repeated field, is a bad request; reusing a request identity for another request or
-  acting on a stale provider version is `model_admin_conflict`; an outcome the API
-  cannot confirm is `model_admin_outcome_unknown`.
+  repeated field, is `request_format`, or `request_too_large` over 32 KiB
+  ([security](security.md#requests-the-api-cannot-read)); reusing a request identity
+  for another request or acting on a stale provider version is `model_admin_conflict`;
+  an outcome the API cannot confirm is `model_admin_outcome_unknown`.
 - The browser holds the key only in the form field and the in-flight request, never in
   storage, a URL or the pending-command record, and clears the field when the request
   settles. After an uncertain outcome the tab shows current credential status; Retry
@@ -906,7 +915,9 @@ security.md, reference-data.md, hosted-pilot.md).
 5. Agents, grants and turns: the remaining tables; `ManageAgents`, `UseAgents`,
    `ReadModelUsage` and the agent reader role; creation, Publish, Retire; the Users &
    access and provisioning changes; context pinning and reserve; read tools and
-   Navigate; worker and pools; the stream; Agents and Usage tabs; changed checks.
+   Navigate; worker and pools; the stream; Agents and Usage tabs; changed checks. Once
+   turns record model calls, the Providers directory's last test, which migration 0064
+   takes as a provider's latest call, leaves them out, with an index for that lookup.
 6. The panel with consent; grants and Revoke in the profile dialog; grant history in
    Users & access; navigation history; the background indicator.
 7. Cards and Show card.

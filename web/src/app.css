@@ -365,6 +365,8 @@ form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}
 .ai-choice{border:0;padding:0;margin:0 0 16px;min-width:0}.ai-choice legend{font-size:13px;font-weight:500;color:var(--text-2);padding:0;margin-bottom:6px}.ai-choice label{display:inline-flex;align-items:center;gap:6px;margin:0 14px 6px 0;font-weight:400;white-space:nowrap}.ai-choice input[type=radio]{min-height:0;padding:0;margin:0}.ai-choice input:not([type=radio]){width:auto}
 #ai-tier-threshold{width:150px;margin-right:6px}
 .ai-served{display:block;margin:0 0 10px}.ai-served textarea,.ai-served input{display:block;width:min(100%,480px);margin-top:6px}
+/* Checkbox lists whose choices carry their permissions wrap rather than run past a phone's width. */
+.ai-checks label{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;margin:0 0 6px;white-space:normal}.ai-checks input[type=checkbox]{min-height:0;padding:0;margin:0}.ai-checks .field-help{margin:0}
 .ai-sources input[inputmode=url]{width:min(320px,70vw)}.ai-sources textarea{width:min(360px,70vw)}.ai-sources th[scope=row]{white-space:nowrap}
 #ai-capability-efforts label{margin-right:14px}
 

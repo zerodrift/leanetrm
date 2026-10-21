@@ -109,7 +109,8 @@ Every automation table has enabled and forced RLS. Runtime accounts cannot write
 the tables directly. Narrow database operations derive actor, owner and scope
 from a verified transaction context; caller-supplied ownership is rejected.
 
-`RunJobs` is included in the six common role templates. `ManageJobs` is included
+`RunJobs` is included in the six human role templates, not in the agent reader role
+that only agent principals hold. `ManageJobs` is included
 in the access-administrator template. `LaunchWorkloads` and `ManageInfrastructure`
 require explicit grants. Infrastructure mutation additionally requires an
 unexpired `automation.installation_operators` registration with capability

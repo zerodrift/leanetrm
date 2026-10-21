@@ -1,6 +1,6 @@
 # Identity and authorization foundation
 
-Status: current security persistence, six role templates and PostgreSQL RLS are
+Status: current security persistence, seven role templates and PostgreSQL RLS are
 implemented locally and tested in disposable resources. Credential verification,
 production sign-in and credential lifecycle are not yet implemented. Workspace
 administration and atomic durable access audit now exist in the owned preview. The runnable market workbench is explicitly loopback-only with simulated
@@ -26,16 +26,30 @@ grants; these never establish a production login boundary.
 ## Common roles and scoped authority
 
 [CommonRoles.cs](../src/OpenEtrm.Security/CommonRoles.cs) and
-[0003_security.sql](../db/migrations/0003_security.sql) install these templates:
+[0003_security.sql](../db/migrations/0003_security.sql) install these templates, and
+[0066_agent_administration.sql](../db/migrations/0066_agent_administration.sql) adds the
+agent reader:
 
 | Role | Intended permissions |
 | --- | --- |
 | Viewer | Read scoped market data |
-| Trader | Read, book/amend trades and delegate within authority |
-| Risk Analyst | Read, run valuations/scenarios and delegate within authority |
-| Market Data Editor | Read, import observations, write market/reference drafts and delegate within authority |
+| Trader | Read, book/amend trades, use agents and delegate within authority |
+| Risk Analyst | Read, run valuations/scenarios, use agents and delegate within authority |
+| Market Data Editor | Read, import observations, write market/reference drafts, use agents and delegate within authority |
 | Market Data Approver | Read, freeze definitions and approve/publish qualified changes |
-| Access Administrator | Manage identities/access and model providers, and create scoped delegations |
+| Access Administrator | Manage identities/access, model providers and agents, and create scoped delegations |
+| Agent reader | Read market data, trades and trade parties; held only by agent principals |
+
+A trigger on role grants keeps the agent reader role to agent principals and agent
+principals to it, even for the database owner, while any grant can still be revoked;
+migration 0066 fails, revoking nothing, if an agent principal already holds a current
+role. An agent principal created through Users & access before 0066 therefore holds no
+current role and has no authority; Users & access still lists it but no longer changes
+it, and it is not an agent of agent administration. Users & access lists agents and the
+agent reader role but creates and changes no agent and grants no one that role
+(`agent_managed`); agents are created and retired through agent administration
+([ai-assistant.md](ai-assistant.md) §5.4). Hosted provisioning grants its owner the
+six human roles by name.
 
 Migration 0011 adds explicit `ReadTrades` to Trader and Risk Analyst. The bounded
 futures booking, holdings and actor-owned request-status operations are implemented;
@@ -97,6 +111,29 @@ Each permission evaluation captures actual current UTC time for grant/delegation
 and context expiry. Historical market selectors cannot restore old authority.
 Runtime has no direct state-column update permission. The permission-checked
 market sealing routine still validates exact references and bundle completeness.
+
+## Requests the API cannot read
+
+The API reads a request body of at most 32 KiB. Binding reads the query values and the
+`application/json` body, in UTF-8, that a route declares before its handler runs, and
+refuses one it cannot read there, so nothing is written. No handler answers a bare 400
+or 413, so every `/api` route names these refusals, in the local preview and in hosted
+mode:
+
+- `request_format` (400): a query value that does not parse, or a body that is
+  malformed, including one holding an escaped lone surrogate, repeats a member, holds
+  a value its member's type cannot hold, such as a whole number beyond a 32-bit
+  member's range, or holds an unknown member where its request type refuses one, as
+  every Settings › AI and account request does.
+- `request_too_large` (413): a body over the route's limit, 32 KiB, or 8 MiB for
+  `/api/interval-series/revise`.
+
+Each answer is a fixed code and message that echo nothing the request held, and
+neither refusal is logged, so no part of a refused provider key reaches an answer or
+the application log. A refusal that names its own code, such as `request_token`,
+keeps it. Settings › AI releases a first attempt refused either way, since nothing was
+written. For a form with entries it states the ranges they keep; for one without, a
+refusal can only mean the page and the server disagree, and it asks for a refresh.
 
 ## Agents
 
@@ -427,5 +464,51 @@ Provider Test (migration 0062, step 4) is the first route that calls a provider:
     refuses new tests, but a retry still returns a finished test's outcome.
   - A test is opened only under the current generation while that generation's worker
     still holds the lock, so another process's API refuses tests.
-  - A worker start closes, once, every test an earlier generation left open.
+  - A worker start closes, once, every test an earlier generation left open. Migration
+    0065 has it wait for in-flight opens before it stamps its start, so a test it closes
+    never closes before it started.
 - **Hosted:** none of this exists under `--hosted-pilot`.
+
+Migration 0064 has the Providers directory also state each provider's latest test, as
+`test_state` gives it, which carries no token digest, generation or sealed key, and
+whether that test ran under the key and terms attested now. The directory keeps its
+definer, owner and grants, still rechecks `ManageModelProviders` and refuses delegated
+agents, and shows only tests of the caller's workspace. The providers route adds each
+vendor's endpoint, the adapter's constant or, in the local preview under the check
+override, where requests actually go, marked as a check endpoint. A test request the
+page retains is kept per identity like the other commands, and a refusal that can come
+after the test was recorded keeps it rather than inviting a second, billed test.
+
+Agent administration (migration 0066, step 5) needs `ManageAgents`, held by the access
+administrator role, and never runs under a delegated context:
+
+- **Create** makes an enabled agent principal, an `agent_credential` binding at the
+  manifest issuer with the principal id as subject, a workspace membership counted in
+  the 256-member limit, which Users & access counts too, and the agent reader grant,
+  recorded in both the Users & access and the agent audit. No login or password exists:
+  the principal is issued request contexts by its agent credential alone, never as a
+  person or a service. An agent's name is unique in its workspace, ignoring the case of
+  ASCII letters only.
+- **Repeats:** each command's request names its action, and a repeat answers only the
+  identical request from the same administrator; a request identity used for any other
+  administrative change, in Settings › AI or Users & access, is refused. The
+  administrator's principal row serializes their commands, so an identical repeat sent
+  while its original still runs waits for it and answers as it does.
+- **Admission:** create and Retire write control tables. Each first runs every check
+  under the shared admission, where refusals and repeats answer; only a command that
+  will write repeats them under exclusive admission, which takes the epoch row before
+  binding, so a refusal never blocks other requests.
+- **Versions** are immutable: an exact model version that is current, enabled,
+  qualified and priced on an enabled, qualified provider, one of its efforts, an output
+  limit within its own, tools from the fixed set, limits and a grant duration. The API
+  passes the runtime set's bounds on instructions and grant duration, which the database
+  applies after a repeat's replay. Each allowed role must hold `UseAgents` and every
+  permission the version's tools need, a rule the database applies to each allowed role
+  row as it is written; its refusal names the role and the permission as fields, which
+  the Agents tab states. Choosing a provider or editing instructions grants no
+  application read.
+- **Publish** publishes the newest version after the same model and provider checks;
+  the published version only moves forward.
+- **Retire** is permanent: it disables the principal and its membership, which keeps
+  its member slot, and history stays. Revoking an agent's grants and cancelling its
+  turns join with grants and turns.
