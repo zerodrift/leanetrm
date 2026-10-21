@@ -481,7 +481,8 @@ administrator role, and never runs under a delegated context:
   passes the runtime set's bounds on instructions and grant duration, which the database
   applies after a repeat's replay. Each allowed role must hold `UseAgents` and every
   permission the version's tools need, a rule the database applies to each allowed role
-  row as it is written. Choosing a provider or editing instructions grants no
+  row as it is written; its refusal names the role and the permission as fields, which
+  the Agents tab states. Choosing a provider or editing instructions grants no
   application read.
 - **Publish** publishes the newest version after the same model and provider checks;
   the published version only moves forward.

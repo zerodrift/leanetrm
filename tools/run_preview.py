@@ -433,11 +433,17 @@ def main():
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    # Roles holding one of Settings › AI's permissions each, so the browser sees every tab offered by its own.
+                    query("INSERT INTO security.roles(id,code,name) VALUES(gen_random_uuid(),'synthetic_agents_admin','Synthetic agents administrator'),"
+                          "(gen_random_uuid(),'synthetic_models_admin','Synthetic models administrator');"
+                          "INSERT INTO security.role_permissions SELECT id,'ManageAgents' FROM security.roles WHERE code='synthetic_agents_admin';"
+                          "INSERT INTO security.role_permissions SELECT id,'ManageModelProviders' FROM security.roles WHERE code='synthetic_models_admin';")
                     # The browser's two tests reach the provider; its retry and refused test must not.
                     from fake_model_provider import echo
                     reached=len(fake_provider.received);fake_provider.respond(echo(),echo())
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--assistant'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned page-assistant settings browser checks failed')
+                    # Settings › AI and its Agents tab run in one browser process.
+                    if browser_process.wait(timeout=300):raise RuntimeError('Owned page-assistant settings browser checks failed')
                     if len(fake_provider.received)!=reached+2:raise RuntimeError('The browser tests did not reach the provider exactly twice')
                     print('PASS the browser tests reached the provider exactly twice: a retry and a refused test sent nothing',flush=True)
             elif args.identity_check:

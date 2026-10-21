@@ -389,11 +389,12 @@ def run_checks(url, query, psql, manifest, environment):
         refused_save('model_admin_input', expectedVersion=current['version'], allowedRoles=roles)
     check('tools come from the closed set and roles from the role list, each named once')
     lacking = refused_save('agent_role_lacks_permission', expectedVersion=current['version'], allowedRoles=['trader', 'viewer'])
-    check('an allowed role must hold UseAgents, and the refusal names the role and the permission',
-          'Viewer' in lacking['message'] and 'UseAgents' in lacking['message'])
+    check('an allowed role must hold UseAgents, and the refusal names the role and the permission, also as fields',
+          'Viewer' in lacking['message'] and 'UseAgents' in lacking['message'] and (lacking['role'], lacking['permission']) == ('Viewer', 'UseAgents'))
     lacking = refused_save('agent_role_lacks_permission', expectedVersion=current['version'], allowedRoles=['market_data_editor'])
     check("an allowed role must hold every permission the version's tools need",
-          'Market data editor' in lacking['message'] and 'ReadTrades' in lacking['message'])
+          'Market data editor' in lacking['message'] and 'ReadTrades' in lacking['message']
+          and (lacking['role'], lacking['permission']) == ('Market data editor', 'ReadTrades'))
     refused_save('agent_role_lacks_permission', expectedVersion=current['version'], allowedRoles=['agent_reader'])
     check('the agent reader role is never an allowed role')
     narrower = admin.call(f'{AGENTS}/save', save_body(current, tools=['read_market_data'], allowedRoles=['market_data_editor']))
@@ -502,6 +503,10 @@ def run_checks(url, query, psql, manifest, environment):
               'navigate': [], 'read_current_page': [], 'read_market_data': ['ReadMarketData'], 'read_reference_data': ['ReadMarketData'],
               'read_schedules': ['ReadMarketData'], 'read_trade_parties': ['ReadMarketData', 'ReadTradeParties'],
               'read_trades': ['ReadMarketData', 'ReadTrades']})
+    check("the directory names every supported vendor and the runtime set's bounds on instructions and grants",
+          listing['vendors'] == [{'code': 'anthropic', 'name': 'Anthropic'}, {'code': 'openai', 'name': 'OpenAI'}, {'code': 'google', 'name': 'Google'},
+                                 {'code': 'xai', 'name': 'xAI'}, {'code': 'meta', 'name': 'Meta'}]
+          and listing['bounds'] == {'instructions': 6000, 'grantDays': 90})
     check('the directory lists each agent once, and its latest changes newest first',
           sum(a['id'] == guide['id'] for a in listing['agents']) == 1
           and [a['action'] for a in listing['audit'] if a['agent'] == guide['name']][:2] == ['publish_agent', 'save_agent'])
