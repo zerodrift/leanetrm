@@ -57,8 +57,9 @@ def state(*tables):
             + ' UNION ALL '.join(f"SELECT row_to_json(t)::text value FROM assistant.{table} t" for table in tables) + ')s;')
 
 
-def holding(psql, environment, lock, work):
-    """Runs `work` while another session holds `lock`, so a command needing it waits there."""
+def holding(psql, environment, lock, work, ending='ROLLBACK'):
+    """Runs `work` while another session holds `lock`, so a command needing it waits there; that session then ends
+    its transaction with `ending`."""
     holder = subprocess.Popen(psql, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         holder.stdin.write(f"BEGIN; {lock};\n\\echo LOCKED\n")
@@ -68,7 +69,7 @@ def holding(psql, environment, lock, work):
         return work()
     finally:
         if holder.poll() is None:
-            holder.stdin.write('ROLLBACK;\n'); holder.stdin.close()
+            holder.stdin.write(f'{ending};\n'); holder.stdin.close()
         holder.wait(timeout=10)
 
 

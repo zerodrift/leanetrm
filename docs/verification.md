@@ -456,6 +456,102 @@ Grants (`tools/check_agent_grants.py`, in the same run, through the API and in S
   0068 applies, it refuses to start while any delegation is unrevoked, even an expired
   one, revoking nothing, and refuses a change to each pinned helper.
 
+Turns (`tools/check_agent_turns.py`, in the same run, in SQL, playing the asking request
+and the worker with a session of its own holding the agent-worker lock):
+
+- **Ask:**
+  - it names a request identity, a scope, a positive agent version, a question within
+    the runtime set's bound (`question_too_long`), a page report object of at most 8
+    KiB, the knowledge to pin, a session ending after now and before 9999-12-31 00:00
+    UTC, and a runtime set, and nothing is written otherwise;
+  - it is refused, writing nothing, without `UseAgents`, for a version the person may
+    not use (an unknown agent or version, a draft without agent management), for a
+    missing permission, without a covering grant, for a conversation that is unknown,
+    another person's, in another scope or with another agent, before admission and
+    without waiting for it, and under any but the worker's current generation;
+  - an admitted ask creates the conversation and the queued turn under the covering
+    grant with its accepted event; a repeat answers with its turn and writes nothing,
+    any other ask under its identity conflicts, and an identical ask sent while its
+    original still runs waits for it and answers with its turn;
+  - a draft turn is admitted to a person who manages agents.
+- **Admission:** a person with an active turn is refused another, and an ask past the
+  workspace's limit is refused; admission fails a turn still unpinned at the deadline
+  with `ask_incomplete`, freeing its slot and refusing its record, ends cancelled one
+  whose cancel was requested before its record, and interrupts one past its elapsed
+  limit and the deadline, and those endings stand when the ask is then refused.
+- **Pinned context:** only the asking person presenting the turn's token writes the
+  record, once, before the turn can start; working data is captured once with its
+  cutoff, refused while fewer than the reserve of the catalog's retained contexts would
+  remain, counting a capture still in progress once it commits; a retained context is
+  pinned as named with an As of frame's exact pins, capturing nothing, and is refused
+  when unknown, when its pins do not match the frame and to a person who may not read
+  the catalog's market data; a record write or start that finds the cancel requested
+  ends the turn cancelled.
+- **Worker writes:** each presents the turn's token, and a write the turn's state does
+  not accept is refused with `turn_state_conflict`; the start answers the version's
+  instructions, model and limits and every earlier turn of the conversation with its
+  answer, context and ending; a call pins the model's capability version, the attested
+  key and terms, the price in force and its conversation's latest event, one call at a
+  time; answer text comes only from the call in flight, in chunks of 1 to 2,048 bytes,
+  which always fit their event; a provider test's close refuses a turn's call; a turn
+  ends only once its call is closed and completes only after its call completed, keeping
+  its answer and closing with its usage, summed per dimension over the counts each call
+  reported with unrecognized usage counted as unknown, and its cost per currency,
+  unpriced while any call has none, before its terminal event; a call closes once, a
+  second close recording nothing, and an ended turn takes no further write.
+- **Retries:** a transport failure or overload is retried as the next attempt up to the
+  version's retries; no other failure is retried, nor one whose input is unknown or that
+  published text, nor a call after a completed response (`retry_not_allowed`), and a
+  turn failing after text keeps it, marked incomplete; a retry opens while the input its
+  earlier attempts reported is within the version's limit, and once that input exceeds
+  it the turn ends `limit_input_tokens`; the call after the model's capability version
+  changed or its price was withdrawn ends the turn `model_changed` or `model_unpriced`,
+  and an ask is refused so, as it is while the model's mapping or the provider's current
+  key is unqualified.
+- **Current authority:** the call after the owner lost any part of their authority on
+  its own (their `UseAgents`, `CreateDelegations` or a permission the version needs, an
+  allowed role with every permission kept, their principal or membership, the term of
+  the grant, the agent's membership, or for a draft `ManageAgents`) opens nothing and
+  ends the turn `access_changed`, though nothing requested its cancel; a later save
+  never fails a draft turn, nor a later Publish a published one. An append waiting for a
+  role revocation in progress publishes nothing once it commits and answers refused
+  `access_changed`, and the turn records it: with the role granted again a later append
+  is refused too and a Stop requests nothing, and the turn fails `access_changed`
+  whatever the worker asks; after a refused first append, the next open fails the turn
+  `access_changed` though the call closed retryable over the input limit; one waiting
+  for a grant revocation, which cancels its turn, answers the cancel requested; either
+  way the worker closes the call with the usage it has and the turn keeps the text
+  published before, marked incomplete. A turn whose call completed completes after its
+  owner lost their role, its terminal event skipping the publication recheck.
+- **Cancellation:** Stop is its owner's alone, in its scope, and requests the cancel
+  once; no text is published after it, and once the worker closed the call its next
+  write ends the turn cancelled without a code, counting what the call reported and no
+  more; the asking session's end cancels it with `session_ended`; provider Disable, a
+  key replacing the provider's, model Disable, Retire, Revoke and a replacing grant each
+  request the cancel of a turn they affect with their code, and no other turn, the next
+  call opening nothing, and while the cause stands an ask is refused for it; a call
+  opening while its model is switched off waits for the switch and then ends the turn
+  cancelled; the worker is told of each cancel request once, by a notification naming
+  the turn.
+- **Lapses and recovery:** a repeat waiting for its original, an ask waiting for
+  admission or for its agent and a record write waiting for its turn or to capture are
+  refused at their own recheck once their authority lapses, writing nothing; a worker
+  start waits for a write in flight, then interrupts every turn an earlier generation
+  left queued, running or cancel requested, once, closing its open call and keeping its
+  text marked incomplete; while no session holds the agent-worker lock no ask or worker
+  write is accepted.
+- **Reads:** a person's conversations are theirs in the scope, latest activity first,
+  with their agent and latest turn; one conversation answers its turns in order and its
+  events after a sequence; a person marks their conversation read through a sequence it
+  holds, never backward, and it is unread while later events exist; each scope keeps its
+  own unfinished turn; another person reads and marks none of them, and a read naming no
+  known scope is refused.
+- **Records and guard:** even the owner cannot change an event, move a conversation's
+  read mark back or change anything else of it, rewrite a running turn's answer, clear a
+  refused publication or complete its turn, move a turn backward or change one that
+  ended. The Providers directory's latest test is never a later turn call. Before 0069
+  applies, it refuses a change to each pinned helper or to the privileges of one.
+
 The Users & access checks expect `agent_managed` for an agent create, the agent reader
 role, and an agent update with and without roles, which leaves the agent unchanged. Its
 browser scenario creates its own agent and finds it listed as an agent reader without

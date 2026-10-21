@@ -514,8 +514,8 @@ administrator role, and never runs under a delegated context:
   the published version only moves forward.
 - **Retire** is permanent: it disables the principal and its membership, which keeps
   its member slot, and revokes its open grants, recording each against the
-  administrator in the grant audit; history stays. Cancelling its turns joins with
-  turns.
+  administrator in the grant audit; history stays. Disabling the principal requests the
+  cancel of the agent's turns.
 
 Grants (migration 0068, step 5) delegate an agent version's reads to its agent
 ([ai-assistant.md](ai-assistant.md) §7.1). Each grant command runs in a person's own
@@ -554,3 +554,50 @@ are refused:
   pass, which takes no exclusive admission and locks only the user's principal row, the
   agent or the grant. Each write advances the epoch, so it fences a delivery-price
   attempt in progress.
+
+Turns (migration 0069, step 5) are recorded in the database; the worker and the API
+routes that use them come later ([ai-assistant.md](ai-assistant.md) §7.4):
+
+- **Ask** runs in a person's own request context, unexpired and undelegated, as an
+  enabled member, with `UseAgents` and `CreateDelegations`. It names an agent version
+  the person may use (`agent_not_allowed`) of an active agent (`agent_retired`), needs
+  every permission the version needs (`grant_permission_missing`) and a covering grant
+  (`grant_required`), and is refused while the version's model or provider would stop a
+  call (`model_changed`, `model_disabled`, `model_unqualified`, `model_unpriced`,
+  `model_provider_disabled` or `model_provider_unqualified`). A conversation is its
+  owner's, in its scope, with one agent (`conversation_not_found`,
+  `conversation_agent_mismatch`), checked before admission. A repeat answers only the
+  same person's identical ask, whose principal row serializes their asks.
+- **Admission** runs under the workspace's advisory lock, and the authority is checked
+  after it and every other wait, before one active turn per person and the runtime set's
+  number per workspace are counted.
+- **The pinned-context record** is written once, by the asking person presenting the
+  turn's token, rechecking their authority after each wait. A retained context is pinned
+  only for a person who may read the catalog's market data, and a capture keeps the
+  runtime set's reserve of retained contexts for page captures.
+- **Worker writes** take no request context. Each presents the turn's token, whose
+  SHA-256 digest the turn stores, under the worker generation that admitted it while
+  that generation's worker still holds the agent-worker lock
+  (`agent_runtime_unavailable` otherwise). Closing a call needs only the token, so
+  accounting finishes in any state; a test's close refuses a turn's call.
+- **Before the call** the database checks the owner's current authority without their
+  request context (`UseAgents`, `CreateDelegations` and every permission the version
+  needs held now, which needs their principal and membership enabled; an allowed role
+  for a published version or `ManageAgents` for a draft; the grant unrevoked and
+  unexpired; the agent's principal and membership enabled) and ends the turn
+  `access_changed` when any part is lost; then what stops a call on the model. A role
+  loss cancels nothing and is caught there.
+- **Publication recheck:** each answer append takes the epoch row `FOR SHARE` before the
+  turn and then rechecks that authority, so it waits for a revocation in progress and
+  publishes nothing once it commits. The turn records the refusal: every later append is
+  refused too, a cancel request no longer applies, and whatever the worker asks the turn
+  fails `access_changed` unless recovery interrupts it. Usage, cost and the terminal
+  event carry no business data and skip the recheck.
+- **Cancellation:** Stop is the owner's alone, in its scope; another person's turn is
+  answered like an unknown one (`turn_not_found`). Provider and model Disable, Replace
+  key, Record terms, Retire and grant revocation request the cancel of each turn they
+  affect, as triggers, so every writer is covered; no text is published after it.
+- **Records:** even the owner cannot change or delete a turn event, move a turn's state
+  or record backward, change an ended turn or rewrite answer text, or change a
+  conversation except to mark it read further. The runtime holds no privilege on the
+  turn tables and executes none of the internal turn helpers.
