@@ -1516,3 +1516,56 @@ calendar check bounds its dialog separately. Content inside a scroll container,
 such as the Settings › AI rate table, or clipped by an ancestor is not page
 overflow. Other widths, page states and browsers remain unchecked; screenshots
 remain the evidence of how a narrow layout looks.
+
+## Browser checks after navigation
+
+CDP `Page.reload` returns before the reloaded document commits, and
+`Page.navigate` can return while the new document is still being parsed. A wait
+after either must hold only for the new document, once the elements its next
+step uses are parsed, and a check of an injected startup failure must establish
+that the injection caused it. Three checks fell short, although none failed in
+ordinary runs:
+
+- The Blotter check that clears browser preferences reloads the page and waited
+  for the Trader label on an idle page, which the page before the reload already
+  showed. It now also waits for a `performance.timeOrigin` different from the
+  one read before `Page.reload`.
+- Hosted sign-in waited only for the `#signin` form, after loading `/auth` and
+  after each redirect back to it, and then filled the form's login and password
+  fields. It now waits for both fields. The administration sign-in wait compares
+  `#admin-page`'s `hidden` with `false`, so a missing element no longer counts
+  as shown; that wait could not pass early before, because the page is not idle
+  until parsing completes.
+- The check that a missing stored-name directory fails initial hydration
+  accepted any startup failure. Its injected script now records that it removed
+  `curveNames` from a successful `/api/workspace/navigation` response, and the
+  check requires that record.
+
+Disposable runs on 2026-10-20 injected one fault at a time through the CDP Fetch
+domain into the checks before and after the change. With the reload's document
+answered 204, so that no new document committed, the previous wait passed on
+the earlier page within 6 ms of `Page.reload` and all 361 standard browser
+checks passed; the new wait timed out. With that document held for 1.5 s
+instead, `Page.reload` was acknowledged within 2 ms and Chrome answered the
+wait's first evaluation only after the commit, so both waits passed; the
+previous wait depended on that ordering, which the protocol does not document.
+A parser-blocking script held for 1.5 s right after the sign-in form's token
+field stopped the previous hosted check with `TypeError: Cannot set properties
+of null (setting 'value')`; the new waits held at all three sign-ins and the
+hosted check passed. Answering `/api/examples` with 503, or
+`/api/workspace/navigation` with 500, during the missing-directory startup let
+the previous check pass; the new check failed. The fault injector wrapped the
+checks' CDP connection outside the repository.
+
+With 14 CPU-bound processes competing on 14 cores, five standard previews passed
+their 361 browser checks, taking 396–453 s each instead of about 160 s, and ten
+hosted previews passed their 14 browser checks. The complete command then passed
+on 2026-10-20 on macOS 26.6.2 arm64 with .NET 10.0.402, Node 24.22.0, stock
+PostgreSQL 16.14 and Chrome 155.0.8059.85, including 170 frontend checks and 361
+standard and 14 hosted browser checks. Disposable resources completed teardown.
+
+These checks establish that the changed waits accept only the page state their
+next steps use, and that unrelated startup failures fail the missing-directory
+check, under the injected timings in Chrome 155. Each fault held one parser
+position or answered one request; other positions, delays and browsers remain
+unchecked, and waits in other checks were not fault-tested.

@@ -2,11 +2,13 @@ import {withOwnedBrowser} from './owned-browser.mjs';
 import {readFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 const target=process.argv[2], credentials=JSON.parse(await readFile(join(dirname(target),'hosted-check/browser-account.json'),'utf8'));
+// The parser can pause inside the server-rendered form, so wait for the fields that set() fills.
+const signInFields="!!document.querySelector('#signin [name=login]')&&!!document.querySelector('#signin [name=password]')";
 await withOwnedBrowser(target,process.argv[3],async({command,evaluate,wait,set,check,shot,idle,url,click,submit})=>{
   await command('Runtime.enable');await command('Page.enable');
   await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.__hostedStartupReads=[];window.__hostedStartupAccess=[];const send=window.fetch;window.fetch=(input,...args)=>{const u=new URL(typeof input==='string'?input:input.url,location.href);window.__hostedStartupReads.push(u.pathname);if(u.pathname==='/api/bootstrap')window.__hostedStartupAccess.push(u.searchParams.get('includeAccess'));return send(input,...args);};`});
   await command('Page.navigate',{url:url+'/auth'});
-  await wait("!!document.querySelector('#signin')");
+  await wait(signInFields);
   await set('#signin [name=login]',credentials.login);
   await set('#signin [name=password]',credentials.password);
   await evaluate("document.querySelector('#signin').requestSubmit()");
@@ -36,7 +38,7 @@ await withOwnedBrowser(target,process.argv[3],async({command,evaluate,wait,set,c
   // An expired browser cookie must remove displayed business data on its next operation.
   await command('Network.clearBrowserCookies');
   await evaluate("document.querySelector('#profile-close').click();document.querySelector('#profile-open').click()");
-  await wait("location.pathname==='/auth' && !!document.querySelector('#signin')");
+  await wait("location.pathname==='/auth' && "+signInFields);
   await check('expired login returns to sign in without stale business panels',"!document.querySelector('#profile-dialog') && !!document.querySelector('#signin')");
   await set('#signin [name=login]',credentials.secondLogin);
   await set('#signin [name=password]',credentials.password);
@@ -46,11 +48,11 @@ await withOwnedBrowser(target,process.argv[3],async({command,evaluate,wait,set,c
   await evaluate("document.querySelector('#profile-open').click()");
   await wait("document.querySelector('#profile-dialog').open");
   await evaluate("document.querySelector('#sign-out').click()");
-  await wait("location.pathname==='/auth' && !!document.querySelector('#signin')");
+  await wait("location.pathname==='/auth' && "+signInFields);
   await check('another human can sign in and sign out',"!!document.querySelector('#signin')");
   await set('#signin [name=login]',credentials.adminLogin);await set('#signin [name=password]',credentials.password);
   await evaluate("document.querySelector('#signin').requestSubmit()");
-  await wait("location.pathname==='/'&&!document.querySelector('#admin-page')?.hidden&&"+idle);
+  await wait("location.pathname==='/'&&document.querySelector('#admin-page')?.hidden===false&&"+idle);
   await check('hosted administration-only startup avoids every market read and access round trip',"JSON.stringify(window.__hostedStartupAccess)===JSON.stringify(['true'])&&!window.__hostedStartupReads.includes('/api/access')&&!window.__hostedStartupReads.includes('/api/workspace/navigation')&&window.__hostedStartupReads.includes('/api/admin')&&document.querySelector('#nav-market').hidden&&document.querySelector('#error').hidden");
   await check('hosted mode hides Settings › AI even from a provider administrator',"document.querySelector('#nav-ai').hidden&&document.querySelector('#ai-page').hidden&&!window.__hostedStartupReads.some(path=>path.startsWith('/api/settings/ai'))");
 });
