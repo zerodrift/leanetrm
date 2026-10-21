@@ -2,6 +2,7 @@ import {renderRegularTable} from './regular-table.js';
 import {displayInstant,publicText} from './market-view.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {zonedInput} from './user-time.js';
+import {setupAgentSettings,type AiTab} from './agent-settings.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 export type CurrencyReference={catalogId:string;revisionId:string;code:string};
@@ -186,10 +187,10 @@ export function testRequest(entry:{modelId:string;reasoning:string}){
   return {modelId:entry.modelId,reasoning:entry.reasoning};
 }
 
-// Settings › AI (docs/ai-assistant.md §9): Models & prices and Providers. Both tabs read both
-// directories, since adding a vendor's first model creates its provider and a model's capabilities
-// draw on the usage mapping its provider's adapter applies.
-export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string}){
+// Settings › AI (docs/ai-assistant.md §9): Models & prices, Providers and Agents, each offered by its own
+// permission. Models & prices and Providers read both their directories, since adding a vendor's first model
+// creates its provider and a model's capabilities draw on the usage mapping its provider's adapter applies.
+export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;tabs:()=>AiTab[]}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const input=(id:string)=>get<HTMLInputElement>(id);
   const text=(id:string)=>get<HTMLInputElement|HTMLTextAreaElement>(id).value;
@@ -371,13 +372,21 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     get('ai-key-pending-text').textContent=keyPending.command?`A key replacement for ${name} is unconfirmed. The providers table shows the current key once it loads. To retry, enter the same key and choose Retry; a different key is refused. Discard the request once the table shows your key.`:'';
     get<HTMLButtonElement>('ai-key-submit').disabled=busy||!!keyPending.command;get<HTMLButtonElement>('ai-key-cancel').hidden=!!keyPending.command;
   }
-  async function load(){
+  const agents=setupAgentSettings(options);
+  async function loadModels(){
     const request=++generation,identity=options.identity();
     clearDirectories();
     const [nextModels,nextProviders]=await Promise.all([options.api<Models>('settings/ai/models'),options.api<Providers>('settings/ai/providers')]);
     if(request!==generation||identity!==options.identity())return;
     models=nextModels;providers=nextProviders;labels=currencyLabels(models.currencies);
     render();sync();
+  }
+  // Each tab appears by its own permission and reads only its own directories.
+  async function load(){
+    const tabs=options.tabs();
+    for(const tab of ['models','providers','agents'] as const)get('ai-tab-'+tab).hidden=!tabs.includes(tab);
+    if(!tabs.some(tab=>!get('ai-'+tab).hidden))show(tabs[0]??'models');
+    await Promise.all([tabs.includes('models')?loadModels():undefined,tabs.includes('agents')?agents.load():undefined]);
   }
   // A confirmed change clears only the form that made it.
   const resets:Record<string,(command:RequestCommand)=>void>={
@@ -398,12 +407,12 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       const code=(error as {code?:string}).code;
       holder.failed(code,previouslyUncertain);store(holder);
       // After an unconfirmed outcome the page shows what was actually saved; a denied read stays cleared.
-      if(code==='access_denied')clearDirectories();else if(holder.command)await load().catch(()=>undefined);
+      if(code==='access_denied')clearDirectories();else if(holder.command)await loadModels().catch(()=>undefined);
       sync();throw error;
     }
     holder.clear();store(holder);
     if(holder===keyPending)keyVendor=undefined;else resets[command.path]?.(command);
-    await load();
+    await loadModels();
   }
   async function change(holder:PendingCommand,path:string,body:Record<string,unknown>){
     if(holder.command)throw Error('Retry or discard the retained request before making another change.');
@@ -416,9 +425,8 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     return {effectiveFrom:await from.instant(),effectiveTo:open?null:await to.instant()};
   }
 
-  get('ai-tab-models').onclick=()=>{if(!options.busy())show('models');};
-  get('ai-tab-providers').onclick=()=>{if(!options.busy())show('providers');};
-  for(const id of ['ai-models-refresh','ai-providers-refresh'])get(id).onclick=()=>void options.act(load);
+  for(const tab of ['models','providers','agents'] as const)get('ai-tab-'+tab).onclick=()=>{if(!options.busy())show(tab);};
+  for(const id of ['ai-models-refresh','ai-providers-refresh'])get(id).onclick=()=>void options.act(loadModels);
   for(const id of ['ai-price-form','ai-withdraw-form'])form(id).addEventListener('change',sync);
   // A dimension marked not offered has no rate in either set, so nothing typed there lingers unsent.
   for(const d of ['cacheRead','cacheWrite'])input('ai-none-'+d).addEventListener('change',()=>{if(input('ai-none-'+d).checked)for(const id of ['ai-rate-'+d,'ai-tier-'+d])input(id).value='';});
@@ -490,11 +498,12 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   });
   get('ai-key-discard').onclick=()=>{if(options.busy())return;keyPending.clear();store(keyPending);keyVendor=undefined;input('ai-key-value').value='';sync();};
   get('ai-key-cancel').onclick=()=>{if(options.busy())return;keyVendor=undefined;input('ai-key-value').value='';sync();};
-  function show(tab:'models'|'providers'){
-    for(const name of ['models','providers']){const active=name===tab,b=get('ai-tab-'+name);get('ai-'+name).hidden=!active;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));}
+  function show(tab:AiTab){
+    for(const name of ['models','providers','agents']){const active=name===tab,b=get('ai-tab-'+name);get('ai-'+name).hidden=!active;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));}
   }
-  return {load,sync,
-    refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();},
+  return {load,
+    sync(){sync();agents.sync();},
+    refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();agents.refresh();},
     reset(){
       generation++;clearDirectories();selected=undefined;selectedVendor=undefined;statementPair='';
       for(const id of ['ai-model-form','ai-rename-form','ai-key-form','ai-terms-form','ai-attest-form','ai-test-form'])form(id).reset();resetModelForms();show('models');
@@ -503,6 +512,6 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       providerPending.command=stored(providerPending,c=>providerPaths.includes(c.path));
       keyPending.command=stored(keyPending,c=>c.path===keyPath&&Object.keys(c.body).sort().join()==='expectedVersion,vendor');
       testPending.command=stored(testPending,c=>c.path===testPath&&Object.keys(c.body).sort().join()==='modelId,reasoning');
-      sync();
+      sync();agents.reset();
     }};
 }
