@@ -299,6 +299,9 @@ def main():
             if args.power_actual_check:
                 from check_power_actual_http import run_checks as check_power_actual_http
                 check_power_actual_http(url,query,manifest)
+            elif args.interval_series_check:
+                from check_interval_series_http import run_checks as check_interval_series_http
+                check_interval_series_http(url,query,manifest)
             elif args.swap_risk_holdings_check:
                 from check_swap_risk_holdings import run_checks as check_swap_risk_holdings
                 check_swap_risk_holdings(url,query,manifest,dotnet,temporary,app_env,psql)
