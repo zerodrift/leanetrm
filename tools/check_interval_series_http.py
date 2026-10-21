@@ -90,6 +90,7 @@ def run_checks(url, query, manifest):
           all(refusals) and catalog['canDefine'] is True and catalog['canRevise'] is True
           and 'synthetic_eastern' in choices['clocks'] and choices['resolutions'] == [5, 15, 30, 60]
           and 'test_zero_rate' in choices['specifications']['capacity_factor_forecast']
+          and 'test_conversion_ratio' not in choices['specifications']['capacity_factor_forecast']
           and 'test_power_outright' in choices['specifications']['additive_price_shape']
           and 'test_power_quantity' in choices['specifications']['metered_energy']
           and defined == {'requestId': definition['requestId'], 'seriesId': series, 'revision': 0, 'intervals': 0}
@@ -127,6 +128,12 @@ def run_checks(url, query, manifest):
           and refused('interval-series/revise', revise(2, '2027-01-01T05:30:00Z', ['0.5']), 422, 'interval_series_grid')
           and refused('interval-series/values', {**window(hours[0], hours[3]), 'from': '2027-01-01T06:00:00+01:00'},
                       422, 'interval_series_instant'))
+
+    # A read window runs between interval boundaries of the series' pinned clock.
+    check('a read window off the interval grid is rejected',
+          all(refused(path, {**window(hours[0], hours[3]), 'from': '2027-01-01T05:30:00Z'}, 422, 'interval_series_grid')
+              for path in ('interval-series/values', 'interval-series/changes'))
+          and refused('interval-series/values', {**window(hours[0], hours[3]), 'to': '2027-01-01T07:59:00Z'}, 422, 'interval_series_grid'))
 
     past = client.call('interval-series')['knownAt']
     client.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': past, 'mode': 'at', 'selection': 'latest_correction'})

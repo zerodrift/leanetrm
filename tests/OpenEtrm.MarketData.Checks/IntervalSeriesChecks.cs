@@ -55,6 +55,24 @@ internal static class IntervalSeriesChecks
    Reject("interval_series_overlap",()=>IntervalSeriesGrid.Expand(eastern,60,[S("2027-01-01T05:00:00Z","bad"),S("2027-01-01T05:00:00Z","1")]));
    var r=IntervalSeriesGrid.Expand(eastern,60,[S("2027-01-01T07:00:00Z","3"),S("2027-01-01T05:00:00Z","1","2")]);
    Equal(string.Join(",",r.Select(v=>v.Value!.Value.ToString())),"1,2,3");});
+
+  void Window(PowerClock clock,int minutes,string from,string to)=>IntervalSeriesGrid.RequireWindow(clock,minutes,DateTimeOffset.Parse(from),DateTimeOffset.Parse(to));
+  Check("a read window runs between interval boundaries of the pinned clock",()=>{
+   Window(eastern,60,"2026-11-01T04:00:00Z","2026-11-02T05:00:00Z");Window(eastern,15,"2027-01-01T05:15:00Z","2027-01-01T05:45:00Z");
+   Reject("interval_series_grid",()=>Window(eastern,60,"2027-01-01T05:30:00Z","2027-01-01T08:00:00Z"));
+   Reject("interval_series_grid",()=>Window(eastern,60,"2027-01-01T05:00:00Z","2027-01-01T08:00:00.5Z"));
+   Window(plus0530,60,"2027-01-01T00:30:00Z","2027-01-01T03:30:00Z");Reject("interval_series_grid",()=>Window(plus0530,60,"2027-01-01T00:00:00Z","2027-01-01T03:30:00Z"));
+   Reject("interval_series_resolution",()=>Window(eastern,10,"2027-01-01T05:00:00Z","2027-01-01T06:00:00Z"));});
+  Check("a whole local day across a half-hour clock change is a read window",()=>{var clock=PowerClock.Capture(halfHourDst);
+   // 2027-04-04 runs from 00:00 at +11:00 to 00:00 at +10:30: 24.5 hours, with no hourly cell from 15:00Z to 15:30Z.
+   Window(clock,60,"2027-04-03T13:00:00Z","2027-04-04T13:30:00Z");Window(clock,60,"2027-04-03T15:00:00Z","2027-04-03T15:30:00Z");
+   Reject("interval_series_grid",()=>Window(clock,60,"2027-04-03T15:15:00Z","2027-04-04T13:30:00Z"));});
+  Check("read window boundaries lie on intervals that start within 2000-2099",()=>{
+   Window(eastern,60,"2000-01-01T00:00:00Z","2100-01-01T00:00:00Z");
+   Reject("interval_series_grid",()=>Window(eastern,60,"1999-12-31T23:00:00Z","2000-01-01T05:00:00Z"));
+   Reject("interval_series_grid",()=>Window(eastern,60,"2027-01-01T05:00:00Z","2100-01-01T01:00:00Z"));
+   Reject("interval_series_grid",()=>IntervalSeriesGrid.RequireWindow(eastern,60,DateTimeOffset.MinValue,DateTimeOffset.Parse("2027-01-01T05:00:00Z")));
+   Reject("interval_series_grid",()=>IntervalSeriesGrid.RequireWindow(eastern,60,DateTimeOffset.Parse("2027-01-01T05:00:00Z"),DateTimeOffset.MaxValue));});
   return passed;
  }
 

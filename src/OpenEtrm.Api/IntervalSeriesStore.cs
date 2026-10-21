@@ -23,8 +23,9 @@ public sealed record IntervalSeriesReadRequest([property:JsonRequired]Guid Serie
 public sealed record IntervalSeriesCommandReceipt(Guid RequestId,Guid SeriesId,int Revision,int Intervals);
 
 // Audited interval series through the definer operations of migration 0064. This store expands
-// imports onto the series' pinned clock grid; storage rechecks authority, bounds and the head,
-// replays a retried request and certifies each revision's knowledge time at its commit.
+// imports onto the series' pinned clock grid and checks read windows against it; storage rechecks
+// authority, bounds and the head, replays a retried request and certifies each revision's knowledge
+// time at its commit.
 public sealed partial class IntervalSeriesStore(PreviewDatabase database)
 {
     // Zero-offset instants only, Z or +00:00, to the microsecond; reads render +00:00, so clients can send them back.
@@ -43,7 +44,7 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
         "interval_series_conflict"=>"This request identity already saved a different command. Start a new request.",
         "interval_series_revision_conflict"=>"Another revision was saved first. Reload the series before saving.",
         "interval_series_values"=>"Each interval needs the series' duration, a canonical decimal within the specification's bounds and its own slot among the stored intervals.",
-        "interval_series_window"=>"Choose whole intervals, at most 35,136 of them and 100,000 changes, known no later than now.",
+        "interval_series_window"=>"Choose a From before To spanning at most 35,136 intervals and 100,000 changes, known no later than now.",
         "interval_series_code"=>"Choose an unused code that starts with a lowercase letter and uses lowercase letters, digits, '_', '.' or '-'.",
         "interval_series_definition"=>"Choose a kind, a specification of that kind and a clock from the workspace's sealed reference data.",
         _=>throw new ArgumentOutOfRangeException(nameof(code))
@@ -51,11 +52,11 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
 
     public async Task<object> Catalog(NpgsqlConnection connection,CancellationToken ct)
     {
-        var now=DateTimeOffset.UtcNow;
-        var knownAt=now.AddTicks(-(now.Ticks%TimeSpan.TicksPerMicrosecond));
-        // Choices come from the workspace's reference revision, the pin every definition records.
+        // Choices come from the workspace's reference revision, the pin every definition records. Known at
+        // is the database's clock, the clock every read compares its cutoff with.
         await using var command=ScheduleStore.Command(connection,"""
             SELECT jsonb_build_object(
+             'knownAt',to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
              'series',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',s.id,'code',s.code,'name',s.name,'kind',s.kind,
                'specification',coalesce(s.quote_code,s.value_code,s.quantity_code),'clock',s.clock_code,'intervalMinutes',s.interval_minutes,
                'head',(SELECT coalesce(max(r.revision),0) FROM market_data.interval_series_revisions r WHERE(r.catalog_id,r.series_id)=(s.catalog_id,s.id)))
@@ -66,13 +67,14 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
                'additive_price_shape',(SELECT coalesce(jsonb_agg(q.code ORDER BY q.code),'[]') FROM ref_data.quote_specifications q WHERE(q.catalog_id,q.revision_id)=($2,$3)),
                'multiplicative_price_shape',(SELECT coalesce(jsonb_agg(v.code ORDER BY v.code),'[]') FROM ref_data.value_specifications v
                 WHERE(v.catalog_id,v.revision_id,v.kind)=($2,$3,'dimensionless')),
-               'capacity_factor_forecast',(SELECT coalesce(jsonb_agg(v.code ORDER BY v.code),'[]') FROM ref_data.value_specifications v WHERE(v.catalog_id,v.revision_id)=($2,$3)),
+               'capacity_factor_forecast',(SELECT coalesce(jsonb_agg(v.code ORDER BY v.code),'[]') FROM ref_data.value_specifications v
+                WHERE(v.catalog_id,v.revision_id,v.kind)=($2,$3,'dimensionless')),
                'metered_energy',(SELECT coalesce(jsonb_agg(q.code ORDER BY q.code),'[]') FROM ref_data.quantity_specifications q
                 WHERE(q.catalog_id,q.revision_id,q.dimension_code)=($2,$3,'energy')))))::text
             """,database.Manifest.CatalogId,database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId);
         using var listed=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);
         var offered=listed.RootElement.GetProperty("choices");
-        return new{knownAt=knownAt.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",CultureInfo.InvariantCulture),
+        return new{knownAt=listed.RootElement.GetProperty("knownAt").GetString(),
             series=listed.RootElement.GetProperty("series").Clone(),
             choices=new{clocks=offered.GetProperty("clocks").Clone(),specifications=offered.GetProperty("specifications").Clone(),resolutions=IntervalSeriesGrid.Resolutions},
             canDefine=await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct),
@@ -116,9 +118,13 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
     public Task<JsonElement> Changes(NpgsqlConnection connection,IntervalSeriesReadRequest request,CancellationToken ct)=>
         Read(connection,"SELECT market_data.interval_series_changes($1,$2,$3,$4)::text",request,ct);
 
+    // A window runs between interval boundaries on the series' pinned clock; storage bounds its length and cutoff.
     private static async Task<JsonElement> Read(NpgsqlConnection connection,string sql,IntervalSeriesReadRequest request,CancellationToken ct)
     {
-        await using var command=ScheduleStore.Command(connection,sql,request.SeriesId,ParseInstant(request.From),ParseInstant(request.To),ParseInstant(request.KnownAt));
+        DateTimeOffset from=ParseInstant(request.From),to=ParseInstant(request.To),knownAt=ParseInstant(request.KnownAt);
+        var (clock,minutes)=await Grid(connection,request.SeriesId,ct);
+        IntervalSeriesGrid.RequireWindow(clock,minutes,from,to);
+        await using var command=ScheduleStore.Command(connection,sql,request.SeriesId,from,to,knownAt);
         using var document=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);
         return document.RootElement.Clone();
     }

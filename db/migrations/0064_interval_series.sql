@@ -78,6 +78,8 @@ DO $$DECLARE t text;BEGIN
   EXECUTE format('CREATE POLICY owner_access ON market_data.%I TO openetrm_security_owner USING(true) WITH CHECK(true)',t);
   EXECUTE format('GRANT SELECT,INSERT ON market_data.%I TO openetrm_security_owner',t);
   EXECUTE format('GRANT SELECT ON market_data.%I TO openetrm_runtime',t);
+  -- Series have no historical session mode: runtime sees them only in a current context.
+  EXECUTE format('CREATE POLICY current_read ON market_data.%I AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(security.current_write_context())',t);
   IF t='interval_series' THEN
    EXECUTE format('CREATE POLICY scoped_read ON market_data.%I FOR SELECT TO openetrm_runtime USING(security.market_access(catalog_id,''ReadMarketData'')'
     ' AND security.reference_version_visible(reference_catalog_id,reference_revision_id))',t);
@@ -108,17 +110,16 @@ BEGIN
  END IF;
  IF pg_input_is_valid(define_interval_series.code,'ref_data.code') IS NOT TRUE
   OR EXISTS(SELECT 1 FROM market_data.interval_series s WHERE(s.catalog_id,s.code)=(catalog,define_interval_series.code)) THEN RAISE EXCEPTION 'interval_series_code';END IF;
- -- The exact pin is a sealed reference revision holding the clock and a specification of the kind's dimension.
+ -- The exact pin is a sealed reference revision holding the clock and a specification of the kind's dimension:
+ -- a quote for an additive shape, a factor for a multiplicative shape, MW per MW for a capacity factor.
  IF NOT EXISTS(SELECT 1 FROM ref_data.revisions r WHERE(r.catalog_id,r.id,r.state)=(reference_catalog,reference_revision,'sealed'))
   OR NOT EXISTS(SELECT 1 FROM ref_data.clock_rules r WHERE(r.catalog_id,r.revision_id,r.code)=(reference_catalog,reference_revision,clock))
-  OR NOT(CASE define_interval_series.kind
-   WHEN 'additive_price_shape' THEN EXISTS(SELECT 1 FROM ref_data.quote_specifications q
+  OR NOT(CASE
+   WHEN define_interval_series.kind='additive_price_shape' THEN EXISTS(SELECT 1 FROM ref_data.quote_specifications q
     WHERE(q.catalog_id,q.revision_id,q.code)=(reference_catalog,reference_revision,specification))
-   WHEN 'multiplicative_price_shape' THEN EXISTS(SELECT 1 FROM ref_data.value_specifications v
+   WHEN define_interval_series.kind IN('multiplicative_price_shape','capacity_factor_forecast') THEN EXISTS(SELECT 1 FROM ref_data.value_specifications v
     WHERE(v.catalog_id,v.revision_id,v.code,v.kind)=(reference_catalog,reference_revision,specification,'dimensionless'))
-   WHEN 'capacity_factor_forecast' THEN EXISTS(SELECT 1 FROM ref_data.value_specifications v
-    WHERE(v.catalog_id,v.revision_id,v.code)=(reference_catalog,reference_revision,specification))
-   WHEN 'metered_energy' THEN EXISTS(SELECT 1 FROM ref_data.quantity_specifications q
+   WHEN define_interval_series.kind='metered_energy' THEN EXISTS(SELECT 1 FROM ref_data.quantity_specifications q
     WHERE(q.catalog_id,q.revision_id,q.code,q.dimension_code)=(reference_catalog,reference_revision,specification,'energy'))
    ELSE false END)
  THEN RAISE EXCEPTION 'interval_series_definition' USING ERRCODE='23514';END IF;
@@ -139,13 +140,27 @@ CREATE FUNCTION market_data.append_interval_series_revision(series uuid,request 
  starts timestamptz[],ends timestamptz[],vals text[]) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET TimeZone='UTC' AS $$
 DECLARE selected market_data.interval_series;c security.request_contexts;stored market_data.interval_series_requests;
- bounds ref_data.value_specifications;head integer;total integer=cardinality(starts);ordinal integer;result jsonb;
+ bounds ref_data.value_specifications;step interval;head integer;total integer=cardinality(starts);ordinal integer;result jsonb;
 BEGIN
  SELECT * INTO selected FROM market_data.interval_series s WHERE s.id=series;
  IF NOT security.current_write_context() OR selected.id IS NULL OR security.market_access(selected.catalog_id,'ImportObservations') IS NOT TRUE
   OR security.reference_access(selected.reference_catalog_id,'ReadMarketData') IS NOT TRUE THEN RAISE EXCEPTION 'interval_series_denied' USING ERRCODE='42501';END IF;
  SELECT * INTO c FROM security.request_contexts r
  WHERE r.backend_pid=pg_backend_pid() AND r.transaction_id=pg_current_xact_id_if_assigned() AND r.runtime_login=session_user;
+ step=make_interval(mins=>selected.interval_minutes);
+ SELECT * INTO bounds FROM ref_data.value_specifications v
+ WHERE(v.catalog_id,v.revision_id,v.code)=(selected.reference_catalog_id,selected.reference_revision_id,selected.value_code);
+ -- The request alone, against the immutable definition, before the shared knowledge gate lock: every
+ -- interval has the series' duration and ends before the next one starts, and values are canonical
+ -- exact decimals, within the value specification's bounds when the series has one.
+ IF total IS NULL OR total NOT BETWEEN 1 AND 200000 OR cardinality(ends) IS DISTINCT FROM total OR cardinality(vals) IS DISTINCT FROM total
+  OR EXISTS(SELECT 1 FROM(SELECT u.s,u.e,u.v,lead(u.s) OVER(ORDER BY u.s) following FROM unnest(starts,ends,vals) u(s,e,v)) u
+   WHERE CASE WHEN u.s IS NULL OR u.e IS NULL OR NOT isfinite(u.s) OR NOT isfinite(u.e) THEN true
+    WHEN u.e-u.s<>step OR u.following<u.e THEN true
+    WHEN u.v IS NULL THEN false
+    WHEN u.v!~'^-?(0|[1-9][0-9]*)(\.[0-9]{1,18})?$' OR NOT pg_input_is_valid(u.v,'ref_data.exact_number') THEN true
+    ELSE bounds.code IS NOT NULL AND u.v::numeric NOT BETWEEN bounds.minimum AND bounds.maximum END)
+ THEN RAISE EXCEPTION 'interval_series_values';END IF;
  PERFORM pg_advisory_xact_lock(730849102);
  SELECT * INTO stored FROM market_data.interval_series_requests r WHERE(r.catalog_id,r.actor_id,r.request_id)=(selected.catalog_id,c.actor_id,request);
  IF FOUND THEN
@@ -155,22 +170,14 @@ BEGIN
  END IF;
  SELECT coalesce(max(r.revision),0) INTO head FROM market_data.interval_series_revisions r WHERE(r.catalog_id,r.series_id)=(selected.catalog_id,selected.id);
  IF expected IS DISTINCT FROM head THEN RAISE EXCEPTION 'interval_series_revision_conflict';END IF;
- SELECT * INTO bounds FROM ref_data.value_specifications v
- WHERE(v.catalog_id,v.revision_id,v.code)=(selected.reference_catalog_id,selected.reference_revision_id,selected.value_code);
- -- Every interval has the series' duration and no other interval starts inside it, in this revision
- -- or stored at another start, withdrawn or not: a stored interval changes only at its exact start.
- -- Values are canonical exact decimals, within the value specification's bounds when the series has one.
- IF total IS NULL OR total NOT BETWEEN 1 AND 200000 OR cardinality(ends) IS DISTINCT FROM total OR cardinality(vals) IS DISTINCT FROM total
-  OR EXISTS(SELECT 1 FROM(SELECT u.s,u.e,u.v,lead(u.s) OVER(ORDER BY u.s) following FROM unnest(starts,ends,vals) u(s,e,v)) u
-   WHERE CASE WHEN u.s IS NULL OR u.e IS NULL OR NOT isfinite(u.s) OR NOT isfinite(u.e) THEN true
-    WHEN u.e-u.s<>make_interval(mins=>selected.interval_minutes) OR u.following<u.e THEN true
-    WHEN u.v IS NULL THEN false
-    WHEN u.v!~'^-?(0|[1-9][0-9]*)(\.[0-9]{1,18})?$' OR NOT pg_input_is_valid(u.v,'ref_data.exact_number') THEN true
-    ELSE bounds.code IS NOT NULL AND u.v::numeric NOT BETWEEN bounds.minimum AND bounds.maximum END)
-  -- One bounded value_history probe per new interval; LIMIT keeps the planner from scanning stored values per new row.
+ -- No stored interval, withdrawn or not, starts inside a new one other than at its exact start, so a
+ -- stored interval changes only there. Each new interval gets two bounded value_history probes, one
+ -- on each side of its start, which never visit the revisions stored at that start; LIMIT keeps the
+ -- planner from scanning stored values per new interval.
+ IF EXISTS(SELECT 1 FROM unnest(starts) u(s),LATERAL(SELECT 1 FROM market_data.interval_series_values v
+   WHERE(v.catalog_id,v.series_id)=(selected.catalog_id,selected.id) AND v.starts_at>u.s-step AND v.starts_at<u.s LIMIT 1) earlier)
   OR EXISTS(SELECT 1 FROM unnest(starts,ends) u(s,e),LATERAL(SELECT 1 FROM market_data.interval_series_values v
-   WHERE(v.catalog_id,v.series_id)=(selected.catalog_id,selected.id) AND v.starts_at>u.s-make_interval(mins=>selected.interval_minutes)
-    AND v.starts_at<u.e AND v.starts_at<>u.s LIMIT 1) overlap)
+   WHERE(v.catalog_id,v.series_id)=(selected.catalog_id,selected.id) AND v.starts_at>u.s AND v.starts_at<u.e LIMIT 1) later)
  THEN RAISE EXCEPTION 'interval_series_values';END IF;
  SELECT coalesce(max(r.publication_order),0)+1 INTO ordinal FROM market_data.interval_series_revisions r WHERE r.catalog_id=selected.catalog_id;
  INSERT INTO market_data.interval_series_revisions VALUES(selected.catalog_id,selected.id,head+1,nullif(head,0),c.actor_id,c.tenant_id,c.workspace_id,
@@ -185,18 +192,22 @@ BEGIN
 END$$;
 
 -- Shared by both readers: current authority, a bounded window, the certified context and the revisions known at the cutoff.
+-- A window returns the whole intervals inside it. Its duration bounds it to 35,136 intervals; the API
+-- checks that both ends are interval boundaries on the pinned clock, where a clock change can leave a
+-- gap, so the duration need not be a whole number of intervals.
 CREATE FUNCTION market_data.open_interval_series_read(selected market_data.interval_series,first_at timestamptz,last_at timestamptz,cutoff timestamptz,
  OUT context_id uuid,OUT known integer[],OUT description jsonb)
 LANGUAGE plpgsql SET search_path=pg_catalog AS $$
-DECLARE seconds numeric;
 BEGIN
  IF NOT security.current_write_context() OR selected.id IS NULL OR security.market_access(selected.catalog_id,'ReadMarketData') IS NOT TRUE
   OR security.reference_access(selected.reference_catalog_id,'ReadMarketData') IS NOT TRUE THEN RAISE EXCEPTION 'interval_series_denied' USING ERRCODE='42501';END IF;
  IF first_at IS NULL OR last_at IS NULL OR cutoff IS NULL OR NOT isfinite(first_at) OR NOT isfinite(last_at) OR NOT isfinite(cutoff)
-  OR first_at>=last_at OR cutoff>clock_timestamp() THEN RAISE EXCEPTION 'interval_series_window';END IF;
- seconds=extract(epoch FROM last_at-first_at);
- IF mod(seconds,60*selected.interval_minutes)<>0 OR seconds>35136*60*selected.interval_minutes THEN RAISE EXCEPTION 'interval_series_window';END IF;
- context_id=security.capture_date_context(selected.catalog_id,(first_at AT TIME ZONE 'UTC')::date,cutoff);
+  OR first_at>=last_at OR cutoff>clock_timestamp()
+  OR extract(epoch FROM last_at-first_at)>35136*60*selected.interval_minutes THEN RAISE EXCEPTION 'interval_series_window';END IF;
+ -- Series are not effective-dated: the retained context is the cutoff's alone, dated by its own UTC day.
+ context_id=security.capture_date_context(selected.catalog_id,(cutoff AT TIME ZONE 'UTC')::date,cutoff);
+ -- Certification can wait on the shared knowledge gate: recheck reference authority, as it rechecks market authority.
+ IF security.reference_access(selected.reference_catalog_id,'ReadMarketData') IS NOT TRUE THEN RAISE EXCEPTION 'interval_series_denied' USING ERRCODE='42501';END IF;
  SELECT coalesce(array_agg(r.revision ORDER BY r.revision),'{}') INTO known FROM market_data.interval_series_revisions r
  JOIN market_data.interval_series_knowledge_receipts k ON(k.catalog_id,k.publication_order,k.publication_xid)=(r.catalog_id,r.publication_order,r.publication_xid)
  WHERE(r.catalog_id,r.series_id)=(selected.catalog_id,selected.id) AND k.known_from<=cutoff;
@@ -210,7 +221,8 @@ DECLARE selected market_data.interval_series;opened record;listed jsonb;
 BEGIN
  SELECT * INTO selected FROM market_data.interval_series s WHERE s.id=series;
  SELECT * INTO opened FROM market_data.open_interval_series_read(selected,first_at,last_at,cutoff);
- -- The latest known revision of each interval decides it; a withdrawal leaves no row.
+ -- The latest known revision of each interval decides it; a withdrawal leaves no row. The value_history
+ -- scan visits every stored revision of each interval in the window, so its cost grows with their number.
  SELECT coalesce(jsonb_agg(jsonb_build_object('start',v.starts_at,'end',v.ends_at,'value',v.value::text,'revision',v.revision) ORDER BY v.starts_at),'[]')
  INTO listed FROM(SELECT DISTINCT ON(v.starts_at) v.starts_at,v.ends_at,v.value,v.revision FROM market_data.interval_series_values v
   WHERE(v.catalog_id,v.series_id)=(selected.catalog_id,selected.id) AND v.revision=ANY(opened.known)

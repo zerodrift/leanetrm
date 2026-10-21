@@ -219,7 +219,7 @@ def main():
             check_power_actual_storage(query,manifest)
         if args.interval_series_check:
             from check_interval_series_storage import run_checks as check_interval_series_storage
-            check_interval_series_storage(query,manifest)
+            check_interval_series_storage(query,manifest,psql,env)
         if args.index_fixing_check:
             from check_index_fixing_upgrade import run_checks as check_index_fixing_upgrade
             check_index_fixing_upgrade(query,psql,env,ROOT)
