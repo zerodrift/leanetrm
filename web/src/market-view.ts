@@ -44,24 +44,6 @@ export function setCurveNames(rows:{code:string;name:string}[]){
   for(const row of rows)curveNames.set(row.code,curveNames.has(row.code)&&curveNames.get(row.code)!==row.name?null:row.name);
 }
 export function curveName(code:unknown){const name=curveNames.get(String(code));if(typeof name!=='string'||!name)throw Error('Some market details are missing or inconsistent. Refresh and try again.');return publicText(name);}
-export const marketCategory=(curve:Row)=>typeof curve.interest_rate_code==='string'?'rates':val(curve,'commodity_code');
-export const categoryName=(code:string,workspace:Workspace)=>code==='rates'?'Interest rates':commodityName(code,workspace);
-export function marketType(curve:Row,workspace:Workspace):MarketType {
-  if(typeof curve.interest_rate_code==='string')return 'rates';
-  const members=workspace.definitions.curve_members.filter(m=>m.curve_code===curve.code);
-  if(!members.length)throw Error('This curve has no contracts.');
-  const kinds=new Set(members.map(m=>exactRow(workspace.definitions.contracts,'id',val(m,'contract_id')).kind));
-  if(kinds.size===1&&kinds.has('future'))return 'futures';
-  if(kinds.size===1&&kinds.has('forward'))return 'forwards';
-  if([...kinds].every(k=>k==='future'||k==='forward'))return 'mixed';
-  throw Error('This contract type is not supported yet.');
-}
-export function marketGroups(workspace:Workspace,by:'commodity'|'marketType',commodity:string,type:string){
-  const curves=allCurves(workspace).filter(c=>(commodity==='all'||marketCategory(c)===commodity)&&(type==='all'||marketType(c,workspace)===type));
-  const groups=new Map<string,Row[]>();
-  for(const curve of curves){const name=by==='commodity'?categoryName(marketCategory(curve),workspace):marketTypeName(marketType(curve,workspace));if(!groups.has(name))groups.set(name,[]);groups.get(name)!.push(curve);}
-  return [...groups.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([name,curves])=>({name,curves}));
-}
 export function displayDate(value:string){return new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(value+'T00:00:00Z'));}
 export function pointDate(point:Point){const date=point.maturity??point.deliveryFrom;if(!date)throw Error('This sample has no date.');return date;}
 export function pointIdentity(point:Point){const id=point.seriesId??point.contractId;if(!id)throw Error('This sample is unavailable.');return id;}

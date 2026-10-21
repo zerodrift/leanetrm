@@ -869,8 +869,9 @@ business operation independently check current authority. The default bootstrap
 response retains its existing shape.
 
 `GET /api/workspace/navigation` is a separate typed response for the initial
-directory and date picker. Its managed read obtains explicit curve
-classifications and category labels, all authorized curve display names, exact
+directory and date picker. Its managed read obtains each curve's explicit market
+type and, for commodity curves, its commodity and label; interest-rate curves
+have `category: null`. It also obtains all authorized curve display names, exact
 bundle/reference/context identities and frame summaries. It does not construct
 the pricing model or load observation values or the unit-conversion catalog.
 The browser retains navigation separately from the full workspace and hydrates
@@ -914,7 +915,7 @@ python3 tools/run_preview.py \
 
 Open the printed `http://127.0.0.1:PORT` URL. The screen opens as the read-only
 Viewer demo user. **Market data → Curves & prices** lets users browse by commodity
-or market type, with Futures, Forwards and Interest rates filters. Choose a curve and the **Market date**
+or market type, with Futures, Forwards and Rates filters. Choose a curve and the **Market date**
 dropdown at the top, or click **Explore sample power prices** to explicitly open
 local power forwards for 18 Dec 2020. Six delivery months use four saved dates.
 Select **Price history** beside a contract to follow its prices over time, distinct
@@ -923,8 +924,10 @@ from the curve's delivery-month axis.
 **Profile** holds the user's time zone and preferred browsing layout. A versioned
 browser-local preference record also remembers commodity/type filters and the
 selected detail tab, sidebar/curve-list collapse and individual menu-group states
-per demo persona. Older profile records retain their existing settings and acquire
-only the new presentation layout defaults. No market-date IDs, input policies, credentials
+per demo persona. The Market filter is saved as a commodity code, or as none for
+**All markets**. Older profile records keep their other settings and acquire the
+new presentation layout defaults, but not their former Market choice: they show
+**All markets**. No market-date IDs, input policies, credentials
 or authority are persisted as preferences. The preview does not implement account
 profiles synchronized across devices; that follows verified sign-in. Unavailable
 browser storage is reported, not presented as a successful save.
@@ -934,6 +937,17 @@ on mobile. Its Market data and Settings groups, the curve list and each commodit
 or market-type group expand independently. Returning from the icon rail restores
 the saved group state. These controls are keyboard-accessible and remember their
 state per demo persona in the browser; they do not change permissions or inputs.
+The curve list orders its groups, and the curves within each group, by display
+name with the browser's locale collation; for example, **Local power · all-in
+prices** precedes **Local power forwards**. Grouped by market type, each group
+is one market type. Grouped by commodity, each group is one commodity, and
+interest-rate curves, which have no commodity, form the **Interest rates** group.
+Groups never merge by name. Interest-rate curves appear under **All markets** and
+the **Rates** type filter. The **Market** filter lists **All markets** first,
+then each commodity in display-name order. **All markets** is the absence of a
+commodity filter rather than a code, so any commodity, whatever its code, can be
+chosen on its own. The order depends only on names;
+equal names keep the order of the server's directory response.
 
 Every regular table provides **Filter rows**, **Column filters**, a matching-row
 count and **Clear filters**. Case-insensitive search matches words across displayed

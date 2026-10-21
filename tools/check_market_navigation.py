@@ -28,8 +28,7 @@ def run_checks(c, check, query, manifest):
             kind = 'mixed' if len(kinds) == 2 else {'future': 'futures', 'forward': 'forwards'}[next(iter(kinds))]
             expected.append({'code': curve['code'], 'name': curve['name'], 'marketType': kind,
                              'category': {'code': curve['commodity_code'], 'name': commodities[curve['commodity_code']]}})
-        expected += [{'code': curve['code'], 'name': curve['name'], 'marketType': 'rates',
-                      'category': {'code': 'rates', 'name': 'Interest rates'}}
+        expected += [{'code': curve['code'], 'name': curve['name'], 'marketType': 'rates', 'category': None}
                      for curve in definitions['rate_curves']]
         revision = definitions['revisions'][0]
         return (sorted(nav['curves'], key=lambda r: r['code']) == sorted(expected, key=lambda r: r['code'])
