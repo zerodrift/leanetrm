@@ -1339,7 +1339,9 @@ series pins. Every route refuses a historical session with
 `interval_series_historical`: operations work on current data, and history is read
 by sending an explicit `knownAt` rather than by switching the session. Instants are
 UTC with `Z` or `+00:00` and 0 or 1 to 6 fractional digits; reads render
-`+00:00`. Only `revise` accepts bodies up to 8 MiB; every other route keeps 32 KiB,
+`+00:00`. Every request member is required: a missing or unknown member is refused
+and nothing is defaulted, but that refusal is an empty `400`, not a structured code.
+Only `revise` accepts bodies up to 8 MiB; every other route keeps 32 KiB,
 and a body whose declared length is over the limit is answered `413` with
 `request_size`. A save whose outcome is unknown answers `503` with
 `interval_series_outcome_unknown`; repeating the same request identity recovers the
@@ -1355,27 +1357,31 @@ backend.
 **Verification.**
 
 ```sh
-$DOTNET run --project tests/OpenEtrm.MarketData.Checks -- --interval-series
-python3 tools/run_preview.py --pg-bin $PGBIN --dotnet $DOTNET --interval-series-check \
-  --browser-check --browser "$CHROME"
+dotnet run --project tests/OpenEtrm.MarketData.Checks -- --interval-series
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
+  --interval-series-check --browser-check --browser /path/to/browser
 ```
 
 The managed checks cover the grid on synthetic clocks, including repeated and skipped
 hours and half-hour offsets. `tools/check_interval_series_storage.py` runs 13
 storage checks, `tools/check_interval_series_http.py` 10 HTTP checks and
-`tests/browser/interval-series.mjs` 29 browser checks. `tools/check_all.py` runs the
-managed, storage and HTTP checks; the browser checks run only when
-`--browser-check` is added to the preview command above.
+`tests/browser/interval-series.mjs` 29 browser checks. `tools/check_all.py` runs all
+of them: the managed checks with the other managed suites, and the preview command
+above, browser checks included.
 
 ### Twenty-year qualification
 
 ```sh
-python3 tools/run_preview.py --pg-bin $PGBIN --dotnet $DOTNET --interval-series-benchmark
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
+  --interval-series-benchmark
 ```
 
-`tools/benchmark_interval_series.py` runs in the launcher's newly created database
-and prints one JSON report. An editor session drives the same authorized routes as
-the screen, including the 8 MiB body limit. Each workload defines one series
+`tools/benchmark_interval_series.py` runs in the launcher's newly created database.
+The launcher prints its JSON report among its own log lines, as the block that starts
+with a line holding only `{` and ends with one holding only `}`, and exits nonzero if
+a step fails. An editor session drives the same authorized routes as the screen. Its
+import bodies (about 1.2 MB each) exceed the 32 KiB limit of the other routes and stay
+under the 8 MiB limit of `revise`. Each workload defines one series
 (`capacity_factor_forecast`, value specification `test_zero_rate`, clock
 `synthetic_eastern`), so there is one unique contract per workload and no
 scenarios: no valuation or shock is evaluated. The evaluated work is the intervals
@@ -1396,22 +1402,25 @@ wrong count. It requires the declared interval counts to match the date spans, e
 receipt to match its revision, every read to return exactly the window's interval
 count with the expected values, and the change log to hold each interval's import
 and correction rows. `requestBytes` and `reviseSeconds` list the import requests,
-one per revision, as the client sent and timed them; `withinBrowserTimeout` is true
-when every revision request of the workload, the correction included, took under
-the 20 s timeout of the browser transport (`web/src/app.ts`). Read times include the
-client's decoding of the response. `tableBytes` and `indexBytes` are the growth,
-over the whole workload, of the five interval series tables.
+one per revision, as the client sent and timed them. `maxReviseSeconds` is the
+slowest revision request of the workload, the correction included, to be read against
+`requestTimeoutSeconds`: this client and the browser transport (`web/src/app.ts`) both
+abandon a request after 20 s, so a slower request fails the run instead of being
+reported. Read times include the client's decoding of the response. `tableBytes` and
+`indexBytes` are the growth, over the whole workload, of the five interval series
+tables. `apiResidentBytesAfter` is the resident memory of the launcher-owned API
+process sampled with `ps` after the workload, not a peak. `cpu` is the architecture
+and logical processor count.
 
-Report, measured at source revision `33e4690` (the benchmark adds no code under
-test):
+Report (the API, migration and screen are those of revision `33e4690`; the commit that
+records this report changes only the benchmark, the launcher and documentation):
 
 ```json
 {
   "environment": {
-    "postgres": "16.14 (Homebrew)",
+    "postgres": "16.14",
     "dotnet": "10.0.402",
-    "cpu": "Apple M4 Pro",
-    "logicalCpus": 14,
+    "cpu": "arm64, 14 logical processors",
     "memoryBytes": 51539607552,
     "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
     "topology": "One machine: client, API (the launcher's Debug build) and PostgreSQL; loopback HTTP and a Unix-socket database."
@@ -1424,15 +1433,17 @@ test):
       "intervals": 175320,
       "revisionIntervals": [175320],
       "requestBytes": [1227470],
-      "reviseSeconds": [1.211],
+      "reviseSeconds": [1.287],
       "read366DaysIntervals": 8784,
-      "read366DaysSeconds": 0.045,
-      "correction10000Seconds": 0.073,
+      "read366DaysSeconds": 0.049,
+      "correction10000Seconds": 0.079,
       "changes31DaysRows": 1488,
-      "changes31DaysSeconds": 0.022,
-      "withinBrowserTimeout": true,
+      "changes31DaysSeconds": 0.026,
+      "maxReviseSeconds": 1.287,
+      "requestTimeoutSeconds": 20,
       "tableBytes": 17309696,
-      "indexBytes": 26107904
+      "indexBytes": 26107904,
+      "apiResidentBytesAfter": 299761664
     },
     {
       "name": "quarter_hour_20y",
@@ -1441,15 +1452,17 @@ test):
       "intervals": 701280,
       "revisionIntervals": [175296, 175392, 175296, 175296],
       "requestBytes": [1227308, 1227980, 1227308, 1227308],
-      "reviseSeconds": [1.242, 1.309, 1.072, 1.094],
+      "reviseSeconds": [1.322, 1.468, 1.153, 1.168],
       "read366DaysIntervals": 35136,
-      "read366DaysSeconds": 0.104,
-      "correction10000Seconds": 0.062,
+      "read366DaysSeconds": 0.111,
+      "correction10000Seconds": 0.07,
       "changes31DaysRows": 5952,
-      "changes31DaysSeconds": 0.054,
-      "withinBrowserTimeout": true,
+      "changes31DaysSeconds": 0.052,
+      "maxReviseSeconds": 1.468,
+      "requestTimeoutSeconds": 20,
       "tableBytes": 66232320,
-      "indexBytes": 97943552
+      "indexBytes": 97943552,
+      "apiResidentBytesAfter": 640253952
     }
   ]
 }
@@ -1457,24 +1470,27 @@ test):
 
 (The printed report lists the arrays one element per line; the values are unchanged.)
 
-Eight runs of this code on the same machine gave import revisions of 1.18 to 1.26 s
-(hourly) and 1.05 to 1.51 s (quarter-hour, 4.7 to 5.6 s for all four), reads of
-0.043 to 0.046 s and 0.103 to 0.114 s, corrections of 0.062 to 0.075 s and change
-logs of 0.017 to 0.054 s. Table growth was identical in every run. Quarter-hour index
-growth was 97,943,552 bytes in four runs and 175,013,888 bytes in the other four.
-Series identifiers are random. In the four runs that recorded them, the larger
-growth occurred exactly when the quarter-hour series' identifier sorted before the
-hourly series', so that its keys entered the middle of the indexes instead of
-appending after the last key. Every run finished without a refusal and under the
-browser timeout.
+Eleven runs on the same machine (eight of an earlier version of this benchmark with the
+same workloads and checks, three of this one) gave import revisions of 1.18 to 1.29 s
+(hourly) and 1.05 to 1.57 s (quarter-hour, 4.7 to 5.8 s for all four), reads of
+0.043 to 0.049 s and 0.103 to 0.114 s, corrections of 0.062 to 0.079 s and change
+logs of 0.017 to 0.054 s. The slowest revision request in any run took 1.57 s, against
+the 20 s timeout. Table growth was identical in every run. Quarter-hour index growth
+was 97,943,552 bytes in six runs and 175,013,888 bytes in five. Series identifiers are
+random. In the four earlier runs that recorded them, the larger growth occurred
+exactly when the quarter-hour series' identifier sorted before the hourly series',
+so that its keys entered the middle of the indexes instead of appending after the
+last key. In the three runs that sampled it, the API process held about 300 MB after
+the hourly workload and 608 to 640 MB after the quarter-hour workload.
 
-What this qualifies: one editor session on one machine, importing and reading a
-20-year hourly and quarter-hour series through the authorized HTTP path within the
-limits above. It does not qualify concurrent clients, a hosted network, the
-API's Release build, the memory of the API or database processes (only the
-machine's physical memory is reported) or the browser's cost to render a
-35,136-row window, which is unmeasured. No ANALYZE or vacuum was run, so reads
-reflect the planner statistics that autovacuum had produced by then.
+What this qualifies: one editor session importing and reading a 20-year hourly and
+quarter-hour series through the authorized HTTP path, on one machine with a Debug
+build of the API and loopback HTTP. The benchmark generates no other load, but the
+host was not otherwise isolated. It does not qualify concurrent clients, a hosted
+network, the API's Release build, the memory of the database process, the API's peak
+memory, or the browser's cost to render a 35,136-row window, which is unmeasured. The
+interval series tables were not explicitly analyzed before the reads, so the reads
+used whatever planner statistics existed at the time.
 
 ### Not done and limits
 
@@ -1484,12 +1500,24 @@ reflect the planner statistics that autovacuum had produced by then.
   the market catalog and the pinned reference version only.
 - No historical session mode. Series pages and routes refuse a session in a
   historical view; history is available only through an explicit `knownAt`.
+- No agent tool entry point yet. The operations exist only as the authorized HTTP
+  operations that the screen also uses.
 - A write validates and inserts while holding the transaction lock of the shared
   knowledge gate, which every temporal read and certified write also takes, so those
-  operations wait for it. A 175,000-interval revision took 1.1 to 1.5 s end to end
-  in the measurements above, which bounds that wait. The 200,000-interval cap exists
-  because an earlier trial of a single 701,280-interval append exceeded the 5 s
-  command timeout while holding that lock.
+  operations wait for it. Revisions of 175,296 to 175,392 intervals took 1.05 to 1.57 s
+  end to end in the measurements above (one session, Debug build, loopback), which
+  bounds that wait for revisions of that size; a 200,000-interval revision was not
+  measured. The 200,000-interval cap exists because an earlier trial of a single
+  701,280-interval append exceeded the 5 s command timeout while holding that lock.
+- A revision of 200,000 long decimals can exceed the 8 MiB body limit and is then
+  refused `413` with `request_size`: that happens above roughly 38 characters per
+  value, while the benchmark's values have 3. A chunked body with no declared length
+  that exceeds the limit is answered with an empty `413`, because the structured
+  answer needs the declared length.
+- The catalog's `knownAt` comes from the API host's clock, and a read refuses a
+  cutoff later than the database's clock (`interval_series_window`). With the API
+  host's clock ahead of the database's, an immediate read at the `knownAt` just
+  issued can fail. The preview runs both on one machine.
 - Each values or change-log read at a new cutoff or window date stores one retained
   temporal context, and a catalog holds at most 4,096 of them, never reclaimed
   (`knowledge_limit`). This existing platform limit is open decision O07; every

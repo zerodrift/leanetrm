@@ -1,9 +1,10 @@
 """Twenty-year audited interval series workloads through the launcher's owned synthetic preview.
 
-An editor drives the same authorized HTTP routes as the Interval series screen, including the 8 MiB
-import body limit. Every step checks its own interval counts and values, and a refusal, timeout or
-wrong count fails the run naming the workload and step. The report is a dictionary of measurements;
-the launcher prints it as JSON (docs/implementation.md, "Audited interval series")."""
+An editor drives the same authorized HTTP routes as the Interval series screen; its import bodies
+(about 1.2 MB) exceed the default 32 KiB request limit and fit the revise route's 8 MiB limit. Every
+step checks its own interval counts and values, and a refusal, timeout or wrong count fails the run
+naming the workload and step. The report is a dictionary of measurements; the launcher prints it as
+JSON (docs/implementation.md, "Audited interval series")."""
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -16,7 +17,9 @@ from uuid import uuid4
 from preview_client import PreviewClient
 
 ROOT = Path(__file__).resolve().parents[1]
-BROWSER_TIMEOUT_SECONDS = 20  # AbortSignal.timeout(20000) in web/src/app.ts
+# Both this client (tools/preview_client.py) and the browser transport (AbortSignal.timeout(20000) in web/src/app.ts)
+# abandon a request after 20 seconds, so a slower revision fails the run instead of being reported.
+REQUEST_TIMEOUT_SECONDS = 20
 CYCLE = ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9']
 WINDOW_START = datetime(2036, 7, 1, 5, tzinfo=timezone.utc)
 READ_WINDOW = timedelta(days=366)
@@ -107,16 +110,17 @@ def storage(query):
     return int(table), int(index)
 
 
-def run_workload(client, query, workload, imports):
+def run_workload(client, query, api_pid, workload, imports):
     name, minutes = workload['name'], workload['minutes']
     step = timedelta(minutes=minutes)
     offset = (WINDOW_START - SERIES_START) // step
 
-    def window(series, first, span):
+    def window(series, first, span, label):
         # Each read pins a fresh certified cutoff, as the screen does on every catalog load.
-        return {'seriesId': series, 'from': instant(first), 'to': instant(first + span), 'knownAt': client.call('interval-series')['knownAt']}
+        _, catalog = timed(f'{name}: fetch the cutoff for {label}', lambda: client.call('interval-series'))
+        return {'seriesId': series, 'from': instant(first), 'to': instant(first + span), 'knownAt': catalog['knownAt']}
 
-    table_before, index_before = storage(query)
+    _, (table_before, index_before) = timed(f'{name}: measure storage before', lambda: storage(query))
     _, defined = timed(f'{name}: define', lambda: client.call('interval-series/define', {
         'requestId': str(uuid4()), 'code': f'synthetic_benchmark_{name}', 'name': f'Synthetic benchmark {name}',
         'kind': 'capacity_factor_forecast', 'specification': 'test_zero_rate', 'clock': 'synthetic_eastern', 'intervalMinutes': minutes}))
@@ -135,7 +139,7 @@ def run_workload(client, query, workload, imports):
         imported += receipt['intervals']
     require(imported == workload['intervals'], f"{name}: saved {imported} intervals, expected {workload['intervals']}")
 
-    read = window(series, WINDOW_START, READ_WINDOW)
+    read = window(series, WINDOW_START, READ_WINDOW, 'the 366-day read')
     read_seconds, values = timed(f'{name}: read 366 days', lambda: client.call('interval-series/values', read))
     read_count = READ_WINDOW // step
     verify_values(f'{name}: read 366 days', values['rows'], WINDOW_START, step, read_count)
@@ -153,7 +157,7 @@ def run_workload(client, query, workload, imports):
     require(earlier['head'] == head and earlier['rows'] == values['rows'], f'{name}: the earlier cutoff now reads differently')
 
     original = max(number for number, (first, _) in enumerate(imports, 1) if first <= WINDOW_START)
-    changes = window(series, WINDOW_START, CHANGE_WINDOW)
+    changes = window(series, WINDOW_START, CHANGE_WINDOW, 'the change log')
     changes_seconds, log = timed(f'{name}: change log for 31 days', lambda: client.call('interval-series/changes', changes))
     changed = CHANGE_WINDOW // step
     expected_rows = [(stored(WINDOW_START + k * step), head + 1, original, cycle_value(offset + k), corrected_value(offset + k)) for k in range(changed)]
@@ -165,39 +169,39 @@ def run_workload(client, query, workload, imports):
             [(head + 1, CORRECTION_INTERVALS, changed), (original, imports[original - 1][1], changed)],
             f'{name}: the revision summary differs from the import and the correction')
 
-    table_after, index_after = storage(query)
+    _, (table_after, index_after) = timed(f'{name}: measure storage after', lambda: storage(query))
+    _, resident = timed(f'{name}: measure API memory', lambda: api_resident_bytes(api_pid))
     return {'name': name, 'clock': 'synthetic_eastern', 'intervalMinutes': minutes, 'intervals': imported,
             'revisionIntervals': [count for _, count in imports], 'requestBytes': request_bytes,
             'reviseSeconds': [round(s, 3) for s in revise_seconds],
             'read366DaysIntervals': read_count, 'read366DaysSeconds': round(read_seconds, 3),
             'correction10000Seconds': round(correction_seconds, 3),
             'changes31DaysRows': len(log['rows']), 'changes31DaysSeconds': round(changes_seconds, 3),
-            'withinBrowserTimeout': all(s < BROWSER_TIMEOUT_SECONDS for s in [*revise_seconds, correction_seconds]),
-            'tableBytes': table_after - table_before, 'indexBytes': index_after - index_before}
+            'maxReviseSeconds': round(max([*revise_seconds, correction_seconds]), 3), 'requestTimeoutSeconds': REQUEST_TIMEOUT_SECONDS,
+            'tableBytes': table_after - table_before, 'indexBytes': index_after - index_before, 'apiResidentBytesAfter': resident}
 
 
-def cpu_model():
-    if platform.system() == 'Darwin':
-        return subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'], capture_output=True, text=True, check=True, timeout=10).stdout.strip()
-    if platform.system() == 'Linux':
-        for line in Path('/proc/cpuinfo').read_text().splitlines():
-            if line.startswith('model name'):
-                return line.split(':', 1)[1].strip()
-    raise RuntimeError('This platform does not identify its CPU model; record the environment by hand.')
+def api_resident_bytes(pid):
+    """Resident set of the launcher-owned API process now (not a peak)."""
+    kibibytes = subprocess.run(['ps', '-o', 'rss=', '-p', str(pid)], capture_output=True, text=True, check=True, timeout=10).stdout
+    return int(kibibytes) * 1024
 
 
 def environment(query, dotnet):
     sdk = subprocess.run([str(dotnet), '--version'], cwd=ROOT, capture_output=True, text=True, check=True, timeout=30,
                          env={**os.environ, 'DOTNET_CLI_TELEMETRY_OPTOUT': '1', 'DOTNET_NOLOGO': '1'}).stdout.strip()
-    return {'postgres': query('SHOW server_version;'), 'dotnet': sdk, 'cpu': cpu_model(), 'logicalCpus': os.cpu_count(),
+    return {'postgres': query('SHOW server_version;').split()[0], 'dotnet': sdk,
+            'cpu': f'{platform.machine()}, {os.cpu_count()} logical processors',
             'memoryBytes': os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES'), 'os': platform.platform(),
             'topology': 'One machine: client, API (the launcher\'s Debug build) and PostgreSQL; loopback HTTP and a Unix-socket database.'}
 
 
-def run_benchmark(url, query, dotnet):
+def run_benchmark(url, query, dotnet, api_pid):
+    """The report for every workload; api_pid is the launcher-owned API process whose memory is sampled."""
     planned = [(workload, plan(workload)) for workload in WORKLOADS]
     client = PreviewClient(url)
-    client.bootstrap()
-    client.call('profile', {'profile': 'editor'})
-    return {'environment': environment(query, dotnet),
-            'workloads': [run_workload(client, query, workload, imports) for workload, imports in planned]}
+    timed('start session', client.bootstrap)
+    timed('select the editor profile', lambda: client.call('profile', {'profile': 'editor'}))
+    _, described = timed('describe the environment', lambda: environment(query, dotnet))
+    return {'environment': described,
+            'workloads': [run_workload(client, query, api_pid, workload, imports) for workload, imports in planned]}

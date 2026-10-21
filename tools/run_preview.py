@@ -303,7 +303,7 @@ def main():
         if args.check:
             if args.interval_series_benchmark:
                 from benchmark_interval_series import run_benchmark
-                print(json.dumps(run_benchmark(url,query,dotnet),indent=2),flush=True)
+                print(json.dumps(run_benchmark(url,query,dotnet,child.pid),indent=2),flush=True)
             elif args.power_actual_check:
                 from check_power_actual_http import run_checks as check_power_actual_http
                 check_power_actual_http(url,query,manifest)
