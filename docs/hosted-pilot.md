@@ -66,6 +66,13 @@ Failed login and other upstream redirects retain their original destinations.
 All remaining application assets, authentication and API routes use the existing
 upstream, including its account checks and overwritten trusted forwarding headers.
 No application authentication or business operation moves into the public page.
+API routes keep the API's request body limits, 8 MiB for `/api/interval-series/revise`
+and 32 KiB otherwise, and the gateway answers a larger API body with 413 and the API's
+`request_too_large` code and message, so a page can tell that nothing was written.
+Every other route keeps the 32 KiB limit and nginx's own answer. The gateway buffers a
+revise body of up to 8 MiB before the application authenticates its request, so
+anonymous uploads of that size reach nginx's client body temporary files; allow for
+them there.
 
 Run the isolated gateway qualification explicitly with an installed stock nginx
 that supports TLS and HTTP/2, plus OpenSSL:
@@ -76,17 +83,20 @@ python3 tools/check_public_routes.py --nginx /path/to/nginx
 
 It starts only an owned temporary nginx process and a synthetic loopback
 application, creates disposable certificates, and checks public routes, private
-routes, queries, redirects and proxy headers. It does not connect to an existing
+routes, queries, redirects, proxy headers and API body limits. Its requests use
+HTTP/1.1, so it does not exercise HTTP/2. It does not connect to an existing
 application or deployment. Standard unit discovery checks source content and
-placeholder rendering without requiring nginx; passing those checks alone does
-not qualify gateway routing. The owned check does not establish real hosted
+placeholder rendering without requiring nginx; passing those checks alone does not
+qualify gateway routing. The owned check does not establish real hosted
 authentication, account isolation, certificate renewal or production readiness.
 
 Install the reviewed public files and header include read-only, review the exact
 rendered template, and qualify nginx syntax plus real hosted authentication before
 an explicitly authorized activation. Automatic application-image distribution
 retains its existing strict release envelope and does not install or activate
-the public site or gateway configuration.
+the public site or gateway configuration. A gateway rendered from an earlier template
+refuses every body over 32 KiB with nginx's own 413, so it needs this review and
+activation before the revise route accepts larger bodies and pages can read the refusal.
 
 ## Delivery prices and scheduling
 
