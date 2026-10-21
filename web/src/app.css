@@ -626,7 +626,7 @@ dialog label{margin-top:16px}
 @media(max-width:1200px){.custom-curve-workspace,.custom-curve-workspace.inspector-collapsed{grid-template-columns:140px minmax(0,1fr)}.custom-curve-workspace.palette-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-inspector{grid-column:1/-1}.custom-curve-inspector #custom-curves-properties{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 18px}.custom-curve-inspector h4,.custom-curve-inspector p{grid-column:1/-1}}
 @media(max-width:760px){.custom-curve-workspace,.custom-curve-workspace.inspector-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-inspector{grid-column:auto}.custom-curve-inspector #custom-curves-properties{display:block}.custom-curve-palette #custom-curves-operators{flex-direction:row;flex-wrap:wrap}.custom-curve-palette button{width:auto}.custom-curve-board{height:350px}}
 /* Interval series: plain fieldsets, a monospaced paste area and full-width single-line controls. */
-#interval-series-page fieldset{border:0;padding:0;margin:0;min-width:0}
+#interval-series-page fieldset,#interval-curves-page fieldset{border:0;padding:0;margin:0;min-width:0}
 #interval-series-select,#interval-series-reason,#interval-series-change-value{width:100%;max-width:480px}
 #interval-series-page textarea{display:block;font-family:ui-monospace,monospace;resize:vertical;margin-bottom:8px}
 #interval-series-import-form,#interval-series-change-form{margin-top:16px}

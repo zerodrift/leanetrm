@@ -1683,3 +1683,53 @@ is refused, times out or returns a wrong interval count. Its workloads, environm
 [the implementation record](implementation.md#twenty-year-qualification). They
 establish one editor session's timings on one machine and do not qualify concurrent
 use, a hosted network or the API's Release build.
+
+## Interval prices, curves and block shaping
+
+Phase B of the PPA design (D174) is checked in five layers, all on synthetic data in
+owned disposable resources:
+
+```sh
+dotnet run --project tests/OpenEtrm.MarketData.Checks
+npm test --prefix web
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
+  --interval-curves-check --browser-check --browser /path/to/browser
+```
+
+35 managed checks cover interval contracts (fall-back labels, misaligned and
+overlapping intervals, pinned dates and expiry, no mixed constituents, mapping only
+identical intervals, windows with gaps), blocks (304 November peak hours with the
+Thursday holiday off-peak; peak and off-peak cover all 721 November and 743 March
+hours) and shaping: oracles 1–4, unequal durations giving 48 and 58, every block's
+exact mean equal to its mark, partition and coverage refusals, a cut window equal to
+the whole month, and per-interval shape revisions. Under a +1 block-mark shock, one
+prepared window recalibrates one block and reuses three; a shape or mark correction
+recalibrates only its block. They also cover PWR01 at the interval-price level (value
+0, +10 under the shock with the fixed interval unchanged, unresolved before the due
+time, refused once due, a day-ahead actual, no actual published after the valuation
+instant for a live interval, a correction only at a later cutoff), whole-hour and
+whole-day aggregates and the uncovered PWR02 quantities. Deliberate faults in reuse
+matching, partition overlap and the knowledge cutoff each failed their checks. The
+frontend adds 4 presentation tests: labels for the repeated hour, lineage text
+without internal identifiers, aggregates and the dense chart. In the owned preview,
+23 storage checks cover the sealed bundle, read authority and a historical context,
+immutability, and a refused draft copy for each seal rule a synthetic bundle can
+violate; two rules have no such copy (see the
+[implementation record](implementation.md#interval-prices-curves-and-block-shaping)). 37 HTTP checks
+cover exact prices and lineage for marked, shaped and resolved reads on a frame that
+values at 16:00 UTC on 15 December 2020: block means equal to their marks, a weekday
+holiday's peak-window hours in the off-peak block, a knowledge time that keeps its
+shape, mixed shape revisions, a withdrawn and restored interval, a curve listed as
+unavailable, and actuals published through the collection worker, where the
+delivered day resolves to its actuals, a due actual not yet collected is refused,
+an ended hour before its due time is unresolved, live hours take their marks even
+after their actuals arrive, and a correction appears only at a later cutoff. They
+also cover aggregates, delivered, uncovered, window, cutoff, historical, missing-member
+and anonymous refusals. Reintroducing the dropped holidays or the hindsight actual
+each failed its HTTP check. 20 browser checks drive the screen: an unavailable curve
+with its reason, shaped November with the repeated hour's offsets, lineage on choosing
+a row, the delivered-interval message, actual, unresolved and projected states, day
+and hour aggregates, the largest synthetic window (1,465 hours), 390 px width and the
+historical refusal. The market read authority check pins sixteen read policies, and
+`--power-actual-check` still passes over the shared collector and alignment.
+`tools/check_all.py` runs all five layers.

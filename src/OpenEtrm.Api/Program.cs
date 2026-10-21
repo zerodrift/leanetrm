@@ -144,6 +144,8 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_conflict" or "interval_series_revision_conflict" => (409,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_values" or "interval_series_window" or "interval_series_grid" or "interval_series_code"
                 || p.SqlState=="23514" && p.MessageText=="interval_series_definition" => (422,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="23514" && p.MessageText=="interval_curve_definition"
+                => (422,p.MessageText,"Interval contracts must be forwards on their operating date, alone in their curve and as long as its delivery profile's interval."),
             PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_limit" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
             PostgresException p when p.SqlState=="42501" => (403,"access_denied","Database permissions rejected this operation."),
@@ -404,6 +406,18 @@ api.MapPost("/interval-series/define",(HttpContext c,IntervalSeriesDefineRequest
 api.MapPost("/interval-series/revise",(HttpContext c,IntervalSeriesReviseRequest body)=>IntervalSeriesOperation(c,"ImportObservations",(connection,ct)=>intervalSeries.Revise(connection,body,ct)));
 api.MapPost("/interval-series/values",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Values(connection,body,ct)));
 api.MapPost("/interval-series/changes",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Changes(connection,body,ct)));
+var intervalCurves=new IntervalCurvesStore(marketReads,touStore);
+// Interval curves read published TOU and shape inputs, which are current definitions, so a historical view never substitutes them.
+Task<IResult> IntervalCurveRead(HttpContext c,Guid snapshot,Func<NpgsqlConnection,PinnedContext,CancellationToken,Task<object>> work)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)
+        throw new MarketDataException("interval_curve_historical","Return to working data to read interval curves; their delivery inputs are current definitions.");
+    var profile=Profile(session);
+    var pin=Pin(session,snapshot);
+    return database.WithIdentity(profile,"ReadMarketData",async(connection,ct)=>Results.Ok(await work(connection,pin,ct)),c.RequestAborted);
+});
+api.MapPost("/interval-curves/catalog",(HttpContext c,IntervalCurveCatalogRequest body)=>IntervalCurveRead(c,body.SnapshotId,intervalCurves.Catalog));
+api.MapPost("/interval-curves/values",(HttpContext c,IntervalCurveValuesRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>intervalCurves.Values(connection,pin,body,ct)));
 api.MapGet("/schedules",(Func<HttpContext,Task<IResult>>)(c=>ScheduleOperation(c,(session,data)=>
 {
     var sources=(database.Manifest.Schedules??[]).Select(source=>

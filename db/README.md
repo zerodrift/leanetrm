@@ -716,3 +716,49 @@ verifies the helpers it relies on and the definition it replaces. Since a grant 
 delegation with a grant record, it fails, revoking nothing, while any delegation is
 unrevoked, even an expired one. As a new migration it stops automatic hosted updates
 until the operator qualifies a new baseline (D135).
+
+## Interval curves
+
+[0070_interval_curves.sql](migrations/0070_interval_curves.sql) lets a curve's constituents be
+exact delivery intervals ([ppa-design.md](../docs/ppa-design.md) §6, phase B).
+`market_data.contract_intervals` extends one contract with its UTC interval and the labels its
+clock gives it: operating date, hour beginning, minute and occurrence (2 only for the second
+pass through a repeated local hour). An interval lasts 5, 15, 30 or 60 minutes. Rows are
+immutable definition rows, guarded like the contracts they extend, and runtime reads them only
+where the exact definition revision is visible, under the same read policies as the other
+market definition tables. Directly marked interval prices are ordinary observations of the
+interval contracts' series.
+
+`market_data.curve_blocks` makes a curve a block curve: its date-only constituents crossed with
+all hours, or with the peak or off-peak hours of one TOU product version, on the clock, holiday
+calendar and grid of the curve's delivery profile. `market_data.shaped_curves` defines a shaped
+curve by its method (`additive` or `multiplicative`), its calibration policy
+(`duration_weighted_block_mean_v1`), its operator version (`block_shape_v1`) and the phase A shape
+series its block marks are calibrated onto; `market_data.shaped_curve_blocks` names its blocks.
+Block marks are ordinary observations of the block curves. `market_data.curve_actual_rules`
+gives a curve with a collected-price source ([0063](migrations/0063_power_curve_settlement_sources.sql))
+the instant each interval's actual is due: its start or end plus an offset of up to seven days,
+under `interval_actual_due_v1`.
+
+Sealing a definition revision refuses with `interval_curve_definition` (SQLSTATE 23514), naming
+the broken rule in the detail:
+- an interval contract that is not a forward, does not deliver from its operating date to the
+  next day or does not expire at its interval end; a curve that mixes interval and date-only
+  constituents; or an interval whose duration differs from its curve's delivery profile;
+- a shaped curve code that is also a curve code;
+- a block curve that is not a direct curve of date-only constituents on a 5, 15, 30 or 60 minute
+  profile;
+- a shaped curve without exactly one all-hours block, or the peak and off-peak blocks of one TOU
+  product version;
+- shaped-curve blocks that differ in quote, commodity, location or delivery profile;
+- a peak or off-peak block whose TOU version is not published on its profile's clock;
+- a shape series that is not an additive shape in the blocks' quote (additive) or a multiplicative
+  shape (multiplicative) on their reference version, clock and grid;
+- a due rule on a curve without interval constituents, or whose source differs from the curve's
+  delivery profile in clock or interval length.
+
+Every rule that reads a curve's reference rows, TOU versions, shape series or sources requires a
+matching visible row, so a row the sealer cannot see refuses the seal. The checks are their own trigger and leave
+`validate_revision` unchanged. All five tables are immutable definition rows under the read
+policies of the other market definition tables. As a new migration it stops automatic hosted
+updates until the operator qualifies a new baseline (D135).

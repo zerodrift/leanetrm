@@ -1,27 +1,13 @@
 """Mapped collected-price checks against the launcher's disposable stock database."""
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_EVEN, localcontext
+from decimal import Decimal
 from fractions import Fraction
-import json
 from uuid import uuid4
 
+from exact_values import fraction, instant, rounded
+from power_collection_fixture import Collector
 from preview_client import PreviewClient
-
-
-def _instant(value):
-    return datetime.fromisoformat(value.replace('Z', '+00:00'))
-
-
-def _fraction(value):
-    return Fraction(int(value['numerator']), int(value['denominator']))
-
-
-def _rounded(value, places):
-    with localcontext() as context:
-        context.prec = 100
-        return (Decimal(value.numerator) / Decimal(value.denominator)).quantize(
-            Decimal(1).scaleb(-places), rounding=ROUND_HALF_EVEN)
 
 
 def run_checks(url, query, manifest):
@@ -32,45 +18,10 @@ def run_checks(url, query, manifest):
     workspace = client.call('workspace')
     frame = workspace['frames'][0]
     catalog = client.call('power/catalog', {'snapshotId': frame['id']})
-    c, r, rr, tenant, scope = [manifest[k] for k in
-        ('catalogId', 'referenceCatalogId', 'referenceRevisionId', 'tenantId', 'workspaceId')]
+    c, r, tenant, scope = [manifest[k] for k in ('catalogId', 'referenceCatalogId', 'tenantId', 'workspaceId')]
     config = manifest['powerActual']
-    actor, login = str(uuid4()), 'synthetic_actual_' + uuid4().hex[:12]
-    query(f"""CREATE ROLE {login} LOGIN IN ROLE openetrm_collector;
-      INSERT INTO security.principals VALUES('{actor}','service',true);
-      INSERT INTO security.workspace_memberships VALUES('{tenant}','{scope}','{actor}',
-        '{login}','Synthetic interval settlement collector',true,1);
-      INSERT INTO security.role_grants SELECT gen_random_uuid(),'{actor}',id,'{tenant}','{scope}',
-        clock_timestamp(),'9999-12-31',false FROM security.roles WHERE code='market_data_editor';
-      INSERT INTO power_data.collectors VALUES('{login}','{actor}','{tenant}','{scope}','{c}');""")
-    jobs = {}
-    for provider, key in [('PJM', 'pjm'), ('ERCOT', 'ercot')]:
-        jobs[key] = str(uuid4())
-        query(f"""INSERT INTO power_data.jobs VALUES('{jobs[key]}',gen_random_uuid(),
-          'Synthetic {provider} interval settlement','{login}','{c}','{provider}',true,false,
-          '0 8 * * *','UTC',-7,-1);
-          INSERT INTO power_data.job_sources VALUES('{jobs[key]}','{config[key]['sourceId']}','{c}');""")
-
-    def publish(key, day, start, count, minutes, prices, revision):
-        end = start + timedelta(minutes=count * minutes)
-        query(f"""INSERT INTO power_data.operating_days VALUES('{r}','{rr}','{config[key]['clock']}',
-          '{day}','{start.isoformat()}','{end.isoformat()}','{'a' * 64}') ON CONFLICT DO NOTHING;""")
-        payload = json.dumps([{'sourceId': config[key]['sourceId'], 'rows': [
-            {'start': (start + timedelta(minutes=n * minutes)).isoformat(),
-             'end': (start + timedelta(minutes=(n + 1) * minutes)).isoformat(),
-             'price': prices[n], 'revision': revision} for n in range(count)]}])
-        query(f"""SET SESSION AUTHORIZATION {login};SELECT power_data.worker_lock();
-          DO $$DECLARE attempt uuid;BEGIN
-            attempt=power_data.begin_attempt('{jobs[key]}','{day}','{day}');
-            PERFORM power_data.finish_attempt(attempt,'{payload}'::jsonb,NULL);
-          END$$;""")
-        query(f"SELECT power_data.certify('{c}');")
-        receipt = json.loads(query(f"""SELECT json_build_object('batchId',b.id,'knownAt',
-          to_char(k.known_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))::text
-          FROM power_data.batches b JOIN power_data.receipts k USING(sequence)
-          JOIN power_data.prices p ON p.batch_id=b.id WHERE p.source_id='{config[key]['sourceId']}'
-          ORDER BY b.sequence DESC LIMIT 1;"""))
-        return receipt
+    collector = Collector(query, manifest, {key: {**config[key], 'provider': provider} for provider, key in [('PJM', 'pjm'), ('ERCOT', 'ercot')]})
+    jobs, publish = collector.jobs, collector.publish
 
     def request(key, day, start, count, minutes, cutoff, basis='interval_energy', block='all'):
         curve = next(v for v in catalog['curves'] if v['code'] == config[key]['curve'])
@@ -98,37 +49,37 @@ def run_checks(url, query, manifest):
     def verify(body, prices, receipt, revision):
         result = client.call('power/settlement', body)
         assert result['saved'] is False and result['publicationStatus'] == 'collected'
-        assert result['historyContextId'] and _instant(result['knownAt']) == _instant(body['knownAt'])
+        assert result['historyContextId'] and instant(result['knownAt']) == instant(body['knownAt'])
         assert result['sourceId'] == config[body['product']]['sourceId']
         assert result['pins']['definitions']['id'] == manifest['revisionId']
         assert result['pins']['mapping']['source_id'] == result['sourceId']
-        inputs = {_instant(q['start']): q for q in body['quantities']}
+        inputs = {instant(q['start']): q for q in body['quantities']}
         selected = sorted(inputs)
         assert len(result['rows']) == len(selected)
         expected_cash, expected_energy, price_duration, duration = Fraction(0), Fraction(0), Fraction(0), Fraction(0)
         for row, start, price in zip(result['rows'], selected, prices):
             item = inputs[start]
-            hours = Fraction(int((_instant(item['end']) - start).total_seconds()), 3600)
+            hours = Fraction(int((instant(item['end']) - start).total_seconds()), 3600)
             energy = Fraction(item['value'])
             if body['quantityBasis'] == 'interval_power':
                 energy *= Fraction(item['shape']) * hours
             contribution = energy * Fraction(price)
-            assert _instant(row['start']) == start and _instant(row['end']) == _instant(item['end'])
-            assert _fraction(row['energy']) == energy and Fraction(row['price']['value']) == Fraction(price)
-            assert _fraction(row['contribution']) == contribution
+            assert instant(row['start']) == start and instant(row['end']) == instant(item['end'])
+            assert fraction(row['energy']) == energy and Fraction(row['price']['value']) == Fraction(price)
+            assert fraction(row['contribution']) == contribution
             lineage = row['lineage']
             assert lineage['sourceId'] == result['sourceId'] and lineage['batchId'] == receipt['batchId']
-            assert _instant(lineage['knownAt']) == _instant(receipt['knownAt']) and lineage['revision'] == revision
+            assert instant(lineage['knownAt']) == instant(receipt['knownAt']) and lineage['revision'] == revision
             expected_cash += contribution
             expected_energy += energy
             price_duration += Fraction(price) * hours
             duration += hours
         summary = result['summary']
-        assert _fraction(result['energy']) == expected_energy
+        assert fraction(result['energy']) == expected_energy
         assert Fraction(int(summary['exactAmountNumerator']), int(summary['exactAmountDenominator'])) == expected_cash
-        assert Decimal(summary['amount']) == _rounded(expected_cash, 2)
+        assert Decimal(summary['amount']) == rounded(expected_cash, 2)
         assert Decimal(summary['hours']) == Decimal(duration.numerator) / Decimal(duration.denominator)
-        assert Decimal(summary['averagePrice']) == _rounded(price_duration / duration, 18)
+        assert Decimal(summary['averagePrice']) == rounded(price_duration / duration, 18)
         return result
 
     before = query('SELECT (SELECT count(*) FROM trading.trades),(SELECT count(*) FROM market_data.observations);')
@@ -148,7 +99,7 @@ def run_checks(url, query, manifest):
 
     second_prices = [str(2 * n - 9) for n in range(23)]
     second = publish('pjm', '2021-03-14', pjm_start, 23, 60, second_prices, 2)
-    assert _instant(second['knownAt']) > _instant(first['knownAt'])
+    assert instant(second['knownAt']) > instant(first['knownAt'])
     verify(body, first_prices, first, 1)
     verify({**body, 'knownAt': second['knownAt']}, second_prices, second, 2)
     print('PASS actual power HTTP: a fixed certified cutoff preserves earlier interval revisions after correction', flush=True)
@@ -171,7 +122,7 @@ def run_checks(url, query, manifest):
         {'quantityBasis': 'invented'}, {'minutes': 15}, {'product': 'miso'},
         {'numericalPolicy': 'invented'},
         {'deliveryDate': '2021-04-01'}, {'knownAt': '2999-01-01T00:00:00Z'},
-        {'knownAt': (_instant(first['knownAt']) - timedelta(microseconds=1)).isoformat()},
+        {'knownAt': (instant(first['knownAt']) - timedelta(microseconds=1)).isoformat()},
         {'nonHolidays': '1'},
     ]:
         client.call('power/settlement', {**body, **change}, expected=422)
