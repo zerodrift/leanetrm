@@ -2,9 +2,12 @@
 
 Status: draft design for review, 2026-10-20. Phase A (section 5, audited interval
 series) is implemented and recorded as D173; its contract, 20-year measurements and
-remaining limits, including the owner references deferred to phases B and C, are in
-[the implementation record](implementation.md#audited-interval-series). Phases B to D
-are design only. Proposed choices are recorded as P40, not as agreed financial
+remaining limits are in [the implementation record](implementation.md#audited-interval-series).
+Phase B (section 6, interval curves and shaping) is implemented and recorded as D174;
+its contract, verified oracles 1–4 and limits, including shaped-curve resolution
+deferred to phase C, are in
+[the implementation record](implementation.md#interval-prices-curves-and-block-shaping).
+Phases C and D are design only. Proposed choices are recorded as P40, not as agreed financial
 conventions. The implementation inventory below was checked against source revision
 `4a0a6a7`, before phase A.
 

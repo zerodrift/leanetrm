@@ -49,6 +49,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--execution-check' in c for c in commands))
         self.assertTrue(any('--power-actual-check' in c for c in commands))
         self.assertTrue(any('--interval-series-check' in c and '--browser-check' in c for c in commands))
+        self.assertTrue(any('--interval-curves-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--contract-dates-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--swap-risk-holdings-check' in c for c in commands))
         self.assertTrue(any('--pilot-close-check' in c and '--browser-check' in c for c in commands))

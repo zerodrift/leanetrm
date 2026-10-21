@@ -177,7 +177,7 @@ public static class RecipeEngine
                     throw Missing("A registered transformation returned invalid sample counts or coefficients.");
                 if(cells.Any(c=>c.Price.Unit!=cells[0].Price.Unit))throw Missing("A registered transformation cannot merge different price units.");
                 return new Cell(group.Key,cells.SelectMany(c=>c.Dates).Distinct().Order().ToImmutableArray(),cells[0].ObservationDate,
-                    ExactUnitPrice.FromScaledSum(coefficient,cells.Length,cells[0].Price.Unit),cells.SelectMany(c=>c.Inputs).ToImmutableArray());
+                    ExactUnitPrice.FromFraction(coefficient,ExactDecimal.WorkingScale*cells.Length,cells[0].Price.Unit),cells.SelectMany(c=>c.Inputs).ToImmutableArray());
             }).ToImmutableArray());
         }
         var panel=(Panel)await EvaluateNode(definition.Output);

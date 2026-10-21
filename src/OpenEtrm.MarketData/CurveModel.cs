@@ -172,6 +172,10 @@ public sealed partial class CurveModel
                 contract.Expiry >= End) Fail("contract_dates", "Invalid delivery interval or UTC expiry.");
             if ((contract.Kind == ContractKind.Future) != (contract.FuturesSeries is not null))
                 Fail("contract_kind", "Exactly futures contracts require a dated series reference.");
+            if (contract.Interval is { } interval && (contract.Kind != ContractKind.Forward || interval.Start.Offset != TimeSpan.Zero ||
+                interval.End.Offset != TimeSpan.Zero || interval.End <= interval.Start || contract.DeliveryFrom != interval.OperatingDate ||
+                contract.DeliveryTo != interval.OperatingDate.AddDays(1) || contract.Expiry != interval.End))
+                Fail("contract_dates", "An interval contract is a forward on its operating date that expires at its interval end.");
             if (contract.FuturesSeries is { } series)
             {
                 Ref(series);
@@ -206,6 +210,8 @@ public sealed partial class CurveModel
                 Fail("missing_members", "Explicit constituents and input collection are required.");
             if (curveMembers[curve.Key].Count != curve.Constituents.Length)
                 Fail("duplicate_member", "A constituent cannot appear twice in one curve.");
+            if (curve.Constituents.Where(contracts.ContainsKey).Select(k => contracts[k].Interval is null).Distinct().Count() > 1)
+                Fail("interval_contract", "A curve's constituents are all interval contracts or all date-only contracts.");
             foreach (var member in curve.Constituents)
             {
                 if (!contracts.ContainsKey(member)) Fail("missing_contract", "Curve constituent is absent.");
@@ -268,7 +274,8 @@ public sealed partial class CurveModel
                     if (!curveMembers[curve.Key].Contains(map.Target) || !curveMembers[source.Key].Contains(map.Source))
                         Fail("mapping_member", "Mapped constituents must belong to the named curves.");
                     var targetContract = contracts[map.Target]; var sourceContract = contracts[map.Source];
-                    if (targetContract.DeliveryFrom != sourceContract.DeliveryFrom || targetContract.DeliveryTo != sourceContract.DeliveryTo)
+                    if (targetContract.DeliveryFrom != sourceContract.DeliveryFrom || targetContract.DeliveryTo != sourceContract.DeliveryTo ||
+                        targetContract.Interval != sourceContract.Interval)
                         Fail("unsupported_mapping", "First subset supports explicitly mapped equal delivery periods only.");
                     if (input.ExpiryRule == SourceExpiryRule.FreezeFinalFuture &&
                         (source.Rule != CurveRule.Direct || sourceContract.Kind != ContractKind.Future))

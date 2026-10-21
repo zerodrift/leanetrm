@@ -30,6 +30,8 @@ public sealed record ExactUnitPrice
     public PriceUnit Unit {get;}
     public string Numerator=>numerator.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string Denominator=>denominator.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    internal BigInteger NumeratorValue=>numerator;
+    internal BigInteger DenominatorValue=>denominator;
     private ExactUnitPrice(BigInteger value,BigInteger divisor,PriceUnit unit)
     {
         if(divisor<=0)throw new MarketDataException("numeric_division","A quoted rational amount needs a positive divisor.");
@@ -37,7 +39,7 @@ public sealed record ExactUnitPrice
         numerator=value/gcd;denominator=divisor/gcd;Unit=unit;
     }
     public static ExactUnitPrice FromPrice(UnitPrice price)=>new(price.Value.ScaledValue,ExactDecimal.WorkingScale,price.Unit);
-    internal static ExactUnitPrice FromScaledSum(BigInteger sum,int count,PriceUnit unit)=>new(sum,ExactDecimal.WorkingScale*count,unit);
+    internal static ExactUnitPrice FromFraction(BigInteger numerator,BigInteger denominator,PriceUnit unit)=>new(numerator,denominator,unit);
     internal string WorkingCoefficient()
     {
         var value=BigInteger.DivRem(numerator*ExactDecimal.WorkingScale,denominator,out var remainder);

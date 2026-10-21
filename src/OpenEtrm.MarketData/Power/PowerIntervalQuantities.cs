@@ -28,23 +28,12 @@ public static class PowerIntervalQuantities
   if(periods is null || rows is null || periods.Length==0 || periods.Length>110000 || rows.Length!=periods.Length ||
     periods.Any(p=>p is null) || rows.Any(r=>r is null))
    throw new MarketDataException("settlement_coverage","Supply exactly one quantity per selected interval.");
-  var byStart=new Dictionary<DateTimeOffset,PowerIntervalQuantity>();
   var isEnergy=inputDefinition==energyDefinition;
   foreach(var row in rows)
-  {
    if(row.Quantity is null || row.Quantity.Specification!=inputDefinition.Key || isEnergy && row.Shape is not null || !isEnergy && row.Shape is null)
     throw new MarketDataException("power_quantity","MW requires an explicit shape per interval; already-shaped MWh must not have another shape.");
-   if(row.Start.Offset!=TimeSpan.Zero || row.End.Offset!=TimeSpan.Zero || row.End<=row.Start || !byStart.TryAdd(row.Start,row))
-    throw new MarketDataException("settlement_coverage","Quantity intervals must have distinct exact UTC boundaries.");
-  }
-  PowerInterval? previous=null;
-  foreach(var period in periods.OrderBy(p=>p.Start))
-  {
-   if(period.Start.Offset!=TimeSpan.Zero || period.End.Offset!=TimeSpan.Zero || period.End<=period.Start ||
-     previous is {} prior && prior.End>period.Start || !byStart.TryGetValue(period.Start,out var row) || row.End!=period.End)
-    throw new MarketDataException("settlement_coverage","Quantities must cover the selected UTC intervals without overlap.");
-   previous=period;
-  }
+  var byStart=IntervalAlignment.Align(periods,rows,r=>r.Start,r=>r.End,"settlement_coverage",
+   "Quantity intervals must have distinct exact UTC boundaries.","Quantities must cover the selected UTC intervals without overlap.");
   var scale=ExactDecimal.WorkingScale;
   return periods.Select(p=>
   {

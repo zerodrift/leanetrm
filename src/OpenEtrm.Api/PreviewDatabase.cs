@@ -77,7 +77,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
     private static readonly (string Table,string Key)[] DefinitionTables = [("revisions","id"), ("contracts","id"), ("curves","code"), ("series","id"),
         ("curve_members","curve_code,contract_id"), ("curve_inputs","curve_code,slot"), ("constituent_mappings","curve_code,slot,target_contract_id"),
         ("rate_curves","code"), ("rate_curve_points","curve_code,maturity"), ("revision_periods","revision_id"),
-        ("index_fixing_observations","index_code,observation_from,observation_to")];
+        ("index_fixing_observations","index_code,observation_from,observation_to"), ("contract_intervals","contract_id"),
+        ("curve_blocks","curve_code"), ("shaped_curves","code"), ("shaped_curve_blocks","shaped_curve_code,block_curve_code")];
     private static string ReferenceKey(string table)=>ReferenceKeys.Single(r=>r.Table==table).Key;
     internal static readonly ImmutableArray<string> UnitTables = ["dimensions", "units", "unit_conversions", "commodities", "measurement_bases", "quantity_specifications"];
 
@@ -212,7 +213,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             _ => throw new ArgumentOutOfRangeException(nameof(observationScope))
         });
         await RequireSharedReferenceAccess();
-        return new PreviewData(selectedManifest, definitions, references, observations);
+        return new PreviewData(selectedManifest, definitions, references, observations){CalendarDaysRead=includeCalendarDays};
     }
 
     private static async Task<IReadOnlyDictionary<string,ImmutableArray<JsonElement>>> ReadReferences(NpgsqlConnection connection,
@@ -473,6 +474,8 @@ public sealed class PreviewData
     public string FuturesConvention => manifest.FuturesConvention;
     public ImmutableArray<JsonElement> Observations { get; }
     public CurveModel Model { get; }
+    // Whether this read loaded calendar days; without them no holiday is known, which is not the same as none.
+    public bool CalendarDaysRead { get; init; }
     public ImmutableArray<MarketContract> Contracts { get; }
     public ImmutableArray<QuoteSpecification> Quotes { get; }
     public ImmutableArray<FuturesSeriesSpecification> FuturesSeries { get; }
@@ -494,9 +497,11 @@ public sealed class PreviewData
             ("settlement_targets","code"),("futures_series","code"),("futures_products","code"),
             ("futures_milestones","series_code"),("futures_product_terms","product_code"),
             ("futures_lot_resolutions","series_code"),("futures_basis_settlements","series_code"),
-            ("units","code"),("currencies","code"),("sources","code"),("interest_rate_definitions","code")]);
+            ("units","code"),("currencies","code"),("sources","code"),("interest_rate_definitions","code"),
+            ("delivery_profiles","code"),("clock_rules","code")]);
         definitionRows=IndexRows(Definitions,[("curves","code"),("curve_members","curve_code"),
-            ("curve_inputs","curve_code"),("rate_curves","code"),("rate_curve_points","curve_code")]);
+            ("curve_inputs","curve_code"),("rate_curves","code"),("rate_curve_points","curve_code"),
+            ("curve_blocks","curve_code"),("shaped_curves","code"),("shaped_curve_blocks","shaped_curve_code")]);
         contractDefinitions=Definitions["contracts"].ToLookup(row=>row.Id("id"));
         curveMembers=Definitions["curve_members"].Select(row=>(row.Text("curve_code"),row.Id("contract_id"))).ToHashSet();
         observationRows=observations.ToLookup(row=>row.Id("id"));
@@ -506,7 +511,11 @@ public sealed class PreviewData
         var quantitiesByUnit=quantities.ToLookup(q=>(q.Commodity.Code,q.Unit.Code));
         var quotes=Quotes=references["quote_specifications"].Select(q => new QuoteSpecification(R(q.Text("code")),q.Text("kind") switch {"outright"=>QuoteKind.Outright,"basis"=>QuoteKind.Basis,_=>throw Unsupported()},R(q.Text("currency_code")),R(q.Text("quantity_code")),q.Number("multiplier"),q.Number("trading_tick"),q.Number("clearing_increment"),q.Number("minimum"),q.Number("maximum"))).ToImmutableArray();
         quoteRows=quotes.ToLookup(q=>q.Key.Code,StringComparer.Ordinal);
-        var contracts=Contracts=definitions["contracts"].Select(c => new MarketContract(K(c.Id("id")),c.Text("kind") switch {"future"=>ContractKind.Future,"forward"=>ContractKind.Forward,_=>throw Unsupported()},DateOnly.ParseExact(c.Text("delivery_from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),DateOnly.ParseExact(c.Text("delivery_to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),c.Instant("expiry_at"),c.OptionalText("futures_series_code") is {} series ? R(series):null)).ToImmutableArray();
+        var intervals=definitions["contract_intervals"].ToDictionary(i=>i.Id("contract_id"),i=>new DeliveryInterval(i.Instant("starts_at"),i.Instant("ends_at"),
+            DateOnly.ParseExact(i.Text("operating_date"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),
+            int.Parse(i.Text("hour_beginning"),System.Globalization.CultureInfo.InvariantCulture),
+            int.Parse(i.Text("minute"),System.Globalization.CultureInfo.InvariantCulture),int.Parse(i.Text("occurrence"),System.Globalization.CultureInfo.InvariantCulture)));
+        var contracts=Contracts=definitions["contracts"].Select(c => new MarketContract(K(c.Id("id")),c.Text("kind") switch {"future"=>ContractKind.Future,"forward"=>ContractKind.Forward,_=>throw Unsupported()},DateOnly.ParseExact(c.Text("delivery_from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),DateOnly.ParseExact(c.Text("delivery_to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),c.Instant("expiry_at"),c.OptionalText("futures_series_code") is {} series ? R(series):null,intervals.GetValueOrDefault(c.Id("id")))).ToImmutableArray();
         contractRows=contracts.ToLookup(c=>c.Key.Id);
         var mappings=definitions["constituent_mappings"].ToLookup(row=>(row.Text("curve_code"),row.Text("slot")));
         var curves=definitions["curves"].Select(c =>
@@ -603,14 +612,20 @@ public sealed class PreviewData
         }).ToImmutableArray();
         return new(frame.Id,revision,frame.At,frame.At,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,selections);
     }
-    public CurveBuild Build(InputFrame frame,string code)
+    public CurveBuild Build(InputFrame frame,string code)=>Build(frame,[code]);
+    // One build of each curve's selected contracts in the frame.
+    public CurveBuild Build(InputFrame frame,IReadOnlyList<string> codes)
     {
-        if (string.IsNullOrEmpty(code) || !DefinitionRows("curves","code",code).Any()) throw new MarketDataException("missing_curve","Select an exact curve definition.");
-        if(!frame.CurveContracts.TryGetValue(code,out var members) || members.IsDefault)
-            throw new MarketDataException("missing_curve_view","An explicit contract selection is required for this market date.");
-        if(members.IsEmpty)throw new MarketDataException("empty_curve_view","This market date has no remaining contracts in the selected view.");
-        var requests=members.Select(id=>new CurveRequest(new(revision,code),K(id))).ToImmutableArray();
-        return Model.Build(Snapshot(frame),requests);
+        var requests=ImmutableArray.CreateBuilder<CurveRequest>();
+        foreach(var code in codes)
+        {
+            if (string.IsNullOrEmpty(code) || !DefinitionRows("curves","code",code).Any()) throw new MarketDataException("missing_curve","Select an exact curve definition.");
+            if(!frame.CurveContracts.TryGetValue(code,out var members) || members.IsDefault)
+                throw new MarketDataException("missing_curve_view","An explicit contract selection is required for this market date.");
+            if(members.IsEmpty)throw new MarketDataException("empty_curve_view","This market date has no remaining contracts in the selected view.");
+            requests.AddRange(members.Select(id=>new CurveRequest(new(revision,code),K(id))));
+        }
+        return Model.Build(Snapshot(frame),requests.ToImmutable());
     }
     public ZeroRateDefinition RateDefinition(string code)
     {
@@ -669,7 +684,8 @@ public sealed class PreviewData
             trace, points=build.Values.Select(v=>
             {
                 var c=Single(contractDefinitions[v.Request.Contract.Id]);
-                return new { contractId=v.Request.Contract.Id,instrumentId=c.OptionalText("futures_series_code") is {} future?(Guid?)ContractIdentity.Futures(R(future)):null, deliveryFrom=c.Text("delivery_from"),deliveryTo=c.Text("delivery_to"),expiry=c.Text("expiry_at"),priceTick=c.Text("kind")=="future"?QuoteRows(v.Quote.Code).Single(q=>q.Key==v.Quote).ClearingIncrement.ToString():null,value=v.Price.Value.ToString(),quote=v.Quote.Code,lineage=v.Lineage.Select(k=>k.Id).Order().ToArray() };
+                return new { contractId=v.Request.Contract.Id,instrumentId=c.OptionalText("futures_series_code") is {} future?(Guid?)ContractIdentity.Futures(R(future)):null, deliveryFrom=c.Text("delivery_from"),deliveryTo=c.Text("delivery_to"),expiry=c.Text("expiry_at"),priceTick=c.Text("kind")=="future"?QuoteRows(v.Quote.Code).Single(q=>q.Key==v.Quote).ClearingIncrement.ToString():null,value=v.Price.Value.ToString(),quote=v.Quote.Code,lineage=v.Lineage.Select(k=>k.Id).Order().ToArray(),
+                    interval=IntervalCurveDefinitions.Label(contractRows[v.Request.Contract.Id].Single().Interval) };
             }).ToArray(), observationIds=frame.ObservationIds };
     }
 }
