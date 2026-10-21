@@ -6,11 +6,14 @@ import {PendingCommand,type RequestCommand} from './pending-command.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Party={id:string;revision:number;code:string;name:string;effectiveAt:string;knownAt?:string};
 type Directory={versions:Party[];canEdit:boolean};
+export function knownPartyRejection(code:string|undefined):boolean{
+ return !!code&&['party_conflict','party_input','party_limit','trade_party','access_denied','request_format','request_too_large','request_token','historical_read_only','definition_rejected'].includes(code);
+}
 export function setupPartyEditors(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;profile:()=>string;source:()=>string}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
  const effective=zonedInput(get<HTMLInputElement>('party-effective'),o.zone,o.api);
- const pending=new PendingCommand(code=>['party_conflict','party_input','party_limit','trade_party','access_denied','request_format','request_token','historical_read_only','definition_rejected'].includes(code??''));let directory:Directory|undefined,selected:Party|undefined,generation=0;
+ const pending=new PendingCommand(knownPartyRejection);let directory:Directory|undefined,selected:Party|undefined,generation=0;
  const storageKey=()=>`openetrm.parties.request.${o.profile()}`;
  function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The command remains available in memory for this visit. */}}
  function sync(){get<HTMLFieldSetElement>('party-fields').disabled=o.busy()||!directory?.canEdit||!!pending.command;field('party-code').disabled=!!selected;get<HTMLButtonElement>('party-new').disabled=o.busy()||!directory?.canEdit||!!pending.command;field('party-kind').disabled=o.busy()||!!pending.command;get('party-pending').hidden=!directory||!pending.command;}

@@ -29,7 +29,8 @@ const limitNames:[keyof Limits,string][]=[['toolSteps','tool steps per turn'],['
 // Refusals that prove a first attempt wrote nothing, so its retained request can be released.
 const rejections=['model_admin_input','model_admin_conflict','agent_retired','agent_role_lacks_permission','model_changed','model_disabled','model_unqualified',
   'model_unpriced','model_provider_disabled','model_provider_unqualified','parameter_required','model_limit_exceeded','grant_duration_exceeded','instructions_too_long',
-  'admin_limit','definition_rejected','access_denied','request_format','request_token'];
+  'admin_limit','definition_rejected','access_denied','request_format','request_too_large','request_token'];
+export const knownAgentRejection=(code:string|undefined)=>!!code&&rejections.includes(code);
 const paths=['create','save','publish','retire'].map(path=>'settings/ai/agents/'+path);
 const roleAdvice='Allow only roles that use agents and hold every permission its tools need.';
 function toolName(code:string){if(!Object.hasOwn(toolNames,code))throw inconsistent();return toolNames[code];}
@@ -103,12 +104,19 @@ export function agentRefusal(error:{code?:unknown;role?:unknown;permission?:unkn
 // The codes the agent commands share with the model commands, in the agents' terms.
 const agentMessages:Record<string,string>={
   model_admin_input:'Check the entries: a name of 1 to 80 characters and a description of 1 to 500, each with no space at either end and no control, '
-    +'line-separator or text-direction formatting characters; instructions in lines with those characters excluded and no space or line feed at either end; '
-    +'1 to 100 tool steps and 1 to 100,000,000 input tokens per turn; 1 to 10,000,000 output tokens per call; 1 to 3,600 seconds per turn; '
-    +'0 to 10 retries per call; and a grant of at least one day.',
+    +'line-separator or text-direction formatting characters; instructions within the limit stated with them, in lines with those characters excluded and '
+    +'no space or line feed at either end; 1 to 100 tool steps and 1 to 100,000,000 input tokens per turn; 1 to 10,000,000 output tokens per call; '
+    +'1 to 3,600 seconds per turn; 0 to 10 retries per call; and a grant of at least one day, within the limit stated with it.',
   model_admin_conflict:'This agent changed, its name is taken, or the request identity was used for a different change. Refresh AI settings before trying again.',
   model_unqualified:'The model is not qualified: its capabilities must be recorded under the usage mapping its vendor’s adapter applies.'};
-export function agentMessage(code:string|undefined){return code&&Object.hasOwn(agentMessages,code)?agentMessages[code]:undefined;}
+// Create and Save send what the administrator typed. While the page and the server agree, only an entry outside its
+// range makes one of their requests the server cannot read or one larger than it accepts, so the ranges explain those
+// refusals; Publish and Retire keep the general message.
+const entryPaths=['create','save'].map(path=>'settings/ai/agents/'+path);
+export function agentMessage(code:string|undefined,path:string){
+  if(entryPaths.includes(path)&&(code==='request_format'||code==='request_too_large'))return agentMessages.model_admin_input;
+  return code&&Object.hasOwn(agentMessages,code)?agentMessages[code]:undefined;
+}
 
 // The Agents tab of Settings › AI (docs/ai-assistant.md §9).
 export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string}){
@@ -117,7 +125,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
   const value=(id:string)=>get<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>(id).value;
   const form=(id:string)=>get<HTMLFormElement>(id);
   const instant=(at:string)=>displayInstant(at,options.zone());
-  const pending=new PendingCommand(code=>!!code&&rejections.includes(code));
+  const pending=new PendingCommand(knownAgentRejection);
   const storage=()=>`openetrm.ai.agents.request.${options.identity()}`;
   const limitFields:[keyof Limits,string][]=[['toolSteps','ai-agent-tool-steps'],['inputTokens','ai-agent-input-tokens'],['outputTokens','ai-agent-output-tokens'],
     ['elapsedSeconds','ai-agent-elapsed'],['retries','ai-agent-retries']];
@@ -265,7 +273,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
       // After an unconfirmed outcome the page shows what was actually saved; a denied read keeps nothing.
       if(code==='access_denied')wipe();else if(pending.command)await load().catch(()=>undefined);
       sync();
-      const message=agentMessage(code);if(message)throw Object.assign(Error(message),{code});
+      const message=agentMessage(code,command.path);if(message)throw Object.assign(Error(message),{code});
       throw error;
     }
     pending.clear();store();

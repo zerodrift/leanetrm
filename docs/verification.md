@@ -119,7 +119,9 @@ the refused key reaches it. Each route's readable body, by contrast, reaches its
 handler, which refuses it. The hosted checks send the same variants of an account
 update, whose readable body its handler refuses, and the same query value through the
 TLS proxy and get the same answers. The provider Test checks expect `request_format`
-for an unknown member.
+for an unknown member. In the party editor's browser checks, a name past the 32 KiB
+limit is answered 413 `request_too_large`; the page keeps no request and no party is
+saved.
 
 Direct runtime SQL checks also hold principal, provider, credential-storage and
 audit locks until a synthetic role grant or request context has expired. New key
@@ -521,7 +523,10 @@ chosen model version's efforts, chosen anew, and its output limit, the roles tha
 agents and every tool, and states the bounds the API passes. A refresh keeps what the
 card has entered and chosen, and so does the next refresh after one that failed. A save
 without a caching choice is refused before any request, and an allowed role lacking a
-permission the tools need is refused by name and keeps nothing. A save creates a draft
+permission the tools need is refused by name and keeps nothing. Tool steps of
+99999999999, which the server cannot read, and instructions past the 32 KiB request
+limit are refused with the ranges the entries keep; the page keeps no request and
+nothing is saved. A save creates a draft
 and sends every field with the model version the directory listed. A chosen role that a
 stubbed directory no longer lists as using agents is named rather than offered, after a
 refresh as when its agent opens, and is offered still chosen once listed again; Publish

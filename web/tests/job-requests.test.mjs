@@ -21,10 +21,13 @@ test('an uncertain committed job request survives denied retries and authority r
 });
 
 test('a confirmed first-attempt rejection can release the unsaved job request',()=>{
-  const pending=new JobRequest();
-  pending.begin('jobs/create',{name:'Synthetic job'},()=> 'synthetic-request');
-  pending.failed('job_limit');
-  assert.equal(pending.command,undefined);
+  // The API refuses a request it cannot read, or one larger than it accepts, before any handler runs.
+  for(const code of ['job_limit','request_format','request_too_large']){
+    const pending=new JobRequest();
+    pending.begin('jobs/create',{name:'Synthetic job'},()=> 'synthetic-request');
+    pending.failed(code);
+    assert.equal(pending.command,undefined,code);
+  }
 });
 
 
