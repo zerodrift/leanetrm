@@ -115,16 +115,21 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
     }
 
     public Task<JsonElement> Values(NpgsqlConnection connection,IntervalSeriesReadRequest request,CancellationToken ct)=>
-        Read(connection,"SELECT market_data.read_interval_series($1,$2,$3,$4)::text",request,ct);
+        Values(connection,request.SeriesId,ParseInstant(request.From),ParseInstant(request.To),ParseInstant(request.KnownAt),ct);
+
+    // Each interval's value in the latest revision known at the cutoff.
+    internal static Task<JsonElement> Values(NpgsqlConnection connection,Guid series,DateTimeOffset from,DateTimeOffset to,DateTimeOffset knownAt,CancellationToken ct)=>
+        Read(connection,"SELECT market_data.read_interval_series($1,$2,$3,$4)::text",series,from,to,knownAt,ct);
 
     public Task<JsonElement> Changes(NpgsqlConnection connection,IntervalSeriesReadRequest request,CancellationToken ct)=>
-        Read(connection,"SELECT market_data.interval_series_changes($1,$2,$3,$4)::text",request,ct);
+        Read(connection,"SELECT market_data.interval_series_changes($1,$2,$3,$4)::text",request.SeriesId,
+            ParseInstant(request.From),ParseInstant(request.To),ParseInstant(request.KnownAt),ct);
 
     // Storage bounds the window's length and cutoff and refuses an end inside a stored interval.
-    private static async Task<JsonElement> Read(NpgsqlConnection connection,string sql,IntervalSeriesReadRequest request,CancellationToken ct)
+    private static async Task<JsonElement> Read(NpgsqlConnection connection,string sql,Guid series,DateTimeOffset from,DateTimeOffset to,
+        DateTimeOffset knownAt,CancellationToken ct)
     {
-        DateTimeOffset from=ParseInstant(request.From),to=ParseInstant(request.To),knownAt=ParseInstant(request.KnownAt);
-        await using var command=ScheduleStore.Command(connection,sql,request.SeriesId,from,to,knownAt);
+        await using var command=ScheduleStore.Command(connection,sql,series,from,to,knownAt);
         using var document=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);
         return document.RootElement.Clone();
     }

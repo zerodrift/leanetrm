@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.Api;
 
@@ -10,8 +11,7 @@ public sealed record PowerHistoryPeriodRequest(Guid SourceId,string FromDate,str
 public static class PowerHistory
 {
     internal sealed record SourceMetadata(JsonElement Display,OpenEtrm.MarketData.Power.ClockRule Clock,int Minutes);
-    internal sealed record Observation(DateTimeOffset Start,DateTimeOffset End,UnitPrice Price,DateTimeOffset KnownAt,Guid BatchId,int? Revision);
-    internal sealed record History(DateTimeOffset KnownAt,Guid ContextId,Observation[] Rows);
+    internal sealed record History(DateTimeOffset KnownAt,Guid ContextId,IntervalActual[] Rows);
     internal static async Task<SourceMetadata> Source(NpgsqlConnection connection,Guid id,CancellationToken ct)=>
         (await Sources(connection,id,ct)).SingleOrDefault()??throw new PreviewDeniedException();
     private static async Task<SourceMetadata[]> Sources(NpgsqlConnection connection,Guid? id,CancellationToken ct)
@@ -85,9 +85,9 @@ public static class PowerHistory
         using var document=JsonDocument.Parse(payload);var root=document.RootElement;var source=root.GetProperty("source");
         var revision=new ReferenceRevision(source.GetProperty("reference_catalog_id").GetGuid(),source.GetProperty("reference_revision_id").GetGuid());
         var unit=new PriceUnit(new(revision,source.GetProperty("currency_code").GetString()!),new(revision,source.GetProperty("quantity_code").GetString()!),ExactDecimal.Parse("1"));
-        return new(cutoff,root.GetProperty("contextId").GetGuid(),root.GetProperty("rows").EnumerateArray().Select(row=>new Observation(
-            row.GetProperty("starts_at").GetDateTimeOffset(),row.GetProperty("ends_at").GetDateTimeOffset(),
-            new(ExactDecimal.Parse(row.GetProperty("price").GetString()!),unit),row.GetProperty("known_at").GetDateTimeOffset(),
+        return new(cutoff,root.GetProperty("contextId").GetGuid(),root.GetProperty("rows").EnumerateArray().Select(row=>new IntervalActual(
+            row.GetProperty("starts_at").GetDateTimeOffset().ToUniversalTime(),row.GetProperty("ends_at").GetDateTimeOffset().ToUniversalTime(),
+            new(ExactDecimal.Parse(row.GetProperty("price").GetString()!),unit),row.GetProperty("known_at").GetDateTimeOffset().ToUniversalTime(),
             row.GetProperty("batch_id").GetGuid(),row.GetProperty("provider_revision").ValueKind==JsonValueKind.Null?null:row.GetProperty("provider_revision").GetInt32())).ToArray());
     }
 }

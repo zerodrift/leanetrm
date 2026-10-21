@@ -31,6 +31,7 @@ def main():
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
     parser.add_argument('--power-actual-check',action='store_true',help='Qualify exact collected-price interval settlement sources')
     parser.add_argument('--interval-series-check',action='store_true',help='Qualify audited interval series storage and API')
+    parser.add_argument('--interval-curves-check',action='store_true',help='Qualify interval curves, shaping and resolution: storage, API and, with --browser-check, the screen')
     parser.add_argument('--interval-series-benchmark',action='store_true',help='Measure twenty-year interval series workloads in an owned fixture and print a JSON report')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
@@ -61,7 +62,7 @@ def main():
         if args.example != 'standard' or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('--interval-series-benchmark runs alone in the standard fixture, without any --*-check option')
         args.check = True
-    if args.power_actual_check or args.interval_series_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -192,6 +193,9 @@ def main():
         if args.index_fixing_check:
             from check_index_fixings import prepare as prepare_index_fixings
             reference,market,manifest=prepare_index_fixings(reference,market,manifest)
+        if args.interval_curves_check:
+            from interval_curve_fixture import prepare as prepare_interval_curves
+            reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
         if args.custom_curves_check or args.with_custom_curves or args.market_dates_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest)
@@ -240,6 +244,9 @@ def main():
         if args.power_actual_check:
             from check_power_actual_storage import run_checks as check_power_actual_storage
             check_power_actual_storage(query,manifest)
+        if args.interval_curves_check:
+            from check_interval_curves_storage import run_checks as check_interval_curves_storage
+            check_interval_curves_storage(query,manifest)
         if args.interval_series_check:
             from check_interval_series_storage import run_checks as check_interval_series_storage
             check_interval_series_storage(query,manifest,psql,env)
@@ -258,8 +265,8 @@ def main():
             manifest['unitCatalog']={'referenceRevisionId':unit_reference,'definitionRevisionId':unit_bundle}
         if args.check and args.example=='standard' and not args.exchange_check:
             from check_trade_revision_upgrade import run_checks as check_upgrade
-            legacy_reference,legacy_market,_,_=fixture(ROOT,current_schema=False)
-            check_upgrade(query,psql,env,ROOT,[legacy_reference,legacy_market,security,trading_fixture(manifest['catalogId'],annotations=False)],manifest)
+            legacy_reference,legacy_market,legacy_security,_=fixture(ROOT,current_schema=False)
+            check_upgrade(query,psql,env,ROOT,[legacy_reference,legacy_market,legacy_security,trading_fixture(manifest['catalogId'],annotations=False)],manifest)
         if args.jobs_check:
             from check_jobs_http import prepare as prepare_jobs
             prepare_jobs(query,manifest)
@@ -330,6 +337,14 @@ def main():
             elif args.power_actual_check:
                 from check_power_actual_http import run_checks as check_power_actual_http
                 check_power_actual_http(url,query,manifest)
+            elif args.interval_curves_check:
+                from check_interval_curves_http import run_checks as check_interval_curves_http
+                check_interval_curves_http(url,query,manifest)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--interval-curves'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned interval curves browser checks failed')
             elif args.interval_series_check:
                 from check_interval_series_http import run_checks as check_interval_series_http
                 check_interval_series_http(url,query,manifest)

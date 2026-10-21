@@ -869,8 +869,9 @@ business operation independently check current authority. The default bootstrap
 response retains its existing shape.
 
 `GET /api/workspace/navigation` is a separate typed response for the initial
-directory and date picker. Its managed read obtains explicit curve
-classifications and category labels, all authorized curve display names, exact
+directory and date picker. Its managed read obtains each curve's explicit market
+type and, for commodity curves, its commodity and label; interest-rate curves
+have `category: null`. It also obtains all authorized curve display names, exact
 bundle/reference/context identities and frame summaries. It does not construct
 the pricing model or load observation values or the unit-conversion catalog.
 The browser retains navigation separately from the full workspace and hydrates
@@ -914,7 +915,7 @@ python3 tools/run_preview.py \
 
 Open the printed `http://127.0.0.1:PORT` URL. The screen opens as the read-only
 Viewer demo user. **Market data → Curves & prices** lets users browse by commodity
-or market type, with Futures, Forwards and Interest rates filters. Choose a curve and the **Market date**
+or market type, with Futures, Forwards and Rates filters. Choose a curve and the **Market date**
 dropdown at the top, or click **Explore sample power prices** to explicitly open
 local power forwards for 18 Dec 2020. Six delivery months use four saved dates.
 Select **Price history** beside a contract to follow its prices over time, distinct
@@ -923,8 +924,10 @@ from the curve's delivery-month axis.
 **Profile** holds the user's time zone and preferred browsing layout. A versioned
 browser-local preference record also remembers commodity/type filters and the
 selected detail tab, sidebar/curve-list collapse and individual menu-group states
-per demo persona. Older profile records retain their existing settings and acquire
-only the new presentation layout defaults. No market-date IDs, input policies, credentials
+per demo persona. The Market filter is saved as a commodity code, or as none for
+**All markets**. Older profile records keep their other settings and acquire the
+new presentation layout defaults, but not their former Market choice: they show
+**All markets**. No market-date IDs, input policies, credentials
 or authority are persisted as preferences. The preview does not implement account
 profiles synchronized across devices; that follows verified sign-in. Unavailable
 browser storage is reported, not presented as a successful save.
@@ -934,6 +937,17 @@ on mobile. Its Market data and Settings groups, the curve list and each commodit
 or market-type group expand independently. Returning from the icon rail restores
 the saved group state. These controls are keyboard-accessible and remember their
 state per demo persona in the browser; they do not change permissions or inputs.
+The curve list orders its groups, and the curves within each group, by display
+name with the browser's locale collation; for example, **Local power · all-in
+prices** precedes **Local power forwards**. Grouped by market type, each group
+is one market type. Grouped by commodity, each group is one commodity, and
+interest-rate curves, which have no commodity, form the **Interest rates** group.
+Groups never merge by name. Interest-rate curves appear under **All markets** and
+the **Rates** type filter. The **Market** filter lists **All markets** first,
+then each commodity in display-name order. **All markets** is the absence of a
+commodity filter rather than a code, so any commodity, whatever its code, can be
+chosen on its own. The order depends only on names;
+equal names keep the order of the server's directory response.
 
 Every regular table provides **Filter rows**, **Column filters**, a matching-row
 count and **Clear filters**. Case-insensitive search matches words across displayed
@@ -1293,9 +1307,10 @@ remain separate release operations.
 ## Audited interval series
 
 Phase A of the [PPA design](ppa-design.md) (§5, §10; proposal P40) is implemented as
-an audited store of values per UTC interval (D173). Nothing consumes a series yet:
-interval curves (phase B) and PPA valuation (phase C) are not built, so no price,
-quantity or settlement is derived from a stored value.
+an audited store of values per UTC interval (D173). Shaped interval curves
+([phase B](#interval-prices-curves-and-block-shaping)) read additive and
+multiplicative shape series; PPA valuation (phase C) is not built, so no quantity or
+settlement is derived from a stored value.
 
 **Definition.** A series pins a kind, one exact specification in a sealed reference
 revision, a clock and a resolution of 5, 15, 30 or 60 minutes
@@ -1610,3 +1625,120 @@ existed at the time.
   window was shown in the three runs above, the browser's renderer process peaked at
   2,042 to 2,050 MiB resident (sampled with `ps` during the check, not by it), against
   a JavaScript heap of about 45 MiB.
+
+## Interval prices, curves and block shaping
+
+Phase B of the [PPA design](ppa-design.md) (§6, §9 oracles 1–4, §10; proposal P40) is
+implemented as reusable interval-price behaviour in `src/OpenEtrm.MarketData/Power`,
+authorized reads and a Market data screen (D174). Nothing books, values or settles a
+trade from it: sides, booking, valuation and settlement are phases C and D. The
+storage contract is in [db/README.md](../db/README.md#interval-curves)
+([migration 0070](../db/migrations/0070_interval_curves.sql)).
+
+**Interval contracts and marked curves.** `market_data.contract_intervals` gives a
+forward its exact UTC interval and the labels its clock gives it: operating date,
+hour beginning, minute and occurrence (2 only for the second pass through a repeated
+local hour). An interval contract delivers from its operating date to the next day
+and expires at its interval end, and a curve's constituents are all interval or all
+date-only. `IntervalContracts.Validate` requires every constituent to be one distinct
+cell of `PowerHours.Compile`'s grid for its curve's delivery profile, labelled as
+that compiler labels it. A directly marked interval price is an ordinary observation
+of the contract's series, built by `CurveModel` like any mark; because the contract
+expires at its interval end, the mark of an ended interval is never built.
+
+**Blocks and shaping.** `curve_blocks` makes a direct, date-only curve a block curve:
+all hours, or the peak or off-peak hours of one published TOU product version
+(`IntervalBlocks`; holidays are off-peak). A shaped curve names one all-hours block
+or the peak and off-peak blocks of one TOU version, a method (`additive` or
+`multiplicative`) and one phase A shape series. Its blocks share one `DeliveryGrid`:
+the clock, interval length and holiday calendar of their delivery profile.
+`BlockShaping.Prepare` selects every block constituent the window touches, compiles
+its whole delivery period, requires the blocks to cover every interval in the window
+exactly once (`interval_block_partition`) and every block interval to have a shape
+value with its exact boundaries (`interval_shape_coverage`; a withdrawn shape
+interval is a gap). `BlockShaping.Evaluate` then calibrates each block exactly under
+`duration_weighted_block_mean_v1` and `block_shape_v1`: additive
+`Pᵢ = M + oᵢ − Σ(dⱼ·oⱼ)/Σdⱼ`, multiplicative `Pᵢ = M·fᵢ·Σdⱼ/Σ(dⱼ·fⱼ)`, so each block's
+duration-weighted mean equals its mark, and a non-positive weighted factor mean is
+`interval_shape`. Prepared inputs are evaluated per market scenario: with a base
+build of the same definition, a block whose mark, mark lineage and shape values and
+revisions are unchanged is reused, so a block-mark shock recalibrates only its block.
+Each price keeps its block mark's observations and the revision that last set its
+shape interval at the cutoff. Prices stay exact fractions; the API adds a six-place,
+ties-to-even display string (`half_even_6dp_display_v1`).
+
+**Actual and projected resolution.** `curve_actual_rules` gives a curve that has a
+collected-price source ([0063](../db/migrations/0063_power_curve_settlement_sources.sql))
+the instant each interval's actual is due: its start or end plus an offset of up to
+seven days (`interval_actual_due_v1`). `IntervalPricing.Resolve` is bitemporal: an
+interval that has ended at the valuation instant takes an actual known by the
+cutoff, while one still live then takes only an actual already known at the
+valuation instant (a day-ahead fixing), so no later publication prices it in
+hindsight. Otherwise an interval whose actual is due is refused
+(`interval_actual_missing`), an ended one is `Unresolved` with no price, and a live
+one takes its pinned mark. Actuals come from the existing collected-price reader at
+the cutoff and must be in the curve's exact price unit; one known after the cutoff
+is refused. `IntervalPricing.Aggregate` returns duration-weighted means
+(`duration_weighted_price_mean_v1`) per whole local hour, the repeated hour twice, or
+per whole operating day; a window that cuts one is refused (`interval_aggregate`).
+Each keeps its native intervals and has no mean while one is unresolved. Cash with varying quantities stays Σ(MWh × price) in
+`PowerSettlement`.
+
+**Reads.** `POST /api/interval-curves/catalog` lists the marked and shaped curves of
+the selected frame, with the database clock as `knownAt`; `POST
+/api/interval-curves/values` returns the points of a window of at most 35,136
+intervals whose ends are grid boundaries of the curve's clock and whose every
+interval is one of the curve's (`interval_curve_coverage`). Marks come from the
+frame's pins. Like a close, a frame selects only the interval contracts live at its
+valuation instant; an ended interval comes from the curve definition and has no mark,
+so a plain marked read refuses a window that includes one (`interval_delivered`) and
+`resolve` prices it from its actual. A shaped curve's shape and a resolved curve's actuals are read as known
+at an explicit `knownAt`: a frame's cutoff is its valuation instant, earlier than
+any shape revision or collection certified since, so the knowledge time is a request
+input that a plain marked read refuses (`interval_curve_cutoff`). `resolve` uses the
+frame's valuation instant, and `aggregate` (`hour` or `day`) requires it. Both routes
+need ReadMarketData, authenticate before reading the snapshot and refuse a historical
+session (`interval_curve_historical`), because TOU products and shape series are
+current definitions. Every request member is required, `null` where it does not
+apply, and unknown members are refused (`request_format`), as for interval series.
+The catalog lists a curve whose definition cannot be resolved, such as a block
+period its holiday calendar does not cover, as `unavailable` with its reason; it
+neither drops it nor fails the other curves. A shaped or resolved read also returns
+the knowledge contexts its shape or actual reads used. Points carry their labelled `interval`, an exact `price` with its
+display string, and their lineage: observations, block and shape revision, or state,
+due time and the actual's provider revision and knowledge time.
+
+**Screen.** Market data › Interval curves reads the market date chosen in the header.
+It offers a curve, a From and To in the profile's time zone, Known at (pre-filled with
+the catalog's database time and needed only for a shaped or resolved read), Resolve
+for curves with a due rule, and an hour or day aggregate. A chart (the shared chart,
+without point symbols and sampled for display) and a table show each native
+interval, the repeated hour with its UTC offset. Choosing a row or an aggregate states
+where its price came from, without internal identifiers. An unavailable curve is
+listed with its reason and cannot be read.
+
+### Not done and limits
+
+- Shaped curves do not resolve against actuals: a shaped curve has no curve row to
+  bind a collected-price source to. A uniform interval-price consumer for sides, an
+  exact price × quantity step for schedule rows and a per-scenario price cache shared
+  by sides belong to phase C.
+- Scenario reuse has no production risk consumer yet; managed checks exercise it.
+- There is no historical session mode. Knowledge times are explicit per request,
+  not pinned in a frame.
+- A live interval priced by an actual known at the valuation instant (a day-ahead
+  fixing) is evidenced by managed checks only: the collection worker certifies
+  actuals at the database clock, after every synthetic frame.
+- A block constituent must stay live through its delivery period: once a block
+  contract expires its mark is no longer built, so a delivering (prompt) month cannot
+  be shaped from its block. Shaping against a settled block mark belongs with the
+  phase C consumers.
+- Two seal rules are not exercised against storage: blocks of one shaped curve that
+  differ in quote, commodity, location or profile, and a due rule whose source differs
+  in clock or interval length. The synthetic reference has one location, and no
+  supported source can be bound to the eastern hourly curve with another grid.
+- Block holidays come from the delivery profile's calendar, which must cover each
+  block period (`power_calendar`).
+- The screen was measured on the synthetic shaped curve's widest span, 1,465 hourly
+  intervals, not a multi-year window.
+

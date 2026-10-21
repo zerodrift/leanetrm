@@ -241,11 +241,14 @@ synthetic example retains its meaning.
 The proposed [PPA design](ppa-design.md) (P40) orders the next power work as
 audited interval series, interval curves with explicit block shaping, PPA booking
 and valuation from reusable physical and financial sides, then PPA settlement on
-the settlement design's lifecycle. Only the first of these, audited interval series,
-is implemented (D173): the store, authorized HTTP routes, screen and 20-year
-benchmark in [the implementation record](implementation.md#audited-interval-series),
-with no consumer, owner binding or historical session mode yet. The curves, PPA
-booking, valuation and settlement it orders remain design, not implemented capability.
+the settlement design's lifecycle. The first two are implemented: audited interval
+series (D173: store, authorized HTTP routes, screen and 20-year benchmark in
+[the implementation record](implementation.md#audited-interval-series)) and interval
+curves (D174: marked and block-shaped interval prices, actual/projected resolution and
+explicit aggregation, with reads and a screen, in
+[the implementation record](implementation.md#interval-prices-curves-and-block-shaping)).
+Neither has a historical session mode. PPA booking, valuation and settlement remain
+design, not implemented capability.
 The next quantity entry contract supports explicit total MWh and flat MW choices.
 It must retain side delivery/allocation rules and typed generated quantities,
 preserve total energy through interval allocation, and reject missing conversion

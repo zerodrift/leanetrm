@@ -17,10 +17,10 @@ public sealed record HistorySample(DateTimeOffset At,string? Value,Guid Snapshot
 public sealed class MarketReads(PreviewDatabase database)
 {
     public async Task<PreviewData> Data(NpgsqlConnection connection,PinnedContext pin,CancellationToken ct,
-        ImmutableArray<Guid>? observationIds=null,ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure)
+        ImmutableArray<Guid>? observationIds=null,ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=false)
     {
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        return await database.Read(connection,ct,observationIds:observationIds,referenceScope:referenceScope,includeCalendarDays:false);
+        return await database.Read(connection,ct,observationIds:observationIds,referenceScope:referenceScope,includeCalendarDays:includeCalendarDays);
     }
 
     public async Task<WorkspaceRead> Workspace(NpgsqlConnection connection,PinnedContext pin,bool catalogOnly,CancellationToken ct)
@@ -50,7 +50,7 @@ public sealed class MarketReads(PreviewDatabase database)
         if(display is not null && display.References.TryGetValue("commodities",out var labels))
         {
             var namesByCode=labels.Where(r=>r.TryGetProperty("name",out _)).ToDictionary(r=>r.Text("code"),r=>r.Text("name"));
-            curves=[..curves.Select(c=>namesByCode.TryGetValue(c.Category.Code,out var name)?c with{Category=c.Category with{Name=name}}:c)];
+            curves=[..curves.Select(c=>c.Category is {} category&&namesByCode.TryGetValue(category.Code,out var name)?c with{Category=category with{Name=name}}:c)];
         }
         return new(pins.Definitions,pins.References,curves,names,display);
     }

@@ -1,6 +1,7 @@
 import {init,type Chart} from './vendor/echarts.js';
 import {publicText} from './market-view.js';
-export type ChartSpec={title:string;subtitle?:string;axis:'delivery'|'observation'|'maturity'|'category';axisName?:string;unit:string;exportImage?:(download:()=>void)=>void;kind?:'line'|'bar';series:{name:string;points:{x:string;y:string|null;label?:string}[]}[]};
+// A dense series (thousands of native intervals) draws no point symbols and samples for display only.
+export type ChartSpec={title:string;subtitle?:string;axis:'delivery'|'observation'|'maturity'|'category';axisName?:string;unit:string;exportImage?:(download:()=>void)=>void;kind?:'line'|'bar';dense?:boolean;series:{name:string;points:{x:string;y:string|null;label?:string}[]}[]};
 const palette=['#256b52','#bf7142','#416da5','#9671ad','#9a8530','#4b8996'];
 const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 export function chartOptions(spec:ChartSpec){
@@ -21,7 +22,7 @@ export function chartOptions(spec:ChartSpec){
     yAxis:{type:'value',name:spec.unit,...(spec.axis==='category'?{nameLocation:'middle',nameRotate:90,nameGap:50}:{}),scale:spec.kind!=='bar',nameTextStyle:{color:'#607457'},axisLabel:{color:'#6c7e63',fontSize:10},splitLine:{lineStyle:{color:'#e8eee3'}}},
     dataZoom:[{type:'inside',filterMode:'none'},{type:'slider',labelFormatter:(_value:number,label:string)=>categoryLabel(label),height:16,bottom:10,borderColor:'#e1e8da',backgroundColor:'#f6f8f4',fillerColor:'#256b521a',handleStyle:{color:'#256b52'},moveHandleStyle:{color:'#256b52',opacity:.35},
       dataBackground:{lineStyle:{color:'#a9bea4'},areaStyle:{color:'#e3ece0'}},selectedDataBackground:{lineStyle:{color:'#256b52'},areaStyle:{color:'#256b5226'}},emphasis:{handleStyle:{color:'#1d5641'},moveHandleStyle:{color:'#256b52',opacity:.6}},textStyle:{color:'#6c7e63',fontSize:10}}],
-    series:spec.series.map(s=>({name:publicText(s.name),type:spec.kind??'line',connectNulls:false,showSymbol:true,symbolSize:6,lineStyle:{width:2},barMaxWidth:40,data:categories.map(x=>{
+    series:spec.series.map(s=>({name:publicText(s.name),type:spec.kind??'line',connectNulls:false,showSymbol:!spec.dense,...(spec.dense?{sampling:'lttb'}:{}),symbolSize:6,lineStyle:{width:2},barMaxWidth:40,data:categories.map(x=>{
       const value=s.points.find(p=>p.x===x)?.y??null;
       if(value===null)return null;
       if(!/^-?\d+(\.\d+)?$/.test(value)||!Number.isFinite(Number(value)))throw Error('A chart needs exact finite server values.');

@@ -24,8 +24,13 @@ without a seven-figure implementation.
 - **Blotter:** filters, pivots, saved views, charts and exports
 - **Interval series:** audited per-interval values on any market clock (price shapes,
   capacity-factor forecasts, metered energy) with CSV import, corrections, a change
-  log and reads at a chosen knowledge time; nothing prices or settles from them yet,
-  see [the implementation record](docs/implementation.md#audited-interval-series)
+  log and reads at a chosen knowledge time; shaped interval curves read price shapes,
+  and nothing settles from them yet, see
+  [the implementation record](docs/implementation.md#audited-interval-series)
+- **Interval curves:** hourly and sub-hourly prices marked directly or shaped exactly
+  from monthly peak and off-peak marks, delivered hours resolved to collected actuals
+  under an explicit due rule, with lineage for every price, see
+  [the implementation record](docs/implementation.md#interval-prices-curves-and-block-shaping)
 - **History:** view the market as you knew it on any past date and knowledge time
 - **Access control:** roles enforced by PostgreSQL row-level security, with people
   and AI agents as separate principals; agent actions require an explicit delegation
