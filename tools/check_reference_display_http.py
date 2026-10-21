@@ -103,6 +103,19 @@ def run_checks(url,query):
     renamed=client.call('reference/editor?table=locations&code=test_facility_a')['item']
     assert renamed['latitude']==precise['latitude'] and renamed['longitude']==precise['longitude']
     apply_metadata('locations','test_facility_a',{key:point[key] for key in ['name','latitude','longitude']})
+
+    def navigation_categories():
+        client.call('profile',{'profile':'viewer'})
+        return {curve['code']:curve['category'] for curve in client.call('workspace/navigation')['curves']}
+    listed=navigation_categories()
+    assert None in listed.values(),'The fixture needs an interest-rate curve, which has no commodity'
+    power=next(category for category in listed.values() if category and category['code']=='test_power')
+    apply_metadata('commodities','test_power',{'name':'Synthetic relabelled power'})
+    relabelled={**power,'name':'Synthetic relabelled power'}
+    assert navigation_categories()=={code:relabelled if category==power else category for code,category in listed.items()},'A commodity label must rename only its own curves'
+    apply_metadata('commodities','test_power',{'name':power['name']})
+    assert navigation_categories()==listed
+    print('PASS reference HTTP: an applied commodity label renames only its own curves; interest-rate curves have no commodity',flush=True)
     client.call('profile',{'profile':'viewer'})
     assert not client.call('reference/editor?table=units')['canEdit']
     client.call('reference/save',{**save,'operationId':str(uuid4())},expected=403)

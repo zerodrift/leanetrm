@@ -21,7 +21,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await command('Page.navigate',{url:url+'/'});await wait(idle+"&&document.querySelectorAll('.curve-button').length>0&&performance.getEntriesByName('leanetrm:workspace-ready').length===1");
   await check('initial directory reads only the explicit navigation contract',"window.__navigationReads.includes('/api/workspace/navigation')&&!window.__navigationReads.includes('/api/workspace/catalog')&&!window.__navigationReads.includes('/api/workspace')&&performance.getEntriesByName('leanetrm:workspace-ready').length===1");
   await set('#commodity','test_gas');await check('navigation filters do not hydrate pricing data',"!window.__navigationReads.includes('/api/workspace/catalog')&&document.querySelectorAll('.curve-button').length>0");
-  await set('#commodity','all');
+  await set('#commodity','');
   const selected=await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.textContent.includes('Dec 18')).value");
   await set('#snapshot',selected);await wait(idle);
   await check('selecting a market date does not load unused contracts or reference data',"!window.__navigationReads.includes('/api/workspace/catalog')");

@@ -73,6 +73,9 @@ the reference inspector loads its selected table separately in bounded pages
 under the same authorization and temporal rules (D144).
 Initial browsing uses a distinct market-navigation response: curve names and
 explicit classifications, frame summaries and exact bundle/context identities.
+A classification is the curve's market type plus, for commodity curves, its
+commodity; interest-rate curves have no commodity (D174). The browser presents
+these classifications and does not derive its own from workspace rows.
 It reads no observations, economic model or unit-conversion catalog. Full
 workspace inspection remains available and is loaded explicitly before a screen
 consumes its definitions, references or source pins. The browser keeps these two

@@ -5,7 +5,8 @@ using OpenEtrm.MarketData;
 namespace OpenEtrm.Api;
 
 public sealed record NavigationCategory(string Code,string Name);
-public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory Category);
+// A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it.
+public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory? Category);
 public sealed record NavigationFrame(Guid Id,string Name,DateTimeOffset At,Guid? OriginCloseId=null);
 public sealed record NavigationRead(DefinitionRevision DefinitionRevision,ReferenceRevision ReferenceRevision,
     ImmutableArray<NavigationCurve> Curves,ImmutableArray<CurveName> CurveNames,ReferenceDisplayData? ReferenceDisplay=null);
@@ -45,8 +46,8 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
         }
         await using(var command=ScheduleStore.Command(connection,"SELECT code,name FROM market_data.rate_curves WHERE catalog_id=$1 AND revision_id=$2 ORDER BY code",manifest.CatalogId,manifest.RevisionId))
         await using(var reader=await command.ExecuteReaderAsync(ct))
-            while(await reader.ReadAsync(ct))curves.Add(new(reader.GetString(0),reader.GetString(1),"rates",new("rates","Interest rates")));
-        if(curves.Any(c=>string.IsNullOrWhiteSpace(c.Name)||string.IsNullOrWhiteSpace(c.Category.Name))||curves.Select(c=>c.Code).Distinct().Count()!=curves.Count)
+            while(await reader.ReadAsync(ct))curves.Add(new(reader.GetString(0),reader.GetString(1),"rates",null));
+        if(curves.Any(c=>string.IsNullOrWhiteSpace(c.Name)||c.Category is {} category&&string.IsNullOrWhiteSpace(category.Name))||curves.Select(c=>c.Code).Distinct().Count()!=curves.Count)
             throw Invalid();
         return curves.ToImmutable();
     }
