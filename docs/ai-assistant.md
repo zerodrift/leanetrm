@@ -39,9 +39,12 @@ own permission, and its Agents tab creates agents, saves drafts, publishes, mark
 whose published model version is no longer current, and retires. Users grant an agent
 version its reads and revoke their grants through the API (§7.1): one current grant per
 user and agent, covering later versions with the same model identity and permissions,
-with a grant audit, and Retire revokes an agent's open grants. Turns, the panel and the
-Usage tab are not implemented, nor is the turn's working-data pin (§7.2), which binds a
-captured context.
+with a grant audit, and Retire revokes an agent's open grants. Turns are recorded in the
+database (§5.1, §7.2, §7.4, §7.5): an ask in the person's own context with admission,
+the pinned-context record and its reserve, a turn's one call with its checks, retries
+and input limit, cancellation and its sources, recovery at a worker start and the
+owner's reads, all checked in SQL. No worker, route or page uses them yet, so no one can
+ask; the worker, the stream, the panel and the Usage tab are not implemented.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -468,9 +471,10 @@ audit as history.
 - **Revoke** takes a delegation id, succeeds only for its delegator, needs no
   `UseAgents`, and answers another user's id exactly like an unknown one
   (`grant_unknown`). Revocation, replacement included, cancels the grant's running
-  turns. Each grant and revocation appends a grant audit record in the same
-  transaction; the profile dialog lists the user's grants with Revoke, and
-  `ManageIdentities` with `ManageAccess` holders see all of them in Users & access.
+  turns, except one whose publication was refused, which fails `access_changed`. Each
+  grant and revocation appends a grant audit record in the same transaction; the profile
+  dialog lists the user's grants with Revoke, and `ManageIdentities` with `ManageAccess`
+  holders see all of them in Users & access.
 - **Grant and Revoke requests** carry an operation identity. A request without it, or
   naming no positive version or no grant, is `grant_input`; one under an identity that
   another grant, Revoke or Retire recorded is `grant_conflict`; an outcome the API
@@ -624,12 +628,16 @@ The tool set is fixed; each tool is switched on per agent version.
   start only from queued, content writes and call opens only while running. Call
   close, usage, cost and terminal events are accepted in any non-terminal state
   without a request context, so accounting finishes after revocation or session end.
-  From cancel requested the only endings are cancelled or interrupted; a record write
-  or start that finds cancel requested ends the turn cancelled instead. A write with a
-  stale token or generation is rejected with `agent_runtime_unavailable`.
+  From cancel requested the only endings are cancelled or interrupted; a record write or
+  start that finds cancel requested ends the turn cancelled instead. A refused
+  publication is recorded, and the turn then ends only failed `access_changed` or
+  interrupted. A write with a stale token or generation is rejected with
+  `agent_runtime_unavailable`, a write the turn's state does not accept (such as an end
+  while a call is open) with `turn_state_conflict`, and a call the retry rules do not
+  allow with `retry_not_allowed`.
 - One narrow operation without the token moves a queued or running turn to cancel
-  requested. Stop (owner's context), Disable, Retire, revocation and the
-  profile-switch handler use it.
+  requested, unless its publication was refused. Stop (owner's context), Disable,
+  Retire, revocation and the profile-switch handler use it.
 
 ### 7.5 Limits and failure
 
@@ -671,15 +679,16 @@ The tool set is fixed; each tool is switched on per agent version.
   `model_provider_overloaded` or `context_window_exceeded`; after publication with
   `model_provider_stream_interrupted`; past the byte bound, never retried, with
   `model_provider_response_too_large`. Input is never trimmed.
-- **Cancellation.** Stop, Disable (provider or model), Replace key, Retire,
-  revocation, a profile switch and the session end (a worker timer set from the
-  recorded end) move affected turns to cancel requested. No read, call or content
-  event starts after it; the call in flight is cancelled; final reported usage is kept
-  and the rest is unknown. The turn ends cancelled: `model_provider_disabled`
-  (provider Disable, Replace key), `model_disabled`, `agent_retired`, `access_changed`
-  (revocation) or `session_ended` (profile switch, session end); Stop carries no code.
-  Changes that cancel nothing (a price ending, a role loss, a qualification change)
-  are caught by the per-call checks.
+- **Cancellation.** Stop, Disable (provider or model), Replace key, Record terms (both
+  switch the provider off), Retire, revocation, a profile switch and the session end (a
+  worker timer set from the recorded end) move affected turns to cancel requested,
+  except a turn whose publication was refused, which fails `access_changed`. No read,
+  call or content event starts after it; the call in flight is cancelled; final
+  reported usage is kept and the rest is unknown. The turn ends cancelled:
+  `model_provider_disabled` (provider Disable, Replace key, Record terms),
+  `model_disabled`, `agent_retired`, `access_changed` (revocation) or `session_ended`
+  (profile switch, session end); Stop carries no code. Changes that cancel nothing (a
+  price ending, a role loss, a qualification change) are caught by the per-call checks.
 - Text from reads, providers and tool results is untrusted and cannot change the
   agent's tools, authority, provider, context or targets.
 
@@ -704,8 +713,9 @@ The tool set is fixed; each tool is switched on per agent version.
 
 - **Commands** (ask, cancel, grant, revoke, mark read) are POSTs through the existing
   middleware, Origin and anti-forgery checks, each with an operation identity; ask
-  identities are scoped to user and conversation and compare the payload. Ask, grant
-  and the stream require current `UseAgents`; the rest require only ownership.
+  identities are scoped to the user, and a repeat must name the same conversation (none
+  for a first ask) and payload. Ask, grant and the stream require current `UseAgents`;
+  the rest require only ownership.
 - **Ask** carries the agent version, an existing conversation or none, the question,
   the knowledge mode or retained context, the frame id when selected, and the page
   report: a page identifier from a closed set (one per coverage row, blotter rows and
