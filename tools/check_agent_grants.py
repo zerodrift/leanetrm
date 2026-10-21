@@ -8,13 +8,9 @@ import threading
 from datetime import datetime, timedelta
 from uuid import uuid4
 from assistant_context import ISSUER, WINDOW, Contexts, check_guard, expect, holding, migration_body, refused, waiting
-from check_agent_administration import RATES
-from check_model_qualification import command as provider_command, terms
-from check_model_versions import capabilities, command as model_command
-from check_provider_tests import KEY
+from assistant_fixture import AGENTS, Fixture
 from preview_client import PreviewClient
 
-AGENTS, MODELS, PROVIDERS = 'settings/ai/agents', 'settings/ai/models', 'settings/ai/providers'
 USABLE, GRANTS = 'assistant/agents', 'assistant/grants'
 EMPTY = '00000000-0000-0000-0000-000000000000'
 # Every row a grant command writes, and the generation every admitted request pins.
@@ -95,51 +91,16 @@ def run_checks(url, query, psql, manifest, environment):
         return answer
 
     # A qualified, enabled provider and two priced, enabled model identities.
-    def provider():
-        return next(p for p in admin.call(PROVIDERS)['providers'] if p['vendor'] == 'anthropic')
-
-    def provider_change(action):
-        return admin.call(f'{PROVIDERS}/{action}', provider_command('anthropic', provider()['version']))
-    admin.call(f'{PROVIDERS}/key', {'operationId': str(uuid4()), 'vendor': 'anthropic', 'expectedVersion': provider()['version'], 'key': KEY})
-    admin.call(f'{PROVIDERS}/terms', terms('anthropic', provider()['version']))
-    provider_change('attest'); provider_change('enable')
-    usd = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','usd'"
-
-    def row_version(model_id):
-        return int(query(f"SELECT version FROM assistant.models WHERE id='{model_id}';"))
-
-    def version_of(model_id):
-        return int(query(f"SELECT max(version) FROM assistant.model_versions WHERE model_id='{model_id}';"))
-
-    def edit(model_id):
-        admin.call(f'{MODELS}/edit', capabilities(model_id, row_version(model_id), outputLimit=4096, reasoningEfforts=['low', 'high']))
-
-    def model(identifier):
-        added = admin.call(f'{MODELS}/add', {'operationId': str(uuid4()), 'vendor': 'anthropic', 'identifier': identifier,
-                                             'displayName': f'Synthetic grant model {identifier[-12:]}'})
-        edit(added['id'])
-        query(f"INSERT INTO assistant.price_revisions VALUES('{added['id']}',1,'rates',{usd},{RATES},NULL,NULL,NULL,NULL,NULL,'2020-01-01',NULL,"
-              f"'{contexts.administrator}',clock_timestamp());")
-        admin.call(f'{MODELS}/enable', model_command(added['id'], row_version(added['id'])))
-        return added['id']
+    fixture = Fixture(admin, query, manifest, contexts.administrator, stamp, 'grant')
+    fixture.qualify()
+    version_of, edit, model, publish, create = fixture.version_of, fixture.edit, fixture.model, fixture.publish, fixture.create
     identifier = f'model-grant-usable-{stamp}'
-    model_name = f'Synthetic grant model {identifier[-12:]}'
+    model_name = fixture.display_name(identifier)
     usable, other = model(identifier), model(f'model-grant-other-{stamp}')
 
-    def save(agent_state, model_id=None, tools=('read_current_page', 'read_market_data', 'read_trades'), days=28):
-        model_id = model_id or usable
-        return admin.call(f'{AGENTS}/save', {
-            'operationId': str(uuid4()), 'agentId': agent_state['id'], 'expectedVersion': agent_state['version'],
-            'description': 'Answers questions about the page it is opened on.', 'instructions': 'Quote only values you read.',
-            'modelId': model_id, 'modelVersion': version_of(model_id), 'reasoning': 'low', 'caching': False, 'tools': list(tools),
-            'allowedRoles': ['trader', 'risk_analyst'], 'limits': {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048,
-                                                                  'elapsedSeconds': 120, 'retries': 2}, 'grantDays': days})
+    def save(agent_state, model_id=None, **settings):
+        return fixture.save(agent_state, model_id or usable, **settings)
 
-    def publish(agent_state):
-        return admin.call(f'{AGENTS}/publish', {'operationId': str(uuid4()), 'agentId': agent_state['id'], 'expectedVersion': agent_state['version']})
-
-    def create(name):
-        return admin.call(f'{AGENTS}/create', {'operationId': str(uuid4()), 'name': f'Synthetic {name} {stamp}'})
     guide = publish(save(create('grant guide')))
     agent_principal = query(f"SELECT principal_id FROM assistant.agents WHERE id='{guide['id']}';")
     trader_principal = principal('trader')

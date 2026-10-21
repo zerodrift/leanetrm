@@ -717,6 +717,59 @@ delegation with a grant record, it fails, revoking nothing, while any delegation
 unrevoked, even an expired one. As a new migration it stops automatic hosted updates
 until the operator qualifies a new baseline (D135).
 
+## Page-assistant turns
+
+[0069_agent_turns.sql](migrations/0069_agent_turns.sql) records turns
+([ai-assistant.md](../docs/ai-assistant.md) §5.1, §7.4): conversations, each one
+person's in one scope with one agent; turns, each a question to one exact agent version
+under the grant that covered it, with its page report, its pinned-context record, the
+earlier turns it includes, its runtime set, fencing-token digest, worker generation and
+session binding; and each conversation's turn events, appended once. A turn's state and
+record only move forward, even for the owner. A model call is now a test's or a turn's:
+a turn's call names its turn, its attempt and its conversation's latest event when it
+opened instead of a request identity, administrator and token digest, and its outcome
+may be `cancelled`. `close_test` now closes only a test's call; otherwise it is as
+before and keeps its owner and grants. The Providers directory's latest test leaves turn
+calls out, with an index for that lookup.
+
+`ask_turn` runs in the person's own request context and refuses a conversation that is
+not theirs in the scope, or has another agent, before admission. Admission, under the
+workspace's advisory lock, first ends what is stuck: a turn still without its record at
+the deadline fails `ask_incomplete`, or ends cancelled once its cancel was requested,
+and a turn past its elapsed limit plus the deadline is interrupted. The person's
+authority is then checked, after every wait, as for every call and with a covering
+grant, before a second active turn (`turn_active`) or one past the workspace's limit
+(`workspace_turn_limit`) is refused; the endings stand either way. `pin_turn` writes the
+pinned-context record once: over working data it captures once under lock 730849102,
+refusing while fewer than the runtime set's reserve of the catalog's 4,096 retained
+contexts would remain (`knowledge_budget_reserved`); a retained context is pinned as
+named, for a person who may read the catalog's market data.
+
+The worker's operations take no request context. Each but the close presents the turn's
+token under the current worker generation; the close needs only the token, so accounting
+finishes in any state. A stale token or generation is `agent_runtime_unavailable`, a
+write the turn's state does not accept `turn_state_conflict`. A turn makes one call,
+retried only after a transport failure or overload whose input is known and that
+published nothing, within the version's retries (`retry_not_allowed` otherwise); a retry
+after the attempts' reported input exceeded the version's limit ends the turn
+`limit_input_tokens`. Opening a call locks the model and provider first, then rechecks
+the owner's authority and what stops a call, which end the turn. An answer append takes
+the epoch row before the turn and rechecks the owner's authority, so once a revocation
+commits it publishes nothing, records the refusal and answers refused `access_changed`,
+as every later append does, and the turn can then only fail `access_changed` or be
+interrupted; once the turn's cancel is requested it publishes nothing either. The worker
+then closes the call with the usage it has and ends the turn, which needs every call
+closed; a turn completes only after its call completed, and its terminal event, like its
+usage, skips the publication recheck. A turn's usage sums what its calls reported per
+dimension, counting unrecognized usage as unknown. Stop, the session's end and triggers
+on provider Disable, Replace key and Record terms, model Disable, Retire and grant
+revocation request a turn's cancel, unless its publication was refused, and notify the
+worker on `assistant_turn_cancel`. `start_worker` now also interrupts every turn an
+earlier generation left unfinished, and `provider_directory` leaves turn calls out; both
+keep their owner and grants. The migration first verifies the helpers it relies on and
+the definitions it replaces. As a new migration it stops automatic hosted updates until
+the operator qualifies a new baseline (D135).
+
 ## Interval curves
 
 [0070_interval_curves.sql](migrations/0070_interval_curves.sql) lets a curve's constituents be
@@ -758,7 +811,7 @@ the broken rule in the detail:
   delivery profile in clock or interval length.
 
 Every rule that reads a curve's reference rows, TOU versions, shape series or sources requires a
-matching visible row, so a row the sealer cannot see refuses the seal. The checks are their own trigger and leave
-`validate_revision` unchanged. All five tables are immutable definition rows under the read
+matching visible row, so a row the sealer cannot see refuses the seal. The checks are their own
+trigger and leave `validate_revision` unchanged. All five tables are immutable definition rows under the read
 policies of the other market definition tables. As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).
