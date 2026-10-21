@@ -169,12 +169,16 @@ def checks(query, worker_once=None, controller_once=None):
         assert query(f"SELECT count(*) FROM automation.runs WHERE job_id='{real_job['id']}';") == '1'
         print('PASS separate .NET worker executes and durably completes an owned job without duplication', flush=True)
     agent,delegation=str(uuid4()),str(uuid4())
-    query(f"""INSERT INTO security.principals VALUES('{agent}','agent',true);
+    # Agent principals hold only the agent reader role (migration 0066), so no agent may hold RunJobs today. The
+    # setup lifts that guard in its own transaction, so automation's own delegation rules stay covered.
+    query(f"""BEGIN;INSERT INTO security.principals VALUES('{agent}','agent',true);
     INSERT INTO security.workspace_memberships VALUES('{tenant}','{workspace}','{agent}','synthetic_agent','Synthetic scheduling agent',true,1);
     INSERT INTO security.identity_bindings VALUES('https://automation.invalid','agent','{agent}','agent_credential');
+    ALTER TABLE security.role_grants DISABLE TRIGGER agent_roles;
     INSERT INTO security.role_grants SELECT gen_random_uuid(),'{agent}',id,'{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false FROM security.roles WHERE code='viewer';
+    ALTER TABLE security.role_grants ENABLE TRIGGER agent_roles;
     INSERT INTO security.agent_delegations VALUES('{delegation}','{agent}','{admin}','{tenant}','{workspace}',clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 hour',false);
-    INSERT INTO security.delegation_permissions VALUES('{delegation}','RunJobs');""")
+    INSERT INTO security.delegation_permissions VALUES('{delegation}','RunJobs');COMMIT;""")
     def agent_context(sql,mandate=delegation):
         selected=f"'{mandate}'" if mandate else 'NULL'
         token=query(f"SET SESSION AUTHORIZATION automation_test_auth;SELECT security.issue_context('https://automation.invalid','agent','agent_credential','{tenant}','{workspace}',{selected},'automation_test_runtime',60);")

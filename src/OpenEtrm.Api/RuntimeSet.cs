@@ -9,4 +9,8 @@ static class RuntimeSet
     public const int TestOutputTokens=256;
     // Below the request deadline of 15 seconds, leaving time to close the test and answer.
     public static readonly TimeSpan TestDeadline=TimeSpan.FromSeconds(10);
+    // An agent version's instructions, in characters, so a save's body stays under 32 KB at four bytes each (§7.5).
+    public const int AgentInstructions=6000;
+    // The longest grant a version may ask for (§7.1).
+    public const int MaxGrantDays=90;
 }

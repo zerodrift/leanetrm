@@ -47,6 +47,9 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
         SwapMarketSelections=(SwapMarketSelections??ImmutableDictionary<Guid,ImmutableArray<Guid>>.Empty).SetItem(market,pins.Replace(previous,selected))
     };
 }
+// How a request binds its context: shared, like every request, or exclusive, taking the epoch row before binding so
+// a control-table write cannot deadlock against requests already admitted (docs/ai-assistant.md §5.4).
+public enum Admission { Shared, Administration, Agents }
 public sealed class PreviewDeniedException : Exception;
 
 public sealed class PreviewDatabase : IAsyncDisposable
@@ -129,7 +132,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
     // and releases any session lock it held.
     public static NpgsqlDataSource AgentSource(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", false);
 
-    public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, bool administration=false)
+    public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared)
     {
         if(authenticator is null)throw new InvalidOperationException("This direct reader has no identity-issuing capability.");
         if (string.IsNullOrWhiteSpace(profile) || profile.Length>48) throw new PreviewDeniedException();
@@ -139,7 +142,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
         var token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException());
         await using var connection = await runtime.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        await using (var bind = new NpgsqlCommand(administration?"SELECT security.use_administration_context($1)":"SELECT security.use_context($1)", connection, transaction))
+        await using (var bind = new NpgsqlCommand(admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
+            Admission.Agents=>"SELECT assistant.use_agent_admission($1)",_=>"SELECT security.use_context($1)"}, connection, transaction))
         { bind.Parameters.AddWithValue(token); await bind.ExecuteNonQueryAsync(ct); }
         if(hostedSession is not null)await using(var sessionCheck=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction))await sessionCheck.ExecuteNonQueryAsync(ct);
         if(permission is not null && !await HasPermission(connection,permission,ct)) throw new PreviewDeniedException();

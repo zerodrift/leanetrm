@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -150,7 +151,15 @@ public sealed partial class ModelCatalog
         "model_unqualified"=>"Enable a model once its capabilities are recorded under the usage mapping its vendor's adapter applies.",
         "model_provider_disabled"=>"Enable the model's provider before the model.",
         "model_mapping_unconfirmed"=>"Record capabilities once this release confirms a usage mapping for the model's vendor.",
-        "model_unpriced"=>"Test a model once a rate set is in force for it now.",
+        "model_unpriced"=>"The model needs a rate set in force now.",
+        "model_changed"=>"The model's capability version changed. Reload the agent directory and name the version it lists.",
+        "model_disabled"=>"Enable the model before an agent version names it.",
+        "model_limit_exceeded"=>"Ask for no more output tokens per call than the model version allows.",
+        "grant_duration_exceeded"=>$"A grant lasts at most {RuntimeSet.MaxGrantDays} days.",
+        "instructions_too_long"=>string.Create(CultureInfo.InvariantCulture,$"Instructions are limited to {RuntimeSet.AgentInstructions:N0} characters."),
+        "agent_retired"=>"This agent is retired and can no longer change.",
+        "agent_managed"=>"Users & access neither creates nor changes agents, and grants the agent reader role to no one.",
+        "admin_limit"=>"A workspace has at most 256 members, agents included.",
         "parameter_required"=>"Choose one of the reasoning efforts the model's capability version records.",
         "test_in_progress"=>"This test has no recorded outcome yet. Repeat the identical request to read it once it is recorded.",
         "agent_runtime_unavailable"=>"Tests run only while this preview holds the agent worker, which another preview process may hold or whose connection was lost. Try again shortly.",

@@ -10,7 +10,8 @@ public enum Permission
     ImportObservations, WriteReferenceData, SealReferenceData,
     ManageIdentities, ManageAccess, CreateDelegations,
     BookTrade, AmendTrade, RunValuation, RunScenario, RunDealRisk, ApproveMarketData, PublishMarketData, ReadTrades,
-    ReadTradeParties, WriteTradeParties, RunJobs, ManageJobs, LaunchWorkloads, ManageInfrastructure, ManageModelProviders
+    ReadTradeParties, WriteTradeParties, RunJobs, ManageJobs, LaunchWorkloads, ManageInfrastructure, ManageModelProviders,
+    ManageAgents, UseAgents
 }
 public sealed record Principal(Guid Id, PrincipalKind Kind, bool Enabled);
 public readonly record struct Scope(Guid TenantId, Guid WorkspaceId);

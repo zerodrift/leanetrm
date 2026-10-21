@@ -327,6 +327,70 @@ Then in SQL:
   privileges change. The directory and the worker start keep the owner and grants those
   guards verified.
 
+Agent administration (`tools/check_agent_administration.py`, in the same run, through the
+API and in SQL):
+
+- **Roles:** only the access administrator manages agents; the trader, risk analyst and
+  market data editor use agents, and each may delegate; the agent reader holds exactly
+  its three reads. Even for the owner, a human never holds the agent reader role and an
+  agent holds no other, while an earlier grant breaking that rule can still be revoked
+  and a revoked one stays revoked.
+- **Create:**
+  - a name follows the display-name rule and is unique in the workspace whatever the
+    case of its ASCII letters, and a create names nothing else;
+  - a created agent is an enabled agent principal bound by its own id at the manifest
+    issuer, a member under its name and an agent reader, recorded once in each audit,
+    and issued request contexts by its agent credential alone, never as a person or a
+    service;
+  - a repeat writes nothing, and a request identity used elsewhere, a Users & access
+    change the suite makes included, is refused;
+  - the 256-member limit counts agents, in agent administration and in Users & access.
+- **Admission:** while another request is admitted, a refused or repeated create answers
+  at once and a create that writes waits for exclusive admission; outside it, a create
+  that passes every check is refused with `admission_required`.
+- **Save:**
+  - an identical save sent while its original still runs, held at the agent's row, waits
+    for it and answers as it does;
+  - every field is named, and nothing else;
+  - text, limits, the grant's duration and the effort follow their rules, and
+    instructions beyond 6,000 characters are too long, even beyond the 32,000-character
+    storage ceiling. The database applies the bounds the API passes after a repeat's
+    replay, so a repeat answers as before under lower ones, while a new save is refused
+    beyond them or without them;
+  - tools and roles come from their sets, each named once;
+  - each allowed role holds `UseAgents` and the tools' permissions, and a refusal names
+    the role and the permission;
+  - a save names a known agent and the current version of a known, enabled, qualified,
+    priced model on an enabled, qualified provider. `model_unqualified` and
+    `model_provider_unqualified` come from a repointed mapping and directly recorded
+    terms, both rolled back. A refused save writes nothing.
+- **Publish:** it publishes the newest version, under the current agent version, after
+  rechecking the model, and a Retire under its request identity is refused, as is a
+  Publish under a Retire's. Even for the owner, the published version only moves
+  forward, versions are immutable, a version names a model of its agent's workspace
+  with an effort and an output limit its model version allows, and an agent starts at
+  version 1 with an agent principal, unpublished and active. A model edit after
+  publication marks the published version.
+- **Directory:** it offers only usable models, the roles that use agents and the tools
+  with their permissions. It lists each agent once with its changes newest first, and
+  another workspace's directory lists none of these agents, models or changes.
+- **Retire:** it disables the principal and its membership, so an agent issued request
+  contexts until then is issued none. A repeat writes nothing, a retired agent cannot change, and the Users & access
+  audit records the loss of access. A refused Retire answers while another request is
+  admitted.
+- **Authority:** a viewer never administers agents, and a delegated agent runs none of
+  the five operations.
+- **Guard:** before 0066 applies, it refuses to start while an agent principal holds a
+  current role, revoking nothing, and refuses a change to each pinned helper.
+
+The Users & access checks expect `agent_managed` for an agent create, the agent reader
+role, and an agent update with and without roles, which leaves the agent unchanged. Its
+browser scenario creates its own agent and finds it listed as an agent reader without
+Edit. The temporal storage checks create an agent through `ManageAgents`
+and show it reads market data only under a current delegation. The reference-policy
+agent holds the agent reader role. The hosted checks find every agent route unmapped and
+the provisioned owner with exactly the six human roles.
+
 The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is
 only a loopback IP-literal origin.
