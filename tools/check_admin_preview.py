@@ -8,10 +8,14 @@ def run_checks(Client, check):
     check('business readers cannot enumerate identities or permissions')
     admin = Client(); admin.bootstrap(); admin.call('profile', {'profile': 'admin'})
     directory = admin.call('admin')
-    check('identity kinds are served with the directory', [k['code'] for k in directory['kinds']] == ['human', 'service', 'agent'] and all(k['name'] for k in directory['kinds']))
+    check('identity kinds are served with the directory, and only human and service accounts are created here',
+          [(k['code'], k['creatable']) for k in directory['kinds']] == [('human', True), ('service', True), ('agent', False)] and all(k['name'] for k in directory['kinds']))
     admin.call('workspace', expected=403)
-    check('access administration does not imply market-data access', len(directory['roles']) == 6)
-    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == 6)
+    check('access administration does not imply market-data access')
+    check('the six human roles are assignable, and the agent reader role is listed only to name what agents hold',
+          sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
+          and [r['code'] for r in directory['roles'] if not r['assignable']] == ['agent_reader'])
+    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == 7)
     request = {'operationId': str(uuid4()), 'login': 'synthetic_reader', 'name': 'Synthetic reader',
                'kind': 'human', 'roles': ['viewer']}
     created = admin.call('admin/create', request)
@@ -41,10 +45,20 @@ def run_checks(Client, check):
     error = admin.call('admin/update', {'operationId': str(uuid4()), 'id': own['id'], 'expectedVersion': own['version'],
         'name': own['name'], 'enabled': False, 'roles': own['roles']}, expected=422)
     check('last current workspace administrator cannot be removed', error['code'] == 'last_administrator')
-    agent = admin.call('admin/create', {**request, 'operationId': str(uuid4()), 'login': 'synthetic_agent', 'name': 'Synthetic agent', 'kind': 'agent'})
-    check('agents have distinct immutable identity kinds', agent['kind'] == 'agent')
-    admin.call('profile', {'profile': 'synthetic_agent'}, expected=403)
-    check('agent grants cannot become a human preview login')
+    # Agents are created and retired through agent administration (docs/ai-assistant.md §5.4); Users & access lists them and
+    # changes none, and grants no one the agent reader role.
+    refusals = [admin.call('admin/create', {**request, 'operationId': str(uuid4()), 'login': 'synthetic_agent', 'name': 'Synthetic agent', 'kind': 'agent'}, expected=422),
+                admin.call('admin/create', {**request, 'operationId': str(uuid4()), 'login': 'synthetic_second_reader', 'roles': ['agent_reader', 'viewer']}, expected=422),
+                admin.call('admin/update', {**update, 'operationId': str(uuid4()), 'expectedVersion': restored['version'], 'roles': ['agent_reader']}, expected=422)]
+    listed = admin.call('settings/ai/agents/create', {'operationId': str(uuid4()), 'name': 'Synthetic listed agent'})
+    agent = next(m for m in admin.call('admin')['members'] if m['kind'] == 'agent' and m['name'] == listed['name'])
+    # Naming no role leaves only the rule that Users & access changes no agent to refuse the second change.
+    for change in ({'enabled': False, 'roles': ['agent_reader']}, {'enabled': True, 'roles': []}):
+        refusals.append(admin.call('admin/update', {'operationId': str(uuid4()), 'id': agent['id'], 'expectedVersion': agent['version'],
+                                                    'name': agent['name'], **change}, expected=422))
+    unchanged = next(m for m in admin.call('admin')['members'] if m['id'] == agent['id'])
+    check('Users & access creates and changes no agent, grants no one the agent reader role, and lists the agents agent administration creates',
+          all(r['code'] == 'agent_managed' for r in refusals) and unchanged == agent and agent['roles'] == ['agent_reader'] and agent['enabled'])
     audit = admin.call('admin')['audit']
     check('committed administration has actor and before-after evidence', any(a['operationId'] == update['operationId'] and a['before']['enabled'] and not a['after']['enabled'] for a in audit))
     check('administrative retry produces one audit entry', sum(a['operationId'] == request['operationId'] for a in audit) == 1)

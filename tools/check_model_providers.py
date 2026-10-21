@@ -55,12 +55,13 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
                 "WHERE p.permission='ManageModelProviders';") == 'access_administrator')
     tables = "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='assistant' AND c.relkind='r'"
     check('every page-assistant table forces row security',
-          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '14')
+          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '17')
     functions = "SELECT string_agg(proname,',' ORDER BY proname) FROM pg_proc WHERE pronamespace='assistant'::regnamespace"
     check('the administration, Test and worker operations are the only definers and all the runtime may execute',
           query(f"{functions} AND prosecdef;") == query(f"{functions} AND has_function_privilege('preview_runtime',oid,'EXECUTE');")
-          == 'add_model,add_price,attest,close_test,credential_slot,disable_model,disable_provider,edit_model,enable_model,enable_provider,'
-          'model_directory,open_test,provider_directory,record_terms,rename_model,replace_credential,start_worker,withdraw_price')
+          == 'add_model,add_price,agent_directory,attest,close_test,create_agent,credential_slot,disable_model,disable_provider,edit_model,'
+          'enable_model,enable_provider,model_directory,open_test,provider_directory,publish_agent,record_terms,rename_model,replace_credential,'
+          'retire_agent,save_agent_version,start_worker,use_agent_admission,withdraw_price')
     for table in ('providers', 'credentials', 'administration_audit'):
         contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
         check(f'the runtime reads {table} only through administration operations')

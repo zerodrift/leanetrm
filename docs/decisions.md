@@ -300,3 +300,8 @@ When a decision changes, record the reason, affected contracts and compatibility
 impact here. Update the architecture and plan to describe the resulting design.
 Preserve the meaning of already-retained calculation artifacts; a new model or
 numerical policy does not silently reinterpret an old result.
+
+- **D42 and P26 (pending approval):** migration 0066, the page assistant's agent
+  administration, implements P26's `ManageAgents` and `UseAgents` and adds the agent
+  reader role, held only by agent principals, as a seventh role template. D42 lists
+  the six human templates until P26 is approved.

@@ -101,13 +101,14 @@ def run_checks(query, manifest):
 
     # The actual RLS scan must re-evaluate every part of delegated authority,
     # independently of the longer-lived request token and retained market cut.
+    # The agent holds the agent reader role, the only role an agent principal may hold.
     agent,delegator,delegation,grant_agent,grant_delegator=[str(uuid4()) for _ in range(5)]
     subject='policy_agent_'+agent.replace('-','')
     query(f"""INSERT INTO security.principals VALUES('{agent}','agent',true),('{delegator}','human',true);
       INSERT INTO security.workspace_memberships VALUES('{tenant}','{workspace}','{agent}','{subject}','Synthetic policy agent',true,1),
         ('{tenant}','{workspace}','{delegator}','policy_user_{delegator.replace('-','')}','Synthetic policy delegator',true,1);
       INSERT INTO security.identity_bindings VALUES('https://reference-policy.invalid','{subject}','{agent}','agent_credential');
-      INSERT INTO security.role_grants VALUES('{grant_agent}','{agent}','a0000000-0000-0000-0000-000000000001','{tenant}','{workspace}',clock_timestamp()-interval '1 day','9999-12-31',false),
+      INSERT INTO security.role_grants VALUES('{grant_agent}','{agent}','a0000000-0000-0000-0000-000000000007','{tenant}','{workspace}',clock_timestamp()-interval '1 day','9999-12-31',false),
         ('{grant_delegator}','{delegator}','a0000000-0000-0000-0000-000000000004','{tenant}','{workspace}',clock_timestamp()-interval '1 day','9999-12-31',false);
       INSERT INTO security.agent_delegations VALUES('{delegation}','{agent}','{delegator}','{tenant}','{workspace}',clock_timestamp()-interval '1 day','9999-12-31',false);
       INSERT INTO security.delegation_permissions VALUES('{delegation}','ReadMarketData');""")

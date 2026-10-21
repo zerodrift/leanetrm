@@ -235,12 +235,30 @@ def run_checks(query, psql, environment, manifest, url):
         check('workspace administrator cannot mutate another workspace member',query(f"SELECT enabled FROM security.workspace_memberships WHERE principal_id='{foreign_member}';")=='t')
         directory=json.loads(query(runtime(issue('admin'),"SELECT security.administration_directory()::text;")))
         check('administrative directory omits other-scope identities',not any(m['id']==foreign_member for m in directory['members']))
-        # Account state cannot be escalated through a different credential kind.
-        agent_actor="(SELECT principal_id FROM security.identity_bindings WHERE subject='synthetic_agent')"
-        query(f"INSERT INTO security.role_grants VALUES(gen_random_uuid(),{agent_actor},'a0000000-0000-0000-0000-000000000006','{tenant}','{workspace}',clock_timestamp(),TIMESTAMPTZ '9999-12-31',false);")
-        agent_token=query(f"SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context('https://preview.invalid','synthetic_agent','agent_credential','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-        query(runtime(agent_token,expect("PERFORM security.administration_directory();",'42501')))
-        check('agent administrator role alone cannot bypass delegated authority')
+        # Account state cannot be escalated through a different credential kind. An agent created through
+        # ManageAgents is an agent reader and can hold no other role.
+        created=json.loads(query(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT assistant.use_agent_admission('{issue('admin')}'); "
+                                 f"SELECT assistant.create_agent('{uuid4()}','Synthetic storage agent')::text; COMMIT;").splitlines()[-1])
+        agent_actor=query(f"SELECT principal_id FROM assistant.agents WHERE id='{created['id']}';")
+        query(expect(f"INSERT INTO security.role_grants VALUES(gen_random_uuid(),'{agent_actor}','a0000000-0000-0000-0000-000000000006','{tenant}','{workspace}',clock_timestamp(),TIMESTAMPTZ '9999-12-31',false);",'23514'))
+        check('an agent created through ManageAgents is refused any role but the agent reader')
+        def agent_token(delegation='NULL'):
+            return query(f"SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context('https://preview.invalid','{agent_actor}','agent_credential','{tenant}','{workspace}',{delegation},'preview_runtime',60);")
+        query(runtime(agent_token(),expect("PERFORM security.administration_directory();",'42501')))
+        check('an agent context cannot administer workspace access')
+        # Delegated authority (docs/ai-assistant.md §13): the agent reads market data only under a current delegation
+        # from a user who may delegate and read it.
+        reads=f"SELECT security.market_access('{catalog}','ReadMarketData');"
+        undelegated=query(runtime(agent_token(),reads)).splitlines()[-1]
+        delegation=str(uuid4())
+        trader=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
+        query(f"INSERT INTO security.agent_delegations VALUES('{delegation}','{agent_actor}','{trader}','{tenant}','{workspace}',clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 hour',false);"
+              f"INSERT INTO security.delegation_permissions VALUES('{delegation}','ReadMarketData');")
+        delegated=query(runtime(agent_token(f"'{delegation}'"),reads)).splitlines()[-1]
+        query(f"UPDATE security.agent_delegations SET revoked=true WHERE id='{delegation}';")
+        revoked=query(runtime(agent_token(f"'{delegation}'"),reads)).splitlines()[-1]
+        check('an agent created through ManageAgents reads market data only under a current delegation',
+              (undelegated,delegated,revoked)==('f','t','f'))
         # A blocked administrative request cannot revive expired credentials.
         locker=connect('BEGIN; SELECT 1 FROM security.epoch WHERE id=true FOR UPDATE;','admin_expiry_lock')
         token=issue('admin',seconds=2)

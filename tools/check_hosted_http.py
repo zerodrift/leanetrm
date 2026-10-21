@@ -166,9 +166,10 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         admin.call('/api/workspace/catalog',expected=403)
         admin.call('/api/power-imports',expected=403)
         print('PASS hosted startup projects current identity permissions without granting market-data authority',flush=True)
-        assert 'ManageModelProviders' in admin_access['permissions']
+        assert 'ManageModelProviders' in admin_access['permissions'] and 'ManageAgents' in admin_access['permissions']
         admin.call('/api/settings/ai/providers',expected=404)
         admin.call('/api/settings/ai/models',expected=404)
+        admin.call('/api/settings/ai/agents',expected=404)
         # A request token is bound to its route's scope, so an unmapped route refuses a token that a mapped one accepts.
         provider={'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0}
         for path,body in (('/api/settings/ai/providers/key',{**provider,'key':'sk-synthetic-hosted-0000'}),
@@ -176,7 +177,10 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
                           ('/api/settings/ai/models/add',{'operationId':str(uuid4()),'vendor':'anthropic','identifier':'hosted-model','displayName':'Hosted model'}),
                           *((f'/api/settings/ai/models/{action}',{'operationId':str(uuid4()),'modelId':str(uuid4()),'expectedVersion':1})
                             for action in ('edit','enable','disable')),
-                          ('/api/settings/ai/providers/test',{'operationId':str(uuid4()),'modelId':str(uuid4()),'reasoning':'low'})):
+                          ('/api/settings/ai/providers/test',{'operationId':str(uuid4()),'modelId':str(uuid4()),'reasoning':'low'}),
+                          ('/api/settings/ai/agents/create',{'operationId':str(uuid4()),'name':'Hosted agent'}),
+                          *((f'/api/settings/ai/agents/{action}',{'operationId':str(uuid4()),'agentId':str(uuid4()),'expectedVersion':1})
+                            for action in ('save','publish','retire'))):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
         print('PASS hosted mode maps no page-assistant administration route, even for a provider administrator',flush=True)

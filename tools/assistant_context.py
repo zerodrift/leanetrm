@@ -99,18 +99,22 @@ class Contexts:
                           "'preview_runtime',60) AS token \\gset\n"
                           f"SET SESSION AUTHORIZATION preview_runtime;\nSELECT security.use_context(:'token');\n{statement}\nROLLBACK;")
 
-    def delegated_agent(self, statement):
-        """An agent with access_administrator and a current delegation of ManageModelProviders runs `statement`."""
+    def delegated_agent(self, statement, permission='ManageModelProviders'):
+        """An agent with access_administrator and a current delegation of `permission` runs `statement`. Agent
+        principals hold only the agent reader role (migration 0066); the setup lifts that guard inside its own
+        rolled-back transaction, so an operation's refusal of a delegated context shows on its own."""
         agent, delegation = uuid4(), uuid4()
         return self.rolled_back(
             f"INSERT INTO security.principals VALUES('{agent}','agent',true);"
             f"INSERT INTO security.identity_bindings VALUES('{ISSUER}','provider_agent','{agent}','agent_credential');"
             f"INSERT INTO security.workspace_memberships VALUES('{self.tenant}','{self.workspace}','{agent}','provider_agent','Synthetic agent',true,1);"
+            "ALTER TABLE security.role_grants DISABLE TRIGGER agent_roles;"
             f"INSERT INTO security.role_grants VALUES('{uuid4()}','{agent}',{ADMINISTRATOR_ROLE},'{self.tenant}','{self.workspace}',{WINDOW},false);"
+            "ALTER TABLE security.role_grants ENABLE TRIGGER agent_roles;"
             f"INSERT INTO security.agent_delegations VALUES('{delegation}','{agent}','{self.administrator}','{self.tenant}','{self.workspace}',{WINDOW},false);"
-            f"INSERT INTO security.delegation_permissions VALUES('{delegation}','ManageModelProviders');",
+            f"INSERT INTO security.delegation_permissions VALUES('{delegation}','{permission}');",
             'provider_agent', 'agent_credential', self.workspace, f"'{delegation}'",
-            "DO $$ BEGIN IF NOT security.has_permission('ManageModelProviders') THEN RAISE EXCEPTION 'Delegation is not current'; END IF; END $$;\n"
+            f"DO $$ BEGIN IF NOT security.has_permission('{permission}') THEN RAISE EXCEPTION 'Delegation is not current'; END IF; END $$;\n"
             + statement)
 
     def second_workspace(self, statement):

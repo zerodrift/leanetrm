@@ -4,9 +4,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__responses=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{const path=String(args[0]),body=args[1]?.body?JSON.parse(args[1].body):null;window.__requests.push({path,body});const response=await window.__originalFetch(...args);window.__responses.push({path,status:response.status,data:await response.clone().json()});return response;};window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
+  // An agent of this scenario's own, created as agent administration creates one.
+  const agentName='Browser listed agent '+Date.now();await(await sideSession(url)).call('settings/ai/agents/create',{operationId:crypto.randomUUID(),name:agentName});
   await persona('admin');
   await check('administration-only identity opens users without business access',"!document.querySelector('#admin-page').hidden&&document.querySelector('#market-page').hidden&&document.querySelector('#nav-market').hidden&&document.querySelector('#page-title').textContent==='Users & access'&&document.querySelector('#error').hidden");
-  await check('six explicit role choices and permission details are shown',"document.querySelectorAll('#admin-roles input').length===6&&document.querySelectorAll('#admin-roles details').length===6");
+  await check('six explicit role choices and permission details are shown',"document.querySelectorAll('#admin-roles input').length===6&&document.querySelectorAll('#admin-roles details').length===6&&!document.querySelector('#admin-roles input[value=agent_reader]')");
+  await check('accounts are created as humans or services, and agents are listed as agent readers without Edit',
+    "JSON.stringify([...document.querySelector('#admin-kind').options].map(o=>o.value))==='[\"\",\"human\",\"service\"]'"
+    +`&&(rows=>rows.every(r=>!r.querySelector('button'))&&rows.some(r=>r.cells[0].textContent===${JSON.stringify(agentName)}&&r.cells[3].textContent==='Agent reader'&&r.cells[4].textContent==='Managed as an agent'))`
+    +"([...document.querySelectorAll('#admin-members tbody tr')].filter(r=>r.cells[1].textContent==='Agent'))");
   const login='browser_human_'+Date.now(),name='Browser test human';
   await set('#admin-name',name);await set('#admin-login',login);await set('#admin-kind','human');
   await evaluate("document.querySelector('#admin-roles input[value=viewer]').checked=true");

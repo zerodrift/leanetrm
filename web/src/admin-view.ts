@@ -8,10 +8,11 @@ export type {RequestCommand as AdministrativeCommand} from './pending-command.js
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Member={id:string;login:string;name:string;kind:string;enabled:boolean;version:number;roles:string[]};
 type Audit={operationId:string;at:string;actor:string;action:string;before:Member|null;after:Member};
-type Directory={members:Member[];roles:{code:string;name:string;permissions:string[]}[];audit:Audit[];kinds:{code:string;name:string}[];canCreate?:boolean};
+// Every role and kind is listed so each account can be named; only assignable roles and creatable kinds are offered.
+type Directory={members:Member[];roles:{code:string;name:string;permissions:string[];assignable:boolean}[];audit:Audit[];kinds:{code:string;name:string;creatable:boolean}[];canCreate?:boolean};
 
 export function knownAdministrationRejection(code:string|undefined):boolean{
-  return !!code&&['admin_conflict','admin_input','last_administrator','self_access_change','admin_limit',
+  return !!code&&['admin_conflict','admin_input','last_administrator','self_access_change','admin_limit','agent_managed',
     'access_denied','request_format','request_token','definition_rejected'].includes(code);
 }
 export function accessChange(before:Member|null,after:Member):string{
@@ -54,12 +55,13 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
     if(!directory)return;
     get('admin-new').hidden=directory.canCreate===false;
     const kind=field('admin-kind').value,first=el('option','Choose a kind…');first.value='';
-    get('admin-kind').replaceChildren(first,...directory.kinds.map(k=>{const o=el('option',k.name);o.value=k.code;return o;}));field('admin-kind').value=directory.kinds.some(k=>k.code===kind)?kind:'';
-    get('admin-roles').replaceChildren(...directory.roles.map(role=>{
+    const kinds=directory.kinds.filter(k=>k.creatable);
+    get('admin-kind').replaceChildren(first,...kinds.map(k=>{const o=el('option',k.name);o.value=k.code;return o;}));field('admin-kind').value=kinds.some(k=>k.code===kind)?kind:'';
+    get('admin-roles').replaceChildren(...directory.roles.filter(role=>role.assignable).map(role=>{
       const block=el('div'),label=el('label'),box=el('input');box.type='checkbox';box.value=role.code;box.checked=selected?.roles.includes(role.code)??false;
       label.append(box,document.createTextNode(' '+role.name));const details=el('details');details.append(el('summary','Permissions'),el('p',role.permissions.map(friendly).join(' · ')));block.className='admin-role';block.append(label,details);return block;
     }));
-    renderRegularTable(get('admin-members'),'admin-members',profile(),['Name','Kind','Workspace access','Roles',''],directory.members.map(m=>[m.name,kindName(m.kind),m.enabled?'Active':'Suspended',m.roles.map(roleName).join(', ')||'No roles',button('Edit',()=>fill(m))]),[],busy);
+    renderRegularTable(get('admin-members'),'admin-members',profile(),['Name','Kind','Workspace access','Roles',''],directory.members.map(m=>[m.name,kindName(m.kind),m.enabled?'Active':'Suspended',m.roles.map(roleName).join(', ')||'No roles',m.kind==='agent'?'Managed as an agent':button('Edit',()=>fill(m))]),[],busy);
     renderRegularTable(get('admin-audit'),'admin-audit',profile(),['Saved','By','Account','Change'],directory.audit.map(a=>[displayInstant(a.at,zone()),a.actor,a.after.name,accessChange(a.before,a.after)]),[],busy);
     fill(selected&&directory.members.find(m=>m.id===selected?.id));pendingNote();
   }

@@ -31,8 +31,12 @@ usage by dimension and exact cost (`token_cost_v1`) under the agent worker's gen
 (§5.1, §5.3, §7.4, §9). A provider's card tests one of its models, retaining a test whose
 outcome was not confirmed, and the Providers tab shows each vendor's endpoint, marked when
 it is the preview's check endpoint, and its last test, marked when it ran under a key or
-terms no longer attested. The turn's working-data pin (§7.2), which binds a captured
-context, is not implemented.
+terms no longer attested. From step 5, agent administration works through the API:
+`ManageAgents` and `UseAgents`, the agent reader role held only by agent principals,
+agents with immutable versions, and create, save, Publish and Retire (§5.4, §9), while
+Users & access no longer creates or changes agents. The Agents tab, grants, turns and
+the Usage tab are not implemented, nor is the turn's working-data pin (§7.2), which
+binds a captured context.
 
 The page assistant ships in three phases, each with its own design:
 
