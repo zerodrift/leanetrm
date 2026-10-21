@@ -37,7 +37,18 @@ const changes:Record<string,string>={add_model:'Model added',rename_model:'Displ
   edit_model:'Capabilities recorded',enable_model:'Enabled',disable_model:'Disabled'};
 // Refusals that prove a first attempt wrote nothing, so its retained request can be released.
 const rejections=['model_admin_input','model_admin_conflict','model_identifier_invalid','currency_unavailable','model_unqualified','model_provider_unqualified',
-  'model_provider_disabled','model_mapping_unconfirmed','access_denied','request_format','request_token'];
+  'model_provider_disabled','model_mapping_unconfirmed','access_denied','request_format','request_too_large','request_token'];
+export const knownAiRejection=(code:string|undefined)=>!!code&&rejections.includes(code);
+// The ranges every entry keeps.
+export const entryRanges='Check the entries: rates are plain decimals per million tokens, below 10^12 with at most 12 decimal places, a tier offers the same rates as its base set, and an interval ends after it starts; a display name has 1 to 80 characters and terms text 1 to 1,000, each with no space at either end and no control, line-separator or text-direction formatting characters; an output limit is 1 to 10,000,000 tokens, efforts are among those offered, and served identifiers are at most 16, each once, never the model’s own; each source is an https link naming a host, and each checked date has begun; a key has 8 to 512 visible ASCII characters.';
+// Commands that send what the administrator typed. Only an entry outside its range makes one of their requests the
+// server cannot read or one larger than it accepts, so the ranges explain those refusals; other commands keep the
+// general message.
+const entered=['models/add','models/rename','models/price','models/edit','providers/terms','providers/key'].map(path=>'settings/ai/'+path);
+export function aiRefusal(error:unknown,path:string){
+  const code=(error as {code?:string}).code;
+  return entered.includes(path)&&(code==='request_format'||code==='request_too_large')?Object.assign(Error(entryRanges),{code}):error;
+}
 const modelPaths=['add','rename','price','withdraw','edit','enable','disable'].map(path=>'settings/ai/models/'+path);
 const providerPaths=['terms','attest','enable','disable'].map(path=>'settings/ai/providers/'+path),keyPath='settings/ai/providers/key',testPath='settings/ai/providers/test';
 // A test refused for these opened nothing. One in progress or whose answer was lost is retained, and so is one refused
@@ -197,11 +208,10 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   const choice=(name:string)=>document.querySelector<HTMLInputElement>(`input[name=${name}]:checked`)?.value??'';
   const instant=(at:string)=>displayInstant(at,options.zone());
   const [priceFrom,priceTo,withdrawFrom,withdrawTo]=['ai-price-from','ai-price-to','ai-withdraw-from','ai-withdraw-to'].map(id=>zonedInput(input(id),options.zone,options.api));
-  const rejected=(code:string|undefined)=>!!code&&rejections.includes(code);
-  const pending=new PendingCommand(rejected),providerPending=new PendingCommand(rejected);
-  const testPending=new PendingCommand(code=>code!=='access_denied'&&(rejected(code)||!!code&&testRejections.includes(code)));
+  const pending=new PendingCommand(knownAiRejection),providerPending=new PendingCommand(knownAiRejection);
+  const testPending=new PendingCommand(code=>code!=='access_denied'&&(knownAiRejection(code)||!!code&&testRejections.includes(code)));
   // The key itself is never part of the retained request (§5.2); a retry asks for it again.
-  const keyPending=new PendingCommand(code=>rejected(code)||code==='credential_unavailable');
+  const keyPending=new PendingCommand(code=>knownAiRejection(code)||code==='credential_unavailable');
   let models:Models|undefined,providers:Providers|undefined,labels=new Map<string,string>(),selected:string|undefined,selectedVendor:string|undefined,keyVendor:string|undefined,generation=0;
   // The key and terms the attestation statement names; a confirmation never carries over to another pair.
   let statementPair='';
@@ -399,7 +409,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       holder.failed(code,previouslyUncertain);store(holder);
       // After an unconfirmed outcome the page shows what was actually saved; a denied read stays cleared.
       if(code==='access_denied')clearDirectories();else if(holder.command)await load().catch(()=>undefined);
-      sync();throw error;
+      sync();throw aiRefusal(error,command.path);
     }
     holder.clear();store(holder);
     if(holder===keyPending)keyVendor=undefined;else resets[command.path]?.(command);

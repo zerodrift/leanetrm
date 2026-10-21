@@ -209,9 +209,10 @@ audit as history.
   keyed hash of the workspace, request identity, vendor and key, so an identical retry
   is recognized and a different one is a conflict. Malformed input is
   `model_admin_input`, and a body that does not bind, such as one with an unknown or
-  repeated field, is a bad request; reusing a request identity for another request or
-  acting on a stale provider version is `model_admin_conflict`; an outcome the API
-  cannot confirm is `model_admin_outcome_unknown`.
+  repeated field, is `request_format`, or `request_too_large` over 32 KiB
+  ([security](security.md#requests-the-api-cannot-read)); reusing a request identity
+  for another request or acting on a stale provider version is `model_admin_conflict`;
+  an outcome the API cannot confirm is `model_admin_outcome_unknown`.
 - The browser holds the key only in the form field and the in-flight request, never in
   storage, a URL or the pending-command record, and clears the field when the request
   settles. After an uncertain outcome the tab shows current credential status; Retry
