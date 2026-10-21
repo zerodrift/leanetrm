@@ -128,6 +128,11 @@ mode:
 - `request_too_large` (413): a body over the route's limit, 32 KiB, or 8 MiB for
   `/api/interval-series/revise`.
 
+Behind the hosted gateway, `deploy/nginx.conf.template` keeps the same body limits and
+answers a larger `/api` body with 413 and the same `request_too_large` code and
+message. A gateway rendered from an earlier template refuses every body over 32 KiB
+with nginx's own 413, which pages cannot read, so they keep such a request unconfirmed.
+
 Each answer is a fixed code and message that echo nothing the request held, and
 neither refusal is logged, so no part of a refused provider key reaches an answer or
 the application log. A refusal that names its own code, such as `request_token`,

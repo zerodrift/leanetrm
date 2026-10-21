@@ -58,4 +58,29 @@ server {
     location / {
         proxy_pass http://$openetrm_backend;
     }
+    # The API's body limits and its answer for a larger body (src/OpenEtrm.Api/Program.cs), so a page can tell
+    # that nothing was written.
+    location = /api {
+        error_page 413 = @request_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location /api/ {
+        error_page 413 = @request_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location = /api/interval-series/revise {
+        client_max_body_size 8m;
+        error_page 413 = @revision_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location @request_too_large {
+        types { }
+        default_type "application/json; charset=utf-8";
+        return 413 '{"code":"request_too_large","message":"The request body exceeds its 32 KiB limit."}';
+    }
+    location @revision_too_large {
+        types { }
+        default_type "application/json; charset=utf-8";
+        return 413 '{"code":"request_too_large","message":"The request body exceeds its 8192 KiB limit."}';
+    }
 }
