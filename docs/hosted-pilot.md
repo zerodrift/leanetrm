@@ -164,6 +164,15 @@ operator's reviewed baseline. New migrations or changed infrastructure stop for
 operator qualification; the updater never reruns installation seeds or changes
 collector job switches. The collector and updater share an operation lock.
 
+A head whose release carries migrations missing from that baseline fails the check
+on every attempt, so the operator quarantines it on the first poll that finds its
+release and never retries it. To deploy such a head, stop `openetrm-deployment.timer`
+before its release is published, then qualify and apply the schema upgrade and
+promote the reviewed baseline while the timer is stopped. The operator also requires
+current public readiness, so restart the timer only once the current application is
+serving again; its next poll then admits that head. A head quarantined before its
+schema upgrade can deploy only through a newer head with the same migrations.
+
 Before promotion, a disposable candidate uses the same private configuration and
 database with a separate explicit loopback proxy admission. Anonymous sign-in and
 protected-API checks perform no booking or account claim. A failed candidate leaves
