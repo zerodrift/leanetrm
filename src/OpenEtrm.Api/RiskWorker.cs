@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Collections.Immutable;
 using Npgsql;
 using OpenEtrm.MarketData;
 
@@ -83,15 +84,15 @@ public static class RiskWorker
         {
             using var loading=CancellationTokenSource.CreateLinkedTokenSource(calculation.Token);
             loading.CancelAfter(TimeSpan.FromSeconds(Math.Min(settings.LeaseSeconds/2,30)));
-            FuturesRiskPreview.Prepared prepared;ScheduleContext context;
-            try{(prepared,context)=await Load(source,job,id,lease,loading.Token);}
+            Loaded prepared;
+            try{prepared=await Load(source,job,id,lease,loading.Token);}
             catch(OperationCanceledException) when(loading.IsCancellationRequested&&!calculation.IsCancellationRequested)
             {throw new MarketDataException("risk_input_timeout","The retained inputs could not be loaded within the worker's bounded authority window.");}
             loading.CancelAfter(Timeout.InfiniteTimeSpan);
-            var value=await Task.Run(()=>FuturesRiskPreview.Calculate(prepared,calculation.Token),calculation.Token);
+            var value=await Task.Run(()=>prepared.Calculate(calculation.Token),calculation.Token);
             var report=JsonSerializer.SerializeToNode(value,RiskJobs.Json)!.AsObject();
-            report["context"]=JsonSerializer.SerializeToNode(context,RiskJobs.Json);
-            report["asOf"]=JsonSerializer.SerializeToNode(prepared.Frame.At,RiskJobs.Json);
+            report["context"]=JsonSerializer.SerializeToNode(prepared.Context,RiskJobs.Json);
+            report["asOf"]=JsonSerializer.SerializeToNode(prepared.At,RiskJobs.Json);
             report["engineVersion"]=RiskJobs.EngineVersion;
             serializedReport=report.ToJsonString(RiskJobs.Json);
             if(System.Text.Encoding.UTF8.GetByteCount(serializedReport)>30_000_000)
@@ -171,17 +172,23 @@ public static class RiskWorker
         catch(NpgsqlException){Console.WriteLine($"RISK_JOB_STOPPED {id}");}
     }
 
-    private static async Task<(FuturesRiskPreview.Prepared,ScheduleContext)> Load(NpgsqlDataSource source,JsonObject job,Guid id,Guid lease,CancellationToken ct)
+    private sealed record Loaded(Func<CancellationToken,object> Calculate,ScheduleContext Context,DateTimeOffset At);
+
+    private static async Task<Loaded> Load(NpgsqlDataSource source,JsonObject job,Guid id,Guid lease,CancellationToken ct)
     {
         var payload=job["request"]!.DeepClone().AsObject();
         if(payload["engineVersion"]?.GetValue<string>()!=RiskJobs.EngineVersion)
             throw new MarketDataException("risk_engine_version","The retained job requires its exact managed engine binaries.");
         payload.Remove("engineVersion");
-        var request=payload.Deserialize<FuturesRiskRequest>(RiskJobs.Json)??throw new JsonException("Missing risk request.");
+        var generic=payload["convention"]?.GetValue<string>()==PortfolioRiskPreview.Convention;
+        var genericRequest=generic?payload.Deserialize<PortfolioRiskRequest>(RiskJobs.Json):null;
+        var legacyRequest=generic?null:payload.Deserialize<FuturesRiskRequest>(RiskJobs.Json);
+        var requestContext=generic?genericRequest?.Context:legacyRequest?.Context;
+        if(requestContext is null)throw new JsonException("Missing risk request.");
         var frame=RiskJobs.ReadFrame(job["frame"]??throw new JsonException("Missing risk frame."));
         var catalog=job["catalogId"]!.GetValue<Guid>();var revision=job["revisionId"]!.GetValue<Guid>();
-        if(request.Context.KnowledgeMode!="retained"||request.Context.ContextId!=frame.ContextId||request.Context.SnapshotId!=frame.Id||
-            request.Context.ContextId!=job["contextId"]!.GetValue<Guid>()||frame.At!=job["valuationAt"]!.GetValue<DateTimeOffset>())
+        if(requestContext.KnowledgeMode!="retained"||requestContext.ContextId!=frame.ContextId||requestContext.SnapshotId!=frame.Id||
+            requestContext.ContextId!=job["contextId"]!.GetValue<Guid>()||frame.At!=job["valuationAt"]!.GetValue<DateTimeOffset>())
             throw new MarketDataException("risk_job_context","The queued request and retained frame must identify the same context.");
         await using var connection=await source.OpenConnectionAsync(ct);
         await using var transaction=await connection.BeginTransactionAsync(ct);
@@ -189,14 +196,42 @@ public static class RiskWorker
         var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.revisions WHERE catalog_id=$1 AND id=$2)t",[catalog,revision],ct);
         if(rows.Length!=1)throw new PreviewDeniedException();
         var selected=rows[0];
+        var supplemental=ImmutableDictionary<Guid,InputFrame>.Empty;
+        if(generic)
+        {
+            var pinned=job["frame"]!["supplementalMarkets"] as JsonObject
+                ??throw new MarketDataException("risk_job_context","Generic risk requires an explicit supplemental-market manifest.");
+            supplemental=pinned.ToImmutableDictionary(p=>Guid.Parse(p.Key),p=>RiskJobs.ReadFrame(p.Value??throw new JsonException("Missing market frame.")));
+            if(supplemental.Any(p=>p.Key==revision||p.Value.Id!=frame.Id||p.Value.ContextId!=frame.ContextId||p.Value.At!=frame.At||
+                p.Value.SwapMarketSelections is {Count:>0})||frame.SwapMarketSelections is null||
+                frame.SwapMarketSelections.Count!=supplemental.Count||supplemental.Any(p=>!frame.SwapMarketSelections.TryGetValue(p.Key,out var pins)||!pins.SequenceEqual(p.Value.ObservationIds)))
+                throw new MarketDataException("risk_job_context","Every market must use the exact retained context and observation pins.");
+        }
         var manifest=new PreviewManifest("retained-risk-job",catalog,revision,selected.Id("reference_catalog_id"),selected.Id("reference_revision_id"),
-            job["tenantId"]!.GetValue<Guid>(),job["workspaceId"]!.GetValue<Guid>(),[],null,FuturesConvention:request.Context.Convention!);
-        var context=(await new KnowledgeStore(catalog).Read(connection,request.Context.ContextId!.Value,ct)).Context;
+            job["tenantId"]!.GetValue<Guid>(),job["workspaceId"]!.GetValue<Guid>(),[],null,
+            SwapMarkets:supplemental.Select(p=>new PreviewSwapMarket(p.Key,[new(p.Value.At,p.Value.ObservationIds.ToArray(),
+                p.Value.CurveContracts.ToDictionary(c=>c.Key,c=>c.Value.ToArray()))])).ToArray(),
+            FuturesConvention:generic?genericRequest!.PricingPolicy.FuturesConvention:requestContext.Convention!);
+        var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
         await using var database=new PreviewDatabase(manifest,source);
         var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,
             referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
-        var prepared=await new FuturesRiskPreview(new FuturesStore(manifest)).Prepare(connection,data,frame,request,ct);
+        Loaded loaded;
+        if(generic)
+        {
+            var markets=ImmutableArray.CreateBuilder<(PreviewData Data,InputFrame Frame)>();
+            foreach(var market in supplemental.OrderBy(p=>p.Key))
+                markets.Add((await database.Read(connection,ct,market.Key,observationIds:market.Value.ObservationIds,
+                    referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),market.Value));
+            var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,genericRequest!,ct,markets.ToImmutable());
+            loaded=new(token=>PortfolioRiskPreview.Calculate(prepared,token),context,frame.At);
+        }
+        else
+        {
+            var prepared=await new FuturesRiskPreview(new FuturesStore(manifest)).Prepare(connection,data,frame,legacyRequest!,ct);
+            loaded=new(token=>FuturesRiskPreview.Calculate(prepared,token),context,frame.At);
+        }
         await transaction.CommitAsync(ct);
-        return (prepared,context);
+        return loaded;
     }
 }

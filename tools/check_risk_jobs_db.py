@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify durable risk ownership only in a newly allocated stock PostgreSQL cluster."""
 import argparse
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -55,8 +56,9 @@ def run_checks(query, manifest, psql=None, environment=None):
     def literal(value):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
 
-    def submit(operation=None, payload=None, selected_frame=None):
-        return json.loads(user(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}');SELECT risk.submit('{catalog}','{operation or uuid4()}','{context}','{revision}','{at}',{literal(payload or request)},{literal(selected_frame or frame)})"))
+    def submit(operation=None, payload=None, selected_frame=None, selected_context=None):
+        retained = selected_context or context
+        return json.loads(user(f"SELECT security.use_market_context('{catalog}','{retained}');SELECT security.use_trading_context('{catalog}','{at}');SELECT risk.submit('{catalog}','{operation or uuid4()}','{retained}','{revision}','{at}',{literal(payload or request)},{literal(selected_frame or frame)})"))
 
     def worker(sql, login='synthetic_risk_worker'):
         return query(f"SET SESSION AUTHORIZATION {login};{sql};")
@@ -84,6 +86,95 @@ def run_checks(query, manifest, psql=None, environment=None):
                'risk_job_denied')
     print('PASS risk worker boundary: mixed executor roles, privileged flags and application ownership refuse admission', flush=True)
 
+    supplemental = next(m for m in manifest['swapMarkets'] if m['revisionId'] != revision)
+    supplemental_revision = supplemental['revisionId']
+    supplemental_seed = next(f for f in supplemental['frames'] if f['at'] == at)
+    member = json.loads(query(f"SELECT jsonb_build_object('curve',curve_code,'contract',contract_id) FROM market_data.curve_members WHERE catalog_id='{catalog}' AND revision_id='{supplemental_revision}' ORDER BY curve_code,ordinal LIMIT 1;"))
+    supplemental_frame = {**frame, 'name': 'Synthetic supplemental market',
+                          'observationIds': supplemental_seed['observationIds'],
+                          'frozenObservationIds': supplemental_seed['observationIds'][:1],
+                          'curveContracts': {member['curve']: [member['contract']]}}
+    generic_frame = {**frame, 'supplementalMarkets': {supplemental_revision: supplemental_frame},
+                     'swapMarketSelections': {supplemental_revision: supplemental_frame['observationIds']}}
+    generic_request = {**request, 'convention': 'portfolio_instrument_repricing_v1',
+                       'numericalPolicy': 'exact_rational_portfolio_repricing_v1', 'engineVersion': 'synthetic_portfolio_engine_v1',
+                       'pricingPolicy': {'curveNumericalPolicy': 'exact_18_fractional_abs_lt_1e24_v1',
+                                         'riskNumericalPolicy': 'exact_rational_portfolio_repricing_v1',
+                                         'futuresConvention': 'fixed_total_cash_execution_pnl_v1',
+                                         'swapConvention': 'independent_side_financial_swap_v2',
+                                         'rateNumericalPolicy': 'simple_actual365fixed_rational_to_even_18_v1',
+                                         'discountInterpolationPolicy': 'log_discount_geometric_root_to_even_18_v1',
+                                         'bumpConvention': 'absolute_quote_v1', 'bumpBasis': 'trading_tick', 'bumpTicks': 1}}
+    generic_operation = str(uuid4())
+    generic_job = submit(generic_operation, generic_request, generic_frame)
+    assert generic_job.get('convention') == generic_request['convention'], 'Job history omits its report convention'
+    assert submit(generic_operation, generic_request, generic_frame)['jobId'] == generic_job['jobId']
+    assert query(f"SELECT count(*) FROM risk.job_markets WHERE job_id='{generic_job['jobId']}' AND revision_id='{supplemental_revision}';") == '1'
+    assert query(f"SELECT count(*) FROM risk.job_market_observations WHERE job_id='{generic_job['jobId']}';") == str(len(supplemental_frame['observationIds']))
+    assert query(f"SELECT count(*) FROM risk.job_market_contracts WHERE job_id='{generic_job['jobId']}';") == '1'
+    assert query(f"SELECT count(*) FROM risk.job_market_observations WHERE job_id='{generic_job['jobId']}' AND frozen;") == '1'
+    empty_markets = submit(payload=generic_request, selected_frame={**frame, 'supplementalMarkets': {}, 'swapMarketSelections': {}})
+    user(f"SELECT risk.cancel('{empty_markets['jobId']}')")
+    reject(lambda: submit(payload={key: value for key, value in generic_request.items() if key != 'pricingPolicy'}, selected_frame=generic_frame), 'risk_job_input')
+    for mutate in (
+        lambda value: value.pop('supplementalMarkets'),
+        lambda value: value['supplementalMarkets'][supplemental_revision].update(contextId=str(uuid4())),
+        lambda value: value['supplementalMarkets'][supplemental_revision].update(id=str(uuid4())),
+        lambda value: value['supplementalMarkets'][supplemental_revision].update(at='2020-12-14T16:00:00Z'),
+        lambda value: value['supplementalMarkets'][supplemental_revision].update(frozenObservationIds=[str(uuid4())]),
+        lambda value: value['supplementalMarkets'][supplemental_revision].update(supplementalMarkets={}),
+        lambda value: value.update(swapMarketSelections={}),
+    ):
+        invalid = deepcopy(generic_frame); mutate(invalid)
+        reject(lambda: submit(payload=generic_request, selected_frame=invalid), 'risk_job_input')
+    invalid = deepcopy(generic_frame)
+    invalid['supplementalMarkets'][supplemental_revision]['observationIds'] = frame['observationIds'][:1]
+    invalid['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = []
+    invalid['swapMarketSelections'][supplemental_revision] = frame['observationIds'][:1]
+    reject(lambda: submit(payload=generic_request, selected_frame=invalid), 'risk_job_denied')
+    changed = deepcopy(generic_frame)
+    changed['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = []
+    reject(lambda: submit(generic_operation, generic_request, changed), 'risk_job_conflict')
+    for table in ('job_markets', 'job_market_observations', 'job_market_contracts'):
+        reject(lambda: query(f"\\set VERBOSITY verbose\nUPDATE risk.{table} SET catalog_id=catalog_id WHERE job_id='{generic_job['jobId']}';"), '55000')
+        assert query(f"SELECT has_table_privilege('openetrm_runtime','risk.{table}','SELECT');") == 'f'
+    generic_claim = json.loads(worker("SELECT risk.claim(30,'synthetic_portfolio_engine_v1')"))
+    assert generic_claim['jobId'] == generic_job['jobId'] and generic_claim['frame'] == generic_frame
+    for table in ('swap_trade_revisions', 'swap_instruments', 'swap_fixed_sides', 'swap_floating_sides', 'swap_reset_projections', 'swap_payment_rules'):
+        assert query(f"SELECT has_table_privilege('synthetic_risk_worker','trading.{table}','SELECT') AND NOT has_table_privilege('synthetic_risk_worker','trading.{table}','INSERT,UPDATE,DELETE');") == 't'
+        assert worker(f"SELECT count(*) FROM trading.{table}") == '0'
+    reference_catalog, reference_revision = (manifest[key] for key in ('referenceCatalogId', 'referenceRevisionId'))
+    discount = f"security.swap_discount_default('{catalog}','{reference_catalog}','{reference_revision}','usd','{supplemental_revision}','{at}')"
+    worker(f"BEGIN;SELECT risk.bind('{generic_job['jobId']}','{generic_claim['leaseToken']}');SELECT {discount};COMMIT")
+    reject(lambda: query(f"""\\set VERBOSITY verbose
+        BEGIN;SET SESSION AUTHORIZATION synthetic_risk_worker;
+        SELECT risk.bind('{generic_job['jobId']}','{generic_claim['leaseToken']}');RESET SESSION AUTHORIZATION;
+        UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.03 seconds'
+         WHERE principal_id=(SELECT principal_id FROM risk.workers WHERE login='synthetic_risk_worker');
+        SET SESSION AUTHORIZATION synthetic_risk_worker;SELECT pg_sleep(0.06);SELECT {discount};ROLLBACK;"""), '42501')
+    worker(f"SELECT risk.finish('{generic_job['jobId']}','{generic_claim['leaseToken']}','{{\"measure\":\"portfolio\"}}',NULL)")
+    print('PASS generic risk jobs: exact supplemental frames, frozen inputs, relational pins, idempotency and read-only worker custody', flush=True)
+
+    correction = 'a' + str(uuid4())[1:]
+    query(f"""INSERT INTO market_data.observations
+        SELECT catalog_id,'{correction}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,
+         source_code,source_event_id,'{correction}',role,publication_state,observed_at,clock_timestamp(),value,id
+        FROM market_data.observations WHERE catalog_id='{catalog}' AND id='{supplemental_frame['observationIds'][0]}';""")
+    corrected = deepcopy(generic_frame)
+    corrected['supplementalMarkets'][supplemental_revision]['observationIds'][0] = correction.upper()
+    corrected['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = [correction.upper()]
+    corrected['swapMarketSelections'][supplemental_revision][0] = correction.upper()
+    reject(lambda: submit(payload=generic_request, selected_frame=corrected), 'risk_job_denied')
+    later = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
+    corrected['contextId'] = later
+    corrected['supplementalMarkets'][supplemental_revision]['contextId'] = later
+    corrected_request = deepcopy(generic_request)
+    corrected_request['context']['contextId'] = later
+    corrected_job = submit(payload=corrected_request, selected_frame=corrected, selected_context=later)
+    assert query(f"SELECT frozen FROM risk.job_market_observations WHERE job_id='{corrected_job['jobId']}' AND observation_id='{correction}';") == 't', 'UUID casing changed the retained frozen input use'
+    user(f"SELECT risk.cancel('{corrected_job['jobId']}')")
+    print('PASS generic risk temporal pins: later corrections require a later context and UUID casing preserves frozen input use', flush=True)
+
     operation = str(uuid4())
     reject(lambda: submit(selected_frame={**frame, 'frozenObservationIds': [str(uuid4())]}), 'risk_job_input')
     reject(lambda: submit(selected_frame={key: value for key, value in frame.items() if key != 'frozenObservationIds'}), 'risk_job_input')
@@ -91,6 +182,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     reject(lambda: submit(selected_frame={**frame, 'originCloseId': str(uuid4())}), 'risk_job_denied')
     job = submit(operation)
     assert job['state'] == 'queued'
+    assert job['convention'] == request['convention']
     assert submit(operation)['jobId'] == job['jobId']
     reject(lambda: submit(operation, {**request, 'detail': 'holdings'}), 'risk_job_conflict')
     reject(lambda: user(f"SELECT risk.read('{job['jobId']}')", 'trader'), 'risk_job_denied')
@@ -237,6 +329,18 @@ def run_checks(query, manifest, psql=None, environment=None):
     query(f"UPDATE security.workspace_memberships SET enabled=true WHERE principal_id='{actor}';")
     print('PASS risk authorization: queued and running revoke/restore invalidation, current result denial and no authority revival', flush=True)
 
+    user(f"""SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}');
+        DO $$DECLARE receipt jsonb;BEGIN FOR n IN 1..51 LOOP
+         receipt=risk.submit('{catalog}',gen_random_uuid(),'{context}','{revision}','{at}',{literal(request)},{literal(frame)});
+         PERFORM risk.cancel((receipt->>'jobId')::uuid);
+        END LOOP;END$$""")
+    recent = json.loads(user(f"SELECT risk.list('{catalog}')"))
+    generic_history = json.loads(user(f"SELECT risk.list('{catalog}','portfolio_instrument_repricing_v1')"))
+    assert len(recent) == 50 and all(row['convention'] == request['convention'] for row in recent)
+    assert generic_job['jobId'] in {row['jobId'] for row in generic_history}
+    assert all(row['convention'] == generic_request['convention'] for row in generic_history)
+    print('PASS risk history: explicit report conventions and filtering before the bounded recent-job limit', flush=True)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -272,9 +376,12 @@ def main():
         for path in sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             query(path.read_text())
         reference, market, security, manifest = fixture(ROOT)
-        for sql in (reference, market, security):
+        from swap_fixture import fixture as swap_fixture
+        swap_market, swap_manifest = swap_fixture()
+        manifest['swapMarkets'] = [swap_manifest]
+        for sql in (reference, market, swap_market, security):
             query(sql)
-        query(trading_fixture(manifest['catalogId']))
+        query(trading_fixture(manifest['catalogId'], swap_defaults=True))
         run_checks(query, manifest, psql, environment)
     finally:
         if startup_attempted:

@@ -11,7 +11,7 @@ public static class FuturesRisk
         ImmutableArray<QuoteBump> bumps,string implementation,string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings,
         ImmutableArray<QuoteShift> stress=default)
     {
-        var (basis,portfolio)=Prepare(trades,snapshot,model,implementation,cancellation);
+        var (basis,portfolio)=PreparePortfolio(trades,snapshot,model,implementation,cancellation);
         var preparedNodes=0;var reusedNodes=0;
         if(!stress.IsDefault)foreach(var shift in stress)
         {
@@ -25,15 +25,15 @@ public static class FuturesRisk
     public static ImmutableArray<BookRiskFactors> Factors(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,CurveModel model,
         string implementation,CancellationToken cancellation=default)
     {
-        var (basis,portfolio)=Prepare(trades,snapshot,model,implementation,cancellation);
+        var (basis,portfolio)=PreparePortfolio(trades,snapshot,model,implementation,cancellation);
         return portfolio.RiskFactors(basis,portfolio.Declare(snapshot),cancellation);
     }
     // Stored mixed-book operations reuse the same lifecycle, lot and pricing
     // binding validation as the dedicated futures report.
     public static ValuationPortfolio CreatePortfolio(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,CurveModel model,
-        string implementation,CancellationToken cancellation=default)=>Prepare(trades,snapshot,model,implementation,cancellation).Item2;
-    private static (CurveBuild,ValuationPortfolio) Prepare(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,CurveModel model,
-        string implementation,CancellationToken cancellation)
+        string implementation,CancellationToken cancellation=default)=>PreparePortfolio(trades,snapshot,model,implementation,cancellation).Portfolio;
+    public static (CurveBuild Market,ValuationPortfolio Portfolio) PreparePortfolio(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,CurveModel model,
+        string implementation,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
         if(implementation!=Implementation)throw new MarketDataException("risk_convention","Select the supported unprocessed-futures execution-P&L risk convention.");

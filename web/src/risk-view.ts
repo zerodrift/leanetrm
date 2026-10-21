@@ -1,3 +1,4 @@
+import {riskTotalGroups,type RiskValues,type RiskTotal} from './risk-report.js';
 import {PendingCommand} from './pending-command.js';
 import {renderDataGrid} from './data-grid.js';
 import {renderChart,clearChart} from './chart-view.js';
@@ -6,14 +7,14 @@ import {curveName,deliveryLabel,publicText} from './market-view.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Factor={seriesId:string;quote:string;curves:string[];deliveryFrom:string;deliveryTo:string;unit:string;value:string};
 type FinancialContext={contextId:string;effectiveOn:string;knownAt?:string;knownThrough:number};
-type Catalog={factors:Factor[];bumpConvention:string;stressConvention:string;convention:string;numericalPolicy:string;context:FinancialContext;asOf:string};
+type Catalog={pricingPolicy:unknown;measures:{measure:string;measureLabel:string}[];factors:Factor[];bumpConvention:string;stressConvention:string;convention:string;numericalPolicy:string;context:FinancialContext;asOf:string};
 type Scope={context:unknown;bookIds:string[];portfolioIds:string[]};
 type Shift={seriesId:string;quote:string;size:string;convention:string};
-type Request=Scope&{bumps:Shift[];stress:Shift[];convention:string;numericalPolicy:string};
+type Request=Scope&{pricingPolicy:unknown;bumps:Shift[];stress:Shift[];convention:string;numericalPolicy:string};
 type PendingJob={recovery:PendingCommand;context:FinancialContext;asOf:string};
 type Job={id:string;requestId?:string;state:'queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';error?:{code:string;message:string};result?:Report;context?:FinancialContext;asOf?:string};
-type Values={base:string;up:string;down:string;upPnl:string;downPnl:string;delta:string;gamma:string;currency:string;currencyReference:unknown;deltaUnit:string;gammaUnit:string};
-type Report={scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;heldContracts:number;work:{positionCount:number;uniqueValuations:number;scenarioCount:number;preparationScenarioCount:number;unitPricerCalls:number;rebuiltCurveNodes:number;reusedCurveNodes:number;repeatedInstrumentReferences:number;quantityApplications:number};factors:{factor:Factor;bump:string;totals:{bookId:string;book:string;values:Values}[];positions:{book:string;curve:string;deliveryFrom:string;deliveryTo:string;values:Values}[]}[]};
+type Position={book:string;tradeReference:string;instrumentReference:string;instrumentType:string;measure:string;measureLabel:string;values:RiskValues};
+type Report={displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;heldInstruments:number;work:{positionCount:number;uniqueValuations:number;scenarioCount:number;preparationScenarioCount:number;unitPricerCalls:number;rebuiltCurveNodes:number;reusedCurveNodes:number;repeatedInstrumentReferences:number;quantityApplications:number};factors:{factor:Factor;bump:string;totals:RiskTotal[];positions:Position[]}[]};
 
 export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRun:()=>boolean;profile:()=>string;scope:()=>Scope;onDenied:()=>void}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -21,7 +22,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   const currentScopeText=get('risk-scope').textContent;
   let catalog:Catalog|undefined,scope:Scope|undefined,lastRequest:Request|undefined,stress:Shift[]=[];
   const submissions=new Map<string,PendingJob>();
-  const knownRejections=new Set(['request_format','request_too_large','request_token','access_denied','risk_context','risk_job_context','risk_job_conflict','risk_factor','risk_bump','risk_stress','risk_position','risk_convention','risk_policy','risk_detail','numeric_format','numeric_range','futures_context','blotter_view']);
+  const knownRejections=new Set(['request_format','request_too_large','request_token','access_denied','risk_context','risk_job_context','risk_job_conflict','risk_factor','risk_bump','risk_stress','risk_position','risk_convention','risk_policy','risk_detail','numeric_format','numeric_range','futures_context','portfolio_context','portfolio_policy','swap_risk_model','blotter_view']);
   let generation=0,pollTimer:ReturnType<typeof setTimeout>|undefined,job:Job|undefined,pending:PendingJob|undefined,jobRequest:Request|undefined,resultJobId:string|undefined,reviewingJob=false;
   let grids:ReturnType<typeof renderDataGrid>[]=[];
   const running=()=>!!job&&['queued','running','cancellation_requested'].includes(job.state);
@@ -34,12 +35,12 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   async function call<T>(path:string,body?:unknown):Promise<T>{try{return await options.api<T>(path,body);}catch(error){results();denied(error);throw error;}}
   function factorLabel(f:Factor){return publicText(`${f.curves.map(curveName).join(' / ')} · ${deliveryLabel(f.deliveryFrom,f.deliveryTo)}`);}
   async function recentJobs(version:number){
-    const recent=await call<Job[]>('futures/risk/jobs');if(version!==generation)return false;
+    const recent=await call<Job[]>('portfolio/risk/jobs');if(version!==generation)return false;
     get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''),...recent.map(j=>new Option(`${j.asOf??'Unavailable market time'} · ${j.state.replaceAll('_',' ')}`,j.id)));
     const retained=pending,command=retained?.recovery.command,owner=options.profile();
     const match=command&&recent.find(j=>j.requestId===command.operationId);
     if(!retained||!command||!match)return false;
-    const receipt=await call<Job>(`futures/risk/jobs/${match.id}`);if(version!==generation)return false;
+    const receipt=await call<Job>(`portfolio/risk/jobs/${match.id}`);if(version!==generation)return false;
     if(receipt.id!==match.id||receipt.requestId!==command.operationId)throw Error('The retained job receipt does not match the unconfirmed request.');
     if(submissions.get(owner)===retained)submissions.delete(owner);
     jobRequest=command.body.request as Request;pending=undefined;reviewingJob=true;showJob(receipt,version);return true;
@@ -47,7 +48,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   async function open(){
     reset();const version=generation;pending=submissions.get(options.profile());
     if(pending){reviewingJob=true;showPending();get('risk-card').hidden=false;sync();await recentJobs(version);return;}
-    scope=structuredClone(options.scope());const loaded=await call<Catalog>('futures/risk/catalog',scope);if(version!==generation)return;catalog=loaded;
+    scope=structuredClone(options.scope());const loaded=await call<Catalog>('portfolio/risk/catalog',scope);if(version!==generation)return;catalog=loaded;
     scope={...scope,context:{...(scope.context as Record<string,unknown>),knowledgeMode:'retained',contextId:catalog.context.contextId}};
     for(const control of [select,stressFactor])control.replaceChildren(new Option('Choose a factor…',''),...catalog.factors.map(f=>new Option(factorLabel(f),f.seriesId)));
     await recentJobs(version);if(version!==generation)return;
@@ -62,28 +63,29 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function render(report:Report){
     results();
     for(const [factorIndex,item] of report.factors.entries()){
-      const partitions=new Map<string,typeof item.totals>();
-      for(const row of item.totals){const key=JSON.stringify(row.values.currencyReference);const group=partitions.get(key)??[];group.push(row);partitions.set(key,group);}
-      for(const [partitionIndex,totals] of [...partitions.values()].entries()){
-        const unit=totals[0].values;
-        const title=document.createElement('h4');title.textContent=publicText(`${item.factor.curves.map(curveName).join(' / ')} · ${deliveryLabel(item.factor.deliveryFrom,item.factor.deliveryTo)} · absolute bump ±${item.bump} · unit ${item.factor.unit}`);get('risk-results').append(title);
+      for(const [partitionIndex,totals] of riskTotalGroups(item.totals).entries()){
+        const first=totals[0],unit=first.values;
+        const title=document.createElement('h4');title.textContent=publicText(`${first.measureLabel} · ${item.factor.curves.map(curveName).join(' / ')} · ${deliveryLabel(item.factor.deliveryFrom,item.factor.deliveryTo)} · absolute bump ±${item.bump} · unit ${item.factor.unit}`);get('risk-results').append(title);
         const host=document.createElement('div');host.className='table-wrap';get('risk-results').append(host);
-        const headers=['Book',`Base execution P&L (${unit.currency})`,`Up execution P&L (${unit.currency})`,`Down execution P&L (${unit.currency})`,`Up change (${unit.currency})`,`Down change (${unit.currency})`,`Delta (${unit.deltaUnit})`,`Gamma (${unit.gammaUnit})`];
+        const headers=['Book',`Base ${first.measureLabel} (${unit.currency})`,`Up ${first.measureLabel} (${unit.currency})`,`Down ${first.measureLabel} (${unit.currency})`,`Up change (${unit.currency})`,`Down change (${unit.currency})`,`Delta (${unit.deltaUnit})`,`Gamma (${unit.gammaUnit})`];
         const keys=['book','base','up','down','upPnl','downPnl','delta','gamma'];
-        grids.push(renderDataGrid(host,`risk-totals-${factorIndex}-${partitionIndex}`,report.snapshotId+report.context.contextId,headers,totals.map(t=>[t.book,t.values.base,t.values.up,t.values.down,t.values.upPnl,t.values.downPnl,t.values.delta,t.values.gamma]),[1,2,3,4,5,6,7],options.busy,{keys,layout:{order:[],widths:{},sort:[]},onLayout:()=>{}}));
+        const amounts=(value:RiskValues['display'])=>[value.base,value.up,value.down,value.upPnl,value.downPnl,value.delta,value.gamma];
+        grids.push(renderDataGrid(host,`risk-totals-${factorIndex}-${partitionIndex}`,report.snapshotId+report.context.contextId,headers,totals.map(t=>[t.book,...amounts(t.values.display)]),[1,2,3,4,5,6,7],options.busy,{keys,cellTitles:totals.map(t=>[t.book,...amounts(t.values)]),layout:{order:[],widths:{},sort:[]},onLayout:()=>{}}));
         const panel=document.createElement('div');panel.className='chart';get('risk-plots').append(panel);
-        renderChart(panel,{title:'Execution P&L change by book',subtitle:`±${item.bump} quoted points · ${item.factor.unit}`,axis:'category',unit:unit.currency,kind:'bar',series:[
-          {name:'Up shock',points:totals.map(t=>({x:t.bookId,label:t.book,y:t.values.upPnl}))},
-          {name:'Down shock',points:totals.map(t=>({x:t.bookId,label:t.book,y:t.values.downPnl}))},
+        renderChart(panel,{title:`${first.measureLabel} change by book`,subtitle:`±${item.bump} quoted points · ${item.factor.unit} · displayed amounts`,axis:'category',unit:unit.currency,kind:'bar',series:[
+          {name:'Up shock',points:totals.map(t=>({x:t.bookId,label:t.book,y:t.values.display.upPnl}))},
+          {name:'Down shock',points:totals.map(t=>({x:t.bookId,label:t.book,y:t.values.display.downPnl}))},
         ]});
       }
       const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Individual holding results';details.append(summary);
       const rows=document.createElement('div');rows.className='table-wrap';details.append(rows);get('risk-results').append(details);
       // Initialize after opening: the virtual grid needs a visible width.
-      let ready=false;details.ontoggle=()=>{if(!details.isConnected||!details.open||ready)return;ready=true;const keys=['book','market','contract','currency','base','upPnl','downPnl','delta','deltaUnit','gamma','gammaUnit'];
-        grids.push(renderDataGrid(rows,`risk-positions-${factorIndex}`,report.snapshotId,['Book','Market','Contract','Currency','Base execution P&L','Up change','Down change','Delta','Delta unit','Gamma','Gamma unit'],item.positions.map(p=>[p.book,curveName(p.curve),deliveryLabel(p.deliveryFrom,p.deliveryTo),p.values.currency,p.values.base,p.values.upPnl,p.values.downPnl,p.values.delta,p.values.deltaUnit,p.values.gamma,p.values.gammaUnit]),[4,5,6,7,9],options.busy,{keys,layout:{order:[],widths:{},sort:[]},onLayout:()=>{}}));};
+      let ready=false;details.ontoggle=()=>{if(!details.isConnected||!details.open||ready)return;ready=true;const keys=['book','trade','instrument','instrumentType','measure','currency','base','upPnl','downPnl','delta','deltaUnit','gamma','gammaUnit'];
+        const cells=(p:Position,display:boolean)=>{const v=display?p.values.display:p.values;return [p.book,p.tradeReference,p.instrumentReference,p.instrumentType,p.measureLabel,p.values.currency,v.base,v.upPnl,v.downPnl,v.delta,p.values.deltaUnit,v.gamma,p.values.gammaUnit];};
+        grids.push(renderDataGrid(rows,`risk-positions-${factorIndex}`,report.snapshotId,['Book','Trade','Instrument','Instrument type','Measure','Currency','Base value','Up change','Down change','Delta','Delta unit','Gamma','Gamma unit'],item.positions.map(p=>cells(p,true)),[6,7,8,9,11],options.busy,{keys,cellTitles:item.positions.map(p=>cells(p,false)),layout:{order:[],widths:{},sort:[]},onLayout:()=>{}}));};
+
     }
-    const w=report.work;get('risk-work').textContent=`${w.positionCount} holdings · ${report.heldContracts} held contracts · ${w.uniqueValuations} unit valuations · ${w.scenarioCount} valuation scenarios · ${w.preparationScenarioCount} preparation builds · ${w.unitPricerCalls} pricer calls · ${w.repeatedInstrumentReferences} additional quantity references · ${w.quantityApplications} quantity applications · ${w.rebuiltCurveNodes} curve nodes evaluated · ${w.reusedCurveNodes} reused. Curve work includes all scenario preparation.`;
+    const w=report.work;get('risk-work').textContent=`${w.positionCount} holdings · ${report.heldInstruments} held instruments · ${w.uniqueValuations} unit valuations · ${w.scenarioCount} valuation scenarios · ${w.preparationScenarioCount} preparation builds · ${w.unitPricerCalls} pricer calls · ${w.repeatedInstrumentReferences} additional quantity references · ${w.quantityApplications} quantity applications · ${w.rebuiltCurveNodes} curve nodes evaluated · ${w.reusedCurveNodes} reused. Curve work includes all scenario preparation. Tables and charts use backend display precision; sorting compares displayed amounts. Hover over a value or download for exact amounts.`;
     get('risk-export').hidden=false;
   }
   select.onchange=()=>{edit();const factor=catalog?.factors.find(f=>f.seriesId===select.value);get('risk-unit').textContent=factor?`Observed input ${factor.value} · bump unit: ${factor.unit}. Absolute symmetric up/down around the selected scenario.`:'';};
@@ -100,7 +102,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function request():Request{
     if(!catalog||!scope)throw Error('Open shocks from the current blotter first.');
     const factor=catalog.factors.find(f=>f.seriesId===select.value);if(!factor)throw Error('Choose an exact dated quote input.');
-    return structuredClone({...scope,bumps:[{seriesId:factor.seriesId,quote:factor.quote,size:bump.value,convention:catalog.bumpConvention}],stress,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy});
+    return structuredClone({...scope,bumps:[{seriesId:factor.seriesId,quote:factor.quote,size:bump.value,convention:catalog.bumpConvention}],stress,pricingPolicy:catalog.pricingPolicy,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy});
   }
   function contextLabel(context:FinancialContext|undefined,asOf:string|undefined){
     return `Captured market time: ${asOf??'unavailable'} · effective date: ${context?.effectiveOn??'unavailable'} · known as of: ${context?.knownAt??'unavailable'}. These retained coordinates govern this job.`;
@@ -115,7 +117,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function schedulePoll(version:number){stopPolling();pollTimer=setTimeout(()=>void refreshJob(version),750);}
   function showJob(value:Job,version:number){
     if(version!==generation)return;
-    job=value;get('risk-job').hidden=false;get('risk-job-discard').hidden=true;get('risk-job-return').hidden=!reviewingJob;get('risk-scope').textContent=reviewingJob?'Retained futures execution P&L and open-price sensitivity. This job uses its captured financial context below.':currentScopeText;
+    job=value;get('risk-job').hidden=false;get('risk-job-discard').hidden=true;get('risk-job-return').hidden=!reviewingJob;get('risk-scope').textContent=reviewingJob?'Retained portfolio risk, separated by valuation measure and currency. This job uses its captured financial context below.':currentScopeText;
     const labels:Record<Job['state'],string>={queued:'Queued',running:'Running',completed:'Completed',failed:'Failed',cancellation_requested:'Cancellation requested',cancelled:'Cancelled'};
     get('risk-job-status').textContent=`Risk job: ${labels[value.state]??value.state}. ${value.state==='cancellation_requested'?'Waiting for the worker to stop. ':''}Uses the financial context captured at submission.${value.error?` ${value.error.message}`:''}`;
     get('risk-job-context').textContent=contextLabel(value.context,value.asOf);
@@ -127,7 +129,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   async function refreshJob(version=generation){
     if(version!==generation||!job)return;
     if(options.busy()){schedulePoll(version);return;}
-    try{const value=await options.api<Job>(`futures/risk/jobs/${job.id}`);showJob(value,version);}
+    try{const value=await options.api<Job>(`portfolio/risk/jobs/${job.id}`);showJob(value,version);}
     catch(error){if(version!==generation)return;stopPolling();results();denied(error);if(version!==generation)return;get('risk-job-status').textContent='Job status is unavailable. Refresh to check its retained outcome.';get('risk-job-refresh').hidden=false;sync();}
   }
   async function submitJob(){
@@ -136,7 +138,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const version=generation,previouslyUncertain=retained.recovery.sending();
     const submission={requestId:command.operationId,request:command.body.request as Request};
     try{
-      const value=await options.api<Job>('futures/risk/jobs',submission);
+      const value=await options.api<Job>('portfolio/risk/jobs',submission);
       if(submissions.get(owner)===retained)submissions.delete(owner);
       if(version!==generation)return;jobRequest=submission.request;pending=undefined;showJob(value,version);
     }
@@ -151,29 +153,29 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   get<HTMLFormElement>('risk-form').onsubmit=event=>{event.preventDefault();const queued=(event as SubmitEvent).submitter?.id==='risk-queue';void options.act(async()=>{
     const payload=request();results();clearJob();const version=++generation;
-    if(queued){const recovery=new PendingCommand(code=>!!code&&knownRejections.has(code));recovery.begin('futures/risk/jobs',{request:payload});pending={recovery,context:catalog!.context,asOf:catalog!.asOf};submissions.set(options.profile(),pending);await submitJob();}
-    else{const report=await call<Report>('futures/risk',payload);if(version!==generation)return;render(report);lastRequest=payload;sync();}
+    if(queued){const recovery=new PendingCommand(code=>!!code&&knownRejections.has(code));recovery.begin('portfolio/risk/jobs',{request:payload});pending={recovery,context:catalog!.context,asOf:catalog!.asOf};submissions.set(options.profile(),pending);await submitJob();}
+    else{const report=await call<Report>('portfolio/risk',payload);if(version!==generation)return;render(report);lastRequest=payload;sync();}
   });};
   get('risk-job-retry').onclick=()=>void options.act(submitJob);
   get('risk-job-discard').onclick=()=>void options.act(async()=>{submissions.delete(options.profile());await open();});
   get('risk-job-refresh').onclick=()=>void options.act(async()=>{
-    if(!job)return;stopPolling();const version=++generation;showJob(await call<Job>(`futures/risk/jobs/${job.id}`),version);
+    if(!job)return;stopPolling();const version=++generation;showJob(await call<Job>(`portfolio/risk/jobs/${job.id}`),version);
   });
   get('risk-job-cancel').onclick=()=>void options.act(async()=>{
-    if(!job)return;stopPolling();const version=++generation;showJob(await call<Job>(`futures/risk/jobs/${job.id}/cancel`,{}),version);
+    if(!job)return;stopPolling();const version=++generation;showJob(await call<Job>(`portfolio/risk/jobs/${job.id}/cancel`,{}),version);
   });
   get('risk-job-history').onchange=()=>void options.act(async()=>{
     const id=get<HTMLSelectElement>('risk-job-history').value;if(!id)return;
     results();clearJob();const version=++generation;reviewingJob=true;get('risk-job-return').hidden=false;get<HTMLSelectElement>('risk-job-history').value=id;
-    get('risk-scope').textContent='Retained futures execution P&L and open-price sensitivity. This job uses its captured financial context below.';
+    get('risk-scope').textContent='Retained portfolio risk, separated by valuation measure and currency. This job uses its captured financial context below.';
     get('risk-scenario').textContent='Viewing a retained job under its captured financial context below. Return to the selected context to calculate another scenario.';
-    showJob(await call<Job>(`futures/risk/jobs/${id}`),version);
+    showJob(await call<Job>(`portfolio/risk/jobs/${id}`),version);
   });
   get('risk-job-return').onclick=()=>{if(!catalog||submissions.has(options.profile()))void options.act(open);else{edit();renderStress();}};
   get('risk-export').onclick=()=>void options.act(async()=>{
     const version=generation;
     if(!lastRequest&&!resultJobId)throw Error('Run the selected shock before exporting.');
-    const report=resultJobId?(await call<Job>(`futures/risk/jobs/${resultJobId}`)).result:await call<Report>('futures/risk',lastRequest);
+    const report=resultJobId?(await call<Job>(`portfolio/risk/jobs/${resultJobId}`)).result:await call<Report>('portfolio/risk',lastRequest);
     if(version!==generation)return;
     if(!report)throw Error('The completed job result is unavailable. Refresh its retained outcome.');
     const blob=new Blob([JSON.stringify(report,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);

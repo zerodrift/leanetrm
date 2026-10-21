@@ -400,6 +400,7 @@ passed += RiskChecks.Run();
 passed += NestedScenarioChecks.Run();
 passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
+passed += InstrumentRiskChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");
 

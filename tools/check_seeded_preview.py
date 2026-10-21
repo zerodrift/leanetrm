@@ -36,7 +36,7 @@ def run_checks(url, run_id, owned_root):
 
 
 def run_swap_book_checks(client, seeded):
-    """Seeded swaps share Book B, so the seeded Book A stays futures-only for shared futures shocks."""
+    """Verify the fixture's mixed Book B and separate futures-only Book A scopes."""
     client.call('profile', {'profile': 'trader'})
     frame = initial_frame(client.call('workspace'), '2020-12-18')
     context = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}

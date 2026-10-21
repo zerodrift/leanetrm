@@ -398,11 +398,13 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         return new(revision,references.ToImmutable());
     }
 
-    public async Task<ImmutableArray<(PreviewData Data,InputFrame Frame)>> ReadSwapMarkets(NpgsqlConnection connection,InputFrame selected,CancellationToken ct,PreviewData? sharedReferences=null)
+    public async Task<ImmutableArray<(PreviewData Data,InputFrame Frame)>> ReadSwapMarkets(NpgsqlConnection connection,InputFrame selected,CancellationToken ct,PreviewData? sharedReferences=null,
+        IReadOnlySet<Guid>? requiredRevisions=null)
     {
         var result=ImmutableArray.CreateBuilder<(PreviewData,InputFrame)>();
         foreach(var market in Manifest.SwapMarkets??[])
         {
+            if(requiredRevisions is not null&&!requiredRevisions.Contains(market.RevisionId))continue;
             if(!await SwapMarketAvailable(connection,market,ct))continue;
             var seed=market.Frames.SingleOrDefault(f=>f.At==selected.At)??throw new MarketDataException("swap_context","No explicit daily-market frame exists for the selected As of time.");
             var pins=SwapMarketPins(selected,market)!.Value;

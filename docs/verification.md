@@ -49,7 +49,27 @@ permission expiry during result assembly, cancellation and uncertain-submission
 reconciliation. The worker Swarm definition also rendered successfully; no cluster
 deployment or throughput benchmark was performed.
 
-Every `check_all.py` phase passed across owned runs on macOS 26.6.2 arm64 with
+The instrument-contract follow-up adds a PV-only nonlinear model and exact
+rational holding detail. Its 401 managed core checks, 209 frontend checks and
+36 risk browser checks pass. The owned mixed-book suite reconciles all eight
+futures and sixteen monthly/daily swaps, including a daily quote's independent
+quantity/31 sensitivity, exact holding-to-book sums and unchanged unrelated
+holdings. Immediate and queued results match their financial receipts and work
+counts after a UI date change. Eleven SQL check groups cover supplemental
+exact-version pins, later corrections, frozen input uses, scoped worker reads,
+lease/cancellation fences and convention-filtered history. Separate response
+assembly probes expire ReadMarketData and RunScenario after live admission;
+both refuse publication. These checks use synthetic inputs and disposable stock
+PostgreSQL 16.14 resources; they do not qualify new instrument implementations
+or cluster capacity. All `check_all.py` phases passed across owned runs for this
+follow-up on macOS 26.6.2 arm64 with .NET 10.0.402, Node 24.22.0, Python 3.14.2,
+PostgreSQL 16.14 and Chrome 156.0.8078.47. The standard run passed 386 browser
+checks; the mixed-risk browser sequence runs after the editor checks have booked
+both product families. Deployment configuration rendering passed, and all owned
+application, browser and database resources were removed.
+
+For the earlier nested-risk qualification, every `check_all.py` phase passed
+across owned runs on macOS 26.6.2 arm64 with
 .NET 10.0.402, Node 24.22.0, Python 3.14.2 and Chrome 156.0.8078.47. Initial
 database phases, the standard preview, assistant and interval-series suites used
 PostgreSQL 18.1 with debug/assertion checks; interval curves and the subsequent

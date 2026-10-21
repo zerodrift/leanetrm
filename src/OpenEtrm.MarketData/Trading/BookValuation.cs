@@ -53,8 +53,7 @@ public sealed class UnitValuationContext
     {
         if(Market is null||declaration is null)
             throw new MarketDataException("side_context","Supply the declared market and explicit payment discount inputs.");
-        var provider=Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id)
-            ??throw new MarketDataException("side_context","Supply this instrument's explicit payment discount inputs.");
+        var provider=Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id);
         return new(Market,provider,values,declaration.Dependencies);
     }
 }

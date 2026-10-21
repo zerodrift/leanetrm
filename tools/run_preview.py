@@ -353,6 +353,8 @@ def main():
                 from preview_client import PreviewClient
                 from check_risk_preview import run_checks as check_risk
                 from check_risk_jobs import run_checks as check_risk_jobs
+                from check_portfolio_risk import run_checks as check_portfolio_risk
+                from check_portfolio_risk_authority import run_checks as check_portfolio_risk_authority
                 from check_risk_jobs_db import run_checks as check_risk_jobs_db
                 class Client(PreviewClient):
                     def __init__(self): super().__init__(url)
@@ -362,6 +364,8 @@ def main():
                 worker_env=prepare_risk_worker()
                 def run_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                check_portfolio_risk_authority(Client,query,check,manifest,temporary)
+                check_portfolio_risk(Client,check,run_worker)
                 check_risk(Client,check)
                 check_risk_jobs(Client,check,run_worker)
                 check_risk_jobs_db(query,manifest,psql,env)
