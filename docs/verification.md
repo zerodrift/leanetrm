@@ -413,7 +413,9 @@ readiness.
 Browser profiles remain under the preview owner's temporary root until its owned
 process group has stopped. A regression checks that a live descendant can still
 finish writing after the browser parent exits; parent exit alone does not permit
-profile deletion.
+profile deletion. macOS refuses to signal a group whose remaining members are
+already exiting; such a group is awaited until it is gone rather than reported as
+stuck, and one that outlives the refusal still fails cleanup.
 
 Debugger startup now qualifies the port, HTTP endpoint and page target within
 one shared 60-second readiness budget. Read-only probes tolerate transient
@@ -1320,24 +1322,28 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/
 ```
 
 The managed checks expand segments onto clock grids, including repeated and skipped
-hours, refuse misaligned, overlapping and out-of-range starts, and check read-window
-boundaries, a half-hour clock change included. The frontend checks cover the CSV
-layout, which refusals release an outstanding request, and reuse of instant-label
-formatters. In the owned preview, 19 storage checks exercise the definer operations
-directly (specifications of each kind's dimension, viewer and reference-less
-refusal, correction and withdrawal, one context per cutoff, change log, inclusive
-cutoff, stale head, overlaps at both boundaries and on withdrawn-only intervals,
-replay, one bad row, validation under a held knowledge gate, reason and window
-bounds, commit-derived knowledge time, no direct writes, no rows in a historical
-session), 11 HTTP checks exercise the routes as anonymous, viewer and editor sessions
-(refusals, retries, fall-back day, off-grid read windows, historical-session refusal,
-body limits, change log) and 30 browser checks drive the screen, the largest window
-included. `tools/check_all.py` runs all five layers.
+hours and a half-hour clock change, and refuse misaligned, overlapping and
+out-of-range starts. The frontend checks cover the CSV layout, which refusals release
+an outstanding request, and reuse of instant-label formatters. In the owned preview,
+20 storage checks exercise the definer operations directly (specifications of each
+kind's dimension, viewer and reference-less refusal, correction and withdrawal, one
+context per cutoff, change log, inclusive cutoff, stale head, overlaps at both
+boundaries and on withdrawn-only intervals, replay, one bad row, validation under a
+held knowledge gate, reason and window bounds, window ends inside stored or withdrawn
+intervals and in gaps, commit-derived knowledge time, no direct writes, no rows in a
+historical session), 12 HTTP checks exercise the routes as anonymous, viewer and
+editor sessions (refusals, retries, fall-back day, read windows that cut a stored
+interval, historical-session refusal, body limits, change log, reads and a refused
+revision on a clock pinned to another tzdb release) and 38 browser checks drive the
+screen: choosing an interval by click and by keyboard, Correct and Withdraw from the
+action bar, the largest window and the next actions on it, each required to finish
+within 5 s. `tools/check_all.py` runs all five layers.
 
-The commands above passed on 2026-10-20 on macOS 26.6.2 arm64 with .NET
-10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156.0.8078.47: 357
-managed market-data checks, 176 frontend checks, and the 19 storage, 11 HTTP and 30
-browser checks above. The owned database and browser completed teardown.
+The commands above passed on 2026-10-21 on macOS 26.6.2 arm64 with .NET
+10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156.0.8078.47: 354
+managed market-data checks, 176 frontend checks, and the 20 storage, 12 HTTP and 38
+browser checks above, the preview command in three consecutive runs. The owned
+database and browser completed teardown in each.
 
 The 20-year workloads are a measurement, not a pass/fail suite, and are not part of
 `tools/check_all.py`:

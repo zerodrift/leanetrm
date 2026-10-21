@@ -308,9 +308,13 @@ starts the browser runner in its own process group and awaits teardown of all li
 members before removing profiles/database files, including Node timeout/interrupt.
 Unconfirmed cleanup fails qualification and retains files. Three real-process
 checks cover normal termination, SIGTERM-resistant descendants and a browser-like
-child outliving its launcher. Browser regressions exercise lost post-commit and
-malformed gateway responses, exact idempotent retry, actual two-session access
-revocation, stale-form clearing and current permission boundaries.
+child outliving its launcher. macOS refuses to signal a group whose remaining
+members are already exiting (`EPERM`), as a large browser renderer can still be when
+its launcher returns; two more checks simulate that refusal: such a group is awaited
+until it is gone, and one that outlives the refusal still fails cleanup. Browser
+regressions exercise lost post-commit and malformed gateway responses, exact
+idempotent retry, actual two-session access revocation, stale-form clearing and
+current permission boundaries.
 
 The scenario-engine contract in that catalogue is proposed next work. It specifies
 typed immutable hypothetical overlays (separate from observation corrections),
@@ -1365,19 +1369,29 @@ route keeps 32 KiB, and a body whose declared length is over the limit is answer
 `interval_series_outcome_unknown`; repeating the same request identity recovers the
 receipt.
 
-**Screen.** Market data › Interval series (`web/src/interval-series-view.ts`) defines
-series and shows values and the change log at a chosen Known at. An import reads a
-CSV file with the header `start,value`, UTC starts ending in `Z` and a value on
-every row; an import never withdraws an interval. Correct and Withdraw row actions
-require a reason. Any structured refusal from these routes releases the form, since
-nothing was saved; only an unknown outcome (`interval_series_outcome_unknown`, a reply
-lost or timed out in transport, or an answer without a code) keeps the request
-outstanding for an exact retry. Presentation only: grid, values and authority are
-checked by the backend. In Chrome 156 on the benchmark machine below, the largest
-window, 366 days of quarter-hour values with its 35,136-row change log, took 4.35 to
-4.38 s from Show until both tables were painted in three runs of the browser check,
-about 0.36 s of it before the change log arrived; one run before instant labels
-reused their formatters took 8.2 s.
+**Screen.** Market data › Interval series (`web/src/interval-series-view.ts`)
+defines series and shows values and the change log at a chosen Known at. An import
+reads a CSV file with the header `start,value`, UTC starts ending in `Z` and a value
+on every row; an import never withdraws an interval. An editor chooses one interval
+by clicking its row of the values, or by moving to it with the Up and Down keys and
+pressing Enter or Space (the rows share one tab stop). An action bar shows its start
+and value and offers Correct and Withdraw, each requiring a reason. Choosing another
+interval closes a change begun on the last; every read of the values (Show, Reload
+or after a save) and a change of series or time zone clears the choice. The values
+have no row buttons, and the per-interval columns of the values and change-log
+tables (Start, End, the values and Known from) have no column filter, which would
+list one choice per interval; the search box still covers them. Any structured
+refusal from these routes releases the form, since nothing was saved; only an
+unknown outcome (`interval_series_outcome_unknown`, a reply lost or timed out in
+transport, or an answer without a code) keeps the request outstanding for an exact
+retry. Presentation only: grid, values and authority are checked by the backend. In
+Chrome 156 on the benchmark machine below, in three runs of the browser check, the
+largest window, 366 days of quarter-hour values with its 35,136-row change log, took
+2.73 to 2.74 s from Show until both tables were painted, about 0.37 s of it before
+the change log arrived. With it shown, choosing its last interval and starting a
+Correct took 0.20 s, and opening Profile, which disables and enables every control
+on the page, 0.65 to 0.67 s. The renderer's JavaScript heap held 43 to 45 MiB and
+the page about 923,000 DOM nodes.
 
 **Verification.**
 
@@ -1391,7 +1405,7 @@ The managed checks cover the grid on synthetic clocks, including repeated and sk
 hours, half-hour offsets and a half-hour clock change.
 `tools/check_interval_series_storage.py` runs 20 storage checks,
 `tools/check_interval_series_http.py` 12 HTTP checks and
-`tests/browser/interval-series.mjs` 30 browser checks. `tools/check_all.py` runs all
+`tests/browser/interval-series.mjs` 38 browser checks. `tools/check_all.py` runs all
 of them: the managed checks with the other managed suites, and the preview command
 above, browser checks included.
 
@@ -1593,10 +1607,7 @@ existed at the time.
 - Reads are bounded and not paged: windows over 35,136 intervals or change logs over
   100,000 rows are refused, not truncated. A values read's cost grows with the
   revisions stored per interval, which nothing bounds.
-- The screen renders a whole window at once. While the largest window is shown to an
-  editor, with Correct and Withdraw on each of its 35,136 rows, the next action that
-  disables the page's controls (any read, import, save, reload or opening Profile)
-  blocked the page for about 46 s in two diagnostic runs in Chrome 156. Disabling the
-  70,272 row buttons alone took 45 s there, against 0.02 s for every list on the
-  page, the column filters included, and 0.4 s to enable every control again. Choosing another series
-  first clears the window in about 0.2 s. A viewer's window has no row buttons.
+- The screen renders a whole window at once and is not paged. While the largest
+  window was shown in the three runs above, the browser's renderer process peaked at
+  2,042 to 2,050 MiB resident (sampled with `ps` during the check, not by it), against
+  a JavaScript heap of about 45 MiB.
