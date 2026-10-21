@@ -88,7 +88,8 @@ class Worker:
 
 
 def bytea(value):
-    return f"'\\x{value.hex()}'"
+    """`value` as SQL that reads the same whatever the session's standard_conforming_strings."""
+    return f"decode('{value.hex()}','hex')"
 
 
 def usage(*dimensions):

@@ -184,6 +184,9 @@ def main():
             if args.assistant_check and migration.name=='0071_admitted_asks.sql':
                 from check_agent_turns import check_admitted_upgrade
                 check_admitted_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0072_tool_steps.sql':
+                from check_agent_turns import check_steps_upgrade
+                check_steps_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture

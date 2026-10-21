@@ -47,8 +47,14 @@ owner's reads, all checked in SQL. Through the API a person asks, stops and read
 turns, and the in-process worker runs each turn its process admitted: one call without
 tools, retried as §7.5 allows, streamed within the turn's elapsed limit, its text
 published in batches the database rechecks, then its usage closed and its ending
-recorded (§7.4–§7.6). Tools,
-the stream, the panel and the Usage tab are not implemented, so no page asks yet.
+recorded (§7.4–§7.6). Tool steps are recorded in the database (§7.1, §7.3, §7.5,
+§7.6): the requests of a call that stopped for tools answered by steps in order before
+the tool loop's next call, each read's sources joining the turn's source set, the
+source-access check in the agent's authority before every call and publication, the
+replay recheck on the owner's reads, earlier turns included only while their sources
+pass, and the tool-step, retry and input limits across the loop, all checked in SQL.
+The worker offers no tools yet, so a turn still makes one call. The stream, the panel
+and the Usage tab are not implemented, so no page asks yet.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -454,7 +460,9 @@ audit as history.
   later Publish or save never fails a running turn); the turn's grant is unrevoked and
   unexpired; the agent principal and membership are enabled. The **source-access
   check**: under the agent context, each recorded access function and permission
-  passes for every catalog in the source set.
+  passes for every catalog in the source set. Worker writes run without a request
+  context, so they evaluate it as a context issued to the turn's agent under its grant
+  would answer it; a check proves them equal across the states the mirror reads (§14).
 - **Consent.** Asking without a covering grant fails with `grant_required` and the
   panel asks: "Allow Page guide, which sends your questions and the data it reads to
   <provider> (<model>) through the vendor account your administrators configured,
@@ -521,9 +529,10 @@ audit as history.
   its frame's date, so an ask over it names a frame (`snapshot_missing`). Anything
   else is `context_required`; the ask never falls back.
 - The turn's immutable **pinned-context record** (knowledge mode, captured or retained
-  context id, resolved cutoff and, with a frame, its pin set: frame id, At,
-  observation ids, curve-contract selections) is its snapshot identity; the worker
-  reads only it.
+  context id, resolved cutoff and, with a frame, its exact pin set: frame id, name, At,
+  observation ids, the observations it froze, curve-contract selections, swap market
+  selections and whether it resolves the latest correction) is its snapshot identity;
+  the worker reads only it, and tool reads rebuild the page's frame from it.
 - **Working data.** After admission (§7.4) creates the turn queued, the asking request
   captures once in the user's context and its own short transaction and writes the
   record with the fencing token, within the request's deadline and cancellation. A
@@ -557,7 +566,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Read current page | Dispatches the stored page report to that page's read tool |
 | Read trades | Blotter rows, holdings with execution P&L, trade detail |
 | Read trade parties | Legal entities and counterparties |
-| Read market data | Curves, contract definitions, dated contracts, observations |
+| Read market data | Curves, contract definitions, dated contracts, observations, at the pinned frame |
 | Read schedules | Published date schedules and calendars, TOU products, power hours |
 | Read reference data | The `references` and `unitCatalog` read behind Reference data |
 | Navigate | Requests a move to a server-issued target |
@@ -571,7 +580,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Reference data | Read reference data | `ReadMarketData` | Pinned |
 | Entities & counterparties | Read trade parties | `ReadTradeParties`, `ReadMarketData` | Pinned |
 | Blotter rows and holdings | Read trades | `ReadTrades`, `ReadMarketData` | Pinned |
-| Blotter risk results, Delivery prices, Users & access, Settings › AI | none | | Not supported |
+| Blotter risk results, Delivery prices, Custom curves, Interval series, Jobs & Infrastructure, Users & access, Settings › AI | none | | Not supported |
 
 - Read current page has no permissions of its own; if the dispatched tool is off it is
   refused with `tool_not_enabled`. On an unsupported page it returns
@@ -586,11 +595,19 @@ The tool set is fixed; each tool is switched on per agent version.
 - A tool step ends with a result; a **refusal** returned to the model as the step
   result (`page_not_supported`, `snapshot_missing`, `power_historical`,
   `result_too_large`, `card_too_large`, `card_invalid`, `tool_arguments_invalid`,
-  `tool_not_enabled`, `page_selection_unavailable`), carrying only the code and fixed
-  text, after which the turn continues; or a turn-ending failure (authority, session
-  and fencing codes, otherwise `tool_failed`). Refusals count as steps.
+  `tool_not_enabled`, `page_selection_unavailable`, or the read's own refusal of its
+  input, such as `missing_curve`, `missing_observation` or `knowledge_coverage`),
+  carrying only the code and the page's fixed text, after which the turn continues; or
+  a turn-ending failure (authority, session and fencing codes, otherwise
+  `tool_failed`). Refusals count as steps.
+- Steps answer a call's tool requests in order, numbered across the turn, and the tool
+  loop's next call opens only once each request has one. A step records its tool, the
+  operation and the instant it read, the request's input (an object of at most 8 KiB,
+  absent only when its arguments were refused) and its code; its event carries only
+  its number, tool and code. Results are stored with cards (step 7), their consumer.
 - A read whose operation ran under its access check is a tool read, and joins the
   source set, even when it then fails. A refusal before the operation runs adds none.
+- Read market data reads the pinned frame only; curve history is not read yet.
 - Results carry exact values and server-formatted strings (D114). The preamble
   requires quoting only returned values and deriving none. Prose is model output;
   cards are the exact channel.
@@ -598,7 +615,8 @@ The tool set is fixed; each tool is switched on per agent version.
   page target names a page the user can currently open, checked under the agent
   context against the delegator's permissions, and keeps the pinned context. Record,
   filter and context targets come only from this turn's reads. Targets open read views
-  only.
+  only. A handle the server did not issue in this turn, or a page the delegator cannot
+  open, is `tool_arguments_invalid`.
 
 ### 7.4 Execution
 
@@ -660,7 +678,8 @@ The tool set is fixed; each tool is switched on per agent version.
   switch. Exceeding
   one ends the turn with `limit_tool_steps`, `limit_input_tokens`,
   `limit_output_tokens` or `limit_elapsed`; a tool request cut off by a limit is not
-  run.
+  run, and a call whose tool requests would take the turn past its steps has none of
+  them run.
 - The input limit is checked before each attempt against input that earlier attempts
   reported; nothing is estimated, so the crossing attempt completes and is billed. An
   earlier unknown or unrecognized input ends the turn with `limit_input_unverifiable`
@@ -688,7 +707,8 @@ The tool set is fixed; each tool is switched on per agent version.
   reason, is a transport failure; unknown event types are skipped, as the vendor's
   versioning policy requires. Only transport and overload are retried, on
   the same provider and model, when the failed attempt published nothing and its input
-  is known; each attempt has its own usage record. Otherwise the turn fails with that
+  is known; each attempt has its own usage record, and the version's retries bound the
+  failed calls of the whole turn, across its tool loop. Otherwise the turn fails with that
   error's code: `model_provider_authentication`, `model_provider_rate_limited`,
   `model_provider_invalid_request`, `model_provider_transport`,
   `model_provider_overloaded` or `context_window_exceeded`; after publication with
@@ -1038,7 +1058,7 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 Owner decisions become D rows when recorded. Every other rule in this document is a
 design call, recorded as P rows by section and open to correction until the owner
 approves it. Phase 3's four hosted gates are undecided. [decisions.md](decisions.md)
-records this section as D149–D156 and P24–P38, with the open-item updates below.
+records this section as D149–D156, D177 and P24–P38, with the open-item updates below.
 
 **AGENTS.md exception:** model-provider vendor names (Anthropic, OpenAI, Google, xAI,
 Meta) and their public API identifiers may appear in source, documentation, fixtures
@@ -1060,6 +1080,17 @@ visible but not enableable until confirmed; answers as completed turns, other tu
 cost on its own line; Usage days in a viewer-picked zone prefilled from Profile, over
 half-open ranges; the background indicator and unread History marker; and a phase 2
 common notebook alongside agent notebooks.
+
+**Tool decisions** (D177): the record keeps an As of frame's exact pins, from which tool
+reads rebuild the page's frame (§7.2); a read's own refusal of its input returns to the
+model as a refused step with its code and the page's fixed text; Custom curves,
+Interval series and Jobs & Infrastructure are not supported pages; Read market data
+reads the pinned frame only, curve history later; a step records its operation, input,
+code, read instant and accesses, and results wait for cards (§7.3); worker writes
+evaluate the source-access check as a context issued to the turn's agent would, which a
+check proves equal (§7.1); Navigate follows the read tools and refuses a handle it did
+not issue, or a page the delegator cannot open, as `tool_arguments_invalid`; and a call
+whose tool requests would take the turn past its steps has none of them run (§7.5).
 
 The agent reader role amends D42 (seven role templates).
 

@@ -562,8 +562,8 @@ are refused:
   agent or the grant. Each write advances the epoch, so it fences a delivery-price
   attempt in progress.
 
-Turns (migrations 0069 and 0071, step 5) are recorded in the database; in the local
-preview the API asks, stops and reads them and an in-process worker runs them
+Turns (migrations 0069, 0071 and 0072, step 5) are recorded in the database; in the
+local preview the API asks, stops and reads them and an in-process worker runs them
 ([ai-assistant.md](ai-assistant.md) §7.2, §7.4):
 
 - **Ask** runs in a person's own request context, unexpired and undelegated, as an
@@ -593,22 +593,47 @@ preview the API asks, stops and reads them and an in-process worker runs them
   needs held now, which needs their principal and membership enabled; an allowed role
   for a published version or `ManageAgents` for a draft; the grant unrevoked and
   unexpired; the agent's principal and membership enabled) and ends the turn
-  `access_changed` when any part is lost; then what stops a call on the model. A role
-  loss cancels nothing and is caught there.
-- **Publication recheck:** each answer append takes the epoch row `FOR SHARE` before the
-  turn and then rechecks that authority, so it waits for a revocation in progress and
-  publishes nothing once it commits. The turn records the refusal: every later append is
-  refused too, a cancel request no longer applies, and whatever the worker asks the turn
-  fails `access_changed` unless recovery interrupts it. Usage, cost and the terminal
-  event carry no business data and skip the recheck.
+  `access_changed` when any part is lost, or when a source of the turn no longer passes
+  in the agent's authority; then what stops a call on the model. A role loss cancels
+  nothing and is caught there.
+- **Sources:** a turn's source set is the access function, permission and catalog each
+  of its reads ran under, even a read that then failed, and those of the turns it
+  included. Worker writes have no request context, so they evaluate the set as a
+  context issued to the turn's agent under its grant would answer it: the agent's
+  principal and membership enabled with the permission, the grant current and listing
+  it, its delegator holding it and `CreateDelegations`, and the catalog in the
+  workspace's scope. A check proves this equal to the access functions in an issued
+  agent context across the grant's revocation and term, a permission it lists, the
+  delegator's permissions, membership and principal, the agent's role, a permission of
+  it and its membership, and the catalogs' scopes; for a disabled agent, which no context
+  is issued to, it answers nothing accessible. The reads themselves run in an agent
+  context.
+- **Publication recheck:** each answer append and tool step takes the epoch row `FOR
+  SHARE` before the turn and then rechecks that authority and the turn's sources, so it
+  waits for a revocation in progress and publishes nothing once it commits. The turn
+  records the refusal: every later append is refused too, a cancel request no longer
+  applies, and whatever the worker asks the turn fails `access_changed` unless recovery
+  interrupts it. Usage, cost and the terminal event carry no business data and skip the
+  recheck; a step's event carries only its number, tool and code.
+- **Replay recheck:** the owner's reads, Stop's answer and an ask's answer show a turn's
+  answer and text only while the owner, in their own request context, can read every
+  source in its set, and hide them as `access_changed` otherwise; this needs no grant, so
+  a revoked grant or a retired agent hides nothing. An ask whose record failed answers
+  its turn's ending as the worker wrote it, which says nothing of the recheck: that turn
+  never started, so it has neither answer nor text. An ask includes an earlier turn only
+  when it passes, and when the covering grant lists every permission its sources used;
+  each withheld turn is named by a step, and the included turns' sources must pass in the
+  agent's authority before admission (`access_changed`).
 - **Cancellation:** Stop is the owner's alone, in its scope; another person's turn is
   answered like an unknown one (`turn_not_found`). Provider and model Disable, Replace
   key, Record terms, Retire and grant revocation request the cancel of each turn they
   affect, as triggers, so every writer is covered; no text is published after it.
-- **Records:** even the owner cannot change or delete a turn event, move a turn's state
-  or record backward, change an ended turn or rewrite answer text, or change a
-  conversation except to mark it read further. The runtime holds no privilege on the
-  turn tables and executes none of the internal turn helpers.
+- **Records:** row triggers refuse, the owner's statements included, any update or
+  delete of a turn event, a tool step or what its read ran under, a move of a turn's
+  state or record backward, a change to an ended turn, a rewrite of answer text, and any
+  change to a conversation but marking it read further; truncating these tables or
+  disabling their triggers takes their owner. The runtime holds no privilege on the turn
+  tables and executes none of the internal turn helpers.
 - **Routes:** ask, Stop and the owner's reads run in the session's request context as
   its profile, one request at a time per session, in the route group's scope (`api`, or
   `exchange` for the exchange example), and every POST needs the page's origin and

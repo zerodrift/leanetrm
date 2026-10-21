@@ -81,7 +81,7 @@ public sealed class ProviderTests(CredentialCustody custody,AgentWorker worker,M
     async Task Close(Guid call,byte[] token,ModelEvent? end,bool left)
     {
         var outcome=end is null?"interrupted":ModelCalls.Outcome(end,left?"request_cancelled":"limit_elapsed");
-        var closing=ModelCalls.Close(worker,"close_test",call,token,outcome,end);
+        var closing=ModelCalls.CloseTest(worker,call,token,outcome,end);
         _=closing.ContinueWith(t=>logger.LogError("A provider test could not be closed: {ErrorType}",t.Exception!.GetBaseException().GetType().Name),
             TaskContinuationOptions.OnlyOnFaulted);
         await Task.WhenAny(closing,Task.Delay(RuntimeSet.WorkerWrite));

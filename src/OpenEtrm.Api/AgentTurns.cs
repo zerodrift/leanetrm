@@ -74,8 +74,10 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
     public Task<JsonElement> MarkRead(NpgsqlConnection connection,MarkReadRequest body,CancellationToken ct)=>
         ModelProviders.Read(connection,"SELECT assistant.mark_read($1,$2,$3::bigint)::text",[scope,body.ConversationId,(object?)body.Through??DBNull.Value],ct);
 
-    // An As of frame's pins, which the record keeps (§7.2).
-    static string Pins(InputFrame frame)=>JsonSerializer.Serialize(new{at=frame.At,curveContracts=frame.CurveContracts,frameId=frame.Id,observationIds=frame.ObservationIds});
+    // An As of frame's exact pins, which the record keeps so that tool reads rebuild the page's frame (§7.2).
+    static string Pins(InputFrame frame)=>JsonSerializer.Serialize(new{at=frame.At,curveContracts=frame.CurveContracts,frameId=frame.Id,
+        frozenObservationIds=frame.FrozenObservationIds.IsDefault?[]:frame.FrozenObservationIds,name=frame.Name,observationIds=frame.ObservationIds,
+        resolvesLatestCorrection=frame.ResolvesLatestCorrection,swapMarketSelections=frame.SwapMarketSelections});
 
     // The code a failed record write fails its turn with (§7.2): the database's refusal, access_denied for a permission
     // refused, request_cancelled after an abort or the deadline, and agent_runtime_unavailable for any other failure.
@@ -88,7 +90,8 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
     };
 
     // Fails the turn, once, as a worker write; its ending, or none when that did not land, which leaves the turn to
-    // admission's deadline.
+    // admission's deadline. The ending says nothing of the owner's replay recheck: the turn never started, so it has
+    // neither answer nor text.
     async Task<JsonElement?> Fail(Guid turn,byte[] token,string code)
     {
         try{return (await worker.Write((connection,ct)=>ModelProviders.Read(connection,"SELECT assistant.end_turn($1,$2,'failed',$3)::text",[turn,token,code],ct))).GetProperty("turn");}
@@ -113,6 +116,7 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
         "turn_not_found"=>"You have no such question here.",
         "grant_required"=>"Grant this agent version its reads before asking it.",
         "knowledge_budget_reserved"=>"The workspace has no saved contexts left for working data. Select a historical view to ask over it.",
+        "access_changed"=>"This agent no longer has the access an earlier answer in this conversation used, so it cannot continue it. Ask an administrator to restore the agent's access.",
         _=>"Supply every required field in its documented form."
     };
 }
