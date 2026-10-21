@@ -37,6 +37,7 @@ def main():
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
     parser.add_argument('--swap-risk-holdings-check',action='store_true',help='Qualify stored swap risk materialization in an owned fixture')
+    parser.add_argument('--risk-jobs-check',action='store_true',help='Qualify nested risk and durable worker execution in a disposable database')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
@@ -62,7 +63,7 @@ def main():
         if args.example != 'standard' or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('--interval-series-benchmark runs alone in the standard fixture, without any --*-check option')
         args.check = True
-    if args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -100,6 +101,7 @@ def main():
     safe_to_remove=True
     child=None
     browser_process=None
+    risk_worker_process=None
     browser_cleanup_ok=True
     log=None
     def run(command,**kwargs):
@@ -320,7 +322,17 @@ def main():
                 time.sleep(.1)
         else:
             raise RuntimeError('Preview did not become ready:\n'+(temporary/'app.log').read_text())
-        if (not args.check or args.unit_check) and args.example=='standard':
+        def prepare_risk_worker():
+            from check_risk_jobs_db import provision_worker
+            provision_worker(query,manifest)
+            connection=temporary/'risk-worker-connection'
+            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username=preview_risk_worker;SSL Mode=Disable')
+            connection.chmod(0o600)
+            config=temporary/'risk-worker.json'
+            config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
+            config.chmod(0o600)
+            return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
+        if (not args.check or args.unit_check or args.risk_jobs_check) and args.example=='standard':
             from seed_preview_positions import seed_positions
             seed_positions(url,run_id,temporary)
             from seed_preview_swaps import seed_swaps
@@ -337,7 +349,29 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.interval_series_benchmark:
+            if args.risk_jobs_check:
+                from preview_client import PreviewClient
+                from check_risk_preview import run_checks as check_risk
+                from check_risk_jobs import run_checks as check_risk_jobs
+                from check_risk_jobs_db import run_checks as check_risk_jobs_db
+                class Client(PreviewClient):
+                    def __init__(self): super().__init__(url)
+                def check(name,condition=True):
+                    if not condition: raise AssertionError(name)
+                    print('PASS '+name,flush=True)
+                worker_env=prepare_risk_worker()
+                def run_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                check_risk(Client,check)
+                check_risk_jobs(Client,check,run_worker)
+                check_risk_jobs_db(query,manifest,psql,env)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--risk'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned risk browser checks failed')
+            elif args.interval_series_benchmark:
                 from benchmark_interval_series import run_benchmark
                 print(json.dumps(run_benchmark(url,query,dotnet,child.pid),indent=2),flush=True)
             elif args.power_actual_check:
@@ -543,6 +577,8 @@ def main():
                 from check_schedule_examples import run_checks as check_schedule_examples
                 check_schedule_examples(url,run_id,temporary)
                 if args.browser_check:
+                    worker_env=prepare_risk_worker()
+                    risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve())],cwd=ROOT,env=env,start_new_session=True)
@@ -585,10 +621,19 @@ def main():
                 from check_seeded_preview import run_swap_book_checks
                 run_swap_book_checks(session,seeded)
         else:
+            if args.example=='standard':
+                worker_env=prepare_risk_worker()
+                risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
             child.wait()
     except KeyboardInterrupt:
         print('Stopping the owned preview.',flush=True)
     finally:
+        if risk_worker_process is not None:
+            try:
+                stop_owned_group(risk_worker_process)
+            except Exception:
+                browser_cleanup_ok=False
+                print('Worker cleanup unconfirmed; retaining its private directory.',flush=True)
         # Stop the entire owned browser group, even if Node timed out or exited
         # before Chromium. Never remove a profile while a live child still uses it.
         if browser_process is not None:
@@ -624,7 +669,7 @@ def main():
         else:
             print(f'Startup/cleanup incomplete; retained private directory: {temporary}',flush=True)
         if not browser_cleanup_ok:
-            raise RuntimeError('Owned browser cleanup could not be confirmed; private files retained')
+            raise RuntimeError('Owned worker/browser cleanup could not be confirmed; private files retained')
 
 
 if __name__=='__main__':

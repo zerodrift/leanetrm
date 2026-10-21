@@ -341,7 +341,7 @@ public sealed partial class CurveModel
     public CurveBuild Build(MarketSnapshot snapshot, ImmutableArray<CurveRequest> requests,CancellationToken cancellation=default)
         => Build(snapshot,requests,null,[],cancellation);
     private CurveBuild Build(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,Risk.QuoteShock? shock,
-        ImmutableArray<CurveEvaluation> reusable,CancellationToken cancellation)
+        ImmutableArray<CurveEvaluation> reusable,CancellationToken cancellation,Risk.QuoteScenario? scenario=null)
     {
         cancellation.ThrowIfCancellationRequested();
         EnumValue(snapshot.SelectionPolicy);
@@ -392,7 +392,7 @@ public sealed partial class CurveModel
                 Fail("frozen_fact", "Frozen inputs require final contract settlement or an explicit final index fixing.");
         }
         var result = requests.Select(r => Evaluate(r, InputUse.Variable)).ToImmutableArray();
-        return new CurveBuild(this, snapshot, NumericalPolicy, result, inputs, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock);
+        return new CurveBuild(this, snapshot, NumericalPolicy, result, inputs, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock,scenario);
 
         BuiltValue Evaluate(CurveRequest request, InputUse use)
         {
@@ -419,7 +419,7 @@ public sealed partial class CurveModel
                     throw new MarketDataException("selection_mismatch", "Selected quote, source, role or finality is incompatible.");
                 if (use == InputUse.FrozenFact && (contract.Kind != ContractKind.Future || obs.ObservedAt < contract.Expiry))
                     throw new MarketDataException("frozen_fact", "Final future settlement must be observed at or after its explicit expiry.");
-                var scenarioValue=shock is not null && key==shock.Bump.Input ? obs.Value+shock.AppliedSize : obs.Value;
+                var scenarioValue=obs.Value+(scenario?.Offset(key)??default);
                 value = new BuiltValue(request, quote, new UnitPrice(scenarioValue, quote), ImmutableHashSet.Create(obs.Key));
             }
             else

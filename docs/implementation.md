@@ -282,7 +282,8 @@ in the architecture; O13 does not yet select an adjustment or joint allocation.
 
 These managed contracts now have persisted default resolution, authorized swap
 booking/amendments, a shared blotter and a schedule-inspection editor, described
-below. Swap risk and fee capture/calculation/reconciliation remain deferred;
+below. Draft swap risk and generated-close mixed-product reports are implemented.
+Interactive booked-swap risk and fee capture/calculation/reconciliation remain work;
 current futures execution-P&L diagnostics are gross and exclude fees.
 
 The futures editor separates trade inputs from a vertical side panel populated
@@ -404,13 +405,15 @@ failures retain it. The directory shows the latest 100 committed audit entries;
 older records remain in storage. Preview limits are 256 members and six fixed
 role templates, not a generic policy language or role editor.
 
-Authentication remains a loopback-only simulation. The synthetic fixture now
-provisions four personas, including **Access Administrator**. New human preview
+Authentication in this disposable preview is simulated. The synthetic fixture
+provides selectable personas, including **Access Administrator**. New human preview
 identities can be selected in the creating browser session. Registration does not
 create a password, send an invitation or verify external credentials. The preview
 issuer/login namespace is global to this disposable installation; production
-identity linking, invitations, MFA, agent credential custody/delegation authoring,
-initial administrator provisioning and deployment hardening remain separate work.
+identity linking, MFA, external agent credential custody and deployment hardening
+remain separate work. The separate hosted mode implements operator-provisioned
+invitations, password sign-in/reset and initial-owner setup; see
+[private pilot operations](hosted-pilot.md).
 No production identity, database or existing application was modified.
 
 Verification for this increment: 60 frontend tests, 184 standard HTTP checks,
@@ -662,8 +665,9 @@ unsupported. Existing explicit final-future freezing does not qualify those rule
 The synthetic example has five levels: futures, base-location gas forwards,
 regional gas forwards, hub power forwards and local power forwards. Shared
 constituents evaluate once per build, and each result retains exact observation
-lineage. All-in curves have only their declared direct inputs. No instrument
-pricers, position risk, scenario/shock API or settlement cash calculations exist.
+lineage. All-in curves have only their declared direct inputs. Instrument pricers,
+shared position risk and scenario APIs now consume this model. Full futures
+settlement and variation-margin processing remain work.
 
 Curves carry the common quote, location, delivery profile and settlement target.
 Dated constituents retain delivery/expiry and exact futures-series links. Reusing
@@ -976,7 +980,8 @@ selected curve. **Profile → Preview access** allows an explicit switch to Mark
 Data Editor. Use **View changes** on the January gas-future price and save `3.1`
 instead of `3`: January local power builds from `29.1` to `29.8`. The separately
 observed all-in alternative stays `29.1`. This is a data correction and new input
-selection, not an implemented risk-scenario operation. Earlier selections retain
+selection. Temporary [risk scenarios](risk-engine.md) use separate immutable
+overlays without publishing corrections. Earlier selections retain
 their inputs. **View this version** supports explicit reconciliation; the application
 never switches to a newer revision automatically. If a write's acknowledgment is
 lost, reload and inspect **Price changes** before resubmitting. Changing display
@@ -1742,3 +1747,35 @@ listed with its reason and cannot be read.
 - The screen was measured on the synthetic shaped curve's widest span, 1,465 hourly
   intervals, not a multi-year window.
 
+
+
+## Nested stress and background risk
+
+The futures risk operation accepts up to sixteen signed absolute quote stresses
+in parent order. Immutable managed scenarios retain the original snapshot and
+derive a distinct identity for each child; removing a child leaves its parent
+usable. Up/down risk is measured around that stressed base. Work receipts include
+market preparation, shared unit evaluations and book quantity applications.
+
+The header's resolved effective/knowledge context and exact market frame feed
+both immediate calculations and queued jobs. Migration 0073 retains authorized
+request identities, exact context/book/observation/curve-membership references,
+financial choices and the engine fingerprint. The UI supports queueing, truthful
+cancellation status, uncertain-submit reconciliation, recent owned jobs and
+retained downloads. Inspecting an older job displays its captured dates.
+
+Dedicated read-only workers claim one complete run at a time. They renew leases,
+load retained inputs under fresh scoped authority, calculate outside database
+transactions and publish behind current authorization and attempt-token checks.
+Multiple processes distribute independent jobs; book aggregation stays within
+each shared calculation. The optional Swarm worker definition is configuration,
+not evidence of a deployed or capacity-qualified cluster. Single-run sharding,
+cross-run caching and process-death confirmation for an unacknowledged
+cancellation remain unsupported. See [risk engine](risk-engine.md) for contracts,
+worker provisioning, limits and the isolated verification entry point.
+
+
+This adapter preserves the newer exact pinned/frozen input semantics and current
+reference visibility rules. It complements D169 generated-close mixed-product
+reports; the interactive risk screen remains futures-only. The common engine's
+existing decimal and rational grouped portfolio paths accept stressed parents.

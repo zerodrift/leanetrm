@@ -18,6 +18,7 @@ using OpenEtrm.MarketData;
 if(args is ["--render-power-days",var calendarInput,var calendarOutput]){PowerDayCalendar.Run(calendarInput,calendarOutput);return;}
 
 if(args.Length>0 && args[0]=="--collect-power"){Environment.ExitCode=await PowerCollection.Run(args[1..]);return;}
+if(args.Length>0 && args[0]=="--risk-worker"){Environment.ExitCode=await RiskWorker.Run(args[1..]);return;}
 
 if(args.Length!=1 || args[0] is not ("--local-preview" or "--hosted-pilot")) throw new InvalidOperationException("Choose exactly --local-preview or --hosted-pilot.");
 var hosted=args[0]=="--hosted-pilot"?HostedConfiguration.Read(Environment.GetEnvironmentVariable("OPENETRM_HOSTED_CONFIG")??throw new InvalidOperationException("Explicit private hosted configuration is required.")):null;
@@ -106,6 +107,9 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "reference_edit" or "reference_limit" or "reference_economic_change" => (422,p.MessageText,"Supply supported display fields within the authoring limits. Financial terms must remain identical before display activation."),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/tou-products") => (409,"tou_conflict","This TOU product changed or its code already exists. Reload before editing."),
             MarketDataException m => (422,m.Code,m.Message),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("risk_",StringComparison.Ordinal) => (422,p.MessageText,"The risk job does not meet its retained context, input or execution contract."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "swap_conflict" or "swap_revision_conflict" or "trade_operation_conflict" => (409,p.MessageText,"This trade or operation changed. Reconcile the original request or reload the latest revision."),
             PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("payment_",StringComparison.Ordinal)||p.MessageText=="short_month") => (422,p.MessageText,"The generated payment date does not meet its explicit rule and calendar coverage."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("swap_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit side, reference, date or lifecycle terms."),
@@ -176,6 +180,8 @@ app.Use(async (context,next)=>
             Exception when context.Items.ContainsKey("automation_attempted") && e is NpgsqlException or OperationCanceledException => (503,"job_outcome_unknown","The operation outcome is unknown. Inspect current state or retry the retained exact request identity."),
             Exception when context.Items.ContainsKey("reference_attempted") && e is NpgsqlException or OperationCanceledException => (503,"reference_outcome_unknown","The reference change outcome is unknown. Inspect saved versions or retry the retained exact request identity."),
             Exception when context.Items.ContainsKey("interval_series_attempted") && e is NpgsqlException or OperationCanceledException => (503,"interval_series_outcome_unknown","The save outcome is unknown. Retry the original request to recover its receipt."),
+            OperationCanceledException when context.Items.ContainsKey("risk_job_attempted") => (503,"risk_job_outcome_unknown","Job admission could not be confirmed. Reconcile or retry the exact retained request identity."),
+            NpgsqlException when context.Items.ContainsKey("risk_job_attempted") => (503,"risk_job_outcome_unknown","Job admission could not be confirmed. Reconcile or retry the exact retained request identity."),
             OperationCanceledException => (503,"request_cancelled","The request was cancelled or exceeded its time limit."),
             BadHttpRequestException or JsonException => (400,"request_format",malformed),
             _ => (500,"preview_error","The preview could not complete the operation.")
@@ -890,6 +896,19 @@ api.MapPost("/futures/risk/catalog",(HttpContext c,FuturesRiskCatalogRequest bod
 api.MapPost("/futures/risk",(HttpContext c,FuturesRiskRequest body)=>FuturesRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
     (connection,data,frame,ct)=>futuresRisk.Calculate(connection,data,frame,body,ct),scenario:true));
+api.MapPost("/futures/risk/jobs",(HttpContext c,SubmitRiskJob body)=>FuturesRead(c,
+    body.Request?.Context??throw new MarketDataException("risk_job_context","Supply the risk request and exact retained context."),
+    (connection,data,frame,ct)=>
+    {
+        c.Items["risk_job_attempted"]=true;
+        return RiskJobs.Submit(connection,database.Manifest,futuresRisk,data,frame,body,ct);
+    },scenario:true));
+api.MapGet("/futures/risk/jobs",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,ct)),c.RequestAborted))));
+api.MapGet("/futures/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct)),c.RequestAborted)));
+api.MapPost("/futures/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true)),c.RequestAborted)));
 api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or amending.");

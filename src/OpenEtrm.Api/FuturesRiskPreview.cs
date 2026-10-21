@@ -9,10 +9,13 @@ namespace OpenEtrm.Api;
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record QuoteBumpRequest(Guid SeriesId,string? Quote,string? Size,string? Convention);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record QuoteShiftRequest(Guid SeriesId,string? Quote,string? Size,string? Convention);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesRiskCatalogRequest(FuturesReadRequest Context,ImmutableArray<Guid> BookIds,ImmutableArray<Guid> PortfolioIds);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesRiskRequest(FuturesReadRequest Context,ImmutableArray<Guid> BookIds,ImmutableArray<Guid> PortfolioIds,
-    ImmutableArray<QuoteBumpRequest> Bumps,string? Convention,string? NumericalPolicy,string? Detail=null);
+    ImmutableArray<QuoteBumpRequest> Bumps,string? Convention,string? NumericalPolicy,string? Detail=null,
+    ImmutableArray<QuoteShiftRequest> Stress=default);
 
 public sealed class FuturesRiskPreview(FuturesStore store)
 {
@@ -41,10 +44,17 @@ public sealed class FuturesRiskPreview(FuturesStore store)
         var available=data.Model.QuoteFactors(snapshot);
         return new{factors=available.Where(f=>inputs.Contains(f.Input)).Select(f=>Factor(data,f)),
             books=sets.Select(s=>new{s.BookId,factors=s.Factors.Select(f=>f.Input.Series.Id)}),
-            availableFactors=available.Select(f=>Factor(data,f)),bumpConvention=QuoteBump.Convention,
+            availableFactors=available.Select(f=>Factor(data,f)),bumpConvention=QuoteBump.Convention,stressConvention=QuoteShift.Convention,
             convention=FuturesRisk.Implementation,numericalPolicy=RiskEngine.NumericalPolicy,measure="execution_pnl"};
     }
     public async Task<object> Calculate(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesRiskRequest body,CancellationToken ct)
+        =>Calculate(await Prepare(connection,data,frame,body,ct),ct);
+
+    internal sealed record Prepared(PreviewData Data,InputFrame Frame,FuturesRiskRequest Request,RiskDetail Detail,
+        MarketSnapshot Snapshot,ImmutableArray<QuoteFactor> Available,ImmutableArray<QuoteBump> Bumps,
+        ImmutableArray<QuoteShift> Stress,ImmutableArray<System.Text.Json.JsonElement> Books,FuturesStore.ResolvedTrades Resolved);
+
+    internal async Task<Prepared> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesRiskRequest body,CancellationToken ct)
     {
         var detail=body.Detail switch{null or "holdings"=>RiskDetail.Holdings,"books"=>RiskDetail.Books,_=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
         if(body.Convention!=FuturesRisk.Implementation || body.NumericalPolicy!=RiskEngine.NumericalPolicy ||
@@ -55,18 +65,41 @@ public sealed class FuturesRiskPreview(FuturesStore store)
         {
             var factor=available.SingleOrDefault(f=>f.Input.Series.Id==b.SeriesId && f.Quote.Code==b.Quote)
                 ??throw new MarketDataException("risk_factor","Choose an exact available live quote input in this market context.");
-            return new QuoteBump(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse(b.Size??""),b.Convention??"");
+            var size=ExactDecimal.Parse(b.Size??"");
+            if(b.Convention!=QuoteBump.Convention||size.CompareTo(default)<=0)
+                throw new MarketDataException("risk_bump","Choose the explicit symmetric convention and a positive absolute bump.");
+            return new QuoteBump(factor.Input,factor.Quote,factor.Unit,size,b.Convention);
+        }).ToImmutableArray();
+        if(!body.Stress.IsDefault&&(body.Stress.Length>16||body.Stress.Any(s=>s is null)))
+            throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative quote shifts.");
+        var stress=(body.Stress.IsDefault?ImmutableArray<QuoteShiftRequest>.Empty:body.Stress).Select(s=>
+        {
+            var factor=available.SingleOrDefault(f=>f.Input.Series.Id==s.SeriesId&&f.Quote.Code==s.Quote)
+                ??throw new MarketDataException("risk_factor","Choose an exact available live quote input in this market context.");
+            var size=ExactDecimal.Parse(s.Size??"");
+            if(s.Convention!=QuoteShift.Convention||size==default)
+                throw new MarketDataException("risk_stress","Select the explicit additive parent-relative convention and a nonzero signed shift.");
+            return new QuoteShift(factor.Input,factor.Quote,factor.Unit,size,s.Convention);
         }).ToImmutableArray();
         var books=await store.Books(connection,ct);
         var resolved=await store.ReadTrades(connection,data,books,body.BookIds,body.PortfolioIds,ct);
+        if(resolved.Trades.IsEmpty)throw new MarketDataException("risk_position","Select live holdings before running risk.");
+        return new(data,frame,body,detail,snapshot,available,bumps,stress,books,resolved);
+    }
+
+    internal static object Calculate(Prepared prepared,CancellationToken ct)
+    {
+        var (data,frame,body,detail,snapshot,available,bumps,stress,books,resolved)=prepared;
         var byInstrument=resolved.MarketBindings.Values.DistinctBy(s=>s.Instrument.Id).ToDictionary(s=>s.Instrument.Id);
-        var run=FuturesRisk.Calculate(resolved.Trades,snapshot,data.Model,bumps,body.Convention,body.NumericalPolicy,ct,detail);
+        var run=FuturesRisk.Calculate(resolved.Trades,snapshot,data.Model,bumps,body.Convention!,body.NumericalPolicy!,ct,detail,stress);
         string Book(Guid id)=>books.Single(b=>b.Id("id")==id).Text("name");
         object Values(Money b,Money u,Money d,Money up,Money down,RiskDerivative delta,RiskDerivative gamma)=>new{
             @base=b.Amount.ToString(),up=u.Amount.ToString(),down=d.Amount.ToString(),upPnl=up.Amount.ToString(),downPnl=down.Amount.ToString(),
             delta=delta.Value.ToString(),gamma=gamma.Value.ToString(),currency=Currency(data,b.Currency),currencyReference=b.Currency,
             deltaUnit=$"{Currency(data,b.Currency)} / ({Unit(data,delta.Unit.Factor)})",gammaUnit=$"{Currency(data,b.Currency)} / ({Unit(data,gamma.Unit.Factor)})²"};
         return new{measure="execution_pnl",detail=run.Detail.ToString(),convention=FuturesRisk.Implementation,run.NumericalPolicy,run.Work,run.SnapshotId,
+            scenario=new{run.Scenario.Id,run.Scenario.ParentId,run.Scenario.Depth,run.Scenario.IsBase,
+                convention=QuoteShift.Convention,stress=body.Stress.IsDefault?ImmutableArray<QuoteShiftRequest>.Empty:body.Stress},
             heldContracts=resolved.MarketBindings.Values.Select(s=>s.Instrument.SeriesKey).Distinct().Count(),
             inputs=new{snapshot.Definitions,snapshot.ValuationAt,snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
                 selectionPolicy=snapshot.SelectionPolicy.ToString(),observations=snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,s.Observation.Series,

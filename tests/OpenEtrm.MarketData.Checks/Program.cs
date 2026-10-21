@@ -397,6 +397,7 @@ passed += IndexFixingChecks.Run();
 passed += PaymentRuleChecks.Run();
 passed += IndependentSideChecks.Run();
 passed += RiskChecks.Run();
+passed += NestedScenarioChecks.Run();
 passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
 passed += BasisRiskChecks.Run();

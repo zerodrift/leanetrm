@@ -1981,3 +1981,20 @@ sensitivities. The UI formats those results through backend amount formatting,
 clears them when terms/context change, and never books a trade as a side effect.
 Swap drafts report PV; futures drafts report execution P&L and open exposure.
 Variation-margin processing and full futures settlement PV remain unimplemented.
+
+
+## Nested risk and retained execution (D178–180)
+
+[Risk scenarios and jobs](risk-engine.md) specifies the implemented immutable
+parent-relative live-quote overlays. Children share the resolved header/job
+financial context and preserve their parents. The shared valuation engine also
+accepts stressed parents in its decimal and exact-rational portfolio paths.
+Dependencies determine affected work; returned values determine risk.
+
+The interactive futures adapter now admits durable complete runs, retaining exact
+context, observations and frozen uses, book scope, engine version and current actor
+identity. A dedicated database role loads those inputs under current authority;
+CPU work runs outside the short read transaction. Lease tokens and authority
+generations fence publication. Optional Swarm replicas increase concurrent runs;
+single-run distributed aggregation remains unimplemented. This consumer supplements
+the existing automation controller and generated-close mixed-product reports.

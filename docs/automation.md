@@ -398,3 +398,10 @@ The current publisher rejects reports above 20,000 unit models, 100,000 holdings
 4,096 decimal digits. Unsupported or incomplete results fail rather than being
 truncated. Schema upgrades require stopped write and worker admission and drained
 calls; publishing an application image does not install this migration.
+
+
+Interactive futures scenarios have a separate typed retained-run queue and trusted
+worker, documented in [risk scenarios and jobs](risk-engine.md). It uses the same
+financial context and current-authority principles, but does not execute arbitrary
+container profiles. Its Swarm replicas process independent complete runs; the
+existing scheduler and generated-close mixed-product adapter remain supported.

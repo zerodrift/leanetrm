@@ -11,6 +11,9 @@ commodity subset uses curve-owned definitions and scoped contract/measure keys,
 with no separate public factor/point business objects. Generic numeric series and
 price histories share observations; ratio inputs use the same typed series contract.
 Current role persistence/RLS is in [security.md](security.md).
+Implemented immutable quote scenarios, nested stresses and retained futures jobs
+are described in [risk-engine.md](risk-engine.md). This broader storage proposal
+does not replace those executable contracts.
 
 ## 1. Agreed domain structure
 
@@ -97,22 +100,27 @@ equal-period bindings in mixed daily/monthly views and separate BALMO contracts.
 A future daily-to-containing-month projection is permitted only for a spread
 explicitly defined against that monthly reference and a qualified named mapping.
 Preserve source and target intervals, units, orientation and exact reference pins.
-Do not weaken delivery equality globally or infer an average/daily shape. Broader
-projection, shaping and aggregation are not implemented; managed validation,
-database sealing and the adapter must agree before such a mapping is enabled.
+Do not weaken delivery equality globally or infer an average/daily shape. The
+custom-curve workspace has explicit exact means, and interval curves have qualified
+monthly-block shaping. Those separate consumers do not enable arbitrary mappings
+in this mixed daily/monthly contract. Managed validation, database sealing and the
+adapter must agree before another mapping is enabled.
 
 Follow-up proposal: replace the mixed demo's directly marked daily/monthly source
 with separate daily-only and monthly-only sources and an explicit selection/splice
 composition. Treat BALMO as a possible named remaining-day selector separately
 from a directly quoted period contract. The month-end window rule is awaiting
 selection; see [curve composition and rollover](examples/curve-composition-rollover.md).
-The current implementation has not yet gained these operators or listing rules.
+Custom curves already implement explicit prompt selection and a daily-forward
+remaining-month mean. The proposed splice composition and listing-window rule
+remain separate work; see [custom curves](custom-curves.md).
 
 ### Detailed storage proposal
 
 The diagram and contract-owned point shape below cover the commodity-curve branch.
-Yield/discount points require an explicitly typed non-contract representation,
-which remains to be qualified; do not create fictional MarketContracts for them.
+Yield/discount points use an explicitly typed non-contract representation in the
+implemented zero-rate model. The broader storage projection here must preserve
+that separation; do not create fictional MarketContracts for them.
 
 Make dated market contracts first-class entities. A curve is a cross-section of
 their resolved values under one context; selecting a constituent opens that
@@ -186,8 +194,9 @@ RefKey applies only to code-keyed definition tables. Relationship tables use
 their actual composite keys above; there is no fictional code column for a
 conversion, calendar override, milestone or evidence link. Every child must match
 the parent's market catalog; every reference binding must match its declared
-reference revision. A market catalog is a namespace, not an implemented security
-boundary. A selected market model uses one coherent reference revision initially.
+reference revision. Market catalogs are namespaces with explicit workspace
+ownership and forced row-level authorization in the implemented security model.
+A selected market model uses one coherent reference revision initially.
 Mixing incompatible reference revisions is rejected rather than selecting latest.
 
 Internal SQL primary/unique/foreign keys enforce identity and scope/version
@@ -200,7 +209,8 @@ economic compatibility, current authority, source entitlement or publication.
 History publication retains effective_from/effective_to and known_from/known_to
 semantics from [context.md](context.md). They must be assigned under the qualified
 publication protocol, not fabricated from import or row-creation timestamps.
-Proposed identities/version links do not solve that still-open protocol.
+The bounded certified publication/context resolver is implemented as described
+there. Proposed identities/version links alone do not extend its qualified scope.
 
 ## 3. Reference-data specifications
 
@@ -553,7 +563,8 @@ These equal initial numbers have different declared dependencies. A synthetic
 base bump of +0.10 TST/EA produces dependent location 3.30 and direct location
 3.20; a bump of the direct location factor affects only its explicit consumers.
 Those are curve-value expectations, not instrument PV or risk-allocation results.
-Once instruments exist, their deterministic base/up/down PVs determine exposure.
+Supported instrument consumers use deterministic base/up/down valuations to
+determine exposure; the shared implementation is described in [risk-engine.md](risk-engine.md).
 
 The example's later base correction is a separate observation revision. An older
 snapshot pins the original; a corrected snapshot explicitly pins the correction.

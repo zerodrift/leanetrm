@@ -66,6 +66,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
     check('isolated hosted authentication and browser', [*preview, '--hosted-check', '--browser-check', '--browser', str(browser)])
     check('isolated jobs and infrastructure browser', [*preview, '--jobs-check', '--browser-check', '--browser', str(browser)])
     check('isolated reference metadata editor',[*preview,'--reference-check','--browser-check','--browser',str(browser)])
+    check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)])
     check('mixed-period preview', [*preview, '--example', 'mixed-gas'])
     print('All synthetic verification suites passed.', flush=True)
 

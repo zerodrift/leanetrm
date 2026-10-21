@@ -1,10 +1,14 @@
 # Identity and authorization foundation
 
 Status: current security persistence, seven role templates and PostgreSQL RLS are
-implemented locally and tested in disposable resources. Credential verification,
-production sign-in and credential lifecycle are not yet implemented. Workspace
-administration and atomic durable access audit now exist in the owned preview. The runnable market workbench is explicitly loopback-only with simulated
-test identities; see the [preview boundary](implementation.md#disposable-local-market-workbench).
+implemented locally and tested in disposable resources. The private pilot has
+invited human accounts, authenticated sessions and session revocation; see
+[hosted authentication](hosted-pilot.md). Workspace administration and atomic
+durable access audit are implemented. The disposable local preview uses simulated
+test identities and is loopback-only; see the
+[preview boundary](implementation.md#disposable-local-market-workbench).
+External authentication integrations, broader credential lifecycle and production
+qualification remain work.
 
 ## Principals and login kinds
 
@@ -15,8 +19,9 @@ credential/login binding. IDs, display names and model-generated claims are not
 credentials. Principal identity/kind cannot be edited in place.
 
 The authentication adapter must verify signature/credentials, issuer, audience,
-expiry and permitted login flow before supplying verified claims. Issuance,
-rotation, session management and credential revocation integration remain work;
+expiry and permitted login flow before supplying verified claims. Invited human
+login and password-reset flows are implemented in the private pilot. General
+service/agent credential issuance and rotation remain work;
 credential rotation should preserve principal identity. Never log raw credentials
 or capability tokens. There are no seeded users, passwords, grants or universal
 administrator accounts in the migrations. The owned disposable preview fixture
@@ -57,8 +62,9 @@ Viewer and Access Administrator have no implicit trading read. Current scope is
 workspace-wide, with no per-book exceptions. Historical inputs never restore old
 permissions, and denied reads clear displayed holdings while preserving uncertain
 request identities. Latest-head booking amendments require current AmendTrade
-authority and expected-revision concurrency. Generic valuation and financial
-publication remain future operations. Storage sealing is not financial approval
+authority and expected-revision concurrency. Supported swap PV, futures execution
+P&L and risk operations have current permission checks; full settlement PV and
+financial approval workflows remain work. Storage sealing is not financial approval
 or publication. Maker/checker approval rules remain part of those future commands.
 
 Role assignments bind exact tenant/workspace scopes and half-open UTC intervals.
@@ -246,17 +252,18 @@ path; the application cannot guarantee its own availability during maintenance.
 
 ## Remaining integration gates
 
-1. Implement verified authentication and protected capability exchange on separate
-   trusted authenticator/runtime connections; never expose arbitrary SQL or accept
+1. Qualify additional authentication integrations beyond the invited-human pilot.
+   Preserve separate trusted authenticator/runtime connections and protected
+   capability exchange; never expose arbitrary SQL or accept
    principal IDs, scopes, times or login-kind claims directly from clients/agents.
-2. Load actual resource ownership and current grants into authorized operations;
-   align database and managed authorization and commit business/audit writes.
-3. Integrate initial-admin provisioning, verified identity linking, credential
-   lifecycle, delegation authoring and any additional approval policy. The current
-   preview admin commands manage six fixed roles; `ManageAccess` does not permit
+2. Extend the existing resource ownership, current-grant and atomic audit checks
+   to each newly supported business operation.
+3. Extend operator-provisioned invitations and bounded agent grants with broader
+   identity linking, credential lifecycle and any additional approval policy. The
+   preview admin commands manage the six human role templates; `ManageAccess` does not permit
    arbitrary SQL, role editing, credential issuance or cross-workspace elevation.
-4. Add end-to-end credential lifecycle, request deadlines, job-phase reauthorization,
-   capability cleanup and migration/operational role provisioning.
+4. Qualify credential lifecycle, capability cleanup and operational role
+   provisioning beyond the bounded implemented request and worker paths.
 
 The managed evaluator still cannot authenticate caller-supplied state/time/scope;
 those are trusted server inputs. The SQL fence protects database transactions,
@@ -318,7 +325,7 @@ commit together. Last-admin removal and self-removal of administrative rights ar
 rejected. Retrying an uncertain browser request uses its original identity; an
 unknown response never becomes proof of rollback. UI caches clear on denied reload.
 
-Authentication remains simulated and restricted to loopback. Preview registration
+Local-preview authentication remains simulated and restricted to loopback. Preview registration
 binds only the invalid synthetic issuer; it must not be exposed as real signup.
 No migration installs users, credentials, grants, memberships or a default admin.
 Upgrading an existing grant installation requires verified membership mappings;
@@ -363,6 +370,29 @@ cluster admission serializes workload launch and maintenance; prepared unremoved
 work prevents maintenance, including uncertain outcomes. The controller has
 privileged mTLS manager access; image processes receive no credentials. This is
 not full agent credential exchange or qualified hostile-code isolation.
+
+## Durable risk execution boundary
+
+[Risk jobs](risk-engine.md) retain their initiating actor, tenant/workspace,
+delegation, financial context, input pins and engine identity. Submission requires
+current scenario, trade and market-read authority. The owner discovers, reads and
+cancels jobs through the same API boundary; a retained context never grants access.
+Result reads and downloads reauthorize the original scope. Reusing a request
+identity with changed inputs conflicts; an uncertain admission retains that identity
+for reconciliation.
+
+Migration 0073 adds a registry binding each worker's actual database login and
+service principal to one catalog. The `openetrm_risk_worker` role has narrow read grants and forced
+RLS under the retained job context; it has no runtime/authenticator membership,
+table ownership or RLS bypass. Worker and initiating-actor authority are both
+checked. Expiring leases, claim tokens and the security epoch fence publication.
+Input reads finish before managed calculation, and the final transaction rechecks
+authority, lease and cancellation before publishing one complete result.
+
+Cancellation requested remains distinct from confirmed termination. A worker that
+loses its lease cannot publish; physical work may still need to stop. Whole jobs
+can be claimed by separate workers. The Swarm template is an operator deployment
+input, not evidence of production capacity or a qualified cluster installation.
 
 ## Page-assistant provider administration
 

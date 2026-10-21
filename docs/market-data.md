@@ -59,6 +59,14 @@ market context, rebuild affected curve dependencies and invoke the affected
 instrument/side PV implementations. Retain base, up and down PVs. Finite
 differences use those actual results and the explicit bump convention.
 
+The [implemented risk engine](risk-engine.md) also composes immutable child
+scenarios: each signed absolute quote shift applies to its parent, and discarding
+a child leaves its parent and siblings intact. Risk under stress evaluates the
+stressed base and its up/down children. Immediate futures calculations and durable
+jobs use the same retained financial context; queued work keeps its original
+effective date, knowledge cutoff and exact observations when the UI date changes.
+Rates, volatility and arbitrary pricing-parameter shocks remain unsupported.
+
 **Identical pinned inputs, scenario, model versions and numerical policy must
 produce identical outputs.** Ordinary shock repricing has no random outcome,
 hidden sampling, wall clock, current-data lookup or execution-order-dependent
@@ -72,7 +80,10 @@ can produce zero delta at a particular context; it still remains a dependency.
 An explicit formula within a supported curve recipe is an economic transformation,
 not permission to infer a risk-allocation model.
 
-Quantity reuse is allowed only under its separately validated scaling contract.
+In the implemented shared valuation contract, instruments own unit values and
+books apply each trade binding's external quantity. Reuse requires identical
+economic inputs, model versions and compatible full context; market linearity
+does not establish reuse eligibility.
 Future analytical accelerators must preserve the authoritative repricing result
 under their explicitly supported domain; they cannot invent a dependency or risk
 attribution. Future VaR models may describe uncertain markets, while data selection
@@ -148,8 +159,11 @@ bindings. Eight saved market dates span mid-month through the following month-en
 The test includes a separately available expired monthly final and proves it does
 not fill a missing BALMO benchmark. The forward portion now has an isolated
 database/API/browser fixture with exact per-date selections and explicit history
-gaps. It is not a qualified index-settlement/publication resolver. Unequal-period projection,
-averaging, weighting and fixing calculations remain explicit future extensions.
+gaps. That fixture is not a settlement/publication resolver. Separately supported
+consumers now include custom-curve exact means, interval block shaping and
+actual/projected index-fixing valuation; see [implementation](implementation.md).
+Those named contracts do not enable arbitrary unequal-period mappings or infer
+fixing/weighting rules for this mixed-resolution definition.
 
 ## Acceptance before market-data implementation is enabled
 

@@ -19,8 +19,14 @@ without a seven-figure implementation.
 - **Curves:** futures, gas and power forwards, basis and interest rates, built from
   explicitly selected prices, with a diagram showing which inputs built each
   contract's price
-- **P&L and risk:** futures execution P&L and projected swap PV, plus shared price
-  shocks that revalue open futures positions with exact delta and gamma
+- **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
+  and remaining projections. Shared quote scenarios produce exact delta and gamma;
+  generated-close jobs retain mixed futures-and-swaps reports
+- **Risk jobs:** temporary nested quote stresses, risk around the stressed market,
+  and queued futures runs pinned to the header's financial context, with retained
+  results and cancellation; see [the risk engine](docs/risk-engine.md)
+- **Monthly strips:** managed multi-year swap pricing with explicit monthly
+  quantity allocation and payment discounting; persistent multi-year booking remains work
 - **Blotter:** filters, pivots, saved views, charts and exports
 - **Interval series:** audited per-interval values on any market clock (price shapes,
   capacity-factor forecasts, metered energy) with CSV import, corrections, a change
@@ -36,12 +42,17 @@ without a seven-figure implementation.
   and AI agents as separate principals; agent actions require an explicit delegation
 - **Private pilot mode:** invited user accounts and scheduled PJM and ERCOT day-ahead
   and real-time price collection; see [private pilot operations](docs/hosted-pilot.md)
+- **Page assistant:** bounded delegated reads, recorded conversations, provider
+  configuration and usage accounting in the local preview; see
+  [the assistant's implemented scope](docs/ai-assistant.md)
 
 ## What's not built yet
 
-Daily settlement, actual swap fixings, recurring payment strips, swap risk, futures
-PV and variation margin, options, physical forwards, VaR, production sign-in, agent
-credentials and the in-app AI assistant ([design](docs/ai-assistant.md)). See the
+Daily settlement and fixing lifecycle operations, persisted recurring payment
+strips, interactive portfolio swap risk, full futures PV and variation margin,
+options, physical forwards, VaR, broader agent credential lifecycle and production
+qualification remain work. The interactive risk screen and its queued runs cover
+futures; generated-close reports have a separate mixed-product consumer. See the
 [delivery plan](docs/plan.md). If you want to help with any of these, start with
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -88,6 +99,7 @@ existing database.
 - [Schedules and contract sequences](docs/schedules-and-contract-sequences.md)
 - [Power example and its limits](docs/power-preview.md)
 - [Risk calculation benchmark](docs/risk-benchmark.md)
+- [Nested market scenarios and durable risk jobs](docs/risk-engine.md)
 - [Identity, agent login kinds and authorization](docs/security.md)
 - [Reference schema and disposable verification](db/README.md)
 

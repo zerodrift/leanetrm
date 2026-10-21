@@ -69,6 +69,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--assistant-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--unit-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--exchange-check' in command and '--browser-check' in command for command in commands))
+        self.assertTrue(any('--risk-jobs-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('mixed-gas' in command for command in commands))
         self.assertTrue(any('--hosted-check' in command and '--browser-check' in command for command in commands))
 
