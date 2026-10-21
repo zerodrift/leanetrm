@@ -590,3 +590,47 @@ Three definer operations make up the protocol:
 Nothing is seeded but the generation row, at 0. The migration first verifies the helpers
 it relies on. As a new migration it stops automatic hosted updates until the operator
 qualifies a new baseline (D135).
+
+## Audited interval series
+
+[0064_interval_series.sql](migrations/0064_interval_series.sql) stores one value per UTC
+interval with immutable revisions ([ppa-design.md](../docs/ppa-design.md) §5, phase A).
+`market_data.interval_series` defines a series by its kind and one exact specification in a
+sealed reference revision:
+- `additive_price_shape`: a quote specification;
+- `multiplicative_price_shape`: a dimensionless value specification;
+- `capacity_factor_forecast`: a value specification;
+- `metered_energy`: a quantity specification of the energy dimension.
+
+A series also pins its clock and a resolution of 5, 15, 30 or 60 minutes. A definition whose
+specification or clock does not meet these rules is refused with `interval_series_definition`
+(SQLSTATE 23514). Owner bindings, a curve for shapes and an asset for volumes, belong to later
+phases.
+
+Each revision in `market_data.interval_series_revisions` is a delta of at most 750,000
+intervals and records its actor, reason and request identity. Its rows in
+`market_data.interval_series_values` set the intervals it names, keyed by exact UTC start; a
+null value withdraws one. Every revision is certified on the shared knowledge gate:
+`security.capture_date_context` records its commit time as its `known_from` in
+`market_data.interval_series_knowledge_receipts`. All five tables are immutable, for the owner
+too, and runtime reads them only under current market access and, for a series and its
+revisions and values, the series' exact reference version.
+
+Four definer operations make up the contract. Each needs a current, non-historical context and
+refuses without current authority with `interval_series_denied` (SQLSTATE 42501):
+- **`define_interval_series`** needs `WriteMarketDefinitions` and refuses a malformed or used
+  code with `interval_series_code`.
+- **`append_interval_series_revision`** needs `ImportObservations`. A retried request returns
+  its original receipt, and a changed one is refused with `interval_series_conflict`. It refuses
+  a stale expected revision with `interval_series_revision_conflict` and, writing nothing, any
+  interval of another duration, starting inside another, or holding a non-canonical or
+  out-of-bounds value with `interval_series_values`. It rechecks current authority after its
+  writes.
+- **`read_interval_series`** returns each interval's value in the latest revision known at an
+  explicit cutoff, with that head revision.
+- **`interval_series_changes`** returns each change with its previous value, actor, reason and
+  knowledge time, and a summary per revision, at most 100,000 rows.
+
+Both reads take a whole number of intervals, at most 35,136, and a cutoff no later than now, and
+refuse anything else with `interval_series_window`. As a new migration it stops automatic hosted
+updates until the operator qualifies a new baseline (D135).

@@ -30,6 +30,7 @@ def main():
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
     parser.add_argument('--power-actual-check',action='store_true',help='Qualify exact collected-price interval settlement sources')
+    parser.add_argument('--interval-series-check',action='store_true',help='Qualify audited interval series storage and API')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
@@ -55,7 +56,7 @@ def main():
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
     fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check
-    if args.power_actual_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.power_actual_check or args.interval_series_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -211,6 +212,9 @@ def main():
         if args.power_actual_check:
             from check_power_actual_storage import run_checks as check_power_actual_storage
             check_power_actual_storage(query,manifest)
+        if args.interval_series_check:
+            from check_interval_series_storage import run_checks as check_interval_series_storage
+            check_interval_series_storage(query,manifest)
         if args.index_fixing_check:
             from check_index_fixing_upgrade import run_checks as check_index_fixing_upgrade
             check_index_fixing_upgrade(query,psql,env,ROOT)
