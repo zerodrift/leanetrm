@@ -55,6 +55,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
     check('published index fixing price and risk', [*preview, '--index-fixing-check'])
     check('mapped collected power interval settlement', [*preview, '--power-actual-check'])
     check('audited interval series', [*preview, '--interval-series-check', '--browser-check', '--browser', str(browser)])
+    check('interval curves, block shaping and resolution', [*preview, '--interval-curves-check', '--browser-check', '--browser', str(browser)])
     check('standard futures execution policies', [*preview, '--execution-check'])
     check('shared contract-date library', [*preview, '--contract-dates-check', '--browser-check', '--browser', str(browser)])
     check('stored mixed portfolio valuation and swap risk', [*preview, '--swap-risk-holdings-check'])

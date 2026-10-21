@@ -11,6 +11,7 @@
       <button id="nav-custom-curves" class="nav-item" aria-label="Custom curves" title="Custom curves"><span class="nav-icon" aria-hidden="true">⌘</span><span class="nav-text">Custom curves</span></button>
       <button id="nav-delivery" class="nav-item" aria-label="Delivery prices" title="Delivery prices"><span class="nav-icon" aria-hidden="true">≋</span><span class="nav-text">Delivery prices</span></button>
       <button id="nav-interval-series" class="nav-item" aria-label="Interval series" title="Interval series"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20v-6M9 20V8M14 20v-9M19 20V4"/></svg></span><span class="nav-text">Interval series</span></button>
+      <button id="nav-interval-curves" class="nav-item" aria-label="Interval curves" title="Interval curves"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17l4-5 4 3 4-7 4 4"/></svg></span><span class="nav-text">Interval curves</span></button>
     </nav></details>
     <button id="nav-jobs" class="nav-item" aria-label="Jobs & Infrastructure" title="Jobs & Infrastructure"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-text">Jobs &amp; Infrastructure</span></button>
     <details id="settings-menu" class="nav-group" open><summary>Settings</summary><nav aria-label="Settings">
@@ -56,6 +57,15 @@
       <div id="interval-series-pending" class="mode-banner" hidden><p>The save outcome is unconfirmed. Retry the original request, or inspect the change log before discarding it.</p><button id="interval-series-retry" type="button">Retry original save</button><button id="interval-series-discard" type="button" class="secondary">Discard request after checking</button></div>
       <p id="interval-series-saved" role="status"></p></div>
     <div class="card"><h3>Change log</h3><p class="field-help">The revisions known at the chosen time that changed intervals in this window, and each interval they changed.</p><h4>Revisions</h4><div id="interval-series-revisions" class="table-wrap"></div><h4>Intervals</h4><div id="interval-series-changes" class="table-wrap"></div></div>
+  </section>
+  <section id="interval-curves-page" hidden aria-label="Interval curves">
+    <div class="card"><div class="card-heading"><div><h2>Interval curves</h2><p>Hourly and sub-hourly prices for the selected market date: marked directly, shaped from block marks, or resolved against collected actuals.</p></div></div>
+      <form id="interval-curves-form"><fieldset id="interval-curves-window"><label for="interval-curves-select">Curve</label><select id="interval-curves-select" required></select><p id="interval-curves-summary" class="field-help"></p>
+        <div class="schedule-fields three"><div><label for="interval-curves-from">From · <span data-user-time-zone></span></label><input id="interval-curves-from" type="datetime-local" step="60" required></div><div><label for="interval-curves-to">To · <span data-user-time-zone></span></label><input id="interval-curves-to" type="datetime-local" step="60" required></div><div><label for="interval-curves-known">Known at · <span data-user-time-zone></span></label><input id="interval-curves-known" type="datetime-local" step="1" required></div></div>
+        <div class="schedule-fields"><label class="ai-none"><input id="interval-curves-resolve" type="checkbox"> Resolve delivered intervals to collected actuals</label><div><label for="interval-curves-aggregate">Aggregate</label><select id="interval-curves-aggregate"><option value="">Native intervals only</option><option value="hour">Each local hour</option><option value="day">Each operating day</option></select></div></div>
+        <p class="field-help">From and To are interval boundaries on the curve's clock, at most 35,136 intervals apart; the interval starting at To is not included. Known at applies to shapes and collected actuals; marks come from the selected market date.</p><button type="submit">Show prices</button></fieldset></form>
+      <p id="interval-curves-note" class="muted" role="status"></p><div id="interval-curves-chart" class="chart"></div><div id="interval-curves-values" class="table-wrap"></div>
+      <p id="interval-curves-lineage" role="status"></p><div id="interval-curves-aggregates" class="table-wrap"></div></div>
   </section>
   <section id="market-page" aria-label="Market data">
     <div class="market-layout"><section id="curve-library" class="curve-library" aria-label="Choose a curve">

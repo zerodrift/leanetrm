@@ -12,7 +12,10 @@ public sealed record ClockChoice(ClockReference Reference,string Kind,int? Fixed
     public ClockRule Rule => new(Reference.Code,Kind,FixedOffsetSeconds,IanaZone,TzdbVersion);
 }
 public sealed record TouProductVersion(Guid Id,string Code,int Version,int Generation,string State,string Name,ClockReference Clock,
-    int PeakStartHour,int PeakEndHour,bool PeakSaturday,int? PublicationOrder,DateTimeOffset? PublishedAt);
+    int PeakStartHour,int PeakEndHour,bool PeakSaturday,int? PublicationOrder,DateTimeOffset? PublishedAt)
+{
+    [System.Text.Json.Serialization.JsonIgnore] public TouPeak Peak=>new(PeakStartHour,PeakEndHour,PeakSaturday);
+}
 public sealed record TouProductSaveRequest(Guid? Id,int? Version,int? Generation,string? ExpectedState,string? Code,string? Name,
     ClockReference? Clock,int? PeakStartHour,int? PeakEndHour,bool? PeakSaturday);
 public sealed record TouProductPublishRequest(Guid Id,int Version,int Generation);

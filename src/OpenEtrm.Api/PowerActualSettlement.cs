@@ -69,11 +69,11 @@ public static class PowerActualSettlement
         var history=await PowerHistory.ReadPrices(connection,sourceId,fullDay[0].Start,fullDay[^1].End,cutoff,ct);
         // Require a fully collected native day before selecting the contract's
         // mask. Neither a partial day nor a forward quote fills a missing actual.
-        if(history.Rows.Length!=fullDay.Length || history.Rows.Select(r=>r.Start).Distinct().Count()!=history.Rows.Length)
-            throw new MarketDataException("settlement_coverage","The physical source does not completely cover this operating day at the selected knowledge cutoff.");
-        var prices=history.Rows.ToDictionary(r=>r.Start);
-        if(fullDay.Any(p=>!prices.TryGetValue(p.Start,out var row)||row.End!=p.End||row.KnownAt>cutoff))
-            throw new MarketDataException("settlement_coverage","Delivery observations must match every exact native UTC interval and the selected cutoff.");
+        const string incomplete="The physical source does not completely cover this operating day at the selected knowledge cutoff.";
+        const string mismatched="Delivery observations must match every exact native UTC interval and the selected cutoff.";
+        if(history.Rows.Length!=fullDay.Length)throw new MarketDataException("settlement_coverage",incomplete);
+        var prices=IntervalAlignment.Align(fullDay,history.Rows,r=>r.Start,r=>r.End,"settlement_coverage",incomplete,mismatched);
+        if(history.Rows.Any(r=>r.KnownAt>cutoff))throw new MarketDataException("settlement_coverage",mismatched);
         var input=data.References["quantity_specifications"].SingleOrDefault(q=>new ReferenceKey(data.ReferenceRevision,q.Text("code"))==body.QuantitySpecification);
         if(input.ValueKind==JsonValueKind.Undefined || body.QuantityBasis switch
             {"interval_power"=>input.Text("unit_code")!="megawatt" || input.Text("dimension_code")!="power",

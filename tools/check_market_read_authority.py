@@ -3,8 +3,8 @@ import json
 from uuid import UUID
 
 
-TABLES = ('constituent_mappings','contracts','curve_inputs','curve_members','curves',
-          'observations','rate_curve_points','rate_curves','revision_periods','revisions','series')
+TABLES = ('constituent_mappings','contract_intervals','contracts','curve_actual_rules','curve_blocks','curve_inputs','curve_members','curves',
+          'observations','rate_curve_points','rate_curves','revision_periods','revisions','series','shaped_curve_blocks','shaped_curves')
 
 
 def run_checks(query, manifest):
@@ -40,8 +40,8 @@ def run_checks(query, manifest):
           rows == access == visibility == 30)
 
     tables = ','.join("'"+name+"'" for name in TABLES)
-    check('eleven read policies retain the exact restrictive temporal barrier and FORCE RLS',query(f"""
-      SELECT count(*)=11 AND bool_and(p.permissive='PERMISSIVE' AND p.roles=ARRAY['openetrm_runtime']::name[]
+    check('sixteen read policies retain the exact restrictive temporal barrier and FORCE RLS',query(f"""
+      SELECT count(*)=16 AND bool_and(p.permissive='PERMISSIVE' AND p.roles=ARRAY['openetrm_runtime']::name[]
        AND p.cmd='SELECT' AND p.qual='true' AND p.with_check IS NULL
        AND t.permissive='RESTRICTIVE' AND t.roles=p.roles AND t.cmd='SELECT' AND t.with_check IS NULL
        AND t.qual=CASE p.tablename

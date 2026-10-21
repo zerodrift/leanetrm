@@ -57,7 +57,10 @@ public sealed class PowerClock
 public sealed record ClockRule(string Code,string Kind,int? FixedOffsetSeconds,string? IanaZone,string? TzdbVersion);
 
 public sealed record PowerInterval(DateTimeOffset Start, DateTimeOffset End, DateOnly OperatingDate,
-    int HourBeginning, int HourEnding, int Minute, int OffsetMinutes, int Occurrence, bool Holiday);
+    int HourBeginning, int HourEnding, int Minute, int OffsetMinutes, int Occurrence, bool Holiday)
+{
+    public DeliveryInterval Delivery => new(Start, End, OperatingDate, HourBeginning, Minute, Occurrence);
+}
 
 public static class PowerHours
 {

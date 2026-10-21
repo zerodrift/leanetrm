@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
@@ -9,6 +10,9 @@ if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();r
 if(args is ["--snapshot-inputs"]){SnapshotInputChecks.Run();return;}
 if(args is ["--power-interval-quantities"]){PowerIntervalQuantityChecks.Run();return;}
 if(args is ["--interval-series"]){IntervalSeriesChecks.Run();return;}
+if(args is ["--interval-curves"]){IntervalCurveChecks.Run();return;}
+if(args is ["--block-shaping"]){BlockShapingChecks.Run();return;}
+if(args is ["--interval-pricing"]){IntervalPricingChecks.Run();return;}
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
 if(args is ["--index-fixings"]){IndexFixingChecks.Run();return;}
@@ -379,6 +383,9 @@ passed += PilotCloseChecks.Run();
 passed += PowerQuantityChecks.Run();
 passed += PowerIntervalQuantityChecks.Run();
 passed += IntervalSeriesChecks.Run();
+passed += IntervalCurveChecks.Run();
+passed += BlockShapingChecks.Run();
+passed += IntervalPricingChecks.Run();
 passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();
 passed += FuturesChecks.Run();
 passed += ExchangeFuturesChecks.Run();
@@ -433,6 +440,14 @@ sealed class Fixture
             Direct("power_basis", K(5), R("power_basis"), SettlementKind.IndexDifference),
             Add("local_power", 5, "power_out", "hub_power", 4, "power_basis")];
     }
+    // An interval labelled from its own local time on the zone's clock; occurrence 2 is the second pass through a repeated hour.
+    public static DeliveryInterval Interval(TimeZoneInfo zone, DateTimeOffset start, int minutes, int occurrence = 1)
+    {
+        var local = TimeZoneInfo.ConvertTime(start, zone);
+        return new(start, start.AddMinutes(minutes), DateOnly.FromDateTime(local.DateTime), local.Hour, local.Minute, occurrence);
+    }
+    public MarketContract IntervalContract(int n, DeliveryInterval interval) =>
+        new(K(n), ContractKind.Forward, interval.OperatingDate, interval.OperatingDate.AddDays(1), interval.End, null, interval);
     public CurveInput Input(string source, ContractKey target, ContractKey contract, InputSlot slot) =>
         new(slot, C(source), SourceExpiryRule.RequireLive, [new(target, contract)]);
     public Curve Direct(string code, ContractKey member, ReferenceKey quote, SettlementKind settlement) =>
@@ -463,4 +478,20 @@ sealed class Fixture
          Select(3, QuoteKind.Basis, "gas_basis", "0.2"), Select(4, QuoteKind.Basis, "power_basis", "4"), Select(5, QuoteKind.Basis, "power_basis", "2"),
          new(new(S(6), InputUse.Variable), new(new(Revision.CatalogId, Guid.NewGuid()), S(6), R("source"), ObservationRole.Parameter,
              PublicationState.Final, Utc("2040-12-18T00:00:00Z"), ExactDecimal.Parse("7")))]);
+}
+
+// An exact test-side rational, independent of the implementation's arithmetic.
+internal readonly record struct Fraction
+{
+    public BigInteger Numerator { get; }
+    public BigInteger Denominator { get; }
+    public Fraction(BigInteger numerator,BigInteger denominator)
+    {
+        if(denominator<0){numerator=-numerator;denominator=-denominator;}
+        var gcd=BigInteger.GreatestCommonDivisor(BigInteger.Abs(numerator),denominator);
+        Numerator=numerator/gcd;Denominator=denominator/gcd;
+    }
+    public static Fraction operator +(Fraction a,Fraction b)=>new(a.Numerator*b.Denominator+b.Numerator*a.Denominator,a.Denominator*b.Denominator);
+    public static Fraction operator -(Fraction a,Fraction b)=>new(a.Numerator*b.Denominator-b.Numerator*a.Denominator,a.Denominator*b.Denominator);
+    public static Fraction operator *(Fraction a,Fraction b)=>new(a.Numerator*b.Numerator,a.Denominator*b.Denominator);
 }

@@ -32,23 +32,13 @@ public static class PowerSettlement
             throw new MarketDataException("settlement_index","Every index specification and classification is required.");
         if(periods is null || rows is null || periods.Length==0 || periods.Length>110000 || rows.Length!=periods.Length || periods.Any(p=>p is null) || rows.Any(r=>r is null))
             throw new MarketDataException("settlement_coverage","Supply exactly one fixing per selected interval.");
-        var result=new Dictionary<DateTimeOffset,PowerFixing>();
         foreach(var row in rows)
-        {
             if(row.Index!=index)throw new MarketDataException("settlement_index","Fixings must share the exact selected index, units and classifications.");
-            if(row.Start.Offset!=TimeSpan.Zero||row.End.Offset!=TimeSpan.Zero||row.End<=row.Start||!result.TryAdd(row.Start,row))
-                throw new MarketDataException("settlement_coverage","Fixing intervals must be distinct, ordered UTC boundaries.");
+        var result=IntervalAlignment.Align(periods,rows,r=>r.Start,r=>r.End,"settlement_coverage",
+            "Fixing intervals must be distinct, ordered UTC boundaries.","Fixings must cover the selected UTC intervals without overlap.");
+        foreach(var row in rows)
             if(row.Components is {} c && c.Energy+c.Congestion+c.Loss!=row.Total)
                 throw new MarketDataException("lmp_components","LMP components must sum exactly to the total.");
-        }
-        PowerInterval? previous=null;
-        foreach(var period in periods.OrderBy(p=>p.Start))
-        {
-            if(period.Start.Offset!=TimeSpan.Zero||period.End.Offset!=TimeSpan.Zero||period.End<=period.Start||
-                previous is {} prior&&prior.End>period.Start || !result.TryGetValue(period.Start,out var fixing)||fixing.End!=period.End)
-                throw new MarketDataException("settlement_coverage","Fixings must cover the selected UTC intervals without overlap.");
-            previous=period;
-        }
         return result;
     }
     public static PowerQuantitySettlement Calculate(PowerQuantitySchedule schedule,PowerFixing[] rows,PowerIndex index,PowerSettlementPolicy policy)

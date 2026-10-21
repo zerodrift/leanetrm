@@ -34,9 +34,14 @@ public sealed record QuoteSpecification(
 public sealed record SettlementTarget(
     SettlementKind Kind, ReferenceKey? IndexA, ReferenceKey? IndexB);
 
+// An exact UTC delivery interval with the market clock's operating date and local labels;
+// Occurrence tells the two copies of a repeated local hour apart.
+public sealed record DeliveryInterval(DateTimeOffset Start, DateTimeOffset End, DateOnly OperatingDate,
+    int HourBeginning, int Minute, int Occurrence);
+
 public sealed record MarketContract(
     ContractKey Key, ContractKind Kind, DateOnly DeliveryFrom, DateOnly DeliveryTo,
-    DateTimeOffset Expiry, ReferenceKey? FuturesSeries);
+    DateTimeOffset Expiry, ReferenceKey? FuturesSeries, DeliveryInterval? Interval = null);
 
 // Resolved from the exact dated series/product/milestone reference links. This
 // preserves the authoritative specification when constructing an in-memory model.

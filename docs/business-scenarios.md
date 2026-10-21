@@ -235,6 +235,12 @@ interval is finally fixed at 40; second remains a forward mark of 60.
 
 This uses the same fixed/variable input and scenario mechanism as gas, with power
 interval/quantity definitions. It is a planned settlement/pricer test, not current PV.
+Status (D174): verified at the interval-price level. The fixed and marked intervals
+value at 0, a +1 mark shock gives +10 with the fixed interval unchanged, an ended
+interval before its due actual is unresolved, a due missing actual is refused, a
+day-ahead actual known before its hour is used, an actual published after the
+valuation instant never prices an interval still live then, and a later correction
+appears only at a later knowledge time. Sides, cash and payment remain phases C and D.
 
 ### PWR02 — Subhourly quantities, clocks and TOU
 
@@ -248,8 +254,12 @@ interval/quantity definitions. It is a planned settlement/pricer test, not curre
   the user's display zone changes none of these amounts or TOU membership.
 - Peak/off-peak membership comes from the selected versioned calendar/profile.
   Mixed peak/off-peak or incomplete hourly coverage cannot silently form a full block.
-- Exact UTC-grid duration/DST primitives are already tested in Shared. The above
-  rate-to-energy and complete power-curve/settlement integration remains planned.
+- Exact UTC-grid duration/DST primitives are already tested in Shared. Status
+  (D174): the rate-to-energy cases above are verified by managed checks (5- and
+  30-minute intervals, 23-, 24- and 25-hour days and a fixed-offset day), and
+  peak/off-peak blocks come from published TOU versions, with incomplete or
+  overlapping coverage refused. Complete power-curve/settlement integration
+  remains planned.
 
 ### PWR03 — Price identity, components and averaging
 

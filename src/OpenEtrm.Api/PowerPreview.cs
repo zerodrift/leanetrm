@@ -23,14 +23,13 @@ public sealed record PowerPreviewRequest(Guid SnapshotId,string Curve,Guid Contr
 public static class PowerPreview
 {
     // A published TOU product version with its resolved clock rule.
-    public sealed record Product(string Code,string Name,int Version,ClockRule Clock,int Start,int End,bool Saturday);
+    public sealed record Product(string Code,string Name,int Version,ClockRule Clock,TouPeak Peak);
     // Products whose clock is outside this workspace's reference data are listed as unavailable, never dropped silently.
     public sealed record ProductSet(ImmutableArray<Product> Available,ImmutableArray<TouProductVersion> Unavailable);
     public static ProductSet Products(IEnumerable<TouProductVersion> published,IReadOnlyCollection<ClockChoice> clocks)
     {
         var resolved=published.Select(v=>(Version:v,Clock:clocks.SingleOrDefault(c=>c.Reference==v.Clock))).ToArray();
-        return new([..resolved.Where(r=>r.Clock is not null).Select(r=>new Product(r.Version.Code,r.Version.Name,r.Version.Version,r.Clock!.Rule,
-            r.Version.PeakStartHour,r.Version.PeakEndHour,r.Version.PeakSaturday))],[..resolved.Where(r=>r.Clock is null).Select(r=>r.Version)]);
+        return new([..resolved.Where(r=>r.Clock is not null).Select(r=>new Product(r.Version.Code,r.Version.Name,r.Version.Version,r.Clock!.Rule,r.Version.Peak))],[..resolved.Where(r=>r.Clock is null).Select(r=>r.Version)]);
     }
     // Engine capabilities, not reference data: the supported mask blocks, grids and labels.
     private static readonly (string Code,string Name)[] Blocks=[("all","All hours"),("peak","On-peak"),("off","Off-peak")];
@@ -38,13 +37,15 @@ public static class PowerPreview
     private static readonly (string Code,string Name)[] HourLabels=[("HE","Hour ending · HE"),("HB","Hour beginning · HB")];
     // Suggested index classification labels; any explicit label up to 40 characters is accepted.
     private static readonly string[] PriceTypes=["Test","Official"],Timings=["End of day","Intraday"];
-    private static TimeOfUse Mask(Product p,string block,int minutes) => block switch
+    // The stored and requested TOU memberships: all hours, on-peak or off-peak.
+    internal static BlockMembership Membership(string block) => block switch
     {
-        "all"=>TimeOfUse.All(minutes),
-        "peak"=>TimeOfUse.WeekdayBlock(minutes,p.Start,p.End,p.Saturday),
-        "off"=>TimeOfUse.WeekdayBlock(minutes,p.Start,p.End,p.Saturday).Complement(),
+        "all"=>BlockMembership.All,
+        "peak"=>BlockMembership.Peak,
+        "off"=>BlockMembership.OffPeak,
         _=>throw new MarketDataException("tou_grid","Choose all hours, on-peak or off-peak.")
     };
+    private static TimeOfUse Mask(Product p,string block,int minutes) => IntervalBlocks.Mask(Membership(block),minutes,p.Peak);
     // The one explicitly bound settlement index for a contract: the curve's own index,
     // or a futures series' product terms. Anything else has no index (null).
     internal static string? IndexCode(PreviewData data,JsonElement curve,MarketContract contract)
@@ -62,6 +63,7 @@ public static class PowerPreview
     internal static DateOnly[] Holidays(PreviewData data,JsonElement calendar,DateOnly from,DateOnly to)
     {
         var code=calendar.Text("code");
+        if(!data.CalendarDaysRead)throw new InvalidOperationException("Holidays need a read that includes calendar days.");
         if(DateWorkspace.Date(calendar.Text("coverage_from"))>from || DateWorkspace.Date(calendar.Text("coverage_to"))<to)
             throw new MarketDataException("power_calendar",$"Calendar {code} does not cover the whole delivery period.");
         return data.References["calendar_days"].Where(d=>d.Text("calendar_code")==code && d.Text("is_business_day")=="false")
