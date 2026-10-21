@@ -193,6 +193,7 @@ app.Use(async (context,next)=>
 
 // Interval series imports alone accept bodies up to 8 MiB; every other route keeps the 32 KiB limit.
 // Binding refuses a larger body with a bare 413, which the error middleware names request_too_large.
+// The hosted gateway (deploy/nginx.conf.template) applies the same limits and answer, so change them together.
 app.Use((context,next)=>
 {
     var size=context.Features.Get<IHttpMaxRequestBodySizeFeature>();

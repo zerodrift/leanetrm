@@ -158,12 +158,14 @@ def run_checks(nginx):
                 connection.close()
 
         checked = 0
-        def expect(label, path, status, content=None, location=None, **kwargs):
+        def expect(label, path, status, content=None, location=None, answer=None, **kwargs):
             nonlocal checked
             actual, headers, body = request(path, **kwargs)
             assert actual == status, f'{label}: expected HTTP {status}, got {actual}'
             if content is not None:
                 assert content in body, label + ': unexpected content'
+            if answer is not None:
+                assert body == answer, label + ': unexpected answer'
             if location is not None:
                 assert headers.get('Location') == location, label + ': unexpected redirect'
             assert 'X-Powered-By' not in headers, label + ': upstream implementation header exposed'
@@ -212,19 +214,40 @@ def run_checks(nginx):
         expect('failed login', '/auth/login', 302, location='/auth?failed=1', method='POST', body='valid=0')
         expect('other auth redirect', '/auth/claim', 302, location='/', method='POST', body='synthetic')
         private = {'Cookie': 'synthetic=accepted'}
-        expect('authenticated application', '/app?synthetic=1', 200, b'SYNTHETIC PRIVATE APPLICATION',
-               headers={**private, 'X-Forwarded-For': '192.0.2.99', 'X-Forwarded-Proto': 'http',
-                        'X-Forwarded-Host': 'untrusted.example.test', 'Forwarded': 'host=untrusted.example.test'})
-        forwarded = upstream.requests[-1][2]
-        assert forwarded.get('Host') == 'public.example.test'
-        assert forwarded.get('X-Forwarded-Proto') == 'https'
-        assert forwarded.get('X-Forwarded-For') == '127.0.0.1'
-        assert 'Forwarded' not in forwarded and 'X-Forwarded-Host' not in forwarded
+        untrusted = {'X-Forwarded-For': '192.0.2.99', 'X-Forwarded-Proto': 'http',
+                     'X-Forwarded-Host': 'untrusted.example.test', 'Forwarded': 'host=untrusted.example.test'}
+        def forwarded_as(label, target):
+            path, forwarded = upstream.requests[-1][1], upstream.requests[-1][2]
+            assert path == target, label + ': unexpected upstream URI'
+            assert forwarded.get('Host') == 'public.example.test', label + ': the upstream Host must be the public host'
+            assert forwarded.get('X-Forwarded-Proto') == 'https', label + ': forwarding headers must be the gateway\'s'
+            assert forwarded.get('X-Forwarded-For') == '127.0.0.1', label + ': forwarding headers must be the gateway\'s'
+            assert 'Forwarded' not in forwarded and 'X-Forwarded-Host' not in forwarded, label + ': untrusted forwarding headers must be cleared'
+        expect('authenticated application', '/app?synthetic=1', 200, b'SYNTHETIC PRIVATE APPLICATION', headers={**private, **untrusted})
+        forwarded_as('authenticated application', '/?synthetic=1')
         expect('authenticated application asset', '/app.js', 200, b'SYNTHETIC PRIVATE APPLICATION', headers=private)
         expect('application redirect is unchanged', '/api/redirect', 302, location='/', headers=private)
         expect('nested application path is unchanged', '/app/other?synthetic=1', 200,
                b'SYNTHETIC PRIVATE APPLICATION', headers=private)
         assert upstream.requests[-1][1] == '/app/other?synthetic=1'
+        # The gateway keeps the API's body limits and refuses a larger API body as the API does, so a page can
+        # tell that nothing was written.
+        too_large = b'{"code":"request_too_large","message":"The request body exceeds its %d KiB limit."}'
+        for path, limit in [('/api', 32), ('/api/private', 32), ('/api/private.html', 32), ('/api/interval-series/revise', 8192)]:
+            expect(f'API body at its {limit} KiB limit to {path}', path, 200, b'SYNTHETIC PRIVATE APPLICATION', method='POST',
+                   body=b'x' * (limit * 1024), headers={**private, **untrusted})
+            forwarded_as(f'API body to {path}', path)
+            assert upstream.requests[-1][2].get('Content-Length') == str(limit * 1024), 'The whole API body must reach the application.'
+            reached = len(upstream.requests)
+            headers = expect(f'API body over its {limit} KiB limit to {path}', path, 413, method='POST',
+                             body=b'x' * (limit * 1024 + 1), headers=private, answer=too_large % limit)
+            assert headers.get('Content-Type') == 'application/json; charset=utf-8', path + ': the refusal must be the API answer'
+            assert len(upstream.requests) == reached, 'An API body over its limit must not reach the application.'
+        for path in ['/auth/login', '/auth/claim', '/app']:
+            reached = len(upstream.requests)
+            headers = expect(f'body over 32 KiB to {path}', path, 413, method='POST', body=b'x' * (32 * 1024 + 1))
+            assert len(upstream.requests) == reached, 'A body over 32 KiB must not reach the application.'
+            assert not headers.get('Content-Type', '').startswith('application/json'), 'Only API routes answer as the API does.'
         print(f'PASS {checked} owned public gateway route checks; application authentication is synthetic.')
     finally:
         try:
