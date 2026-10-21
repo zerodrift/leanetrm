@@ -623,9 +623,10 @@ refuses without current authority with `interval_series_denied` (SQLSTATE 42501)
 - **`append_interval_series_revision`** needs `ImportObservations`. A retried request returns
   its original receipt, and a changed one is refused with `interval_series_conflict`. It refuses
   a stale expected revision with `interval_series_revision_conflict` and, writing nothing, any
-  interval of another duration, starting inside another, or holding a non-canonical or
-  out-of-bounds value with `interval_series_values`. It rechecks current authority after its
-  writes.
+  interval of another duration, overlapping another in the revision or a stored interval at a
+  different start (a withdrawn one included), or holding a non-canonical or out-of-bounds value
+  with `interval_series_values`. A stored interval changes only at its exact start. It rechecks
+  current authority after its writes.
 - **`read_interval_series`** returns each interval's value in the latest revision known at an
   explicit cutoff, with that head revision.
 - **`interval_series_changes`** returns each change with its previous value, actor, reason and

@@ -134,6 +134,13 @@ def run_checks(query, manifest):
     reject(committed('editor', revise(series, uuid4(), 1, 'Stale correction', *hours(0, 1, ['0.3']))), 'P0001: interval_series_revision_conflict')
     check('stale head is rejected and writes nothing', revisions(series) == '2')
 
+    # A direct caller can bypass the managed grid; a stored interval, withdrawn or not, still holds its slot.
+    single = lambda start, end: (array([start], 'timestamptz'), array([end], 'timestamptz'), array(['0.4'], 'text'))
+    for start, end in [('2027-01-01T05:30:00Z', '2027-01-01T06:30:00Z'), ('2027-01-01T07:30:00Z', '2027-01-01T08:30:00Z')]:
+        reject(committed('editor', revise(series, uuid4(), 2, 'Offset import', *single(start, end))), 'P0001: interval_series_values')
+    adjacent = json.loads(query('BEGIN;' + runtime(issue('editor'), revise(series, uuid4(), 2, 'Adjacent import', *single(HOURS[3], '2027-01-01T09:00:00Z'))) + 'ROLLBACK;'))
+    check('an offset revision cannot overlap stored intervals', adjacent['revision'] == 3 and revisions(series) == '2')
+
     replayed = call('editor', correction)
     unchanged = revisions(series) == '2'
     reject(committed('editor', revise(series, second, 1, 'Synthetic correction', *hours(1, 3, ['0.56', None]), digest('changed'))),

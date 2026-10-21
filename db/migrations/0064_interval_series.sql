@@ -157,8 +157,9 @@ BEGIN
  IF expected IS DISTINCT FROM head THEN RAISE EXCEPTION 'interval_series_revision_conflict';END IF;
  SELECT * INTO bounds FROM ref_data.value_specifications v
  WHERE(v.catalog_id,v.revision_id,v.code)=(selected.reference_catalog_id,selected.reference_revision_id,selected.value_code);
- -- Every interval has the series' duration and no other interval starts inside it. Values are
- -- canonical exact decimals, within the value specification's bounds when the series has one.
+ -- Every interval has the series' duration and no other interval starts inside it, in this revision
+ -- or stored at another start, withdrawn or not: a stored interval changes only at its exact start.
+ -- Values are canonical exact decimals, within the value specification's bounds when the series has one.
  IF total IS NULL OR total NOT BETWEEN 1 AND 750000 OR cardinality(ends) IS DISTINCT FROM total OR cardinality(vals) IS DISTINCT FROM total
   OR EXISTS(SELECT 1 FROM(SELECT u.s,u.e,u.v,lead(u.s) OVER(ORDER BY u.s) following FROM unnest(starts,ends,vals) u(s,e,v)) u
    WHERE CASE WHEN u.s IS NULL OR u.e IS NULL OR NOT isfinite(u.s) OR NOT isfinite(u.e) THEN true
@@ -166,6 +167,10 @@ BEGIN
     WHEN u.v IS NULL THEN false
     WHEN u.v!~'^-?(0|[1-9][0-9]*)(\.[0-9]{1,18})?$' OR NOT pg_input_is_valid(u.v,'ref_data.exact_number') THEN true
     ELSE bounds.code IS NOT NULL AND u.v::numeric NOT BETWEEN bounds.minimum AND bounds.maximum END)
+  -- One bounded value_history probe per new interval; LIMIT keeps the planner from scanning stored values per new row.
+  OR EXISTS(SELECT 1 FROM unnest(starts,ends) u(s,e),LATERAL(SELECT 1 FROM market_data.interval_series_values v
+   WHERE(v.catalog_id,v.series_id)=(selected.catalog_id,selected.id) AND v.starts_at>u.s-make_interval(mins=>selected.interval_minutes)
+    AND v.starts_at<u.e AND v.starts_at<>u.s LIMIT 1) overlap)
  THEN RAISE EXCEPTION 'interval_series_values';END IF;
  SELECT coalesce(max(r.publication_order),0)+1 INTO ordinal FROM market_data.interval_series_revisions r WHERE r.catalog_id=selected.catalog_id;
  INSERT INTO market_data.interval_series_revisions VALUES(selected.catalog_id,selected.id,head+1,nullif(head,0),c.actor_id,c.tenant_id,c.workspace_id,
