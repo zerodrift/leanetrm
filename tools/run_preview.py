@@ -196,6 +196,9 @@ def main():
         if args.power_actual_check:
             from check_power_actual_storage import prepare_market
             market=prepare_market(market,manifest)
+        if args.interval_series_check:
+            from check_interval_series_http import prepare_market as prepare_interval_series
+            market=prepare_interval_series(market,manifest)
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture

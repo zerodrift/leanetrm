@@ -23,8 +23,9 @@ public sealed record IntervalSeriesReadRequest([property:JsonRequired]Guid Serie
 public sealed record IntervalSeriesCommandReceipt(Guid RequestId,Guid SeriesId,int Revision,int Intervals);
 
 // Audited interval series through the definer operations of migration 0064. This store expands
-// imports onto the series' pinned clock grid and checks read windows against it; storage rechecks
-// authority, bounds and the head, replays a retried request and certifies each revision's knowledge
+// imports onto the series' pinned clock grid; reads never load the clock, so they stay available
+// after a tzdata update. Storage rechecks authority, bounds and the head, refuses a read window that
+// cuts through a stored interval, replays a retried request and certifies each revision's knowledge
 // time at its commit.
 public sealed partial class IntervalSeriesStore(PreviewDatabase database)
 {
@@ -45,6 +46,7 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
         "interval_series_revision_conflict"=>"Another revision was saved first. Reload the series before saving.",
         "interval_series_values"=>"Each interval needs the series' duration, a canonical decimal within the specification's bounds and its own slot among the stored intervals.",
         "interval_series_window"=>"Choose a From before To spanning at most 35,136 intervals and 100,000 changes, known no later than now.",
+        "interval_series_grid"=>"Choose a From and To that do not fall inside a stored interval.",
         "interval_series_code"=>"Choose an unused code that starts with a lowercase letter and uses lowercase letters, digits, '_', '.' or '-'.",
         "interval_series_definition"=>"Choose a kind, a specification of that kind and a clock from the workspace's sealed reference data.",
         _=>throw new ArgumentOutOfRangeException(nameof(code))
@@ -118,12 +120,10 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
     public Task<JsonElement> Changes(NpgsqlConnection connection,IntervalSeriesReadRequest request,CancellationToken ct)=>
         Read(connection,"SELECT market_data.interval_series_changes($1,$2,$3,$4)::text",request,ct);
 
-    // A window runs between interval boundaries on the series' pinned clock; storage bounds its length and cutoff.
+    // Storage bounds the window's length and cutoff and refuses an end inside a stored interval.
     private static async Task<JsonElement> Read(NpgsqlConnection connection,string sql,IntervalSeriesReadRequest request,CancellationToken ct)
     {
         DateTimeOffset from=ParseInstant(request.From),to=ParseInstant(request.To),knownAt=ParseInstant(request.KnownAt);
-        var (clock,minutes)=await Grid(connection,request.SeriesId,ct);
-        IntervalSeriesGrid.RequireWindow(clock,minutes,from,to);
         await using var command=ScheduleStore.Command(connection,sql,request.SeriesId,from,to,knownAt);
         using var document=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);
         return document.RootElement.Clone();

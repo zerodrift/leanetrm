@@ -1,12 +1,31 @@
 """Audited interval series HTTP checks against the launcher's owned synthetic preview."""
 from http.client import HTTPResponse
+import hashlib
 import json
 import socket
 from urllib.parse import urlsplit
 from urllib.request import HTTPCookieProcessor
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from preview_client import PreviewClient
+from preview_fixture import installed_tzdb
+
+# A clock pinned to a tzdb release other than the installed one: the state of every series on an
+# IANA clock after the host's time-zone data is updated.
+STALE_CLOCK, STALE_TZDB = 'synthetic_stale_eastern', '2000a'
+
+
+def prepare_market(market, manifest):
+    """Add the stale clock to the synthetic reference revision before the fixture seals it."""
+    if installed_tzdb() == STALE_TZDB:
+        raise ValueError('The stale clock must declare a tzdb release other than the installed one')
+    reference, revision = [str(UUID(manifest[k])) for k in ('referenceCatalogId', 'referenceRevisionId')]
+    marker = 'UPDATE ref_data.revisions SET'
+    if market.count(marker) != 1:
+        raise ValueError('The synthetic fixture must have exactly one reference sealing statement')
+    rule = (f"INSERT INTO ref_data.clock_rules (catalog_id,revision_id,code,kind,iana_zone,tzdb_version) "
+            f"VALUES ('{reference}','{revision}','{STALE_CLOCK}','iana','America/New_York','{STALE_TZDB}');")
+    return market.replace(marker, rule + '\n' + marker, 1)
 
 
 def declared(client, path, body):
@@ -129,11 +148,13 @@ def run_checks(url, query, manifest):
           and refused('interval-series/values', {**window(hours[0], hours[3]), 'from': '2027-01-01T06:00:00+01:00'},
                       422, 'interval_series_instant'))
 
-    # A read window runs between interval boundaries of the series' pinned clock.
-    check('a read window off the interval grid is rejected',
+    # Storage refuses a From or To that cuts through a stored interval; a boundary in a gap cuts nothing.
+    gap = client.call('interval-series/values', {**window(hours[0], hours[3]), 'from': '2027-01-01T04:30:00Z'})
+    check('a read window that cuts through a stored interval is rejected',
           all(refused(path, {**window(hours[0], hours[3]), 'from': '2027-01-01T05:30:00Z'}, 422, 'interval_series_grid')
               for path in ('interval-series/values', 'interval-series/changes'))
-          and refused('interval-series/values', {**window(hours[0], hours[3]), 'to': '2027-01-01T07:59:00Z'}, 422, 'interval_series_grid'))
+          and refused('interval-series/values', {**window(hours[0], hours[3]), 'to': '2027-01-01T07:59:00Z'}, 422, 'interval_series_grid')
+          and [row['start'] for row in gap['rows']] == [utc(hour) for hour in hours[:3]])
 
     past = client.call('interval-series')['knownAt']
     client.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': past, 'mode': 'at', 'selection': 'latest_correction'})
@@ -162,4 +183,21 @@ def run_checks(url, query, manifest):
           corrected['revision'] == 3 and (latest['start'], latest['previousValue'], latest['value']) == (utc(hours[1]), '0.5', '0.4')
           and latest['actor'] == editor and latest['reason'] == 'Synthetic HTTP correction'
           and log['revisions'][0]['revision'] == 3 and log['revisions'][0]['actor'] == editor)
+
+    # A series on the stale clock with a revision saved through storage, as it was before the update: reads
+    # never load the clock, while a revision expands onto it and is refused.
+    stale = client.call('interval-series/define', {**definition, 'requestId': str(uuid4()), 'code': 'synthetic_http_stale_clock',
+                                                   'clock': STALE_CLOCK})['seriesId']
+    token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','editor',"
+                  f"'human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+    request, reason = str(uuid4()), 'Synthetic revision saved under the earlier release'
+    query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"
+          f"SELECT market_data.append_interval_series_revision('{stale}','{request}','{hashlib.sha256(request.encode()).hexdigest()}',0,"
+          f"'{reason}',ARRAY['{hours[0]}']::timestamptz[],ARRAY['{hours[1]}']::timestamptz[],ARRAY['0.5']);COMMIT;")
+    stale_window = {**window(hours[0], hours[3]), 'seriesId': stale}
+    stored, logged = client.call('interval-series/values', stale_window), client.call('interval-series/changes', stale_window)
+    check('reads stay available after a tzdata update while revisions are refused',
+          [(row['start'], row['value'], row['revision']) for row in stored['rows']] == [(utc(hours[0]), '0.5', 1)]
+          and [(row['start'], row['value'], row['reason']) for row in logged['rows']] == [(utc(hours[0]), '0.5', reason)]
+          and refused('interval-series/revise', {**revise(1, hours[1], ['0.6']), 'seriesId': stale}, 422, 'clock_tzdb'))
     return passed

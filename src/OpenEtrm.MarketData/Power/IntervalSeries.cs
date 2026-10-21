@@ -52,21 +52,5 @@ public static class IntervalSeriesGrid
         return values.MoveToImmutable();
     }
 
-    // A read window runs between interval boundaries: instants where a cell of the grid starts or
-    // ends. A clock change can leave a gap without cells, so a window need not hold a whole number
-    // of intervals; a half-hour change makes a whole local day 23.5 or 24.5 hours long.
-    public static void RequireWindow(PowerClock clock,int intervalMinutes,DateTimeOffset from,DateTimeOffset to)
-    {
-        ArgumentNullException.ThrowIfNull(clock);
-        if(!Resolutions.Contains(intervalMinutes))
-            throw new MarketDataException("interval_series_resolution","Choose a 5, 15, 30 or 60 minute resolution.");
-        var step=TimeSpan.FromMinutes(intervalMinutes);
-        foreach(var at in (ReadOnlySpan<DateTimeOffset>)[from,to])
-            if(!StartsCell(clock.Zone,at,step) && !(at>FirstStart && StartsCell(clock.Zone,at-step,step)))
-                throw new MarketDataException("interval_series_grid",$"{at:O} is not where an interval of the pinned clock starts or ends.");
-    }
-
-    private static bool StartsCell(TimeZoneInfo zone,DateTimeOffset start,TimeSpan step)=>InStartRange(start) && PowerHours.IsCell(zone,start,step);
-
     private static bool InStartRange(DateTimeOffset start)=>start>=FirstStart && start<StartLimit;
 }

@@ -637,8 +637,10 @@ refuses without current authority with `interval_series_denied` (SQLSTATE 42501)
   knowledge time, and a summary per revision, at most 100,000 rows.
 
 Both reads return the whole intervals inside a window no longer than 35,136 intervals, at a
-cutoff no later than now, and refuse anything else with `interval_series_window`;
-the API also requires the window's ends to be interval boundaries on the pinned clock. Each read
+cutoff no later than now, and refuse anything else with `interval_series_window`. They refuse
+a From or To strictly inside a stored interval of the series, of any revision and withdrawn or
+not, with `interval_series_grid`, so no interval is dropped at either end; an end in a gap is
+accepted, and reads never load the pinned clock. Each read
 retains one temporal context per cutoff, dated by the cutoff's UTC day, and rechecks reference
 access after certifying it. As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).

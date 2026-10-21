@@ -192,9 +192,10 @@ BEGIN
 END$$;
 
 -- Shared by both readers: current authority, a bounded window, the certified context and the revisions known at the cutoff.
--- A window returns the whole intervals inside it. Its duration bounds it to 35,136 intervals; the API
--- checks that both ends are interval boundaries on the pinned clock, where a clock change can leave a
--- gap, so the duration need not be a whole number of intervals.
+-- A window returns the whole intervals inside it. Its duration bounds it to 35,136 intervals, and
+-- neither end may fall inside a stored interval, so no interval is cut off. Reads never load the
+-- pinned clock: a clock change can leave a gap without intervals, so the duration need not be a
+-- whole number of intervals, and an end in a gap cuts nothing.
 CREATE FUNCTION market_data.open_interval_series_read(selected market_data.interval_series,first_at timestamptz,last_at timestamptz,cutoff timestamptz,
  OUT context_id uuid,OUT known integer[],OUT description jsonb)
 LANGUAGE plpgsql SET search_path=pg_catalog AS $$
@@ -204,6 +205,12 @@ BEGIN
  IF first_at IS NULL OR last_at IS NULL OR cutoff IS NULL OR NOT isfinite(first_at) OR NOT isfinite(last_at) OR NOT isfinite(cutoff)
   OR first_at>=last_at OR cutoff>clock_timestamp()
   OR extract(epoch FROM last_at-first_at)>35136*60*selected.interval_minutes THEN RAISE EXCEPTION 'interval_series_window';END IF;
+ -- Any stored interval counts, withdrawn or saved after the cutoff included. Every stored interval lasts
+ -- the series' resolution, so one probe of the starts in the resolution before each end finds it.
+ IF EXISTS(SELECT 1 FROM unnest(ARRAY[first_at,last_at]) b(at),LATERAL(SELECT 1 FROM market_data.interval_series_values v
+   WHERE(v.catalog_id,v.series_id)=(selected.catalog_id,selected.id) AND v.starts_at>b.at-make_interval(mins=>selected.interval_minutes)
+    AND v.starts_at<b.at AND v.ends_at>b.at LIMIT 1) inside)
+ THEN RAISE EXCEPTION 'interval_series_grid';END IF;
  -- Series are not effective-dated: the retained context is the cutoff's alone, dated by its own UTC day.
  context_id=security.capture_date_context(selected.catalog_id,(cutoff AT TIME ZONE 'UTC')::date,cutoff);
  -- Certification can wait on the shared knowledge gate: recheck reference authority, as it rechecks market authority.

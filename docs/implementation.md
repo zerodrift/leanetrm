@@ -1332,11 +1332,13 @@ that start.
 
 **Reads.** A values read returns up to 35,136 intervals (366 days of quarter-hour
 intervals) and the change log up to 100,000 rows, at a cutoff no later than now. A
-revision whose knowledge time equals the cutoff is included. The window's From and
-To must each be where an interval of the series' pinned clock starts or ends, or the
-API refuses it with `interval_series_grid`; storage bounds its duration to 35,136
-intervals and returns the whole intervals inside it. A clock change can leave a gap
-with no interval, so a whole local day across a half-hour change is a valid window.
+revision whose knowledge time equals the cutoff is included. Storage bounds the
+window's duration to 35,136 intervals and returns the whole intervals inside it. It
+refuses with `interval_series_grid` a From or To strictly inside a stored interval of
+any revision, a withdrawn one or one saved after the cutoff included, so no interval
+is silently dropped at either end; a From or To in a gap with no stored interval is
+accepted. Reads never load the pinned clock, so they stay available after a tzdata
+update, and a whole local day across a half-hour clock change is a valid window.
 The change log gives each change's previous value, new value, actor, reason and
 knowledge time, and a summary per revision. The values read visits every stored
 revision of each interval in its window, so its cost grows with the number of
@@ -1385,10 +1387,10 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/
   --interval-series-check --browser-check --browser /path/to/browser
 ```
 
-The managed checks cover the grid and read-window boundaries on synthetic clocks,
-including repeated and skipped hours, half-hour offsets and a half-hour clock change.
-`tools/check_interval_series_storage.py` runs 19 storage checks,
-`tools/check_interval_series_http.py` 11 HTTP checks and
+The managed checks cover the grid on synthetic clocks, including repeated and skipped
+hours, half-hour offsets and a half-hour clock change.
+`tools/check_interval_series_storage.py` runs 20 storage checks,
+`tools/check_interval_series_http.py` 12 HTTP checks and
 `tests/browser/interval-series.mjs` 30 browser checks. `tools/check_all.py` runs all
 of them: the managed checks with the other managed suites, and the preview command
 above, browser checks included.
@@ -1576,12 +1578,14 @@ existed at the time.
   value, while the benchmark's values have 3. A chunked body with no declared length
   that exceeds the limit is answered with an empty `413`, because the structured
   answer needs the declared length.
-- An IANA-zone clock is used only while the installed tzdb release equals the one
-  its pinned clock rule declares (D127). After a tzdata update, every revision of an
-  existing series on an IANA-zone clock, and every read of one (whose window is
-  checked on that clock), is refused with `clock_tzdb`, and the series cannot be
-  re-pinned to a successor reference revision: open decision O27. Fixed-offset
-  clocks are unaffected.
+- A revision expands onto the pinned clock, and an IANA-zone clock is used only
+  while the installed tzdb release equals the one its clock rule declares (D127).
+  After a tzdata update, every revision of an existing series on an IANA-zone clock
+  is refused with `clock_tzdb`, and the series cannot be re-pinned to a successor
+  reference revision: open decision O27. Reads never load the clock and stay
+  available; the HTTP check reads values and the change log of a series whose clock
+  declares another release, and only its revision is refused. Fixed-offset clocks are
+  unaffected.
 - Each values or change-log read at a new cutoff stores one retained temporal
   context, and a catalog holds at most 4,096 of them, never reclaimed
   (`knowledge_limit`). This existing platform limit is open decision O07; every

@@ -236,10 +236,17 @@ def run_checks(query, manifest, psql, environment):
     crowded_head = read(crowded, HOURS[0], HOURS[3], current)['head']
     reject(committed('viewer', f"SELECT market_data.interval_series_changes('{crowded}','2027-01-01T00:00:00Z','{widest}','{current}');"),
            'P0001: interval_series_window')
-    # Storage bounds a window by duration; the API checks that its ends are interval boundaries on the pinned clock.
-    partial = read(series, HOURS[0], '2027-01-01T06:30:00Z', after)
-    check('windows and cutoffs are bounded', len(full['rows']) == 2 and crowded_head == 3
-          and shown(partial) == [(utc(HOURS[0]), utc(HOURS[1]), '0.25', 1)])
+    check('windows and cutoffs are bounded', len(full['rows']) == 2 and crowded_head == 3)
+
+    # A From or To inside a stored interval would drop it from the window: both reads refuse it, whichever revision
+    # stored the interval, a withdrawal and one saved after the cutoff included. A boundary in a gap drops nothing.
+    for operation in ('read_interval_series', 'interval_series_changes'):
+        for target, first_at, last_at in [(series, '2027-01-01T05:30:00Z', HOURS[3]), (series, HOURS[0], '2027-01-01T07:30:00Z'),
+                                          (metered, '2027-01-01T05:30:00Z', HOURS[3]), (metered, '2027-01-01T04:00:00Z', '2027-01-01T05:59:59Z')]:
+            reject(committed('viewer', f"SELECT market_data.{operation}('{target}','{first_at}','{last_at}','{after}');"), 'P0001: interval_series_grid')
+    gapped = [read(series, '2027-01-01T04:30:00Z', '2027-01-01T08:30:00Z', after, operation) for operation in ('read_interval_series', 'interval_series_changes')]
+    check('a window may end in a gap but not inside a stored interval',
+          shown(gapped[0]) == shown(latest) and gapped[1]['rows'] == changes['rows'])
 
     certified = query(f"""SELECT count(*)=6 AND count(*)=count(*) FILTER(WHERE k.known_from=
       pg_xact_commit_timestamp(((k.publication_xid::text::numeric % 4294967296)::bigint::text)::xid))

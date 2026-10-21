@@ -128,7 +128,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "amount_format" or "futures_lot" => (422,p.MessageText,"Supply exact supported contract lot terms or deal display precision."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_conflict" or "interval_series_revision_conflict" => (409,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_values" or "interval_series_window" or "interval_series_code"
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_values" or "interval_series_window" or "interval_series_grid" or "interval_series_code"
                 || p.SqlState=="23514" && p.MessageText=="interval_series_definition" => (422,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_limit" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
