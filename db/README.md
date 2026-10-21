@@ -666,9 +666,10 @@ intervals and records its actor, reason and request identity. Its rows in
 `market_data.interval_series_values` set the intervals it names, keyed by exact UTC start; a
 null value withdraws one. Every revision is certified on the shared knowledge gate:
 `security.capture_date_context` records its commit time as its `known_from` in
-`market_data.interval_series_knowledge_receipts`. All five tables are immutable, for the owner
-too, and runtime reads them only in a current (non-historical) context, under current market
-access and, for a series and its revisions and values, the series' exact reference version.
+`market_data.interval_series_knowledge_receipts`. Row triggers refuse any update or delete of
+the five tables, the owner's included, and runtime reads them only in a current
+(non-historical) context, under current market access and, for a series and its revisions and
+values, the series' exact reference version.
 
 Four definer operations make up the contract. Each needs a current, non-historical context and
 refuses without current authority with `interval_series_denied` (SQLSTATE 42501):
@@ -724,13 +725,13 @@ until the operator qualifies a new baseline (D135).
 person's in one scope with one agent; turns, each a question to one exact agent version
 under the grant that covered it, with its page report, its pinned-context record, the
 earlier turns it includes, its runtime set, fencing-token digest, worker generation and
-session binding; and each conversation's turn events, appended once. A turn's state and
-record only move forward, even for the owner. A model call is now a test's or a turn's:
-a turn's call names its turn, its attempt and its conversation's latest event when it
-opened instead of a request identity, administrator and token digest, and its outcome
-may be `cancelled`. `close_test` now closes only a test's call; otherwise it is as
-before and keeps its owner and grants. The Providers directory's latest test leaves turn
-calls out, with an index for that lookup.
+session binding; and each conversation's turn events, appended once. A trigger holds,
+for the owner too, that a turn's state and record only move forward. A model call is now
+a test's or a turn's: a turn's call names its turn, its attempt and its conversation's
+latest event when it opened instead of a request identity, administrator and token
+digest, and its outcome may be `cancelled`. `close_test` now closes only a test's call;
+otherwise it is as before and keeps its owner and grants. The Providers directory's
+latest test leaves turn calls out, with an index for that lookup.
 
 `ask_turn` runs in the person's own request context and refuses a conversation that is
 not theirs in the scope, or has another agent, before admission. Admission, under the
