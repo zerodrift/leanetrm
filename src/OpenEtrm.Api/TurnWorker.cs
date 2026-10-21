@@ -163,7 +163,7 @@ public sealed class TurnWorker:IAsyncDisposable
             // this process stopping.
             var stopped=streamed.Stopped??(r.Cancel.IsCancellationRequested?"request_cancelled":null);
             var outcome=ModelCalls.Outcome(streamed.End,stopped is null?"limit_elapsed":"cancelled");
-            await ModelCalls.Close(worker,"close_turn_call",call.Id,r.Token,outcome,streamed.End);
+            await ModelCalls.CloseTurnCall(worker,call.Id,r.Token,outcome,streamed.End);
             if(Abandoned(r))return;
             // The database ends a turn whose cancel was requested cancelled, and one whose publication it refused
             // access_changed, whatever the code.

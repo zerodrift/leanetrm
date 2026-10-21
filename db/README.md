@@ -826,3 +826,42 @@ as it stands, as before. In 0069 the two answers were alike. Nothing else change
 replaced definition keeps its owner and grants. The migration first verifies the helpers
 the ask relies on and the definition it replaces. As a new migration it stops automatic
 hosted updates until the operator qualifies a new baseline (D135).
+
+## Page-assistant tool steps
+
+[0072_tool_steps.sql](migrations/0072_tool_steps.sql) records a turn's tool steps
+([ai-assistant.md](../docs/ai-assistant.md) §7.1–§7.3, §7.5, §7.6, §8).
+`assistant.tool_steps` keeps each step that answers a request of a call that stopped for
+tools, in order and numbered across the turn: its tool, a read's operation and the instant
+it read, the request's input and the code of a refusal or failure.
+`assistant.tool_read_access` keeps the access function, permission and catalog each read
+ran under. Both are immutable, owned by the security owner with row security forced, and
+written only by `record_tool_step`. It takes the epoch row FOR SHARE, refuses a call's
+requests that would take the turn past the version's tool steps (`limit_tool_steps`),
+rechecks the owner's authority and every source in the agent's authority, recording a
+refused publication as an append does, and publishes a step event carrying only the step's
+number, tool and code; once the turn's cancel is requested it records nothing. A step
+names its own turn's call, through a key on `model_calls(id, turn_id)`, and a step without
+input is a refusal of its arguments.
+
+A call's close records how a completed call stopped (`stop`, with `tool_requests` for a
+request for tools), so a turn completes only after its last call ended the turn;
+`close_turn_call` is recreated with these two more arguments and granted to the runtime
+again. The tool loop's next call opens once each request has its step; the version's
+retries bound the failed calls of the whole turn, and an earlier call's input not known
+ends the turn `limit_input_unverifiable`. A turn's source set is its reads and those of
+the turns it included. Before every call and publication it passes as a context issued to
+the turn's agent under its grant would answer it, evaluated without one. The owner's reads
+hide the answer and text of a turn whose sources the owner can no longer read
+(`access_changed`), and each turn they answer says whether that hid its answer (`hidden`);
+the worker's answers do not. An ask withholds such a turn, and one whose sources the
+covering grant does not list, naming each by a step, and is refused `access_changed` while
+the turns it includes use a source the agent can no longer read. The pinned-context record
+keeps an As of frame's exact pins, as canonical uuids with an instant the database reads,
+and the worker's start answers what tool reads need.
+
+The definitions it replaces in place keep their owners and grants. A turn an earlier
+release left unfinished, whose closed call names no stop, is interrupted at the next
+worker start, as every earlier generation's turn is. The migration first verifies the
+helpers it relies on and the definitions it replaces. As a new migration it stops
+automatic hosted updates until the operator qualifies a new baseline (D135).

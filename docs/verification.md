@@ -486,22 +486,70 @@ and the worker with a session of its own holding the agent-worker lock):
   record, once, before the turn can start; working data is captured once with its
   cutoff, refused while fewer than the reserve of the catalog's retained contexts would
   remain, counting a capture still in progress once it commits; a retained context is
-  pinned as named with an As of frame's exact pins, capturing nothing, and is refused
-  when unknown, when its pins do not match the frame and to a person who may not read
-  the catalog's market data; a record write or start that finds the cancel requested
-  ends the turn cancelled.
-- **Worker writes:** each presents the turn's token, and a write the turn's state does
-  not accept is refused with `turn_state_conflict`; the start answers the version's
-  instructions, model and limits and every earlier turn of the conversation with its
-  answer, context and ending; a call pins the model's capability version, the attested
-  key and terms, the price in force and its conversation's latest event, one call at a
-  time; answer text comes only from the call in flight, in chunks of 1 to 2,048 bytes,
-  which always fit their event; a provider test's close refuses a turn's call; a turn
-  ends only once its call is closed and completes only after its call completed, keeping
-  its answer and closing with its usage, summed per dimension over the counts each call
-  reported with unrecognized usage counted as unknown, and its cost per currency,
-  unpriced while any call has none, before its terminal event; a call closes once, a
-  second close recording nothing, and an ended turn takes no further write.
+  pinned as named with an As of frame's exact pins (its name, the observations it
+  froze among its observations, its swap market selections and whether it resolves the
+  latest correction among them), capturing nothing, and is refused when unknown, when its
+  pins do not match the frame, miss or mistype any of them, name no instant the database
+  reads (none, or one whose offset is out of range) or an id that is not a canonical
+  uuid, and to a person who may not read the catalog's market data; its patterns, like a
+  step's, read the same whatever the session's `standard_conforming_strings`; a record
+  write or start that finds the cancel requested ends the turn cancelled.
+- **Worker writes:** each, a step's included, presents the turn's token under the
+  current generation, and a write the turn's state does not accept is refused with
+  `turn_state_conflict`; the start answers the version's instructions, model and limits,
+  every earlier turn the ask included with its answer, context and ending, and the
+  catalog, pins, grant and agent principal its reads run under; a call pins the model's
+  capability version, the attested key and terms, the price in force and its
+  conversation's latest event, one call at a time; answer text comes only from the call
+  in flight, in chunks of 1 to 2,048 bytes, which always fit their event; a provider
+  test's close refuses a turn's call; a turn ends only once its call is closed and
+  completes only after its last call ended the turn, keeping its answer and closing with
+  its usage, summed per dimension over the counts each call reported with unrecognized
+  usage counted as unknown, and its cost per currency, unpriced while any call has none,
+  before its terminal event; a call closes once, a second close recording nothing, and
+  an ended turn takes no further write.
+- **Tool steps:** a step answers a request of a closed call, and until each request has
+  one no call opens and the turn does not complete; a step names one of the version's
+  tools and a code if any, a read a versioned operation, an instant from its call's
+  close until now and each market, reference, trades or parties access it ran under in a
+  catalog of that kind, a refusal before any read neither, and the request's input is an
+  object of at most 8 KiB, absent only when its arguments were refused, and nothing is
+  written otherwise; steps answer the requests in order, numbered across the turn, and
+  their events carry the step's number, tool and any code, never its input or a value;
+  the tool loop's next call opens once each request has a step, and the turn completes
+  once its last call ended the turn. A close names how a completed call stopped, and a
+  call that did not complete names neither; after the output limit no call or step
+  follows and the turn does not complete; once a turn's cancel is requested a step
+  records and publishes nothing. A call's requests that would take the turn past its
+  version's tool steps, counting the steps it already took, record none, and the turn
+  ends `limit_tool_steps`. The tool loop's next call is retried after an overload while
+  the turn's failed calls are within the version's retries, and a turn whose last call
+  failed does not complete though an earlier one did; after a call whose usage was not
+  recognized the next call ends the turn `limit_input_unverifiable`, and once the input
+  its calls reported is past the limit `limit_input_tokens`.
+- **Sources:** a read joins the source set with what it ran under even when it then
+  failed, and a refusal before any read adds nothing; a source the turn's grant no
+  longer covers refuses a step's and text's publication and ends the turn
+  `access_changed` at its next call; a step after its owner lost their role publishes
+  nothing and records the refusal, though its read joins the source set, a later step
+  records nothing, and the turn fails `access_changed`; a step or a call waiting for a
+  revocation of its owner's role in progress publishes or opens nothing once it commits.
+  Without a request context the source-access check answers each market, reference,
+  trades and parties access as a context issued to the turn's agent answers it:
+  currently, and without the grant, its term, a permission it lists, the delegator's
+  permission, `CreateDelegations`, membership or principal, the agent's role, a
+  permission of it or its membership, or the catalog's scope; and for a disabled agent,
+  which no context is issued to, nothing.
+- **Earlier turns:** a follow-up includes an earlier turn whose sources its owner can
+  read and its grant covers, and those sources join its own; under a grant that no
+  longer lists a permission its sources needed, an earlier turn is withheld, as is a
+  turn that included it, each named by a step after the accepted event, and the new turn
+  still counts them; an ask whose included turns used a source the agent can no longer
+  read is refused `access_changed`. A turn whose source its owner can no longer read,
+  and every turn including one, is answered by Stop, a repeated ask and the
+  conversation and unfinished-turn reads with its answer and text hidden as
+  `access_changed`, and an ask withholds them; with its grant revoked a turn still reads
+  in full. The worker's own answers say nothing of the recheck.
 - **Retries:** a transport failure or overload is retried as the next attempt up to the
   version's retries; no other failure is retried, nor one whose input is unknown or that
   published text, nor a call after a completed response (`retry_not_allowed`), and a
@@ -552,10 +600,13 @@ and the worker with a session of its own holding the agent-worker lock):
 - **Records and guard:** even the owner cannot change an event, move a conversation's
   read mark back or change anything else of it, rewrite a running turn's answer, clear a
   refused publication or complete its turn, move a turn backward or change one that
-  ended. The Providers directory's latest test is never a later turn call. Before 0069
-  applies, it refuses a change to each pinned helper or to the privileges of one; before
-  0071 applies, it refuses a change to the ask it replaces or a helper the ask relies on,
-  or to the privileges of one.
+  ended, nor change a step or what its read ran under; a step without input is a refusal
+  of its arguments and answers its own turn's call. The Providers directory's latest
+  test is never a later turn call. Before 0069 applies, it refuses a change to each
+  pinned helper or to the privileges of one; before 0071 applies, it refuses a change to
+  the ask it replaces or a helper the ask relies on, or to the privileges of one; before
+  0072 applies, it refuses a change to each definition it replaces or helper it relies
+  on, or to the privileges of one.
 
 Turns over HTTP (`tools/check_agent_turn_http.py`, in the same run after the SQL turn
 checks, through the API against the loopback fake provider):

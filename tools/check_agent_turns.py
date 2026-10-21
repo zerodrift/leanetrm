@@ -1,7 +1,8 @@
-"""Turns in the database (docs/ai-assistant.md §5.1, §7.1, §7.2, §7.4, §7.5, §7.6, §8): an ask in the person's own
-context, admission, the pinned-context record and the reserve, the worker's writes under the turn's token, a turn's
-call and its retries, cancellation and the sources that request it, recovery at a worker start, the owner's reads and
-the Providers directory's tests; in SQL, playing the asking request and the worker; owned synthetic preview only."""
+"""Turns in the database (docs/ai-assistant.md §5.1, §7.1–§7.6, §8): an ask in the person's own context, admission, the
+pinned-context record and the reserve, the worker's writes under the turn's token, a turn's calls, their retries and its
+tool steps, the source set and its rechecks, earlier turns' inclusion, cancellation and the sources that request it,
+recovery at a worker start, the owner's reads and the Providers directory's tests; in SQL, playing the asking request
+and the worker; owned synthetic preview only."""
 import hashlib
 import json
 import re
@@ -9,7 +10,7 @@ import secrets
 import subprocess
 import threading
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 from assistant_context import ISSUER, WINDOW, Contexts, check_guard, expect, holding, refused, waiting
 from assistant_fixture import AGENTS, MODELS, Fixture
 from check_model_versions import command as model_command
@@ -19,6 +20,8 @@ from preview_client import PreviewClient
 GRANTS = 'assistant/grants'
 EFFECTIVE = '2020-12-18'
 REPORT = {'page': 'curves', 'selection': {'curve': 'test_curve'}}
+# A step refusing a request before any read, as record_tool_step's arguments after the token.
+DECLINED = ("'read_current_page'", 'NULL', "'{}'::jsonb", "'page_not_supported'", 'NULL', 'NULL')
 # Usage by dimension for close_turn_call: nothing sent bills nothing; unknown once anything was sent.
 NOTHING, UNKNOWN = ('nb',) * 5, (None,) * 5
 # Every row an ask or a worker write touches.
@@ -27,7 +30,8 @@ RECORDS = ("SELECT md5(string_agg(value,E'\\n' ORDER BY value)) FROM("
            "SELECT row_to_json(t)::text FROM assistant.turns t UNION ALL "
            "SELECT row_to_json(e)::text FROM assistant.turn_events e UNION ALL "
            "SELECT row_to_json(c)::text FROM assistant.model_calls c WHERE c.turn_id IS NOT NULL UNION ALL "
-           "SELECT row_to_json(o)::text FROM assistant.model_call_outcomes o JOIN assistant.model_calls c ON c.id=o.call_id WHERE c.turn_id IS NOT NULL)s;")
+           "SELECT row_to_json(o)::text FROM assistant.model_call_outcomes o JOIN assistant.model_calls c ON c.id=o.call_id WHERE c.turn_id IS NOT NULL UNION ALL "
+           "SELECT row_to_json(s)::text FROM assistant.tool_steps s UNION ALL SELECT row_to_json(a)::text FROM assistant.tool_read_access a)s;")
 HELPERS = ('security.has_permission(text)', 'security.principal_has_permission(uuid,uuid,uuid,text,timestamp with time zone)',
            'security.capture_date_context(uuid,date,timestamp with time zone)', 'security.market_access(uuid,text)', 'assistant.actor()',
            'assistant.is_instructions(text)', 'assistant.is_display_name(text)', 'assistant.grant_actor(boolean)',
@@ -62,6 +66,30 @@ def check_admitted_upgrade(query, migration):
         *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in (*ASK_HELPERS, ASK)),
         ('GRANT EXECUTE ON FUNCTION assistant.turn_state(assistant.turns) TO openetrm_runtime;', 'assistant.turn_state(assistant.turns)'),
         (f'REVOKE EXECUTE ON FUNCTION {ASK} FROM openetrm_runtime;', ASK)))
+
+
+CONVERSATION = 'assistant.conversation(text,uuid,bigint)'
+STEP_HELPERS = (*ASK_HELPERS, ASK, 'security.has_permission(text)', 'security.has_pre_pilot_permission(text)',
+                'security.principal_has_permission(uuid,uuid,uuid,text,timestamp with time zone)', 'security.market_access(uuid,text)',
+                'security.reference_access(uuid,text)', 'security.trading_access(uuid,text)', 'security.capture_date_context(uuid,date,timestamp with time zone)',
+                'assistant.are_agent_tools(text[])', 'assistant.price_in_force(uuid,timestamp with time zone)', 'assistant.current_attestation(uuid)',
+                'assistant.token_cost_v1(assistant.price_revisions,bigint,bigint,bigint,bigint)', 'assistant.request_cancel(uuid,text)',
+                'assistant.unclosed_call(uuid)', 'assistant.turn_authorized(assistant.turns)', 'assistant.fenced_turn(uuid,bytea)',
+                'assistant.pin_turn(uuid,bytea,date,jsonb,integer)', 'assistant.start_turn(uuid,bytea)', 'assistant.open_turn_call(uuid,bytea)',
+                'assistant.close_turn_call(uuid,bytea,text,text,text,bigint,text,bigint,text,bigint,text,bigint,text,bigint,text)',
+                'assistant.append_turn_text(uuid,bytea,text)', 'assistant.end_turn(uuid,bytea,text,text)', 'assistant.stop_turn(text,uuid)',
+                'assistant.conversations(text)', CONVERSATION, 'assistant.unfinished_turn(text)', 'market_data.guard_knowledge_receipt()',
+                'assistant.check_model_call_outcome()',
+                'assistant.close_test(uuid,bytea,text,text,text,bigint,text,bigint,text,bigint,text,bigint,text,bigint,text)')
+
+
+def check_steps_upgrade(query, migration):
+    """Before 0072 applies: it refuses a changed helper the tool steps rely on or definition they replace, or one whose
+    privileges differ."""
+    check_guard(query, migration, '0072', 'tool_steps', (
+        *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in STEP_HELPERS),
+        ('GRANT EXECUTE ON FUNCTION assistant.fenced_turn(uuid,bytea) TO openetrm_runtime;', 'assistant.fenced_turn(uuid,bytea)'),
+        (f'REVOKE EXECUTE ON FUNCTION {CONVERSATION} FROM openetrm_runtime;', CONVERSATION)))
 
 
 def literal(value):
@@ -106,15 +134,28 @@ def run_checks(url, query, psql, manifest, environment):
     def principal(subject):
         return query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='{ISSUER}' AND subject='{subject}';")
 
+    # The people this check creates act through one session, which switches to each before their request: a session signs
+    # in only as the accounts it created and the preview keeps at most 64 sessions, and these people run their turns in
+    # SQL, so a switch cancels none of them.
+    people = client('admin')
+
+    class Person:
+        def __init__(self, profile):
+            self.profile = profile
+
+        def call(self, path, *arguments, **options):
+            people.call('profile', {'profile': self.profile})
+            return people.call(path, *arguments, **options)
+
     def persona(name, roles):
-        # A session can sign in only as the accounts it created.
-        session = client('admin')
-        session.call('admin/create', {'operationId': str(uuid4()), 'login': login(name), 'name': f'Synthetic turn {name}', 'kind': 'human', 'roles': roles})
-        session.call('profile', {'profile': login(name)})
-        return session
+        people.call('profile', {'profile': 'admin'})
+        people.call('admin/create', {'operationId': str(uuid4()), 'login': login(name), 'name': f'Synthetic turn {name}', 'kind': 'human', 'roles': roles})
+        return Person(login(name))
     admin, trader, risk = (client(profile) for profile in ('admin', 'trader', 'risk'))
     analyst, curator = persona('analyst', ['risk_analyst']), persona('curator', ['market_data_editor', 'access_administrator'])
-    catalog = manifest['catalogId']
+    catalog, reference = (str(UUID(manifest[key])) for key in ('catalogId', 'referenceCatalogId'))
+    # What a read of the catalog's market data runs under.
+    market = [('market_access', catalog, 'ReadMarketData')]
 
     # A qualified provider, a priced model and a published agent the trader has granted.
     fixture = Fixture(admin, query, manifest, contexts.administrator, stamp, 'turn')
@@ -190,11 +231,38 @@ def run_checks(url, query, psql, manifest, environment):
     def worker_refuses(operation, turn, *arguments, token=None):
         write_refused('agent_runtime_unavailable', operation, turn, *arguments, token=token)
 
-    def close_call(turn, opened, outcome='succeeded', counts=(120, 0, 0, 40, 0), status='recognized', token=None):
-        # A response that completed names the identifier served. Answers whether this close recorded the outcome.
+    def close_sql(turn, opened, outcome='succeeded', counts=(120, 0, 0, 40, 0), status='recognized', stop=None, requests=None, token=None):
+        # A response that completed names the identifier served and how it stopped.
         served = literal(opened['identifier']) if outcome in ('succeeded', 'usage_unrecognized') else 'NULL'
-        return query(f"SET SESSION AUTHORIZATION preview_runtime;SELECT assistant.close_turn_call('{opened['call']}',{bytea(token or turn.token)},"
-                     f"'{outcome}',{served},'{status}',{usage(*counts)});") == 't'
+        return (f"assistant.close_turn_call('{opened['call']}',{bytea(token or turn.token)},'{outcome}',{served},'{status}',{usage(*counts)},"
+                f"{literal(stop)},{literal(requests)})")
+
+    def close_call(turn, opened, outcome='succeeded', counts=(120, 0, 0, 40, 0), status='recognized', token=None, stop=None, requests=None):
+        # A call that completed ended its turn, unless it stopped otherwise. Answers whether this close recorded the outcome.
+        stop = stop or ('end_turn' if outcome in ('succeeded', 'usage_unrecognized') else None)
+        return query(f'SET SESSION AUTHORIZATION preview_runtime;SELECT {close_sql(turn, opened, outcome, counts, status, stop, requests, token)};') == 't'
+
+    def step_sql(turn, tool='read_market_data', operation=None, arguments='{}', code=None, at=None, access=None, token=None):
+        """A step answering `turn`'s next tool request; `access` lists what a read ran under, as (function, catalog,
+        permission) or as JSON."""
+        accesses = access if isinstance(access, str) or access is None else json.dumps(
+            [{'access': function, 'catalogId': catalog_id, 'permission': permission} for function, catalog_id, permission in access])
+        return worker_sql('record_tool_step', turn, literal(tool), literal(operation), 'NULL' if arguments is None else literal(arguments) + '::jsonb',
+                          literal(code), at or 'NULL', 'NULL' if accesses is None else literal(accesses) + '::jsonb', token=token)
+
+    def read(turn, tool='read_market_data', access=None, code=None, arguments='{"curve":"test_curve"}'):
+        """The step of a read that ran under `access`, by default the catalog's market data."""
+        return as_worker(f"SELECT {step_sql(turn, tool, 'market_data.curves_v1', arguments, code, 'clock_timestamp()', access or market)}::text;")
+
+    def declined(turn, code, tool='read_current_page', arguments='{}'):
+        """The step of a request refused before any read."""
+        return as_worker(f"SELECT {step_sql(turn, tool, arguments=arguments, code=code)}::text;")
+
+    def step_refused(refusal, turn, **step):
+        try:
+            query('SET SESSION AUTHORIZATION preview_runtime;' + refused(f'PERFORM {step_sql(turn, **step)};', refusal))
+        except RuntimeError as error:
+            raise AssertionError(f'{step} is not refused {refusal}: {error}') from None
 
     def stop(turn, profile='trader', scope='api'):
         return as_person(profile, f"SELECT assistant.stop_turn('{scope}','{turn.id}')::text;")['turn']
@@ -231,9 +299,12 @@ def run_checks(url, query, psql, manifest, environment):
     def current(agent_state):
         return next(a for a in admin.call(AGENTS)['agents'] if a['id'] == agent_state['id'])
 
+    def after(change, write):
+        """A worker write's answer in a transaction that first makes `change` and then rolls back."""
+        return answer(query(f"BEGIN;{change}SET SESSION AUTHORIZATION preview_runtime;SELECT {write}::text;ROLLBACK;"))
+
     def opened_after(change, turn):
-        """The turn's next call in a transaction that first makes `change` and then rolls back."""
-        return answer(query(f"BEGIN;{change}SET SESSION AUTHORIZATION preview_runtime;SELECT {worker_sql('open_turn_call', turn)}::text;ROLLBACK;"))
+        return after(change, worker_sql('open_turn_call', turn))
 
     def waits(work, operation):
         """Starts `work` in a thread and returns once it waits for a lock in `operation`, with the thread and its answer."""
@@ -302,14 +373,16 @@ def run_checks(url, query, psql, manifest, environment):
     contexts.runtime('trader', refused(f'PERFORM {pin_sql(first)};', 'turn_state_conflict'))
     check('the pinned record is written once', contexts_count() == before + 1)
     started = start(first)
-    check('the worker starts the pinned turn and is given the version, its limits, the question and no earlier turn',
-          started['turn']['state'] == 'running' and started['started']['instructions'] == 'Quote only values you read.'
+    check("the worker starts the pinned turn and is given the version, its limits, the question, no earlier turn, and the catalog, pins, "
+          "grant and agent principal its reads run under", started['turn']['state'] == 'running'
+          and started['started']['instructions'] == 'Quote only values you read.'
           and started['started']['limits'] == {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048, 'elapsedSeconds': 120, 'retries': 2}
-          and started['started']['modelId'] == usable and started['started']['earlier'] == [] and started['turn']['question'] == 'What does this page show?',
-          started)
+          and started['started']['modelId'] == usable and started['started']['earlier'] == [] and started['turn']['question'] == 'What does this page show?'
+          and (started['started']['catalogId'], started['started']['pins'], started['started']['delegationId']) == (catalog, None, covering['id'])
+          and started['started']['agentPrincipal'] == query(f"SELECT principal_id FROM assistant.agents WHERE id='{guide['id']}';"), started)
     write_refused('turn_state_conflict', 'start_turn', first)
     for operation_name, arguments in (('start_turn', ()), ('open_turn_call', ()), ('append_turn_text', ("'text'",)), ('end_turn', ("'completed'", 'NULL')),
-                                      ('end_turn_session', ())):
+                                      ('end_turn_session', ()), ('record_tool_step', DECLINED)):
         worker_refuses(operation_name, first, *arguments, token=secrets.token_bytes(32))
     check("every worker write presents the turn's token", state(first) == 'running:-')
     write_refused('turn_state_conflict', 'end_turn', first, "'completed'", 'NULL')
@@ -336,7 +409,7 @@ def run_checks(url, query, psql, manifest, environment):
     for target, token in ((opened, secrets.token_bytes(32)), ({'call': str(uuid4()), 'identifier': None}, None)):
         query('SET SESSION AUTHORIZATION preview_runtime;' + refused(
             f"PERFORM assistant.close_turn_call('{target['call']}',{bytea(token or first.token)},'succeeded','model-turn-usable-{stamp}',"
-            f"'recognized',{usage(120, 0, 0, 40, 0)});", 'agent_runtime_unavailable'))
+            f"'recognized',{usage(120, 0, 0, 40, 0)},'end_turn',NULL);", 'agent_runtime_unavailable'))
     check("a close without the turn's token, or of an unknown call, is refused and writes nothing", query(RECORDS) == records)
     closes = (close_call(first, opened), close_call(first, opened, 'model_provider_transport', UNKNOWN, 'unknown'))
     ended = end(first)['turn']
@@ -647,7 +720,8 @@ def run_checks(url, query, psql, manifest, environment):
     check("Stop is its owner's alone, in the scope, and requests the cancel once; no text is published after it; once the worker closed the "
           'call, its next write ends the turn cancelled without a code, whatever it asked, counting what the call reported and no more',
           requested['state'] == 'cancel_requested' and requested['cancelRequestedAt'] and 'sequence' not in unpublished
-          and unpublished['turn']['state'] == 'cancel_requested' and stop(stopped) == ended and (ended['state'], ended['outcome']) == ('cancelled', None)
+          and unpublished['turn']['state'] == 'cancel_requested' and stop(stopped) == {**ended, 'hidden': None} and 'hidden' not in ended
+          and (ended['state'], ended['outcome']) == ('cancelled', None)
           and closed(opened['call']) == 'cancelled:unknown' and kinds(stopped) == 'accepted,usage,cancelled'
           and dimensions(stopped) == [(120, 0), (0, 0), (0, 0), (0, 1), (0, 1)], (ended, usage_of(stopped)))
     early = Turn()
@@ -721,20 +795,33 @@ def run_checks(url, query, psql, manifest, environment):
     listener.wait(timeout=10)
     check('the worker is told of each cancel request once, by a notification naming the turn', sorted(heard) == sorted(cancels), (heard, cancels))
 
-    # A retained context (§7.2) is pinned as named, with an As of frame's pins, and nothing is captured.
+    # A retained context (§7.2) is pinned as named, with an As of frame's exact pins, and nothing is captured.
     retained = query(f"SELECT context_id FROM assistant.turns WHERE id='{first.id}';")
     frame = str(uuid4())
-    pins = {'at': '2020-12-18T12:00:00Z', 'curveContracts': {'test_curve': []}, 'frameId': frame, 'observationIds': []}
+    observation = str(uuid4())
+    pins = {'at': '2020-12-18T12:00:00Z', 'curveContracts': {'test_curve': []}, 'frameId': frame, 'frozenObservationIds': [observation],
+            'name': 'Synthetic certified inputs', 'observationIds': [observation], 'resolvesLatestCorrection': True,
+            'swapMarketSelections': {str(uuid4()): [observation]}}
     as_of = Turn()
     ask(as_of, mode='retained', context=retained, frame=frame)
-    for wrong in (None, {**pins, 'frameId': str(uuid4())}, {key: value for key, value in pins.items() if key != 'at'}, {**pins, 'extra': True},
-                  {**pins, 'observationIds': {}}, {**pins, 'curveContracts': []}):
+    for wrong in (None, {**pins, 'frameId': str(uuid4())}, *({key: value for key, value in pins.items() if key != missing} for missing in pins),
+                  {**pins, 'extra': True}, {**pins, 'at': 1}, {**pins, 'name': None}, {**pins, 'observationIds': {}}, {**pins, 'frozenObservationIds': {}},
+                  {**pins, 'curveContracts': []}, {**pins, 'swapMarketSelections': []}, {**pins, 'resolvesLatestCorrection': 'true'},
+                  {**pins, 'at': None}, {**pins, 'at': 'yesterday'}, {**pins, 'at': '2020-13-18T12:00:00Z'},
+                  {**pins, 'at': '2020-12-18T12:00:00+16:00'}, {**pins, 'at': '2020-12-18T12:00:00+00:60'}, {**pins, 'name': '   '}, {**pins, 'observationIds': [1]},
+                  {**pins, 'observationIds': ['not-a-uuid']}, {**pins, 'frozenObservationIds': [str(uuid4())]},
+                  {**pins, 'curveContracts': {'test_curve': ['not-a-uuid']}}, {**pins, 'curveContracts': {'': []}},
+                  {**pins, 'swapMarketSelections': {'not-a-uuid': []}}, {**pins, 'swapMarketSelections': {str(uuid4()): [1]}}):
         contexts.runtime('trader', refused(f'PERFORM {pin_sql(as_of, pins=wrong)};', 'turn_input'))
     before = contexts_count()
-    pinned = pin(as_of, pins=pins)['turn']
-    check("a retained context is pinned as named with the As of frame's pins, capturing nothing",
+    # The patterns read the same whatever the session's string-literal setting.
+    pinned = as_person('trader', f'SET standard_conforming_strings=off;SELECT {pin_sql(as_of, pins=pins)}::text;')['turn']
+    check("a retained context is pinned as named with the As of frame's exact pins, capturing nothing: an instant this database reads, a "
+          'name, its observations and the ones it froze among them, its curve-contract and swap market selections, all as canonical uuids, '
+          'and whether it resolves the latest correction',
           (pinned['context']['contextId'], pinned['context']['frameId']) == (retained, frame) and contexts_count() == before
-          and json.loads(query(f"SELECT pins::text FROM assistant.turns WHERE id='{as_of.id}';")) == pins, pinned)
+          and json.loads(query(f"SELECT pins::text FROM assistant.turns WHERE id='{as_of.id}';")) == pins
+          and query('SELECT assistant.is_uuid_array(NULL);') == 'f', pinned)
     end(as_of, 'failed', 'request_cancelled')
     plain = Turn()
     ask(plain, mode='retained', context=retained)
@@ -800,6 +887,344 @@ def run_checks(url, query, psql, manifest, environment):
                         "ORDER BY started_at DESC,id DESC LIMIT 1;")
     check("the Providers directory shows a provider's latest test, never a later turn call",
           query(f'SELECT turn_id IS NOT NULL {calls};') == 't' and directory['tests'].get('anthropic', {}).get('id') == (latest_test or None), directory['tests'])
+
+    # Tool steps (§7.3, §7.5): a call that stops requesting tools is answered by one step per request, in order, before
+    # the tool loop's next call opens. A read names its operation, the instant it read and what it ran under; a refusal
+    # before any read names neither. Each is published as a step event that carries no business data.
+    def step_events(turn):
+        return [json.loads(payload) for payload in query(f"SELECT string_agg(payload::text,E'\\n' ORDER BY sequence) FROM assistant.turn_events "
+                                                         f"WHERE turn_id='{turn.id}' AND kind='step';").splitlines()]
+
+    def sources_of(turn):
+        return query(f"SELECT string_agg(access||' '||permission,',' ORDER BY access) FROM assistant.turn_sources('{turn.id}');")
+    declining = {'tool': 'read_current_page', 'code': 'page_not_supported'}
+    reader = agent('reader', toolSteps=3)
+    grant(trader, reader)
+    looping = Turn()
+    ran(looping, agent_id=reader['id'])
+    step_refused('turn_state_conflict', looping, **declining)
+    opened = open_call(looping)['opened']
+    step_refused('turn_state_conflict', looping, **declining)
+    close_call(looping, opened, stop='tool_use', requests=2)
+    write_refused('turn_state_conflict', 'open_turn_call', looping)
+    write_refused('turn_state_conflict', 'end_turn', looping, "'completed'", 'NULL')
+    check('a step answers a request of a closed call, and until each request has one no call opens and the turn does not complete')
+    records = query(RECORDS)
+    reading = {'operation': 'market_data.curves_v1', 'arguments': '{"curve":"test_curve"}', 'at': 'clock_timestamp()', 'access': market}
+    for wrong in ({**reading, 'tool': 'read_schedules'}, {**reading, 'tool': None}, {**declining, 'code': 'Not a code'}, {**reading, 'arguments': '[]'},
+                  {**reading, 'arguments': json.dumps({'curve': 'x' * 8200})}, {**reading, 'arguments': None}, {**reading, 'operation': 'Market data'},
+                  {**reading, 'at': None}, {**reading, 'at': "clock_timestamp()+interval '1 minute'"}, {**reading, 'at': "clock_timestamp()-interval '1 hour'"},
+                  {**reading, 'access': None}, {**reading, 'access': []}, {**declining, 'at': 'clock_timestamp()'}, {**declining, 'access': market},
+                  {**reading, 'access': [('catalog_access', catalog, 'ReadMarketData')]}, {**reading, 'access': [('market_access', catalog, 'ReadTrades')]},
+                  {**reading, 'access': [('trading_access', catalog, 'ReadMarketData')]},
+                  {**reading, 'access': [('reference_access', catalog, 'ReadMarketData')]},
+                  {**reading, 'access': [('market_access', str(uuid4()), 'ReadMarketData')]},
+                  {**reading, 'access': json.dumps([{'access': 'market_access', 'catalogId': catalog}])},
+                  {**reading, 'access': json.dumps([{'access': 'market_access', 'catalogId': catalog, 'permission': None}])},
+                  {**reading, 'access': json.dumps([{'access': 'market_access', 'catalogId': catalog.replace('-', ''), 'permission': 'ReadMarketData'}])},
+                  {**reading, 'access': json.dumps({'access': 'market_access', 'catalogId': catalog, 'permission': 'ReadMarketData'})}):
+        step_refused('turn_input', looping, **wrong)
+    query('SET SESSION AUTHORIZATION preview_runtime;SET standard_conforming_strings=off;'
+          + refused(f"PERFORM {step_sql(looping, **{**reading, 'operation': 'market-data.curves_v1'})};", 'turn_input'))
+    check("a step names one of the version's tools and a code if any; a read names a versioned operation, an instant from its call's close "
+          'until now and each market, reference, trades or parties access it ran under in a catalog of that kind; a refusal before any read '
+          "names neither; and the request's input is an object of at most 8 KiB", query(RECORDS) == records)
+    first_step = read(looping, access=[*market, ('reference_access', reference, 'ReadMarketData')])
+    second_step = declined(looping, 'page_not_supported')
+    step_refused('turn_state_conflict', looping, **declining)
+    write_refused('turn_state_conflict', 'end_turn', looping, "'completed'", 'NULL')
+    stored = query(f"SELECT string_agg(concat_ws(' ',ordinal,call_id='{opened['call']}',tool,coalesce(operation,'-'),input::text,coalesce(code,'-'),"
+                   f"read_at IS NOT NULL),E'\\n' ORDER BY ordinal) FROM assistant.tool_steps WHERE turn_id='{looping.id}';")
+    accessed = query(f"SELECT string_agg(concat_ws(' ',step,access,permission,market_catalog_id,reference_catalog_id),',' ORDER BY access) "
+                     f"FROM assistant.tool_read_access WHERE turn_id='{looping.id}';")
+    check("each step answers the next request in order, numbered across the turn, and its event carries its number, its tool and any code, "
+          'never its input or a value', (first_step['step'], second_step['step']) == (1, 2) and second_step['sequence'] == first_step['sequence'] + 1
+          and stored.splitlines() == ['1 t read_market_data market_data.curves_v1 {"curve": "test_curve"} - t',
+                                      '2 t read_current_page - {} page_not_supported f']
+          and accessed == f'1 market_access ReadMarketData {catalog},1 reference_access ReadMarketData {reference}'
+          and step_events(looping) == [{'ordinal': 1, 'tool': 'read_market_data'}, {'ordinal': 2, 'tool': 'read_current_page', 'code': 'page_not_supported'}],
+          (stored, accessed, step_events(looping)))
+    looped = open_call(looping)['opened']
+    append(looping, 'The curve reads 42.')
+    close_call(looping, looped)
+    ended = end(looping)['turn']
+    check("the tool loop's next call opens once a step answered each request, and the turn completes once its last call ended the turn",
+          looped['attempt'] == 2 and ended['state'] == 'completed' and kinds(looping) == 'accepted,step,step,text,usage,completed', ended)
+
+    # A close names how a call that completed stopped, and only such a call (§7.4); one stopped at its output limit
+    # neither completes its turn nor is followed.
+    stopping = Turn()
+    ran(stopping, agent_id=reader['id'])
+    opened = open_call(stopping)['opened']
+    for outcome, how, requests in (('succeeded', None, None), ('usage_unrecognized', None, None), ('succeeded', 'paused', None),
+                                   ('model_provider_overloaded', 'end_turn', None), ('succeeded', 'tool_use', None), ('succeeded', 'tool_use', 0),
+                                   ('succeeded', 'end_turn', 1)):
+        query('SET SESSION AUTHORIZATION preview_runtime;' + refused(f'PERFORM {close_sql(stopping, opened, outcome, stop=how, requests=requests)};',
+                                                                     'turn_input'))
+    unclosed = closed(opened['call']) == ''
+    close_call(stopping, opened, stop='output_limit')
+    write_refused('turn_state_conflict', 'end_turn', stopping, "'completed'", 'NULL')
+    write_refused('retry_not_allowed', 'open_turn_call', stopping)
+    step_refused('turn_state_conflict', stopping, **declining)
+    end(stopping, 'failed', 'limit_output_tokens')
+    check('a close names how a completed call stopped, ending its turn, at its output limit or requesting tools with how many, and a call '
+          'that did not complete names neither; after the output limit no call or step follows and the turn does not complete',
+          unclosed and state(stopping) == 'failed:limit_output_tokens')
+    cancelling = Turn()
+    ran(cancelling, agent_id=reader['id'])
+    close_call(cancelling, open_call(cancelling)['opened'], stop='tool_use', requests=1)
+    stop(cancelling)
+    unrecorded = declined(cancelling, 'page_not_supported')
+    ended = end(cancelling)['turn']
+    check('once its cancel is requested a step records and publishes nothing, and the turn ends cancelled',
+          'step' not in unrecorded and unrecorded['turn']['state'] == 'cancel_requested' and step_events(cancelling) == []
+          and query(f"SELECT count(*) FROM assistant.tool_steps WHERE turn_id='{cancelling.id}';") == '0' and ended['state'] == 'cancelled', unrecorded)
+
+    # A batch of requests that would take the turn past its version's tool steps runs none and ends it (§7.5).
+    batched = Turn()
+    ran(batched, agent_id=reader['id'])
+    close_call(batched, open_call(batched)['opened'], stop='tool_use', requests=2)
+    read(batched)
+    unargued = declined(batched, 'tool_arguments_invalid', 'read_market_data', None)
+    close_call(batched, open_call(batched)['opened'], stop='tool_use', requests=1)
+    read(batched)
+    close_call(batched, open_call(batched)['opened'], stop='tool_use', requests=1)
+    records = query(RECORDS)
+    step_refused('limit_tool_steps', batched, **declining)
+    unrun = query(RECORDS) == records
+    end(batched, 'failed', 'limit_tool_steps')
+    oversized = Turn()
+    ran(oversized, agent_id=reader['id'])
+    close_call(oversized, open_call(oversized)['opened'], stop='tool_use', requests=4)
+    records = query(RECORDS)
+    step_refused('limit_tool_steps', oversized, **declining)
+    unrun = unrun and query(RECORDS) == records
+    end(oversized, 'failed', 'limit_tool_steps')
+    check("a batch of tool requests that would take the turn past its version's tool steps, counting the steps it already took, records none, "
+          'and the turn ends limit_tool_steps; a refusal of a request\'s arguments keeps no input',
+          unrun and unargued['step'] == 2 and state(batched) == 'failed:limit_tool_steps' and state(oversized) == 'failed:limit_tool_steps'
+          and query(f"SELECT input IS NULL FROM assistant.tool_steps WHERE (turn_id,ordinal)=('{batched.id}',2);") == 't', unargued)
+
+    # The tool loop's calls share the turn's retries and its input limit (§7.5).
+    retrying = Turn()
+    ran(retrying, agent_id=reader['id'])
+    close_call(retrying, open_call(retrying)['opened'], stop='tool_use', requests=1)
+    read(retrying)
+    attempts = []
+    for _ in range(3):
+        attempts.append(open_call(retrying)['opened'])
+        close_call(retrying, attempts[-1], 'model_provider_overloaded', NOTHING)
+    write_refused('retry_not_allowed', 'open_turn_call', retrying)
+    write_refused('turn_state_conflict', 'end_turn', retrying, "'completed'", 'NULL')
+    end(retrying, 'failed', 'model_provider_overloaded')
+    check("the tool loop's next call is retried after an overload as the turn's next attempt, while the turn's failed calls are within the "
+          "version's retries, and a turn whose last call failed does not complete though an earlier one did",
+          [a['attempt'] for a in attempts] == [2, 3, 4], attempts)
+    unverifiable = Turn()
+    ran(unverifiable, agent_id=reader['id'])
+    close_call(unverifiable, open_call(unverifiable)['opened'], 'usage_unrecognized', (120, 0, 0, 40, 0), 'unrecognized', stop='tool_use', requests=1)
+    read(unverifiable)
+    refused_call = open_call(unverifiable)
+    check('after a call whose usage was not recognized the next call opens nothing and ends the turn limit_input_unverifiable',
+          'opened' not in refused_call and state(unverifiable) == 'failed:limit_input_unverifiable', refused_call)
+    small_reader = agent('small reader', inputTokens=100)
+    grant(trader, small_reader)
+    crossing = Turn()
+    ran(crossing, agent_id=small_reader['id'])
+    close_call(crossing, open_call(crossing)['opened'], counts=(60, 20, 20, 5, 0), stop='tool_use', requests=1)
+    read(crossing)
+    within = open_call(crossing)['opened']
+    close_call(crossing, within, counts=(0, 0, 1, 5, 0), stop='tool_use', requests=1)
+    read(crossing)
+    over = open_call(crossing)
+    check("the tool loop's next call opens while the input its calls reported is within the version's limit, and once past it the turn "
+          'ends limit_input_tokens instead', within['attempt'] == 2 and 'opened' not in over and state(crossing) == 'failed:limit_input_tokens', over)
+
+    # The source set (§7.1, §7.3): what each read ran under joins it, even a read that then failed, and a refusal before
+    # any read adds nothing. The source-access check evaluates it in the agent's authority before every publication and
+    # call: here the turn's grant no longer lists a permission a source used, in a transaction that then rolls back.
+    sourced = Turn()
+    ran(sourced, agent_id=reader['id'])
+    close_call(sourced, open_call(sourced)['opened'], stop='tool_use', requests=3)
+    read(sourced)
+    read(sourced, 'read_trades', [('trading_access', catalog, 'ReadTrades')], 'result_too_large', '{}')
+    unlisted = ("DELETE FROM security.delegation_permissions WHERE permission='ReadTrades' "
+                f"AND delegation_id=(SELECT delegation_id FROM assistant.turns WHERE id='{sourced.id}');")
+    refused_step = after(unlisted, step_sql(sourced, **declining))
+    declined(sourced, 'tool_not_enabled')
+    refused_open = after(unlisted, worker_sql('open_turn_call', sourced))
+    opened = open_call(sourced)['opened']
+    refused_text = after(unlisted, worker_sql('append_turn_text', sourced, "'Hidden.'"))
+    append(sourced, 'Sourced.')
+    close_call(sourced, opened)
+    end(sourced)
+    check('a read joins the source set with what it ran under even when it then failed, a refusal before any read adds nothing, and a '
+          "source the turn's grant no longer covers refuses a step's and text's publication and ends the turn access_changed at its next call",
+          sources_of(sourced) == 'market_access ReadMarketData,trading_access ReadTrades' and refused_step.get('refused') == 'access_changed'
+          and 'sequence' not in refused_step and 'opened' not in refused_open and refused_open['turn']['outcome'] == 'access_changed'
+          and refused_text.get('refused') == 'access_changed' and 'sequence' not in refused_text and state(sourced) == 'completed:-',
+          (refused_step, refused_open, refused_text))
+    stepper = persona('stepper', ['trader'])
+    grant(stepper, reader)
+    silenced_steps = Turn()
+    ran(silenced_steps, login('stepper'), agent_id=reader['id'])
+    close_call(silenced_steps, open_call(silenced_steps)['opened'], stop='tool_use', requests=2)
+    query(f"UPDATE security.role_grants SET revoked=true WHERE principal_id='{principal(login('stepper'))}';")
+    unpublished, again = read(silenced_steps), declined(silenced_steps, 'page_not_supported')
+    ended = end(silenced_steps, 'failed', 'limit_elapsed')['turn']
+    check('a step after its owner lost their role publishes nothing and records the refusal, though its read joins the source set; a later '
+          'step records nothing, and the turn fails access_changed whatever the worker asks',
+          unpublished.get('refused') == again.get('refused') == 'access_changed' and 'sequence' not in unpublished
+          and query(f"SELECT count(*) FROM assistant.tool_steps WHERE turn_id='{silenced_steps.id}';") == '1' and step_events(silenced_steps) == []
+          and sources_of(silenced_steps) == 'market_access ReadMarketData'
+          and (ended['state'], ended['outcome']) == ('failed', 'access_changed'), (unpublished, again, ended))
+
+    def waited(name, write):
+        """The answer of the write `write` gives for a running turn of a new person's, sent while a revocation of their role
+        holds the epoch row, once that commits."""
+        grant(persona(name, ['trader']), reader)
+        turn = Turn()
+        ran(turn, login(name), agent_id=reader['id'])
+        close_call(turn, open_call(turn)['opened'], stop='tool_use', requests=1)
+        sql = write(turn)
+        thread, answers = holding(psql, environment, 'SELECT 1 FROM security.epoch WHERE id=true FOR UPDATE',
+                                  lambda: waits(lambda: as_worker(f'SELECT {sql}::text;'), sql.split('(')[0].removeprefix('assistant.')),
+                                  ending=f"UPDATE security.role_grants SET revoked=true WHERE principal_id='{principal(login(name))}';COMMIT")
+        thread.join(timeout=15)
+        return turn, answers['answer']
+
+    def answered_then_opened(turn):
+        declined(turn, 'page_not_supported')
+        return worker_sql('open_turn_call', turn)
+    held_step, step_answer = waited('waiting_step', lambda turn: step_sql(turn, **declining))
+    held_open, open_answer = waited('waiting_call', answered_then_opened)
+    end(held_step, 'failed', 'limit_elapsed')
+    check("a step or a call waiting for a revocation of its owner's role in progress publishes or opens nothing once it commits, and the "
+          'turn fails access_changed', step_answer.get('refused') == 'access_changed' and 'sequence' not in step_answer
+          and 'opened' not in open_answer and state(held_open) == state(held_step) == 'failed:access_changed', (step_answer, open_answer))
+
+    # Without a request context, the source-access check answers what security.<access>() answers in one issued to the
+    # turn's agent under its grant (§7.1), state by state, each made in a transaction that then rolls back.
+    probe = Turn()
+    ran(probe, agent_id=reader['id'])
+    delegation = query(f"SELECT delegation_id FROM assistant.turns WHERE id='{probe.id}';")
+    reader_principal = query(f"SELECT principal_id FROM assistant.agents WHERE id='{reader['id']}';")
+    accesses = (('market_access', 'ReadMarketData', catalog), ('reference_access', 'ReadMarketData', reference),
+                ('trading_access', 'ReadTrades', catalog), ('trading_access', 'ReadTradeParties', catalog))
+
+    mirrored = ','.join(f"assistant.agent_access(t,'{access}','{permission}',{'NULL' if access == 'reference_access' else literal(catalog_id)},"
+                        f"{literal(catalog_id) if access == 'reference_access' else 'NULL'})::text" for access, permission, catalog_id in accesses)
+    issued_access = ','.join(f"security.{access}('{catalog_id}','{permission}')::text" for access, permission, catalog_id in accesses)
+
+    def compared(change):
+        """After `change`, each access as an issued agent context answers it and as the source-access check does."""
+        return query(f"BEGIN;{change}\nSELECT concat_ws(',',{mirrored}) AS mirrored FROM assistant.turns t WHERE t.id='{probe.id}' \\gset\n"
+                     "SET SESSION AUTHORIZATION preview_authenticator;\n"
+                     f"SELECT security.issue_context('{ISSUER}','{reader_principal}','agent_credential','{contexts.tenant}','{contexts.workspace}',"
+                     f"'{delegation}','preview_runtime',60) AS token \\gset\n"
+                     "SET SESSION AUTHORIZATION preview_runtime;\nSELECT security.use_context(:'token');\n"
+                     f"SELECT concat_ws(',',{issued_access})||' '||:'mirrored';\nROLLBACK;").split()[-2:]
+    states = {'current': '', 'its grant revoked': f"UPDATE security.agent_delegations SET revoked=true WHERE id='{delegation}';",
+              "its grant's term over": f"UPDATE security.agent_delegations SET granted_to=clock_timestamp() WHERE id='{delegation}';",
+              'ReadTrades no longer granted': f"DELETE FROM security.delegation_permissions WHERE delegation_id='{delegation}' AND permission='ReadTrades';",
+              **{f"the delegator's {permission}": f"DELETE FROM security.role_permissions WHERE role_id='{trader_role}' AND permission='{permission}';"
+                 for permission in ('ReadMarketData', 'ReadTrades', 'CreateDelegations')},
+              "the delegator's membership": membership.format(trader_principal),
+              "the delegator's principal": f"UPDATE security.principals SET enabled=false WHERE id='{trader_principal}';",
+              "the agent's role": f"UPDATE security.role_grants SET revoked=true WHERE principal_id='{reader_principal}';",
+              "ReadTrades in the agent's role": "DELETE FROM security.role_permissions WHERE role_id='a0000000-0000-0000-0000-000000000007' "
+                                                "AND permission='ReadTrades';",
+              "the agent's membership": membership.format(reader_principal),
+              "the market catalog's scope": f"DELETE FROM security.market_catalog_scopes WHERE catalog_id='{catalog}';",
+              "the reference catalog's scope": f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{reference}';"}
+    answers = {name: compared(change) for name, change in states.items()}
+    # A disabled agent principal is issued no context, and the check answers nothing as accessible.
+    unissued = query(f"BEGIN;UPDATE security.principals SET enabled=false WHERE id='{reader_principal}';"
+                     f"SELECT concat_ws(',',{mirrored}) FROM assistant.turns t WHERE t.id='{probe.id}';ROLLBACK;")
+    end(probe, 'failed', 'request_cancelled')
+    check("without a request context the source-access check answers each market, reference, trades and parties access as one issued to the "
+          "turn's agent answers it: currently, and without the grant, its term, a permission it lists, the delegator's permission, "
+          "CreateDelegations, membership or principal, the agent's role, a permission of it or its membership, or the catalog's scope; and "
+          'for a disabled agent, which no context is issued to, nothing', answers['current'] == ['true,true,true,false'] * 2
+          and all(answered == mirrored for answered, mirrored in answers.values())
+          and all(answers[name][0] != answers['current'][0] for name in states if name != 'current') and unissued == 'false,false,false,false',
+          (answers, unissued))
+
+    # Earlier turns (§7.6): one is included only while its owner can still read every source it used and the covering
+    # grant lists every permission those sources needed; each withheld one is named by a step, and an included one's
+    # sources join the new turn's, with those of the turns it included.
+    history = query(f"SELECT conversation_id FROM assistant.turns WHERE id='{sourced.id}';")
+    including = Turn()
+    included = ran(including, agent_id=reader['id'], conversation=history, question='And the trades?')
+    end(including, 'failed', 'request_cancelled')
+    check("a follow-up includes an earlier turn whose sources its owner can read and its grant covers, and those sources join its own",
+          [e['ordinal'] for e in included['started']['earlier']] == [1] and sources_of(including) == sources_of(sourced), included['started'])
+    fixture.publish(fixture.save(current(reader), usable, tools=('read_current_page', 'read_market_data'), toolSteps=3))
+    trader.call(f'{GRANTS}/grant', {'operationId': str(uuid4()), 'agentId': reader['id'], 'version': 2})
+    narrowed = Turn()
+    asked = ask(narrowed, agent_id=reader['id'], version=2, conversation=history, question='What changed?')
+    withheld = [(kind, json.loads(payload)) for kind, payload in (line.split(' ', 1) for line in query(
+        f"SELECT string_agg(kind||' '||payload::text,E'\\n' ORDER BY sequence) FROM assistant.turn_events WHERE turn_id='{narrowed.id}';").splitlines())]
+    check('under a grant that no longer lists a permission its sources needed, an earlier turn is withheld, as is a turn that included it; '
+          'each is named by a step after the accepted event, and the new turn still counts them',
+          asked['turn']['ordinal'] == 3 and query(f"SELECT cardinality(included_turns) FROM assistant.turns WHERE id='{narrowed.id}';") == '0'
+          and [kind for kind, _ in withheld] == ['accepted', 'step', 'step'] and [payload for _, payload in withheld[1:]] == [{'withheld': 1}, {'withheld': 2}],
+          withheld)
+    pin(narrowed)
+    start(narrowed)
+    close_call(narrowed, open_call(narrowed)['opened'], stop='tool_use', requests=1)
+    read(narrowed)
+    opened = open_call(narrowed)['opened']
+    append(narrowed, 'Prices moved.')
+    unscoped = f"DELETE FROM security.market_catalog_scopes WHERE catalog_id='{catalog}';"
+    running_hidden = json.loads(contexts.rolled_back(unscoped, 'trader', 'human_interactive', contexts.workspace, 'NULL',
+                                                     "SELECT assistant.unfinished_turn('api')::text;").splitlines()[-1])['turn']
+    close_call(narrowed, opened)
+    end(narrowed)
+    contexts.rolled_back(f"UPDATE security.role_grants SET revoked=true WHERE principal_id='{reader_principal}';", 'trader', 'human_interactive',
+                         contexts.workspace, 'NULL', refused(f"PERFORM {ask_sql(Turn(), agent_id=reader['id'], version=2, conversation=history)};",
+                                                             'access_changed'))
+    check("an ask whose included turns used a source the agent can no longer read is refused access_changed")
+
+    # The replay recheck (§7.1): once the owner can no longer read a source, here with the market catalog out of the
+    # workspace's scope in a transaction that then rolls back, a turn that used it, and every turn including one, is read
+    # with its answer and text hidden as access_changed and withheld from an ask; it needs no grant, so a revoked one
+    # hides nothing.
+    operation = query(f"SELECT operation_id FROM assistant.turns WHERE id='{narrowed.id}';")
+    hidden = [json.loads(line) for line in contexts.rolled_back(
+        unscoped, 'trader', 'human_interactive', contexts.workspace, 'NULL',
+        f"SELECT assistant.stop_turn('api','{narrowed.id}')::text;"
+        f"SELECT {ask_sql(Turn(), operation=operation, agent_id=reader['id'], version=2, conversation=history, question='What changed?')}::text;"
+        "SELECT assistant.conversations('api')::text;"
+        f"SELECT {ask_sql(Turn(), agent_id=reader['id'], version=2, conversation=history, question='Anything else?')}::text;"
+        f"SELECT assistant.conversation('api','{history}',0)::text;").splitlines() if line.strip()]
+    stopped_answer, repeated, listed_now, followed_up, replayed = hidden
+    texts = {e['turnId']: e['payload'] for e in replayed['events'] if e['kind'] == 'text'}
+    latest_listed = next(k for k in listed_now['conversations'] if k['id'] == history)['latestTurn']
+    check("a turn whose source its owner can no longer read, and every turn that included one, is answered by Stop, a repeated ask and the "
+          "conversation and unfinished-turn reads with its answer and text hidden as access_changed, and an ask withholds them",
+          all((t['answer'], t['hidden']) == ('', 'access_changed') for t in replayed['turns'][:3]) and replayed['turns'][3]['hidden'] is None
+          and (running_hidden['id'], running_hidden['answer'], running_hidden['hidden']) == (narrowed.id, '', 'access_changed')
+          and (stopped_answer['turn']['hidden'], repeated['turn']['hidden'], stopped_answer['turn']['answer']) == ('access_changed', 'access_changed', '')
+          and texts == {sourced.id: {'hidden': 'access_changed'}, narrowed.id: {'hidden': 'access_changed'}}
+          and followed_up['turn']['ordinal'] == 4 and [e['payload'] for e in replayed['events'] if e['turnId'] == followed_up['turn']['id']][1:]
+          == [{'withheld': 1}, {'withheld': 2}, {'withheld': 3}] and latest_listed['hidden'] == 'access_changed', hidden)
+    revoked_grant = query(f"SELECT delegation_id FROM assistant.turns WHERE id='{narrowed.id}';")
+    trader.call(f'{GRANTS}/revoke', {'operationId': str(uuid4()), 'grantId': revoked_grant})
+    replayed = as_person('trader', f"SELECT assistant.conversation('api','{history}',0)::text;")
+    check("the replay recheck needs no grant, so a turn reads in full after its grant is revoked",
+          replayed['turns'][2]['answer'] == 'Prices moved.' and replayed['turns'][2]['hidden'] is None, replayed['turns'][2])
+    for statement in (f"UPDATE assistant.tool_steps SET code='changed' WHERE turn_id='{sourced.id}';", f"DELETE FROM assistant.tool_steps WHERE turn_id='{sourced.id}';",
+                      f"UPDATE assistant.tool_read_access SET market_catalog_id=NULL WHERE turn_id='{sourced.id}';",
+                      f"DELETE FROM assistant.tool_read_access WHERE turn_id='{sourced.id}';"):
+        query(expect(statement, '55000'))
+    for statement, code in ((f"INSERT INTO assistant.tool_steps SELECT turn_id,99,id,'read_market_data',NULL,NULL,NULL,NULL,clock_timestamp() "
+                             f"FROM assistant.model_calls WHERE turn_id='{sourced.id}' LIMIT 1;", '23514'),
+                            (f"INSERT INTO assistant.tool_steps SELECT '{sourced.id}',99,id,'read_market_data',NULL,'{{}}',NULL,NULL,clock_timestamp() "
+                             f"FROM assistant.model_calls WHERE turn_id='{looping.id}' LIMIT 1;", '23503')):
+        query(expect(statement, code))
+    check("steps and what their reads ran under never change, a step without input is a refusal of its arguments, and a step answers its "
+          "own turn's call")
 
     # Records (§5.1) never move backward, even for the owner.
     rewriting = Turn()
@@ -892,6 +1317,7 @@ def run_checks(url, query, psql, manifest, environment):
           and closed(opened['call']) == 'interrupted:unknown' and state(stopping) == 'interrupted:-'
           and kinds(running) == 'accepted,text,usage,interrupted', interrupted)
     worker_refuses('end_turn', running, "'failed'", "'limit_elapsed'")
+    worker_refuses('record_tool_step', running, *DECLINED)
     refusal('trader', 'agent_runtime_unavailable', generation=worker.generation - 1)
     orphan = Turn()
     ran(orphan)

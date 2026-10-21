@@ -51,10 +51,28 @@ static class ModelCalls
         _=>throw new ArgumentException("A call ends with a completion or a failure.",nameof(end))
     };
 
-    // Closes a call's record through `close`, close_test or close_turn_call, with the usage and served identifier its ending
-    // reported, or unknown usage after a stream that ended without one, as a write that must land. A close after one
-    // landed changes nothing.
-    public static Task Close(AgentWorker worker,string close,Guid call,byte[] token,string outcome,ModelEvent? end)
+    // Closes a call's record as a write that must land, with the usage and served identifier its ending reported, or
+    // unknown usage after a stream that ended without one: a test's through close_test, and a turn's through
+    // close_turn_call, which also records how a call that completed stopped. A close after one landed changes nothing.
+    public static Task CloseTest(AgentWorker worker,Guid call,byte[] token,string outcome,ModelEvent? end)=>
+        Close(worker,$"SELECT assistant.close_test({Reports})",Reported(call,token,outcome,end));
+
+    public static Task CloseTurnCall(AgentWorker worker,Guid call,byte[] token,string outcome,ModelEvent? end)
+    {
+        var completed=outcome is "succeeded" or "usage_unrecognized"&&end is ModelCompleted c?c:null;
+        return Close(worker,$"SELECT assistant.close_turn_call({Reports},$16::text,$17::integer)",[..Reported(call,token,outcome,end),
+            completed is null?DBNull.Value:Stop(completed.Stop),completed is {Stop:ModelStop.ToolUse}?completed.ToolRequests.Length:DBNull.Value]);
+    }
+
+    const string Reports="$1,$2,$3,$4::text,$5,$6::bigint,$7,$8::bigint,$9,$10::bigint,$11,$12::bigint,$13,$14::bigint,$15";
+
+    static Task Close(AgentWorker worker,string close,object[] arguments)=>worker.Settle(async(connection,ct)=>
+    {
+        await using var command=ScheduleStore.Command(connection,close,arguments);
+        return await command.ExecuteNonQueryAsync(ct);
+    });
+
+    static object[] Reported(Guid call,byte[] token,string outcome,ModelEvent? end)
     {
         var (usage,served)=end switch
         {
@@ -62,15 +80,17 @@ static class ModelCalls
             ModelFailed f=>(f.Usage,f.Served),
             _=>(ModelUsage.Unknown(MessagesAdapter.Mapping),null)
         };
-        object[] arguments=[call,token,outcome,served is {} identifier&&ModelTarget.Valid(identifier)?identifier:DBNull.Value,Status(usage.Status),
+        return [call,token,outcome,served is {} identifier&&ModelTarget.Valid(identifier)?identifier:DBNull.Value,Status(usage.Status),
             ..Count(usage.UncachedInput),..Count(usage.CacheRead),..Count(usage.CacheWrite),..Count(usage.Output),..Count(usage.Reasoning)];
-        return worker.Settle(async(connection,ct)=>
-        {
-            await using var command=ScheduleStore.Command(connection,
-                $"SELECT assistant.{close}($1,$2,$3,$4::text,$5,$6::bigint,$7,$8::bigint,$9,$10::bigint,$11,$12::bigint,$13,$14::bigint,$15)",arguments);
-            return await command.ExecuteNonQueryAsync(ct);
-        });
     }
+
+    static string Stop(ModelStop stop)=>stop switch
+    {
+        ModelStop.EndTurn=>"end_turn",
+        ModelStop.ToolUse=>"tool_use",
+        ModelStop.OutputLimit=>"output_limit",
+        _=>throw new ArgumentOutOfRangeException(nameof(stop))
+    };
 
     static string Status(UsageStatus status)=>status switch
     {
