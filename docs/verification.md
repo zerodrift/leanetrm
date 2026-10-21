@@ -433,6 +433,40 @@ and Retry asks for it again. Measured against the client width at 390 px, neithe
 no model, price, capability, terms, test or audit rows on screen, a viewer sees no AI
 settings, and hosted mode hides them.
 
+An Agents scenario follows in the same run. Through an independent session it qualifies
+and enables the provider and adds a priced, enabled model, so it relies on no earlier
+state; the launcher adds a role holding each of Settings › AI's two permissions alone. A
+trader is offered no AI settings. An identity holding only `ManageAgents` lands on
+Settings › AI, is offered the Agents tab alone and reads only the agents directory; one
+holding only `ManageModelProviders` is offered Models & prices and Providers alone; an
+administrator of models and agents is offered all three. The tab says what a save,
+Publish and Retire do. A refused create keeps no request; Create lists the agent with
+nothing saved or published, sending only its identity and name, and opens its card. The
+card offers exactly the directory's models, each at its current capability version, the
+chosen model version's efforts, chosen anew, and its output limit, the roles that use
+agents and every tool, and states the bounds the API passes. A refresh keeps what the
+card has entered and chosen, and so does the next refresh after one that failed. A save
+without a caching choice is refused before any request, and an allowed role lacking a
+permission the tools need is refused by name and keeps nothing. A save creates a draft
+and sends every field with the model version the directory listed. A chosen role that a
+stubbed directory no longer lists as using agents is named rather than offered, after a
+refresh as when its agent opens, and is offered still chosen once listed again; Publish
+publishes the draft. After a capability edit the agent is marked "model changed" until a
+version on the current model version is published, and the form, refreshed or reopened,
+leaves unchosen a model chosen at the earlier capability version and says why. A lost
+save response keeps the exact request for its own identity only; a refusal after that
+uncertain attempt keeps it, and Retry reads the stored version, recorded once. A save
+confirmed before its reload failed keeps no request, and the next read fills the form
+from the version it made without calling that version newer. A form filled before
+another administrator saved a newer version says so, and its save is refused before any
+request until it starts again from the newest version; Publish keeps what the form holds
+unsaved. A Retire whose answer never came is kept until Discard, which sends nothing. A
+Retire confirmation never carries over to another agent's card; Retire needs a
+confirmation that it is permanent, after which the agent offers no change. At 390 px the
+tab and card fit the page, and no internal identifier shows. A change refused on its
+first attempt because access ended keeps no request, and the administrator keeps no
+agent, version, audit or form data, whether the next change or the next read is refused.
+
 The Messages adapter has a conformance suite
 (`dotnet run --project tests/OpenEtrm.Api.Checks -- --model-providers`, also part of
 the managed checks). A fake provider, injected as an `HttpMessageHandler`, asserts
