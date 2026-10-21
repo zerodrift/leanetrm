@@ -63,8 +63,8 @@ complete pinned declarations and deduplicated by books. Suggested API factors
 follow selected books/portfolios, including hedged upstream dependencies; unrelated
 curves/maturities and inferred all-in dependencies are excluded.
 
-Nested immutable live-quote stresses and retained interactive futures jobs are
-implemented locally (D178–180). The same resolved header context supplies user and
+Nested immutable live-quote stresses and retained interactive portfolio jobs are
+implemented locally (D178–181). The same resolved header context supplies user and
 worker calculations; child scenarios preserve parent values. Independent workers
 share a fenced PostgreSQL queue, and an optional Swarm artifact describes their
 placement. Single-run sharding, distributed reduction and real-cluster failure
@@ -79,13 +79,14 @@ conflicting bindings and cancellation. Streaming book summaries retain one facto
 pair at a time and expose unit calls, reuse and quantity applications.
 
 This qualifies the managed calculation path, not production throughput. The
-interactive portfolio API remains futures-only. The generated pilot-close worker
-adds a retained futures-and-swaps adapter and durable exact reports (D169), with
-separate futures execution-P&L and swap-PV measures. Its explicit rational-summary
-policy preserves nonterminating amounts without rounding and keeps rate inputs
+interactive portfolio API and generated pilot-close worker share the retained
+futures-and-swaps adapter (D169, D181), with separate futures execution-P&L and
+swap-PV measures. The interactive operation covers the current mixed books and
+their explicitly pinned supplemental market revisions. Its exact rational holding
+and book outputs preserve nonterminating amounts without rounding and keep rate inputs
 fixed under commodity quote shocks. Existing working-decimal output still rejects
 unrepresentable results. Booking database bounds, large historical reads,
-serialization/concurrent service load, broader booked risk operations,
+serialization/concurrent service load, broader instrument implementations,
 rate/volatility shocks and complete futures settlement PV need separate
 implementation/qualification. The earlier benchmark does not measure the new
 worker, publication or report-read path.
@@ -166,9 +167,9 @@ sides, preserving exact per-payment lookups and DFs. Per-month quantity, an
 equal-month allocation of total quantity and a calendar-day-weighted allocation
 are explicit versioned choices; rational allocation precedes external trade
 scaling. Independent 10/30-year price, discount and shared-trade shock checks
-qualify this managed consumer (D170). Persistent multi-year booking and the
-interactive risk screen's booked-swap integration remain work; generated-close
-jobs already retain mixed-product reports (D169). See [pricing lookups](pricing-lookups.md).
+qualify this managed consumer (D170). Persistent multi-year booking remains work.
+Interactive and generated-close operations retain mixed-product reports through
+the common portfolio path (D169, D181). See [pricing lookups](pricing-lookups.md).
 
 Financial gas and power swaps now have local booking/amendment operations, a
 shared trade blotter and an editor with independently valued side tables. The
@@ -195,7 +196,7 @@ Shared tables now guard row activation during selection/scrolling and use a sing
 scroll container for schedule inspection.
 The managed core additionally validates calendar-based and quantity-weighted
 rules; those need persisted authoring before booking controls are exposed.
-Fixing lifecycle events, persisted recurring payment strips, interactive portfolio swap risk,
+Fixing lifecycle events, persisted recurring payment strips,
 physical products and PPAs remain work. Draft swap quote risk supports unresolved
 observations; final index fixings remain frozen inputs.
 FixedSide and FloatingSide now independently generate and value their own

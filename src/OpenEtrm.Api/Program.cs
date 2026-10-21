@@ -833,6 +833,14 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
                 :!canAmend?"Your current role does not have Amend Trade permission.":null);
         }
         }
+        if(scenario)
+        {
+            // Financial projections and capability labels are now materialized.
+            // Independently expiring market/scenario grants must still be live.
+            await using var publication=ScheduleStore.Command(connection,
+                "SELECT security.trading_access($1,'ReadTrades') AND security.market_access($1,'ReadMarketData') AND security.has_permission('RunScenario')",database.Manifest.CatalogId);
+            if(!Equals(await publication.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+        }
         return Results.Ok(response);
     },c.RequestAborted));
 api.MapPost("/trade-formats/read",(HttpContext c,DealFormatRead body)=>
@@ -892,6 +900,31 @@ api.MapPost("/futures/draft-risk",(HttpContext c,FuturesDraftRiskRequest body)=>
 api.MapPost("/swaps/price",(HttpContext c,SwapDraftRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("draft_context","Choose the draft market context."),(connection,data,frame,ct)=>swapStore.PriceDraft(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/draft-risk",(HttpContext c,SwapDraftRiskRequest body)=>FuturesRead(c,body.Draft?.Context??throw new MarketDataException("draft_context","Choose the draft and market context."),(connection,data,frame,ct)=>swapStore.RiskDraft(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention,dealRisk:true));
 var futuresRisk=new FuturesRiskPreview(futuresStore);
+var portfolioRisk=new PortfolioRiskPreview(database);
+Task<IResult> PortfolioRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read)=>
+    TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,
+        data=>read(connection,data,view.Frame with {ContextId=view.Context.ContextId},ct),ct,
+        referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),
+        scenario:true,expectedConvention:TradingBlotter.Convention);
+api.MapPost("/portfolio/risk/catalog",(HttpContext c,FuturesRiskCatalogRequest body)=>PortfolioRead(c,
+    body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
+    (connection,data,frame,ct)=>portfolioRisk.Catalog(connection,data,frame,body,ct)));
+api.MapPost("/portfolio/risk",(HttpContext c,PortfolioRiskRequest body)=>PortfolioRead(c,
+    body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
+    (connection,data,frame,ct)=>portfolioRisk.Calculate(connection,data,frame,body,ct)));
+api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>PortfolioRead(c,
+    body.Request?.Context??throw new MarketDataException("risk_job_context","Supply the risk request and exact retained context."),
+    (connection,data,frame,ct)=>
+    {
+        c.Items["risk_job_attempted"]=true;
+        return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,body,ct);
+    }));
+api.MapGet("/portfolio/risk/jobs",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,ct,PortfolioRiskPreview.Convention)),c.RequestAborted))));
+api.MapGet("/portfolio/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
+api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapPost("/futures/risk/catalog",(HttpContext c,FuturesRiskCatalogRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),(connection,data,frame,ct)=>futuresRisk.Catalog(connection,data,frame,body,ct),scenario:true));
 api.MapPost("/futures/risk",(HttpContext c,FuturesRiskRequest body)=>FuturesRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),

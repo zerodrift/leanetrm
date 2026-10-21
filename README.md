@@ -23,7 +23,7 @@ without a seven-figure implementation.
   and remaining projections. Shared quote scenarios produce exact delta and gamma;
   generated-close jobs retain mixed futures-and-swaps reports
 - **Risk jobs:** temporary nested quote stresses, risk around the stressed market,
-  and queued futures runs pinned to the header's financial context, with retained
+  and queued mixed-book runs pinned to the header's financial context, with retained
   results and cancellation; see [the risk engine](docs/risk-engine.md)
 - **Monthly strips:** managed multi-year swap pricing with explicit monthly
   quantity allocation and payment discounting; persistent multi-year booking remains work
@@ -49,10 +49,10 @@ without a seven-figure implementation.
 ## What's not built yet
 
 Daily settlement and fixing lifecycle operations, persisted recurring payment
-strips, interactive portfolio swap risk, full futures PV and variation margin,
+strips, full futures PV and variation margin,
 options, physical forwards, VaR, broader agent credential lifecycle and production
-qualification remain work. The interactive risk screen and its queued runs cover
-futures; generated-close reports have a separate mixed-product consumer. See the
+qualification remain work. Interactive risk and queued runs use the shared
+instrument valuation path for the currently supported futures and swaps. See the
 [delivery plan](docs/plan.md). If you want to help with any of these, start with
 [CONTRIBUTING.md](CONTRIBUTING.md).
 

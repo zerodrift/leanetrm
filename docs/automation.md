@@ -312,8 +312,9 @@ Shared sides may retain different per-instrument discount providers. Discount
 inputs remain fixed during commodity-quote shocks. The selected
 `exact_rational_portfolio_repricing_v1` policy stores exact rational money and
 risk derivatives; it does not silently round an unrepresentable decimal result.
-The existing interactive futures-only book operation retains its separate
-exact18 contract.
+The legacy interactive futures operation retains its separate exact18 contract.
+The portfolio risk API and retained risk queue use this common valuation adapter
+with exact rational holding or book detail and explicit supplemental market pins.
 
 The scheduler login issues a short-lived context for its registered service and
 exact run fence. Its installed mapping has an exact market-catalog foreign key;

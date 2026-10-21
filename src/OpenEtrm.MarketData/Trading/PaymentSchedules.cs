@@ -103,13 +103,14 @@ public sealed class SideValuationContext
     private readonly CurveBuild? market;
     private readonly IReadOnlyDictionary<CurveRequest, BuiltValue> prices;
     private readonly ImmutableHashSet<CurveRequest>? permitted;
+    private readonly ISideDiscounting? discounting;
     public MarketSnapshot Snapshot { get; }
-    public ISideDiscounting Discounting { get; }
+    public ISideDiscounting Discounting => discounting??throw new MarketDataException("side_context","Supply this instrument's explicit payment discount inputs.");
     public string CurveNumericalPolicy => CurveModel.NumericalPolicy;
     public SideValuationContext(MarketSnapshot snapshot, ISideDiscounting discounting)
     {
         Validate(snapshot,discounting);
-        Snapshot = snapshot; Discounting = discounting; prices = ImmutableDictionary<CurveRequest, BuiltValue>.Empty;
+        Snapshot = snapshot; this.discounting = discounting; prices = ImmutableDictionary<CurveRequest, BuiltValue>.Empty;
     }
     internal static void Validate(MarketSnapshot snapshot,ISideDiscounting discounting)
     {
@@ -129,11 +130,18 @@ public sealed class SideValuationContext
     // The portfolio owns this already validated scenario and shared lookup.
     // A unit receives only its declared access fence, without rebuilding or
     // rescanning the entire scenario for every instrument.
-    internal SideValuationContext(CurveBuild market,ISideDiscounting discounting,
+    internal SideValuationContext(CurveBuild market,ISideDiscounting? discounting,
         IReadOnlyDictionary<CurveRequest,BuiltValue> prices,ImmutableArray<CurveRequest> dependencies)
     {
-        this.market=market;Snapshot=market.Snapshot;Discounting=discounting;
+        this.market=market;Snapshot=market.Snapshot;this.discounting=discounting;
         this.prices=prices;permitted=dependencies.ToImmutableHashSet();
+    }
+    public UnitPrice Price(CurveRequest request)
+    {
+        if(permitted is not null&&!permitted.Contains(request))
+            throw new MarketDataException("risk_dependency","An instrument requested an undeclared market input.");
+        return prices.TryGetValue(request,out var value)?value.Price:
+            throw new MarketDataException("risk_dependency","An instrument's declared market input is unavailable.");
     }
     internal ResolvedSchedulePrice Resolve(SchedulePriceTerm term)
     {
@@ -290,17 +298,32 @@ public sealed record InstrumentValuation
     public ReferenceKey Currency { get; }
     public Quantity UnitQuantity { get; }
     public MarketSnapshot Snapshot { get; }
+    internal SideValuationContext Context { get; }
     public ImmutableArray<SideContribution> Sides { get; }
     public ExactMoney PresentValue { get; }
-    public string NumericalPolicy => Policy;
+    public string NumericalPolicy { get; }
+    public InstrumentValuation(Instrument instrument,SideValuationContext context,ExactMoney presentValue,string numericalPolicy)
+        :this(instrument,context,numericalPolicy)
+    {
+        if(presentValue is null||presentValue.Currency!=instrument.Currency)
+            throw new MarketDataException("instrument_contribution","A unit PV must retain its instrument's exact currency.");
+        PresentValue=presentValue;
+    }
+    private InstrumentValuation(Instrument instrument,SideValuationContext context,string numericalPolicy)
+    {
+        if(instrument is null||context is null||string.IsNullOrWhiteSpace(numericalPolicy))
+            throw new MarketDataException("instrument_context","A unit PV requires an exact instrument, valuation context and numerical policy.");
+        InstrumentId=instrument.Id;Currency=instrument.Currency;UnitQuantity=instrument.UnitQuantity;Context=context;Snapshot=context.Snapshot;
+        NumericalPolicy=numericalPolicy;Sides=[];PresentValue=null!;
+    }
     internal InstrumentValuation(SidedInstrument instrument, SideValuationContext context, ImmutableArray<SideValuation> values)
+        :this(instrument,context,Policy)
     {
         if (values.IsDefault || values.Length != instrument.Sides.Length || values.Where((v, n) => v is null ||
             v.SideId != instrument.Sides[n].Side.Id || v.Currency != instrument.Currency || v.UnitQuantity != instrument.UnitQuantity).Any())
             throw new MarketDataException("instrument_contribution", "Every membership requires its own exact side valuation in the instrument currency and unit basis.");
         if (values.Any(v => !ReferenceEquals(context, v.Context)))
             throw new MarketDataException("instrument_context", "All side PVs must belong to this valuation operation, including its exact scenario and discount inputs.");
-        InstrumentId = instrument.Id; Currency = instrument.Currency; UnitQuantity = instrument.UnitQuantity; Snapshot = context.Snapshot;
         Sides = values.Select((v, n) => new SideContribution(instrument.Sides[n].Coefficient, v)).ToImmutableArray();
         PresentValue = Sides.Select(s => s.Contribution).Aggregate((a, b) => a.Add(b));
     }

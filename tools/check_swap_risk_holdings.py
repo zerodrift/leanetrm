@@ -63,6 +63,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     repository=Path(__file__).resolve().parents[1]
     def managed(mode):subprocess.run([str(dotnet),'run',*(['--no-build'] if mode=='--swap-risk-holdings-expired' else []),'--project','tests/OpenEtrm.Api.Checks','--',mode,str(fixture)],cwd=repository,env=environment,check=True,timeout=90)
     managed('--swap-risk-holdings')
+    managed('--portfolio-risk-scope')
     _read_trades_expiry(query,manifest,psql,environment,managed,frame,editor['context'])
     scope={key:manifest[key] for key in ['catalogId','tenantId','workspaceId']}
     query(f"DELETE FROM security.market_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{scope['catalogId']}','{scope['tenantId']}','{scope['workspaceId']}');")

@@ -9,6 +9,31 @@ using OpenEtrm.Rates;
 
 internal static class SwapRiskHoldingChecks
 {
+    public static async Task Scope(string path)
+    {
+        var root=Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")??throw new InvalidOperationException("Use the owned preview runner.");
+        await using var database=new PreviewDatabase(root);
+        using var fixture=JsonDocument.Parse(File.ReadAllText(path));var request=fixture.RootElement;
+        var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var context=JsonSerializer.Deserialize<ScheduleContext>(request.GetProperty("currentContext"),json)!;
+        var frame=JsonSerializer.Deserialize<InputFrame>(request.GetProperty("frame"),json)! with{ContextId=context.ContextId};
+        await using var runtime=NpgsqlDataSource.Create(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME")!);
+        var supplemental=database.Manifest.SwapMarkets??throw new Exception("The scope regression requires a declared supplemental market.");
+        if(supplemental.Length==0)throw new Exception("The scope regression requires a declared supplemental market.");
+        await using var scoped=new PreviewDatabase(database.Manifest with{SwapMarkets=supplemental.Select(m=>m with{Frames=[]}).ToArray()},runtime);
+        await database.WithIdentity("risk","RunScenario",async(connection,ct)=>
+        {
+            await MarketContextStore.Bind(connection,database.Manifest.CatalogId,context,ct);
+            await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At))
+                await bind.ExecuteNonQueryAsync(ct);
+            var data=await database.Read(connection,ct,observationIds:frame.ObservationIds);
+            var catalog=JsonSerializer.SerializeToElement(await new PortfolioRiskPreview(scoped).Catalog(connection,data,frame,
+                new(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),[request.Id("bookId")],[]),ct),json);
+            if(catalog.GetProperty("factors").GetArrayLength()==0)throw new Exception("The primary-only held book lost its risk factors.");
+            Console.WriteLine("PASS portfolio scope: primary-only holdings do not read an unrelated supplemental market without a frame");
+            return true;
+        },CancellationToken.None);
+    }
     public static async Task Run(string path,bool denied,bool expired=false)
     {
         var root=Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")??throw new InvalidOperationException("Use the owned preview runner.");
@@ -109,8 +134,8 @@ internal static class SwapRiskHoldingChecks
             var undiscounted=holdings.Single(h=>!h.Instrument.Discounting);
             Check("the immutable undiscounted instrument remains separate and consumes no rate factors",undiscounted.Instrument.Id!=shared[0].Instrument.Id&&
                 ((CurrencyDefaultDiscounting)undiscounted.Discounting).Inputs.Values.All(p=>!p.Enabled&&p.Factor==ExactDecimal.Parse("1")&&p.Observations.IsEmpty));
-            try{await store.ReadRiskHoldings(connection,data,frame,[request.Id("unsupportedBookId")],ct);throw new Exception("A supplemental model was silently loaded.");}
-            catch(MarketDataException error)when(error.Code=="swap_risk_model"){Check("a different stored model is explicitly unsupported",true);}
+            try{await store.ReadRiskHoldings(connection,data,frame,[request.Id("unsupportedBookId")],ct,supplemental:[]);throw new Exception("A supplemental model was silently loaded.");}
+            catch(MarketDataException error)when(error.Code=="swap_risk_model"){Check("an explicit empty supplemental frame set cannot recapture a different stored model",true);}
             try{await store.ReadRiskHoldings(connection,data,frame,[Guid.NewGuid()],ct);throw new Exception("An unavailable book was accepted.");}
             catch(MarketDataException error)when(error.Code=="blotter_view"){Check("an unavailable exact book is refused",true);}
         });

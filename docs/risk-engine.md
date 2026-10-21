@@ -35,25 +35,75 @@ attribute changes are unsupported. A future valuation regime must have a typed,
 versioned contract and a consuming model. Date rolls require explicit lifecycle
 semantics; they cannot be implemented as an arbitrary date property override.
 
+## Instrument valuation
+
+Risk uses the common instrument valuation contract (D95, D145, D148, D181).
+`Instrument.Declare(context)` is required and identifies the model version,
+complete dependencies, unit quantity and currency. `Instrument.Value(context)`
+normally delegates to `Instrument.PV(context)`; the risk engine does not select
+pricing formulas by instrument type. Its default PV path checks that the returned
+value belongs to that exact instrument and scenario. A PV model can return its
+exact value without inventing a side discount provider. A side that needs payment
+discounting still fails when that input is missing.
+
+`Side.GenerateSchedule()` and `Side.PV()` are required. `SidedInstrument.PV()`
+combines its independent side valuations and membership coefficients. A universal
+`Instrument.GenerateSchedule()` remains a proposed interface; this risk operation
+does not create synthetic schedules or settlement state to satisfy it. Futures
+use their explicit execution-P&L implementation; full settlement PV is unsupported.
+
+The authorized portfolio adapter materializes currently supported persisted
+instruments once, before calculation. It groups them by exact market revision and
+valuation measure, retaining their pricing bindings and discount inputs. The pure
+calculation then uses the same generic scenario engine for every group. New
+instrument pricing models implement the common contracts; supporting their booked
+definitions still requires an authorized materialization path.
+
 ## User and job operations
 
-The futures risk API supports immediate calculations and durable runs:
+The portfolio risk API supports immediate calculations and durable runs:
 
 | Operation | Purpose |
 | --- | --- |
-| `POST /api/futures/risk/catalog` | Discover factors under the selected books and financial context |
-| `POST /api/futures/risk` | Calculate the explicit bumps around the selected stress |
-| `POST /api/futures/risk/jobs` | Admit `{requestId, request}` with an exact retained context |
-| `GET /api/futures/risk/jobs` | List recent owned job metadata for recovery after a reload |
-| `GET /api/futures/risk/jobs/{id}` | Read the owned job and any completed result under current authority |
-| `POST /api/futures/risk/jobs/{id}/cancel` | Request cancellation without publishing partial totals |
+| `POST /api/portfolio/risk/catalog` | Discover factors under the selected books and financial context |
+| `POST /api/portfolio/risk` | Calculate the explicit bumps around the selected stress |
+| `POST /api/portfolio/risk/jobs` | Admit `{requestId, request}` with an exact retained context |
+| `GET /api/portfolio/risk/jobs` | List recent owned portfolio job metadata for recovery after a reload |
+| `GET /api/portfolio/risk/jobs/{id}` | Read the owned job and any completed result under current authority |
+| `POST /api/portfolio/risk/jobs/{id}/cancel` | Request cancellation without publishing partial totals |
+
+The earlier `/api/futures/risk` operations and their retained artifacts remain
+available under their original contracts. Portfolio job history filters by its
+operation convention. New requests select `portfolio_instrument_repricing_v1`,
+`exact_rational_portfolio_repricing_v1` and an explicit pricing policy covering
+curve, futures, swap, rate, interpolation and bump conventions.
+
+The shared pricing policy's `bumpBasis` and `bumpTicks` select the generated-close
+operation's automatically constructed bumps. Interactive requests supply each
+`QuoteBump` size and convention explicitly; these values govern their up/down
+evaluations and are not rescaled by `bumpTicks`.
+
+Both holding detail and book summaries retain rational base/up/down values,
+shock P&L, delta and gamma. Exact wire values use decimal strings when
+representable and fraction strings otherwise. Separate display values use twelve
+decimal places and ties to even; display rounding never changes retained values.
+Futures execution P&L and swap present value remain separate book/currency
+measures. An unaffected market partition retains its base values with zero
+sensitivities for the selected factor, including every requested holding row.
 
 Submission retains the exact context, market revision, selected book scope,
-observation pins and frozen-input uses, market frame, stress/bump conventions and managed engine
+observation pins and frozen-input uses, market frames, stress/bump conventions and managed engine
 fingerprint. Empty interactive scope selectors resolve to explicit books before
 queueing. An identical request identity and payload return the original run;
 different inputs conflict. Changing the UI afterward does not change the job.
 The browser discards results when its context or input generation changes.
+
+Supplemental swap market revisions carry explicit frames under the same retained
+context and valuation instant. Migration 0074 retains their observation uses and
+curve memberships through exact-version foreign keys. Workers reconstruct those
+captured inputs instead of selecting fresh manifest defaults. The report's global
+scenario identity includes all selected market parents and the ordered stress
+stack; local partitions can have different numbers of affected layers.
 
 The durable states are queued, running, completed, failed,
 cancellation_requested and cancelled. Multiple worker processes claim independent
@@ -108,16 +158,20 @@ settings secret names the connection-secret path `/run/secrets/risk-worker-conne
 Each claim covers one complete run across its selected books. The managed
 valuation path shares eligible unit prices across holdings and books, rebuilds
 only affected dependencies, and aggregates exact quantities/cash. Scenario pairs
-are streamed rather than retaining every market graph. The futures operation's
-curve work counters include initial market construction and every stress layer;
-prior preparation builds are reported separately from valuation scenario counts.
+are streamed rather than retaining every market graph. Curve work counters include
+instrument materialization builds, initial market construction and every applied
+stress layer. Preparation builds are reported separately from the global valuation
+scenario count. Unit candidates use all unique values times that global count;
+unit calls and curve work count actual local evaluations, including reuse across
+unaffected partitions.
 
 The existing [automation worker](automation.md) schedules typed operations and
 controls bounded Swarm workloads. This financial worker is a separate, trusted
 consumer with narrowly scoped database reads. It does not launch arbitrary
 containers or grant database credentials to agent workloads. Generated pilot-close
-jobs already produce mixed futures/swaps reports through their own typed adapter
-(D169); this queue adds retained interactive futures scenarios.
+jobs produce mixed futures/swaps reports (D169). Their existing primary-market
+contract and the interactive operation now reuse the portfolio materialization and
+calculation path; generated-close publication remains a separate typed operation.
 
 Additional workers increase concurrency across independent runs. Splitting a
 single run into distributed scenario batches, distributed result reduction,
@@ -134,11 +188,12 @@ explicit failed job, so lease recovery cannot repeatedly compute it forever.
 
 ## Scope and verification
 
-This interactive portfolio consumer values unprocessed futures execution
-P&L/open sensitivity. It requires a primary-bundle frame without supplemental
-swap-market selections. The separate generated-close worker supports retained
-mixed futures/swaps reports. Full futures settlement PV, variation-margin
-transitions, interactive booked-swap risk and executable options remain work. Managed
+The interactive consumer covers the current preview's eight futures and sixteen
+financial swaps across primary and supplemental market revisions. It values
+unprocessed futures execution P&L/open sensitivity and swap PV under fixed rate
+inputs. Full futures settlement PV, variation-margin transitions and executable
+options remain work. The generic valuation contract does not imply that every
+instrument type has an implemented pricer or persisted booking adapter. Managed
 checks exercise common instrument PV, nonlinear scenarios and independent
 repricing oracles; these do not establish production capacity.
 

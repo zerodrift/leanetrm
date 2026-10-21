@@ -693,6 +693,13 @@ Side
   Validate(sideResolutionContext) -> ValidationResult
 ```
 
+The implemented managed boundary requires `Instrument.PV()` and the complete
+`Instrument.Declare()` valuation declaration. `Side` requires both
+`GenerateSchedule()` and `PV()`; sided instruments delegate to their constituent
+sides. A universal instrument-level `GenerateSchedule()` has not been implemented.
+It must not be simulated with a fabricated futures cashflow or an artificial
+discount provider merely to admit an instrument to risk (D181).
+
 Use interfaces and abstract base classes to require the behavior. Provide shared
 base implementations where semantics agree: an ordinary instrument combines side
 event plans and sums normalized, signed side contributions; leaf sides implement
@@ -1008,17 +1015,29 @@ the working decimal range. Summary output can therefore succeed when oversized o
 recurring individual holding projections cancel exactly. A detailed request still
 rejects unrepresentable holding results. No rounding is silently introduced.
 
-The generated-close worker selects the separate explicit policy
-`exact_rational_portfolio_repricing_v1` for book summaries (D169). Base, up and
-down cash and central differences remain rational values in its saved report;
-formatting does not change the retained results. Its authorized portfolio adapter
-loads futures and swaps from exact retained trade revisions. Futures execution
-P&L and swap present value remain separate measures, while their groups share the
-same immutable quote scenarios and affected curve work. Each swap supplies its
-own resolved payment-discount inputs; interest-rate inputs remain fixed during
+The generated-close worker and the interactive portfolio operation select the
+separate explicit policy `exact_rational_portfolio_repricing_v1` (D169, D181).
+Holding detail and book summaries retain rational base/up/down cash and central
+differences; formatting does not change retained results. The shared authorized
+portfolio adapter loads futures and swaps from exact retained trade revisions.
+Futures execution P&L and swap present value remain separate measures, while their groups share the
+same immutable quote scenarios and affected curve work within each exact market
+revision. Supplemental revisions use their own retained frames under the common
+effective/knowledge context. Every holding remains in a factor's report, including
+unchanged values and zero sensitivities in unaffected partitions. Each swap
+supplies its own resolved payment-discount inputs; interest-rate inputs remain fixed during
 commodity quote shocks. The worker preflights whole selected books before
 publishing generated marks. This path does not extend the legacy decimal policy
 or implement settlement, variation margin, rate shocks or complete daily P&L.
+
+`Instrument.Declare()` is required at compile time. The default
+`Instrument.Value()` delegates to `PV()` for the explicitly selected present-value
+measure and validates the returned instrument, unit and exact context. A model
+may construct an exact PV result directly with its numerical policy; a side-based
+model continues to produce its schedule and side contribution evidence. Missing
+payment discounting remains an error when a side needs it. Neither risk nor the
+report adapter switches on instrument classes to choose valuation formulas.
+Materializing persisted definitions is a separate authorized pricing operation.
 
 Reports consume the same authorized calculations as screens and agent operations.
 A day-over-day P&L request identifies its books/portfolio, opening and closing
@@ -1038,12 +1057,13 @@ affected base-plan reuse, restricted black-box unit pricers and exact central
 differences. Its current trading consumer measures unprocessed futures execution
 P&L/open sensitivity, rather than full futures PV. See the qualified boundaries in
 [implemented scope](implementation.md#shared-quote-input-scenarios-and-open-futures-sensitivity).
-Generic side-based instrument PV is exercised through the shared path in managed
-checks. The interactive portfolio API consumes futures execution P&L. Generated
+Generic side-based and nonlinear instrument PV use the shared path. The
+interactive portfolio API consumes futures execution P&L and retained swap PV,
+with exact holding or book detail. Generated
 pilot-close jobs also consume retained swap holdings through the shared portfolio
 adapter and publish exact mixed-book reports in a separate transaction after the
 marks commit. A report failure retains that partial state; a replacement attempt
-reuses the same close and occurrence. Broader durable risk operations and shock
+reuses the same close and occurrence. Broader instrument implementations and shock
 families remain work.
 
 Apply a factor shock once per scenario, independent of how many computations
@@ -1983,7 +2003,7 @@ Swap drafts report PV; futures drafts report execution P&L and open exposure.
 Variation-margin processing and full futures settlement PV remain unimplemented.
 
 
-## Nested risk and retained execution (D178–180)
+## Nested risk and retained execution (D178–181)
 
 [Risk scenarios and jobs](risk-engine.md) specifies the implemented immutable
 parent-relative live-quote overlays. Children share the resolved header/job
@@ -1991,9 +2011,9 @@ financial context and preserve their parents. The shared valuation engine also
 accepts stressed parents in its decimal and exact-rational portfolio paths.
 Dependencies determine affected work; returned values determine risk.
 
-The interactive futures adapter now admits durable complete runs, retaining exact
-context, observations and frozen uses, book scope, engine version and current actor
-identity. A dedicated database role loads those inputs under current authority;
+The interactive portfolio adapter admits durable complete runs, retaining exact
+context, primary and supplemental observations and frozen uses, book scope, engine
+version and current actor identity. A dedicated database role loads those inputs under current authority;
 CPU work runs outside the short read transaction. Lease tokens and authority
 generations fence publication. Optional Swarm replicas increase concurrent runs;
 single-run distributed aggregation remains unimplemented. This consumer supplements

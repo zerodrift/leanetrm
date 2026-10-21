@@ -273,18 +273,21 @@ uses `signed_exact_side_pv_sum_v1`; final financial-swap trade scaling uses
 side amounts through all those stages; only final Money conversion applies the
 working precision/range. No rounded unit or gross-side PV is substituted.
 
-FuturesContract satisfies the common behavior contract by explicitly rejecting PV
-and payment schedule generation without required variation-margin/settlement
-state. Its existing execution-P&L/open-sensitivity operations are unchanged.
+FuturesContract explicitly rejects full PV without required variation-margin and
+settlement state. Its existing execution-P&L/open-sensitivity operations remain
+available through the common valuation contract. Sides implement schedule
+generation; a universal instrument schedule interface remains proposed.
 OptionSide is not implemented: explicit sibling references, base-versus-final
 valuation modes and exercise-control double-counting constraints remain recorded
 in the architecture; O13 does not yet select an adjustment or joint allocation.
 
 These managed contracts now have persisted default resolution, authorized swap
 booking/amendments, a shared blotter and a schedule-inspection editor, described
-below. Draft swap risk and generated-close mixed-product reports are implemented.
-Interactive booked-swap risk and fee capture/calculation/reconciliation remain work;
-current futures execution-P&L diagnostics are gross and exclude fees.
+below. Draft swap risk, interactive booked-portfolio risk and generated-close
+mixed-product reports are implemented. Interactive and generated-close consumers
+share portfolio materialization and scenario calculation. Fee capture, calculation
+and reconciliation remain work; current futures execution-P&L diagnostics are
+gross and exclude fees.
 
 The futures editor separates trade inputs from a vertical side panel populated
 from actual selected contract metadata. The financial swap editor has aligned
@@ -1171,10 +1174,11 @@ delivery/currency fields; subsequent edits remain independent.
 
 Owned standard previews include sixteen explicit monthly/daily gas/power examples
 across the same four weekdays, alongside the original eight futures. The examples
-share Book B, so Book A stays futures-only: the blotter offers shared futures shocks
-only for a selection without swaps. Seeding uses
+share Book B, while Book A stays futures-only. Portfolio risk now accepts either
+book or their combined holdings under the common instrument valuation operation
+(D181). Seeding uses
 stable authorized commands and retries without duplicates. No live feed, actual
-fixing ingestion, recurring payment strips, swap risk, physical delivery, PPA or
+fixing ingestion, recurring payment strips, physical delivery, PPA or
 fee/reconciliation workflow is enabled by this slice. Broader core averaging
 strategies remain hidden until calendar/weight capture and persistence exist.
 
@@ -1751,14 +1755,14 @@ listed with its reason and cannot be read.
 
 ## Nested stress and background risk
 
-The futures risk operation accepts up to sixteen signed absolute quote stresses
+The portfolio risk operation accepts up to sixteen signed absolute quote stresses
 in parent order. Immutable managed scenarios retain the original snapshot and
 derive a distinct identity for each child; removing a child leaves its parent
 usable. Up/down risk is measured around that stressed base. Work receipts include
 market preparation, shared unit evaluations and book quantity applications.
 
 The header's resolved effective/knowledge context and exact market frame feed
-both immediate calculations and queued jobs. Migration 0073 retains authorized
+both immediate calculations and queued jobs. Migrations 0073 and 0074 retain authorized
 request identities, exact context/book/observation/curve-membership references,
 financial choices and the engine fingerprint. The UI supports queueing, truthful
 cancellation status, uncertain-submit reconciliation, recent owned jobs and
@@ -1775,7 +1779,27 @@ cancellation remain unsupported. See [risk engine](risk-engine.md) for contracts
 worker provisioning, limits and the isolated verification entry point.
 
 
-This adapter preserves the newer exact pinned/frozen input semantics and current
-reference visibility rules. It complements D169 generated-close mixed-product
-reports; the interactive risk screen remains futures-only. The common engine's
-existing decimal and rational grouped portfolio paths accept stressed parents.
+The `/api/portfolio/risk` operation and its catalog/jobs routes use the common
+portfolio materialization and calculation path also consumed by D169 generated
+closes. The current eight futures and sixteen swaps can be selected together.
+Exact market partitions preserve supplemental definition revisions, observation
+uses and curve memberships through migration 0074's foreign keys; current
+reference visibility and actor/service authority apply throughout. The earlier
+futures routes retain their original numerical and valuation contracts. Recent
+portfolio job history selects the portfolio operation convention.
+
+This enforces the existing D95/D145/D148 boundary (D181): instruments implement
+`PV()` and a required complete `Declare()`, while the generic risk engine compares
+returned values under shared scenarios. `Side.GenerateSchedule()` and `Side.PV()`
+are implemented abstract contracts; universal instrument schedule generation
+remains proposed. Futures retain their explicit execution-P&L measure. A PV-only
+model needs no artificial discount provider; actual side discount inputs remain
+mandatory when the side consumes them.
+
+The explicit rational policy supports holding detail as well as book summaries,
+including nonterminating PV and sensitivities. The backend returns exact decimal
+or fraction strings alongside display values rounded to twelve decimal places,
+ties to even. Futures execution P&L and swap PV stay separate measures, and rates
+remain fixed under commodity shocks. Unaffected market partitions retain every
+requested holding with zero sensitivity. The common engine's existing decimal
+policy continues to reject unrepresentable output instead of changing its meaning.

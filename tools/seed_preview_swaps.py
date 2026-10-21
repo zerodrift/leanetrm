@@ -22,7 +22,7 @@ def seed_swaps(url, run_id, owned_root, client=None):
     client.bootstrap(); client.call('profile', {'profile': 'trader'})
     workspace = client.call('workspace')
     frames = execution_frames(workspace)
-    # Swaps share Book B so seeded Book A stays futures-only, where shared futures shocks apply.
+    # Book B contains mixed holdings; Book A provides a separate futures-only scope.
     book = BOOKS[1]
     choices = [('test_gas', REV, 'monthly_index_price', '3', True),
                ('test_power', REV, 'monthly_index_price', '40', True),

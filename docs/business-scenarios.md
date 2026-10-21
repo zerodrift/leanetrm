@@ -37,7 +37,8 @@ settlement evidence is an error, never a last-price substitution or zero.
 | RSK03 | Nonlinear and zero-delta examples retain gamma and actual scenario values; exact quotient, unit/domain and missing-input failures do not become rounded/zero risk | `RiskChecks.cs` |
 | RSK04 | A risk analyst uses the blotter's retained context; current revocation blocks recalculation/export, edits clear results and Trader gains no scenario authority | `check_risk_preview.py`, `tests/browser/risk.mjs` |
 | RSK05 | Nested signed quote shifts compose on the parent; siblings, observed facts and failed-parent recovery stay isolated. Nonlinear risk reprices the complete stressed baseline | `NestedScenarioChecks.cs`, `check_risk_preview.py`, `tests/browser/risk.mjs` |
-| RSK06 | Durable futures jobs pin financial context and exact inputs, reconcile identical admission, fence stale workers and preserve cancellation/completion ordering under current authority | `check_risk_jobs.py`, `check_risk_jobs_db.py`, `tests/browser/risk.mjs` |
+| RSK06 | Durable risk jobs pin financial context and exact inputs, reconcile identical admission, fence stale workers and preserve cancellation/completion ordering under current authority | `check_risk_jobs.py`, `check_risk_jobs_db.py`, `tests/browser/risk.mjs` |
+| RSK07 | Common instrument PV and declared dependencies support nonlinear nested risk; mixed futures/swaps retain exact rational holding and book values, explicit measures and supplemental market pins in immediate and queued runs | `InstrumentRiskChecks.cs`, `check_portfolio_risk.py`, `check_portfolio_risk_authority.py`, `tests/browser/risk.mjs` |
 | SWP01 | Actual index fixings replace only their own projected observations, retain correction history and remain frozen under live quote shocks | `IndexFixingChecks.cs`, `check_index_fixings.py` |
 | SWP02 | Managed multi-year monthly strips preserve explicit quantity allocation, per-payment discount inputs and shared-trade scenario values | `MonthlySwapChecks.cs` |
 | CLOSE01 | Generated-close reports retain futures execution P&L and swap PV as separate measures while sharing commodity quote scenarios | `PilotCloseChecks.cs`, `check_pilot_close.py` |
@@ -304,11 +305,12 @@ oracle for a future explicitly configured balancing workflow, not current billin
 
 The bounded implementation now qualifies live quote-input overlays, affected-node
 reuse, black-box unit execution, exact position differences, nested quote stresses
-and durable futures jobs in RSK01–06. The [risk engine](risk-engine.md) records
+and durable portfolio jobs in RSK01–07. The [risk engine](risk-engine.md) records
 their supported API, context and worker boundaries. Parameter/rate shocks,
 relative or derived-output curve shifts, distributed partitions of one run and
-full settlement PV remain work. Generated-close jobs separately retain mixed
-futures-and-swaps reports.
+full futures settlement PV remain work. Interactive portfolio risk and
+generated-close jobs share the mixed futures-and-swaps valuation adapter, while
+retaining their separate operation and publication contracts.
 
 1. **Capture once.** Pin effective/knowledge context, definitions, actual/fixing
    state, numerical policy and model versions. Resolve every prompt alias to a

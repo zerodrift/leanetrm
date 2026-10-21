@@ -224,7 +224,7 @@ the polling timer. A workflow file alone does not prove an end-to-end release.
 
 The [risk-worker contract](risk-engine.md) and
 [Swarm template](../deploy/risk-workers.swarm.yaml) add independently replicated
-workers for retained interactive futures requests. Provision each dedicated login,
+workers for retained interactive portfolio requests. Provision each dedicated login,
 service scope, external secrets and private network explicitly after the schema
 release. Workers require the API's exact managed engine fingerprint. The existing
 Compose baseline, automation controller and generated-close adapters retain their
