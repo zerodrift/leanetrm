@@ -47,6 +47,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('a valid 80-scalar symbol is saved with all supplementary characters intact',`window.referenceRequests.filter(r=>r.path.endsWith('/reference/save')).at(-1).status===200&&window.referenceRequests.filter(r=>r.path.endsWith('/reference/save')).at(-1).body.values.symbol===${JSON.stringify(scalarSymbol)}&&document.querySelector('#error').hidden`);
  await set('#reference-edit-symbol',scalarSymbol+'𝛼');await click('#reference-edit-save');
  await check('the backend rejects an 81-scalar symbol before retaining a metadata draft',"window.referenceRequests.filter(r=>r.path.endsWith('/reference/save')).at(-1).status===422&&!document.querySelector('#error').hidden&&document.querySelector('#reference-edit-retry').disabled");
+ await set('#reference-edit-symbol','Synthetic oversized symbol '+'x'.repeat(32*1024));await click('#reference-edit-save');
+ await check('a symbol past the request size limit is refused before any write, and no request is kept',"(()=>{const r=window.referenceRequests.filter(r=>r.path.endsWith('/reference/save')).at(-1);return r.status===413&&r.payload.code==='request_too_large'&&!document.querySelector('#error').hidden&&document.querySelector('#reference-edit-retry').disabled&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.reference.request.'));})()");
  // Both responses follow actual successful commits. Capture each boundary's
  // result before assertions so a failing case does not hide the other one.
  await persona('editor');await editor();await set('#reference-edit-row','megawatt_hour');await wait(idle);

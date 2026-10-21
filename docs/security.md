@@ -134,9 +134,10 @@ the application log. A refusal that names its own code, such as `request_token`,
 keeps it. Settings › AI releases a first attempt refused either way, since nothing was
 written. For a form with entries it states the ranges they keep; for one without, a
 refusal can only mean the page and the server disagree, and it asks for a refresh.
-Users & access, parties, jobs, custom curves and trading release such a first attempt
-too. They say when a request was too large, and show their general message, which
-asks for a refresh, when the server could not read it.
+Users & access, parties, jobs, custom curves, trading and the contract-date and
+reference metadata editors release such a first attempt too. They say when a request
+was too large, and show their general message, which asks for a refresh, when the
+server could not read it.
 
 ## Agents
 
