@@ -8,10 +8,19 @@ public static class FuturesRisk
 {
     public const string Implementation="unprocessed_futures_execution_pnl_risk_v2";
     public static RiskRun Calculate(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,CurveModel model,
-        ImmutableArray<QuoteBump> bumps,string implementation,string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings)
+        ImmutableArray<QuoteBump> bumps,string implementation,string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings,
+        ImmutableArray<QuoteShift> stress=default)
     {
         var (basis,portfolio)=Prepare(trades,snapshot,model,implementation,cancellation);
-        return RiskEngine.Calculate(basis,model.Scenarios(basis,bumps,cancellation),portfolio,portfolio.Declare(snapshot),numericalPolicy,cancellation,detail);
+        var preparedNodes=0;var reusedNodes=0;
+        if(!stress.IsDefault)foreach(var shift in stress)
+        {
+            preparedNodes+=basis.EvaluatedConstituents;reusedNodes+=basis.ReusedConstituents;
+            basis=model.WithShifts(basis,[shift],cancellation);
+        }
+        var result=RiskEngine.Calculate(basis,model.Scenarios(basis,bumps,cancellation),portfolio,portfolio.Declare(snapshot),numericalPolicy,cancellation,detail);
+        return result with{Work=result.Work with{RebuiltCurveNodes=result.Work.RebuiltCurveNodes+preparedNodes,
+            ReusedCurveNodes=result.Work.ReusedCurveNodes+reusedNodes,PreparationScenarioCount=stress.IsDefault?0:stress.Length}};
     }
     public static ImmutableArray<BookRiskFactors> Factors(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,CurveModel model,
         string implementation,CancellationToken cancellation=default)

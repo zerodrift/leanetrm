@@ -50,7 +50,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   let versions=new Map<string,string>();
   let draftBase:{name:string;version:string}|undefined;
   let viewsLoaded=false;
-  const risk=setupRisk({api,act,busy,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,scope:()=>{
+  const risk=setupRisk({api,act,busy,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,scope:()=>{
     if(!lastReadRequest)throw Error('Load the blotter before running risk.');
     return {context:{...(lastReadRequest as {context:Record<string,unknown>}).context,convention:options.source().convention},bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
   }});

@@ -370,3 +370,19 @@ Before offering the historical environment:
 
 This is a core storage/API/UI contract. Implementation choice O07 remains open;
 that choice must be resolved and tested rather than removing the requirement.
+
+
+## Retained risk execution
+
+The risk UI uses this same header context. Its temporary scenario stack derives
+immutable children with explicit parent-relative quote shifts. Popping a child
+resumes its parent without restoring mutable data. Each durable risk occurrence
+retains the resolved context, selected books, exact observation/definition pins,
+scenario contract and engine fingerprint. A worker never follows a later UI
+selection or an unresolved "current" date. Current execution authority is checked
+separately, including revocation since admission. Recurring date-selection rules
+and future valuation regimes require supported typed contracts before execution.
+
+Frozen observation uses are retained alongside exact observation IDs. Workers read
+those pins under the captured financial context and current authority; they never
+resolve latest corrections again. See [risk scenarios and jobs](risk-engine.md).

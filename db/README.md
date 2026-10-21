@@ -866,3 +866,20 @@ release left unfinished, whose closed call names no stop, is interrupted at the 
 worker start, as every earlier generation's turn is. The migration first verifies the
 helpers it relies on and the definitions it replaces. As a new migration it stops
 automatic hosted updates until the operator qualifies a new baseline (D135).
+
+## Retained interactive risk jobs
+
+[0073_risk_jobs.sql](migrations/0073_risk_jobs.sql) adds complete futures-risk
+requests, exact context/book/observation relationships, worker registrations and
+atomic lease/publication operations. Current actor, delegation and service scopes
+remain authoritative through loading and publication, including revoke/restore.
+Frozen input uses are explicit retained pins. A dedicated `openetrm_risk_worker`
+role can read only the required financial tables under forced RLS; it cannot
+issue runtime capabilities, book trades or launch containers.
+
+The consumer and installation prerequisites are documented in
+[risk scenarios and jobs](../docs/risk-engine.md). Existing automation migrations
+0035/0036 and generated-close reports remain separate consumers. Apply ordered
+migrations only through the reviewed installation process; the worker stack never
+migrates an existing database. The disposable check is
+`python3 tools/check_risk_jobs_db.py --pg-bin /path/to/postgresql/bin`.

@@ -257,7 +257,7 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
         query('SELECT pg_sleep(.2);')
         logs = (Path(temporary) / 'postgres.log').read_text(errors='replace')
         check('statement logging records the credential operations and their bind parameters',
-              'assistant.replace_credential' in logs and 'parameters:' in logs)
+              'assistant.replace_credential' in logs and 'parameters:' in logs.casefold())
         responses = str([first, second, other, directory, unknown, retried, outcomes, won, lost, admin.call('settings/ai/providers')])
         for part in secret_parts:
             for name, text in (('responses', responses), ('stored rows', stored),

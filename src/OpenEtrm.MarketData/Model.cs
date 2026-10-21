@@ -151,11 +151,13 @@ public sealed record CurveBuild
     public ImmutableArray<CurveEvaluation> Evaluations { get; }
     public int ReusedConstituents { get; }
     public Risk.QuoteShock? Shock { get; }
+    public Risk.QuoteScenario Scenario { get; }
     internal CurveBuild(CurveModel model,MarketSnapshot snapshot,string numericalPolicy,ImmutableArray<BuiltValue> values,
-        ImmutableDictionary<InputKey, SelectedObservation> selectedInputs,int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,int reusedConstituents=0,Risk.QuoteShock? shock=null)
+        ImmutableDictionary<InputKey, SelectedObservation> selectedInputs,int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,int reusedConstituents=0,Risk.QuoteShock? shock=null,
+        Risk.QuoteScenario? scenario=null)
     {
         Model=model; Snapshot=snapshot; NumericalPolicy=numericalPolicy; Values=values; SelectedInputs=selectedInputs;
         EvaluatedConstituents=evaluatedConstituents; Evaluations=evaluations;
-        ReusedConstituents=reusedConstituents; Shock=shock;
+        ReusedConstituents=reusedConstituents; Shock=shock; Scenario=scenario??Risk.QuoteScenario.Base(snapshot);
     }
 }

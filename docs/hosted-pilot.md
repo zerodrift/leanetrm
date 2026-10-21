@@ -218,3 +218,15 @@ operator settings and schema/ingress baselines are installation artifacts, not
 repository fixtures. Qualify the real attestation verifier and the full Docker /
 stock PostgreSQL deployment path on disposable synthetic resources before enabling
 the polling timer. A workflow file alone does not prove an end-to-end release.
+
+
+## Optional retained-risk workers
+
+The [risk-worker contract](risk-engine.md) and
+[Swarm template](../deploy/risk-workers.swarm.yaml) add independently replicated
+workers for retained interactive futures requests. Provision each dedicated login,
+service scope, external secrets and private network explicitly after the schema
+release. Workers require the API's exact managed engine fingerprint. The existing
+Compose baseline, automation controller and generated-close adapters retain their
+separate responsibilities. No live deployment or multi-node capacity qualification
+is established by this template.

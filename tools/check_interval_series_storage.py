@@ -266,9 +266,10 @@ def run_checks(query, manifest, psql, environment):
     unbound = query(f"SET SESSION AUTHORIZATION preview_runtime;SELECT count(*) FROM market_data.interval_series WHERE catalog_id='{catalog}';")
     check('runtime cannot insert, update or delete directly', visible == '5' and unbound == '0')
 
-    counts = "SELECT " + "||','||".join(f"(SELECT count(*) FROM market_data.{table} WHERE catalog_id='{catalog}')" for table in TABLES) + ';'
-    current_counts = query('BEGIN;' + runtime(issue(), counts) + 'ROLLBACK;')
-    historical_counts = query('BEGIN;' + runtime(issue(), f"SELECT security.use_market_context('{catalog}','{earlier['contextId']}');" + counts) + 'ROLLBACK;')
-    check('a historical session sees no interval series rows', historical_counts == '0,0,0,0,0' and '0' not in current_counts.split(','))
+    # This checks presence or absence across each catalog, without counting every visible revision value.
+    presence = "SELECT " + ','.join(f"EXISTS(SELECT 1 FROM market_data.{table} WHERE catalog_id='{catalog}')" for table in TABLES) + ';'
+    current_presence = query('BEGIN;' + runtime(issue(), presence) + 'ROLLBACK;')
+    historical_presence = query('BEGIN;' + runtime(issue(), f"SELECT security.use_market_context('{catalog}','{earlier['contextId']}');" + presence) + 'ROLLBACK;')
+    check('a historical session sees no interval series rows', historical_presence == 'f|f|f|f|f' and current_presence == 't|t|t|t|t')
 
     return passed

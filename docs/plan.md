@@ -63,6 +63,13 @@ complete pinned declarations and deduplicated by books. Suggested API factors
 follow selected books/portfolios, including hedged upstream dependencies; unrelated
 curves/maturities and inferred all-in dependencies are excluded.
 
+Nested immutable live-quote stresses and retained interactive futures jobs are
+implemented locally (D178–180). The same resolved header context supplies user and
+worker calculations; child scenarios preserve parent values. Independent workers
+share a fenced PostgreSQL queue, and an optional Swarm artifact describes their
+placement. Single-run sharding, distributed reduction and real-cluster failure
+qualification remain work. See [risk engine](risk-engine.md).
+
 The 50,000-position Release [benchmark](risk-benchmark.md) covers repeated and
 5,000-distinct unit values, actual futures execution-P&L, and actual swap PV through
 four gas basis edges and two power basis edges with 216 independently shocked

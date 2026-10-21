@@ -79,6 +79,24 @@ internal static class PreviewDataChecks
                 selected.Selections.Count(s=>s.Input.Use==InputUse.Variable)!=403)
                 throw new Exception("Index actuals and retained final settlements must stay frozen without changing live inputs.");
         });
+        Check("retained worker transport preserves frozen final facts and exact scenario identity",()=>
+        {
+            var final=Change(fixture.Observations[0],"role","final_contract_settlement");
+            var selected=fixture.Frame with{ContextId=Guid.NewGuid(),OriginCloseId=Guid.NewGuid(),FrozenObservationIds=[final.Id("id")],ResolvesLatestCorrection=true};
+            var retained=RiskJobs.ReadFrame(RiskJobs.PinFrame(selected));
+            var frozenData=Data(fixture.Observations.SetItem(0,final));
+            if(retained.ContextId!=selected.ContextId||retained.OriginCloseId!=selected.OriginCloseId||retained.ResolvesLatestCorrection||
+                !frozenData.Snapshot(retained).Selections.SequenceEqual(frozenData.Snapshot(selected).Selections)||
+                frozenData.Snapshot(retained).Selections[0].Input.Use!=InputUse.FrozenFact)
+                throw new Exception("Worker transport changed retained facts, provenance or input use.");
+            foreach(var bad in new[]{"missing","unselected"})
+            {
+                var envelope=RiskJobs.PinFrame(selected);
+                if(bad=="missing")envelope.Remove("frozenObservationIds");
+                else envelope["frozenObservationIds"]=System.Text.Json.Nodes.JsonNode.Parse("[\""+Guid.NewGuid()+"\"]");
+                Reject("risk_job_context",()=>RiskJobs.ReadFrame(envelope));
+            }
+        });
         Check("an explicitly selected frozen revision remains frozen without claiming the original stored close",()=>
         {
             var original=Change(fixture.Observations[0],"role","final_contract_settlement");

@@ -33,6 +33,34 @@ and mixed-period HTTP checks. A failing child command stops the run with a nonze
 status. Python optimization is rejected because it disables assertions used by the
 existing verification scripts.
 
+The retained-risk suite (`--risk-jobs-check --browser-check`) also allocates its
+own cluster. It verifies nested scenario oracles, captured header context,
+idempotent admission, separate worker processes, current-authority checks,
+lease recovery, cancellation and browser history/retry behavior. The standalone
+`tools/check_risk_jobs_db.py` exercises SQL authority and concurrent claims.
+Neither check qualifies a real Swarm cluster or single-run distributed reduction.
+
+Nested-risk qualification on 2026-10-21 passed 398 managed core checks,
+206 frontend checks, 19 preview-data checks, 46 Python checks, 382 standard
+browser checks and the isolated retained-risk SQL, HTTP and 32 browser checks.
+The risk suite includes independent nested repricing, frozen-input transport,
+two worker processes, expired-lease recovery, stale publication refusal,
+permission expiry during result assembly, cancellation and uncertain-submission
+reconciliation. The worker Swarm definition also rendered successfully; no cluster
+deployment or throughput benchmark was performed.
+
+Every `check_all.py` phase passed across owned runs on macOS 26.6.2 arm64 with
+.NET 10.0.402, Node 24.22.0, Python 3.14.2 and Chrome 156.0.8078.47. Initial
+database phases, the standard preview, assistant and interval-series suites used
+PostgreSQL 18.1 with debug/assertion checks; interval curves and the subsequent
+execution, hosted, worker and mixed-period suites used PostgreSQL 16.14. The
+interval-curve navigation read failed with `NpgsqlException` on that PostgreSQL
+18.1 debug build, so that combination remains unqualified. The same complete
+interval-curve suite passed on 16.14. All owned application, browser and database
+resources were stopped and removed. Log checks accept either parameter-label
+capitalization while retaining credential-leak assertions; interval visibility
+checks prove presence/absence over the full catalog without counting every row.
+
 The standard and mixed previews use different disposable clusters. The browser
 runner uses fresh temporary profiles and accepts only the launcher's verified
 owned target. Normal completion removes the owned application, browser and database
@@ -801,10 +829,13 @@ no event, and nothing is written to the console. No check calls a real provider.
 
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on
 pushes, pull requests and manual dispatch. Checkout and tool-setup actions are
-pinned to exact commits. The workflow has read-only repository access, does not
+pinned to exact commits. The checks job has read-only repository access, does not
 persist checkout credentials and requires no repository secrets. It runs the same
 `check_all.py` command as local verification. It does not publish packages or
-deploy the application.
+deploy the application. A separate, gated `publish` job runs only after successful
+checks on a push to `master` when release publication is explicitly enabled. It
+uses the hosted-release environment and scoped write/attestation permissions to
+publish the reviewed release. Pull requests do not trigger that publisher.
 
 The job uses the runner image's stock PostgreSQL 16 binaries and installed Chrome;
 it does not start the image's shared PostgreSQL service. SDK, Node and application

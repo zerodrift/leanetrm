@@ -50,6 +50,24 @@ def run_checks(Client, check):
     check('risk changes no live quote or booked holding', risk.call('evaluate', {'snapshotId': frame['id'], 'curve': 'future'}) == before and risk.call('futures/holdings', retained) == holdings)
     again = risk.call('futures/risk', request)
     check('identical pinned risk requests are deterministic without cross-request caches', again == result)
+    shift = {'seriesId': factor['seriesId'], 'quote': factor['quote'], 'size': '0.2',
+             'convention': 'absolute_quote_input_parent_additive_rebuild_v1'}
+    outer = risk.call('futures/risk', {**request, 'stress': [shift]})
+    inner = risk.call('futures/risk', {**request, 'stress': [shift, {**shift, 'size': '-0.05'}]})
+    check('nested scenario risk inherits the exact shared historical context',
+          outer['context'] == result['context'] == inner['context'])
+    for original, parent, child in zip(result['factors'][0]['positions'], outer['factors'][0]['positions'], inner['factors'][0]['positions']):
+        quantity = Decimal(rows[(original['tradeId'], original['bindingId'])]['quantity'])
+        check('nested additive shocks reprice relative to the stressed parent with independent cash oracle',
+              Decimal(parent['values']['base']) == Decimal(original['values']['base']) + quantity * Decimal('0.2')
+              and Decimal(child['values']['base']) == Decimal(original['values']['base']) + quantity * Decimal('0.15')
+              and child['values']['upPnl'] == original['values']['upPnl'])
+    check('child pricing preserves both parent and original market',
+          risk.call('futures/risk', {**request, 'stress': [shift]}) == outer
+          and risk.call('futures/risk', request) == result)
+    for stress in [[{**shift, 'convention': 'relative'}], [{**shift, 'size': '0'}], [shift] * 17, [None]]:
+        risk.call('futures/risk', {**request, 'stress': stress}, expected=422)
+        check('stress composition rejects unsupported conventions, zero shifts and excessive depth')
     selected = risk.call('futures/risk', {**request, 'bookIds': [holdings['holdings'][0]['bookId']]})
     check('risk scope uses selected books before presentation filters', len(selected['factors'][0]['totals']) == 1 and all(p['bookId'] == holdings['holdings'][0]['bookId'] for p in selected['factors'][0]['positions']))
     other = next(f for f in catalog['availableFactors'] if 'power_basis' in f['curves'])

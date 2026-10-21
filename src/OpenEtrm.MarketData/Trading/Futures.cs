@@ -231,7 +231,7 @@ public static class FuturesHoldings
         if (!FuturesMarketBinding.Supported(implementation))
             throw FuturesMarketBinding.Error("futures_convention", "Choose an explicit supported futures pricing convention.");
         if (trades.IsDefault || trades.Length > 100000 || trades.Any(t => t is null) || trades.Select(t => t.Id).Distinct().Count() != trades.Length ||
-            !SameInputs(snapshot,market.Snapshot) || market.Shock is not null || market.NumericalPolicy != CurveModel.NumericalPolicy ||
+            !SameInputs(snapshot,market.Snapshot) || !market.Scenario.IsBase || market.NumericalPolicy != CurveModel.NumericalPolicy ||
             !TradingInstant.IsSupported(snapshot.ValuationAt))
             throw FuturesMarketBinding.Error("futures_context", "Use distinct trades and a matching pinned snapshot, definition revision and numerical policy.");
         if(implementation==FuturesMarketBinding.Implementation && trades.SelectMany(t=>t.Instruments).Any(p=>p.Instrument.Series.LotBasis!=LotBasis.FixedTotal||p.Instrument.Series.SettlementMethod!="cash"))

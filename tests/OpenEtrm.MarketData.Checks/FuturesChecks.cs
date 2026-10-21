@@ -31,6 +31,17 @@ internal static class FuturesChecks
         ImmutableArray<FuturesHolding> Price(ImmutableArray<FuturesTrade> holdings, MarketSnapshot snapshot) =>
             FuturesHoldings.Price(holdings, snapshot, f.Model().Build(snapshot, [side.Market]), FuturesMarketBinding.Implementation);
         var snapshot = Mark("3.2");
+        Check("nested futures risk counts original and intermediate market preparation",()=>
+        {
+            var bump=new QuoteBump(new(f.S(1),InputUse.Variable),quote.Key,PriceUnit.FromQuote(quote),ExactDecimal.Parse("0.1"),QuoteBump.Convention);
+            var shift=new QuoteShift(bump.Input,bump.Quote,bump.Unit,ExactDecimal.Parse("0.2"),QuoteShift.Convention);
+            var result=FuturesRisk.Calculate(trades,snapshot,f.Model(),[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy,
+                stress:[shift,shift with{Size=ExactDecimal.Parse("-0.05")}]);
+            // One leaf market, built once originally, once per stress layer and twice for risk.
+            Equal(result.Work.RebuiltCurveNodes,5);Equal(result.Work.ReusedCurveNodes,0);
+            Equal(result.Work.ScenarioCount,3);Equal(result.Work.UnitPricerCalls,3);
+            Equal(result.Work.PreparationScenarioCount,2);
+        });
         Check("a simple future is a leaf instrument with pricing selected outside its identity", () =>
         {
             Instrument common = instrument.Instrument;
