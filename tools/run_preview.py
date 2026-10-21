@@ -31,6 +31,7 @@ def main():
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
     parser.add_argument('--power-actual-check',action='store_true',help='Qualify exact collected-price interval settlement sources')
     parser.add_argument('--interval-series-check',action='store_true',help='Qualify audited interval series storage and API')
+    parser.add_argument('--interval-series-benchmark',action='store_true',help='Measure twenty-year interval series workloads in an owned fixture and print a JSON report')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
@@ -56,6 +57,10 @@ def main():
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
     fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check
+    if args.interval_series_benchmark:
+        if args.example != 'standard' or any(name.endswith('_check') and value for name,value in vars(args).items()):
+            parser.error('--interval-series-benchmark runs alone in the standard fixture, without any --*-check option')
+        args.check = True
     if args.power_actual_check or args.interval_series_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
@@ -296,7 +301,10 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.power_actual_check:
+            if args.interval_series_benchmark:
+                from benchmark_interval_series import run_benchmark
+                print(json.dumps(run_benchmark(url,query,dotnet),indent=2),flush=True)
+            elif args.power_actual_check:
                 from check_power_actual_http import run_checks as check_power_actual_http
                 check_power_actual_http(url,query,manifest)
             elif args.interval_series_check:

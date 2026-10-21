@@ -22,6 +22,10 @@ without a seven-figure implementation.
 - **P&L and risk:** futures execution P&L and projected swap PV, plus shared price
   shocks that revalue open futures positions with exact delta and gamma
 - **Blotter:** filters, pivots, saved views, charts and exports
+- **Interval series:** audited per-interval values on any market clock (price shapes,
+  capacity-factor forecasts, metered energy) with CSV import, corrections, a change
+  log and reads at a chosen knowledge time; nothing prices or settles from them yet,
+  see [the implementation record](docs/implementation.md#audited-interval-series)
 - **History:** view the market as you knew it on any past date and knowledge time
 - **Access control:** roles enforced by PostgreSQL row-level security, with people
   and AI agents as separate principals; agent actions require an explicit delegation

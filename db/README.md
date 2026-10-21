@@ -594,7 +594,9 @@ qualifies a new baseline (D135).
 ## Audited interval series
 
 [0064_interval_series.sql](migrations/0064_interval_series.sql) stores one value per UTC
-interval with immutable revisions ([ppa-design.md](../docs/ppa-design.md) §5, phase A).
+interval with immutable revisions ([ppa-design.md](../docs/ppa-design.md) §5, phase A). The
+HTTP routes, screen, limits and 20-year measurements are in
+[implementation.md](../docs/implementation.md#audited-interval-series) (D172).
 `market_data.interval_series` defines a series by its kind and one exact specification in a
 sealed reference revision:
 - `additive_price_shape`: a quote specification;

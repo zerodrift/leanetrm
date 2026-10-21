@@ -1,9 +1,12 @@
 # Power purchase agreements, interval series and shaped interval curves
 
-Status: draft design for review, 2026-10-20. No feature, migration or data
-activation is implemented by this document. Proposed choices are recorded as P40,
-not as agreed financial conventions. The implementation inventory below was
-checked against source revision `4a0a6a7`.
+Status: draft design for review, 2026-10-20. Phase A (section 5, audited interval
+series) is implemented and recorded as D172; its contract, 20-year measurements and
+remaining limits, including the owner references deferred to phases B and C, are in
+[the implementation record](implementation.md#audited-interval-series). Phases B to D
+are design only. Proposed choices are recorded as P40, not as agreed financial
+conventions. The implementation inventory below was checked against source revision
+`4a0a6a7`, before phase A.
 
 ## 1. Outcome and scope
 

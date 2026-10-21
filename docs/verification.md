@@ -1306,3 +1306,44 @@ calendar check bounds its dialog separately. Content inside a scroll container,
 such as the Settings › AI rate table, or clipped by an ancestor is not page
 overflow. Other widths, page states and browsers remain unchecked; screenshots
 remain the evidence of how a narrow layout looks.
+
+## Audited interval series
+
+Phase A of the PPA design (D172) is checked in four layers, all on synthetic data in
+owned disposable resources:
+
+```sh
+$DOTNET run --project tests/OpenEtrm.MarketData.Checks
+npm test --prefix web
+python3 tools/run_preview.py --pg-bin $PGBIN --dotnet $DOTNET --check --interval-series-check \
+  --browser-check --browser "$CHROME"
+```
+
+The managed checks expand segments onto clock grids, including repeated and skipped
+hours, and refuse misaligned, overlapping and out-of-range starts. The frontend checks
+cover the CSV layout. In the owned preview, 13 storage checks exercise the definer
+operations directly (viewer refusal, correction and withdrawal, change log, stale
+head, overlaps, replay, one bad row, reason and window bounds, commit-derived
+knowledge time, no direct writes), 10 HTTP checks exercise the routes as anonymous,
+viewer and editor sessions (refusals, retries, fall-back day, historical-session
+refusal, body limits, change log) and 29 browser checks drive the screen.
+`tools/check_all.py` runs the managed, storage and HTTP checks; the browser checks run
+only with `--browser-check`.
+
+The three commands above passed on 2026-10-20 on macOS 26.6.2 arm64 with .NET
+10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156.0.8078.47: 354
+managed market-data checks, 173 frontend checks, and the 13 storage, 10 HTTP and 29
+browser checks above. The owned database and browser completed teardown.
+
+The 20-year workloads are a measurement, not a pass/fail suite, and are not part of
+`tools/check_all.py`:
+
+```sh
+python3 tools/run_preview.py --pg-bin $PGBIN --dotnet $DOTNET --interval-series-benchmark
+```
+
+It prints one JSON report and exits nonzero if any step is refused, times out or
+returns a wrong interval count. Its workloads, environment and results are in
+[the implementation record](implementation.md#twenty-year-qualification). They
+establish one editor session's timings on one machine and do not qualify concurrent
+use, a hosted network or the API's Release build.
