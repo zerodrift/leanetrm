@@ -70,7 +70,7 @@ its stored events after a sequence, read in their own request context with the r
 recheck, then each piece of answer text the worker publishes once its publication
 recheck has committed, with every other event, steps included, read the same way,
 through to the turn's terminal event, with resume, heartbeats, one stream per turn and
-the refusals §8 lists; the runtime set is `turns_v4`. `ReadModelUsage` reads usage
+the refusals §8 lists; the runtime set is `turns_v5` (D193). `ReadModelUsage` reads usage
 through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
@@ -619,6 +619,8 @@ The tool set is fixed; each tool is switched on per agent version.
 | Read market data | Curves, contract definitions, dated contracts, observations, at the pinned frame |
 | Read schedules | Published date schedules and calendars, TOU products, power hours |
 | Read reference data | The `references` and `unitCatalog` read behind Reference data |
+| Read custom curves | Reads pinned saved ingredients, operators and exact published versions |
+| Prepare custom curve | Validates/prices an explicit formula and offers a reviewed draft; saves nothing |
 | Navigate | Requests a move to a server-issued target |
 | Show card | Creates an application-drawn card from this turn's reads (§10.2) |
 
@@ -630,7 +632,8 @@ The tool set is fixed; each tool is switched on per agent version.
 | Reference data | Read reference data | `ReadMarketData` | Pinned |
 | Entities & counterparties | Read trade parties | `ReadTradeParties`, `ReadMarketData` | Pinned |
 | Blotter rows and holdings | Read trades | `ReadTrades`, `ReadMarketData` | Pinned |
-| Blotter risk results, Delivery prices, Custom curves, Interval series, Jobs & Infrastructure, Users & access, Settings › AI | none | | Not supported |
+| Custom curves | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
+| Blotter risk results, Delivery prices, Interval series, Jobs & Infrastructure, Users & access, Settings › AI | none | | Not supported |
 
 - Read current page has no permissions of its own; if the dispatched tool is off it is
   refused with `tool_not_enabled`. On an unsupported page it returns
@@ -1135,10 +1138,12 @@ connection limit and firewall rule below in the same window.
   means entering every vendor key again.
 - **Retention (O11).** Conversations are kept, as in the preview. A retention policy
   waits until an installation needs one.
-- **Data scope (O22).** An agent reads only its workspace's catalogs, through the tools
-  its version switches on and its grant lists, which the consent names. A workspace
-  holds one market and one reference catalog, so there is nothing to choose per
-  catalog; O28 records that choice for installations with more than one.
+- **Data scope (O22).** An agent reads its workspace's primary catalogs through the
+  tools its version switches on and its grant lists, which the consent names.
+  Explicit curve dependencies can also name reference calendars in other catalogs
+  (D193). Those reads require current workspace scope and `ReadMarketData`, and
+  their catalogs join the turn's source-access rechecks. There is no per-agent
+  catalog selector; O28 records that optional policy.
 - **Egress.** The API sends model requests only to a provider's fixed endpoint: a
   turn's calls once the provider is enabled, and Test's one synthetic prompt once it is
   attested (§9). Owned checks instead set the IP-literal loopback endpoint in
@@ -1288,7 +1293,7 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 Owner decisions become D rows when recorded. Every other rule in this document is a
 design call, recorded as P rows by section and open to correction until the owner
 approves it. [decisions.md](decisions.md) records this section as D149–D156, D177,
-D184, D185, D190–D192 and P24–P38, with the open-item updates below.
+D184, D185, D190–D193 and P24–P38, with the open-item updates below.
 
 **AGENTS.md exception:** model-provider vendor names (Anthropic, OpenAI, Google, xAI,
 Meta) and their public API identifiers may appear in source, documentation, fixtures
@@ -1313,8 +1318,8 @@ common notebook alongside agent notebooks.
 
 **Tool decisions** (D177): the record keeps an As of frame's exact pins, from which tool
 reads rebuild the page's frame (§7.2); a read's own refusal of its input returns to the
-model as a refused step with its code and the page's fixed text; Custom curves,
-Interval series and Jobs & Infrastructure are not supported pages; Read market data
+model as a refused step with its code and the page's fixed text; Interval series
+and Jobs & Infrastructure are not supported pages; D193 adds Custom curves below; Read market data
 reads the pinned frame only, curve history later; a step records its operation, input,
 code, read instant and accesses, and results wait for cards (§7.3); worker writes
 evaluate the source-access check as a context issued to the turn's agent would, which a
@@ -1412,3 +1417,32 @@ comparison next and spending caps later.
 the order of handler extraction, provided pages and tools share each operation;
 runtime-set values within the stated constraints; the formatting renderer and the
 navigation history structure.
+
+
+**Curve preparation (D193).** Runtime set `turns_v5` adds
+`custom_curves.catalog_v1` (`read_custom_curves`) and
+`custom_curves.prepare_v1` (`prepare_custom_curve`), both requiring delegated
+`ReadMarketData`. Catalog/preparation call the same managed reads as the editor,
+within the existing 500-record/64 KiB result and 8 KiB argument bounds. Preparation
+requires code, name, explicit `custom_curve_recipe_v2` engine and formula; no
+financial choice is inferred. It returns the validated definition and pinned
+preview without creating a business draft. All transitive market/reference
+accesses join the turn's replay checks, including calendars of exact older
+schedule versions. Dependency evidence identifies work, not PV exposure.
+
+Navigate may follow a preparation's issued handle to a `proposal` target on
+Custom curves. Its selection contains only the turn ID and successful step
+ordinal; SQL validates both against the same turn's preparation record. It never
+auto-opens. **Review proposed curve** protects unsaved edits, then the owner
+operation revalidates the original engine, inputs/context and current source
+access. It returns only an unpriced definition and origin dates to the ordinary
+editor, keeping the selected header. Preview then calculates under that header;
+Save and Publish require the person's existing permissions. Revoking the agent's
+delegation alone does not revoke the current owner's ordinary source access.
+The same owner operation runs in preview and hosted modes, under the current
+human's sign-in session. A fresh authorized sign-in may review an earlier
+completed proposal; a stale application session cannot.
+Unknown/other-owner/non-preparation steps reject. Reopening no longer readable
+sources rejects. No agent write tool, agent-run portfolio risk or new conversation
+artifact table is introduced. Custom curves' Looking at describes the saved
+library and ingredients; unsaved graph/formula edits stay in the editor.

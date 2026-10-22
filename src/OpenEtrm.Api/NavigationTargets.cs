@@ -53,6 +53,8 @@ static class NavigationTargets
         return call switch
         {
             {Operation.Id:"market_data.curves_v1"}=>Filter(Market("curves",null)),
+            {Operation.Id:"custom_curves.catalog_v1"}=>new("custom_curves",null,"page","Custom curves"),
+            {Operation.Id:"custom_curves.prepare_v1",Arguments:PrepareCurveArguments prepared}=>new("custom_curves",result["proposal"]!.DeepClone().AsObject(),"proposal",$"Review proposed curve: {prepared.Name}"),
             {Operation.Id:"market_data.curve_v1",Arguments:CurveArguments curve}=>Curve(curve.Curve),
             {Operation.Id:"market_data.observations_v1",Arguments:CurveArguments curve}=>Filter(Market("observations",curve.Curve),$"inputs of curve {curve.Curve}"),
             {Operation.Id:"market_data.contract_definitions_v1"}=>Filter(Market("contract_definitions",null)),
@@ -128,6 +130,7 @@ public sealed class TurnTargets
 
     // The number the turn's next handle takes.
     public int Next=>issued.Count+1;
+    public int Steps{get;private set;}
 
     public NavigationTarget? Find(string handle)=>issued.GetValueOrDefault(handle);
 
@@ -137,5 +140,6 @@ public sealed class TurnTargets
         if(!targets.Select(t=>t.Handle).SequenceEqual(Enumerable.Range(Next,targets.Length).Select(NavigationTargets.Handle)))
             throw new InvalidOperationException("A step's targets do not follow the turn's last.");
         foreach(var target in targets)issued.Add(target.Handle,target.Target);
+        Steps++;
     }
 }

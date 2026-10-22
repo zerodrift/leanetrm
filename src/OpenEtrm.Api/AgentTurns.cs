@@ -16,6 +16,8 @@ public sealed record AskKnowledge(string? Mode,Guid? ContextId,Guid? FrameId);
 public sealed record StopRequest(Guid TurnId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record MarkReadRequest(Guid ConversationId,long? Through);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record CurveProposalRequest([property:JsonRequired] Guid TurnId,[property:JsonRequired] int Step);
 
 // Turns over HTTP (docs/ai-assistant.md §7.2, §7.4, §8), in one scope: an ask admits the turn in the person's own
 // context, pins its context in a short transaction of its own and hands the turn's token to the worker with the
@@ -23,6 +25,23 @@ public sealed record MarkReadRequest(Guid ConversationId,long? Through);
 // and the session's binding, and refuses a page report the tools could not read before anything is written.
 public sealed partial class AgentTurns(PreviewDatabase database,string scope,AgentWorker worker,TurnWorker turns,AgentTools tools,ILogger logger)
 {
+    public async Task<object> CurveProposal(NpgsqlConnection connection,CurveProposalRequest body,CancellationToken ct)
+    {
+        Task<JsonElement> Recorded()=>ModelProviders.Read(connection,"SELECT assistant.curve_proposal($1,$2,$3)::text",[scope,body.TurnId,body.Step],ct);
+        var saved=await Recorded();
+        var pin=TurnPin.From(saved.GetProperty("context"),saved.GetProperty("pins"),database.Manifest.CatalogId,database.Manifest);
+        var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,pin.ContextId,ct)).Context;
+        var arguments=AgentTools.Parse("prepare_custom_curve",saved.GetProperty("input")).Arguments as PrepareCurveArguments
+            ??throw new InvalidOperationException("A recorded curve proposal has no preparation arguments.");
+        var definition=AgentTools.CompileCurve(arguments);
+        // Revalidate the proposal under its ORIGINAL pin and current authority.
+        // The editor receives an unpriced draft, never an old result relabeled
+        // with the header's current context.
+        var page=pin.Page(context);await page.Bind(connection,database.Manifest.CatalogId,ct);
+        _=await CustomCurves.PreviewRead(connection,database,page,new(definition,pin.RequireFrame().Id),ct);
+        _=await Recorded();
+        return new{definition,origin=context,frameId=pin.RequireFrame().Id,engine=arguments.Engine,status="unpriced_draft"};
+    }
     // A repeat answers with its turn as it stands: only the request that admitted a turn holds its token. However the
     // record write fails, the turn fails in a scope of its own (§7.2), and its ending is the answer once that lands.
     public async Task<IResult> Ask(PreviewSession session,string profile,AskRequest body,string mode,Guid? retained,InputFrame? frame,CancellationToken aborted)

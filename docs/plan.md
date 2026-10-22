@@ -26,8 +26,11 @@ workbench (D187). Explicit version/output FKs import the complete parent panel
 under the same resolved context, keeping graph edges and transitive native sample
 pins through booked PV and retained risk. Shared ancestors prepare once per
 operation; cycles, more than 32 published-source edges per path or more than 256
-exact versions reject. Separate historical resampling and arbitrary weighted
-alignment of published panels remain work.
+exact versions reject. D193 adds signed/normalized weighted combinations of these panels under explicit
+exact-delivery alignment. A guided composer builds the same graph as the advanced
+visual/formula editor. Agent catalog/preparation tools use shared backend reads and
+hand an unpriced proposal to the ordinary editor only on explicit Review.
+Historical resampling, interpolation and conversion remain work.
 
 The managed [connected calculation engine](connected-calculation.md) (D182–183, D186)
 adds compact dependency plans, nested sparse scenarios, bitemporal logical-to-exact
@@ -318,32 +321,32 @@ series (D173: store, authorized HTTP routes, screen and 20-year benchmark in
 curves (D174: marked and block-shaped interval prices, actual/projected resolution and
 explicit aggregation, with reads and a screen, in
 [the implementation record](implementation.md#interval-prices-curves-and-block-shaping)).
-Neither has a historical session mode. The locally implemented phase C slice 1 (D193)
+Neither has a historical session mode. The locally implemented phase C slice 1 (D194)
 adds exact rational quantity-times-price, shared prepared interval-price resolution,
 explicit live balance blocks, opt-in frozen anchors, shaped collected actuals and the
-qualified period-fixing consumer. Slice 2 (D194) adds sealed asset/source/location
+qualified period-fixing consumer. Slice 2 (D195) adds sealed asset/source/location
 definitions, exact forecast and meter quantities, explicit meter deadlines,
 multi-asset normalization, daily accreditation, contract profiles and anniversary
-compounding, with authorized quantity preview routes. D195 subsequently settles
-R1/R2/C7 for the managed slice 3 consumer. D196 accepts R3’s exact-pin and
+compounding, with authorized quantity preview routes. D196 subsequently settles
+R1/R2/C7 for the managed slice 3 consumer. D197 accepts R3’s exact-pin and
 whole-operation incompatibility policy; slice 4 implements durable bookings and
 the bounded base-valuation API.
 Checkpoint evidence is separate from product scope:
-D195 accepts native delivery coverage, whole-month capacity pricing and explicit
+D196 accepts native delivery coverage, whole-month capacity pricing and explicit
 outstanding-value measures for slice 3. Managed side schedules, composition,
 valuation and coverage-aware risk reuse passed Checkpoint B: independent exact
 oracle comparison, measured full-term/segmented reuse and adversarial review.
 Slice 4 adds exact typed booking storage, atomic lifecycle operations, R3 complete
 scope admission and HTTP base valuation. Request-owned immutable validated series
 indexes remain the only performance optimization; secondary optimizations remain
-proposals. Slice 5 (D198) adds guided PPA booking, amendment/termination, a blotter
+proposals. Slice 5 (D199) adds guided PPA booking, amendment/termination, a blotter
 and bounded read-only inspection through the capability catalog and authorized API.
 Physical and virtual booking, retained payments/holdings, overdue measures, repeated
 DST hours, revision refusals, duplicate recovery, mobile layout and enlarged-fixture
-navigation passed browser checks and independent review. Slice 6 (D199) adds a
+navigation passed browser checks and independent review. Slice 6 (D200) adds a
 read-only existing-close book-risk operation, typed persisted receipts and worker
 operation gates. The full synthetic gate, independent adversarial review and all
-15 managed benchmark samples passed. D200 subsequently qualified renewable
+15 managed benchmark samples passed. D201 subsequently qualified renewable
 completion and recovery for an actual ten-year hourly risk workload beyond 120
 seconds, preserving admission pins and the overall deadline. Other large books
 have not been qualified end to end; legacy generated-close leases are unchanged.
@@ -1170,7 +1173,7 @@ selected context (D167). Contract activation and booked-side integration remain
 outside this library.
 
 
-Existing-close risk now has separately qualified renewable completion (D200):
+Existing-close risk now has separately qualified renewable completion (D201):
 actual ten-year hourly risk exceeded 120 seconds, with original admission pins and
 overall deadline retained through worker death/replacement and lost commit
 acknowledgement. Complete report and terminal success publish atomically. This
@@ -1191,19 +1194,19 @@ and independent whole-branch review has no open material finding. This closes
 Phase C within its recorded limits. The subsequently authorized bounded
 [settlement policy/specification task](ppa-settlement-spec.md) is complete for
 review, with an independent executable specification. SP1–SP9 were subsequently accepted for explicitly opted-in bounded fixed-strike
-contracts (D201). The [shared meter-finality prerequisite](meter-finality.md) is implemented;
+contracts (D202). The [shared meter-finality prerequisite](meter-finality.md) is implemented;
 cash determination acceptance, obligations, payments, workers and
 gas are outside its scope. Shared power/gas phase dependencies remain open.
 
 
-D202 implements the separately authorized narrower power-only sequence:
+D203 implements the separately authorized narrower power-only sequence:
 [immutable payment continuity, complete occurrence planning and monthly gross
 preview](settlement-preview.md). Global S1/S2 are not closed. Approval, immutable
 cash acceptance, contribution claims, correction obligations, disjoint valuation
 and payment execution still require separately authorized work.
 
 
-D203 resets the current PPA MVP to settlement calculations, exact draft break-even
+D204 resets the current PPA MVP to settlement calculations, exact draft break-even
 pricing and an extension of the existing graphical editor. The
 [pricing and graphical workbench record](ppa-break-even.md) records its implemented scope
 and independent evidence. Approvals, accepted-cash accounting, payments, reversals

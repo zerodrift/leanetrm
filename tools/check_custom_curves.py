@@ -143,7 +143,7 @@ def run_checks(url, query=None, manifest=None):
             SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token('viewer')}');
             DO $$BEGIN IF EXISTS(SELECT 1 FROM market_data.custom_curve_versions WHERE catalog_id='{cat}') THEN
               RAISE EXCEPTION 'Saved graph leaked after current source scope revocation';END IF;END$$;ROLLBACK;""")
-        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='14'
+        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='15'
     # A later correction can restate a working historical window, but never a retained earlier knowledge view.
     client.call('profile',{'profile':'editor'})
     observed=next(row for row in average['inputs'] if row['date']=='2020-12-01' and row['contract']['id']=='e0000000-0000-0000-0000-000000000102')
@@ -168,3 +168,7 @@ def run_checks(url, query=None, manifest=None):
             END$$;ROLLBACK;""")
     client.call('market/current',{})
     print('PASS custom curves: prompt/BALMO/12-tenor averages, frozen-source basis chains, exact final pins and ambiguous-final rejection, typed formula parity and removed SQL rejection, exact request replay with current content authority and receipt FKs, optimistic publication, immutable normalized relationships, current scope revocation, certified cutoff visibility and correction replay',flush=True)
+
+    if query and manifest:
+        from curve_agent_fixture import prepare as check_exact_schedule
+        check_exact_schedule(url, query, manifest)

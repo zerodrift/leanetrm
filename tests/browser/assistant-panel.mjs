@@ -26,10 +26,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await qualifyProvider(side,'sk-synthetic-browser-panel-'+stamp);
   const model=await pricedModel(side,{identifier:'browser-panel-model-'+stamp,displayName:'Browser panel model',efforts:['low']});await model.enable();
   const modelVersion=(await side.call('settings/ai/agents')).models.find(m=>m.id===model.id).version;
-  async function publish(agent,tools){
+  async function publish(agent,tools,allowedRoles=['trader']){
     const saved=await side.call('settings/ai/agents/save',{operationId:crypto.randomUUID(),agentId:agent.id,expectedVersion:agent.version,
       description:'Answers questions about the page it is opened on.',instructions:'Quote only values you read.',modelId:model.id,modelVersion,reasoning:'low',
-      caching:false,tools,allowedRoles:['trader'],limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,retries:2},grantDays:28});
+      caching:false,tools,allowedRoles,limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,retries:2},grantDays:28});
     return side.call('settings/ai/agents/publish',{operationId:crypto.randomUUID(),agentId:saved.id,expectedVersion:saved.version});
   }
   const create=name=>side.call('settings/ai/agents/create',{operationId:crypto.randomUUID(),name});
@@ -312,4 +312,39 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
     `[${q('#assistant-panel')}.getBoundingClientRect().width,document.documentElement.clientWidth,document.documentElement.scrollWidth]`);
   await shot('assistant-panel-phone');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+  // A proposal prepared in history opens only on explicit Review, as an unpriced
+  // editable draft under the current header. It carries no agent authoring grant.
+  const curveAgent=await publish(await create('Browser curve guide '+stamp),['read_custom_curves','prepare_custom_curve','navigate'],['market_data_editor','trader']);
+  await persona('editor');await click('#example');await click('#nav-custom-curves');
+  await click('#assistant-launcher');await set('#assistant-agent',curveAgent.id+':1');
+  await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
+  const historicalFrame=await evaluate(`[...${q('#snapshot')}.options].map(o=>o.value).find(Boolean)`);await set('#snapshot',historicalFrame);await wait(idle);
+  const definition={code:'browser_agent_proposal',name:'Synthetic agent proposal',output:'out',nodes:[
+   {id:'source',kind:'source',parameters:{curve:'future'},inputs:{}},
+   {id:'select',kind:'select',parameters:{mode:'positions',first:'1',count:'1',binding:'context'},inputs:{source:'source'}},
+   {id:'dates',kind:'dates',parameters:{mode:'context',sampling:'context_utc_time',corrections:'exact_context_frame_history_latest_visible'},inputs:{}},
+   {id:'sample',kind:'sample',parameters:{},inputs:{selection:'select',dates:'dates'}},
+   {id:'out',kind:'output',parameters:{},inputs:{values:'sample'}}]};
+  const formula=(await side.call('custom-curves/format',{definition})).formula;
+  await ask('Prepare this explicitly selected curve.');await wait(shown('#assistant-consent'));
+  await script({hold:'curve-proposal',text:'Preparing an explicit draft. ',tools:[['toolu_curve_panel_01','read_custom_curves',{}],
+   ['toolu_curve_panel_02','prepare_custom_curve',{code:definition.code,name:definition.name,engine:'custom_curve_recipe_v2',formula}]]},
+   {tools:[['toolu_curve_panel_03','navigate',{page:null,target:'n2'}]]},{text:'Review it in the editor.'});
+  await click('#assistant-allow');await wait(`${answer}==='Preparing an explicit draft. '`);
+  await click('#return-working');await wait(`${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${idle}`);
+  await click('#example');await click('#nav-custom-curves');const workingFrame=await evaluate(`${q('#snapshot')}.value`);
+  await release('curve-proposal');await wait(`${finished}&&${buttons}==='Review proposed curve'`);
+  await check('a historical proposal waits for explicit review and does not claim it will change the working header',
+   `${q('#custom-curves-code')}.value===''&&${q('#snapshot')}.value===${JSON.stringify(workingFrame)}&&!${notice}.textContent.includes('Go changes the knowledge')`);
+  await set('#custom-curves-code','unsaved_local_curve');await set('#custom-curves-name','Synthetic local edits');
+  await press('Review proposed curve');await wait(`${buttons}==='Go anyway'`);
+  await check('review protects existing unsaved curve edits until the explicit second action',`${q('#custom-curves-code')}.value==='unsaved_local_curve'`);
+  await press('Go anyway');await wait(`${q('#custom-curves-code')}.value==='browser_agent_proposal'&&${idle}`);
+  await check('review opens an unpriced draft with its original context note and keeps the working header editable',
+   `${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${q('#snapshot')}.value===${JSON.stringify(workingFrame)}&&${q('#custom-curves-result')}.hidden`
+   +`&&!${q('#custom-curves-save')}.disabled&&${q('#custom-curves-template-help')}.textContent.includes('This is an unpriced draft')`);
+  await click('#custom-curves-preview');await check('the reviewed draft prices through the ordinary current-header backend operation',
+   `${shown('#custom-curves-result')}&&window.__requests.some(r=>r.path==='/api/custom-curves/preview'&&r.body.snapshotId===${JSON.stringify(workingFrame)})`);
+  await click('#custom-curves-save');await check('saving the reviewed draft uses the person’s ordinary authoring operation',`${q('#custom-curves-state')}.textContent.includes('Draft')&&${q('#error')}.hidden`);
+
 }

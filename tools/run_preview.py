@@ -169,7 +169,7 @@ def main():
             if args.connected_portfolio_check and migration.name in ('0080_connected_recipe_weights.sql','0081_connected_risk_axes.sql'):
                 from check_curve_cutover import run_checks as check_curve_cutover
                 check_curve_cutover(query,[reference,market,security],manifest,migration.read_text(),migration.name[:4])
-            if args.close_risk_check and migration.name=='0092_close_book_risk.sql':
+            if args.close_risk_check and migration.name=='0094_close_book_risk.sql':
                 from check_close_risk_upgrade import run_checks as check_risk_upgrade
                 check_risk_upgrade(query,[reference,market,security,trading_fixture(manifest['catalogId'])],manifest,migration.read_text())
             if args.execution_check and migration.name=='0040_futures_execution_policies.sql':
@@ -227,6 +227,9 @@ def main():
             if args.assistant_check and migration.name=='0079_workspace_grants.sql':
                 from check_agent_grants import check_workspace_upgrade
                 check_workspace_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0089_curve_agent_proposals.sql':
+                from check_agent_turns import check_curve_proposals_upgrade
+                check_curve_proposals_upgrade(query,migration.read_text())
             if args.assistant_check and migration.name=='0086_navigation_targets.sql':
                 from check_agent_turns import check_navigation_upgrade
                 check_navigation_upgrade(query,migration.read_text())

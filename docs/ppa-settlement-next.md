@@ -1,6 +1,6 @@
 # Original PPA settlement task proposal and current status
 
-Current scope: D203 defers settlement approvals, accepted-cash accounting,
+Current scope: D204 defers settlement approvals, accepted-cash accounting,
 payments, reversals and automated correction adjustments. They are not MVP
 pricing prerequisites. The [pricing/workbench record](ppa-break-even.md) describes
 the current next consumer. This document retains the earlier settlement task and
@@ -9,7 +9,7 @@ reuse map; it does not select a new ledger task.
 The [bounded contract and reuse/dependency map](ppa-settlement-spec.md) and
 [independent executable specification](../specs/settlement/README.md) remain
 available. SP1–SP9 are accepted for the explicitly opted-in bounded fixed-strike
-contract (D201), including future rounding and approval conventions. The
+contract (D202), including future rounding and approval conventions. The
 [meter-finality prerequisite](meter-finality.md) and [payment continuity/gross
 preview](settlement-preview.md) are implemented. Cash lifecycle, P39 outside
 this bounded contract and global settlement phases remain open.
@@ -38,8 +38,8 @@ acceptance. No parallel PPA-only obligation ledger is proposed.
 | [PpaSides](../src/OpenEtrm.MarketData/Trading/PpaSides.cs), [PpaQuantityPreparation](../src/OpenEtrm.MarketData/Trading/PpaQuantityPreparation.cs), [AssetVolumes](../src/OpenEtrm.MarketData/Power/AssetVolumes.cs) | Exact strike terms, delivery-linked quantities, eligible meter selection, source stages, capacity-version normalization and original coverage. | Phase C meter availability/deadlines are not contractual finality. External binding MW must still be applied exactly once. |
 | [ScheduleRows](../src/OpenEtrm.MarketData/Trading/ScheduleRows.cs) | Native interval, side/slot, exact signed amount, payment date, lineage and separate overdue measures. | Only `RemainingProjected` and `DeliveredUnsettled` exist. Realised cash is a valuation classification, not payment evidence or a durable settlement occurrence. |
 | ExactQuantity, ExactUnitPrice, ExactMoney and AmountFormat | Exact arithmetic and explicit rounding primitives. | Display precision does not select contractual rounding. |
-| Migration 0090 and PpaStore | Immutable terms, retained binding history, current authority, optimistic concurrency and idempotent booking commands. | Financial settlement occurrence/action identities must be distinct from booking operations and job attempts. |
-| Knowledge contexts, source revisions and migrations 0092–0093 | Certified knowledge, pinned retry inputs, current authority, fencing, renewable leases and atomic result patterns. | No settlement operation or permission is installed. Reuse these patterns only for a separately approved financial lifecycle. |
+| Migration 0092 and PpaStore | Immutable terms, retained binding history, current authority, optimistic concurrency and idempotent booking commands. | Financial settlement occurrence/action identities must be distinct from booking operations and job attempts. |
+| Knowledge contexts, source revisions and migrations 0094–0095 | Certified knowledge, pinned retry inputs, current authority, fencing, renewable leases and atomic result patterns. | No settlement operation or permission is installed. Reuse these patterns only for a separately approved financial lifecycle. |
 
 For this first fixed-strike consumer, direct reuse is the exact quantity and cash
 types, PPA meter normalization, retained coverage and payment-date generation.
@@ -80,7 +80,7 @@ now supplies their accepted bounded contract; this section preserves task scope:
 
 Accepted determinations, obligations, approval evidence, correction adjustments
 and payment applications remain missing. Meter-finality evidence alone is now
-implemented in 0094; the other shared lifecycle prerequisites remain open. The task must map these to shared
+implemented in 0096; the other shared lifecycle prerequisites remain open. The task must map these to shared
 S0–S4 rather than treating control receipts as a financial ledger. Certificates,
 capacity, floating payments, net grouping, FX, taxes, fees and bank dispatch stay
 outside the proposed first contract.

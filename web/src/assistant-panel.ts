@@ -129,7 +129,7 @@ export function setupAssistant(options:PanelOptions){
     const notice=notices.get(item.sequence)??{moved:false},box=el('div','assistant-target'),label=publicText(item.target.label);
     box.append(el('span','',notice.moved?`Took you to ${label}`:label));
     if(notice.reason)box.append(el('span','assistant-target-reason',notice.reason));
-    if(!notice.moved)box.append(notice.confirm?.action==='go'?button('Go anyway',`Leave unsaved changes and go to ${label}`,()=>go(item)):button('Go',`Go to ${label}`,()=>go(item)));
+    if(!notice.moved)box.append(notice.confirm?.action==='go'?button('Go anyway',`Leave unsaved changes and go to ${label}`,()=>go(item)):button(item.target.kind==='proposal'?'Review proposed curve':'Go',`Go to ${label}`,()=>go(item)));
     // A move that failed once it had changed the page keeps its Back too.
     if(notice.key&&history.origin(notice.key))box.append(notice.confirm?.action==='back'?button('Back anyway',`Leave unsaved changes and go back from ${label}`,()=>back(item))
       :button('Back',`Back from ${label}`,()=>back(item)));
@@ -172,9 +172,9 @@ export function setupAssistant(options:PanelOptions){
     moving=moving.then(async()=>{
       if(started!==conversationGeneration||notices.has(item.sequence))return;
       try{
-        const place=options.place(),context=changesContext(item.target.context,place.context),unsaved=options.unsaved();
+        const place=options.place(),context=item.target.kind!=='proposal'&&changesContext(item.target.context,place.context),unsaved=options.unsaved();
         const shown=opened&&!options.pageBusy()&&!document.querySelector('dialog[open]');
-        if(targetAction({live:shown,changesContext:context,unsaved})==='go')
+        if(targetAction({live:shown,changesContext:context,unsaved,proposal:item.target.kind==='proposal'})==='go')
           notices.set(item.sequence,{moved:false,reason:context?changesView:unsaved?leavesEdits:undefined,confirm:!context&&unsaved?{action:'go',page:place.page}:undefined});
         else await moveFrom(item,()=>options.open(item.target));
       }catch{notices.set(item.sequence,{moved:false});}

@@ -18,7 +18,7 @@ export type PageContext={mode:'current';frameId:string|null;frameLabel:string|nu
   |{mode:'retained';contextId:string;effectiveOn:string;knownAtLabel:string;frameId:string|null;frameLabel:string|null}|{mode:'unapplied'};
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
-const unsupported:Record<string,string>={delivery:'delivery_prices','custom-curves':'custom_curves','interval-series':'interval_series',
+const unsupported:Record<string,string>={delivery:'delivery_prices','interval-series':'interval_series',
   'interval-curves':'interval_curves',jobs:'jobs',admin:'users_access',ai:'settings_ai',ppa:'ppa'};
 
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
@@ -28,6 +28,7 @@ export function pageReport(state:PageState):PageReport{
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
     case 'power':return {page:'power_tous',selection:{view:state.frame?'power_hours':'tou_products'}};
     case 'configuration':return {page:'contract_definitions',selection:{view:'contract_definitions',curve:null}};
+    case 'custom-curves':return {page:'custom_curves',selection:{}};
     case 'schedules':return {page:'schedules',selection:{view:'library'}};
     case 'reference':return {page:'reference_data',selection:{table:state.table,search:state.search}};
     case 'parties':return {page:'parties',selection:{kind:state.kind}};
@@ -62,6 +63,7 @@ function shows(report:PageReport,names:Names,trade?:string){
   switch(report.page){
     case 'curves':return s.view==='curves'?'Curve directory':`${s.view==='observations'?'Inputs':'Prices'} of ${names.curve(String(s.curve))}`;
     case 'contract_definitions':return 'Contract date definitions';
+    case 'custom_curves':return 'Published curve ingredients and saved curve library. Unsaved edits are not sent.';
     case 'schedules':return 'Schedule library';
     case 'power_tous':return s.view==='power_hours'?'TOU products and power hours':'TOU products';
     case 'reference_data':return s.table===''?'No table is shown yet':names.table(String(s.table))+(s.search?` · rows matching “${s.search}”`:'');
@@ -98,10 +100,10 @@ export function changesContext(target:TargetContext,page:PageContext){
     :page.mode!=='retained'||page.contextId!==target.contextId||page.frameId!==target.frameId;
 }
 // Only a target that arrives live, keeps the context and leaves nothing unsaved moves the page; any other waits for Go.
-export const targetAction=(target:{live:boolean;changesContext:boolean;unsaved:boolean})=>target.live&&!target.changesContext&&!target.unsaved?'move':'go';
+export const targetAction=(target:{live:boolean;changesContext:boolean;unsaved:boolean;proposal?:boolean})=>target.live&&!target.changesContext&&!target.unsaved&&!target.proposal?'move':'go';
 
 const webPages:Record<string,string>={curves:'market',contract_definitions:'configuration',schedules:'schedules',power_tous:'power',reference_data:'reference',
-  parties:'parties',blotter:'futures'};
+  parties:'parties',blotter:'futures',custom_curves:'custom-curves'};
 // The web page a target opens: only one the assistant reads.
 export function webPage(page:string){if(!Object.hasOwn(webPages,page))throw inconsistent();return webPages[page];}
 
@@ -117,7 +119,7 @@ export class NavigationHistory{
 }
 
 const toolNames:Record<string,string>={read_current_page:'Read the page',read_market_data:'Read market data',read_trades:'Read trades',
-  read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',navigate:'Navigate'};
+  read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',navigate:'Navigate'};
 const reasons:Record<string,string>={tool_arguments_invalid:'the request was not one this tool accepts',result_too_large:'the result was larger than one read returns',
   page_not_supported:'the assistant does not read the page you asked from',tool_not_enabled:'this agent does not read the page you asked from',
   page_selection_unavailable:'what the page showed is not available in the pinned context',snapshot_missing:'it needs an As of date, and none was chosen',

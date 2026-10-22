@@ -9,7 +9,7 @@ namespace OpenEtrm.Api;
 
 // A read's result as a tool returns it: its value, the records it lists, which the runtime set bounds, and whether its
 // amounts carry the page's display.
-sealed record ToolResult(JsonObject Value,int Rows,bool Displayed);
+sealed record ToolResult(JsonObject Value,int Rows,bool Displayed,ImmutableArray<ReadAccess> Access=default);
 
 // What each operation returns of its page read (docs/ai-assistant.md §7.3): the page's own fields and exact values,
 // without what only the page uses (booking catalogs, rights, workspace payloads, the pricing trace and the frame the

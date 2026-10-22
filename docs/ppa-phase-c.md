@@ -2,7 +2,7 @@
 
 Historical status: bounded local Phase C qualification complete, 2026-10-22. The complete
 45-stage gate passes, and independent whole-branch review has no open material
-finding. Phase C implements D193–D200 within the limits below. Settlement was outside Phase C; subsequent bounded previews are documented in
+finding. Phase C implements D194–D201 within the limits below. Settlement was outside Phase C; subsequent bounded previews are documented in
 [settlement preview](settlement-preview.md). Generated-close PPA cutover remains deferred; production deployment is not
 qualified by these synthetic checks.
 
@@ -49,7 +49,7 @@ policy. Later-known corrections do not become known at an earlier cutoff.
 
 ## Storage, authority and recovery
 
-Migrations 0088–0093 add interval source relationships, PPA reference bindings,
+Migrations 0090–0095 add interval source relationships, PPA reference bindings,
 durable terms/bookings, bounded authoring reads, existing-close risk and renewable
 ownership respectively. Prior migrations and historical job/run/report identities
 remain unchanged. Fresh isolated probes verify forced RLS on all 27 new tables,

@@ -1,5 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+test('a proposed curve waits for explicit review on an idle unchanged page',async()=>{
+ const {targetAction}=await import('../dist/assistant-pages.js');
+ assert.equal(targetAction({live:true,changesContext:false,unsaved:false,proposal:true}),'go');
+});
 import {pageReport,lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,usageLine,consentText,grantExpiry,webPage,agentChoice,preselect,conversationChoice,panelMessage,keptAsk} from '../dist/assistant-pages.js';
 
 const book='d1000000-0000-4000-8000-000000000001',portfolio='d2000000-0000-4000-8000-000000000002',trade='71000000-0000-4000-8000-000000000009';
@@ -33,6 +37,15 @@ test('every other page reports the view it shows in its read tool input form, an
   assert.deepEqual(pageReport({page:'futures',risk:true,trade:null,view:blotter}),{page:'blotter_risk',selection:{}});
   for(const [page,id] of [['delivery','delivery_prices'],['custom-curves','custom_curves'],['interval-series','interval_series'],['interval-curves','interval_curves'],
     ['jobs','jobs'],['admin','users_access'],['ai','settings_ai']])assert.deepEqual(pageReport({page}),{page:id,selection:{}});
+});
+
+test('custom curves describes the saved library as a supported page without sending unsaved edits',()=>{
+ const report=pageReport({page:'custom-curves'});
+ assert.deepEqual(report,{page:'custom_curves',selection:{}});
+ const view=lookingAt(report,{mode:'current',frameId:frame,frameLabel:'18 Dec 2020'}, {curve:String,table:String});
+ assert.equal(view.supported,true);assert.equal(view.askable,true);
+ assert.equal(view.shows,'Published curve ingredients and saved curve library. Unsaved edits are not sent.');
+ assert.equal(webPage('custom_curves'),'custom-curves');
 });
 
 test('an ask pins working data only at a chosen As of frame, and a historical view at its own context, with or without a frame',()=>{

@@ -2,7 +2,7 @@
 
 This implements only the shared meter evidence prerequisite of the accepted
 [SP1–SP9 bounded contract](ppa-settlement-spec.md), through migration
-`0094_meter_finality.sql`. Global S1 remains incomplete. Cash determination
+`0096_meter_finality.sql`. Global S1 remains incomplete. Cash determination
 acceptance, obligations, payments, workers and gas implementation are absent.
 The existing PPA valuation path still uses its Phase C meter-availability rules;
 it does not consume finality or advertise accepted settlement.

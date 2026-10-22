@@ -293,13 +293,13 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                   'market_data.contract_definitions_v1', 'reference_data.table_v1', 'schedules.library_v1', 'schedules.tou_products_v1',
                   'schedules.power_hours_v1', 'trade_parties.versions_v1', 'trades.blotter_v1', 'trades.blotter_v1', 'trades.trade_v1', 'trades.trade_v1']
     check("a step records its tool, operation, the request's input, the instant it read, after its call's close and before the next "
-          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v4",
+          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v5",
           [(s['tool'], s['operation'], s['input'], s['code']) for s in recorded] == [(r[1], o, r[2], None) for r, o in zip(first + second, operations)]
           and [s['access'] for s in recorded] == [market] * 9 + [parties] + [trades] * 4
           and all(at(loop[0]['closed']) <= at(s['read_at']) <= at(loop[1]['started']) for s in recorded[:3])
           and all(at(loop[1]['closed']) <= at(s['read_at']) <= at(loop[2]['started']) for s in recorded[3:])
           and [e['payload'] for e in events if e['kind'] == 'step'] == [{'ordinal': n, 'tool': s['tool']} for n, s in enumerate(recorded, start=1)]
-          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v4', recorded)
+          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v5', recorded)
     grant_id = delegation(turn)
     contexts_read = issued(grant_id)
     check("each read runs in one request context of its own, issued to the agent's principal under the turn's grant on the agent pools, "
@@ -719,6 +719,63 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           and [(s['code'], s['access']) for s in denied] == [('access_denied', market)] and [e['kind'] for e in events] == ['accepted', 'text', 'usage', 'failed']
           and len(fake.received) == since + 1, (ended, denied, events))
 
+    # Curve proposals are successful, owner-bound read receipts, never model-authored URLs or writes.
+    from curve_agent_fixture import prepare as prepare_older_schedule
+    older_calendar, older_schedule = prepare_older_schedule(url, query, manifest, client=admin)
+    admin.call('profile', {'profile': 'admin'})
+    curve_agent = agent('curve preparation', tools=('read_custom_curves', 'prepare_custom_curve', 'navigate'))
+    curve_grant = grant(trader, curve_agent)
+    definition = {'code': 'synthetic_agent_curve', 'name': 'Synthetic agent curve', 'output': 'out', 'nodes': [
+        {'id': 'source', 'kind': 'source', 'parameters': {'curve': 'future'}, 'inputs': {}},
+        {'id': 'select', 'kind': 'select', 'parameters': {'mode': 'positions', 'first': '1', 'count': '1', 'binding': 'context'}, 'inputs': {'source': 'source'}},
+        {'id': 'dates', 'kind': 'dates', 'parameters': {'mode': 'context', 'sampling': 'context_utc_time', 'corrections': 'exact_context_frame_history_latest_visible'}, 'inputs': {}},
+        {'id': 'sample', 'kind': 'sample', 'parameters': {}, 'inputs': {'selection': 'select', 'dates': 'dates'}},
+        {'id': 'out', 'kind': 'output', 'parameters': {}, 'inputs': {'values': 'sample'}}]}
+    formula = trader.call('custom-curves/format', {'definition': definition})['formula']
+    proposal_input = {'code': definition['code'], 'name': definition['name'], 'engine': 'custom_curve_recipe_v2', 'formula': formula}
+    since = len(fake.received)
+    before = query('SELECT count(*) FROM market_data.custom_curve_versions')
+    fake.respond(stream(tool_use(model_name, [('toolu_curve_1', 'read_custom_curves', {}), ('toolu_curve_2', 'prepare_custom_curve', proposal_input)])),
+                 stream(tool_use(model_name, [('toolu_curve_3', 'navigate', {'page': None, 'target': 'n2'})])),
+                 stream(recording(model_name, text='Review the proposed draft.')))
+    prepared, events = settled(ask(agent_state=curve_agent, report={'page': 'custom_curves', 'selection': {}})['turn'])
+    recorded = steps(prepared)
+    result = answers(requests(since)[-1])['toolu_curve_2']
+    check('the agent catalog and curve preparation use real pinned backend operations and issue an explicit proposal target without saving',
+          prepared['state'] == 'completed' and [r['operation'] for r in recorded] == ['custom_curves.catalog_v1', 'custom_curves.prepare_v1', 'navigation.target_v1']
+          and all(r['code'] is None for r in recorded) and result[1] is False
+          and result[0]['result']['definition'] == definition and result[0]['result']['status'] == 'proposed_draft'
+          and query('SELECT count(*) FROM market_data.custom_curve_versions') == before, (prepared, recorded, result))
+    target = next(e['payload']['target'] for e in events if e['kind'] == 'navigation')
+    check('the proposal target names only its successful server step, exact turn context and review label',
+          target['kind'] == 'proposal' and target['selection'] == {'turnId': prepared['id'], 'step': 2}
+          and target['label'] == 'Review proposed curve: Synthetic agent curve', target)
+    opened = trader.call('assistant/curve-proposal', target['selection'])
+    check('opening a proposal revalidates its original pin and returns an unpriced draft without retained preview values',
+          opened['definition'] == definition and opened['status'] == 'unpriced_draft' and 'preview' not in opened
+          and opened['origin']['contextId'] == prepared['context']['contextId'], opened)
+    admin.call('assistant/curve-proposal', target['selection'], expected=404)
+    trader.call('assistant/curve-proposal', {'turnId': prepared['id'], 'step': 1}, expected=422)
+    trader.call('assistant/curve-proposal', {'turnId': prepared['id'], 'step': 200}, expected=422)
+    trader.call('assistant/curve-proposal', {'turnId': prepared['id'], 'step': 2, 'definition': definition}, expected=400)
+    trader.call(f'{GRANTS}/revoke', {'operationId': str(uuid4()), 'grantId': curve_grant['id']})
+    check('the current owner may review an earlier proposal after revoking agent delegation, while other owners and non-preparation steps are refused',
+          trader.call('assistant/curve-proposal', target['selection']) == opened)
+
+    calendar_access = {'access': 'reference_access', 'permission': 'ReadMarketData', 'market': None, 'reference': older_calendar}
+    check('the catalog records the calendar of an exact older schedule even though the selected schedule version uses another catalog',
+          calendar_access in recorded[0]['access']
+          and {s['version'] for s in answers(requests(since)[-1])['toolu_curve_1'][0]['result']['schedules'] if s['id'] == older_schedule} == {2})
+    scopes = query(f"SELECT coalesce(json_agg(s),'[]')::text FROM security.reference_catalog_scopes s WHERE catalog_id='{older_calendar}';")
+    query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{older_calendar}';")
+    try:
+        trader.call('assistant/curve-proposal', target['selection'], expected=403)
+        hidden, hidden_events = settled(prepared)
+        check('revoking only the older ancestor calendar blocks proposal reopening and hides the recorded answer and target',
+              hidden['hidden'] == 'access_changed' and hidden['answer'] == ''
+              and all(e['payload'] == {'hidden': 'access_changed'} for e in hidden_events if e['kind'] in ('text', 'navigation')))
+    finally:
+        query("INSERT INTO security.reference_catalog_scopes SELECT * FROM json_populate_recordset(NULL::security.reference_catalog_scopes,'" + scopes.replace("'", "''") + "'::json);")
     for release in stalled:
         release.set()
     check('no log line or request body carries the key, and no request goes through a proxy',

@@ -1107,9 +1107,26 @@ revoking transaction, which notifies the worker as every other cancel does. The
 migration first pins the definitions it replaces and the helpers the binding relies on,
 with their privileges, and refuses to apply over any other.
 
+
+## Computed curve combinations and proposals
+
+Migration [0088_computed_curve_combinations.sql](migrations/0088_computed_curve_combinations.sql)
+adds `weighted_panels` and normalized decimal weights whose exact foreign keys
+name their graph edge. Operator/policy/normalization and complete weight coverage
+are rechecked on publication, including draft changes after insertion. Published
+rows are immutable; the retained risk worker has scoped read access only. No
+existing recipes or booked references require conversion.
+
+Migration [0089_curve_agent_proposals.sql](migrations/0089_curve_agent_proposals.sql)
+adds read-only curve catalog/preparation tools and proposal target validation.
+A proposal names a successful preparation step of its own turn, never arbitrary
+model JSON or a URL. The private owner helper rechecks current source access and
+returns original arguments/context/pins to the managed revalidation path. It grants
+no authoring capability. The migration fails closed over changed helper bodies,
+ownership or ACLs under the authority epoch before replacing reviewed definitions.
 ## Shaped interval price sources
 
-[0088_interval_price_sources.sql](migrations/0088_interval_price_sources.sql) adds explicit
+[0090_interval_price_sources.sql](migrations/0090_interval_price_sources.sql) adds explicit
 collected-price and expiry contracts for the interval-price resolver. It does not alter 0071.
 `shaped_curve_actual_rules` pins one collected source and `interval_actual_due_v1` rule to an
 exact shaped-curve revision. Its source must match the period blocks' reference version,
@@ -1137,7 +1154,7 @@ verification does not qualify a hosted deployment.
 
 ## Asset quantity and location references
 
-[0089_ppa_reference.sql](migrations/0089_ppa_reference.sql) adds immutable definitions in
+[0091_ppa_reference.sql](migrations/0091_ppa_reference.sql) adds immutable definitions in
 one exact market/reference bundle. `generation_assets` declares each asset's location,
 MW quantity specification and operating clock. `generation_asset_versions` retains positive
 capacity bases and optional nonnegative accreditation over nonoverlapping effective intervals.
@@ -1176,7 +1193,7 @@ and requires a separately qualified deployment baseline under D135.
 
 ### Durable PPA bookings
 
-[0090_ppa_bookings.sql](migrations/0090_ppa_bookings.sql) retains typed `ppa_sides`,
+[0092_ppa_bookings.sql](migrations/0092_ppa_bookings.sql) retains typed `ppa_sides`,
 quantity/source/asset/slot and strike-step children, `ppa_instruments`, normalization
 assets and explicit memberships. `ppa_trade_origins`, immutable `ppa_trade_revisions`
 and `ppa_revision_bindings` preserve exact bundles, coverage and contract MW. Hashes
@@ -1194,26 +1211,26 @@ Trusted PPA scope readers admit the complete selected position set before reveal
 pins. Mixed books remain representable; incompatible valuation bundles refuse the
 whole operation. Certified market and discount readers prevent later publication
 from entering an older cutoff. No database extension, seed catalog, new market-data
-source, settlement ledger or durable valuation report is introduced by 0090.
-Existing-close reports are added separately by 0092 below. Migration
-0088 belongs to interval price sources and 0089 to PPA quantity references; 0090 was
+source, settlement ledger or durable valuation report is introduced by 0092.
+Existing-close reports are added separately by 0094 below. Migration
+0090 belongs to interval price sources and 0091 to PPA quantity references; 0092 was
 available when this booking migration was allocated. Deployment requires a
 separately qualified baseline under D135.
 
 
-Migration `0091_ppa_authoring_reads.sql` supports the guided PPA consumer. It adds
+Migration `0093_ppa_authoring_reads.sql` supports the guided PPA consumer. It adds
 one trusted read-only authoring directory and extends the existing complete-scope
 reader with bounded historical bindings. Party choices use current certified
 knowledge and eligibility at the selected frame's effective instant. Historical
 inspection remains available to every authorized reader while operation recovery
 stays private to its actor. No tables, write permissions, financial policies or
-row-security rules change. Apply 0091 before the new API; deployment still requires
-the separately qualified schema baseline. Migration 0090 is unchanged.
+row-security rules change. Apply 0093 before the new API; deployment still requires
+the separately qualified schema baseline. Migration 0092 is unchanged.
 
 
 ### Existing-close book risk
 
-Migration `0092_close_book_risk.sql` adds `close_book_risk_v1` admission profiles,
+Migration `0094_close_book_risk.sql` adds `close_book_risk_v1` admission profiles,
 selected books and resolved factors. The profile retains one recorded close,
 certified context, trading publication head, valuation-instant cutoff and explicit
 policies. Report mode distinguishes existing from generated closes while sharing
@@ -1245,7 +1262,7 @@ direct revision and value reads. A hidden required header hides its volume-sourc
 binding instead of being recovered through an owner that bypasses row security.
 
 
-Migration `0093_close_risk_renewal.sql` adds renewable fenced leases only for
+Migration `0095_close_risk_renewal.sql` adds renewable fenced leases only for
 existing-close risk, a nonlocking preparation guard, atomic validated report and
 terminal publication, exact committed-outcome reconciliation and success-first
 cancellation reconciliation. It changes no historical job/run/report identity,
@@ -1253,16 +1270,16 @@ financial row, admission pin or deadline. Existing-close request contexts remain
 subject to live lease/current-authority checks even though their token expiry can
 span renewals. The internal publisher/completion helper cannot be invoked by
 runtime logins. Legacy worker operation gates and generated-close behavior remain
-unchanged. Deployment requires the same drained schema-release boundary as 0092.
+unchanged. Deployment requires the same drained schema-release boundary as 0094.
 
 
 The final [Phase C qualification](../docs/ppa-phase-c.md) runs the full 45-stage
-gate against 0088–0093 and includes fresh actual-role RLS/grant probes and legacy
+gate against 0090–0095 and includes fresh actual-role RLS/grant probes and legacy
 identity preservation. No migration changed during final reconciliation. Passing
 these isolated checks does not authorize a deployed schema upgrade.
 
 
-Migration 0094 adds the shared [meter-finality prerequisite](../docs/meter-finality.md):
+Migration 0096 adds the shared [meter-finality prerequisite](../docs/meter-finality.md):
 three immutable evidence/receipt tables, typed exact source/raw/calendar relationships,
 `VerifySettlementMeters` with no default grants, and authorized one-cell database
 publication/selection. Certification is inserted beneath the existing-close worker
@@ -1271,7 +1288,7 @@ admission must be drained for separately qualified schema deployment. Global S1
 and gas remain open.
 
 
-Migration 0095 adds immutable payment-lineage and exact originating membership
+Migration 0097 adds immutable payment-lineage and exact originating membership
 mappings under forced RLS, plus scoped plan/read operations and
 `ProposeSettlementDeterminations` without default grants. Existing trading
 publication certification supplies temporal visibility. It creates no cash

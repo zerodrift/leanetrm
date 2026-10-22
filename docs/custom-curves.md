@@ -26,7 +26,7 @@ The implementation does not add theoretical options or historical VaR/covariance
 
 A **Published custom curve** operation reuses the complete output panel of an
 explicitly selected published version (D187). Choose its exact version/output and
-`all_output_points_v1`, then connect it to a mean or curve output. The panel keeps
+`all_output_points_v1`, then connect it to a mean, a curve combination or curve output. The panel keeps
 its positions, observation dates, delivery metadata and native-input lineage.
 Its values remain graph references: a quote or computed-output shock on an
 ancestor flows through every dependent curve. There is no replacement price
@@ -43,8 +43,48 @@ common ancestors within the operation.
 
 This operation imports the parent's output under that context. It does not
 resample it at a separately supplied date window. Contract selectors and weighted
-contract mappings consume native curves; arbitrary alignment/weighting of
-published panels requires a separate explicit contract and remains work.
+contract mappings consume native curves. The `weighted_panels` contract below
+combines computed panels; resampling and interpolation remain work.
+
+**Combine published curves** is a guided entry point (D193). Choose each exact
+published ingredient/version, its decimal weight, signed sum or normalized mean,
+and exact delivery-period matching. Choices start blank. Build constructs the
+ordinary backend graph and explains it in plain words; Preview, Save and Publish
+use the existing operations. Ingredient edits clear old prices and block these
+actions until Build or Discard. Replacing a saved graph retains its identity and
+optimistic generation. The guided form supports 1–30 ingredients within the
+32-node authoring limit. Advanced graphs also combine native sampled panels,
+historical means and earlier combinations.
+
+`weighted_panels` connects named panel ports and typed `panelWeights` rows
+(`sourcePort`, `weight`). `signed_sum_v1` adds signed weighted values;
+`normalized_weighted_mean_v1` requires nonnegative weights and a positive sum.
+`exact_delivery_intervals_v1` requires identical complete half-open delivery sets,
+one cell per interval and identical price units. Position/order never aligns
+curves. Missing/extra periods, repeated raw historical dates and incompatible
+units reject; no point is silently dropped and no currency conversion occurs.
+Different explicit historical averaging windows may combine under the same
+resolved context. The resulting formula retains connected parent references;
+shocking a primitive quote or a parent output propagates to the child, while a
+child-output offset holds its upstream inputs constant.
+
+Preparation bounds cumulative native samples and combination sample references
+at 50,000 per recipe; shared formula traversal visits each formula once. Repeated
+parent branches retain their declared sample-reference counts and either fit
+that bound or fail explicitly before allocating another expanded provenance
+array. This is a boundedness guard, not a production throughput qualification.
+
+Agents can use `custom_curves.catalog_v1` and `custom_curves.prepare_v1` under
+`ReadMarketData`. They call the editor's shared backend catalog and preview and
+must supply the exact engine, formula and financial choices. Preparation saves
+nothing. A server-issued proposal points to a successful preparation step owned
+by that turn's user. **Review proposed curve** revalidates the original pin and
+current source access, then opens an unpriced draft under the current header,
+showing its origin dates. It never installs old prices under that header or
+switches it implicitly. Ordinary Preview prices under the selected header; Save
+and Publish retain their existing human authoring permissions. The assistant's
+Custom curves page report describes saved ingredients, not unsaved graph edits.
+These tools do not run portfolio risk or interpret dependency counts as exposure.
 
 The three starting recipes are:
 
@@ -238,3 +278,23 @@ The booked projection and retained worker check uses `--connected-portfolio-chec
 Managed targeted checks include `--connected-recipes`, `--custom-projection` and
 `--connected-portfolios` in MarketData.Checks, plus the Rates swap checks. These
 commands describe executable verification gates; they are not deployment claims.
+
+An exact recipe schedule reference retains its published version after a symbolic
+successor is published. The reader checks that version's own effective interval,
+certified publication order/transaction and knowledge time, and current calendar
+access; it does not substitute the active schedule's dates or extend the old
+version's effective coverage. The active schedule library keeps its separate
+bitemporal selection. Recipe evidence retains the original publication receipt.
+
+The combination checks cover independent historical panels, exact interval/unit
+matching, explicit signed and normalized weights, partial daily demand, repeated
+ancestors and bounded provenance expansion. The booked integration check uses an
+independent rational-price oracle for a two-parent curve, verifies each parent
+and child output sensitivity, nests stresses without changing the base, and
+compares retained-worker factors and input evidence with the interactive result.
+Browser checks exercise blank required choices, backend composition and preview,
+saved identity preservation, weight removal, stale-result clearing and narrow
+layouts. Assistant checks cover explicit review, unpriced reopening, owner/source
+authorization and the original historical pin. These synthetic checks establish
+the supported contracts; they do not qualify financial throughput or Swarm
+failure recovery.

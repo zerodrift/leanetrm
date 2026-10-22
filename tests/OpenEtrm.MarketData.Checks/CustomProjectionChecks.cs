@@ -110,6 +110,46 @@ internal static class CustomProjectionChecks
             var graph=RecipeEngine.Connect(graphDefinition,inputs,new(reference.CatalogId,reference.CurveId,1,RecipeEngine.Version),
                 [new(daily.Curve.Key,day,remaining.Contract.Key,daily.Model,snapshot,false)],context,demand:demand);
             if(graph.Outputs.Length!=1||graph.Outputs[0].Position!=1)throw new Exception("Consumed output identity was renumbered.");
+            // A native current forecast and a published historical mean may share
+            // the exact source curve without demanding the parent's dates locally.
+            var blendSnapshot=daily.Snapshot(daily.Fixings[0].FixingAt.AddDays(-1));
+            var blendDay=DateOnly.FromDateTime(blendSnapshot.ValuationAt.UtcDateTime);
+            var blendContext=new ResolvedCalculationContext(Guid.NewGuid(),"synthetic-mixed-daily",blendSnapshot.ValuationAt,blendSnapshot.ValuationAt,blendSnapshot.ValuationAt,blendSnapshot.MarketCutoff);
+            var blendInputs=inputs with{ContextDate=blendDay,ValuationAt=blendSnapshot.ValuationAt,Dates=inputs.Dates.SetItem("dates",[blendDay])};
+            var blendDemand=demand with{SamplingInstants=ImmutableDictionary<DateOnly,DateTimeOffset>.Empty.Add(blendDay,blendSnapshot.ValuationAt)};
+            var earlier=blendSnapshot with{Id=Guid.NewGuid(),ValuationAt=blendSnapshot.ValuationAt.AddDays(-1),MarketCutoff=blendSnapshot.MarketCutoff.AddDays(-1)};
+            var historical=graphDefinition with{Output="out",Nodes=graphDefinition.Nodes.Where(n=>n.Id!="output").Select(n=>n.Kind=="weighted_contracts"?n with{
+                    ContractWeights=n.ContractWeights.Select((w,i)=>w with{OutputPosition=i+1}).ToImmutableArray()}:n)
+                .Append(Node("mean","mean",[("axis","dates")],[("values","sample")]))
+                .Append(Node("out","output",ports:[("values","mean")])).ToImmutableArray()};
+            var parentInputs=blendInputs with{Dates=blendInputs.Dates.SetItem("dates",[blendDay.AddDays(-1),blendDay])};
+            var parentSamples=daily.Projections.SelectMany(p=>new[]{
+                new ConnectedRecipeSample(daily.Curve.Key,blendDay.AddDays(-1),p.Contract.Key,daily.Model,earlier,true),
+                new ConnectedRecipeSample(daily.Curve.Key,blendDay,p.Contract.Key,daily.Model,blendSnapshot,false)}).ToImmutableArray();
+            var parent=RecipeEngine.Connect(historical,parentInputs,new(reference.CatalogId,Guid.NewGuid(),1,RecipeEngine.Version),parentSamples,blendContext);
+            var mixed=graphDefinition with{Nodes=graphDefinition.Nodes.Where(n=>n.Id!="output").Append(
+                new RecipeNode("parent","published_source",ImmutableDictionary<string,string>.Empty.Add("selection","all_output_points_v1"),[],
+                    PublishedSource:new(parent.Identity.CatalogId,parent.Identity.CurveId,1,"out"))).Append(
+                new RecipeNode("blend","weighted_panels",ImmutableDictionary<string,string>.Empty.Add("aggregation",RecipeEngine.WeightedMean).Add("alignment","exact_delivery_intervals_v1"),
+                    ImmutableDictionary<string,string>.Empty.Add("current","sample").Add("history","parent"),PanelWeights:[new("current","1"),new("history","1")])).Append(
+                Node("output","output",ports:[("values","blend")])).ToImmutableArray()};
+            var mixedGraph=RecipeEngine.Connect(mixed,blendInputs,new(reference.CatalogId,Guid.NewGuid(),1,RecipeEngine.Version),
+                [new(daily.Curve.Key,blendDay,remaining.Contract.Key,daily.Model,blendSnapshot,false)],blendContext,
+                publishedSources:ImmutableDictionary<string,ConnectedRecipeGraph>.Empty.Add("parent",parent),demand:blendDemand);
+            var mixedPlan=ConnectedCurves.Compile(mixedGraph.Definitions,mixedGraph.Outputs.Select(o=>o.Point).ToImmutableArray(),blendContext,new Visible());
+            if(mixedGraph.Outputs.Single().Position!=3||mixedGraph.Result(ConnectedScenario.Base(mixedPlan)).Points.Single().Price.ToUnitPriceExact().Value.ToString()!="66")
+                throw new Exception("A mixed historical/current daily panel lost its exact selected forecast.");
+            var widerPlan=ConnectedCurves.Compile(mixedGraph.Definitions,mixedGraph.Outputs.Select(o=>o.Point).Concat(parent.Outputs.Select(o=>o.Point)).ToImmutableArray(),blendContext,new Visible());
+            if(mixedGraph.Result(ConnectedScenario.Base(widerPlan)).Inputs.Length!=2)
+                throw new Exception("A recipe result leaked inputs from other roots of its portfolio plan.");
+            var missingPeriod=historical with{Nodes=historical.Nodes.Select(n=>n.Kind=="weighted_contracts"?n with{ContractWeights=n.ContractWeights.RemoveAt(0)}:n).ToImmutableArray()};
+            var incomplete=RecipeEngine.Connect(missingPeriod,parentInputs,parent.Identity with{CurveId=Guid.NewGuid()},parentSamples,blendContext);
+            var mismatched=mixed with{Nodes=mixed.Nodes.Select(n=>n.Id=="parent"?n with{PublishedSource=new(incomplete.Identity.CatalogId,incomplete.Identity.CurveId,1,"out")}:n).ToImmutableArray()};
+            try{
+                RecipeEngine.Connect(mismatched,blendInputs,mixedGraph.Identity, [new(daily.Curve.Key,blendDay,remaining.Contract.Key,daily.Model,blendSnapshot,false)],blendContext,
+                    publishedSources:ImmutableDictionary<string,ConnectedRecipeGraph>.Empty.Add("parent",incomplete),demand:blendDemand);
+                throw new Exception("Complete panel mismatch was hidden by partial consumer demand.");
+            }catch(MarketDataException error)when(error.Code=="recipe_input"){}
             var plan=ConnectedCurves.Compile(graph.Definitions,graph.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible());
             var mapping=ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(reference.Request(remaining.Market),graph.Outputs[0].Point);
             var swap=daily.Swap(side);

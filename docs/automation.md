@@ -409,7 +409,7 @@ existing scheduler and generated-close mixed-product adapter remain supported.
 
 ### Renewable existing-close completion
 
-Migration `0093_close_risk_renewal.sql` applies only to `close_book_risk_v1`.
+Migration `0095_close_risk_renewal.sql` applies only to `close_book_risk_v1`.
 The explicitly configured 5–120 second worker lease is renewed every one third
 of that duration through a separate scheduler connection. A renewal command is
 bounded by the integral one-third lease duration (at least one second). Renewal

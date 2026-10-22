@@ -7,7 +7,7 @@ Phase B (section 6, interval curves and shaping) is implemented and recorded as 
 its contract, verified oracles 1–4 and limits, including shaped-curve resolution
 deferred to phase C, are in
 [the implementation record](implementation.md#interval-prices-curves-and-block-shaping).
-Phase C is implemented in the bounded scope recorded by D193–D200: five catalog
+Phase C is implemented in the bounded scope recorded by D194–D201: five catalog
 compositions, durable booking, guided inspection and existing-close book risk.
 See [current Phase C scope](ppa-phase-c.md) for qualification and limits. Phase D
 settlement remains proposed under P39/P40; no acceptance, obligation or payment
@@ -398,11 +398,11 @@ persisted close results. Historical TOU publication is a later prerequisite.
 Performance: a 20-year hourly PPA with five sides has about 876,000 rows per unit
 instrument. Unit-instrument reuse values each instrument once per scenario.
 Single-instrument preview and valuation are interactive; existing-close book risk
-uses the explicit `close_book_risk_v1` durable operation (D199). It pins admission
+uses the explicit `close_book_risk_v1` durable operation (D200). It pins admission
 inputs across retries, checks current authority and refuses incomplete or
 incompatible books. Its report retains held-certificate sensitivity and separate
 known and estimated overdue balances. Generated-close PPA cutover remains separate
-work. D200 adds renewable short leases for this operation while retaining the
+work. D201 adds renewable short leases for this operation while retaining the
 explicit overall deadline. Actual ten-year hourly risk completed beyond 120
 seconds, including replacement and lost-acknowledgement recovery. This qualifies
 that workload, not every admitted book or concurrent throughput; legacy generated
@@ -491,7 +491,7 @@ phase's consumer.
 
 ## 11. Design calls
 
-The Phase C choices below were accepted under D193–D196. Settlement grouping,
+The Phase C choices below were accepted under D194–D197. Settlement grouping,
 contractual rounding and the Phase D lifecycle remain proposals; their inclusion
 in this design does not authorize implementation:
 

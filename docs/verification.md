@@ -2657,7 +2657,7 @@ suites pass with these assertions (21 curve and 38 series browser checks).
 ## Existing-close PPA book risk
 
 The full gate includes the owned `--close-risk-check` preview. It applies migration
-0092 after a rollback-only pre-upgrade history probe, then uses the actual runtime
+0094 after a rollback-only pre-upgrade history probe, then uses the actual runtime
 roles and worker against synthetic retained closes. The probe compares every
 original job, run, audit and report column, including factors, discount inputs and
 exact rational amounts. Historical operation names and identities remain intact.
@@ -2687,7 +2687,7 @@ owner/service revocation, hidden-series restrictions under bound human and worke
 contexts, helper-role isolation, cancellation and natural lease expiry during a
 blocked read. All owned disposable resources were removed. This is local
 synthetic qualification. The managed benchmarks alone do not establish durable
-completion; D200 has separate actual-worker evidence below.
+completion; D201 has separate actual-worker evidence below.
 
 
 ### Renewable existing-close worker verification
@@ -2722,7 +2722,7 @@ On 2026-10-22 the complete expanded 45-stage `tools/check_all.py` command passed
 on the corrected tree in 1,532.375 seconds, using stock PostgreSQL 16.14, SDK
 10.0.402, Node 24.22.0 and Chrome on macOS Arm64. All executable/test/migration and
 configuration hashes matched the starting tree. This supersedes the earlier
-bounded D200 affected-suite-only qualification; it includes every legacy and PPA
+bounded D201 affected-suite-only qualification; it includes every legacy and PPA
 stage, including actual renewable completion and recovery.
 
 Final qualification reproduced and fixed a slot ordinal admission/storage mismatch,
