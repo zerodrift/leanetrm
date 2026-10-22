@@ -262,6 +262,8 @@ public sealed class TurnWorker:IAsyncDisposable
             await End(turn,r,"failed",recorded.TryGetProperty("refused",out var refused)?refused.GetString():"request_cancelled");
             return null;
         }
+        // The step's event has committed; the turn's streams read it (§8).
+        streams.Published(turn,recorded.GetProperty("sequence").GetInt64(),null);
         if(step.End==ToolStepEnd.Failure)
         {
             await End(turn,r,"failed",step.Code);

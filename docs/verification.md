@@ -904,11 +904,12 @@ cookie.
   `access_denied`.
 - **Live:** a stream of a stalled turn holds no database transaction while it waits and
   sends each piece of text once it commits, in order without a gap or repeat, through
-  the terminal event, its text the stored answer; an answer holding CR, LF, CRLF,
-  `event:`, `data:` and `id:` lines and a blank line arrives only inside text events,
-  byte for byte the stored answer; a stream dropped while its turn runs resumes through
-  `Last-Event-ID`, and one opened once the turn has ended through `after`, each with
-  exactly the events that followed.
+  the terminal event, its text the stored answer; a step reaches a stream already live
+  once it commits, while the call after it is still open; an answer holding CR, LF,
+  CRLF, `event:`, `data:` and `id:` lines and a blank line arrives only inside text
+  events, byte for byte the stored answer; a stream dropped while its turn runs resumes
+  through `Last-Event-ID`, and one opened once the turn has ended through `after`, each
+  with exactly the events that followed.
 - **Endings:** a newer stream of an unfinished turn, in the same session or another of
   its owner's, sends the older `replaced`; after Stop the stream sends the usage and the
   cancelled ending, incomplete; a profile switch ends the session's streams

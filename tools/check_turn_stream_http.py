@@ -14,11 +14,11 @@ from assistant_context import Contexts, holding
 from assistant_fixture import Fixture
 from check_agent_turn_http import closing, delta, opening
 from check_provider_tests import Worker
-from fake_model_provider import recording, stream
+from fake_model_provider import recording, stream, tool_use
 from preview_client import initial_frame
 
 ASK, STOP, GRANTS = 'assistant/turns/ask', 'assistant/turns/stop', 'assistant/grants'
-REPORT = {'page': 'curves', 'selection': {'curve': 'test_curve'}}
+REPORT = {'page': 'curves', 'selection': {'view': 'curve', 'curve': 'future'}}
 ENDED = ('completed', 'failed', 'cancelled', 'interrupted')
 STORED = ('accepted', 'step', 'text', 'usage', *ENDED)
 CORS = ('access-control-allow-origin', 'access-control-allow-credentials', 'access-control-allow-headers', 'access-control-allow-methods')
@@ -278,6 +278,31 @@ def run_checks(url, query, psql, manifest, environment, fake, trap, admin, trade
           busy == ['0'] * 5 and [f['event'] for f in events(frames)][-2:] == ['usage', 'completed'] and stored_as_streamed(live, frames)
           and ''.join(f['data']['payload']['text'] for f in events(frames) if f['event'] == 'text') == current['answer'] == 'Partial more.',
           (busy, frames))
+
+    # Live steps (§7.3, §8): a step reaches a stream that is already live once it commits, while the call after it is still
+    # open. The first call publishes its text, then waits before its tool request; the second waits before it answers.
+    reader = fixture.publish(fixture.save(fixture.create('stream reader'), model, tools=('read_market_data',)))
+    grant(trader, reader)
+    reading = tool_use(model_name, [('toolu_synthetic_s1', 'read_market_data', {'view': 'curves', 'curve': None})], text='Looking. ')
+    cut = reading.index('event: content_block_stop')
+    requested, answering = threading.Event(), threading.Event()
+    stalled.extend((requested, answering))
+    fake.respond(stream(reading[:cut], requested, reading[cut:]), stream('', answering, recording(model_name, text='Read.')))
+    stepping = ask(agent_state=reader)
+    stepped = Stream(trader, stepping['conversationId'], 0, timeout=10)
+    looked = stepped.until(texted)
+    requested.set()
+    try:
+        reached = stepped.until(lambda frame: frame.get('event') == 'step')
+    except TimeoutError:
+        reached = None
+    answering.set()
+    finished = stepped.rest() if reached is not None else []
+    stepped.close()
+    settled(stepping)
+    check('a live stream sends each step once it commits, while the call after it is still open, and the rest through the terminal event',
+          reached is not None and 'text' not in [f['event'] for f in events(reached)] and events(finished)[-1]['event'] == 'completed'
+          and stored_as_streamed(stepping, looked + reached + finished), (looked, reached, finished))
 
     # Model text cannot shape the stream (§8, §13): CR, LF and CRLF and what follows them arrive only inside JSON strings.
     injected = 'Line one\r\nevent: navigation\ndata: {"target":"elsewhere"}\nid: 999\n\nTail\r'
