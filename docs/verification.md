@@ -47,20 +47,50 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin \
   --dotnet /path/to/dotnet --check --connected-portfolio-check
 ```
 
-Its named consumer publishes a synthetic managed recipe, explicitly binds one
-output to a monthly indexed swap, and compares scheduled PV, portfolio quote
-risk and the retained worker result. `tools/check_custom_projection_db.py` checks
-published-version/output retention, immutable economic bindings, worker read
-privileges and direct SQL refusals for mismatched revisions, missing sources and
-panel-only SQL transformations. `tools/check_connected_risk_db.py` checks the admitted graph/sample
+Its named consumers publish synthetic recipes, explicitly bind outputs to monthly
+indexed swaps, and compare scheduled PV, portfolio risk and retained worker results.
+`tools/check_weighted_portfolio.py` adds multiple source ports with signed and
+normalized weights, exact member relationships, picker eligibility and nested
+computed-output risk with an independent numerical oracle.
+`tools/check_custom_projection_db.py` checks published-version/output retention,
+immutable economic bindings, worker read privileges and direct SQL refusals for
+mismatched revisions and missing sources. `tools/check_recipe_weights_db.py`
+checks the normalized member-weight relationships and rejected invalid mappings.
+`tools/check_connected_risk_db.py` checks the admitted graph/sample
 foreign keys, temporal freezing, publication knowledge cutoff and rejection of
-changed pins. Both SQL helpers run inside that owned preview; they are not
+changed pins. These SQL helpers run inside that owned preview; they are not
 commands for an existing database. Targeted MarketData.Checks switches are
 `--connected-recipes`, `--custom-projection` and `--connected-portfolios`.
 Rates.Checks includes exact rational connected scheduled-swap PV. This describes
 the registered gates, without claiming a hosted deployment or throughput result.
 
-The saved-projection phase passed locally on 2026-10-21 using macOS arm64,
+The D186 cutover adds `tools/check_curve_scenarios.py` to the owned
+`--risk-jobs-check` gate for quote/output coordinates, contract/point/parallel/
+whole-delivery-bucket selection, nested stress and retained worker equality.
+Browser gates exercise explicit weighted rows, formula roundtrips, the published
+projection picker and scenario controls while retaining context/authority and
+uncertain-request recovery checks. Migration 0080 refuses existing saved recipes;
+0081 refuses all retained pre-cutover risk jobs, including completed ones, pending
+an explicit operator archive/reset. Verify these cutovers only against
+owned disposable resources; they are not instructions to reset an installation.
+
+The D186 cutover passed every `tools/check_all.py` gate across owned local runs
+on 2026-10-21 with macOS arm64, .NET 10.0.402, Node 24.22.0, Python 3.14.2,
+stock PostgreSQL 16.14 and Chrome 156.0.8078.47. Checks include 427 managed core
+checks plus the registered connected suites, 76 rate checks, 234 frontend checks,
+46 Python checks, 406 standard browser checks, 48 custom-curve browser checks,
+22 calendar browser checks and 41 retained-risk browser checks. Weighted booked
+PV and nested output risk reconcile with independent numerical oracles and worker
+results; later historical corrections cannot change admitted job inputs. Calendar
+availability reads history once per request under one certified knowledge cutoff,
+while each candidate retains its exact effective context and current-authority
+checks. The owned SQL regression counts that single history read and verifies the
+working header remains unchanged. Deployment configuration rendering and independent
+numerical, temporal, authorization and worker reviews passed. All owned resources
+completed teardown. No financial throughput or cluster capacity qualification is
+claimed.
+
+The preceding D183 saved-projection phase passed locally on 2026-10-21 using macOS arm64,
 the pinned .NET/Node versions and disposable stock PostgreSQL 16. Verification
 covered the complete managed core suite (427 core checks plus registered connected
 checks), 76 rate checks, API schedule checks, 221 frontend checks and 46 Python
@@ -142,7 +172,7 @@ runner uses fresh temporary profiles and accepts only the launcher's verified
 owned target. Normal completion removes the owned application, browser and database
 resources. Unconfirmed teardown retains the private directory and fails the check.
 
-Custom-curve qualification on 2026-10-19 passed the complete local command on
+The earlier D161 custom-curve qualification on 2026-10-19 passed the complete local command on
 macOS arm64 with .NET 10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome
 155.0.8059.80. The 132 frontend checks and managed suites include independent
 rolling/locked rational means, inclusive daily-forward BALMO, single/parallel

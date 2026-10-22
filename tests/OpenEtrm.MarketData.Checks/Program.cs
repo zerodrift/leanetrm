@@ -17,6 +17,7 @@ if(args is ["--interval-pricing"]){IntervalPricingChecks.Run();return;}
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
 if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();return;}
 if(args is ["--dependency-plan"]){DependencyPlanChecks.Run();return;}
+if(args is ["--curve-engine-cutover"]){CurveEngineCutoverChecks.Run();return;}
 if(args is ["--connected-curves"]){ConnectedCurveChecks.Run();return;}
 if(args is ["--connected-scenarios"]){ConnectedScenarioChecks.Run();return;}
 if(args is ["--connected-recipes"]){ConnectedRecipeChecks.Run();return;}
@@ -412,6 +413,7 @@ passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
 passed += InstrumentRiskChecks.Run();
 passed += DependencyPlanChecks.Run();
+CurveEngineCutoverChecks.Run();
 ConnectedCurveChecks.Run();
 passed += ConnectedScenarioChecks.Run();
 ConnectedRecipeChecks.Run();

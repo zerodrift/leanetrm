@@ -14,7 +14,7 @@ public sealed record ConnectedSampleEvidence(Guid SnapshotId,DateTimeOffset At,s
     bool FreezeHistorical,ImmutableArray<ConnectedSampleObservation> Observations);
 public sealed record ConnectedMarketEvidence(Guid RevisionId,string ManifestId,
     ImmutableArray<CustomCurveProjectionBinding> Recipes,ImmutableArray<ConnectedSampleEvidence> Samples);
-public sealed record ConnectedPreparationWork(int SourceBuilds,int EvaluatedSourceNodes,int ReusedSourceNodes);
+public sealed record ConnectedPreparationWork(int SourceCompilations,int DeclaredSourceNodes);
 
 public static partial class CustomCurves
 {
@@ -53,17 +53,20 @@ public static partial class CustomCurves
         var custom=instruments.OfType<FinancialSwapInstrument>().Where(i=>i.Floating.CustomProjection is not null)
             .SelectMany(i=>i.Floating.Projections.Select(p=>new{Binding=i.Floating.CustomProjection!,Original=p.Market}))
             .Distinct().ToArray();
-        if(custom.Length==0)throw Invalid("Select at least one published custom projection for connected preparation.");
         var aliases=custom.ToDictionary(p=>p.Binding.Request(p.Original),p=>p.Original);
         var needed=dependencies.ToHashSet();
         var originals=dependencies.Where(d=>!aliases.ContainsKey(d)).ToImmutableArray();
-        var authority=data.Model.Build(snapshot,originals);
+        var authority=data.Model.Build(snapshot,[]);
         var inputManifest=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{
             snapshot.Id,snapshot.Definitions,snapshot.ValuationAt,snapshot.MarketCutoff,context=exact,
             selections=snapshot.Selections.OrderBy(s=>s.Input.Series.Id).ThenBy(s=>s.Input.Use)},RiskJobs.Json)));
         var resolved=new ResolvedCalculationContext(exact.ContextId!.Value,inputManifest,frame.At,
             SchedulePreview.ParseAt(exact.KnownAt),frame.At,snapshot.MarketCutoff);
-        var export=data.Model.ExportConnected(authority,false,resolved,ct);
+        var availableQuotes=data.Model.QuoteFactors(snapshot).SelectMany(f=>f.Curves.Select(curve=>new CurveRequest(curve,f.Contract))).ToImmutableArray();
+        var export=data.Model.Compile(snapshot,originals.Concat(availableQuotes).Distinct().ToImmutableArray(),false,resolved,ct);
+        var sourceCompilations=1;var declaredSourceNodes=export.Definitions.Sum(d=>d.Points.Length);
+        var outputRoots=ImmutableArray.CreateBuilder<CurvePointKey>();
+        outputRoots.AddRange(availableQuotes.Select(request=>export.Points[(request,InputUse.Variable)]));
         var definitions=export.Definitions.ToList();
         var bindings=ImmutableDictionary.CreateBuilder<CurveRequest,CurvePointKey>();
         foreach(var request in dependencies.Where(d=>!aliases.ContainsKey(d)))bindings.Add(request,export.Points[(request,InputUse.Variable)]);
@@ -86,12 +89,15 @@ public static partial class CustomCurves
                     ??throw Invalid("The exact published custom curve is unavailable in this knowledge context.");
                 if(version.State!="published"||version.EngineVersion!=RecipeEngine.Version||version.PublishedAt is null||
                     version.PublishedAt>SchedulePreview.ParseAt(exact.KnownAt)||version.Sources.Values.Any(s=>s.CatalogId!=group.Key.CatalogId||s.RevisionId!=data.DefinitionRevision.RevisionId)||
-                    group.Any(b=>b.OutputNode!=version.Definition.Output)||version.Definition.Nodes.Any(n=>n.Kind=="sql_transform"))
+                    group.Any(b=>b.OutputNode!=version.Definition.Output))
                     throw Invalid("Connected projections require a published managed recipe, its exact output and retained source revision.");
                 var materialized=await Inputs(connection,database,version.Definition,sourceData,frame,version.Sources,version.Calendars,version.Schedules,exact,ct);
                 var graph=RecipeEngine.Connect(version.Definition,materialized.Values,
                     new(group.Key.CatalogId,group.Key.CurveId,group.Key.Version,version.EngineVersion),materialized.Samples,resolved,ct,materialized.References);
                 definitions.AddRange(graph.Definitions);samples.AddRange(materialized.Samples);
+                outputRoots.AddRange(graph.Outputs.Select(o=>o.Point));
+                sourceCompilations+=materialized.Samples.GroupBy(s=>(s.Model,s.Snapshot,s.FreezeHistorical)).Count();
+                declaredSourceNodes+=graph.Definitions.SelectMany(d=>d.Points).Count(p=>p.Expression is ConnectedSource or ConnectedBuiltCurve);
                 foreach(var binding in group)
                 {
                     var outputs=graph.Outputs.Where(p=>p.Position==binding.Position).ToArray();
@@ -104,21 +110,18 @@ public static partial class CustomCurves
         var merged=ConnectedCurves.MergeDefinitions(definitions);
         // Fully fixed instruments have no projected roots; source authority is
         // still retained for the ordinary fixing contract.
-        var roots=bindings.Values.Distinct().ToImmutableArray();
-        if(roots.IsEmpty)throw Invalid("A fully fixed custom projection has no connected pricing dependencies.");
+        var roots=bindings.Values.Concat(outputRoots).Distinct().ToImmutableArray();
         var plan=ConnectedCurves.Compile(merged,roots,resolved,new PreparedBindings(merged.Select(d=>d.Key).ToHashSet(),resolved),ct);
-        if(samples.Any(s=>s.Build.Snapshot.MarketCutoff!=s.Build.Snapshot.ValuationAt))
+        if(samples.Any(s=>s.Snapshot.MarketCutoff!=s.Snapshot.ValuationAt))
             throw Invalid("This retained sample contract requires market cutoff and sample valuation to be the same explicit instant.");
         var evidence=new ConnectedMarketEvidence(data.DefinitionRevision.RevisionId,plan.ManifestId,recipeBindings,
             samples.DistinctBy(s=>(s.Source,s.Date,s.Contract)).OrderBy(s=>s.Source.Code,StringComparer.Ordinal).ThenBy(s=>s.Date).ThenBy(s=>s.Contract.Id)
-                .Select(s=>new ConnectedSampleEvidence(s.Build.Snapshot.Id,s.Build.Snapshot.ValuationAt,s.Source.Code,s.Contract.Id,s.FreezeHistorical,
-                    s.Build.Snapshot.Selections.OrderBy(o=>o.Input.Series.Id).ThenBy(o=>o.Input.Use)
+                .Select(s=>new ConnectedSampleEvidence(s.Snapshot.Id,s.Snapshot.ValuationAt,s.Source.Code,s.Contract.Id,s.FreezeHistorical,
+                    s.Snapshot.Selections.OrderBy(o=>o.Input.Series.Id).ThenBy(o=>o.Input.Use)
                         .Select(o=>new ConnectedSampleObservation(o.Observation.Key.Id,o.Input.Series.Id,o.Input.Use.ToString())).ToImmutableArray())).ToImmutableArray());
         if(retained is not null&&JsonSerializer.Serialize(evidence,RiskJobs.Json)!=JsonSerializer.Serialize(retained,RiskJobs.Json))
             throw new MarketDataException("risk_graph_manifest","The rebuilt graph differs from its admitted recipe, sample or topology manifest.");
-        var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan),snapshot,samples.Select(s=>s.Build.Snapshot).Distinct().ToImmutableArray(),ct);
-        var builds=new HashSet<CurveBuild>(ReferenceEqualityComparer.Instance){authority};
-        foreach(var sample in samples)builds.Add(sample.Build);
-        return new(valuation,authority,bindings.ToImmutable(),evidence,new(builds.Count,builds.Sum(b=>b.EvaluatedConstituents),builds.Sum(b=>b.ReusedConstituents)));
+        var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan),snapshot,samples.Select(s=>s.Snapshot).Distinct().ToImmutableArray(),ct);
+        return new(valuation,authority,bindings.ToImmutable(),evidence,new(sourceCompilations,declaredSourceNodes));
     }
 }

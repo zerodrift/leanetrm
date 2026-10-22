@@ -17,6 +17,7 @@ def run_checks(url, query=None, manifest=None):
     body={'requestId':str(uuid4()),'snapshotId':frame['id'],'definition':templates['ng_prompt']['definition'],'layout':templates['ng_prompt'].get('layout',{})}
     prompt=client.call('custom-curves/preview',{'definition':body['definition'],'snapshotId':frame['id']})
     assert len(prompt['rows'])==1 and prompt['rows'][0][1]=='3.08', prompt['rows']
+    assert prompt['trace']['numericalPolicy']=='exact_rational_connected_curves_v1', 'Preview trace does not identify its connected rational calculation policy'
     assert len(prompt['dependencies'])==1
     balmo=client.call('custom-curves/preview',{'definition':templates['ng_balmo']['definition'],'snapshotId':frame['id']})
     assert len(balmo['rows'])==1 and balmo['rows'][0][1]=='3.6175',balmo['rows']
@@ -62,8 +63,7 @@ def run_checks(url, query=None, manifest=None):
     sql_definition=deepcopy(templates['ng_average']['definition'])
     sql_mean=next(node for node in sql_definition['nodes'] if node['kind']=='mean')
     sql_mean['kind']='sql_transform';sql_mean['parameters']={'sqlTransformCode':'sql_mean_dates_v1'}
-    sql_average=client.call('custom-curves/preview',{'definition':sql_definition,'snapshotId':frame['id']})
-    assert sql_average['rows']==average['rows'] and sql_average['inputs']==average['inputs']
+    client.call('custom-curves/preview',{'definition':sql_definition,'snapshotId':frame['id']},expected=422)
     client.call('custom-curves/save',body,expected=403)
     before=client.call('date-schedules/context',{'effectiveOn':'2020-12-18','mode':'current','knownAt':None})
     client.call('profile',{'profile':'editor'})
@@ -143,7 +143,7 @@ def run_checks(url, query=None, manifest=None):
             SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token('viewer')}');
             DO $$BEGIN IF EXISTS(SELECT 1 FROM market_data.custom_curve_versions WHERE catalog_id='{cat}') THEN
               RAISE EXCEPTION 'Saved graph leaked after current source scope revocation';END IF;END$$;ROLLBACK;""")
-        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='9'
+        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='10'
     # A later correction can restate a working historical window, but never a retained earlier knowledge view.
     client.call('profile',{'profile':'editor'})
     observed=next(row for row in average['inputs'] if row['date']=='2020-12-01' and row['contract']['id']=='e0000000-0000-0000-0000-000000000102')
@@ -167,4 +167,4 @@ def run_checks(url, query=None, manifest=None):
              EXCEPTION WHEN insufficient_privilege THEN NULL;END;
             END$$;ROLLBACK;""")
     client.call('market/current',{})
-    print('PASS custom curves: prompt/BALMO/12-tenor averages, frozen-source basis chains, exact final pins and ambiguous-final rejection, formula and registered SQL parity, exact request replay with current content authority and receipt FKs, optimistic publication, immutable normalized relationships, current scope revocation, certified cutoff visibility and correction replay',flush=True)
+    print('PASS custom curves: prompt/BALMO/12-tenor averages, frozen-source basis chains, exact final pins and ambiguous-final rejection, typed formula parity and removed SQL rejection, exact request replay with current content authority and receipt FKs, optimistic publication, immutable normalized relationships, current scope revocation, certified cutoff visibility and correction replay',flush=True)

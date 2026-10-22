@@ -94,8 +94,8 @@ public static partial class RiskEngine
         if(bumps.IsDefault||bumps.Any(bump=>bump is null||bump.Target is null||bump.Unit is null||bump.Size.CompareTo(default)<=0||bump.ConventionId!=ConnectedRiskBump.Convention))
             throw Error("risk_bump","Supply explicit positive symmetric curve-coordinate bumps, or an explicit empty list for base valuation.");
         var portfolios=prepared.Portfolios;var contracts=prepared.Contracts;
-        var bases=portfolios.Select((portfolio,n)=>portfolio.PV(prepared.Market,contracts[n],ct:cancellation,detail:detail)).ToArray();
-        var calls=bases.Select(value=>value.UnitValuations).ToArray();var applications=bases.Select(value=>value.QuantityApplications).ToArray();
+        var calculation=new PortfolioRiskCalculation(prepared.Market,portfolios,contracts,detail,cancellation);
+        var bases=calculation.Bases;var calls=calculation.Calls;var applications=calculation.Applications;
         var factors=portfolios.Select(_=>ImmutableArray.CreateBuilder<ConnectedBookRiskFactor>()).ToArray();
         var graph=default(GraphWork);
         foreach(var bump in bumps)
@@ -106,24 +106,16 @@ public static partial class RiskEngine
             var downScenario=prepared.Scenario.WithShifts([shift with{Size=default(ExactDecimal)-bump.Size}],cancellation);
             var upMarket=ConnectedValuation.WithScenario(prepared.Market,prepared.Valuation.WithScenario(upScenario));
             var downMarket=ConnectedValuation.WithScenario(prepared.Market,prepared.Valuation.WithScenario(downScenario));
-            var ups=new PortfolioValue[portfolios.Length];var downs=new PortfolioValue[portfolios.Length];
-            for(var group=0;group<portfolios.Length;group++)
-            {
-                ups[group]=portfolios[group].PV(upMarket,contracts[group],prepared.Market,bases[group],cancellation,detail);
-                downs[group]=portfolios[group].PV(downMarket,contracts[group],prepared.Market,bases[group],cancellation,detail);
-            }
+            var measurements=calculation.Measure(upMarket,downMarket,bump.Size,bump.Unit,cancellation);
             var upGraph=upScenario.Work;var downGraph=downScenario.Work;
             graph=AddGraphWork(graph,AddGraphWork(upGraph,downGraph));
             var upReceipt=Receipt(upScenario);var downReceipt=Receipt(downScenario);
             for(var group=0;group<portfolios.Length;group++)
             {
-                cancellation.ThrowIfCancellationRequested();var basis=bases[group];var up=ups[group];var down=downs[group];
-                var measured=MeasurePortfolio(portfolios[group],basis,up,down,bump.Size,bump.Unit,detail);
+                cancellation.ThrowIfCancellationRequested();var measured=measurements[group];
                 factors[group].Add(new(bump,measured.Totals,upReceipt,downReceipt,
-                    new(upGraph,up.UnitValuations,contracts[group].Length-up.UnitValuations),
-                    new(downGraph,down.UnitValuations,contracts[group].Length-down.UnitValuations)){Positions=measured.Positions});
-                calls[group]+=up.UnitValuations+down.UnitValuations;
-                applications[group]+=up.QuantityApplications+down.QuantityApplications;
+                    new(upGraph,measured.UpPricerCalls,contracts[group].Length-measured.UpPricerCalls),
+                    new(downGraph,measured.DownPricerCalls,contracts[group].Length-measured.DownPricerCalls)){Positions=measured.Positions});
             }
         }
         var preparation=0;
@@ -141,11 +133,4 @@ public static partial class RiskEngine
         new(scenario.Id,scenario.ParentId,scenario.Depth,scenario.Plan.ManifestId,scenario.Shifts);
     private static GraphWork AddGraphWork(GraphWork left,GraphWork right)=>new(left.EvaluatedNodes+right.EvaluatedNodes,left.ReusedReads+right.ReusedReads,
         checked(left.AffectedNodes+right.AffectedNodes),left.TraversedAffectedEdges+right.TraversedAffectedEdges);
-    private static ImmutableArray<ExactRiskPositionValue> BasePositions(ValuationPortfolio portfolio,PortfolioValue value,RiskDetail detail)=>
-        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n])).ToImmutableArray();
-    private static (ImmutableArray<ExactRiskBookTotal> Totals,ImmutableArray<ExactRiskPositionResult> Positions) MeasurePortfolio(
-        ValuationPortfolio portfolio,PortfolioValue basis,PortfolioValue up,PortfolioValue down,ExactDecimal size,PriceUnit unit,RiskDetail detail)
-        =>(basis.Totals.Select((value,n)=>new ExactRiskBookTotal(value.BookId,ExactRepricing.Measure(value.Value,up.Totals[n].Value,down.Totals[n].Value,size,unit))).ToImmutableArray(),
-            detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionResult(position.TradeId,position.BindingId,position.BookId,position.ValuationId,
-                ExactRepricing.Measure(basis.Positions[n],up.Positions[n],down.Positions[n],size,unit))).ToImmutableArray());
 }

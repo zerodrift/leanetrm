@@ -19,10 +19,10 @@ flowchart LR
 Sources may already have the supported multi-level basis dependencies. The
 recipe retrieves only its selected contracts and declares their live primitive
 factors. It does not infer dependencies from quoted price levels. Published
-managed outputs can now supply explicitly pinned projections to existing monthly
-indexed swaps through the API and shared portfolio/risk path (D183). The trade
-editor has no custom-curve picker. The implementation does not add theoretical
-options or historical VaR/covariance.
+outputs supply explicitly pinned projections to existing monthly indexed swaps
+through the trade editor, API and shared portfolio/risk path (D183, D186). Ordinary
+curves, basis relationships and custom recipes use the same connected evaluator.
+The implementation does not add theoretical options or historical VaR/covariance.
 
 The three starting recipes are:
 
@@ -75,16 +75,26 @@ Parameters are quoted strings; `@name` refers to another node. This language
 cannot execute scripts or SQL text. Backend formatting and compilation allow
 switching between the visual graph and its formula.
 
-Registered SQL mode supplies one qualified transformation,
-`sql_mean_dates_v1`. It consumes the graph's raw sampled prices as position and
-scaled-integer arrays. Its immutable query groups those supplied values and
-returns an integer sum and count; managed code preserves units and lineage and
-forms the exact rational output. It reads no market tables, so it cannot bypass
-the supplied scenario. The catalog exposes the query, implementation version and
-SHA-256. Arbitrary SQL bodies and runtime registration are not exposed. Further
-transformations require a versioned input/output contract and independent
-numerical, authorization and scenario checks. SQL transformations remain panel-only
-and reject as booked connected pricing inputs.
+A `weighted_contracts` node connects multiple named source ports to explicit
+contract members. Each row names its output position, source port, exact contract
+ID and dimensionless weight. The source catalog supplies the eligible member
+identities and delivery labels; the browser edits and transports rows without
+resolving contracts or applying weights. `signed_sum_v1` preserves signed weights;
+`normalized_weighted_mean_v1` requires nonnegative weights and a positive sum.
+Every source port must be used, and duplicate output/port/contract rows reject.
+The resulting selection feeds the ordinary sample node, so historical sampling
+and current quote connections keep the same policies as other recipes.
+
+Formula mode carries these same rows in a typed `contractWeights` array. The
+managed backend alone compiles and formats formulas, validates mappings and
+performs arithmetic. Saved rows retain exact source-node, source-curve/member and
+version foreign keys under migration 0080.
+
+D186 removes the SQL panel executor and its UI/API alternative. The sole recipe
+engine is `custom_curve_recipe_v2`; unsupported old engines and SQL nodes reject.
+Migration 0080 refuses a database containing saved recipes. An existing installation
+must explicitly reset/rebook its earlier recipes before adopting this schema
+baseline; the migration does not rewrite immutable saved or booked history.
 
 Save requires current authoring permission, an exact session snapshot and an
 optimistic generation. Publish requires separate publishing permission. Published
@@ -123,10 +133,13 @@ reach scheduled cash and PV without an intermediate decimal rounding step.
 Legacy floating-side identities retain their prior canonical encoding; the
 custom-bound variant names its complete descriptor in version 5.
 
-The trade editor displays an existing saved projection as read-only evidence and
-passes its descriptor unchanged through draft Price/Risk and amendments. Opening
-a new ordinary swap clears that retained descriptor. Selecting a custom projection
-for a new trade remains an explicit API operation; the editor has no picker yet.
+The trade editor requires an explicit price-source choice: the ordinary index
+projection or a compatible published custom output offered by the authorized
+backend catalog. Each offered output includes its exact descriptor and supported
+sampling terms. The browser passes that descriptor unchanged through draft
+Price/Risk, booking and amendments. A retained choice that is unavailable in the
+selected context remains visibly unavailable; it cannot silently become ordinary
+pricing. Changing terms or the header context clears stale calculation results.
 
 The saved graph connects to the shared valuation provider. Historical sample
 observations remain frozen, and current primitive quote shocks propagate through
@@ -136,10 +149,13 @@ reconstructs those pins and verifies the admitted manifest. Changing the working
 UI context cannot change a queued calculation. Current authorization still
 controls reading, execution and publication.
 
-Interactive preparation currently reads visible observation history for the
-selected source revision before sampling. Source builds can repeat across
-recipes before compiled nodes are shared; preparation work is reported separately
-from graph evaluation. This path has no million-edge financial throughput claim.
+Interactive preparation reads visible observation history for the selected source
+revision before sampling. Source topology is compiled without pricing it; shared
+connected nodes evaluate on demand. `SourceCompilations` and `DeclaredSourceNodes`
+report preparation separately from evaluated graph work. The current portfolio
+materializer still performs and counts its futures build pass. Historical query
+pushdown and end-to-end financial workload qualification remain work; the integer
+graph benchmark does not qualify this loading path.
 
 Use an isolated synthetic preview with the additional monthly/daily panels:
 

@@ -68,11 +68,14 @@ distinct; independent all-in marks acquire no inferred upstream exposure.
 Checks cover long-dated monthly and daily prices, 10/30-year monthly strips under
 all three quantity bases, individual payment DFs, multiple books and shared trade
 bindings, offsets, frozen actuals, missing inputs and identity conflicts. Draft
-quote risk retains its 128-factor limit. The interactive portfolio-risk screen
-and its legacy API remain futures-only. Generated-close jobs use retained mixed
-futures/swap holdings and persist exact reports with separate execution-P&L and
-swap-PV measures (D169). That path does not create multi-year bookings or wire
-swaps into the interactive risk screen.
+quote risk retains its 128-factor limit. The interactive portfolio-risk screen,
+API and retained jobs value mixed futures/swap holdings, keeping execution-P&L
+and swap-PV measures separate. They share the connected curve engine with
+generated-close reports (D169, D181, D186). Portfolio scenarios additionally expose
+primitive quote and computed-output coordinates with exact contract, point,
+parallel and whole-delivery-bucket targets; the legacy futures-risk HTTP path is
+removed. This does not create persisted multi-year bookings. See the
+[risk contract](risk-engine.md) for supported scenarios and retained context.
 
 ## Focused measurements
 

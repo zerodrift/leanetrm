@@ -7,15 +7,19 @@ The local custom-curve workspace implements typed visual graphs, formula
 roundtrips, exact multi-date sampling, explicit date/schedule references and
 separate save/publish operations (D161). Prompt, inclusive daily-forward BALMO
 and per-tenor historical-average templates have executable synthetic consumers.
-A registered panel-only SQL mean shares the exact units/lineage contract.
+The D186 cutover uses one connected evaluator for ordinary curves, basis and
+custom recipes. `weighted_contracts` connects multiple named source ports with
+exact persisted member weights and explicit `signed_sum_v1` or
+`normalized_weighted_mean_v1` aggregation. The visual/formula workbench edits this
+contract; formulas compile only in the backend. SQL panel execution is removed.
 [Custom curves](custom-curves.md) records the supported policies and limits.
-Published managed recipes now supply explicit monthly indexed swap projections
-through the existing booking, portfolio and retained-risk operations (D183).
-A trade request pins the published version and output position. The editor retains
-that binding through amendments and displays it read-only. A trade-editor picker,
-cross-revision rolling histories and historical VaR/covariance remain work.
+Published recipes supply explicit monthly indexed swap projections through
+booking, portfolio and retained-risk operations. The editor offers compatible
+published outputs from the authorized backend catalog and preserves the selected
+exact version/output through amendments. Daily custom mappings, cross-revision
+rolling histories and historical VaR/covariance remain work.
 
-The managed [connected calculation engine](connected-calculation.md) (D182–183)
+The managed [connected calculation engine](connected-calculation.md) (D182–183, D186)
 adds compact dependency plans, nested sparse scenarios, bitemporal logical-to-exact
 bindings, rational means/baskets, rolling selections and resolved schedule
 connections. Parallel, explicit point, whole-delivery bucket and dated-contract
@@ -27,12 +31,20 @@ throughput are not qualified by that integer workload. The saved managed recipe
 adapter now retains its exact graph, calendars/schedules and multi-date source
 pins through monthly swap PV, shared portfolio risk and the retained worker.
 Historical samples are frozen; current inputs retain explicit live quote exposure.
-SQL transformations remain panel-only, and HTTP requests still select live quote
-bumps. Direct computed-output targets remain a managed API capability.
-Interactive preparation currently reads visible source-revision history and can
-repeat source builds across recipes; query pushdown and preparation reuse remain
-work. Volatility and correlation scenarios remain later work. All calculation
-behavior stays in the backend.
+The HTTP/UI risk catalog offers primitive quote and computed-output coordinates,
+contract/point/parallel/whole-delivery-bucket targets and nested stresses. Portfolio
+risk uses one HTTP operation family; legacy futures-risk routes are removed.
+Migration 0080 admits only `custom_curve_recipe_v2` and refuses existing saved
+recipes pending explicit reset/rebooking. Migration 0081 retains graph manifests
+and typed scenario axes, and refuses any retained old jobs, including completed
+ones, pending an explicit operator archive/reset before installation. These are
+schema cutovers, not silent conversions of retained history.
+Interactive preparation reads visible source-revision history and compiles source
+topology without evaluation. `SourceCompilations` and `DeclaredSourceNodes` report
+that work; the futures materialization build is still separately counted.
+Historical query pushdown, database activation of logical bindings, financial
+workload qualification, volatility and correlation scenarios remain work. All
+calculation behavior stays in the backend.
 
 The header's As of calendar qualifies available exact snapshots through the
 managed backend (D162), including all inputs of a custom graph's history window.
@@ -81,12 +93,14 @@ unit pricing and report factors through `MarketFactors(context)`. Books apply
 external quantities and execution bases; summary reports compile exact net
 quantities/costs once per book/unit. No optional quantity-scaling flag remains.
 Market factors are exact dated references returned by instruments, checked against
-complete pinned declarations and deduplicated by books. Suggested API factors
-follow selected books/portfolios, including hedged upstream dependencies; unrelated
-curves/maturities and inferred all-in dependencies are excluded.
+complete pinned declarations and deduplicated by books. Generated-close automatic
+bumps follow the selected holdings, including hedged upstream dependencies. The
+interactive catalog also exposes eligible unheld live quotes in each prepared
+market, compiled as lazy graph leaves; these yield explicit zero exposure for
+unaffected holdings. All-in marks never acquire inferred upstream dependencies.
 
-Nested immutable live-quote stresses and retained interactive portfolio jobs are
-implemented locally (D178–181). The same resolved header context supplies user and
+Nested immutable quote/output stresses and retained interactive portfolio jobs
+are implemented locally (D178–183, D186). The same resolved header context supplies user and
 worker calculations; child scenarios preserve parent values. Independent workers
 share a fenced PostgreSQL queue, and an optional Swarm artifact describes their
 placement. Single-run sharding, distributed reduction and real-cluster failure
@@ -105,9 +119,11 @@ interactive portfolio API and generated pilot-close worker share the retained
 futures-and-swaps adapter (D169, D181), with separate futures execution-P&L and
 swap-PV measures. The interactive operation covers the current mixed books and
 their explicitly pinned supplemental market revisions. Its exact rational holding
-and book outputs preserve nonterminating amounts without rounding and keep rate inputs
-fixed under commodity quote shocks. Existing working-decimal output still rejects
-unrepresentable results. Booking database bounds, large historical reads,
+and book outputs preserve nonterminating amounts without rounding and keep rate
+inputs fixed under commodity price scenarios. Typed source arithmetic retains its
+explicit 18-decimal-place representability checks; connected rational graph/PV
+arithmetic does not remove those source contracts. Working-decimal output still
+rejects unrepresentable results. Booking database bounds, large historical reads,
 serialization/concurrent service load, broader instrument implementations,
 rate/volatility shocks and complete futures settlement PV need separate
 implementation/qualification. The earlier benchmark does not measure the new

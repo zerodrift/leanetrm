@@ -26,7 +26,7 @@ public sealed partial class CurveModel
         if(bumps.IsDefaultOrEmpty || bumps.Length>16 || bumps.Any(b=>b is null) || bumps.Select(b=>b.Input).Distinct().Count()!=bumps.Length)
             Fail("risk_bump","Select between one and sixteen distinct explicit quote-input bumps.");
         cancellation.ThrowIfCancellationRequested();
-        var @base=Build(snapshot,requests,null,[],cancellation);
+        var @base=Build(snapshot,requests,cancellation);
         return new(@base,Scenarios(@base,bumps,cancellation).ToImmutableArray());
     }
     // Stream one shared factor pair at a time: a broad risk vector must not retain
@@ -73,15 +73,17 @@ public sealed partial class CurveModel
             Domain(selected.Observation.Value+parent.Scenario.Offset(shift.Input)+shift.Size,quote.Minimum,quote.Maximum);
         }
         var scenario=parent.Scenario.Child(shifts);
-        var changed=shifts.Select(s=>s.Input).ToHashSet();var affected=new HashSet<(CurveRequest,InputUse)>();
-        foreach(var node in parent.Evaluations)
+        var sources=parent.Compiled.Definitions.SelectMany(d=>d.Points)
+            .Where(p=>p.Expression is Calculation.ConnectedSource {Input.Use:InputUse.Variable})
+            .GroupBy(p=>((Calculation.ConnectedSource)p.Expression).Input).ToDictionary(g=>g.Key,g=>g.First());
+        var changes=shifts.Where(s=>sources.ContainsKey(s.Input)).Select(s=>
         {
-            cancellation.ThrowIfCancellationRequested();var curve=curves[node.Result.Request.Curve];
-            var direct=curve.Rule==CurveRule.Direct&&changed.Contains(new(priceSeries[(node.Result.Request.Contract,curve.Quote)],node.Use));
-            if(direct||node.Inputs.Any(i=>affected.Contains((i.Source,i.Use))))affected.Add((node.Result.Request,node.Use));
-        }
-        var reusable=parent.Evaluations.Where(e=>!affected.Contains((e.Result.Request,e.Use))).ToImmutableArray();
-        return Build(parent.Snapshot,parent.Values.Select(v=>v.Request).ToImmutableArray(),shock,reusable,cancellation,scenario);
+            var point=sources[s.Input];
+            return new Calculation.CurveShift(Calculation.CurveShockCoordinate.MarketQuote,
+                new Calculation.PointCurveTarget(point.Key.Curve,[point.Key.PointId]),s.Unit,s.Size,Calculation.CurveShift.ParentAdditive);
+        }).ToImmutableArray();
+        var graph=changes.IsEmpty?parent.Graph:parent.Graph.WithShifts(changes,cancellation);
+        return Materialize(parent.Snapshot,parent.Requests,parent.Compiled,graph,scenario,parent,shock,cancellation);
     }
     private void RequireScenarioParent(CurveBuild parent)
     {

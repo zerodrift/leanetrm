@@ -1,39 +1,40 @@
-import {riskTotalGroups,type RiskValues,type RiskTotal} from './risk-report.js';
+import {riskTotalGroups,riskWorkDetails,type RiskValues,type RiskTotal,type RiskWorkReport} from './risk-report.js';
 import {PendingCommand} from './pending-command.js';
 import {renderDataGrid} from './data-grid.js';
 import {renderChart,clearChart} from './chart-view.js';
-import {curveName,deliveryLabel,publicText} from './market-view.js';
+import {publicText} from './market-view.js';
+import {scenarioShift,knownRiskRejection,type ScenarioTarget,type ScenarioShift} from './risk-scenarios.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Factor={seriesId:string;quote:string;curves:string[];deliveryFrom:string;deliveryTo:string;unit:string;value:string};
+type Factor={id:string;label:string;coordinate:string;kind:string;unit:string};
 type FinancialContext={contextId:string;effectiveOn:string;knownAt?:string;knownThrough:number};
-type Catalog={pricingPolicy:unknown;measures:{measure:string;measureLabel:string}[];factors:Factor[];bumpConvention:string;stressConvention:string;convention:string;numericalPolicy:string;context:FinancialContext;asOf:string};
+type Catalog={pricingPolicy:unknown;measures:{measure:string;measureLabel:string}[];scenarioTargets:ScenarioTarget[];bumpConvention:string;stressConvention:string;convention:string;numericalPolicy:string;context:FinancialContext;asOf:string};
 type Scope={context:unknown;bookIds:string[];portfolioIds:string[]};
-type Shift={seriesId:string;quote:string;size:string;convention:string};
+type Shift=ScenarioShift;
+type StressLayer={shift:Shift;label:string;unit:string};
 type Request=Scope&{pricingPolicy:unknown;bumps:Shift[];stress:Shift[];convention:string;numericalPolicy:string};
 type PendingJob={recovery:PendingCommand;context:FinancialContext;asOf:string};
 type Job={id:string;requestId?:string;state:'queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';error?:{code:string;message:string};result?:Report;context?:FinancialContext;asOf?:string};
 type Position={book:string;tradeReference:string;instrumentReference:string;instrumentType:string;measure:string;measureLabel:string;values:RiskValues};
-type Report={displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;heldInstruments:number;work:{positionCount:number;uniqueValuations:number;scenarioCount:number;preparationScenarioCount:number;unitPricerCalls:number;rebuiltCurveNodes:number;reusedCurveNodes:number;repeatedInstrumentReferences:number;quantityApplications:number};factors:{factor:Factor;bump:string;totals:RiskTotal[];positions:Position[]}[]};
+type Report=RiskWorkReport&{displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;factors:{factor:Factor;bump:string;totals:RiskTotal[];positions:Position[]}[]};
 
 export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRun:()=>boolean;profile:()=>string;scope:()=>Scope;onDenied:()=>void}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const select=get<HTMLSelectElement>('risk-factor'),bump=get<HTMLInputElement>('risk-bump'),stressFactor=get<HTMLSelectElement>('risk-stress-factor'),stressSize=get<HTMLInputElement>('risk-stress-size');
   const currentScopeText=get('risk-scope').textContent;
-  let catalog:Catalog|undefined,scope:Scope|undefined,lastRequest:Request|undefined,stress:Shift[]=[];
+  let catalog:Catalog|undefined,scope:Scope|undefined,lastRequest:Request|undefined,stress:StressLayer[]=[];
   const submissions=new Map<string,PendingJob>();
-  const knownRejections=new Set(['request_format','request_too_large','request_token','access_denied','risk_context','risk_job_context','risk_job_conflict','risk_factor','risk_bump','risk_stress','risk_position','risk_convention','risk_policy','risk_detail','numeric_format','numeric_range','futures_context','portfolio_context','portfolio_policy','swap_risk_model','blotter_view']);
   let generation=0,pollTimer:ReturnType<typeof setTimeout>|undefined,job:Job|undefined,pending:PendingJob|undefined,jobRequest:Request|undefined,resultJobId:string|undefined,reviewingJob=false;
   let grids:ReturnType<typeof renderDataGrid>[]=[];
   const running=()=>!!job&&['queued','running','cancellation_requested'].includes(job.state);
   function stopPolling(){clearTimeout(pollTimer);pollTimer=undefined;}
   function results(){for(const grid of grids)grid.destroy();grids=[];get('risk-results').replaceChildren();get('risk-plots').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));get('risk-plots').replaceChildren();get('risk-work').textContent='';get('risk-export').hidden=true;lastRequest=undefined;resultJobId=undefined;}
   function clearJob(){stopPolling();job=undefined;pending=undefined;jobRequest=undefined;reviewingJob=false;get('risk-job').hidden=true;for(const id of ['risk-job-context','risk-job-scenario','risk-job-status'])get(id).textContent='';get('risk-job-return').hidden=true;get<HTMLSelectElement>('risk-job-history').value='';get('risk-scope').textContent=currentScopeText;}
-  function reset(){generation++;clearJob();results();catalog=undefined;scope=undefined;stress=[];select.replaceChildren(new Option('Choose a factor…',''));stressFactor.replaceChildren(new Option('Choose a factor…',''));get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''));bump.value='';stressSize.value='';get('risk-unit').textContent='';get('risk-stress-unit').textContent='';get<HTMLDetailsElement>('risk-stress').open=false;renderStress();get('risk-card').hidden=true;}
+  function reset(){generation++;clearJob();results();catalog=undefined;scope=undefined;stress=[];select.replaceChildren(new Option('Choose a scenario target…',''));stressFactor.replaceChildren(new Option('Choose a scenario target…',''));get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''));bump.value='';stressSize.value='';get('risk-unit').textContent='';get('risk-stress-unit').textContent='';get<HTMLDetailsElement>('risk-stress').open=false;for(const prefix of ['risk','risk-stress']){get<HTMLSelectElement>(prefix+'-coordinate').value='all';get<HTMLSelectElement>(prefix+'-target-kind').value='all';get(prefix+'-bucket').hidden=true;for(const suffix of ['from','to']){const input=get<HTMLInputElement>(prefix+'-'+suffix);input.value='';input.required=false;input.disabled=true;}}renderStress();get('risk-card').hidden=true;}
   function sync(){const locked=options.busy()||running()||!!pending||reviewingJob;get('risk-form').hidden=reviewingJob||!!pending;get<HTMLFieldSetElement>('risk-fields').disabled=locked;get<HTMLButtonElement>('blotter-risk').disabled=options.busy()||!options.canRun();get('blotter-risk').title=options.canRun()?'Revalue selected books under shared market shocks':'Scenario execution requires the Risk Analyst role.';get<HTMLButtonElement>('risk-export').disabled=options.busy()||(!lastRequest&&!resultJobId);get('risk-results').inert=options.busy();get<HTMLButtonElement>('risk-stress-parent').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-clear').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-add').disabled=locked||stress.length>=16;get<HTMLSelectElement>('risk-job-history').disabled=options.busy();for(const id of ['risk-job-refresh','risk-job-retry','risk-job-cancel','risk-job-return','risk-job-discard'])get<HTMLButtonElement>(id).disabled=options.busy();}
   function denied(error:unknown){if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}}
   async function call<T>(path:string,body?:unknown):Promise<T>{try{return await options.api<T>(path,body);}catch(error){results();denied(error);throw error;}}
-  function factorLabel(f:Factor){return publicText(`${f.curves.map(curveName).join(' / ')} · ${deliveryLabel(f.deliveryFrom,f.deliveryTo)}`);}
+  function factorLabel(f:Factor|ScenarioTarget){return publicText(f.label);}
   async function recentJobs(version:number){
     const recent=await call<Job[]>('portfolio/risk/jobs');if(version!==generation)return false;
     get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''),...recent.map(j=>new Option(`${j.asOf??'Unavailable market time'} · ${j.state.replaceAll('_',' ')}`,j.id)));
@@ -50,12 +51,27 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     if(pending){reviewingJob=true;showPending();get('risk-card').hidden=false;sync();await recentJobs(version);return;}
     scope=structuredClone(options.scope());const loaded=await call<Catalog>('portfolio/risk/catalog',scope);if(version!==generation)return;catalog=loaded;
     scope={...scope,context:{...(scope.context as Record<string,unknown>),knowledgeMode:'retained',contextId:catalog.context.contextId}};
-    for(const control of [select,stressFactor])control.replaceChildren(new Option('Choose a factor…',''),...catalog.factors.map(f=>new Option(factorLabel(f),f.seriesId)));
+    for(const prefix of ['risk','risk-stress'])targetChoices(prefix);
     await recentJobs(version);if(version!==generation)return;
     get('risk-card').hidden=false;sync();get('risk-card').scrollIntoView({block:'start',behavior:'smooth'});
   }
+  function bucket(prefix:string){return {from:get<HTMLInputElement>(prefix+'-from').value,to:get<HTMLInputElement>(prefix+'-to').value};}
+  function targetChoices(prefix:string){
+    const control=get<HTMLSelectElement>(prefix+'-factor'),coordinate=get<HTMLSelectElement>(prefix+'-coordinate').value,kind=get<HTMLSelectElement>(prefix+'-target-kind').value;
+    const choices=catalog?.scenarioTargets.filter(t=>(coordinate==='all'||t.coordinate===coordinate)&&(kind==='all'||t.kind===kind))??[];
+    control.replaceChildren(new Option('Choose a scenario target…',''),...choices.map(t=>new Option(factorLabel(t),t.id)));targetDetails(prefix);
+  }
+  function targetDetails(prefix:string){
+    const target=catalog?.scenarioTargets.find(t=>t.id===get<HTMLSelectElement>(prefix+'-factor').value),bucketed=target?.kind==='delivery_bucket';
+    get(prefix+'-bucket').hidden=!bucketed;for(const suffix of ['from','to']){const input=get<HTMLInputElement>(prefix+'-'+suffix);input.required=prefix==='risk'&&!!bucketed;input.disabled=!bucketed;}
+    get(prefix+'-unit').textContent=target?`${target.coordinate==='market_quote'?'Primitive market quote':'Computed curve output'} · ${target.unit}. ${prefix==='risk'?'Symmetric up/down repricing around the selected scenario.':'Signed additive offset to the parent scenario.'}`:'';
+  }
+  for(const prefix of ['risk','risk-stress']){
+    for(const field of ['coordinate','target-kind'])get(prefix+'-'+field).onchange=()=>{if(prefix==='risk')edit();targetChoices(prefix);};
+    if(prefix==='risk')for(const field of ['from','to'])get(prefix+'-'+field).oninput=edit;
+  }
   function renderStress(){
-    get('risk-stress-stack').replaceChildren(...stress.map((shift,index)=>{const item=document.createElement('li'),factor=catalog?.factors.find(f=>f.seriesId===shift.seriesId);item.textContent=`Level ${index+1} · ${factor?factorLabel(factor):''} · add ${shift.size} ${factor?.unit??''} to parent`;return item;}));
+    get('risk-stress-stack').replaceChildren(...stress.map((layer,index)=>{const item=document.createElement('li'),level=document.createElement('span'),label=document.createElement('strong'),amount=document.createElement('span');level.className='risk-layer-number';level.textContent=String(index+1);label.textContent=publicText(layer.label);amount.textContent=`Add ${layer.shift.size} ${layer.unit} to parent`;item.append(level,label,amount);return item;}));
     get('risk-scenario').textContent=stress.length?`Risk around ${stress.length} nested ${stress.length===1?'stress':'stresses'}. Base, up and down values all include this stress stack.`:'Risk around the selected unchanged market.';
     sync();
   }
@@ -65,14 +81,14 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     for(const [factorIndex,item] of report.factors.entries()){
       for(const [partitionIndex,totals] of riskTotalGroups(item.totals).entries()){
         const first=totals[0],unit=first.values;
-        const title=document.createElement('h4');title.textContent=publicText(`${first.measureLabel} · ${item.factor.curves.map(curveName).join(' / ')} · ${deliveryLabel(item.factor.deliveryFrom,item.factor.deliveryTo)} · absolute bump ±${item.bump} · unit ${item.factor.unit}`);get('risk-results').append(title);
+        const title=document.createElement('h4');title.textContent=publicText(`${first.measureLabel} · ${factorLabel(item.factor)} · absolute bump ±${item.bump} · unit ${item.factor.unit}`);get('risk-results').append(title);
         const host=document.createElement('div');host.className='table-wrap';get('risk-results').append(host);
         const headers=['Book',`Base ${first.measureLabel} (${unit.currency})`,`Up ${first.measureLabel} (${unit.currency})`,`Down ${first.measureLabel} (${unit.currency})`,`Up change (${unit.currency})`,`Down change (${unit.currency})`,`Delta (${unit.deltaUnit})`,`Gamma (${unit.gammaUnit})`];
         const keys=['book','base','up','down','upPnl','downPnl','delta','gamma'];
         const amounts=(value:RiskValues['display'])=>[value.base,value.up,value.down,value.upPnl,value.downPnl,value.delta,value.gamma];
         grids.push(renderDataGrid(host,`risk-totals-${factorIndex}-${partitionIndex}`,report.snapshotId+report.context.contextId,headers,totals.map(t=>[t.book,...amounts(t.values.display)]),[1,2,3,4,5,6,7],options.busy,{keys,cellTitles:totals.map(t=>[t.book,...amounts(t.values)]),layout:{order:[],widths:{},sort:[]},onLayout:()=>{}}));
         const panel=document.createElement('div');panel.className='chart';get('risk-plots').append(panel);
-        renderChart(panel,{title:`${first.measureLabel} change by book`,subtitle:`±${item.bump} quoted points · ${item.factor.unit} · displayed amounts`,axis:'category',unit:unit.currency,kind:'bar',series:[
+        renderChart(panel,{title:`${first.measureLabel} change by book`,subtitle:`±${item.bump} price points · ${item.factor.unit} · displayed amounts`,axis:'category',unit:unit.currency,kind:'bar',series:[
           {name:'Up shock',points:totals.map(t=>({x:t.bookId,label:t.book,y:t.values.display.upPnl}))},
           {name:'Down shock',points:totals.map(t=>({x:t.bookId,label:t.book,y:t.values.display.downPnl}))},
         ]});
@@ -85,24 +101,30 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
         grids.push(renderDataGrid(rows,`risk-positions-${factorIndex}`,report.snapshotId,['Book','Trade','Instrument','Instrument type','Measure','Currency','Base value','Up change','Down change','Delta','Delta unit','Gamma','Gamma unit'],item.positions.map(p=>cells(p,true)),[6,7,8,9,11],options.busy,{keys,cellTitles:item.positions.map(p=>cells(p,false)),layout:{order:[],widths:{},sort:[]},onLayout:()=>{}}));};
 
     }
-    const w=report.work;get('risk-work').textContent=`${w.positionCount} holdings · ${report.heldInstruments} held instruments · ${w.uniqueValuations} unit valuations · ${w.scenarioCount} valuation scenarios · ${w.preparationScenarioCount} preparation builds · ${w.unitPricerCalls} pricer calls · ${w.repeatedInstrumentReferences} additional quantity references · ${w.quantityApplications} quantity applications · ${w.rebuiltCurveNodes} curve nodes evaluated · ${w.reusedCurveNodes} reused. Curve work includes all scenario preparation. Tables and charts use backend display precision; sorting compares displayed amounts. Hover over a value or download for exact amounts.`;
+    const w=report.work,overview=document.createElement('p');
+    overview.textContent=`${w.positionCount} holdings · ${report.heldInstruments} held instruments · ${w.uniqueValuations} unit valuations · ${w.scenarioCount} valuation scenarios · ${w.preparationScenarioCount} preparation scenarios · ${w.unitPricerCalls} pricer calls · ${w.repeatedInstrumentReferences} additional quantity references · ${w.quantityApplications} quantity applications.`;
+    const evidence=document.createElement('details'),evidenceTitle=document.createElement('summary'),workRows=document.createElement('ul');evidenceTitle.textContent='Graph and preparation work';
+    for(const line of riskWorkDetails(report)){const item=document.createElement('li');item.textContent=line;workRows.append(item);}
+    evidence.append(evidenceTitle,workRows);const precision=document.createElement('p');precision.textContent='Tables and charts use backend display precision; sorting compares displayed amounts. Hover over a value or download for exact amounts.';
+    get('risk-work').replaceChildren(overview,evidence,precision);
     get('risk-export').hidden=false;
   }
-  select.onchange=()=>{edit();const factor=catalog?.factors.find(f=>f.seriesId===select.value);get('risk-unit').textContent=factor?`Observed input ${factor.value} · bump unit: ${factor.unit}. Absolute symmetric up/down around the selected scenario.`:'';};
+  select.onchange=()=>{edit();targetDetails('risk');};
   bump.oninput=edit;
-  stressFactor.onchange=()=>{const factor=catalog?.factors.find(f=>f.seriesId===stressFactor.value);get('risk-stress-unit').textContent=factor?`Observed input ${factor.value} · shift unit: ${factor.unit}. Add to the parent scenario's quote.`:'';};
+  stressFactor.onchange=()=>targetDetails('risk-stress');
   get('risk-stress-add').onclick=()=>void options.act(async()=>{
-    if(!catalog||!stressFactor.value||!stressSize.value)throw Error('Choose a dated quote and enter a signed absolute shift.');
-    const factor=catalog.factors.find(f=>f.seriesId===stressFactor.value);if(!factor)throw Error('Choose an available dated quote.');
+    if(!catalog||!stressFactor.value||!stressSize.value)throw Error('Choose a scenario target and enter a signed absolute shift.');
+    const target=catalog.scenarioTargets.find(f=>f.id===stressFactor.value);if(!target)throw Error('Choose an available scenario target.');
     if(stress.length>=16)throw Error('A scenario supports at most sixteen nested stresses.');
-    edit();stress=[...stress,{seriesId:factor.seriesId,quote:factor.quote,size:stressSize.value,convention:catalog.stressConvention}];stressSize.value='';renderStress();
+    const shift=scenarioShift(target,stressSize.value,catalog.stressConvention,bucket('risk-stress'));
+    edit();stress=[...stress,{shift,label:target.label+(target.kind==='delivery_bucket'?` · ${shift.factor.target.from} to ${shift.factor.target.to} (exclusive)` :''),unit:target.unit}];stressSize.value='';renderStress();
   });
   get('risk-stress-parent').onclick=()=>{edit();stress=stress.slice(0,-1);renderStress();};
   get('risk-stress-clear').onclick=()=>{edit();stress=[];renderStress();};
   function request():Request{
     if(!catalog||!scope)throw Error('Open shocks from the current blotter first.');
-    const factor=catalog.factors.find(f=>f.seriesId===select.value);if(!factor)throw Error('Choose an exact dated quote input.');
-    return structuredClone({...scope,bumps:[{seriesId:factor.seriesId,quote:factor.quote,size:bump.value,convention:catalog.bumpConvention}],stress,pricingPolicy:catalog.pricingPolicy,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy});
+    const target=catalog.scenarioTargets.find(f=>f.id===select.value);
+    return structuredClone({...scope,bumps:[scenarioShift(target,bump.value,catalog.bumpConvention,bucket('risk'))],stress:stress.map(layer=>layer.shift),pricingPolicy:catalog.pricingPolicy,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy});
   }
   function contextLabel(context:FinancialContext|undefined,asOf:string|undefined){
     return `Captured market time: ${asOf??'unavailable'} · effective date: ${context?.effectiveOn??'unavailable'} · known as of: ${context?.knownAt??'unavailable'}. These retained coordinates govern this job.`;
@@ -121,7 +143,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const labels:Record<Job['state'],string>={queued:'Queued',running:'Running',completed:'Completed',failed:'Failed',cancellation_requested:'Cancellation requested',cancelled:'Cancelled'};
     get('risk-job-status').textContent=`Risk job: ${labels[value.state]??value.state}. ${value.state==='cancellation_requested'?'Waiting for the worker to stop. ':''}Uses the financial context captured at submission.${value.error?` ${value.error.message}`:''}`;
     get('risk-job-context').textContent=contextLabel(value.context,value.asOf);
-    get('risk-job-scenario').textContent=value.result?(value.result.scenario.isBase?'Retained scenario: original market.':`Retained scenario: ${value.result.scenario.depth} nested quote stresses. Exact stress inputs are included in the download.`):'';
+    get('risk-job-scenario').textContent=value.result?(value.result.scenario.isBase?'Retained scenario: original market.':`Retained scenario: ${value.result.scenario.depth} nested stresses. Exact stress inputs are included in the download.`):'';
     get('risk-job-cancel').hidden=!['queued','running'].includes(value.state);get('risk-job-refresh').hidden=false;get('risk-job-retry').hidden=true;
     if(value.state==='completed'&&value.result){render(value.result);lastRequest=jobRequest;resultJobId=value.id;}
     if(running())schedulePoll(version);else stopPolling();sync();
@@ -153,7 +175,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   get<HTMLFormElement>('risk-form').onsubmit=event=>{event.preventDefault();const queued=(event as SubmitEvent).submitter?.id==='risk-queue';void options.act(async()=>{
     const payload=request();results();clearJob();const version=++generation;
-    if(queued){const recovery=new PendingCommand(code=>!!code&&knownRejections.has(code));recovery.begin('portfolio/risk/jobs',{request:payload});pending={recovery,context:catalog!.context,asOf:catalog!.asOf};submissions.set(options.profile(),pending);await submitJob();}
+    if(queued){const recovery=new PendingCommand(knownRiskRejection);recovery.begin('portfolio/risk/jobs',{request:payload});pending={recovery,context:catalog!.context,asOf:catalog!.asOf};submissions.set(options.profile(),pending);await submitJob();}
     else{const report=await call<Report>('portfolio/risk',payload);if(version!==generation)return;render(report);lastRequest=payload;sync();}
   });};
   get('risk-job-retry').onclick=()=>void options.act(submitJob);

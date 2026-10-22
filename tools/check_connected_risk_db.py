@@ -9,11 +9,14 @@ def run_checks(query, manifest, job_id):
     job = json.loads(query(f"SELECT row_to_json(j)::text FROM risk.jobs j WHERE id='{job_id}';"))
     frame = job['frame']
     assert frame['connectedMarkets'], 'The named consumer must retain a real connected market'
+    custom_index = next(i for i, market in enumerate(frame['connectedMarkets']) if market['recipes'])
     expected_recipes = sum(len(m['recipes']) for m in frame['connectedMarkets'])
     expected_samples = sum(len(m['samples']) for m in frame['connectedMarkets'])
     expected_observations = sum(len(s['observations']) for m in frame['connectedMarkets'] for s in m['samples'])
-    for table, count in [('job_custom_curves', expected_recipes), ('job_curve_samples', expected_samples),
-                         ('job_curve_sample_observations', expected_observations)]:
+    for table, count in [('job_connected_markets', len(frame['connectedMarkets'])), ('job_custom_curves', expected_recipes),
+                         ('job_curve_samples', expected_samples), ('job_curve_sample_observations', expected_observations),
+                         ('job_scenario_axes', len(frame['scenarioAxes'])),
+                         ('job_scenario_points', sum(len(axis['points']) for axis in frame['scenarioAxes']))]:
         assert query(f"SELECT count(*) FROM risk.{table} WHERE job_id='{job_id}';") == str(count), table
 
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
@@ -43,19 +46,19 @@ def run_checks(query, manifest, job_id):
     # real accepted baseline, then change one independent pin per rejection.
     submit(frame)
     changes = [
-        (lambda f: f['connectedMarkets'][0].update(manifestId=''), 'risk_graph_input'),
-        (lambda f: f['connectedMarkets'][0]['recipes'][0].update(version=64), 'custom_projection'),
-        (lambda f: f['connectedMarkets'][0]['samples'][0].update(sourceCurve='missing_source'), 'risk_graph_input'),
-        (lambda f: f['connectedMarkets'][0]['samples'][0].update(freezeHistorical=not f['connectedMarkets'][0]['samples'][0]['freezeHistorical']), 'risk_graph_input'),
-        (lambda f: f['connectedMarkets'][0]['samples'][0].update(observations=[]), 'risk_graph_input'),
-        (lambda f: f['connectedMarkets'][0]['samples'][0]['observations'][0].update(seriesId=str(uuid4())), 'risk_job_denied'),
-        (lambda f: f['connectedMarkets'][0]['samples'][0]['observations'][0].update(use='Inferred'), 'risk_job_denied'),
+        (lambda f: f['connectedMarkets'][custom_index].update(manifestId=''), 'risk_graph_input'),
+        (lambda f: f['connectedMarkets'][custom_index]['recipes'][0].update(version=64), 'custom_projection'),
+        (lambda f: f['connectedMarkets'][custom_index]['samples'][0].update(sourceCurve='missing_source'), 'risk_graph_input'),
+        (lambda f: f['connectedMarkets'][custom_index]['samples'][0].update(freezeHistorical=not f['connectedMarkets'][custom_index]['samples'][0]['freezeHistorical']), 'risk_graph_input'),
+        (lambda f: f['connectedMarkets'][custom_index]['samples'][0].update(observations=[]), 'risk_graph_input'),
+        (lambda f: f['connectedMarkets'][custom_index]['samples'][0]['observations'][0].update(seriesId=str(uuid4())), 'risk_job_denied'),
+        (lambda f: f['connectedMarkets'][custom_index]['samples'][0]['observations'][0].update(use='Inferred'), 'risk_job_denied'),
     ]
     for change, expected in changes:
         altered = deepcopy(frame)
         change(altered)
         reject(lambda: submit(altered), expected)
-    recipe = frame['connectedMarkets'][0]['recipes'][0]
+    recipe = frame['connectedMarkets'][custom_index]['recipes'][0]
     before = query(f"""SELECT k.known_from-interval '1 microsecond' FROM market_data.custom_curve_versions v
       JOIN market_data.custom_curve_knowledge_receipts k ON(k.catalog_id,k.publication_order,k.publication_xid)=(v.catalog_id,v.publication_order,v.publication_xid)
       WHERE(v.catalog_id,v.curve_id,v.version)=('{catalog}','{recipe['curveId']}',{recipe['version']});""")
@@ -70,4 +73,4 @@ def run_checks(query, manifest, job_id):
     reject(lambda: submit(historical, historical_request, old_context), 'custom_projection')
     reject(lambda: query(f"BEGIN;UPDATE risk.job_curve_samples SET freeze_historical=NOT freeze_historical WHERE job_id='{job_id}';ROLLBACK;"), 'immutable')
     assert query("SELECT NOT has_table_privilege('openetrm_runtime','risk.job_curve_samples','SELECT') AND NOT has_table_privilege('openetrm_risk_worker','risk.job_curve_samples','INSERT');") == 't'
-    print('PASS connected risk DB: exact version/source/observation/use retention, historical freezing and publication cutoff, immutable pins and private rows', flush=True)
+    print('PASS connected risk DB: exact graph/axis/version/source/observation/use retention, historical freezing and publication cutoff, immutable pins and private rows', flush=True)

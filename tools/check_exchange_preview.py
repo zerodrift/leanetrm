@@ -93,20 +93,21 @@ def run_checks(url,query=None,manifest=None):
     assert example['summary']['hours']=='320' and example['summary']['energy']=='1' and example['holidays']==['2026-11-26'] and example['holidayCalendar']=='ept_published_peak'
     assert Decimal(example['summary']['amount'])==Decimal(power_contract['mark']).quantize(Decimal('0.01'))
     print('PASS power example: exact indexed futures reference feeds a typed one-MWh peak allocation without inferring official hourly prices.',flush=True)
-    risk_catalog=c.call('futures/risk/catalog',{'context': context, 'bookIds': [], 'portfolioIds': []})
+    risk_context={**context,'convention':'trading_workspace_v1'}
+    risk_catalog=c.call('portfolio/risk/catalog',{'context': risk_context, 'bookIds': [], 'portfolioIds': []})
     held={v['contract']['id']:v for v in expected.values()}
     factors=[v for v in risk_catalog['factors'] if v['contractId'] in held]
-    bumps=[{'seriesId':v['seriesId'],'quote':v['quote'],'size':'0.01','convention':risk_catalog['bumpConvention']} for v in factors]
+    bumps=[{'factor':v['factor'],'size':'0.01','convention':risk_catalog['bumpConvention']} for v in factors]
     checked=set()
     for start in range(0,len(bumps),16):
-        risk=c.call('futures/risk',{'context':context,'bookIds':[],'portfolioIds':[],'bumps':bumps[start:start+16],'convention':risk_catalog['convention'],'numericalPolicy':risk_catalog['numericalPolicy']})
+        risk=c.call('portfolio/risk',{'context':risk_context,'bookIds':[],'portfolioIds':[],'bumps':bumps[start:start+16],'convention':risk_catalog['convention'],'numericalPolicy':risk_catalog['numericalPolicy'],'pricingPolicy':risk_catalog['pricingPolicy'],'stress':[]})
         for result in risk['factors']:
             cid=result['factor']['contractId'];oracle=held[cid];checked.add(cid)
-            moved=[p for p in result['positions'] if p['contractId']==cid]
+            moved=[p for p in result['positions'] if expected[p['tradeId']]['contract']['id']==cid]
             assert len(moved)==1
             assert Decimal(moved[0]['values']['upPnl'])==oracle['quantity']*Decimal('0.01')
             assert Decimal(moved[0]['values']['downPnl'])==-oracle['quantity']*Decimal('0.01')
-            assert all(Decimal(p['values']['upPnl'])==0 for p in result['positions'] if p['contractId']!=cid)
+            assert all(Decimal(p['values']['upPnl'])==0 for p in result['positions'] if expected[p['tradeId']]['contract']['id']!=cid)
     assert len(checked)==12
     c.call('profile',{'profile':'trader'})
     oracle=next(v for v in expected.values() if v['body']['curve']=='ice_wah')

@@ -18,12 +18,13 @@ without a seven-figure implementation.
   amendment history
 - **Curves:** futures, gas and power forwards, basis and interest rates, built from
   explicitly selected prices, with a diagram showing which inputs built each
-  contract's price. Saved managed custom recipes can supply an explicitly pinned
-  monthly swap projection through the API; the trade editor has no custom-curve picker yet
+  contract's price. The custom-curve workbench supports visual/formula recipes and
+  explicit weighted contract baskets; the swap editor selects compatible published
+  outputs for monthly projections
 - **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
-  and remaining projections. Shared quote scenarios produce exact delta and gamma;
-  generated-close jobs retain mixed futures-and-swaps reports
-- **Risk jobs:** temporary nested quote stresses, risk around the stressed market,
+  and remaining projections. Connected quote and computed-output scenarios produce
+  exact delta and gamma; generated-close jobs retain mixed futures-and-swaps reports
+- **Risk jobs:** temporary nested stresses, risk around the stressed market,
   and queued mixed-book runs pinned to the header's financial context, with retained
   results and cancellation; see [the risk engine](docs/risk-engine.md)
 - **Monthly strips:** managed multi-year swap pricing with explicit monthly

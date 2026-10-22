@@ -70,21 +70,8 @@ def run_checks(url, manifest, query, run_worker):
     print('PASS connected draft: exact custom Price/Risk parity, retained replay and no trading writes', flush=True)
     booked = client.call('swaps/book', terms)
     assert client.call('swaps/book', terms) == booked
-    client.call('profile', {'profile': 'editor'})
-    sql_definition = deepcopy(definition)
-    sql_definition.update(code='synthetic_connected_sql_mean', name='Synthetic panel SQL mean')
-    for node in sql_definition['nodes']:
-        if node['kind'] == 'mean':
-            node.update(kind='sql_transform', parameters={'sqlTransformCode': 'sql_mean_dates_v1'})
-    sql_saved = client.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'],
-        'definition': sql_definition, 'layout': {}})
-    client.call('profile', {'profile': 'approver'})
-    client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': sql_saved['id'],
-        'version': sql_saved['version'], 'generation': sql_saved['generation']})
-    client.call('profile', {'profile': 'trader'})
     from check_custom_projection_db import run_booking_checks
-    run_booking_checks(query, manifest, booked['tradeId'],
-        {**reference, 'curveId': sql_saved['id'], 'version': sql_saved['version']})
+    run_booking_checks(query, manifest, booked['tradeId'])
     client.call('swaps/book', {**terms, 'quantity': '11'}, expected=409)
     editor = client.call('swaps/editor', {'context': context, 'tradeId': booked['tradeId'], 'revision': None})
     assert Fraction(editor['valuation']['presentValue']) == expected_price * 10
@@ -104,7 +91,7 @@ def run_checks(url, manifest, query, run_worker):
     selected = {**context, 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
     risk_catalog = client.call('portfolio/risk/catalog', {'context': selected, 'bookIds': [terms['bookId']], 'portfolioIds': []})
     retained = {**selected, 'knowledgeMode': 'retained', 'contextId': risk_catalog['context']['contextId']}
-    bumps = [{'seriesId': f['seriesId'], 'quote': f['quote'], 'size': '0.1', 'convention': risk_catalog['bumpConvention']}
+    bumps = [{'factor': f['factor'], 'size': '0.1', 'convention': risk_catalog['bumpConvention']}
              for f in risk_catalog['factors']]
     request = {'context': retained, 'bookIds': [terms['bookId']], 'portfolioIds': [], 'detail': 'holdings',
         'bumps': bumps, 'stress': [], 'convention': risk_catalog['convention'],
@@ -166,3 +153,5 @@ def run_checks(url, manifest, query, run_worker):
     assert client.call('portfolio/risk/jobs/' + queued['id'])['result']['factors'] == result['factors']
     print('PASS connected amendment: explicit projection survives quantity change and retained prior risk stays unchanged', flush=True)
     print('PASS connected portfolio: live source shocks, idempotent queue and retained worker parity after a historical correction', flush=True)
+    from check_weighted_portfolio import run_checks as check_weighted
+    check_weighted(url, manifest, query, run_worker)

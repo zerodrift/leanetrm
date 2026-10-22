@@ -10,7 +10,7 @@ def run_checks(query, manifest):
     setup = f"""BEGIN;
     INSERT INTO market_data.custom_curves VALUES('{catalog}','{curve}','synthetic_projection_check');
     INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout)
-      VALUES('{catalog}','{curve}',1,1,'draft','Synthetic projection','result','custom_curve_recipe_v1','{{}}');
+      VALUES('{catalog}','{curve}',1,1,'draft','Synthetic projection','result','custom_curve_recipe_v2','{{}}');
     INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{curve}',1,'result','output','{{}}');
     UPDATE market_data.custom_curve_versions SET state='published',publication_order=(SELECT coalesce(max(publication_order),0)+1 FROM market_data.custom_curve_versions WHERE catalog_id='{catalog}'),published_at=clock_timestamp(),publication_xid=pg_current_xact_id()
       WHERE catalog_id='{catalog}' AND curve_id='{curve}';
@@ -41,7 +41,7 @@ def run_checks(query, manifest):
     print('PASS custom projection DB: exact published output, immutable binding, explicit policy and read-only worker scope', flush=True)
 
 
-def run_booking_checks(query, manifest, trade_id, sql_projection):
+def run_booking_checks(query, manifest, trade_id):
     """Exercise the canonical SQL command from a real accepted booking."""
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
     original = json.loads(query(f"SELECT request FROM trading.swap_trade_revisions WHERE catalog_id='{catalog}' AND trade_id='{trade_id}' AND revision=1;"))
@@ -66,13 +66,12 @@ def run_booking_checks(query, manifest, trade_id, sql_projection):
     missing = str(uuid4())
     missing_setup = f"""INSERT INTO market_data.custom_curves VALUES('{catalog}','{missing}','synthetic_missing_source');
       INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout)
-       VALUES('{catalog}','{missing}',1,1,'draft','Synthetic missing source','result','custom_curve_recipe_v1','{{}}');
+       VALUES('{catalog}','{missing}',1,1,'draft','Synthetic missing source','result','custom_curve_recipe_v2','{{}}');
       INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{missing}',1,'result','output','{{}}');
       UPDATE market_data.custom_curve_versions SET state='published',publication_order=(SELECT max(publication_order)+1 FROM market_data.custom_curve_versions WHERE catalog_id='{catalog}'),published_at=clock_timestamp(),publication_xid=pg_current_xact_id()
        WHERE catalog_id='{catalog}' AND curve_id='{missing}';"""
     failures = []
     for changed, label, setup in [({**original, 'definition': other_revision}, 'another exact market revision', ''),
-                                 ({**original, 'customProjection': sql_projection}, 'a panel-only SQL transformation', ''),
                                  ({**original, 'customProjection': {**original['customProjection'], 'curveId': missing,
                                      'version': 1, 'outputNode': 'result'}}, 'a projection without source relationships', missing_setup)]:
         try:
@@ -83,4 +82,4 @@ def run_booking_checks(query, manifest, trade_id, sql_projection):
         else:
             failures.append(f'The SQL command accepted {label}')
     assert not failures, '\n'.join(failures)
-    print('PASS custom projection SQL booking: accepted replay and rejected mismatched/missing sources and panel-only SQL', flush=True)
+    print('PASS custom projection SQL booking: accepted replay and rejected mismatched/missing sources ', flush=True)

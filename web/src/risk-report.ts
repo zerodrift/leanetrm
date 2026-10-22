@@ -10,3 +10,11 @@ export function riskTotalGroups(rows:RiskTotal[]){
   }
   return [...groups.values()];
 }
+
+export type RiskWorkReport={heldInstruments:number;work:{positionCount:number;uniqueValuations:number;scenarioCount:number;preparationScenarioCount:number;unitPricerCalls:number;rebuiltCurveNodes:number;reusedCurveNodes:number;repeatedInstrumentReferences:number;quantityApplications:number};connectedScenarios:{definitions:{revisionId:string};work:{evaluatedNodes:number;reusedReads:number;affectedNodes:number;traversedAffectedEdges:number};preparation:{sourceCompilations:number;declaredSourceNodes:number}}[]};
+export function riskWorkDetails(report:RiskWorkReport){
+  return [
+    `Materialization · ${report.work.rebuiltCurveNodes} curve nodes evaluated · ${report.work.reusedCurveNodes} reused.`,
+    ...report.connectedScenarios.map(m=>`Market revision ${m.definitions.revisionId} · ${m.work.evaluatedNodes} graph nodes evaluated · ${m.work.reusedReads} reused reads · ${m.work.affectedNodes} affected nodes · ${m.work.traversedAffectedEdges} affected edges traversed · ${m.preparation.sourceCompilations} source compilations · ${m.preparation.declaredSourceNodes} declared source nodes.`),
+  ];
+}
