@@ -913,12 +913,14 @@ cookie.
 - **Endings:** a newer stream of an unfinished turn, in the same session or another of
   its owner's, sends the older `replaced`; after Stop the stream sends the usage and the
   cancelled ending, incomplete; a profile switch ends the session's streams
-  `session_ended` while a turn asked in another session completes; a stream whose owner
-  loses `UseAgents` is refused `access_denied` once the turn failed `access_changed`; a
-  lost generation refuses its streams `agent_runtime_unavailable`, a stream is refused
-  with a 503 while another session holds the lock, and once it is free a stream starts
-  the next generation and replays to the interrupted ending; an idle stream pings 13 to
-  20 seconds apart, and one whose turn stays unfinished past its elapsed limit and the
+  `session_ended` while a turn asked in another session completes, and one while a
+  stream is admitted, its first read held, refuses it `session_ended`, replacing none,
+  while the turn's stream goes on to its ending; a stream whose owner loses `UseAgents`
+  is refused `access_denied` once the turn failed `access_changed`; a lost generation
+  refuses its streams `agent_runtime_unavailable`, a stream is refused with a 503 while
+  another session holds the lock, and once it is free a stream starts the next
+  generation and replays to the interrupted ending; an idle stream pings 13 to 20
+  seconds apart, and one whose turn stays unfinished past its elapsed limit and the
   admission deadline, its row held, is refused `stream_expired`.
 - **Sessions:** the cookies of both sessions are as they were handed, no response is
   left scripted and no request goes through a proxy.

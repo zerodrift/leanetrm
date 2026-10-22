@@ -46,9 +46,11 @@ public sealed class TurnStream(PreviewDatabase database,string scope,AgentWorker
                 // This read sends what committed before the subscription, and any ending the restart wrote.
                 var heard=await Read(profile,conversation,turn.Id,opened.Events.IsEmpty?from:opened.Events[^1].Sequence,aborted);
                 opened=heard.Refused is null?heard.After(opened):opened with{Refused=heard.Refused};
-                streams.Activate(subscription);
             }
+            // A profile switch during admission refuses the stream before it replaces the older one; one after this check
+            // stops the subscription, which then replaces none (§8).
             if(!Bound(session,profile))throw new PreviewSessionEnded();
+            if(subscription is not null)streams.Activate(subscription);
             context.Response.StatusCode=StatusCodes.Status200OK;
             context.Response.ContentType="text/event-stream; charset=utf-8";
             context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();

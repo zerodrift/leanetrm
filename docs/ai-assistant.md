@@ -881,11 +881,12 @@ The tool set is fixed; each tool is switched on per agent version.
   conversation like an unknown one (`conversation_not_found`). For a non-terminal turn
   the stream then subscribes, takes the worker's generation as an ask does, starting
   one if it can (`agent_runtime_unavailable`, 503, while another process holds it),
-  reads again what committed before it subscribed, and replaces the older stream. No
-  CORS headers; the only side effects are that replacement and the worker's start.
-  Failures are non-2xx, which stops `EventSource`, and the panel re-reads once. A
-  missing or expired session is `session_ended` on assistant routes (pages keep
-  `access_denied`), with a reload offer and no retry loop.
+  reads again what committed before it subscribed, and replaces the older stream; a
+  profile switch before then refuses it `session_ended`, replacing none. No CORS
+  headers; the only side effects are that replacement and the worker's start. Failures
+  are non-2xx, which stops `EventSource`, and the panel re-reads once. A missing or
+  expired session is `session_ended` on assistant routes (pages keep `access_denied`),
+  with a reload offer and no retry loop.
 - **Delivery.** The server flushes headers and a comment on open and heartbeats every
   15 seconds while idle, checking before each write that the session is unexpired with
   an unchanged profile (else `refused`, `session_ended`); a profile switch ends its

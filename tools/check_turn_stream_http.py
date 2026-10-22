@@ -10,7 +10,7 @@ import time
 from urllib.parse import urlsplit
 from urllib.request import HTTPCookieProcessor
 from uuid import uuid4
-from assistant_context import Contexts, holding
+from assistant_context import Contexts, holding, waiting
 from assistant_fixture import Fixture
 from check_agent_turn_http import closing, delta, opening
 from check_provider_tests import Worker
@@ -380,6 +380,30 @@ def run_checks(url, query, psql, manifest, environment, fake, trap, admin, trade
     check("a profile switch ends the session's streams with refused session_ended, and a turn asked in another session goes on",
           [f['event'] for f in events(frames)] == ['refused'] and events(frames)[0]['data']['code'] == 'session_ended'
           and settled(bound)[0]['state'] == 'completed', frames)
+
+    # A switch that lands while a stream is admitted (§8): that stream, its first read held here behind the conversations
+    # table, is refused session_ended and replaces none, so the turn's stream goes on.
+    release = stalling()
+    racing = ask()
+    live = Stream(trader, racing['conversationId'], 0)
+    early = live.until(texted)
+    admin.call('profile', {'profile': 'trader'})
+
+    def switching():
+        opened = []
+        thread = threading.Thread(target=lambda: opened.append(Stream(admin, racing['conversationId'], 0)))
+        thread.start()
+        waiting(query, 1, 'assistant.turn_stream')
+        admin.call('profile', {'profile': 'admin'})
+        return thread, opened
+    thread, opened = holding(psql, environment, 'LOCK TABLE assistant.conversations IN ACCESS EXCLUSIVE MODE', switching)
+    thread.join(timeout=20)
+    late = opened[0]
+    refused = late.status == 403 and late.refusal()['code'] == 'session_ended'
+    release.set()
+    frames = early + live.rest()
+    check("a profile switch while a stream is admitted refuses it session_ended, replacing none, and the turn's stream goes on to the "
+          'terminal event', refused and events(frames)[-1]['event'] == 'completed' and stored_as_streamed(racing, frames), (late.status, frames))
 
     # The stream needs current UseAgents (§8): once its owner loses it, the turn fails and the stream is refused.
     login = f'synthetic_stream_{stamp}'
