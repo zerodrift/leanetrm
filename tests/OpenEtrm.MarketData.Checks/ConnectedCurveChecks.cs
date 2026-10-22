@@ -39,7 +39,6 @@ internal static class ConnectedCurveChecks
         Reject("Missing point",()=>ReplaceMean(new ConnectedMean([CurvePointReference.Exact(new(f.RawPoints[0].Key.Curve,Guid.NewGuid()))],ConnectedCurves.UniformMean)));
         Reject("Different exact price units",()=>ReplaceMean(f.Mean.Expression,new(f.Mean.Unit.Currency,f.Mean.Unit.Quantity,ExactDecimal.Parse("100"))));
         Reject("A computed curve cycle",()=>ReplaceMean(new ConnectedMean([CurvePointReference.Exact(f.Spread.Key)],ConnectedCurves.UniformMean)));
-        Reject("Connected SQL is unsupported",()=>ReplaceMean(new ConnectedSqlTransform("sql_mean_dates_v1")));
 
         // Exact aliases of one observation share a primitive rather than a copy.
         var first=f.RawPoints[0];var source=(ConnectedSource)first.Expression;
@@ -53,7 +52,7 @@ internal static class ConnectedCurveChecks
         Reject("One exact contract cannot carry conflicting source alias metadata",()=>ConnectedCurves.Compile(f.Definitions.Add(new(aliasKey,[conflictingContract])),[first.Key,alias.Key],f.Context,f.Resolver));
         var conflicting=alias with{Expression=((ConnectedSource)alias.Expression) with{Observation=source.Observation with{Key=new(source.Observation.Key.CatalogId,Guid.NewGuid())}}};
         Reject("A variable series has only one pinned observation",()=>ConnectedCurves.Compile(f.Definitions.Add(new(aliasKey,[conflicting])),[first.Key,conflicting.Key],f.Context,f.Resolver));
-        var broken=f.Spread with{Expression=new ConnectedSqlTransform("unsupported")};
+        var broken=f.Spread with{Expression=new ConnectedMean([CurvePointReference.Exact(new(f.Mean.Key.Curve,Guid.NewGuid()))],ConnectedCurves.UniformMean)};
         Equal("Unconsumed derived definitions do not materialize",ConnectedCurves.Compile(f.Definitions.Select(d=>d.Key==broken.Key.Curve?d with{Points=[broken]}:d),[first.Key],f.Context,f.Resolver).Points.Count,1);
 
         void RejectSource(string label,ConnectedSource changed)=>Reject(label,()=>ConnectedCurves.Compile(

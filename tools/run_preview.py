@@ -386,11 +386,15 @@ def main():
                 worker_env=prepare_risk_worker()
                 def run_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                from check_curve_scenarios import run_checks as check_curve_scenarios
+                check_curve_scenarios(url,run_worker)
                 check_portfolio_risk_authority(Client,query,check,manifest,temporary)
                 check_portfolio_risk(Client,check,run_worker)
                 check_risk(Client,check)
                 check_risk_jobs(Client,check,run_worker)
                 check_risk_jobs_db(query,manifest,psql,env)
+                from check_portfolio_risk import run_supplemental_scope
+                run_supplemental_scope(Client,check,query,manifest,run_worker)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

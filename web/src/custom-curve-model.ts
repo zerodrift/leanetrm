@@ -1,6 +1,7 @@
 /** Presentation contracts for the managed custom-curve operations. No market
  * selection, dates, aggregation or financial arithmetic runs in this module. */
-export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>};
+export type ContractWeight={outputPosition:number|null;sourcePort:string;contractId:string;weight:string};
+export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[]};
 export type CurveDefinition={code:string;name:string;nodes:CurveNode[];output:string};
 export type NodePosition={x:number;y:number};
 export type CurveLayout=Record<string,NodePosition>;
@@ -10,6 +11,9 @@ export function curveEdges(definition:CurveDefinition):CurveEdge[]{
 }
 export function changeCurveConnection(definition:CurveDefinition,target:string,port:string,source:string):CurveDefinition{
  return {...definition,nodes:definition.nodes.map(node=>{if(node.id!==target)return node;const inputs={...node.inputs};if(source)inputs[port]=source;else delete inputs[port];return {...node,inputs};})};
+}
+export function changeContractWeights(definition:CurveDefinition,target:string,rows:ContractWeight[]):CurveDefinition{
+ return {...definition,nodes:definition.nodes.map(node=>node.id===target?{...node,contractWeights:rows.map(row=>({...row}))}:node)};
 }
 export function curveLayout(definition:CurveDefinition,saved:CurveLayout={}):CurveLayout{
  const positions:CurveLayout={},depths=new Map<string,number>(),visited=new Set<string>();

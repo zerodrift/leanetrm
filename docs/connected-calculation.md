@@ -1,11 +1,12 @@
 # Connected curve calculation
 
-Status: managed graph execution with a bounded saved-recipe, booked-swap and
-retained portfolio integration (D182–183). Saved managed recipes can supply an
-explicit monthly indexed projection through the existing API and worker. The
-backend uses the database's existing certified financial context; it does not
-create a new knowledge clock. The trade editor has no custom-curve picker, and
-all pricing/scenario behavior stays in the backend.
+Status: one connected evaluator for ordinary curves, basis relationships and
+saved recipes, with monthly booked projections and retained portfolio execution
+(D182–183, D186). The custom-curve workbench edits exact weighted mappings; the trade
+editor selects compatible published outputs; portfolio risk exposes quote and
+computed-output targets through the API and UI. The backend uses the database's
+existing certified financial context. Contract/date selection, formula compilation,
+pricing and scenario behavior remain entirely in the backend.
 
 ## Calculation contract
 
@@ -37,9 +38,12 @@ Live source points retain their exact input, observation, quote and contract
 bindings. Frozen facts remain explicit. Derived nodes retain references to
 their dependencies; they never turn a derived result into a detached source
 price. Exact rational arithmetic preserves nonterminating averages through PV.
-Working-decimal consumers explicitly reject an unrepresentable rational value.
-Registered SQL transforms require a separately qualified executor and are
-rejected by connected booked pricing.
+Existing typed source operations retain their explicit 18-decimal-place
+representability and quote-domain checks. Connected means, weighted combinations
+and instrument PV preserve exact rational values; working-decimal consumers
+reject values they cannot represent. Display rounding is separate. This does not
+silently relax the source model's numerical contract. SQL recipe execution is
+removed; unsupported nodes and engine versions reject.
 
 ## Scenarios
 
@@ -105,13 +109,27 @@ visible publications, while current authority gates every business read. The
 managed logical-binding resolver is not a database activation table or a latest
 version-by-name lookup.
 
-The portfolio API and durable worker use this materialization. Their HTTP shock
-contract remains live primitive quote bumps and nested quote stresses. Direct
-computed-output, parallel and bucket targets remain available through the managed
-typed scenario API. SQL recipe transformations remain panel-only. The integration
-supports the existing monthly indexed projection within one source catalog and
-revision; daily custom mappings, cross-revision histories and a trade-editor
-picker remain work.
+The portfolio API, trade editor and durable worker use this materialization.
+The HTTP/UI scenario catalog supplies exact quote/output coordinates and contract,
+explicit-point, parallel and whole-delivery-bucket targets. The browser transports
+those descriptors and explicit amounts; the backend resolves and validates their
+members. Nested stress layers and symmetric risk bumps use the same graph.
+
+Migration 0080 introduces `custom_curve_recipe_v2` and normalized weighted-contract
+rows. Multiple source ports retain exact source/member foreign keys, output
+positions and explicit signed-sum or normalized-mean weights. It refuses existing
+saved recipes pending an explicit operator reset/rebooking; no historical recipe
+is silently reinterpreted. Migration 0081 retains every portfolio market's graph
+manifest and typed scenario axes, including their resolved points. Compiled recipe
+coordinates are runtime graph identities anchored to that manifest, not invented
+foreign keys to persisted curve definitions. Migration 0081 refuses any
+retained risk jobs, including completed ones. An operator must explicitly archive
+and reset them before adopting this baseline; the migration deletes nothing. The portfolio risk
+routes are the sole portfolio-risk HTTP operations; no legacy futures-risk fallback remains.
+
+The persisted custom projection supports monthly sampling within one source
+catalog and revision. Database logical activation, daily custom mappings and
+cross-revision histories remain work.
 
 ## Execution and qualification
 
@@ -131,10 +149,12 @@ Completed risk factors retain immutable scenario receipts and work counts.
 Results do not retain execution caches after each up/down pair has priced all
 valuation groups.
 Interactive preparation reads visible source-revision history before bounded
-sampling and may repeat source builds across recipes. `ConnectedPreparationWork`
-reports source builds/evaluated/reused source nodes separately from `GraphWork`.
-Workers reload admitted sample IDs. Query pushdown, shared preparation and
-end-to-end large financial workload qualification remain work. Worker replicas
+sampling. Source topology compilation does not evaluate prices.
+`ConnectedPreparationWork.SourceCompilations` and `DeclaredSourceNodes` count that
+preparation separately from `GraphWork`; the portfolio's existing futures
+materialization build remains counted as evaluated preparation work. Workers reload
+admitted sample IDs. Historical query pushdown and end-to-end large financial
+workload qualification remain work. Worker replicas
 process separate whole runs; this integration does not distribute one graph or
 reduce one run across machines.
 
@@ -143,7 +163,9 @@ MarketData.Checks switches `--dependency-plan`, `--temporal-bindings`,
 `--connected-curves`, `--connected-scenarios`, `--exact-curve-prices`,
 `--connected-recipes`, `--custom-projection` and `--connected-portfolios`.
 `tools/run_preview.py --connected-portfolio-check` exercises the saved projection,
-booking, shared portfolio and durable worker path in a disposable database.
+weighted multi-source recipes, booking, shared portfolio and durable worker path
+in a disposable database. `--risk-jobs-check` includes HTTP coordinate and target
+selection checks; `--custom-curves-check --browser-check` exercises the workbench.
 The Release benchmark switch is `--connected-graph-benchmark <output.json>`;
 keep its generated report outside the repository. The workload records node and
 edge counts, scenarios, evaluated work, allocation/retained memory, environment

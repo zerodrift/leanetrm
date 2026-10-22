@@ -148,11 +148,16 @@ def run_checks(url, query, manifest, psql, environment):
     edited = details()['state']
     check('contract replacement retains trade reference and changes only instrument reference', edited['tradeReference'] == initial['state']['tradeReference'] and edited['instrumentReference'] != initial['state']['instrumentReference'])
     check('contract replacement creates a new binding without changing the shared original', fourth['revision'] == 4 and edited['instrumentId'] != initial['state']['instrumentId'] and next(h for h in c.call('futures/holdings', context)['holdings'] if h['tradeId'] == other['tradeId'])['instrumentId'] == initial['state']['instrumentId'])
-    risk_catalog = analyst.call('futures/risk/catalog', {'context': analyst_context, 'bookIds': [], 'portfolioIds': []})
+    risk_context = {**analyst_context, 'convention': 'trading_workspace_v1'}
+    risk_catalog = analyst.call('portfolio/risk/catalog', {'context': risk_context, 'bookIds': [], 'portfolioIds': []})
     factor = next(f for f in risk_catalog['factors'] if f['contractId'] == february['id'] and 'future' in f['curves'])
-    risk = analyst.call('futures/risk', {'context': analyst_context, 'bookIds': [], 'portfolioIds': [], 'bumps': [{'seriesId': factor['seriesId'], 'quote': factor['quote'], 'size': '0.1', 'convention': risk_catalog['bumpConvention']}], 'convention': risk_catalog['convention'], 'numericalPolicy': risk_catalog['numericalPolicy']})
+    risk = analyst.call('portfolio/risk', {'context': risk_context, 'bookIds': [], 'portfolioIds': [], 'bumps': [{'factor': factor['factor'], 'size': '0.1', 'convention': risk_catalog['bumpConvention']}], 'convention': risk_catalog['convention'], 'numericalPolicy': risk_catalog['numericalPolicy'], 'pricingPolicy': risk_catalog['pricingPolicy'], 'stress': []})
     pinned = next(r for r in risk['inputs']['positions'] if r['tradeId'] == trade['tradeId'])
-    check('risk inputs pin the accepted replacement revision and exact event', pinned['revision'] == '4' and pinned['eventId'] == fourth['eventId'] and pinned['eventSchema'] == fourth['eventSchema'] and pinned['instrumentId'] == fourth['instrumentId'])
+    accepted = json.loads(query(f"SELECT json_build_object('revision',revision,'eventId',event_id,'eventSchema',event_schema,'bindingId',binding_id,'instrumentId',instrument_id) FROM trading.trade_revisions WHERE catalog_id='{manifest['catalogId']}' AND trade_id='{trade['tradeId']}' AND revision=4"))
+    check('risk inputs pin the accepted replacement revision and exact event binding',
+          pinned['revision'] == accepted['revision'] == 4 and pinned['bindingId'] == accepted['bindingId']
+          and pinned['instrumentId'] == accepted['instrumentId'] == fourth['instrumentId']
+          and accepted['eventId'] == fourth['eventId'] and accepted['eventSchema'] == fourth['eventSchema'])
     # Restore the same January contract for the later shared-instrument browser fixture.
     restored = c.call('futures/amend', {**replacement, 'operationId': str(uuid4()), 'expectedRevision': 4, 'contractId': contract['id'], 'curve': contract['curve']})
     check('restoring an exact instrument restores its original readable reference', details()['state']['instrumentReference'] == initial['state']['instrumentReference'])

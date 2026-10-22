@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.CustomCurves;
+using OpenEtrm.MarketData.Calculation;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -110,7 +111,6 @@ public sealed record ResolvedSchedulePrice
 public sealed class SideValuationContext
 {
     private readonly CurveBuild? market;
-    private readonly IReadOnlyDictionary<CurveRequest, BuiltValue> prices;
     private readonly ImmutableHashSet<CurveRequest>? permitted;
     private readonly ISideDiscounting? discounting;
     private readonly Func<CurveRequest,ExactUnitPrice>? exactPrices;
@@ -119,12 +119,12 @@ public sealed class SideValuationContext
     private readonly string? connectedScenarioId;
     public MarketSnapshot Snapshot { get; }
     public ISideDiscounting Discounting => discounting??throw new MarketDataException("side_context","Supply this instrument's explicit payment discount inputs.");
-    public string CurveNumericalPolicy => connectedNumericalPolicy??CurveModel.NumericalPolicy;
-    public string? ScenarioId=>connectedScenarioId??market?.Scenario.Id;
+    public string CurveNumericalPolicy => connectedNumericalPolicy??ConnectedCurves.NumericalPolicy;
+    public string? ScenarioId=>connectedScenarioId;
     public SideValuationContext(MarketSnapshot snapshot, ISideDiscounting discounting)
     {
         Validate(snapshot,discounting);
-        Snapshot = snapshot; this.discounting = discounting; prices = ImmutableDictionary<CurveRequest, BuiltValue>.Empty;
+        Snapshot = snapshot; this.discounting = discounting;
     }
     internal static void Validate(MarketSnapshot snapshot,ISideDiscounting discounting)
     {
@@ -135,20 +135,15 @@ public sealed class SideValuationContext
             throw new MarketDataException("side_context", "An exact supported snapshot and explicit side discounting operation are required.");
     }
     public SideValuationContext(CurveBuild market, ISideDiscounting discounting)
-        : this(market?.Snapshot ?? throw new MarketDataException("swap_context", "A built market scenario is required."), discounting)
+        : this(market?.Snapshot ?? throw new MarketDataException("swap_context", "A compiled market scenario is required."), discounting)
     {
-        if (market.NumericalPolicy != CurveModel.NumericalPolicy)
-            throw new MarketDataException("side_context", "Use the exact supported curve numerical policy.");
-        this.market = market; prices = market.Values.ToDictionary(v => v.Request);
-    }
-    // The portfolio owns this already validated scenario and shared lookup.
-    // A unit receives only its declared access fence, without rebuilding or
-    // rescanning the entire scenario for every instrument.
-    internal SideValuationContext(CurveBuild market,ISideDiscounting? discounting,
-        IReadOnlyDictionary<CurveRequest,BuiltValue> prices,ImmutableArray<CurveRequest> dependencies)
-    {
-        this.market=market;Snapshot=market.Snapshot;this.discounting=discounting;
-        this.prices=prices;permitted=dependencies.ToImmutableHashSet();
+        this.market = market;
+        var pricing = market.Pricing;
+        permitted = market.Requests.ToImmutableHashSet();
+        exactPrices = request => pricing.Price(request, default);
+        exactLineage = request => pricing.Lineage(request, default);
+        connectedNumericalPolicy = pricing.NumericalPolicy;
+        connectedScenarioId = pricing.ScenarioId;
     }
     // Connected calculations retain the same pricer contract and dependency
     // fence. Rational inputs are resolved on demand under their active scenario.
@@ -156,7 +151,7 @@ public sealed class SideValuationContext
         ImmutableArray<CurveRequest> dependencies,Func<CurveRequest,ExactUnitPrice> exactPrices,string numericalPolicy,string scenarioId)
     {
         Snapshot=snapshot;this.discounting=discounting;this.exactPrices=exactPrices;
-        prices=ImmutableDictionary<CurveRequest,BuiltValue>.Empty;permitted=dependencies.ToImmutableHashSet();
+        permitted=dependencies.ToImmutableHashSet();
         connectedNumericalPolicy=numericalPolicy;connectedScenarioId=scenarioId;
     }
     internal SideValuationContext(CurveBuild authority, ISideDiscounting? discounting,
@@ -166,19 +161,13 @@ public sealed class SideValuationContext
     {
         market = authority; exactLineage = lineage;
     }
-    public UnitPrice Price(CurveRequest request)
-    {
-        if(permitted is not null&&!permitted.Contains(request))
-            throw new MarketDataException("risk_dependency","An instrument requested an undeclared market input.");
-        if(exactPrices is not null)return exactPrices(request).ToUnitPriceExact();
-        return prices.TryGetValue(request,out var value)?value.Price:
-            throw new MarketDataException("risk_dependency","An instrument's declared market input is unavailable.");
-    }
+    public UnitPrice Price(CurveRequest request) => ExactPrice(request).ToUnitPriceExact();
     public ExactUnitPrice ExactPrice(CurveRequest request)
     {
         if(permitted is not null&&!permitted.Contains(request))
             throw new MarketDataException("risk_dependency","An instrument requested an undeclared market input.");
-        return exactPrices is not null?exactPrices(request):ExactUnitPrice.FromPrice(Price(request));
+        return exactPrices is not null?exactPrices(request):
+            throw new MarketDataException("risk_dependency","An instrument's declared market input is unavailable.");
     }
     internal ResolvedSchedulePrice Resolve(SchedulePriceTerm term)
     {
@@ -202,20 +191,16 @@ public sealed class SideValuationContext
             }
         }
         var projection = lookup.ProjectionRequest;
+        if (lookup.CustomProjection is not null && (exactPrices is null || permitted is not null && !permitted.Contains(projection)))
+            throw new MarketDataException("custom_projection", "A saved custom projection requires its exact prepared connected pricing inputs.");
         if (permitted is not null && !permitted.Contains(projection))
             throw new MarketDataException("risk_dependency", "A side requested an undeclared market input.");
-        if (exactPrices is not null)
-        {
-            var price = exactPrices(projection);
-            if (price.Unit != PriceUnit.FromQuote(lookup.Quote) || exactLineage is null)
-                throw new MarketDataException("custom_projection", "The connected price must retain the contractual index quote unit and exact observation lineage.");
-            return new(term, price, exactLineage(projection));
-        }
-        if (lookup.CustomProjection is not null)
-            throw new MarketDataException("custom_projection", "A saved custom projection requires its exact prepared connected pricing inputs.");
-        if (!prices.TryGetValue(projection, out var value) || value.Quote != lookup.Quote.Key)
+        if (exactPrices is null || exactLineage is null)
             throw new MarketDataException("missing_observation", "Every exact scheduled index projection is required in the selected market scenario.");
-        return new(term, value.Price, value.Lineage);
+        var price = exactPrices(projection);
+        if (price.Unit != PriceUnit.FromQuote(lookup.Quote))
+            throw new MarketDataException("custom_projection", "The connected price must retain the contractual index quote unit and exact observation lineage.");
+        return new(term, price, exactLineage(projection));
     }
 }
 

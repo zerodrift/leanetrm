@@ -23,22 +23,20 @@ public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid Bi
     public string InstrumentReference{get;init;}="";
     public string InstrumentType{get;init;}="";
 }
-public sealed record PortfolioFactor(QuoteFactor Factor,ExactDecimal BumpSize);
+public sealed record PortfolioFactor(PortfolioRiskAxis Axis,ExactDecimal BumpSize);
 public sealed record PortfolioTotal(string Measure,Guid BookId,ExactMoney Value);
-public sealed record PortfolioFactorRisk(string Measure,Guid BookId,ReferenceKey Currency,InputKey Factor,
+public sealed record PortfolioFactorRisk(string Measure,Guid BookId,ReferenceKey Currency,string Factor,
     ExactMoney Up,ExactMoney Down,ExactMoney UpPnl,ExactMoney DownPnl,ExactRiskDerivative Delta,ExactRiskDerivative Gamma);
 public sealed record PortfolioDiscountEvidence(Guid InstrumentId,SidePaymentKey Payment,PaymentDiscount Input);
-public sealed record PortfolioMarketScenario(DefinitionRevision Definitions,QuoteScenario Scenario);
 public sealed record PortfolioConnectedScenario(DefinitionRevision Definitions,string ManifestId,string Id,string? ParentId,int Depth,GraphWork Work,ConnectedPreparationWork Preparation);
 public sealed record PortfolioHoldingValue(string Measure,ExactRiskPositionValue Position);
-public sealed record PortfolioHoldingRisk(string Measure,InputKey Factor,ExactRiskPositionResult Position);
+public sealed record PortfolioHoldingRisk(string Measure,string Factor,ExactRiskPositionResult Position);
 public sealed record PortfolioValuationResult(Guid SnapshotId,ScheduleContext Context,PortfolioValuationPolicy Policy,
     ImmutableArray<UnitPricingContract> ModelContracts,ImmutableArray<PortfolioPositionEvidence> Positions,
     ImmutableArray<PortfolioFactor> Factors,ImmutableArray<PortfolioTotal> Totals,
     ImmutableArray<PortfolioFactorRisk> Risk,RiskWork Work)
 {
     public ImmutableArray<PortfolioDiscountEvidence> DiscountInputs{get;init;}=[];
-    public ImmutableArray<PortfolioMarketScenario> Markets{get;init;}=[];
     public ImmutableArray<PortfolioConnectedScenario> ConnectedScenarios{get;init;}=[];
     public ImmutableArray<PortfolioHoldingValue> BasePositions{get;init;}=[];
     public ImmutableArray<PortfolioHoldingRisk> HoldingRisk{get;init;}=[];
@@ -49,14 +47,12 @@ public sealed class PortfolioValuation(PreviewDatabase database)
 {
     public const string FuturesMeasure="futures_execution_pnl";
     public const string SwapMeasure="swap_present_value";
-    public sealed record MarketPartition(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,PreparedPortfolioRisk? Risk,
-        ImmutableArray<string> Measures)
+    public sealed record MarketPartition(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,
+        PreparedConnectedPortfolioRisk Connected,ImmutableArray<string> Measures,
+        ConnectedMarketEvidence Evidence,ConnectedPreparationWork Preparation)
     {
-        public PreparedConnectedPortfolioRisk? Connected{get;init;}
-        public ConnectedMarketEvidence? Evidence{get;init;}
-        public ConnectedPreparationWork? Preparation{get;init;}
-        public ImmutableArray<QuoteFactor> Factors=>Connected?.Factors??Risk!.Factors;
-        public string ScenarioId=>Connected?.Valuation.Scenario.Id??Risk!.Scenario.Id;
+        public ImmutableArray<QuoteFactor> Factors=>Connected.Factors;
+        public string ScenarioId=>Connected.Scenario.Id;
     }
     public sealed record Prepared(Guid SnapshotId,ScheduleContext Context,PortfolioValuationPolicy Policy,
         ImmutableArray<MarketPartition> Markets,ImmutableArray<PortfolioPositionEvidence> Positions,
@@ -66,7 +62,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         public int MaterializationScenarioCount{get;init;}
         public ImmutableArray<QuoteFactor> Factors=>Markets.SelectMany(m=>m.Factors).OrderBy(f=>f.Input.Series.Revision.RevisionId)
             .ThenBy(f=>f.Input.Series.Id).ToImmutableArray();
-        public ImmutableArray<ConnectedMarketEvidence> ConnectedMarkets=>Markets.Where(m=>m.Evidence is not null).Select(m=>m.Evidence!).ToImmutableArray();
+        public ImmutableArray<ConnectedMarketEvidence> ConnectedMarkets=>Markets.Select(m=>m.Evidence).ToImmutableArray();
     }
     public static void ValidatePolicy(PortfolioValuationPolicy policy)
     {
@@ -85,8 +81,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             snapshot.Selections.Select(s=>s.Observation.Key.Id).ToImmutableArray(),ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,
             exact.ContextId,snapshot.Selections.Where(s=>s.Input.Use==InputUse.FrozenFact).Select(s=>s.Observation.Key.Id).ToImmutableArray());
         var prepared=await Prepare(connection,data,frame,snapshot,exact,bookIds,policy,[],ct);
-        var bumps=prepared.Factors.Select(f=>new QuoteBump(f.Input,f.Quote,f.Unit,
-            f.TradingTick*ExactDecimal.Parse(policy.BumpTicks.ToString(CultureInfo.InvariantCulture)),policy.BumpConvention)).ToImmutableArray();
+        var bumps=prepared.Factors.Select(f=>new PortfolioCurveBump(CurveRiskAxes.Quote(prepared,f,ct),
+            f.TradingTick*ExactDecimal.Parse(policy.BumpTicks.ToString(CultureInfo.InvariantCulture)))).ToImmutableArray();
         var result=Calculate(prepared,bumps,[],RiskDetail.Books,ct);
         await RequireValuationContext(connection,exact,snapshot.ValuationAt,ct);
         return result;
@@ -153,38 +149,38 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var portfolios=group.Select(m=>m.Portfolio).ToImmutableArray();
             var instruments=portfolios.SelectMany(p=>p.Instruments).ToImmutableArray();
             var dependencies=portfolios.SelectMany(p=>p.Declare(first.Snapshot)).SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray();
-            var hasCustom=instruments.OfType<FinancialSwapInstrument>().Any(i=>i.Floating.CustomProjection is {} binding&&
-                i.Floating.Projections.Any(p=>dependencies.Contains(binding.Request(p.Market))));
-            if(hasCustom)
-            {
-                var retained=retainedGraphs?.SingleOrDefault(g=>g.RevisionId==first.Snapshot.Definitions.RevisionId);
-                if(retainedGraphs is not null&&retained is null)throw new MarketDataException("risk_graph_manifest","The job omitted a required connected market manifest.");
-                var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,ct,retained);
-                markets.Add(new(first.Data,first.Frame,first.Snapshot,null,group.Select(m=>m.Measure).ToImmutableArray())
-                    {Connected=RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),Evidence=connected.Evidence,Preparation=connected.Preparation});
-            }
-            else markets.Add(new(first.Data,first.Frame,first.Snapshot,RiskEngine.Prepare(first.Data.Model,first.Snapshot,portfolios,ct),group.Select(m=>m.Measure).ToImmutableArray()));
+            var retained=retainedGraphs?.SingleOrDefault(g=>g.RevisionId==first.Snapshot.Definitions.RevisionId);
+            if(retainedGraphs is not null&&retained is null)throw new MarketDataException("risk_graph_manifest","The job omitted a required connected market manifest.");
+            var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,ct,retained);
+            markets.Add(new(first.Data,first.Frame,first.Snapshot,
+                RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),
+                group.Select(m=>m.Measure).ToImmutableArray(),connected.Evidence,connected.Preparation));
         }
-        if(retainedGraphs is not null&&retainedGraphs.Value.Length!=markets.Count(m=>m.Connected is not null))
+        if(retainedGraphs is not null&&retainedGraphs.Value.Length!=markets.Count)
             throw new MarketDataException("risk_graph_manifest","The admitted graph set differs from the held projection set.");
         var discountInputs=swaps.DistinctBy(h=>h.Instrument.Id).SelectMany(h=>((CurrencyDefaultDiscounting)h.Discounting).Inputs
             .OrderBy(p=>p.Key.SideId).ThenBy(p=>p.Key.Ordinal).Select(p=>new PortfolioDiscountEvidence(h.Instrument.Id,p.Key,p.Value))).ToImmutableArray();
         return new(snapshot.Id,exact,policy,markets.ToImmutable(),evidence.ToImmutable(),discountInputs)
             {MaterializationWork=materializationWork,MaterializationScenarioCount=materializationScenarios};
     }
-    public static PortfolioValuationResult Calculate(Prepared prepared,ImmutableArray<QuoteBump> bumps,
-        ImmutableArray<QuoteShift> stress,RiskDetail detail,CancellationToken ct)
+    public static PortfolioValuationResult Calculate(Prepared prepared,ImmutableArray<PortfolioCurveBump> bumps,
+        ImmutableArray<PortfolioCurveShift> stress,RiskDetail detail,CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();ValidatePolicy(prepared.Policy);
         if(bumps.IsDefault||stress.IsDefault||!Enum.IsDefined(detail)||prepared.Markets.IsDefaultOrEmpty)
             throw new MarketDataException("risk_contract","Supply explicit scenarios, detail and complete prepared market partitions.");
-        if(bumps.Any(b=>b is null||b.ConventionId!=QuoteBump.Convention||b.Size.CompareTo(default)<=0)||
-            stress.Any(s=>s is null||s.ConventionId!=QuoteShift.Convention||s.Size==default))
-            throw new MarketDataException("risk_bump","Select explicit supported shock conventions and positive bumps or nonzero signed stress shifts.");
-        var available=prepared.Markets.SelectMany(m=>m.Data.Model.QuoteFactors(m.Snapshot)).ToDictionary(f=>f.Input);
-        if(bumps.Select(b=>b.Input).Distinct().Count()!=bumps.Length||bumps.Any(b=>!available.TryGetValue(b.Input,out var f)||f.Quote!=b.Quote||f.Unit!=b.Unit)||
-            stress.Any(s=>!available.TryGetValue(s.Input,out var f)||f.Quote!=s.Quote||f.Unit!=s.Unit))
-            throw new MarketDataException("risk_factor","Every selected shock must match an exact pinned live market factor.");
+        if(bumps.Any(b=>b is null||b.Axis is null||b.Size.CompareTo(default)<=0)||
+            stress.Any(s=>s is null||s.Axis is null||s.Size==default)||bumps.Select(b=>b.Axis.Id).Distinct().Count()!=bumps.Length)
+            throw new MarketDataException("risk_bump","Select unique exact curve coordinates with positive bumps or nonzero signed stress shifts.");
+        PortfolioRiskAxis Canonical(PortfolioRiskAxis axis)
+        {
+            var resolved=CurveRiskAxes.Resolve(prepared,axis.Request,ct);
+            if(resolved.Id!=axis.Id||resolved.Market!=axis.Market||resolved.Unit!=axis.Unit||!resolved.Points.SequenceEqual(axis.Points))
+                throw new MarketDataException("risk_factor","Every selected coordinate must match the exact prepared financial market.");
+            return resolved;
+        }
+        bumps=bumps.Select(b=>b with{Axis=Canonical(b.Axis)}).ToImmutableArray();
+        stress=stress.Select(s=>s with{Axis=Canonical(s.Axis)}).ToImmutableArray();
         var runs=prepared.Markets.Select(m=>Run(m,bumps,stress,prepared.Policy.RiskNumericalPolicy,detail,ct)).ToImmutableArray();
         var groups=runs.SelectMany(r=>r.Groups.Select((g,n)=>(Measure:r.Market.Measures[n],Group:g))).ToImmutableArray();
         var totals=groups.SelectMany(g=>g.Group.BaseValues.Select(v=>new PortfolioTotal(g.Measure,v.BookId,v.Value)))
@@ -197,23 +193,23 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var contributions=new List<(string Measure,Guid Book,ExactDealRiskValues Values)>();
             foreach(var (measure,group) in groups)
             {
-                var factor=group.Factors.SingleOrDefault(f=>f.Bump.Input==bump.Input);
+                var factor=group.Factors.SingleOrDefault(f=>f.AxisId==bump.Axis.Id);
                 if(factor is null)
                 {
                     contributions.AddRange(group.BaseValues.Select(v=>(measure,v.BookId,Unchanged(v.Value,bump))));
-                    holdingRisk.AddRange(group.BasePositions.Select(p=>new PortfolioHoldingRisk(measure,bump.Input,
+                    holdingRisk.AddRange(group.BasePositions.Select(p=>new PortfolioHoldingRisk(measure,bump.Axis.Id,
                         new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,Unchanged(p.Value,bump)))));
                 }
                 else
                 {
                     contributions.AddRange(factor.Totals.Select(t=>(measure,t.BookId,t.Values)));
-                    holdingRisk.AddRange(factor.Positions.Select(p=>new PortfolioHoldingRisk(measure,bump.Input,p)));
+                    holdingRisk.AddRange(factor.Positions.Select(p=>new PortfolioHoldingRisk(measure,bump.Axis.Id,p)));
                 }
             }
             foreach(var group in contributions.GroupBy(v=>(v.Measure,v.Book,v.Values.Base.Currency)))
             {
                 var value=group.Select(v=>v.Values).Aggregate(Add);
-                totalsRisk.Add(new(group.Key.Measure,group.Key.Book,group.Key.Currency,bump.Input,value.Up,value.Down,value.UpPnl,value.DownPnl,value.Delta,value.Gamma));
+                totalsRisk.Add(new(group.Key.Measure,group.Key.Book,group.Key.Currency,bump.Axis.Id,value.Up,value.Down,value.UpPnl,value.DownPnl,value.Delta,value.Gamma));
             }
         }
         var work=runs.Select(r=>r.Work).ToArray();
@@ -221,63 +217,50 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             work.Sum(w=>w.UnitPricerCalls),work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
             work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
             {QuantityApplications=work.Sum(w=>w.QuantityApplications),PreparationScenarioCount=work.Sum(w=>w.PreparationScenarioCount)+prepared.MaterializationScenarioCount};
-        var finalFactors=available.Values.Select(f=>f with{BaseValue=f.BaseValue+stress.Where(s=>s.Input==f.Input)
-            .Aggregate(default(ExactDecimal),(sum,s)=>sum+s.Size)}).ToDictionary(f=>f.Input);
         ct.ThrowIfCancellationRequested();
         return new(prepared.SnapshotId,prepared.Context,prepared.Policy,groups.SelectMany(g=>g.Group.Contracts).ToImmutableArray(),prepared.Positions,
-            bumps.Select(b=>new PortfolioFactor(finalFactors[b.Input],b.Size)).ToImmutableArray(),totals,totalsRisk.ToImmutable(),combined)
+            bumps.Select(b=>new PortfolioFactor(runs.Single(r=>r.Market.Snapshot.Definitions==b.Axis.Market).Axes[b.Axis.Id],b.Size)).ToImmutableArray(),totals,totalsRisk.ToImmutable(),combined)
         {
             DiscountInputs=prepared.DiscountInputs,Detail=detail,
-            Markets=runs.Where(r=>r.Scenario is not null).Select(r=>new PortfolioMarketScenario(r.Market.Snapshot.Definitions,r.Scenario!)).ToImmutableArray(),
-            ConnectedScenarios=runs.Where(r=>r.Connected is not null).Select(r=>r.Connected!).ToImmutableArray(),
+            ConnectedScenarios=runs.Select(r=>r.Connected).ToImmutableArray(),
             BasePositions=groups.SelectMany(g=>g.Group.BasePositions.Select(p=>new PortfolioHoldingValue(g.Measure,p))).ToImmutableArray(),HoldingRisk=holdingRisk.ToImmutable()
         };
     }
     private sealed record GroupResult(ImmutableArray<UnitPricingContract> Contracts,ImmutableArray<BookCurrencyValue> BaseValues,
-        ImmutableArray<ExactRiskPositionValue> BasePositions,ImmutableArray<ExactBookRiskFactor> Factors);
+        ImmutableArray<ExactRiskPositionValue> BasePositions,ImmutableArray<FactorResult> Factors);
+    private sealed record FactorResult(string AxisId,ImmutableArray<ExactRiskBookTotal> Totals,ImmutableArray<ExactRiskPositionResult> Positions);
     private sealed record MarketResult(MarketPartition Market,ImmutableArray<GroupResult> Groups,RiskWork Work,
-        QuoteScenario? Scenario,PortfolioConnectedScenario? Connected);
+        PortfolioConnectedScenario Connected,ImmutableDictionary<string,PortfolioRiskAxis> Axes);
     internal static ImmutableDictionary<InputKey,CurveShockTarget> QuoteTargets(ConnectedScenario scenario)=>scenario.Plan.Points.Values
         .Where(p=>p.Expression is ConnectedSource{Input.Use:InputUse.Variable})
         .OrderBy(p=>p.Key.Curve.Revision.RevisionId).ThenBy(p=>p.Key.Curve.Code,StringComparer.Ordinal).ThenBy(p=>p.Key.PointId).GroupBy(p=>((ConnectedSource)p.Expression).Input)
         .ToImmutableDictionary(g=>g.Key,g=>(CurveShockTarget)new PointCurveTarget(
             g.First().Key.Curve,[g.First().Key.PointId]));
-    private static MarketResult Run(MarketPartition market,ImmutableArray<QuoteBump> bumps,ImmutableArray<QuoteShift> stress,
+    private static MarketResult Run(MarketPartition market,ImmutableArray<PortfolioCurveBump> bumps,ImmutableArray<PortfolioCurveShift> stress,
         string policy,RiskDetail detail,CancellationToken ct)
     {
-        if(market.Connected is not {} connected)
-        {
-            var risk=market.Risk!;var local=market.Data.Model.QuoteFactors(market.Snapshot).Select(f=>f.Input).ToHashSet();
-            foreach(var shift in stress)if(local.Contains(shift.Input))risk=RiskEngine.WithShifts(risk,[shift],ct);
-            var run=RiskEngine.CalculateExact(risk,bumps.Where(b=>local.Contains(b.Input)).ToImmutableArray(),policy,ct,detail);
-            return new(market,run.Groups.Select(g=>new GroupResult(g.Contracts,g.BaseValues,g.BasePositions,g.Factors)).ToImmutableArray(),run.Work,risk.Scenario,null);
-        }
-        var localInputs=market.Data.Model.QuoteFactors(market.Snapshot).Select(f=>f.Input).ToHashSet();
-        var validation=market.Data.Model.Build(market.Snapshot,[],ct);
-        foreach(var shift in stress.Where(s=>localInputs.Contains(s.Input)))validation=market.Data.Model.WithShifts(validation,[shift],ct);
-        var localBumps=bumps.Where(b=>localInputs.Contains(b.Input)).ToImmutableArray();
-        if(!localBumps.IsEmpty)foreach(var pair in market.Data.Model.Scenarios(validation,localBumps,ct))ct.ThrowIfCancellationRequested();
-        var inputs=connected.Factors.Select(f=>f.Input).ToHashSet();
-        var targets=QuoteTargets(connected.Valuation.Scenario);
-        foreach(var shift in stress.Where(s=>inputs.Contains(s.Input)))
-            connected=RiskEngine.WithShifts(connected,[new(CurveShockCoordinate.MarketQuote,targets[shift.Input],shift.Unit,shift.Size,CurveShift.ParentAdditive)],ct);
-        var selected=bumps.Where(b=>inputs.Contains(b.Input)).ToImmutableArray();
-        var connectedRun=RiskEngine.CalculateExact(connected,selected.Select(b=>new ConnectedRiskBump(CurveShockCoordinate.MarketQuote,
-            targets[b.Input],b.Unit,b.Size,ConnectedRiskBump.Convention)).ToImmutableArray(),policy,ct,detail);
-        var groups=connectedRun.Groups.Select(g=>new GroupResult(g.Contracts,g.BaseValues,g.BasePositions,
-            g.Factors.Select((f,n)=>new ExactBookRiskFactor(selected[n],f.Totals,
-                new(0,0,f.UpWork.UnitPricerCalls,f.UpWork.ReusedUnitValues),new(0,0,f.DownWork.UnitPricerCalls,f.DownWork.ReusedUnitValues)){Positions=f.Positions}).ToImmutableArray())).ToImmutableArray();
-        var w=connectedRun.Work;var scenario=connected.Valuation.Scenario;
-        // Graph reads and affected nodes have their own counters; they are not
-        // interchangeable with legacy distinct curve-build reuse counts.
+        var connected=market.Connected;
+        foreach(var shift in stress.Where(s=>s.Axis.Market==market.Snapshot.Definitions))
+            connected=RiskEngine.WithShifts(connected,[new(shift.Axis.Coordinate,shift.Axis.Target,shift.Axis.Unit,shift.Size,CurveShift.ParentAdditive)],ct);
+        var selected=bumps.Where(b=>b.Axis.Market==market.Snapshot.Definitions).ToImmutableArray();
+        var scenario=connected.Scenario;
+        var axes=selected.ToImmutableDictionary(b=>b.Axis.Id,b=>b.Axis.Quote is {} quote?
+            b.Axis with{Quote=quote with{BaseValue=scenario.Price(b.Axis.Points.First(p=>scenario.Plan.Points[p].Expression is ConnectedSource source&&source.Input==quote.Input),ct).ToUnitPriceExact().Value}}:b.Axis);
+        var run=RiskEngine.CalculateExact(connected,selected.Select(b=>new ConnectedRiskBump(b.Axis.Coordinate,
+            b.Axis.Target,b.Axis.Unit,b.Size,ConnectedRiskBump.Convention)).ToImmutableArray(),policy,ct,detail);
+        var groups=run.Groups.Select(g=>new GroupResult(g.Contracts,g.BaseValues,g.BasePositions,
+            g.Factors.Select((f,n)=>new FactorResult(selected[n].Axis.Id,f.Totals,f.Positions)).ToImmutableArray())).ToImmutableArray();
+        var w=run.Work;
+        // Graph reads and affected nodes have distinct counters from materialized
+        // curve receipts; report the actual graph work in ConnectedScenarios.
         var work=new RiskWork(w.PositionCount,w.UniqueValuations,w.UniqueMarketContracts,w.ScenarioCount,w.UnitPricerCalls,0,0)
             {QuantityApplications=w.QuantityApplications,PreparationScenarioCount=w.PreparationScenarioCount};
-        return new(market,groups,work,null,new(market.Snapshot.Definitions,scenario.Plan.ManifestId,scenario.Id,scenario.ParentId,scenario.Depth,connectedRun.GraphWork,market.Preparation!));
+        return new(market,groups,work,new(market.Snapshot.Definitions,scenario.Plan.ManifestId,scenario.Id,scenario.ParentId,scenario.Depth,run.GraphWork,market.Preparation),axes);
     }
-    private static ExactDealRiskValues Unchanged(ExactMoney value,QuoteBump bump)
+    private static ExactDealRiskValues Unchanged(ExactMoney value,PortfolioCurveBump bump)
     {
         var zero=value.Subtract(value);
-        return new(value,value,value,zero,zero,new(zero,new(value.Currency,bump.Unit,1)),new(zero,new(value.Currency,bump.Unit,2)));
+        return new(value,value,value,zero,zero,new(zero,new(value.Currency,bump.Axis.Unit,1)),new(zero,new(value.Currency,bump.Axis.Unit,2)));
     }
     private static ExactDealRiskValues Add(ExactDealRiskValues a,ExactDealRiskValues b)=>new(a.Base.Add(b.Base),a.Up.Add(b.Up),a.Down.Add(b.Down),
         a.UpPnl.Add(b.UpPnl),a.DownPnl.Add(b.DownPnl),new(a.Delta.Value.Add(b.Delta.Value),a.Delta.Unit),new(a.Gamma.Value.Add(b.Gamma.Value),a.Gamma.Unit));

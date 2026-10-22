@@ -50,6 +50,23 @@ public sealed class ConnectedScenario
 
     public ExactUnitPrice Price(CurvePointKey point,CancellationToken cancellation=default)=>session.Get(Plan.IndexOf(point),cancellation);
 
+    public ImmutableArray<ConnectedCurvePoint> ResolveTarget(CurveShockCoordinate coordinate,CurveShockTarget target,CancellationToken cancellation=default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if(!Enum.IsDefined(coordinate))throw Error("scenario_coordinate","Select a supported price-input or computed-output coordinate.");
+        if(target is null)throw Error("scenario_target","Supply an explicit curve target.");
+        var selected=targets.Resolve(target,cancellation);
+        foreach(var point in selected)
+        {
+            cancellation.ThrowIfCancellationRequested();var source=point.Expression as ConnectedSource;
+            if(coordinate==CurveShockCoordinate.MarketQuote&&(source is null||source.Input.Use!=InputUse.Variable))
+                throw Error("scenario_coordinate","An input shock requires a live primitive quote; frozen facts and computed outputs are different coordinates.");
+            if(coordinate==CurveShockCoordinate.ComputedOutput&&source is not null)
+                throw Error("scenario_coordinate","An output shock requires a computed curve point; select the input coordinate for primitive quotes.");
+        }
+        return selected;
+    }
+
     public ConnectedScenario WithShifts(ImmutableArray<CurveShift> shifts,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -58,8 +75,7 @@ public sealed class ConnectedScenario
         var resolved=new Dictionary<int,ResolvedCurveShift>();
         foreach(var shift in shifts)
         {
-            if(!Enum.IsDefined(shift.Coordinate))throw Error("scenario_coordinate","Select a supported price-input or computed-output coordinate.");
-            var selected=targets.Resolve(shift.Target,cancellation);var aliases=new HashSet<int>();
+            var selected=ResolveTarget(shift.Coordinate,shift.Target,cancellation);var aliases=new HashSet<int>();
             foreach(var point in selected)
             {
                 cancellation.ThrowIfCancellationRequested();var node=Plan.IndexOf(point.Key);
@@ -69,14 +85,10 @@ public sealed class ConnectedScenario
                 var source=point.Expression as ConnectedSource;
                 if(shift.Coordinate==CurveShockCoordinate.MarketQuote)
                 {
-                    if(source is null||source.Input.Use!=InputUse.Variable)
-                        throw Error("scenario_coordinate","An input shock requires a live primitive quote; frozen facts and computed outputs are different coordinates.");
                     var moved=Price(point.Key,cancellation).Add(ExactUnitPrice.FromPrice(new(shift.Size,shift.Unit))).ToUnitPriceExact();
-                    if(moved.Value.CompareTo(source.Quote.Minimum)<0||moved.Value.CompareTo(source.Quote.Maximum)>0)
+                    if(moved.Value.CompareTo(source!.Quote.Minimum)<0||moved.Value.CompareTo(source!.Quote.Maximum)>0)
                         throw Error("price_domain","The shifted quote is outside its explicitly selected domain.");
                 }
-                else if(source is not null)
-                    throw Error("scenario_coordinate","An output shock requires a computed curve point; select the input coordinate for primitive quotes.");
                 resolved.Add(node,new(shift.Coordinate,point.Key,node,shift.Unit,shift.Size,source?.Input,source?.Observation.Key));
             }
         }

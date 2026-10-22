@@ -911,14 +911,13 @@ api.MapPost("/futures/price",(HttpContext c,FuturesDraftRequest body)=>FuturesRe
 api.MapPost("/futures/draft-risk",(HttpContext c,FuturesDraftRiskRequest body)=>FuturesRead(c,body.Draft?.Context??throw new MarketDataException("draft_context","Choose the draft and market context."),(connection,data,frame,ct)=>futuresStore.RiskDraft(connection,data,frame,body,ct),dealRisk:true));
 api.MapPost("/swaps/price",(HttpContext c,SwapDraftRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("draft_context","Choose the draft market context."),(connection,data,frame,ct)=>swapStore.PriceDraft(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/draft-risk",(HttpContext c,SwapDraftRiskRequest body)=>FuturesRead(c,body.Draft?.Context??throw new MarketDataException("draft_context","Choose the draft and market context."),(connection,data,frame,ct)=>swapStore.RiskDraft(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention,dealRisk:true));
-var futuresRisk=new FuturesRiskPreview(futuresStore);
 var portfolioRisk=new PortfolioRiskPreview(database);
 Task<IResult> PortfolioRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read)=>
     TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,
         data=>read(connection,data,view.CalculationFrame,ct),ct,
         referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),
         scenario:true,expectedConvention:TradingBlotter.Convention);
-api.MapPost("/portfolio/risk/catalog",(HttpContext c,FuturesRiskCatalogRequest body)=>PortfolioRead(c,
+api.MapPost("/portfolio/risk/catalog",(HttpContext c,PortfolioRiskCatalogRequest body)=>PortfolioRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
     (connection,data,frame,ct)=>portfolioRisk.Catalog(connection,data,frame,body,ct)));
 api.MapPost("/portfolio/risk",(HttpContext c,PortfolioRiskRequest body)=>PortfolioRead(c,
@@ -937,23 +936,6 @@ api.MapGet("/portfolio/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,se
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
-api.MapPost("/futures/risk/catalog",(HttpContext c,FuturesRiskCatalogRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),(connection,data,frame,ct)=>futuresRisk.Catalog(connection,data,frame,body,ct),scenario:true));
-api.MapPost("/futures/risk",(HttpContext c,FuturesRiskRequest body)=>FuturesRead(c,
-    body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
-    (connection,data,frame,ct)=>futuresRisk.Calculate(connection,data,frame,body,ct),scenario:true));
-api.MapPost("/futures/risk/jobs",(HttpContext c,SubmitRiskJob body)=>FuturesRead(c,
-    body.Request?.Context??throw new MarketDataException("risk_job_context","Supply the risk request and exact retained context."),
-    (connection,data,frame,ct)=>
-    {
-        c.Items["risk_job_attempted"]=true;
-        return RiskJobs.Submit(connection,database.Manifest,futuresRisk,data,frame,body,ct);
-    },scenario:true));
-api.MapGet("/futures/risk/jobs",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,ct)),c.RequestAborted))));
-api.MapGet("/futures/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,session=>
-    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct)),c.RequestAborted)));
-api.MapPost("/futures/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
-    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true)),c.RequestAborted)));
 api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or amending.");

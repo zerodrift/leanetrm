@@ -69,15 +69,7 @@ public readonly partial record struct ExactDecimal : IComparable<ExactDecimal>
         if(!remainder.IsZero)throw new MarketDataException("precision_loss","The exact quotient exceeds 18 fractional digits; no rounding policy was selected.");
         return new(quotient);
     }
-    internal static ExactDecimal CentralDifferenceExact(ExactDecimal @base,ExactDecimal up,ExactDecimal down,ExactDecimal bump,int order)
-    {
-        if(bump.scaled.Sign<=0 || order is not(1 or 2))throw new MarketDataException("risk_bump","Use a positive exact bump and supported derivative order.");
-        var numerator=order==1?(up.scaled-down.scaled)*Scale:(up.scaled-2*@base.scaled+down.scaled)*Scale*Scale;
-        var denominator=order==1?2*bump.scaled:bump.scaled*bump.scaled;
-        var quotient=BigInteger.DivRem(numerator,denominator,out var remainder);
-        if(!remainder.IsZero)throw new MarketDataException("precision_loss","The exact sensitivity exceeds 18 fractional digits; no rounding policy was selected.");
-        return new(quotient);
-    }
+
     public bool IsMultipleOf(ExactDecimal increment)
     {
         if (increment.scaled.Sign <= 0)

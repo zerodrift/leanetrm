@@ -9,8 +9,6 @@ using OpenEtrm.MarketData;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record SubmitRiskJob(Guid RequestId,FuturesRiskRequest Request);
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SubmitPortfolioRiskJob(Guid RequestId,PortfolioRiskRequest Request);
 
 public static class RiskJobs
@@ -36,9 +34,9 @@ public static class RiskJobs
         if(body.RequestId==Guid.Empty||body.Request?.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
             throw new MarketDataException("risk_job_context","Queue an exact retained financial context with a stable request identity.");
         var prepared=await calculator.Prepare(connection,data,frame,body.Request,ct);
-        var request=body.Request with {BookIds=prepared.BookIds,PortfolioIds=[],
+        var request=prepared.Request with {BookIds=prepared.BookIds,PortfolioIds=[],
             Detail=prepared.Detail==OpenEtrm.MarketData.Risk.RiskDetail.Books?"books":"holdings",
-            Stress=body.Request.Stress.IsDefault?[]:body.Request.Stress};
+            Stress=prepared.Request.Stress};
         var payload=JsonSerializer.SerializeToNode(request,Json)!.AsObject();
         payload["engineVersion"]=EngineVersion;
         var supplemental=new JsonObject();
@@ -48,35 +46,12 @@ public static class RiskJobs
             .ToImmutableDictionary(m=>m.Data.DefinitionRevision.RevisionId,m=>m.Frame.ObservationIds)});
         pinnedFrame["supplementalMarkets"]=supplemental;
         pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
+        pinnedFrame["scenarioAxes"]=JsonSerializer.SerializeToNode(CurveRiskAxes.Retained(prepared),Json);
         await using var command=ScheduleStore.Command(connection,
             "SELECT risk.submit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
             data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),pinnedFrame.ToJsonString(Json));
         var submitted=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
         return await Read(connection,manifest.CatalogId,(submitted["id"]??submitted["jobId"])!.GetValue<Guid>(),ct);
-    }
-
-    public static async Task<object> Submit(NpgsqlConnection connection,PreviewManifest manifest,FuturesRiskPreview calculator,
-        PreviewData data,InputFrame frame,SubmitRiskJob body,CancellationToken ct)
-    {
-        if(body.RequestId==Guid.Empty||body.Request?.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
-            throw new MarketDataException("risk_job_context","Queue an exact retained financial context with a stable request identity.");
-        if(frame.SwapMarketSelections is {Count:>0})
-            throw new MarketDataException("risk_job_context","This futures worker requires a primary-bundle frame without supplemental swap-market selections.");
-        var prepared=await calculator.Prepare(connection,data,frame,body.Request,ct);
-        var selected=prepared.Books.Where(b=>(body.Request.BookIds.IsEmpty||body.Request.BookIds.Contains(b.Id("id")))&&
-            (body.Request.PortfolioIds.IsEmpty||body.Request.PortfolioIds.Contains(b.Id("portfolio_id"))))
-            .Select(b=>b.Id("id")).Order().ToImmutableArray();
-        var request=body.Request with {BookIds=selected,PortfolioIds=[],Detail=prepared.Detail==OpenEtrm.MarketData.Risk.RiskDetail.Books?"books":"holdings",
-            Stress=body.Request.Stress.IsDefault?[]:body.Request.Stress};
-        var payload=JsonSerializer.SerializeToNode(request,Json)!.AsObject();
-        payload["engineVersion"]=EngineVersion;
-        var pinnedFrame=PinFrame(frame with {ContextId=contextId});
-        await using var command=ScheduleStore.Command(connection,
-            "SELECT risk.submit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
-            data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),pinnedFrame.ToJsonString(Json));
-        var submitted=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
-        var id=(submitted["id"]??submitted["jobId"])!.GetValue<Guid>();
-        return await Read(connection,manifest.CatalogId,id,ct);
     }
 
     internal static JsonObject PinFrame(InputFrame frame)

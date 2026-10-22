@@ -869,7 +869,7 @@ automatic hosted updates until the operator qualifies a new baseline (D135).
 
 ## Retained interactive risk jobs
 
-[0073_risk_jobs.sql](migrations/0073_risk_jobs.sql) adds complete futures-risk
+The initial [0073_risk_jobs.sql](migrations/0073_risk_jobs.sql) adds complete futures-risk
 requests, exact context/book/observation relationships, worker registrations and
 atomic lease/publication operations. Current actor, delegation and service scopes
 remain authoritative through loading and publication, including revoke/restore.
@@ -880,7 +880,8 @@ issue runtime capabilities, book trades or launch containers.
 [0074_portfolio_risk_jobs.sql](migrations/0074_portfolio_risk_jobs.sql) extends the
 same queue to the shared instrument portfolio contract. Exact supplemental swap
 revisions, observations, frozen uses and curve members are retained separately;
-existing futures request conventions and engine fingerprints remain valid.
+at that migration, existing futures request conventions and engine fingerprints
+remain valid. The later D186 cutover below replaces that coexistence contract.
 
 [0076_custom_curve_projections.sql](migrations/0076_custom_curve_projections.sql)
 adds an immutable published custom-output binding to the existing monthly indexed
@@ -900,8 +901,29 @@ covers retained recipe calendars and schedules, and workers verify reconstructed
 manifests before pricing. These tables support the saved managed recipe consumer,
 not logical curve activation by name or distributed graph execution.
 
+The D186 connected-engine cutover adds two further schema boundaries:
+
+- [0080_connected_recipe_weights.sql](migrations/0080_connected_recipe_weights.sql)
+  admits `custom_curve_recipe_v2` and exact weighted source/member rows for multiple
+  source ports. It refuses any saved recipes pending explicit operator
+  reset/rebooking; SQL recipe execution is removed.
+- [0081_connected_risk_axes.sql](migrations/0081_connected_risk_axes.sql) admits the
+  sole portfolio risk operation. Every prepared valuation market retains a graph
+  manifest; exact quote/output axes retain their resolved points and contract or
+  bucket evidence. Runtime compiled-curve coordinates bind to that graph manifest,
+  while persisted contracts retain exact-version foreign keys. A primary frame
+  may anchor authority without a primary graph when only supplemental holdings
+  are selected. The migration refuses any retained risk jobs, including completed
+  jobs, pending explicit operator archive/reset. Legacy futures-risk HTTP fallback
+  is removed.
+
+Neither migration automatically deletes data, resets an installation or rewrites
+immutable financial history. Both require a separately reviewed schema baseline;
+an application or worker rollout cannot apply them implicitly.
+
 The consumer and installation prerequisites are documented in
-[risk scenarios and jobs](../docs/risk-engine.md). Existing automation migrations
+[risk scenarios and jobs](../docs/risk-engine.md) and
+[connected calculation](../docs/connected-calculation.md). Existing automation migrations
 0035/0036 and generated-close reports remain separate consumers. Apply ordered
 migrations only through the reviewed installation process; the worker stack never
 migrates an existing database. The disposable check is

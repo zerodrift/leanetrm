@@ -102,30 +102,22 @@ public sealed class ConnectedValuation
         private readonly ConnectedValuation valuation;
         private readonly ImmutableDictionary<CurveRequest,CurvePointKey> bindings;
         private readonly CurveBuild? authority;
-        private readonly ImmutableDictionary<int,ConnectedPrimitive> primitives;
         private readonly ImmutableDictionary<int,CurvePointKey> primitivePoints;
-        private readonly ImmutableDictionary<int,ObservationKey> numericObservations;
+        private readonly ConnectedInputEvidence evidence;
         private readonly ConcurrentDictionary<int,QuoteFactor> factors=new();
         internal ConnectedMarket(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation)
         {
             if(bindings is null||authority is not null&&!authority.Snapshot.HasSameInputs(valuation.Snapshot))
                 throw new MarketDataException("instrument_context","Connected pricing and lifecycle authority require the same exact pinned snapshot.");
             this.valuation=valuation;this.bindings=bindings;this.authority=authority;
-            primitives=valuation.Scenario.Plan.Primitives.ToImmutableDictionary(p=>p.Node);
+            evidence=new(valuation.Scenario.Plan);
+            var primitives=valuation.Scenario.Plan.Primitives.Select(p=>p.Node).ToHashSet();
             primitivePoints=valuation.Scenario.Plan.Points.Keys.Select(point=>(Node:valuation.Scenario.Plan.IndexOf(point),Point:point))
-                .Where(p=>primitives.ContainsKey(p.Node)).DistinctBy(p=>p.Node).ToImmutableDictionary(p=>p.Node,p=>p.Point);
-            var numeric=ImmutableDictionary.CreateBuilder<int,ObservationKey>();
-            foreach(var point in valuation.Scenario.Plan.Points.Values)
-            {
-                cancellation.ThrowIfCancellationRequested();
-                if(point.Expression is ConnectedBuiltCurve {MultiplierInput:{} multiplier})
-                    numeric.Add(valuation.Scenario.Plan.IndexOf(point.Key),multiplier.Observation.Key);
-            }
-            numericObservations=numeric.ToImmutable();
+                .Where(p=>primitives.Contains(p.Node)).DistinctBy(p=>p.Node).ToImmutableDictionary(p=>p.Node,p=>p.Point);
             foreach(var point in bindings.Values){cancellation.ThrowIfCancellationRequested();valuation.Scenario.Plan.GetPoint(point);}
         }
         private ConnectedMarket(ConnectedMarket parent,ConnectedValuation valuation)
-        {this.valuation=valuation;bindings=parent.bindings;authority=parent.authority;primitives=parent.primitives;primitivePoints=parent.primitivePoints;numericObservations=parent.numericObservations;}
+        {this.valuation=valuation;bindings=parent.bindings;authority=parent.authority;primitivePoints=parent.primitivePoints;evidence=parent.evidence;}
         internal ConnectedMarket WithScenario(ConnectedValuation child)
         {
             if(!ReferenceEquals(child.Scenario.Plan,valuation.Scenario.Plan)||!child.Snapshot.HasSameInputs(Snapshot))
@@ -140,28 +132,12 @@ public sealed class ConnectedValuation
         private CurvePointKey Point(CurveRequest request)=>bindings.TryGetValue(request,out var point)?point:
             throw new MarketDataException("risk_dependency","The exact connected pricing binding is unavailable.");
         internal override ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation)=>valuation.Scenario.Price(Point(request),cancellation);
-        private ImmutableArray<ConnectedPrimitive> Sources(ImmutableArray<CurveRequest> requests,CancellationToken cancellation,ImmutableHashSet<ObservationKey>.Builder? lineage=null)
-        {
-            // Walk only the requested closure. No transitive closure is retained
-            // on every graph node, and no unrelated plan nodes are scanned.
-            var plan=valuation.Scenario.Plan;var visited=new HashSet<int>();var pending=new Stack<int>();
-            foreach(var request in requests)pending.Push(plan.IndexOf(Point(request)));
-            var found=ImmutableArray.CreateBuilder<ConnectedPrimitive>();
-            while(pending.TryPop(out var node))
-            {
-                cancellation.ThrowIfCancellationRequested();if(!visited.Add(node))continue;
-                if(primitives.TryGetValue(node,out var primitive)){found.Add(primitive);lineage?.Add(primitive.Source.Observation.Key);}
-                if(lineage is not null&&numericObservations.TryGetValue(node,out var numeric))lineage.Add(numeric);
-                foreach(var dependency in plan.DependencyPlan.Dependencies(node))pending.Push(dependency);
-            }
-            return found.ToImmutable();
-        }
-        private ImmutableHashSet<ObservationKey> Lineage(CurveRequest request,CancellationToken cancellation)
-        {
-            var lineage=ImmutableHashSet.CreateBuilder<ObservationKey>();Sources([request],cancellation,lineage);return lineage.ToImmutable();
-        }
+        private ConnectedInputClosure Sources(ImmutableArray<CurveRequest> requests,CancellationToken cancellation)
+            =>evidence.Resolve(requests.Select(Point).ToImmutableArray(),cancellation);
+        internal override ImmutableHashSet<ObservationKey> Lineage(CurveRequest request,CancellationToken cancellation)
+            =>Sources([request],cancellation).Lineage;
         internal override ImmutableArray<QuoteFactor> Factors(ImmutableArray<CurveRequest> requests,CancellationToken cancellation)=>
-            Sources(requests,cancellation).Where(p=>p.Source.Input.Use==InputUse.Variable).Select(p=>factors.GetOrAdd(p.Node,_=>
+            Sources(requests,cancellation).Primitives.Where(p=>p.Source.Input.Use==InputUse.Variable).Select(p=>factors.GetOrAdd(p.Node,_=>
             {
                 var source=p.Source;var price=valuation.Scenario.Price(primitivePoints[p.Node],cancellation).ToUnitPriceExact();
                 return new(source.Input,source.Quote.Key,p.Unit,source.Request.Contract,source.Observation.Key,source.Observation.Source,

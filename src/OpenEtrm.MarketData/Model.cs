@@ -152,12 +152,24 @@ public sealed record CurveBuild
     public int ReusedConstituents { get; }
     public Risk.QuoteShock? Shock { get; }
     public Risk.QuoteScenario Scenario { get; }
+    public Calculation.ConnectedScenario Graph { get; }
+    internal Calculation.ConnectedCurveExport Compiled { get; }
+    internal ImmutableArray<CurveRequest> Requests { get; }
+    private readonly Lazy<Calculation.ConnectedValuation> valuation;
+    private readonly Lazy<Trading.PreparedValuationMarket> pricing;
+    internal Trading.PreparedValuationMarket Pricing=>pricing.Value;
     internal CurveBuild(CurveModel model,MarketSnapshot snapshot,string numericalPolicy,ImmutableArray<BuiltValue> values,
-        ImmutableDictionary<InputKey, SelectedObservation> selectedInputs,int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,int reusedConstituents=0,Risk.QuoteShock? shock=null,
+        ImmutableDictionary<InputKey, SelectedObservation> selectedInputs,int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,
+        Calculation.ConnectedScenario graph,Calculation.ConnectedCurveExport compiled,ImmutableArray<CurveRequest> requests,CurveBuild? parent,
+        int reusedConstituents=0,Risk.QuoteShock? shock=null,
         Risk.QuoteScenario? scenario=null)
     {
         Model=model; Snapshot=snapshot; NumericalPolicy=numericalPolicy; Values=values; SelectedInputs=selectedInputs;
         EvaluatedConstituents=evaluatedConstituents; Evaluations=evaluations;
         ReusedConstituents=reusedConstituents; Shock=shock; Scenario=scenario??Risk.QuoteScenario.Base(snapshot);
+        Graph=graph;Compiled=compiled;Requests=requests;
+        valuation=new(()=>parent is null?Calculation.ConnectedValuation.Prepare(Graph,Snapshot):parent.valuation.Value.WithScenario(Graph));
+        pricing=new(()=>parent is null?valuation.Value.Market(requests.ToImmutableDictionary(r=>r,r=>compiled.Points[(r,InputUse.Variable)]),this,default):
+            Calculation.ConnectedValuation.WithScenario(parent.Pricing,valuation.Value));
     }
 }

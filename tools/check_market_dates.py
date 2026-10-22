@@ -28,7 +28,34 @@ def run_checks(url,query=None,manifest=None):
     client.call('market/dates',{'curve':'ng_monthly','timeZone':'Not/AZone'},expected=422)
     templates={row['code']:row for row in client.call('custom-curves')['templates']}
     client.call('market/dates',{'definition':templates['ng_prompt']['definition'],'timeZone':'UTC'},expected=400)
-    average=client.call('market/dates',{'curve':None,'definition':templates['ng_average']['definition'],'timeZone':'UTC'})
+    average_request={'curve':None,'definition':templates['ng_average']['definition'],'timeZone':'UTC'}
+    if query and manifest:
+        # Count reads of one retained fact under a bound financial context.
+        # Qualifying many dates must not reload the complete history per date.
+        anchor=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}' AND definition_revision_id='{manifest['revisionId']}' ORDER BY observed_at,id LIMIT 1;")
+        query(f"""CREATE SEQUENCE public.synthetic_calendar_history_reads;
+          CREATE FUNCTION public.synthetic_calendar_history_read(observation uuid) RETURNS boolean
+          LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
+           IF observation='{anchor}'::uuid AND EXISTS(SELECT 1 FROM security.request_contexts c
+             WHERE c.backend_pid=pg_backend_pid() AND c.transaction_id=pg_current_xact_id_if_assigned()
+              AND c.runtime_login=session_user AND c.market_context_id IS NOT NULL) THEN
+            PERFORM nextval('public.synthetic_calendar_history_reads');
+           END IF;
+           RETURN true;END$$;
+          CREATE POLICY synthetic_calendar_history_read ON market_data.observations AS RESTRICTIVE
+           FOR SELECT TO openetrm_runtime USING(public.synthetic_calendar_history_read(id));""")
+        try:
+            before_cutoff=query(f"SELECT coalesce(max(known_at),'-infinity'::timestamptz)::text FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}';")
+            average=client.call('market/dates',average_request)
+            reads=query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_history_reads;')
+            assert reads=='1', f'Custom date availability reloaded bound observation history {reads} times'
+            coordinates=query(f"SELECT count(DISTINCT known_at),count(DISTINCT effective_on) FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}' AND known_at>'{before_cutoff}'::timestamptz;").split('|')
+            assert coordinates[0]=='1' and int(coordinates[1])>1, 'Working date availability must resolve each effective date at one certified knowledge cutoff'
+            assert client.call('custom-curves')['context'] is None, 'Availability changed the working header context'
+        finally:
+            query('DROP POLICY synthetic_calendar_history_read ON market_data.observations;DROP FUNCTION public.synthetic_calendar_history_read(uuid);DROP SEQUENCE public.synthetic_calendar_history_reads;')
+    else:
+        average=client.call('market/dates',average_request)
     assert '2020-11-18' not in {row['date'] for row in average['dates']}
     assert '2020-12-18' in {row['date'] for row in average['dates']}
     frozen=deepcopy(templates['ng_prompt']['definition'])

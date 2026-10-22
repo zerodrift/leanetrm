@@ -16,7 +16,7 @@ def run_checks(Client, query, check, manifest, temporary):
                'bookIds': [], 'portfolioIds': [], 'detail': 'books', 'stress': [],
                'convention': catalog['convention'], 'numericalPolicy': catalog['numericalPolicy'],
                'pricingPolicy': catalog['pricingPolicy'],
-               'bumps': [{'seriesId': factor['seriesId'], 'quote': factor['quote'], 'size': '0.1',
+               'bumps': [{'factor': factor['factor'], 'size': '0.1',
                           'convention': catalog['bumpConvention']}]}
     actor = query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='risk';")
     tenant, workspace = (manifest[key] for key in ('tenantId', 'workspaceId'))

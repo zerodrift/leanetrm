@@ -20,7 +20,7 @@ internal static class ConnectedRecipeChecks
                 {Key=new(f.Revision.CatalogId,Guid.NewGuid()),ObservedAt=at,Value=s.Input.Series==f.S(1)?ExactDecimal.Parse((i+1).ToString()):s.Observation.Value}}).ToImmutableArray()};
             return model.Build(snapshot,[request]);
         }).ToImmutableArray();
-        var bindings=builds.Select((b,i)=>new ConnectedRecipeSample(request.Curve,DateOnly.FromDateTime(b.Snapshot.ValuationAt.UtcDateTime),request.Contract,b,i<2)).ToImmutableArray();
+        var bindings=builds.Select((b,i)=>new ConnectedRecipeSample(request.Curve,DateOnly.FromDateTime(b.Snapshot.ValuationAt.UtcDateTime),request.Contract,model,b.Snapshot,i<2)).ToImmutableArray();
         var sourceSamples=builds.Select((b,i)=>new RecipeSample(bindings[i].Date,b.Snapshot.ValuationAt,request.Contract,b.Values.Single().Price,
             b.Values.Single().Lineage.ToImmutableArray(),i<2?[]:model.QuoteFactors(b.Snapshot),i<2)).ToImmutableArray();
         RecipeNode Node(string id,string kind,(string,string)[]? parameters=null,(string,string)[]? ports=null)=>new(id,kind,
@@ -34,9 +34,60 @@ internal static class ConnectedRecipeChecks
             Node("out","output",ports:[("values","mean")])],"out");
         var inputs=new RecipeInputs(DateOnly.FromDateTime(current.ValuationAt.UtcDateTime),current.ValuationAt,
             ImmutableDictionary<string,RecipeSource>.Empty.Add("source",new(request.Curve,sourceSamples[0].Price.Unit,
-                [new(f.Contracts.Single(c=>c.Key==request.Contract),current.ValuationAt.AddYears(-1))],sourceSamples)),
+                [new(f.Contracts.Single(c=>c.Key==request.Contract),current.ValuationAt.AddYears(-1))])),
             ImmutableDictionary<string,ImmutableArray<DateOnly>>.Empty.Add("dates",bindings.Select(b=>b.Date).ToImmutableArray()));
         var identity=new ConnectedRecipeIdentity(f.Revision.CatalogId,Guid.NewGuid(),1,RecipeEngine.Version);
+        // Two distinct curves and contracts, with independently known source values:
+        // local_power=29.1 and hub_power=27.1. Weights 7 and 3 normalize to 28.5.
+        var hubRequest=new CurveRequest(f.C("hub_power"),f.K(4));
+        var hubBuild=model.Build(builds[^1].Snapshot,[hubRequest]);
+        var hubValue=hubBuild.Values.Single();
+        var weighted=definition with{Code="weighted_power",Nodes=[
+            Node("source","source",[("curve","local_power")]),Node("hub","source",[("curve","hub_power")]),
+            new("select","weighted_contracts",ImmutableDictionary<string,string>.Empty.Add("aggregation","normalized_weighted_mean_v1"),
+                ImmutableDictionary<string,string>.Empty.Add("source_a","source").Add("source_b","hub"),
+                [new(1,"source_a",request.Contract.Id,"7"),new(1,"source_b",hubRequest.Contract.Id,"3")]),
+            Node("dates","dates",[("mode","context")]),Node("sample","sample",ports:[("selection","select"),("dates","dates")]),
+            Node("out","output",ports:[("values","sample")])]};
+        var hubSample=new RecipeSample(DateOnly.FromDateTime(current.ValuationAt.UtcDateTime),current.ValuationAt,hubRequest.Contract,
+            hubValue.Price,hubValue.Lineage.ToImmutableArray(),model.QuoteFactors(current).Where(q=>hubValue.Lineage.Contains(q.Observation)).ToImmutableArray(),false);
+        var weightedInputs=inputs with{Sources=inputs.Sources
+            .Add("hub",new(hubRequest.Curve,hubValue.Price.Unit,[new(f.Contracts.Single(c=>c.Key==hubRequest.Contract),current.ValuationAt.AddYears(-1))])),
+            Dates=inputs.Dates.SetItem("dates",[hubSample.Date])};
+        var weightedBindings=ImmutableArray.Create(bindings[^1],new ConnectedRecipeSample(hubRequest.Curve,hubSample.Date,hubRequest.Contract,model,hubBuild.Snapshot,false));
+        var weightedGraph=RecipeEngine.Connect(weighted,weightedInputs,identity,weightedBindings,context);
+        var weightedPlan=ConnectedCurves.Compile(weightedGraph.Definitions,weightedGraph.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible());
+        var weightedPrice=weightedGraph.Result(ConnectedScenario.Base(weightedPlan)).Points.Single().Price;
+        var publicParallel=ConnectedScenario.Base(weightedPlan).ResolveTarget(CurveShockCoordinate.ComputedOutput,
+            new ParallelCurveTarget(weightedGraph.Curve));
+        Equal("A saved curve parallel target contains only its published output points",publicParallel.Length,weightedGraph.Outputs.Length);
+        Equal("A saved curve parallel target never exposes internal formula cells",publicParallel.All(p=>p.Expression is ConnectedRecipeProjection),true);
+        Equal("A saved output retains its explicit position",((ConnectedRecipeProjection)publicParallel.Single().Expression).Position,1);
+        ConnectedCurvePlan WithOutputPosition(int position)=>ConnectedCurves.Compile(weightedGraph.Definitions.Select(d=>d with{
+            Points=d.Points.Select(p=>p.Expression is ConnectedRecipeProjection projection?p with{
+                Expression=projection with{Position=position}}:p).ToImmutableArray()}).ToImmutableArray(),
+            weightedGraph.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible());
+        Reject("A saved output cannot retain a negative position",()=>WithOutputPosition(-1));
+        var renamedOutput=WithOutputPosition(2);
+        Equal("A saved output position contributes to graph identity",renamedOutput.ManifestId!=weightedPlan.ManifestId,true);
+        Reject("A recipe result cannot silently relabel its retained output",()=>weightedGraph.Result(ConnectedScenario.Base(renamedOutput)));
+        var signed=weighted with{Nodes=weighted.Nodes.Select(n=>n.Kind=="weighted_contracts"?n with{
+            Parameters=n.Parameters.SetItem("aggregation",RecipeEngine.SignedSum),ContractWeights=[new(1,"source_a",request.Contract.Id,"0.7"),new(1,"source_b",hubRequest.Contract.Id,"-0.3")]}:n).ToImmutableArray()};
+        var signedGraph=RecipeEngine.Connect(signed,weightedInputs,identity,weightedBindings,context);
+        var signedPlan=ConnectedCurves.Compile(signedGraph.Definitions,signedGraph.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible());
+        Equal("Signed basket does not normalize its weights",signedGraph.Result(ConnectedScenario.Base(signedPlan)).Points.Single().Price.Numerator,"306");
+        Equal("Signed basket keeps exact arithmetic",signedGraph.Result(ConnectedScenario.Base(signedPlan)).Points.Single().Price.Denominator,"25");
+        var formula=RecipeFormula.Format(weighted);var roundtrip=RecipeFormula.Compile(formula,weighted.Code,weighted.Name);
+        Equal("Typed weights survive formula roundtrip",RecipeFormula.Format(roundtrip),formula);
+        var mapping=weighted.Nodes.Single(n=>n.Kind=="weighted_contracts");
+        foreach(var invalid in new[]{mapping with{ContractWeights=default},mapping with{ContractWeights=mapping.ContractWeights.Add(mapping.ContractWeights[0])},
+            mapping with{ContractWeights=mapping.ContractWeights.SetItem(0,mapping.ContractWeights[0] with{Weight="-1"})},
+            mapping with{ContractWeights=mapping.ContractWeights.Select(w=>w with{Weight="0"}).ToImmutableArray()},
+            mapping with{ContractWeights=mapping.ContractWeights.SetItem(0,mapping.ContractWeights[0] with{SourcePort="missing"})}})
+            Reject("Incomplete, duplicate or invalid weighted mappings fail explicitly",()=>RecipeEngine.Validate(weighted with{Nodes=weighted.Nodes.Select(n=>n.Id==mapping.Id?invalid:n).ToImmutableArray()}));
+        Reject("Wrong exact mapped source member",()=>RecipeEngine.Connect(weighted with{Nodes=weighted.Nodes.Select(n=>n.Id==mapping.Id?n with{ContractWeights=n.ContractWeights.SetItem(0,n.ContractWeights[0] with{ContractId=hubRequest.Contract.Id})}:n).ToImmutableArray()},weightedInputs,identity,weightedBindings,context));
+        Equal("Explicit multi-source contract weights normalize once",weightedPrice.Numerator,"57");
+        Equal("Weighted source prices retain exact denominator",weightedPrice.Denominator,"2");
         var connected=RecipeEngine.Connect(definition,inputs,identity,bindings,context);
         var plan=ConnectedCurves.Compile(connected.Definitions,connected.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible());
         var baseline=ConnectedScenario.Base(plan);var result=connected.Result(baseline).Points.Single().Price;
@@ -53,7 +104,7 @@ internal static class ConnectedRecipeChecks
         Equal("Only one observation of that series is live",plan.Primitives.Count(p=>p.Source.Input.Series==f.S(1)&&p.Source.Input.Use==InputUse.Variable),1);
         var reordered=RecipeEngine.Connect(definition,inputs,identity,bindings.Reverse().ToImmutableArray(),context);
         Equal("Input collection order does not change graph identity",ConnectedCurves.Compile(reordered.Definitions,reordered.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible()).ManifestId,plan.ManifestId);
-        var sourceExport=model.ExportConnected(builds[^1],false,context);
+        var sourceExport=model.Compile(builds[^1].Snapshot,[request],false,context);
         var merged=ConnectedCurves.MergeDefinitions(connected.Definitions.Concat(sourceExport.Definitions));
         Equal("A recipe and ordinary pricing share the same current source points",merged.Sum(d=>d.Points.Length),connected.Definitions.Sum(d=>d.Points.Length));
         var changed=sourceExport.Definitions.Select(d=>d with{Points=d.Points.Select(p=>p.Expression is ConnectedSource s&&s.Input.Series==f.S(1)?
@@ -93,9 +144,8 @@ internal static class ConnectedRecipeChecks
         var conflictingContract=source.Contracts[0] with{Contract=source.Contracts[0].Contract with{Expiry=source.Contracts[0].Contract.Expiry.AddDays(1)}};
         Reject("Sample selectors cannot contradict the source build's exact contract metadata",()=>RecipeEngine.Connect(definition,
             inputs with{Sources=inputs.Sources.SetItem("source",source with{Contracts=[conflictingContract]})},identity,bindings,context));
-        var incomplete=source.Samples.SetItem(2,source.Samples[2] with{Factors=source.Samples[2].Factors.RemoveAt(0)});
-        Reject("Connected preview lineage must retain every actual live source factor",()=>RecipeEngine.Connect(definition,
-            inputs with{Sources=inputs.Sources.SetItem("source",source with{Samples=incomplete})},identity,bindings,context));
+        Reject("A source snapshot cannot omit a declared live input",()=>RecipeEngine.Connect(definition,inputs,identity,
+            bindings.SetItem(2,bindings[2] with{Snapshot=bindings[2].Snapshot with{Selections=bindings[2].Snapshot.Selections.RemoveAt(0)}}),context));
         CurveShift OutputShift(CurvePointKey point,ExactDecimal size)=>new(CurveShockCoordinate.ComputedOutput,
             new PointCurveTarget(point.Curve,[point.PointId]),plan.GetPoint(point).Unit,size,CurveShift.ParentAdditive);
         Reject("A computed source output cannot exceed its declared quote domain",()=>baseline.WithShifts([
