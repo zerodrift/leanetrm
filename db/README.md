@@ -1106,3 +1106,21 @@ revoked session's queued and running turns with `session_ended`, in id order, in
 revoking transaction, which notifies the worker as every other cancel does. The
 migration first pins the definitions it replaces and the helpers the binding relies on,
 with their privileges, and refuses to apply over any other.
+
+
+## Computed curve combinations and proposals
+
+Migration [0088_computed_curve_combinations.sql](migrations/0088_computed_curve_combinations.sql)
+adds `weighted_panels` and normalized decimal weights whose exact foreign keys
+name their graph edge. Operator/policy/normalization and complete weight coverage
+are rechecked on publication, including draft changes after insertion. Published
+rows are immutable; the retained risk worker has scoped read access only. No
+existing recipes or booked references require conversion.
+
+Migration [0089_curve_agent_proposals.sql](migrations/0089_curve_agent_proposals.sql)
+adds read-only curve catalog/preparation tools and proposal target validation.
+A proposal names a successful preparation step of its own turn, never arbitrary
+model JSON or a URL. The private owner helper rechecks current source access and
+returns original arguments/context/pins to the managed revalidation path. It grants
+no authoring capability. The migration fails closed over changed helper bodies,
+ownership or ACLs under the authority epoch before replacing reviewed definitions.

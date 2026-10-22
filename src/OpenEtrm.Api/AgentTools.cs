@@ -31,6 +31,7 @@ public sealed record ReadAccess(string Access,Guid CatalogId,string Permission);
 sealed record ToolCall(ToolOperation Operation,ToolArguments Arguments);
 abstract record ToolArguments;
 sealed record NoArguments:ToolArguments;
+sealed record PrepareCurveArguments(string Code,string Name,string Formula,string Engine):ToolArguments;
 sealed record CurveArguments(string Curve):ToolArguments;
 sealed record ReferenceArguments(string Table,string Search):ToolArguments;
 sealed record PartyArguments(string Kind):ToolArguments;
@@ -52,7 +53,7 @@ public sealed record AgentIdentity(string Principal,Guid Delegation)
 }
 
 // What a turn's reads run with: its pin, its agent, the page report stored at ask and the version's switched-on tools.
-public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools);
+public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools,Guid TurnId);
 
 // How a step ended: with a result or a refusal the model receives, a failure that ends the turn, or a read the worker
 // stopped, whose cause it names.
@@ -134,9 +135,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             {"type":"object","properties":{"table":{"type":"string","enum":[{{{string.Join(",",PreviewDatabase.ReferenceTables.Select(t=>$"\"{t}\""))}}}]},
              "search":{"type":"string","maxLength":160}},"required":["table","search"],"additionalProperties":false}
             """,MarketData),
+        ..CurveTools,
         Tool("navigate","Requests a move of the user to a page, or to what a read in this turn showed. Every read result names a target handle for its "+
             "own view, and each curve and trade it lists names one too. Send page, with target null, to open a page as it opens; or send a handle as "+
-            "target, with page null. The move keeps the knowledge and As of frame pinned when the question was asked. Say where it leads.",
+            "target, with page null. Ordinary moves keep the knowledge and As of frame pinned when the question was asked. Curve proposals instead request explicit review of an unpriced draft under the user's current header, retaining the proposal's origin dates. Say where it leads.",
             $$$"""
             {"type":"object","properties":{"page":{"type":["string","null"],"enum":[{{{string.Join(",",PageReports.Supported.Order(StringComparer.Ordinal).Select(p=>$"\"{p}\""))}}},null],
               "description":"A page to open, or null to open a target."},
@@ -156,7 +158,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     public TurnReads Reads(JsonElement turn,JsonElement started)=>new(
         TurnPin.From(turn.GetProperty("context"),started.GetProperty("pins"),started.GetProperty("catalogId").GetGuid(),database.Manifest),
         new(started.GetProperty("agentPrincipal").GetString()!,started.GetProperty("delegationId").GetGuid()),turn.GetProperty("pageReport").Clone(),
-        [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)]);
+        [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)],turn.GetProperty("id").GetGuid());
 
     // The definitions a version's request offers: its switched-on tools that this release implements, in the fixed order.
     public static ImmutableArray<ModelTool> Offered(IEnumerable<string> switchedOn)
@@ -177,7 +179,9 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("schedules.library_v1","read_schedules",ToolNeeds.View,MarketAccess,[]),
         new("schedules.tou_products_v1","read_schedules",ToolNeeds.CurrentOnly,MarketAccess,[]),
         new("schedules.power_hours_v1","read_schedules",ToolNeeds.CurrentOnlyFrame,MarketAccess,[]),
-        new("reference_data.table_v1","read_reference_data",ToolNeeds.View,MarketAccess,[])
+        new("reference_data.table_v1","read_reference_data",ToolNeeds.View,MarketAccess,[]),
+        new("custom_curves.catalog_v1","read_custom_curves",ToolNeeds.View,MarketAccess,[]),
+        new("custom_curves.prepare_v1","prepare_custom_curve",ToolNeeds.Frame,MarketAccess,[])
     }.ToImmutableDictionary(o=>o.Id);
     internal static ToolOperation Operation(string id)=>Operations[id];
     // Navigate reads no page: the accesses its check runs under are those of its target's page.
@@ -196,6 +200,13 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         var members=new ToolInput(input);
         switch(tool)
         {
+            case "read_custom_curves":members.Exactly();return new(Operations["custom_curves.catalog_v1"],new NoArguments());
+            case "prepare_custom_curve":
+                members.Exactly("code","name","engine","formula");
+                var serialized=input.GetRawText();
+                if(Encoding.UTF8.GetByteCount(serialized)+serialized.Count(c=>c is ',' or ':')>8192)throw ToolInput.Invalid();
+                return new(Operations["custom_curves.prepare_v1"],new PrepareCurveArguments(members.Text("code",1,32,CustomCode()),
+                    members.Text("name",1,80),members.Formula("formula"),members.Choice("engine",OpenEtrm.MarketData.CustomCurves.RecipeEngine.Version)));
             case "read_market_data":
                 members.Exactly("view","curve");
                 var market=members.Choice("view","curves","curve","observations","contract_definitions");
@@ -242,6 +253,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     }
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9_.-]*\z")] private static partial Regex CurveCode();
+    [GeneratedRegex(@"^[a-z][a-z0-9_]{0,31}\z")] private static partial Regex CustomCode();
     [GeneratedRegex(@"^n[1-9][0-9]{0,8}\z")] private static partial Regex Handle();
 
     // The fixed text each refusal carries, never a read's own message, which may name business data (§7.3, D177). A
@@ -341,6 +353,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         {
             var result=await database.WithAgent(turn.Agent,Tools.Single(t=>t.Name==operation.Tool).Permissions,at=>readAt=at,
                 (connection,read)=>Read(connection,turn.Pin,call,read),ct);
+            if(!result.Access.IsDefaultOrEmpty)access=[..access.Concat(result.Access).Distinct()];
+            if(operation.Id=="custom_curves.prepare_v1")result.Value["proposal"]=new JsonObject{["turnId"]=turn.TurnId.ToString(),["step"]=targets.Steps+1};
             return Returned(tool,request.Input,call,turn.Pin,readAt!.Value,access,result,targets.Next);
         }
         catch(Exception e)
@@ -452,6 +466,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         async Task<ScheduleContext> Context()=>(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,pin.ContextId,ct)).Context;
         return call switch
         {
+            {Operation.Id:"custom_curves.catalog_v1"}=>await CurveCatalog(connection,pin.Page(await Context()),ct),
+            {Operation.Id:"custom_curves.prepare_v1",Arguments:PrepareCurveArguments curve}=>await PrepareCurve(connection,pin.Page(await Context()),curve,ct),
             {Operation.Id:"market_data.curves_v1"}=>ToolResults.Curves(await market.Navigation(connection,pin.Page(await Context()),ct)),
             {Operation.Id:"market_data.curve_v1",Arguments:CurveArguments curve}=>ToolResults.Curve(await market.Evaluate(connection,pin.Page(await Context()),curve.Curve,ct)),
             {Operation.Id:"market_data.observations_v1",Arguments:CurveArguments curve}=>
@@ -534,6 +550,11 @@ sealed class ToolInput
         return value.Length>=minimum&&value.Length<=maximum&&Plain(value)&&(pattern is null||pattern.IsMatch(value))?value:throw Invalid();
     }
 
+    public string Formula(string name)
+    {
+        var value=String(Member(name,JsonValueKind.String));
+        return value.Length is >0 and <=6144&&Plain(value.Replace("\n","").Replace("\r","").Replace("\t",""))?value:throw Invalid();
+    }
     public Guid Id(string name)=>Canonical(Member(name,JsonValueKind.String));
 
     public ImmutableArray<Guid> Ids(string name)

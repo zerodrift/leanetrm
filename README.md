@@ -19,13 +19,17 @@ without a seven-figure implementation.
 - **Curves:** futures, gas and power forwards, basis and interest rates, built from
   explicitly selected prices, with a diagram showing which inputs built each
   contract's price. The custom-curve workbench supports visual/formula recipes and
-  explicit weighted contract baskets and reusable published curve outputs that
-  keep their upstream graph links; the swap editor selects compatible published
+  explicit weighted contract baskets, reusable published curve outputs and guided
+  combinations of computed curves with matching periods and units; all keep their
+  upstream graph links; the swap editor selects compatible published
   outputs for monthly or exact daily projections. Effective-version timelines
   resolve under the selected business date and knowledge cutoff
 - **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
   and remaining projections. Connected quote and computed-output scenarios produce
   exact delta and gamma; generated-close jobs retain mixed futures-and-swaps reports
+- **Agent curve drafts:** authorized agents can read curve ingredients and prepare a
+  pinned preview. Explicit Review opens an unpriced draft in the ordinary editor;
+  saving and publishing use the person’s authoring permissions
 - **Live corrections:** push updates through the shared header context, with visible refresh/stale status; [policy and limits](docs/live-calculation.md)
 - **Risk jobs:** temporary nested stresses, risk around the stressed market,
   and queued mixed-book runs pinned to the header's financial context, with retained

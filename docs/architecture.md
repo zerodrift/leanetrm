@@ -958,6 +958,19 @@ The UI and HTTP portfolio operation expose these coordinate/target forms using
 backend catalog descriptors. Volatility and correlation conventions require
 separate supported contracts.
 
+D193 adds `weighted_panels` to that same recipe evaluator: typed weights on
+named panel edges, explicit signed sum or normalized mean, and
+`exact_delivery_intervals_v1`. Complete unique delivery sets and exact price units
+must match before consumer demand selects outputs. Computed parents remain graph
+references with independent temporal sample aliases. Local source validation
+visits direct formula leaves only; result evidence is restricted to the requested
+outputs' compiled closure. Combination provenance shares the recipe's cumulative
+50,000 sample-reference preparation bound, and formula discovery visits shared
+objects once. The guided composer, advanced editor and agent preparation all use
+these managed contracts. Agents prepare read-only proposals at their turn's pin;
+explicit owner Review revalidates it and opens an unpriced human draft, retaining
+the current header. No agent write or portfolio-risk authority is added.
+
 The saved managed recipe adapter supplies an explicit projected price to the
 existing monthly indexed floating side. A booking pins a published custom curve
 version, its output node and position, and its selection/implementation policy.

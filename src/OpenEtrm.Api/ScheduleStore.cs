@@ -18,9 +18,7 @@ public sealed class ScheduleStore(Guid catalog,Guid referenceCatalog,Guid refere
     {
         await using var command=Command(connection,"SELECT schedule_id,version,generation,state,definition::text,selection,effective_from,effective_to,publication_order,published_at,engine_version,calendar_catalog_id,calendar_revision_id,calendar_code FROM market_data.date_schedule_versions WHERE catalog_id=$1 ORDER BY schedule_id,version",catalog);
         await using var reader=await command.ExecuteReaderAsync(ct);var result=ImmutableArray.CreateBuilder<ScheduleVersion>();
-        while(await reader.ReadAsync(ct))result.Add(new(reader.GetGuid(0),reader.GetInt32(1),reader.GetInt32(2),reader.GetString(3),
-            JsonSerializer.Deserialize<MonthlyDraft>(reader.GetString(4),Json)!,reader.GetString(5),reader.GetFieldValue<DateOnly>(6),reader.GetFieldValue<DateOnly>(7),
-            reader.IsDBNull(8)?null:reader.GetInt32(8),reader.IsDBNull(9)?null:reader.GetFieldValue<DateTimeOffset>(9),reader.GetString(10),null,CalendarAt(reader,11)));
+        while(await reader.ReadAsync(ct))result.Add(Version(reader,11));
         await reader.DisposeAsync();
         return await WithCalendars(connection,result.ToImmutable(),ct);
     }
@@ -32,13 +30,36 @@ public sealed class ScheduleStore(Guid catalog,Guid referenceCatalog,Guid refere
         while(await reader.ReadAsync(ct))
         {
             var from=reader.GetFieldValue<DateOnly>(6);var to=reader.GetFieldValue<DateOnly>(7);
-            result.Add(new(reader.GetGuid(0),reader.GetInt32(1),reader.GetInt32(2),reader.GetString(3),
-                JsonSerializer.Deserialize<MonthlyDraft>(reader.GetString(4),Json)!,reader.GetString(5),from,to,reader.GetInt32(8),
-                reader.GetFieldValue<DateTimeOffset>(9),reader.GetString(10),new(from,to,reader.GetFieldValue<DateTimeOffset>(11),reader.GetFieldValue<DateTimeOffset>(12)),CalendarAt(reader,13)));
+            result.Add(Version(reader,13,new(from,to,reader.GetFieldValue<DateTimeOffset>(11),reader.GetFieldValue<DateTimeOffset>(12))));
         }
         await reader.DisposeAsync();
         return await WithCalendars(connection,result.ToImmutable(),ct);
     }
+    // Exact graph references survive symbolic successors. Their own publication
+    // receipt and effective interval still constrain every historical read.
+    internal async Task<(ScheduleVersion Version,DateTimeOffset KnownFrom)> ReadPublishedAt(NpgsqlConnection connection,
+        Guid id,int version,ScheduleContext context,CancellationToken ct)
+    {
+        var exact=PinnedContext.Exact(context);
+        await using var command=Command(connection,"""
+SELECT v.schedule_id,v.version,v.generation,v.state,v.definition::text,v.selection,v.effective_from,v.effective_to,
+ v.publication_order,v.published_at,v.engine_version,v.calendar_catalog_id,v.calendar_revision_id,v.calendar_code,k.known_from
+FROM market_data.date_schedule_versions v JOIN market_data.knowledge_publications k
+ ON(k.catalog_id,k.publication_order,k.publication_xid)=(v.catalog_id,v.publication_order,v.publication_xid)
+WHERE(v.catalog_id,v.schedule_id,v.version)=($1,$2,$3) AND v.state='published'
+ AND v.effective_from<=$4 AND $4<v.effective_to AND v.publication_order<=$5 AND k.known_from<=$6
+""",catalog,id,version,DateWorkspace.Date(exact.EffectiveOn),exact.KnownThrough!.Value,SchedulePreview.ParseAt(exact.KnownAt));
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        if(!await reader.ReadAsync(ct))throw Error("schedule_context","The exact published schedule is unavailable at this effective date and knowledge cutoff.");
+        var selected=Version(reader,11);var knownFrom=reader.GetFieldValue<DateTimeOffset>(14);
+        await reader.DisposeAsync();
+        var loaded=(await WithCalendars(connection,[selected],ct)).Single();
+        return(loaded,knownFrom);
+    }
+    static ScheduleVersion Version(NpgsqlDataReader reader,int calendarColumn,BitemporalRange? temporal=null)=>new(
+        reader.GetGuid(0),reader.GetInt32(1),reader.GetInt32(2),reader.GetString(3),
+        JsonSerializer.Deserialize<MonthlyDraft>(reader.GetString(4),Json)!,reader.GetString(5),reader.GetFieldValue<DateOnly>(6),reader.GetFieldValue<DateOnly>(7),
+        reader.IsDBNull(8)?null:reader.GetInt32(8),reader.IsDBNull(9)?null:reader.GetFieldValue<DateTimeOffset>(9),reader.GetString(10),temporal,CalendarAt(reader,calendarColumn));
     public async Task<int> Capture(NpgsqlConnection connection,CancellationToken ct)
     {
         await using(var gate=Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);

@@ -262,3 +262,11 @@ The Release benchmark switch is `--connected-graph-benchmark <output.json>`;
 keep its generated report outside the repository. The workload records node and
 edge counts, scenarios, evaluated work, allocation/retained memory, environment
 and independent arithmetic verification. See the [benchmark record](connected-graph-benchmark.md).
+
+
+An exact recipe schedule reference retains its published version after a symbolic
+successor is published. The reader checks that version's own effective interval,
+certified publication order/transaction and knowledge time, and current calendar
+access; it does not substitute the active schedule's dates or extend the old
+version's effective coverage. The active schedule library keeps its separate
+bitemporal selection. Recipe evidence retains the original publication receipt.

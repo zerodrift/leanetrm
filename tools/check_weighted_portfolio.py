@@ -102,3 +102,7 @@ def run_checks(url, manifest, query, run_worker):
     assert finished['result']['factors'] == result['factors']
     assert finished['result']['inputs']['connectedMarkets'] == result['inputs']['connectedMarkets']
     print('PASS weighted portfolio: explicit multi-source weights, signed/normalized graph parity, exact storage, backend picker, booked PV and nested output-axis worker parity', flush=True)
+
+    from check_composed_portfolio import run_checks as check_composed
+    exact_signed = Fraction(int(signed_price['numerator']), int(signed_price['denominator']))
+    check_composed(client, manifest, query, run_worker, frame, published, signed, terms, expected, exact_signed)

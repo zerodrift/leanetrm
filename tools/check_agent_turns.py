@@ -143,6 +143,14 @@ def check_hosted_upgrade(query, migration):
         (f'REVOKE EXECUTE ON FUNCTION {ASK} FROM openetrm_runtime;', ASK)))
 
 
+def check_curve_proposals_upgrade(query, migration):
+    helpers = ('assistant.agent_tools()', 'assistant.is_navigation_target(assistant.turns,jsonb)',
+               'assistant.grant_actor(boolean)', 'assistant.sources_readable(uuid)', 'assistant.turn_state(assistant.turns)')
+    check_guard(query, migration, '0089', 'curve_proposals', (
+        *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in helpers),
+        *((f'GRANT EXECUTE ON FUNCTION {helper} TO PUBLIC;', helper) for helper in helpers)))
+
+
 def conversation_0072():
     """The conversation read as 0072 defined it, in a schema of its own so that its parameters keep their names, for a
     transaction that creates it to compare with the read that replaced it and then rolls back."""

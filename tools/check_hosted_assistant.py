@@ -4,6 +4,7 @@ loopback fake provider; each turn bound to its account's sign-in session, which 
 disabling the member revoke. Owned synthetic hosted check only."""
 import hashlib
 import http.client
+import json
 import os
 import secrets
 import threading
@@ -112,15 +113,16 @@ def run_checks(Client, provision, query, manifest, fake, trap, origin, tls, keys
     fixture = Fixture(api, query, manifest, owner, stamp, 'hosted')
     fixture.qualify()
     identifier = f'model-hosted-{stamp}'
-    guide = fixture.publish(fixture.save(fixture.create('hosted guide'), fixture.model(identifier), tools=('read_current_page', 'read_market_data')))
+    guide = fixture.publish(fixture.save(fixture.create('hosted guide'), fixture.model(identifier),
+        tools=('read_current_page', 'read_market_data', 'prepare_custom_curve', 'navigate')))
 
     def grant(client):
         client.call('/api/assistant/grants/grant', {'operationId': str(uuid4()), 'agentId': guide['id'], 'version': 1})
 
-    def ask(client):
+    def ask(client, report=REPORT):
         frame = initial_frame(client.call('/api/workspace/navigation')[0], '2020-12-18')
         return client.call('/api/assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': guide['id'], 'version': 1,
-                                                        'question': 'What does this page show?', 'pageReport': REPORT,
+                                                        'question': 'What does this page show?', 'pageReport': report,
                                                         'knowledge': {'mode': 'current', 'contextId': None, 'frameId': frame['id']}})[0]['turn']
 
     def stalled(client):
@@ -146,8 +148,36 @@ def run_checks(Client, provision, query, manifest, fake, trap, origin, tls, keys
           outcome == 'completed:-' and steps.startswith('step:-,') and steps.endswith(',completed:-') and bound == 't'
           and len(fake.received) == reached + 2 and trap.connections == 0, (outcome, steps, bound, trap.connections))
 
+    # Curve preparation is the same pinned backend read when hosted; reviewing
+    # opens an unpriced definition through the current human's session only.
+    definition = {'code': 'synthetic_hosted_curve', 'name': 'Synthetic hosted curve', 'output': 'out', 'nodes': [
+        {'id': 'source', 'kind': 'source', 'parameters': {'curve': 'future'}, 'inputs': {}},
+        {'id': 'select', 'kind': 'select', 'parameters': {'mode': 'positions', 'first': '1', 'count': '1', 'binding': 'context'}, 'inputs': {'source': 'source'}},
+        {'id': 'dates', 'kind': 'dates', 'parameters': {'mode': 'context', 'sampling': 'context_utc_time', 'corrections': 'exact_context_frame_history_latest_visible'}, 'inputs': {}},
+        {'id': 'sample', 'kind': 'sample', 'parameters': {}, 'inputs': {'selection': 'select', 'dates': 'dates'}},
+        {'id': 'out', 'kind': 'output', 'parameters': {}, 'inputs': {'values': 'sample'}}]}
+    formula = api.call('custom-curves/format', {'definition': definition})['formula']
+    arguments = {'code': definition['code'], 'name': definition['name'], 'engine': 'custom_curve_recipe_v2', 'formula': formula}
+    before = query('SELECT count(*) FROM market_data.custom_curve_versions;')
+    fake.respond(stream(tool_use(identifier, [('toolu_hosted_curve', 'prepare_custom_curve', arguments)])),
+                 stream(tool_use(identifier, [('toolu_hosted_review', 'navigate', {'page': None, 'target': 'n1'})])),
+                 stream(recording(identifier, text='Review the proposed curve.')))
+    proposed = ask(administrator, {'page': 'custom_curves', 'selection': {}})
+    assert ended(proposed['id']) == 'completed:-'
+    target = json.loads(query(f"SELECT payload->'target' FROM assistant.turn_events WHERE turn_id='{proposed['id']}' AND kind='navigation';"))
+    header_frames = administrator.bootstrap()['frames']
+    opened = api.call('assistant/curve-proposal', target['selection'])
+    check('hosted curve preparation issues a server target and owner review returns the original unpriced draft without business writes',
+          target['kind'] == 'proposal' and target['selection'] == {'turnId': proposed['id'], 'step': 1}
+          and opened['definition'] == definition and opened['status'] == 'unpriced_draft' and 'preview' not in opened
+          and opened['origin']['contextId'] == proposed['context']['contextId']
+          and administrator.bootstrap()['frames'] == header_frames
+          and query('SELECT count(*) FROM market_data.custom_curve_versions;') == before, (target, opened))
+
     # Signing out cancels the session's turn session_ended and ends its stream at once; another account's turn runs on.
     bystander = signed_in(bystander_login)
+    refused, _ = bystander.call('/api/assistant/curve-proposal', target['selection'], expected=404)
+    check('a hosted curve proposal cannot be reopened by another account', refused['code'] == 'turn_not_found', refused)
     grant(bystander)
     signing_out = signed_in(owner_login)
     turn, release = stalled(signing_out)
@@ -209,6 +239,9 @@ def run_checks(Client, provision, query, manifest, fake, trap, origin, tls, keys
     later = signed_in(owner_login)
     later.cookies.set_cookie(workspace)
     replayed, _ = later.call('/api/assistant/turns/unfinished', expected=403)
+    proposal_replay, _ = later.call('/api/assistant/curve-proposal', target['selection'], expected=403)
+    check('curve review refuses an application session from an earlier hosted sign-in',
+          proposal_replay['code'] == 'session_ended', proposal_replay)
     later.bootstrap()
     fresh = next(c for c in later.cookies if c.name == '__Host-openetrm_workspace')
     reached = len(fake.received)
@@ -220,5 +253,7 @@ def run_checks(Client, provision, query, manifest, fake, trap, origin, tls, keys
           'opens one bound to the current sign-in session, under which asks are answered',
           replayed['code'] == 'session_ended' and fresh.value != workspace.value and ended(asked['id']) == 'completed:-' and rebound == 't'
           and len(fake.received) == reached + 1, (replayed, rebound))
+    check('the same owner can review a retained proposal under a fresh authorized sign-in',
+          Api(later).call('assistant/curve-proposal', target['selection']) == opened)
     print(f'{passed} hosted assistant checks passed.', flush=True)
     return passed

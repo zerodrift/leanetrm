@@ -1114,6 +1114,8 @@ api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,ses
 }));
 api.MapPost("/assistant/turns/stop",(HttpContext c,StopRequest body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Stop(connection,body,ct)),c.RequestAborted)));
+api.MapPost("/assistant/curve-proposal",(HttpContext c,CurveProposalRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.CurveProposal(connection,body,ct)),c.RequestAborted)));
 api.MapGet("/assistant/conversations",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
     database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversations(connection,ct)),c.RequestAborted))));
 api.MapGet("/assistant/conversations/{id:guid}",(HttpContext c,Guid id,long after)=>Locked(c,session=>

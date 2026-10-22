@@ -26,3 +26,10 @@ test('weighted mapping edits preserve exact supplied contracts and decimal text 
  rows[0].weight='9';assert.equal(edited.nodes.at(-1).contractWeights[0].weight,'-0.700000000000000001');
  assert.deepEqual(changeContractWeights(edited,'basket',[]).nodes.at(-1).contractWeights,[]);
 });
+
+test('removing a panel input removes only its matching weight',()=>{
+ const before={code:'blend',name:'Synthetic blend',output:'blend',nodes:[{id:'blend',kind:'weighted_panels',parameters:{},inputs:{a:'first',b:'second'},panelWeights:[{sourcePort:'a',weight:'7'},{sourcePort:'b',weight:'3'}]}]};
+ const after=changeCurveConnection(before,'blend','a','');
+ assert.deepEqual(after.nodes[0].panelWeights,[{sourcePort:'b',weight:'3'}]);
+ assert.equal(before.nodes[0].panelWeights.length,2);
+});

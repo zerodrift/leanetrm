@@ -207,6 +207,9 @@ def main():
             if args.assistant_check and migration.name=='0079_workspace_grants.sql':
                 from check_agent_grants import check_workspace_upgrade
                 check_workspace_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0089_curve_agent_proposals.sql':
+                from check_agent_turns import check_curve_proposals_upgrade
+                check_curve_proposals_upgrade(query,migration.read_text())
             if args.assistant_check and migration.name=='0086_navigation_targets.sql':
                 from check_agent_turns import check_navigation_upgrade
                 check_navigation_upgrade(query,migration.read_text())

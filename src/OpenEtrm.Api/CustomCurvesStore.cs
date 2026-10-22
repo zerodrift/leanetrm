@@ -43,6 +43,7 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
  ||coalesce((SELECT jsonb_build_object('schedule',s.schedule_id::text||':'||s.schedule_version::text) FROM market_data.custom_curve_node_schedules s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb),
  'publishedSource',(SELECT jsonb_build_object('catalogId',s.source_catalog_id,'curveId',s.source_curve_id,'version',s.source_version,'outputNode',s.source_output_node) FROM market_data.custom_curve_node_published_sources s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),
  'contractWeights',coalesce((SELECT jsonb_agg(jsonb_build_object('outputPosition',w.output_position,'sourcePort',w.source_port,'contractId',w.contract_id,'weight',w.weight::text) ORDER BY w.output_position,w.source_port,w.contract_id) FROM market_data.custom_curve_contract_weights w WHERE(w.catalog_id,w.curve_id,w.version,w.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'[]'::jsonb),
+ 'panelWeights',coalesce((SELECT jsonb_agg(jsonb_build_object('sourcePort',w.source_port,'weight',w.weight::text) ORDER BY w.source_port) FROM market_data.custom_curve_panel_weights w WHERE(w.catalog_id,w.curve_id,w.version,w.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'[]'::jsonb),
  'inputs',coalesce((SELECT jsonb_object_agg(e.port,e.source_node) FROM market_data.custom_curve_edges e WHERE(e.catalog_id,e.curve_id,e.version,e.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb)) ORDER BY n.node_id)
  FROM market_data.custom_curve_nodes n WHERE(n.catalog_id,n.curve_id,n.version)=(v.catalog_id,v.curve_id,v.version)),'[]'::jsonb)::text,
  coalesce((SELECT jsonb_object_agg(s.node_id,jsonb_build_object('catalogId',s.source_catalog_id,'revisionId',s.source_revision_id,'code',s.source_curve_code)) FROM market_data.custom_curve_node_sources s WHERE(s.catalog_id,s.curve_id,s.version)=(v.catalog_id,v.curve_id,v.version)),'{}'::jsonb)::text,
@@ -126,7 +127,7 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         {
             await using var update=ScheduleStore.Command(connection,"UPDATE market_data.custom_curve_versions SET generation=$4,name=$5,output_node=$6,layout=$7::jsonb WHERE(catalog_id,curve_id,version)=($1,$2,$3)",Catalog,id,version,generation,body.Definition.Name,body.Definition.Output,JsonSerializer.Serialize(body.Layout,Json));
             await update.ExecuteNonQueryAsync(ct);
-            foreach(var table in new[]{"contract_weights","edges","node_published_sources","node_sources","node_calendars","node_schedules","nodes"})
+            foreach(var table in new[]{"panel_weights","contract_weights","edges","node_published_sources","node_sources","node_calendars","node_schedules","nodes"})
             {
                 await using var delete=ScheduleStore.Command(connection,$"DELETE FROM market_data.custom_curve_{table} WHERE(catalog_id,curve_id,version)=($1,$2,$3)",Catalog,id,version);
                 await delete.ExecuteNonQueryAsync(ct);
@@ -181,6 +182,15 @@ INSERT INTO market_data.custom_curve_contract_weights(catalog_id,curve_id,versio
  source_catalog_id,source_revision_id,source_curve_code,contract_id,weight)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric)
 """,Catalog,id,version,node.Id,weight.OutputPosition,weight.SourcePort,sourceNode,source.CatalogId,source.RevisionId,source.Code,weight.ContractId,weight.Weight);
+            await insert.ExecuteNonQueryAsync(ct);
+        }
+        foreach(var node in body.Definition.Nodes.Where(n=>n.Kind=="weighted_panels"))
+        foreach(var weight in node.PanelWeights)
+        {
+            await using var insert=ScheduleStore.Command(connection,"""
+INSERT INTO market_data.custom_curve_panel_weights(catalog_id,curve_id,version,node_id,source_port,source_node,weight)
+ VALUES($1,$2,$3,$4,$5,$6,$7::numeric)
+""",Catalog,id,version,node.Id,weight.SourcePort,node.Inputs[weight.SourcePort],weight.Weight);
             await insert.ExecuteNonQueryAsync(ct);
         }
         await using(var visible=ScheduleStore.Command(connection,"SELECT security.custom_curve_visible($1,$2,$3)",Catalog,id,version))

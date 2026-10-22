@@ -4,12 +4,15 @@ Status: local synthetic preview. This is a bounded
 foundation with a runnable local market-data and bounded futures trading preview. No existing application or production
 resource is used by its checks.
 
-A separate managed [connected calculation prototype](connected-calculation.md)
-now exercises temporal graph selection, linked curve operators, nested input and
-output shocks and ordinary instrument PV. It adds no browser business logic or
-hosted routes. Its [large-graph benchmark](connected-graph-benchmark.md) measures
-the compact integer execution kernel; saved custom-curve booking, worker
-integration and large exact financial workloads remain work.
+The managed [connected calculation engine](connected-calculation.md) now drives
+saved [custom curves](custom-curves.md), their authoring UI, booked swap
+projections, portfolio risk and retained worker replay. Explicit weighted
+combinations can consume other computed curves, with nested input and output
+shocks following the same connected graph. Agent proposals use the same backend
+validation and open as unpriced drafts for human review. TypeScript remains
+presentation only. The [large-graph benchmark](connected-graph-benchmark.md)
+measures the compact integer execution kernel; end-to-end loading and large exact
+financial workloads still need performance qualification.
 
 Earlier foundation checkpoint verification (2026-10-17): 60 frontend, 102 managed core,
 24 mixed-resolution managed, 29 rate, 31 shared temporal and 20 schedule checks;
@@ -39,9 +42,11 @@ installation operator registration. The worker stack is separately configurable.
 
 Synthetic Docker responses exercise approved digest/platform launch, strict
 service/task identity, unknown outcomes and individual cleanup. Real Engine
-execution and recovery remain unqualified. Full agent/tool execution, financial
-job contexts and host management are still work. No runtime credentials or
-installation-specific configuration are seeded or included in this repository.
+execution and recovery remain unqualified. Retained financial risk-job contexts
+and workers are implemented as described in [risk](risk-engine.md). Broader
+scheduled financial operations and host management remain work. No runtime
+credentials or installation-specific configuration are seeded or included in
+this repository.
 
 ## Role-tailored workbench and reference-driven choices
 

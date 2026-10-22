@@ -1,8 +1,9 @@
 /** Presentation contracts for the managed custom-curve operations. No market
  * selection, dates, aggregation or financial arithmetic runs in this module. */
 export type ContractWeight={outputPosition:number|null;sourcePort:string;contractId:string;weight:string};
+export type PanelWeight={sourcePort:string;weight:string};
 export type PublishedSourceReference={catalogId:string;curveId:string;version:number;outputNode:string};
-export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[];publishedSource?:PublishedSourceReference};
+export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[];publishedSource?:PublishedSourceReference;panelWeights?:PanelWeight[]};
 export type CurveDefinition={code:string;name:string;nodes:CurveNode[];output:string};
 export type NodePosition={x:number;y:number};
 export type CurveLayout=Record<string,NodePosition>;
@@ -11,7 +12,7 @@ export function curveEdges(definition:CurveDefinition):CurveEdge[]{
  return definition.nodes.flatMap(node=>Object.entries(node.inputs).map(([port,source])=>({source,target:node.id,port})));
 }
 export function changeCurveConnection(definition:CurveDefinition,target:string,port:string,source:string):CurveDefinition{
- return {...definition,nodes:definition.nodes.map(node=>{if(node.id!==target)return node;const inputs={...node.inputs};if(source)inputs[port]=source;else delete inputs[port];return {...node,inputs};})};
+ return {...definition,nodes:definition.nodes.map(node=>{if(node.id!==target)return node;const inputs={...node.inputs};if(source)inputs[port]=source;else delete inputs[port];return {...node,inputs,...(node.panelWeights?{panelWeights:node.panelWeights.filter(weight=>weight.sourcePort in inputs)}:{})};})};
 }
 export function changeContractWeights(definition:CurveDefinition,target:string,rows:ContractWeight[]):CurveDefinition{
  return {...definition,nodes:definition.nodes.map(node=>node.id===target?{...node,contractWeights:rows.map(row=>({...row}))}:node)};
