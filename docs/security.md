@@ -598,9 +598,9 @@ are refused:
   agent or the grant. Each write advances the epoch, so it fences a delivery-price
   attempt in progress.
 
-Turns (migrations 0069, 0071 and 0072, step 5) are recorded in the database; in the
-local preview the API asks, stops and reads them and an in-process worker runs them
-([ai-assistant.md](ai-assistant.md) §7.2, §7.4):
+Turns (migrations 0069, 0071, 0072 and 0076, step 5) are recorded in the database; in
+the local preview the API asks, stops, reads and streams them and an in-process worker
+runs them ([ai-assistant.md](ai-assistant.md) §7.2, §7.4, §8):
 
 - **Ask** runs in a person's own request context, unexpired and undelegated, as an
   enabled member, with `UseAgents` and `CreateDelegations`. It names an agent version
@@ -674,7 +674,37 @@ local preview the API asks, stops and reads them and an in-process worker runs t
   its profile, one request at a time per session, in the route group's scope (`api`, or
   `exchange` for the exchange example), and every POST needs the page's origin and
   request token. The database knows the session by a random digest, never its cookie,
-  with its profile and end. Hosted mode maps none of these routes.
+  with its profile and end. A missing, unknown or expired session is answered
+  `session_ended` on the assistant routes and `access_denied` elsewhere. Hosted mode
+  maps none of these routes.
+- **Stream admission:** the stream is a GET, so it carries no request token: it needs
+  the session cookie plus `Sec-Fetch-Site: same-origin` and `Sec-Fetch-Mode: cors`,
+  which a page on another loopback port cannot send although it shares the cookie, and
+  a foreign Origin is refused; it answers no CORS headers. It runs as the session's
+  profile with `UseAgents`, takes no session semaphore and holds no connection while
+  it waits. Its only effects are replacing the owner's older stream of the turn and
+  starting the worker as an ask does. Before each write the session must be unexpired
+  with the profile the stream was opened under, and a profile switch ends the
+  session's streams at once (`session_ended`).
+- **Stream delivery:** a stream sends a turn's events to its owner from two places
+  only. Every event, text included, may come from the stream read (`turn_stream`) in
+  the owner's own request context under `UseAgents`, with the replay recheck, which
+  hides a text event's payload as the owner's other reads do. A piece of answer text
+  may also come from the worker that appended it, in this process's memory, once that
+  append's publication recheck has committed: the owner's current authority and every
+  source of the turn in the agent's authority. For a person, who holds no delegation,
+  each access function the replay recheck calls reduces to the same permission and
+  catalog scope that the agent's authority requires its delegator to hold, so a
+  committed publication recheck implies the replay recheck at that instant. Once any
+  read of a stream hides the turn, the stream hides every later piece of text and
+  marks every later event hidden; its terminal event always comes from a read. The
+  guarantee is therefore: text appended after the owner's loss of access commits
+  reaches no stream, since the append is refused, and every read that starts after it
+  hides the answer. The one residual is text committed before the loss, which may
+  still reach a stream admitted before it, once: pieces still in that stream's buffer
+  of 64 signals, or what a read already under way returns. Event data carries only
+  the stored payload, the turn's id, `hidden` and, on the terminal event,
+  `incomplete`; a refusal carries a code and its fixed text.
 - **Asking:** the API generates the turn's 32-byte token; admission stores only its
   SHA-256 digest, and the record write and every worker write present the token. Only
   the answer that admits a turn has the request write its record, in a short

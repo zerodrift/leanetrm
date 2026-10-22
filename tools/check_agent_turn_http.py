@@ -2,7 +2,8 @@
 running it against the loopback fake provider: the request it sends, its text, usage and ending, a repeat, the
 knowledge an ask may name, Stop and the sources that cancel a turn mid-stream, its limits, a worker that loses its
 generation, and the owner's reads; owned synthetic preview only. Runs after the SQL turn checks, which leave the
-agent-worker lock free for the API to take again."""
+agent-worker lock free for the API to take again, and hands its administrator and trader sessions to the stream checks
+that follow, so they open none."""
 import json
 import subprocess
 import threading
@@ -378,4 +379,4 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     check('no log line or request body carries the key, and no request goes through a proxy',
           KEY not in log.read_text(errors='replace') and all(KEY.encode() not in r['body'] for r in fake.received) and trap.connections == 0)
     print(f'{passed} HTTP turn checks passed.', flush=True)
-    return passed
+    return admin, trader

@@ -5,6 +5,7 @@ recovery at a worker start, the owner's reads and the Providers directory's test
 and the worker; owned synthetic preview only."""
 import hashlib
 import json
+from pathlib import Path
 import re
 import secrets
 import subprocess
@@ -17,6 +18,7 @@ from check_model_versions import command as model_command
 from check_provider_tests import Worker, bytea, usage
 from preview_client import PreviewClient
 
+ROOT = Path(__file__).resolve().parents[1]
 GRANTS = 'assistant/grants'
 EFFECTIVE = '2020-12-18'
 REPORT = {'page': 'curves', 'selection': {'curve': 'test_curve'}}
@@ -90,6 +92,34 @@ def check_steps_upgrade(query, migration):
         *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in STEP_HELPERS),
         ('GRANT EXECUTE ON FUNCTION assistant.fenced_turn(uuid,bytea) TO openetrm_runtime;', 'assistant.fenced_turn(uuid,bytea)'),
         (f'REVOKE EXECUTE ON FUNCTION {CONVERSATION} FROM openetrm_runtime;', CONVERSATION)))
+
+
+STREAM_HELPERS = ('security.has_permission(text)', 'security.has_pre_pilot_permission(text)',
+                  'security.principal_has_permission(uuid,uuid,uuid,text,timestamp with time zone)', 'security.market_access(uuid,text)',
+                  'security.reference_access(uuid,text)', 'security.trading_access(uuid,text)', 'assistant.grant_actor(boolean)',
+                  'assistant.turn_state(assistant.turns)', 'assistant.turn_sources(uuid)', 'assistant.sources_readable(uuid)',
+                  'assistant.owner_turn(assistant.turns)', CONVERSATION)
+
+
+def check_stream_upgrade(query, migration):
+    """Before 0076 applies: it refuses a changed helper the stream's read relies on or definition it replaces, or one whose
+    privileges differ, among them the risk worker's to the market and reference access functions (0073)."""
+    check_guard(query, migration, '0076', 'turn_stream', (
+        *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in STREAM_HELPERS),
+        ('REVOKE EXECUTE ON FUNCTION security.market_access(uuid,text) FROM openetrm_risk_worker;', 'security.market_access(uuid,text)'),
+        ('GRANT EXECUTE ON FUNCTION assistant.owner_turn(assistant.turns) TO openetrm_runtime;', 'assistant.owner_turn(assistant.turns)'),
+        (f'REVOKE EXECUTE ON FUNCTION {CONVERSATION} FROM openetrm_runtime;', CONVERSATION)))
+
+
+def conversation_0072():
+    """The conversation read as 0072 defined it, in a schema of its own so that its parameters keep their names, for a
+    transaction that creates it to compare with the read that replaced it and then rolls back."""
+    text = (ROOT / 'db/migrations/0072_tool_steps.sql').read_text()
+    start = text.index('CREATE OR REPLACE FUNCTION assistant.conversation(')
+    definition = text[start:text.index('END $$;', start) + len('END $$;')]
+    return ('CREATE SCHEMA stream_check;' + definition.replace('FUNCTION assistant.conversation(', 'FUNCTION stream_check.conversation(', 1)
+            + 'ALTER FUNCTION stream_check.conversation(text,uuid,bigint) OWNER TO openetrm_security_owner;'
+            'GRANT USAGE ON SCHEMA stream_check TO openetrm_runtime;GRANT EXECUTE ON FUNCTION stream_check.conversation(text,uuid,bigint) TO openetrm_runtime;')
 
 
 def literal(value):
@@ -880,6 +910,89 @@ def run_checks(url, query, psql, manifest, environment):
           unfinished['api'] is None and unfinished['exchange']['id'] == exchanged.id and [k['id'] for k in in_exchange] == [unfinished['exchange']['conversationId']]
           and unfinished['exchange']['conversationId'] not in {k['id'] for k in listed('trader')}, unfinished)
 
+    # The stream's read (§8): one turn of one of its owner's conversations, the latest unless named, in their own context
+    # while they hold UseAgents, with its events after a sequence as the conversation read shows them, at most the replay
+    # window's, and refused outside them. It writes nothing.
+    def streamed(profile, conversation_id, after, turn_id=None, window=256, scope='api'):
+        return as_person(profile, f"SELECT assistant.turn_stream('{scope}','{conversation_id}',{literal(turn_id)},{after},{window})::text;")
+
+    def read_back(conversation_id, after=0):
+        return as_person('trader', f"SELECT assistant.conversation('api','{conversation_id}',{after})::text;")['events']
+
+    def elapsed_until(turn, seconds):
+        return query(f"SELECT asked_at+interval '{seconds} seconds' FROM assistant.turns WHERE id='{turn.id}';")
+
+    def same_instant(a, b):
+        return query(f"SELECT '{a}'::timestamptz='{b}'::timestamptz;") == 't'
+    live = Turn()
+    ran(live)
+    opened = open_call(live)['opened']
+    append(live, 'One ')
+    append(live, 'two.')
+    stream_of = query(f"SELECT conversation_id FROM assistant.turns WHERE id='{live.id}';")
+    records = query(RECORDS)
+    whole = streamed('trader', stream_of, 0)
+    check("the stream's read answers the latest turn as its owner reads it, the instant its elapsed limit passes, the conversation's latest "
+          "sequence and the turn's events after a sequence as the conversation read shows them, writing nothing",
+          {k: whole['turn'][k] for k in ('id', 'state', 'incomplete', 'hidden')} == {'id': live.id, 'state': 'running', 'incomplete': False, 'hidden': None}
+          and whole['turn']['startedAt'] is not None and same_instant(whole['deadline'], elapsed_until(live, 120)) and whole['latest'] == 3
+          and whole['events'] == read_back(stream_of) and [e['kind'] for e in whole['events']] == ['accepted', 'text', 'text']
+          and streamed('trader', stream_of, 1)['events'] == read_back(stream_of, 1) and streamed('trader', stream_of, 3)['events'] == []
+          and query(RECORDS) == records, whole)
+    check("a sequence beyond the conversation's latest, or further behind the turn's last than the replay window, is refused replay_unavailable, "
+          "and a read within the window sends every event after it",
+          streamed('trader', stream_of, 4) == streamed('trader', stream_of, 0, window=2) == {'refused': 'replay_unavailable'}
+          and streamed('trader', stream_of, 0, window=3)['events'] == read_back(stream_of) and query(RECORDS) == records)
+    close_call(live, opened)
+    end(live)
+    ended = streamed('trader', stream_of, 3)
+    check("once the turn has ended its read sends the rest through its terminal event, and nothing follows its last, which is refused "
+          "turn_not_running", (ended['turn']['state'], ended['turn']['incomplete']) == ('completed', False)
+          and [e['kind'] for e in ended['events']] == ['usage', 'completed'] and streamed('trader', stream_of, 5) == {'refused': 'turn_not_running'}, ended)
+    broken = Turn()
+    ran(broken, conversation=stream_of, question='And then?')
+    opened = open_call(broken)['opened']
+    append(broken, 'Half')
+    later = streamed('trader', stream_of, 5)
+    named = streamed('trader', stream_of, 3, turn_id=live.id)
+    close_call(broken, opened, 'cancelled', UNKNOWN, 'unknown')
+    end(broken, 'failed', 'request_cancelled')
+    failed = streamed('trader', stream_of, 7)
+    check("a follow-up's read starts after the earlier turn, whose events it never sends, and is refused replay_unavailable before them; a turn "
+          "the stream names reads alone though a later one began; and a turn ending without completing after publishing text is incomplete",
+          later['turn']['id'] == broken.id and [e['kind'] for e in later['events']] == ['accepted', 'text']
+          and streamed('trader', stream_of, 4) == {'refused': 'replay_unavailable'}
+          and named['turn']['id'] == live.id and [e['kind'] for e in named['events']] == ['usage', 'completed'] and named['latest'] == 7
+          and (failed['turn']['state'], failed['turn']['incomplete']) == ('failed', True) and [e['kind'] for e in failed['events']] == ['usage', 'failed'],
+          (later, named, failed))
+    records = query(RECORDS)
+    for profile, sql, code in (('risk', f"PERFORM assistant.turn_stream('api','{stream_of}',NULL,0,256);", 'conversation_not_found'),
+                               ('trader', f"PERFORM assistant.turn_stream('exchange','{stream_of}',NULL,0,256);", 'conversation_not_found'),
+                               ('trader', f"PERFORM assistant.turn_stream('api','{uuid4()}',NULL,0,256);", 'conversation_not_found'),
+                               ('trader', f"PERFORM assistant.turn_stream('elsewhere','{stream_of}',NULL,0,256);", 'turn_input'),
+                               ('trader', f"PERFORM assistant.turn_stream('api',NULL,NULL,0,256);", 'turn_input'),
+                               ('trader', f"PERFORM assistant.turn_stream('api','{stream_of}',NULL,-1,256);", 'turn_input'),
+                               ('trader', f"PERFORM assistant.turn_stream('api','{stream_of}',NULL,0,0);", 'turn_input'),
+                               ('trader', f"PERFORM assistant.turn_stream('api','{stream_of}','{first.id}',0,256);", 'turn_input')):
+        contexts.runtime(profile, refused(sql, code))
+    contexts.runtime('viewer', expect(f"PERFORM assistant.turn_stream('api','{stream_of}',NULL,0,256);", '42501'))
+    query('SET SESSION AUTHORIZATION preview_runtime;' + expect(f"PERFORM assistant.turn_stream('api','{stream_of}',NULL,0,256);", '42501'))
+    check("the stream's read is its owner's alone, in their scope, with UseAgents and a request context, names a turn only of the "
+          "conversation, and refuses malformed input, writing nothing; the runtime executes the read but not the helper that shows an event",
+          query(RECORDS) == records and query("SELECT has_function_privilege('preview_runtime','assistant.turn_stream(text,uuid,uuid,bigint,integer)','EXECUTE')"
+                                              "::text||has_function_privilege('preview_runtime','assistant.owner_event(assistant.turn_events,text)','EXECUTE')::text;")
+          == 'truefalse')
+
+    def as_0072(conversation_id, after, setup=''):
+        """The conversation read and 0072's, side by side, in a transaction that rolls back."""
+        lines = [line for line in contexts.rolled_back(setup + conversation_0072(), 'trader', 'human_interactive', contexts.workspace, 'NULL',
+                                                       f"SELECT assistant.conversation('api','{conversation_id}',{after})::text;"
+                                                       f"SELECT stream_check.conversation('api','{conversation_id}',{after})::text;").splitlines() if line.strip()]
+        return lines[-2], lines[-1]
+    compared = [as_0072(conversation_id, after) for conversation_id in (conversation, stream_of) for after in (0, 3)]
+    check("the conversation read answers byte for byte as 0072's did, now that it shows each event as the stream's read does",
+          all(current == replaced for current, replaced in compared), compared)
+
     # The Providers directory's latest test (0064) leaves turn calls out.
     directory = as_person('admin', 'SELECT assistant.provider_directory()::text;')
     calls = f"FROM assistant.model_calls WHERE provider_id='{provider_id}' ORDER BY started_at DESC,id DESC LIMIT 1"
@@ -1209,11 +1322,27 @@ def run_checks(url, query, psql, manifest, environment):
           and texts == {sourced.id: {'hidden': 'access_changed'}, narrowed.id: {'hidden': 'access_changed'}}
           and followed_up['turn']['ordinal'] == 4 and [e['payload'] for e in replayed['events'] if e['turnId'] == followed_up['turn']['id']][1:]
           == [{'withheld': 1}, {'withheld': 2}, {'withheld': 3}] and latest_listed['hidden'] == 'access_changed', hidden)
+    before_narrowed = int(query(f"SELECT min(sequence)-1 FROM assistant.turn_events WHERE turn_id='{narrowed.id}';"))
+    stream_hidden, read_hidden = [json.loads(line) for line in contexts.rolled_back(
+        unscoped, 'trader', 'human_interactive', contexts.workspace, 'NULL',
+        f"SELECT assistant.turn_stream('api','{history}',NULL,{before_narrowed},256)::text;"
+        f"SELECT assistant.conversation('api','{history}',{before_narrowed})::text;").splitlines() if line.strip()]
+    check("the stream's read hides a turn's text as the conversation read does once its owner can no longer read a source of it, and leaves "
+          "its other events, its steps included, as they are",
+          stream_hidden['turn']['hidden'] == 'access_changed' and stream_hidden['events'] == read_hidden['events']
+          and [e['payload'] for e in stream_hidden['events'] if e['kind'] == 'text'] == [{'hidden': 'access_changed'}]
+          and [e['payload'] for e in stream_hidden['events'] if e['kind'] == 'step'] == [{'withheld': 1}, {'withheld': 2}, {'ordinal': 1, 'tool': 'read_market_data'}],
+          stream_hidden)
+    compared = [as_0072(history, after, unscoped) for after in (0, before_narrowed)]
+    check("with a turn's answer hidden too, the conversation read answers byte for byte as 0072's did",
+          all(current == replaced for current, replaced in compared) and 'access_changed' in compared[0][0], compared)
     revoked_grant = query(f"SELECT delegation_id FROM assistant.turns WHERE id='{narrowed.id}';")
     trader.call(f'{GRANTS}/revoke', {'operationId': str(uuid4()), 'grantId': revoked_grant})
     replayed = as_person('trader', f"SELECT assistant.conversation('api','{history}',0)::text;")
-    check("the replay recheck needs no grant, so a turn reads in full after its grant is revoked",
-          replayed['turns'][2]['answer'] == 'Prices moved.' and replayed['turns'][2]['hidden'] is None, replayed['turns'][2])
+    shown = streamed('trader', history, before_narrowed)
+    check("the replay recheck needs no grant, so a turn reads in full after its grant is revoked, in the conversation and the stream's reads",
+          replayed['turns'][2]['answer'] == 'Prices moved.' and replayed['turns'][2]['hidden'] is None and shown['turn']['hidden'] is None
+          and [e['payload'] for e in shown['events'] if e['kind'] == 'text'] == [{'text': 'Prices moved.'}], (replayed['turns'][2], shown))
     for statement in (f"UPDATE assistant.tool_steps SET code='changed' WHERE turn_id='{sourced.id}';", f"DELETE FROM assistant.tool_steps WHERE turn_id='{sourced.id}';",
                       f"UPDATE assistant.tool_read_access SET market_catalog_id=NULL WHERE turn_id='{sourced.id}';",
                       f"DELETE FROM assistant.tool_read_access WHERE turn_id='{sourced.id}';"):

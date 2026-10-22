@@ -193,6 +193,9 @@ def main():
             if args.assistant_check and migration.name=='0075_model_usage.sql':
                 from check_model_usage import check_upgrade as check_usage_upgrade
                 check_usage_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0076_turn_stream.sql':
+                from check_agent_turns import check_stream_upgrade
+                check_stream_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -535,7 +538,9 @@ def main():
                 from check_agent_turns import run_checks as check_agent_turns
                 check_agent_turns(url,query,psql,manifest,app_env)
                 from check_agent_turn_http import run_checks as check_agent_turn_http
-                check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                sessions=check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                from check_turn_stream_http import run_checks as check_turn_stream_http
+                check_turn_stream_http(url,query,psql,manifest,app_env,fake_provider,proxy_trap,*sessions)
                 from check_model_usage import run_checks as check_model_usage
                 check_model_usage(url,query,psql,manifest,app_env)
                 if args.browser_check:

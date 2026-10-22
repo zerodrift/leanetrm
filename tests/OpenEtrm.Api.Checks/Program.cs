@@ -34,6 +34,7 @@ if (args is ["--power-imports"])
     PowerImportChecks.Run();return;
 }
 if(args is ["--model-providers"]){await ModelProviderChecks.Run();return;}
+if(args is ["--turn-streams"]){await TurnStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
@@ -42,6 +43,7 @@ if (args is ["--schedules"])
     CredentialCustodyChecks.Run();
     await ModelProviderChecks.Run();
     TurnWorkerChecks.Run();
+    await TurnStreamChecks.Run();
     PowerImportChecks.Run();
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();
