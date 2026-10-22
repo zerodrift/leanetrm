@@ -1,4 +1,5 @@
 import {sideSession} from './side-session.mjs';
+import {knownAtAssertion,observeCatalogClock} from './known-at.mjs';
 
 // Interval series screen: definition, CSV import, lost-reply recovery, corrections, as-of reads and read-only access.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,fitsWidth,errors,url}){
@@ -14,6 +15,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  // Every revise exchange is recorded; loseNextRevise drops one committed reply, as a broken connection would.
  await evaluate("window.reviseExchanges=[];window.loseNextRevise=false;{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/interval-series/revise')){window.reviseExchanges.push({body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});if(window.loseNextRevise){window.loseNextRevise=false;throw Error('Synthetic lost committed reply');}}return response;};}");
+ await observeCatalogClock(evaluate,'/api/interval-series');
  await persona('editor');await click('#nav-interval-series');
  await check('editors see the page with definition and import controls',"!document.querySelector('#interval-series-page').hidden&&document.querySelector('#page-title').textContent==='Interval series'&&!document.querySelector('#interval-series-define').hidden&&!document.querySelector('#interval-series-revise-card').hidden&&document.querySelector('#error').hidden");
 
@@ -29,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('a refused definition leaves nothing outstanding and keeps its form',"document.querySelector('#error').textContent.includes('unused code')&&document.querySelector('#interval-series-define-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.interval-series.request.'))&&!document.querySelector('#interval-series-define-fields').disabled&&document.querySelector('#interval-series-code').value==='browser_capacity'");
 
  await set('#interval-series-from','2027-01-01T05:00');await set('#interval-series-to','2027-01-01T08:00');
- await check('Known at starts at the catalog time and names the profile zone',"/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d$/.test(document.querySelector('#interval-series-known').value)&&document.querySelector('label[for=interval-series-known]').textContent==='Known at · UTC'");
+ await check('Known at starts at the catalog time and names the profile zone',`${knownAtAssertion("document.querySelector('#interval-series-known')",'window.catalogKnownAt','UTC')}&&document.querySelector('label[for=interval-series-known]').textContent==='Known at · UTC'`);
  await importCsv('Synthetic browser import','start,value\r\n2027-01-01T05:00:00Z,0.25\r\n2027-01-01T06:00:00Z,0.5\r\n2027-01-01T07:00:00Z,0.75\r\n');
  await check('an import saves one revision and shows its three values',`${values}.length===3&&${values}.map(r=>r[2]+'@'+r[3]).join()==='0.25@1,0.5@1,0.75@1'&&${values}[0][0]==='Jan 1, 2027, 5:00 AM'&&document.querySelector('#interval-series-saved').textContent==='Saved revision 1 · 3 intervals.'&&document.querySelector('#interval-series-reason').value===''&&document.querySelector('#interval-series-csv').value===''&&document.querySelector('#error').hidden`);
 

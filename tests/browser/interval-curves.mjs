@@ -1,3 +1,5 @@
+import {knownAtAssertion,observeCatalogClock} from './known-at.mjs';
+
 // Interval curves screen: shaped, marked and resolved prices, lineage, aggregates, an unavailable curve, the largest window and the historical refusal.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,fitsWidth,errors,url}){
  const table=id=>`[...document.querySelectorAll('#${id} tbody tr')].map(r=>[...r.cells].map(c=>c.textContent))`;
@@ -9,6 +11,18 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const settled=()=>document.body.getAttribute('aria-busy')==='false'?requestAnimationFrame(()=>setTimeout(()=>accept(Math.round(performance.now()-started)))):setTimeout(settled,20);setTimeout(settled,20);})`);
  await command('Runtime.enable');await command('Page.enable');await command('Page.navigate',{url:url+'/'});
  await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
+ await check('whole-minute and nonzero-second controls preserve the exact server cutoff',`(async()=>{
+  const {zonedInput}=await import('/user-time.js'),input=document.createElement('input');input.type='datetime-local';input.step='1';
+  const control=zonedInput(input,()=> 'America/New_York',async()=>{throw Error('An unedited cutoff must retain its exact instant.');});
+  for(const [instant,display] of [['2026-10-22T17:29:00.123456Z','2026-10-22T13:29'],['2026-10-22T17:29:37.123456Z','2026-10-22T13:29:37']]){
+   control.set(instant);
+   if(input.value!==display||!${knownAtAssertion('input','instant','America/New_York')}||await control.instant()!==instant)return false;
+  }
+  input.value='2026-10-22T13:29';
+  if(${knownAtAssertion('input',"'2026-10-22T17:29:37Z'",'America/New_York')}||${knownAtAssertion('input',"'2026-10-22T17:29:00Z'",'UTC')})return false;
+  input.value='';return !${knownAtAssertion('input',"'2026-10-22T17:29:00Z'",'America/New_York')};
+ })()`);
+ await observeCatalogClock(evaluate,'/api/interval-curves/catalog');
  await persona('viewer');
  await click('#profile-open');await set('#zone','America/New_York');await submit('#preferences-form');
  // Interval curves read the first market date's pinned marks; it values at 11:00 AM New York time on 15 December 2020.
@@ -17,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the page lists interval curves beside the market date, with Known at from the database clock',
   "!document.querySelector('#interval-curves-page').hidden&&document.querySelector('#page-title').textContent==='Interval curves'&&!document.querySelector('#snapshot').closest('.date-control').hidden"+
   "&&[...document.querySelectorAll('#interval-curves-select option')].map(o=>o.value).filter(Boolean).join()==='test_power_hourly_marked,test_power_hourly_scaled,test_power_hourly_shaped,test_power_hourly_uncovered'"+
-  "&&/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d$/.test(document.querySelector('#interval-curves-known').value)&&document.querySelector('#interval-curves-window').disabled&&document.querySelector('#error').hidden",
+  `&&${knownAtAssertion("document.querySelector('#interval-curves-known')",'window.catalogKnownAt','America/New_York')}&&document.querySelector('#interval-curves-window').disabled&&document.querySelector('#error').hidden`,
   "({page:document.querySelector('#interval-curves-page').hidden,title:document.querySelector('#page-title').textContent,date:document.querySelector('#snapshot').closest('.date-control').hidden,options:[...document.querySelectorAll('#interval-curves-select option')].map(o=>o.value),known:document.querySelector('#interval-curves-known').value,window:document.querySelector('#interval-curves-window').disabled,error:document.querySelector('#error').textContent})");
 
  await set('#interval-curves-select','test_power_hourly_uncovered');

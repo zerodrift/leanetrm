@@ -1348,7 +1348,10 @@ no event, and nothing is written to the console. No check calls a real provider.
 pushes, pull requests and manual dispatch. Checkout and tool-setup actions are
 pinned to exact commits. The checks job has read-only repository access, does not
 persist checkout credentials and requires no repository secrets. It runs the same
-`check_all.py` command as local verification. It does not publish packages or
+`check_all.py` command as local verification, with a 45-minute job deadline for
+the complete suite; individual command and owned-resource deadlines remain in
+force. The previous 30-minute limit interrupted the final mixed-period suite
+after the preceding checks passed. It does not publish packages or
 deploy the application. A separate, gated `publish` job runs only after successful
 checks on a push to `master` when release publication is explicitly enabled. It
 uses the hosted-release environment and scoped write/attestation permissions to
@@ -2484,10 +2487,16 @@ an ended hour before its due time is unresolved, live hours take their marks eve
 after their actuals arrive, and a correction appears only at a later cutoff. They
 also cover aggregates, delivered, uncovered, window, cutoff, historical, missing-member
 and anonymous refusals. Reintroducing the dropped holidays or the hindsight actual
-each failed its HTTP check. 20 browser checks drive the screen: an unavailable curve
+each failed its HTTP check. 21 browser checks drive the screen: an unavailable curve
 with its reason, shaped November with the repeated hour's offsets, lineage on choosing
 a row, the delivered-interval message, actual, unresolved and projected states, day
 and hour aggregates, the largest synthetic window (1,465 hours), 390 px width and the
 historical refusal. The market read authority check pins sixteen read policies, and
 `--power-actual-check` still passes over the shared collector and alignment.
+Both interval screens compare Known at with the observed catalog cutoff in the
+profile zone using the control's numeric wall time. Chrome may omit zero seconds
+from `datetime-local` text. A deterministic browser regression covers whole-minute
+and nonzero-second displays, exact fractional-cutoff retention, and rejection of
+an empty value, a wrong zone or missing nonzero seconds. Both owned interval
+suites pass with these assertions (21 curve and 38 series browser checks).
 `tools/check_all.py` runs all five layers.
