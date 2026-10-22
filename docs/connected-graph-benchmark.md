@@ -12,7 +12,7 @@ unique instrument pricers**. They do not qualify the rich curve compiler, exact
 rational pricing, complex derivatives, database loading, authorization, durable
 workers, distributed execution or hosted throughput at this scale. See the
 [connected calculation contract](connected-calculation.md) for the implemented
-financial prototype and its remaining integration work.
+financial integration and its supported boundaries.
 
 ## Environment and protocol
 

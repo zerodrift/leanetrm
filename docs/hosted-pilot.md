@@ -173,6 +173,9 @@ configuration, interpolated private binding and live pre-DNAT fence must match t
 operator's reviewed baseline. New migrations or changed infrastructure stop for
 operator qualification; the updater never reruns installation seeds or changes
 collector job switches. The collector and updater share an operation lock.
+The connected-curve migrations 0080/0081 also require the
+[cutover prerequisites](connected-calculation.md#adopting-the-schema-cutover);
+their empty-record guards are not an automatic data conversion or reset.
 
 A head whose release carries migrations missing from that baseline fails the check
 on every attempt, so the operator quarantines it on the first poll that finds its

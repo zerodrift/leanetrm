@@ -42,9 +42,12 @@ schema cutovers, not silent conversions of retained history.
 Interactive preparation reads visible source-revision history and compiles source
 topology without evaluation. `SourceCompilations` and `DeclaredSourceNodes` report
 that work; the futures materialization build is still separately counted.
-Historical query pushdown, database activation of logical bindings, financial
-workload qualification, volatility and correlation scenarios remain work. All
-calculation behavior stays in the backend.
+Historical query pushdown, database activation of logical bindings, continuous
+live-feed updates, financial workload qualification, volatility and correlation
+scenarios remain work. Graph propagation within a pinned scenario is implemented;
+it does not subscribe an existing run to changing database state. See the
+[cutover prerequisites](connected-calculation.md#adopting-the-schema-cutover).
+All calculation behavior stays in the backend.
 
 The header's As of calendar qualifies available exact snapshots through the
 managed backend (D162), including all inputs of a custom graph's history window.
@@ -57,8 +60,9 @@ read needed by their selected history and correction policies.
 
 The [verification workflow](verification.md) now defines a single local/CI command
 covering the existing managed, frontend, database and browser suites. The complete
-command passed on the Ubuntu 24.04 hosted runner on 2026-10-17; verification
-records the exact run and environment. Production deployment remains unqualified.
+command passed for the D186 cutover on the Ubuntu 24.04 hosted runner on
+2026-10-22; verification records the exact source and runs. Production deployment
+remains unqualified.
 
 The public landing source and hosted gateway route contract are available
 separately from the authenticated workspace (D163). An owned nginx check exercises
