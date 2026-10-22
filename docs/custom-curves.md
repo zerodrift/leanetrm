@@ -95,6 +95,8 @@ engine is `custom_curve_recipe_v2`; unsupported old engines and SQL nodes reject
 Migration 0080 refuses a database containing saved recipes. An existing installation
 must explicitly reset/rebook its earlier recipes before adopting this schema
 baseline; the migration does not rewrite immutable saved or booked history.
+The [cutover checklist](connected-calculation.md#adopting-the-schema-cutover)
+covers retained jobs as well as recipes and explains the installation prerequisites.
 
 Save requires current authoring permission, an exact session snapshot and an
 optimistic generation. Publish requires separate publishing permission. Published

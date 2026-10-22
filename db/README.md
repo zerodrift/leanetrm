@@ -920,6 +920,9 @@ The D186 connected-engine cutover adds two further schema boundaries:
 Neither migration automatically deletes data, resets an installation or rewrites
 immutable financial history. Both require a separately reviewed schema baseline;
 an application or worker rollout cannot apply them implicitly.
+See the [cutover checklist](../docs/connected-calculation.md#adopting-the-schema-cutover)
+for complete-table inventory, archive/rebooking prerequisites and the separate
+transaction boundaries of 0080 and 0081. No in-place reset/conversion tool is supplied.
 
 The consumer and installation prerequisites are documented in
 [risk scenarios and jobs](../docs/risk-engine.md) and

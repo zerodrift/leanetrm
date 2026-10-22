@@ -74,6 +74,16 @@ uncertain-request recovery checks. Migration 0080 refuses existing saved recipes
 an explicit operator archive/reset. Verify these cutovers only against
 owned disposable resources; they are not instructions to reset an installation.
 
+`tools/check_curve_cutover.py` runs before migrations 0080/0081 in the owned
+`--connected-portfolio-check` gate. It inserts retained draft/published v1 recipe
+storage fixtures and queued/completed job storage fixtures, requires the actual
+migration's exact refusal message, and compares retained rows, table/constraint
+inventory and relevant function definitions/privileges after refusal. Each case
+rolls back completely before normal empty-baseline migration proceeds. These
+fixtures qualify installation refusal, not execution of legacy pricing or jobs.
+The [operator checklist](connected-calculation.md#adopting-the-schema-cutover)
+describes global inventory and the separate migration transaction boundaries.
+
 The D186 cutover passed every `tools/check_all.py` gate across owned local runs
 on 2026-10-21 with macOS arm64, .NET 10.0.402, Node 24.22.0, Python 3.14.2,
 stock PostgreSQL 16.14 and Chrome 156.0.8078.47. Checks include 427 managed core
@@ -89,6 +99,23 @@ working header remains unchanged. Deployment configuration rendering and indepen
 numerical, temporal, authorization and worker reviews passed. All owned resources
 completed teardown. No financial throughput or cluster capacity qualification is
 claimed.
+
+The complete CI workflow also passed on Ubuntu 24.04 for source
+`e4300ac50024e6cc318bd02e2889bef26efe8f2f` on 2026-10-22:
+[pull-request verification](https://github.com/zerodrift/leanetrm/actions/runs/39719081352)
+and [push verification](https://github.com/zerodrift/leanetrm/actions/runs/39719078560).
+These runs qualify the merged D186 cutover; they do not qualify a deployed
+installation or the later closeout checks described above.
+
+The closeout checks passed locally on 2026-10-22 in the owned connected-portfolio
+gate, including all four pre-migration refusal cases and the weighted booked
+PV/retained-worker oracles. Narrowing 0080's guard to drafts or 0081's guard to
+queued jobs caused the corresponding published/completed regression to fail;
+the checked-in migration files were unchanged. All disposable databases were
+removed. The 46 Python orchestration checks and standalone dependency check
+also passed. Independent review found no release-boundary blocker. This adds
+installation-refusal coverage and operational documentation, not a new pricing
+model, historical activation service or performance qualification.
 
 The preceding D183 saved-projection phase passed locally on 2026-10-21 using macOS arm64,
 the pinned .NET/Node versions and disposable stock PostgreSQL 16. Verification

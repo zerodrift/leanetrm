@@ -135,6 +135,9 @@ read the captured IDs and reject a different reconstructed manifest. Changing
 the UI afterward does not change the job.
 The browser discards results when its context or input generation changes.
 
+See the [cutover checklist](connected-calculation.md#adopting-the-schema-cutover)
+before qualifying an installation baseline.
+
 Supplemental swap market revisions carry explicit frames under the same retained
 context and valuation instant. Migration 0074 retains their observation uses and
 curve memberships through exact-version foreign keys. Workers reconstruct those

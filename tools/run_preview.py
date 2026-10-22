@@ -148,6 +148,9 @@ def main():
         else:
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.connected_portfolio_check and migration.name in ('0080_connected_recipe_weights.sql','0081_connected_risk_axes.sql'):
+                from check_curve_cutover import run_checks as check_curve_cutover
+                check_curve_cutover(query,[reference,market,security],manifest,migration.read_text(),migration.name[:4])
             if args.execution_check and migration.name=='0040_futures_execution_policies.sql':
                 from check_futures_policy_upgrade import run_checks as check_policy_upgrade
                 legacy_reference,legacy_market,_,legacy_manifest=fixture(ROOT)

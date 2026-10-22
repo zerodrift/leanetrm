@@ -8,6 +8,34 @@ computed-output targets through the API and UI. The backend uses the database's
 existing certified financial context. Contract/date selection, formula compilation,
 pricing and scenario behavior remain entirely in the backend.
 
+## What changes dynamically
+
+A calculated curve retains its operators and exact input links. For example,
+an underlying contract can feed a weighted basket, which feeds a mean and then
+another curve. Shocking that contract reevaluates the affected downstream nodes.
+Shocking the basket's computed output adds an offset at that node and propagates
+it downstream while preserving its upstream links. Cached answers remain scoped
+to the graph and scenario; they do not replace those links with source prices.
+
+The graph is prepared for one pinned financial context. It does not subscribe to
+database changes during evaluation. A new snapshot or date selection requires
+new preparation; a price shock creates a child scenario over the existing graph.
+Rolling contract and schedule selections stay pinned during price shocks.
+Publishing a new recipe version does not rebind an existing booked projection.
+Historical samples deliberately remain frozen when current quotes are shocked.
+
+| Change | Calculation behavior |
+| --- | --- |
+| Primitive quote shock | Reevaluate that input and its affected consumers; reuse unaffected parent values |
+| Computed-output shock | Apply an offset after that node's calculation; downstream consumers see it |
+| Nested shock | Preserve inherited offsets and isolate the parent and sibling scenarios |
+| New snapshot or financial dates | Prepare a new graph with the selected observations and references |
+| Published recipe edit | Create a new version; existing exact booked references keep their version |
+
+Automatic persisted activation of logical curve versions and continuous live-feed
+updates are separate implementation work. The managed bitemporal resolver and
+its tests do not imply those operations exist in the application.
+
 ## Calculation contract
 
 `Calculation/ConnectedCurves.cs` prepares typed curves against one
@@ -131,6 +159,45 @@ The persisted custom projection supports monthly sampling within one source
 catalog and revision. Database logical activation, daily custom mappings and
 cross-revision histories remain work.
 
+## Adopting the schema cutover
+
+Use ordered migrations only in a separately reviewed installation baseline.
+Stop new admissions and drain active API/worker operations before changing that
+baseline. Inventory saved custom-curve versions and all retained risk jobs,
+including terminal jobs. Migration 0080 requires no saved recipe versions;
+0081 requires no retained risk jobs. Completing or cancelling a job does not
+remove it and does not satisfy the second prerequisite.
+
+Use the approved migration operator's read access to the complete tables;
+runtime row-level security can hide records relevant to these global guards.
+The inventory queries are read-only:
+
+```sql
+SELECT state, count(*) FROM market_data.custom_curve_versions GROUP BY state;
+SELECT state, count(*) FROM risk.jobs GROUP BY state;
+```
+
+Preserve the old installation's financial history and results in its reviewed
+archive/backup process, including the matching application/worker artifacts and
+private configuration needed for retained reads. A fresh baseline with explicitly
+recreated recipes and rebooked trades is the supported cutover approach; no
+in-place conversion or general-purpose archive/reset command is supplied. Do not disable immutability
+guards or delete foreign-key dependents to force the migrations through. If a
+precondition fails, retain the prior baseline and resolve it explicitly.
+
+The two migrations commit separately. An 0081 refusal does not undo an already
+committed 0080. Inventory both prerequisites before applying either migration;
+recovery of a partially applied baseline requires the reviewed backup/restore
+procedure, not an application-image rollback.
+
+Qualify the candidate with the disposable connected-portfolio and retained-risk
+gates below, then verify its exact published output bindings, book totals and
+scenario targets against reviewed inputs. API and worker artifacts must match:
+jobs retain the admission engine fingerprint, and incompatible workers leave
+them queued. Application-image updates and the Swarm worker definition do not
+apply schema migrations. See [risk workers](risk-engine.md#workers-and-horizontal-execution)
+and [the verification record](verification.md).
+
 ## Execution and qualification
 
 `DependencyPlan` stores integer-indexed forward/reverse adjacency arrays and a
@@ -159,13 +226,17 @@ process separate whole runs; this integration does not distribute one graph or
 reduce one run across machines.
 
 Run the registered managed checks through `tools/check_all.py`, or use the
-MarketData.Checks switches `--dependency-plan`, `--temporal-bindings`,
-`--connected-curves`, `--connected-scenarios`, `--exact-curve-prices`,
+MarketData.Checks switches `--dependency-plan`, `--curve-engine-cutover`,
+`--temporal-bindings`, `--connected-curves`, `--connected-scenarios`,
+`--exact-curve-prices`,
 `--connected-recipes`, `--custom-projection` and `--connected-portfolios`.
 `tools/run_preview.py --connected-portfolio-check` exercises the saved projection,
 weighted multi-source recipes, booking, shared portfolio and durable worker path
-in a disposable database. `--risk-jobs-check` includes HTTP coordinate and target
-selection checks; `--custom-curves-check --browser-check` exercises the workbench.
+in a disposable database. Before applying 0080/0081, that gate also verifies
+refusal over retained draft/published v1 recipes and queued/completed jobs, with
+unchanged rows/schema and rolled-back fixtures. `--risk-jobs-check` includes HTTP
+coordinate and target selection checks; `--custom-curves-check --browser-check`
+exercises the workbench.
 The Release benchmark switch is `--connected-graph-benchmark <output.json>`;
 keep its generated report outside the repository. The workload records node and
 edge counts, scenarios, evaluated work, allocation/retained memory, environment

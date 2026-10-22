@@ -109,6 +109,7 @@ existing database.
 
 **Operations**
 
+- [Connected-curve cutover prerequisites](docs/connected-calculation.md#adopting-the-schema-cutover)
 - [Jobs, workers and infrastructure](docs/automation.md)
 - [Private pilot operations](docs/hosted-pilot.md)
 - [Local verification and CI](docs/verification.md)
