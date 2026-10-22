@@ -12,6 +12,19 @@ A registered panel-only SQL mean shares the exact units/lineage contract.
 Integration into booked instruments, cross-revision rolling histories and
 historical VaR/covariance remain later work.
 
+The managed [connected calculation prototype](connected-calculation.md) (D182)
+adds compact dependency plans, nested sparse scenarios, bitemporal logical-to-exact
+bindings, rational means/baskets, rolling selections and resolved schedule
+connections. Parallel, explicit point, whole-delivery bucket and dated-contract
+targets distinguish primitive quote shocks from computed-output offsets. A
+synthetic consumer prices through the common instrument PV contract. The
+[kernel benchmark](connected-graph-benchmark.md) exercises up to five million
+connections; rich financial compilation, database context loading and production
+throughput are not qualified by that integer workload. Integrating these typed
+definitions with the saved custom editor, booked indexes and retained portfolio
+workers remains the next integration step. Volatility and correlation scenarios
+remain explicit later work. All calculation behavior stays in the backend.
+
 The header's As of calendar qualifies available exact snapshots through the
 managed backend (D162), including all inputs of a custom graph's history window.
 It disables unavailable dates, preserves the user's display zone and requires an

@@ -52,5 +52,23 @@ public sealed record ExactUnitPrice
         return new(numerator*other.denominator+other.numerator*denominator,denominator*other.denominator,Unit);
     }
     public ExactUnitPrice Divide(int count)=>count>0?new(numerator,denominator*count,Unit):throw new MarketDataException("numeric_division","An average requires observations.");
+    public ExactUnitPrice Scale(ExactDecimal weight)=>new(numerator*weight.ScaledValue,denominator*ExactDecimal.WorkingScale,Unit);
+    public ExactUnitPrice Divide(ExactDecimal divisor)=>divisor.CompareTo(default)>0?
+        new(numerator*ExactDecimal.WorkingScale,denominator*divisor.ScaledValue,Unit):
+        throw new MarketDataException("numeric_division","A curve average requires a positive divisor.");
+    public ExactMoney ExactTimes(Quantity quantity)
+    {
+        if(quantity.Specification!=Unit.Quantity)
+            throw new MarketDataException("quantity_mismatch","A curve price requires its exact quantity basis.");
+        return ExactMoney.FromFraction(numerator*quantity.Amount.ScaledValue*Unit.Multiplier.ScaledValue,
+            denominator*ExactDecimal.WorkingScale*ExactDecimal.WorkingScale,Unit.Currency);
+    }
+    public UnitPrice ToUnitPriceExact()
+    {
+        var coefficient=BigInteger.DivRem(numerator*ExactDecimal.WorkingScale,denominator,out var remainder);
+        if(!remainder.IsZero)
+            throw new MarketDataException("precision_loss","A rational curve price requires an explicit rounding policy before working-decimal projection.");
+        return new(ExactDecimal.FromScaled(coefficient),Unit);
+    }
     public string Format(AmountFormat format)=>format.FormatFraction(numerator,denominator);
 }
