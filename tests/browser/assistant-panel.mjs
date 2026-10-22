@@ -218,8 +218,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   const marked=await evaluate(marks);
   await release('closed');await wait(shown('#assistant-dot'));
   await check('the answer finishing while closed lights the launcher, marking nothing read',`${q('#assistant-launcher')}.getAttribute('aria-label')==='Assistant · a new answer'&&${marks}===${marked}`);
+  // A tab that has just navigated may still hold its blank page, which has no launcher and is never idle, so idle comes first.
+  const launchable=`${idle}&&${shown('#assistant-launcher')}`;
   const other=await tab();await other.command('Page.addScriptToEvaluateOnNewDocument',{source:recorder});await other.command('Page.navigate',{url:url+'/'});
-  await other.wait(`${shown('#assistant-launcher')}&&${idle}`);await other.click('#assistant-launcher');await other.click('#assistant-history-open');
+  await other.wait(launchable);await other.click('#assistant-launcher');await other.click('#assistant-history-open');
   await other.wait(`document.querySelectorAll('#assistant-history-list li').length>0`);
   await checkIn(other,'another tab, holding no stream, learns of the unread answer in History',
     `(()=>{const item=document.querySelector('#assistant-history-list li');return item.classList.contains('unread')&&item.textContent.includes('Unread')&&item.textContent.includes(${JSON.stringify(guide)})&&window.__streams.length===0;})()`);
@@ -249,7 +251,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await script({hold:'six',text:'Six tabs. ',tools:[['toolu_panel_11','read_current_page',{}]]},{text:'One stream each turn.'});
   await ask('Count the streams.');await wait(`${answer}==='Six tabs. '`);
   const tabs=[other];
-  for(let i=0;i<4;i++){const added=await tab();await added.command('Page.addScriptToEvaluateOnNewDocument',{source:recorder});await added.command('Page.navigate',{url:url+'/'});await added.wait(`${shown('#assistant-launcher')}&&${idle}`);tabs.push(added);}
+  for(let i=0;i<4;i++){const added=await tab();await added.command('Page.addScriptToEvaluateOnNewDocument',{source:recorder});await added.command('Page.navigate',{url:url+'/'});await added.wait(launchable);tabs.push(added);}
   const open="window.__streams.filter(s=>s.readyState!==EventSource.CLOSED).length";
   const idleTabs=await Promise.all(tabs.map(t=>t.evaluate(open)));
   await check('with six tabs open on one unfinished turn, only the asking tab holds a stream',`${open}===1&&${JSON.stringify(idleTabs)}.every(n=>n===0)`,JSON.stringify(idleTabs));
