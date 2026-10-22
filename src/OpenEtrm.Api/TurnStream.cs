@@ -40,15 +40,17 @@ public sealed class TurnStream(PreviewDatabase database,string scope,AgentWorker
                 // The subscription hears what commits from now on. Live events come from this process's worker: a
                 // generation lost before this restarts here, as for an ask, interrupting the turn (§7.4), and one lost
                 // after it ends the worker's run of the turn, which the subscription hears.
-                subscription=streams.Subscribe(turn.Id,session.Digest);
+                subscription=streams.Subscribe(turn.Id,session.Digest,profile);
                 if(await worker.Generation(aborted) is null)
                     return Results.Json(new{code="agent_runtime_unavailable",message=Refusal("agent_runtime_unavailable")},statusCode:StatusCodes.Status503ServiceUnavailable);
                 // This read sends what committed before the subscription, and any ending the restart wrote.
                 var heard=await Read(profile,conversation,turn.Id,opened.Events.IsEmpty?from:opened.Events[^1].Sequence,aborted);
                 opened=heard.Refused is null?heard.After(opened):opened with{Refused=heard.Refused};
-                streams.Activate(subscription);
             }
+            // A profile switch changes the profile, then stops the streams opened under the one it left: a stream opened
+            // under another profile that subscribes after the stops is refused here, and one they stop replaces none (§8).
             if(!Bound(session,profile))throw new PreviewSessionEnded();
+            if(subscription is not null)streams.Activate(subscription);
             context.Response.StatusCode=StatusCodes.Status200OK;
             context.Response.ContentType="text/event-stream; charset=utf-8";
             context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();

@@ -90,37 +90,39 @@ static class TurnStreamChecks
     {
         var streams=new TurnStreams();
         var other=Guid.NewGuid();
-        var (a,b,c)=(streams.Subscribe(TurnId,"session-a"),streams.Subscribe(TurnId,"session-b"),streams.Subscribe(other,"session-a"));
+        var (a,b,c)=(streams.Subscribe(TurnId,"session-a","risk"),streams.Subscribe(TurnId,"session-b","risk"),streams.Subscribe(other,"session-a","risk"));
+        var reopened=streams.Subscribe(other,"session-a","trader");
         streams.Published(TurnId,1,"x");
         Require(Drained(a)==1&&Drained(b)==1&&Drained(c)==0,"a turn's signals reach only its subscriptions");
         streams.Activate(a);
         streams.Activate(b);
         Require(a.Stopped==StreamStop.Replaced&&b.Stopped==StreamStop.None&&c.Stopped==StreamStop.None,"a newer stream of a turn replaces the older, alone");
-        streams.EndSession("session-a");
-        Require(c.Stopped==StreamStop.SessionEnded&&b.Stopped==StreamStop.None,"a profile switch ends the streams of its session alone");
+        streams.EndSession("session-a","risk");
+        Require(c.Stopped==StreamStop.SessionEnded&&b.Stopped==StreamStop.None&&reopened.Stopped==StreamStop.None,
+            "a profile switch ends the streams its session opened under the profile it left, alone");
         streams.Remove(b);
         streams.Published(TurnId,2,"y");
         Require(Drained(b)==0,"a removed subscription hears nothing more");
-        var slow=streams.Subscribe(other,"session-c");
+        var slow=streams.Subscribe(other,"session-c","risk");
         for(var n=1;n<=RuntimeSet.SubscriberEvents+1;n++)streams.Published(other,n,"z");
         Require(slow.Stopped==StreamStop.Cut,"a subscription whose buffer is full is cut, and the writer never waits");
-        var replaced=streams.Subscribe(other,"session-c");
+        var replaced=streams.Subscribe(other,"session-c","risk");
         streams.Activate(replaced);
         streams.Published(other,1,"z");
-        streams.Activate(streams.Subscribe(other,"session-d"));
+        streams.Activate(streams.Subscribe(other,"session-d","risk"));
         Require(replaced.Stopped==StreamStop.Replaced,"a stop is kept beside the buffered signals, which it preempts");
         var third=Guid.NewGuid();
-        var live=streams.Subscribe(third,"session-e");
+        var live=streams.Subscribe(third,"session-e","risk");
         streams.Activate(live);
-        var doomed=streams.Subscribe(third,"session-f");
-        streams.EndSession("session-f");
+        var doomed=streams.Subscribe(third,"session-f","risk");
+        streams.EndSession("session-f","risk");
         streams.Activate(doomed);
         Require(live.Stopped==StreamStop.None&&doomed.Stopped==StreamStop.SessionEnded,"a stream stopped while it is admitted replaces none");
         streams.Remove(doomed);
-        streams.Activate(streams.Subscribe(third,"session-f"));
+        streams.Activate(streams.Subscribe(third,"session-f","trader"));
         Require(live.Stopped==StreamStop.Replaced,"its turn's stream stays the one it was");
-        Console.WriteLine("PASS one stream per unfinished turn: a newer one replaces the older unless stopped first, a profile switch ends its "+
-            "session's, and a full buffer cuts its subscription without the writer waiting");
+        Console.WriteLine("PASS one stream per unfinished turn: a newer one replaces the older unless stopped first, a profile switch ends those "+
+            "its session opened under the profile it left, and a full buffer cuts its subscription without the writer waiting");
     }
 
     static async Task Delivery()
@@ -220,7 +222,7 @@ static class TurnStreamChecks
         }
         {
             var run=Start(opening,[]);
-            run.Streams.EndSession("session");
+            run.Streams.EndSession("session","risk");
             var frames=await run.Finished();
             Require(Kinds(frames)==":open accepted text refused"&&frames[^1].Contains("session_ended",StringComparison.Ordinal),"a profile switch refuses the session's streams session_ended");
         }
@@ -238,7 +240,7 @@ static class TurnStreamChecks
         // A newer stream, a cut, shutdown, a refused read, a failed read.
         {
             var run=Start(opening,[]);
-            run.Streams.Activate(run.Streams.Subscribe(TurnId,"another"));
+            run.Streams.Activate(run.Streams.Subscribe(TurnId,"another","risk"));
             var frames=await run.Finished();
             Require(Kinds(frames)==":open accepted text replaced","a stream replaced by a newer one says so and ends");
         }
@@ -340,7 +342,7 @@ static class TurnStreamChecks
         var time=new ManualTime(new DateTimeOffset(2026,1,5,12,0,0,TimeSpan.Zero));
         var streams=new TurnStreams();
         var sink=new FrameSink();
-        var subscription=live?streams.Subscribe(TurnId,"session"):null;
+        var subscription=live?streams.Subscribe(TurnId,"session","risk"):null;
         if(subscription is not null)streams.Activate(subscription);
         var (reading,entered)=(new SemaphoreSlim(read?1000:0),new SemaphoreSlim(0));
         DeliveryRun? run=null;
