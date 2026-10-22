@@ -77,21 +77,30 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
         ModelProviders.Read(connection,"SELECT assistant.mark_read($1,$2,$3::bigint)::text",[scope,body.ConversationId,(object?)body.Through??DBNull.Value],ct);
 
     // The code a failed record write fails its turn with (§7.2): the database's refusal, access_denied for a permission
-    // refused, request_cancelled after an abort or the deadline, and agent_runtime_unavailable for any other failure.
-    static string Failure(Exception e)=>e switch
+    // refused, request_cancelled after an abort or the deadline, and agent_runtime_unavailable for any other failure. The
+    // end of the sign-in session it was asked under is recorded first, so the turn ends cancelled session_ended (§11).
+    internal static (string Code,bool SessionEnded) Failure(Exception e)=>e switch
     {
-        PostgresException{SqlState:"P0001"} p when Code().IsMatch(p.MessageText)=>p.MessageText,
-        PostgresException{SqlState:"42501"} or PreviewDeniedException=>"access_denied",
-        OperationCanceledException or PostgresException{SqlState:"57014"}=>"request_cancelled",
-        _=>"agent_runtime_unavailable"
+        PostgresException{SqlState:"P0001"} p when Code().IsMatch(p.MessageText)=>(p.MessageText,false),
+        PostgresException{SqlState:"42501"} or PreviewDeniedException=>("access_denied",false),
+        OperationCanceledException or PostgresException{SqlState:"57014"}=>("request_cancelled",false),
+        PreviewSessionEnded=>("request_cancelled",true),
+        _=>("agent_runtime_unavailable",false)
     };
 
     // Fails the turn, once, as a worker write; its ending, or none when that did not land, which leaves the turn to
     // admission's deadline. The ending says nothing of the owner's replay recheck: the turn never started, so it has
     // neither answer nor text.
-    async Task<JsonElement?> Fail(Guid turn,byte[] token,string code)
+    async Task<JsonElement?> Fail(Guid turn,byte[] token,(string Code,bool SessionEnded) failure)
     {
-        try{return (await worker.Write((connection,ct)=>ModelProviders.Read(connection,"SELECT assistant.end_turn($1,$2,'failed',$3)::text",[turn,token,code],ct))).GetProperty("turn");}
+        try
+        {
+            return (await worker.Write(async(connection,ct)=>
+            {
+                if(failure.SessionEnded)await ModelProviders.Read(connection,"SELECT assistant.end_turn_session($1,$2)::text",[turn,token],ct);
+                return await ModelProviders.Read(connection,"SELECT assistant.end_turn($1,$2,'failed',$3)::text",[turn,token,failure.Code],ct);
+            })).GetProperty("turn");
+        }
         catch(Exception e) when(e is NpgsqlException or OperationCanceledException)
         {
             logger.LogError("A turn whose record failed could not be ended: {ErrorType}",e.GetType().Name);

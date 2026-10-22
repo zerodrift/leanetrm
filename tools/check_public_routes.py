@@ -63,6 +63,15 @@ class SyntheticApplication(BaseHTTPRequestHandler):
         body = self.rfile.read(int(self.headers.get('Content-Length', '0')))
         self.server.requests.append((self.command, self.path, dict(self.headers)))
         path = urlsplit(self.path).path
+        if re.fullmatch(r'/api/assistant/conversations/[0-9a-f-]{36}/events', path) and self.headers.get('Cookie') == 'synthetic=accepted':
+            # A page-assistant event stream: its first frame, then its last only once the client has read the first.
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(b': open\n\n'); self.wfile.flush()
+            self.server.first_read.wait(timeout=10)
+            self.wfile.write(b': ping\n\n'); self.wfile.flush()
+            return
         location, cookie = None, None
         if path == '/auth/login':
             status, content = 302, b''
@@ -248,6 +257,21 @@ def run_checks(nginx):
             headers = expect(f'body over 32 KiB to {path}', path, 413, method='POST', body=b'x' * (32 * 1024 + 1))
             assert len(upstream.requests) == reached, 'A body over 32 KiB must not reach the application.'
             assert not headers.get('Content-Type', '').startswith('application/json'), 'Only API routes answer as the API does.'
+        # The page assistant's event stream passes through as it is written (docs/ai-assistant.md §11): its first frame
+        # arrives while the application still holds the response open, waiting for that frame to be read.
+        upstream.first_read = threading.Event()
+        connection = http.client.HTTPSConnection('127.0.0.1', https_port, context=ssl._create_unverified_context(), timeout=5)
+        try:
+            connection.request('GET', '/api/assistant/conversations/00000000-0000-4000-8000-000000000001/events?after=0',
+                               headers={'Host': values['PUBLIC_HOST'], 'Accept': 'text/event-stream', **private})
+            response = connection.getresponse()
+            first = response.readline() + response.readline()
+            upstream.first_read.set()
+            rest = response.read()
+        finally:
+            connection.close()
+        assert response.status == 200 and first == b': open\n\n' and rest == b': ping\n\n', 'An event stream must pass through unbuffered.'
+        checked += 1
         print(f'PASS {checked} owned public gateway route checks; application authentication is synthetic.')
     finally:
         try:

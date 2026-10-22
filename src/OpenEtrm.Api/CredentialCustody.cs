@@ -11,10 +11,11 @@ public sealed class ModelAdministrationException(string code,string message):Exc
 public sealed record SealedCredential(byte[] Nonce,byte[] Ciphertext,byte[] Tag);
 
 // Write-only model-provider keys (docs/ai-assistant.md §5.2). A key is sealed with AES-GCM under the
-// preview's key-encryption key, bound to its provider identity, vendor and credential version, and a
+// installation's key-encryption key, bound to its provider identity, vendor and credential version, and a
 // retry of one request is recognized by an HMAC-SHA-256 digest under the separate retry key.
-// tools/run_preview.py writes both 32-byte keys once per disposable database; nothing is generated
-// here. A missing or malformed key file and a failed tag are credential_unavailable.
+// tools/run_preview.py writes both 32-byte keys once per disposable database and tools/provision_hosted.py once
+// per hosted installation (§11); nothing is generated here. A missing or malformed key file and a failed tag are
+// credential_unavailable.
 public sealed class CredentialCustody(string? encryptionKeyFile,string? retryKeyFile)
 {
     public static CredentialCustody FromEnvironment()=>new(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_CREDENTIAL_KEY"),
@@ -77,5 +78,5 @@ public sealed class CredentialCustody(string? encryptionKeyFile,string? retryKey
         catch(Exception e) when(e is IOException or UnauthorizedAccessException or NotSupportedException){throw Unavailable();}
     }
 
-    static ModelAdministrationException Unavailable()=>new("credential_unavailable","Provider keys cannot be sealed or opened with this preview's key files.");
+    static ModelAdministrationException Unavailable()=>new("credential_unavailable","Provider keys cannot be sealed or opened with this installation's key files.");
 }

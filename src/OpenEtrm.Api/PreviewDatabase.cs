@@ -121,6 +121,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
                 throw new InvalidOperationException("Hosted runtime and authenticator require separate logins to the same dedicated database.");
             authenticator=NpgsqlDataSource.Create(auth.ConnectionString); runtime=NpgsqlDataSource.Create(app.ConnectionString);
             calculationRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){Pooling=false,ApplicationName="openetrm-calculation-listener"}.ConnectionString);
+            agentAuthenticator=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(auth.ConnectionString){MaxPoolSize=RuntimeSet.AgentPool,ApplicationName=AgentReads}.ConnectionString);
+            agentRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){MaxPoolSize=RuntimeSet.AgentPool,ApplicationName=AgentReads}.ConnectionString);
             runtimeLogin=app.Username!;
         }
     }
@@ -141,12 +143,17 @@ public sealed class PreviewDatabase : IAsyncDisposable
         return NpgsqlDataSource.Create(config.ConnectionString);
     }
 
-    // The local preview's agent worker connects on the runtime login outside the request pools
-    // (docs/ai-assistant.md §7.4). The connection that holds its lock is not pooled, so closing it
-    // ends its session and releases the lock; its writes, which hold no session state, have a pool
-    // of their own.
-    public static NpgsqlDataSource AgentSource(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", null);
-    public static NpgsqlDataSource AgentWrites(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8);
+    // The agent worker connects on the runtime login outside the request pools (docs/ai-assistant.md §7.4, §11). The
+    // connection that holds its lock is not pooled, so closing it ends its session and releases the lock; its writes,
+    // which hold no session state, have a pool of their own.
+    public static (NpgsqlDataSource Holder, NpgsqlDataSource Writes) WorkerSources(string root, HostedConfiguration? hosted)
+    {
+        if (hosted is null)
+            return (PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", null), PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8));
+        var app = HostedConfiguration.Connection(hosted.RuntimeConnectionFile).ConnectionString;
+        return (NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app) { Pooling = false }.ConnectionString),
+            NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app) { MaxPoolSize = 8 }.ConnectionString));
+    }
 
     public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared)
     {
@@ -155,8 +162,11 @@ public sealed class PreviewDatabase : IAsyncDisposable
         await using var issue = authenticator.CreateCommand(hostedSession is null?"SELECT security.issue_context($1,$2,$3,$4,$5,NULL,$6::name,60)":"SELECT security.issue_hosted_context($1,$2::name)");
         foreach (var value in hostedSession is null?new object[] { Manifest.IdentityIssuer, profile, "human_interactive", Manifest.TenantId, Manifest.WorkspaceId, runtimeLogin }:new object[]{hostedSession(),runtimeLogin})
             issue.Parameters.Add(new NpgsqlParameter { Value = value });
-        var token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException());
-        return await Bound(runtime, token, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
+        Guid token;
+        // A hosted request whose sign-in session was revoked or ended since it was authenticated (docs/ai-assistant.md §11).
+        try { token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException()); }
+        catch (PostgresException e) when (hostedSession is not null && e.SqlState == "42501") { throw new PreviewSessionEnded(); }
+        return await Bound(runtime, token, hostedSession is not null, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
             Admission.Agents=>"SELECT assistant.use_agent_admission($1)",Admission.Grants=>"SELECT assistant.use_grant_admission($1)",
             _=>"SELECT security.use_context($1)"}, async(connection,ct)=>
         {
@@ -175,12 +185,12 @@ public sealed class PreviewDatabase : IAsyncDisposable
     public async Task<T> WithAgent<T>(AgentIdentity agent, ImmutableArray<string> permissions, Action<DateTimeOffset> boundAt,
         Func<NpgsqlConnection, CancellationToken, Task<T>> read, CancellationToken ct)
     {
-        if(agentAuthenticator is null||agentRuntime is null)throw new InvalidOperationException("Agent reads run only in the local preview.");
+        if(agentAuthenticator is null||agentRuntime is null)throw new InvalidOperationException("This database adapter has no agent pools.");
         await using var issue = agentAuthenticator.CreateCommand("SELECT security.issue_context($1,$2,'agent_credential',$3,$4,$5,$6::name,60)");
         foreach (var value in new object[] { Manifest.IdentityIssuer, agent.Principal, Manifest.TenantId, Manifest.WorkspaceId, agent.Delegation, runtimeLogin })
             issue.Parameters.Add(new NpgsqlParameter { Value = value });
         var token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException());
-        return await Bound(agentRuntime, token, "SELECT security.use_context($1)", async(connection,ct)=>
+        return await Bound(agentRuntime, token, false, "SELECT security.use_context($1)", async(connection,ct)=>
         {
             await using(var now = new NpgsqlCommand("SELECT clock_timestamp()", connection))
             await using(var reader = await now.ExecuteReaderAsync(ct))
@@ -196,14 +206,21 @@ public sealed class PreviewDatabase : IAsyncDisposable
     }
 
     // Runs an operation in one READ COMMITTED transaction bound to an issued request context, which a hosted request
-    // also holds to its verified session before and after the operation.
-    private async Task<T> Bound<T>(NpgsqlDataSource source, Guid token, string bind, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct)
+    // also holds to its verified sign-in session before and after the operation. An agent's context has no sign-in
+    // session: revoking its delegator's cancels the turn instead (docs/ai-assistant.md §11).
+    private async Task<T> Bound<T>(NpgsqlDataSource source, Guid token, bool signedIn, string bind, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         await using (var command = new NpgsqlCommand(bind, connection, transaction))
         { command.Parameters.AddWithValue(token); await command.ExecuteNonQueryAsync(ct); }
-        async Task Session(){if(hostedSession is not null)await using(var check=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction))await check.ExecuteNonQueryAsync(ct);}
+        async Task Session()
+        {
+            if(!signedIn)return;
+            await using var check=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction);
+            try{await check.ExecuteNonQueryAsync(ct);}
+            catch(PostgresException e) when(e.SqlState=="42501"){throw new PreviewSessionEnded();}
+        }
         await Session();
         var result = await operation(connection, ct);
         await Session();

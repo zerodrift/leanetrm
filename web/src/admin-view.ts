@@ -24,9 +24,8 @@ export function accessChange(before:Member|null,after:Member):string{
   if(JSON.stringify(before.roles)!==JSON.stringify(after.roles))changes.push('Roles changed');
   return changes.join(' · ')||'Details saved';
 }
-// `assistant` says whether this mode has the page assistant, whose grants the page shows (docs/ai-assistant.md §7.1).
-export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,api:Api,busy:()=>boolean,zone:()=>string,profile:()=>string,updated:()=>Promise<void>,
-  assistant:()=>boolean){
+// The workspace's agent grants follow its members (docs/ai-assistant.md §7.1).
+export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,api:Api,busy:()=>boolean,zone:()=>string,profile:()=>string,updated:()=>Promise<void>){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=publicText(text);return node;};
@@ -85,7 +84,6 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
     selected=directory.members.find(m=>m.id===selectedId);get('admin-form').hidden=false;
     try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}
     render();
-    if(!assistant())return;
     // The workspace's agent grants follow the directory; a refusal means access ended, so nothing read stays.
     try{grants=await api<WorkspaceGrants>('assistant/grants/workspace');}
     catch(error){if((error as {code?:string}).code==='access_denied')clearDirectory();throw error;}

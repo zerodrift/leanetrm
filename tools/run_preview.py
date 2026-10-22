@@ -210,6 +210,9 @@ def main():
             if args.assistant_check and migration.name=='0086_navigation_targets.sql':
                 from check_agent_turns import check_navigation_upgrade
                 check_navigation_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0087_hosted_turn_sessions.sql':
+                from check_agent_turns import check_hosted_upgrade
+                check_hosted_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -328,11 +331,11 @@ def main():
         log=(temporary/'app.log').open('w')
         api_env=app_env
         if args.assistant_check:
-            # Provider tests reach a loopback fake provider through the preview's check endpoint, and every proxy
+            # Provider tests reach a loopback fake provider through the check endpoint, and every proxy
             # setting names a trap that no request may reach (docs/ai-assistant.md §5.2, §13).
             from fake_model_provider import FakeProvider,Trap
             fake_provider,proxy_trap=FakeProvider(),Trap()
-            api_env={**app_env,'OPENETRM_PREVIEW_PROVIDER_ENDPOINT':fake_provider.url,'no_proxy':'','NO_PROXY':'',
+            api_env={**app_env,'OPENETRM_PROVIDER_CHECK_ENDPOINT':fake_provider.url,'no_proxy':'','NO_PROXY':'',
                      **{name:proxy_trap.url for name in ('http_proxy','https_proxy','all_proxy','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')}}
         child=subprocess.Popen([str(dotnet),str(frozen_dll),'--local-preview'],cwd=ROOT,env=api_env,stdout=log,stderr=subprocess.STDOUT)
         deadline=time.monotonic()+20

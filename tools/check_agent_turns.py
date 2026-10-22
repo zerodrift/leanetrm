@@ -129,6 +129,20 @@ def check_navigation_upgrade(query, migration):
          'assistant.record_tool_step(uuid,bytea,text,text,jsonb,text,timestamp with time zone,jsonb)')))
 
 
+SESSION_INFO = 'security.hosted_session_info(text)'
+HOSTED_HELPERS = (ASK, SESSION_INFO, 'assistant.grant_actor(boolean)', 'assistant.request_cancel(uuid,text)', 'security.issue_hosted_context(text,name)',
+                  'security.require_hosted_session()')
+
+
+def check_hosted_upgrade(query, migration):
+    """Before 0087 applies: it refuses a changed helper a hosted turn's session binding relies on or definition it replaces,
+    or one whose privileges differ."""
+    check_guard(query, migration, '0087', 'hosted_turn_sessions', (
+        *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in HOSTED_HELPERS),
+        (f'GRANT EXECUTE ON FUNCTION {SESSION_INFO} TO openetrm_runtime;', SESSION_INFO),
+        (f'REVOKE EXECUTE ON FUNCTION {ASK} FROM openetrm_runtime;', ASK)))
+
+
 def conversation_0072():
     """The conversation read as 0072 defined it, in a schema of its own so that its parameters keep their names, for a
     transaction that creates it to compare with the read that replaced it and then rolls back."""
@@ -233,12 +247,13 @@ def run_checks(url, query, psql, manifest, environment):
                      f"'{ISSUER}','{subject}','human_interactive','{contexts.tenant}','{contexts.workspace}',NULL,'preview_runtime',60);")
 
     def ask_sql(turn, profile='trader', operation=None, scope='api', conversation=None, agent_id=None, version=1, question='What does this page show?',
-                report=None, mode='current', context=None, frame=None, generation=None, limit=4000, workspace=4, deadline=30):
+                report=None, mode='current', context=None, frame=None, generation=None, limit=4000, workspace=4, deadline=30, session='c' * 64,
+                ends="clock_timestamp()+interval '30 minutes'"):
         # The asking process names the catalog, the session binding, the token's digest under its worker generation and
         # the runtime set it applies: its version, the question bound, the workspace's turns and the admission deadline.
         return (f"assistant.ask_turn({literal(operation or uuid4())},'{scope}',{literal(conversation)},{literal(agent_id or guide['id'])},{version},"
                 f"{literal(question)},{literal(json.dumps(REPORT if report is None else report))}::jsonb,'{catalog}','{mode}',{literal(context)},"
-                f"{literal(frame)},'{'c' * 64}',{literal(profile)},clock_timestamp()+interval '30 minutes','{turn.digest}',"
+                f"{literal(frame)},'{session}',{literal(profile)},{ends},'{turn.digest}',"
                 f"{worker.generation if generation is None else generation},'turns_v1',{limit},{workspace},{deadline})")
 
     def ask(turn, profile='trader', **request):
@@ -830,6 +845,95 @@ def run_checks(url, query, psql, manifest, environment):
           all(observed[name] == (f'cancel_requested:{code}', f'cancelled:{code}', False) for name, code in codes.items()), observed)
     check('a source cancels only the turns it affects', state(bystander) == 'running:-')
     end(bystander, 'failed', 'request_cancelled')
+
+    # A hosted ask (§11) binds the sign-in session its request context was issued for, ending no later than it, and revoking
+    # that session cancels its turns session_ended in the revoking transaction, however it is revoked.
+    hosted_issuer = 'https://hosted.synthetic.invalid/local'
+
+    def hosted_account(name):
+        """A hosted account holding the trader role, with a password it can sign in with, that has granted the guide."""
+        person = str(uuid4())
+        query(f"INSERT INTO security.principals VALUES('{person}','human',true);"
+              f"INSERT INTO security.identity_bindings VALUES('{hosted_issuer}','{person}','{person}','human_interactive');"
+              f"INSERT INTO security.workspace_memberships VALUES('{contexts.tenant}','{contexts.workspace}','{person}','hosted_{name}_{stamp}',"
+              f"'Synthetic hosted {name}',true,1);"
+              f"INSERT INTO security.role_grants SELECT gen_random_uuid(),'{person}',id,'{contexts.tenant}','{contexts.workspace}',clock_timestamp(),"
+              "'9999-12-31',false FROM security.roles WHERE code='trader';"
+              "INSERT INTO security.hosted_accounts(principal_id,issuer,tenant_id,workspace_id,login,password_hash,credential_version) "
+              f"VALUES('{person}','{hosted_issuer}','{contexts.tenant}','{contexts.workspace}','hosted_{name}_{stamp}','synthetic_hash',1);")
+        as_hosted(signed_in(person), f"SELECT assistant.grant_agent('{uuid4()}','{guide['id']}',1,90);", 'assistant.use_grant_admission')
+        return person
+
+    def signed_in(person):
+        """A new sign-in session of the account, as its digest: the authenticator finishes a verified login, as the API does."""
+        digest = secrets.token_hex(32)
+        version, password_hash = query(f"SELECT credential_version||' '||password_hash FROM security.hosted_accounts WHERE principal_id='{person}';").split()
+        assert query("SET SESSION AUTHORIZATION preview_authenticator;"
+                     f"SELECT security.finish_hosted_login('{person}',{version},'{password_hash}',true,'{digest}');") == person
+        return digest
+
+    def as_hosted(digest, sql, admission='security.use_context'):
+        token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_hosted_context('{digest}','preview_runtime');")
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT {admission}('{token}');SELECT security.require_hosted_session();{sql}COMMIT;")
+
+    def session_end(digest):
+        return query(f"SELECT expires_at FROM security.hosted_sessions WHERE token_digest='{digest}';")
+
+    def hosted_ran(turn, person, digest):
+        """An admitted, pinned and started turn the account asked in the sign-in session `digest`."""
+        asked = answer(as_hosted(digest, f"SELECT {ask_sql(turn, person, session=digest, ends=literal(session_end(digest)) + '::timestamptz')}::text;"))
+        assert asked.get('admitted'), asked
+        turn.id = asked['turn']['id']
+        answer(as_hosted(digest, f'SELECT {pin_sql(turn)}::text;'))
+        assert 'started' in start(turn), turn.id
+    owner = hosted_account('owner')
+    signed = signed_in(owner)
+    for session, ends in (('d' * 64, literal(session_end(signed)) + '::timestamptz'),
+                          (signed, literal(session_end(signed)) + "::timestamptz+interval '1 microsecond'")):
+        as_hosted(signed, refused(f'PERFORM {ask_sql(Turn(), owner, session=session, ends=ends)};', 'turn_input'))
+    check("the database refuses a hosted ask turn_input whose binding names another sign-in session or ends after the one its request context "
+          'was issued for')
+
+    def hosted_cancel(revoke):
+        """Runs `revoke` while an account's turn runs in a sign-in session `revoke` names, and another account's turn runs on: the cancel
+        it requests, how the worker's next call then ends the turn, and the other turn's state."""
+        person, other = hosted_account(f'r{uuid4().hex[:6]}'), hosted_account(f'o{uuid4().hex[:6]}')
+        turn, unaffected = Turn(), Turn()
+        digest = signed_in(person)
+        hosted_ran(turn, person, digest)
+        hosted_ran(unaffected, other, signed_in(other))
+        revoke(person, digest)
+        requested = query(f"SELECT state||':'||coalesce(cancel_code,'-') FROM assistant.turns WHERE id='{turn.id}';")
+        refused_call = open_call(turn)
+        cancels.append(turn.id)
+        observed = (requested, f"{refused_call['turn']['state']}:{refused_call['turn']['outcome']}", 'opened' in refused_call, state(unaffected))
+        end(unaffected, 'failed', 'request_cancelled')
+        return observed
+
+    def reset(person, _):
+        invitation = secrets.token_hex(32)
+        query("INSERT INTO security.hosted_invitations(token_digest,principal_id,purpose,expires_at) "
+              f"VALUES('{invitation}','{person}','reset',clock_timestamp()+interval '1 hour');")
+        login_name = query(f"SELECT login FROM security.hosted_accounts WHERE principal_id='{person}';")
+        assert query("SET SESSION AUTHORIZATION preview_authenticator;"
+                     f"SELECT security.claim_hosted_invitation('{invitation}','{login_name}','Synthetic hosted reset','new_synthetic_hash');") == person
+    revocations = {
+        'signing out': hosted_cancel(lambda _, digest: query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.revoke_hosted_session('{digest}');")),
+        'a password reset': hosted_cancel(reset),
+        "disabling the account's membership": hosted_cancel(
+            lambda person, _: query(f"UPDATE security.workspace_memberships SET enabled=false WHERE principal_id='{person}';")),
+        'disabling the account': hosted_cancel(lambda person, _: query(f"UPDATE security.principals SET enabled=false WHERE id='{person}';"))}
+    check("revoking a sign-in session, by signing out, a password reset or disabling the account or its membership, requests the cancel of "
+          'its turns with session_ended in that transaction, the next call ends each cancelled so and opens nothing, and a turn asked under '
+          "another account's sign-in session runs on",
+          all(observed == ('cancel_requested:session_ended', 'cancelled:session_ended', False, 'running:-') for observed in revocations.values()),
+          revocations)
+    person = hosted_account(f's{uuid4().hex[:6]}')
+    kept, left = Turn(), signed_in(person)
+    hosted_ran(kept, person, signed_in(person))
+    query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.revoke_hosted_session('{left}');")
+    check("signing out of one of an account's sign-in sessions leaves the turn it asked under another running", state(kept) == 'running:-', state(kept))
+    end(kept, 'failed', 'request_cancelled')
     opening = Turn()
     ran(opening, agent_id=racing['id'])
     thread, answers = holding(psql, environment, f"SELECT 1 FROM assistant.models WHERE id='{raced_model}' FOR UPDATE",

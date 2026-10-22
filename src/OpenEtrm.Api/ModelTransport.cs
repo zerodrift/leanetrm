@@ -24,9 +24,9 @@ static class ModelTransport
         return checkEndpoint is null?sockets:new CheckEndpointHandler(checkEndpoint,sockets);
     }
 
-    // The preview's one provider endpoint override, so checks can reach a fake provider: an http or https origin
-    // whose host is a loopback IP literal, written exactly as the origin it parses to. Anything else stops the
-    // preview from starting.
+    // The one provider endpoint override, which only owned checks set, so they can reach a fake provider in either mode
+    // (docs/ai-assistant.md §5.2, §11): an http or https origin whose host is a loopback IP literal, written exactly as
+    // the origin it parses to. Anything else stops the API from starting.
     public static Uri? CheckEndpoint(string? configured)
     {
         if(configured is null)return null;
