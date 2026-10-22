@@ -60,6 +60,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
     check('shared contract-date library', [*preview, '--contract-dates-check', '--browser-check', '--browser', str(browser)])
     check('stored mixed portfolio valuation and swap risk', [*preview, '--swap-risk-holdings-check'])
     check('generated pilot close, actual worker and immutable report', [*preview, '--pilot-close-check', '--browser-check', '--browser', str(browser)])
+    check('connected published portfolio and retained workers', [*preview, '--connected-portfolio-check'])
     check('custom curve graphs and editor', [*preview, '--custom-curves-check', '--browser-check', '--browser', str(browser)])
     check('market close calendar', [*preview, '--market-dates-check', '--browser-check', '--browser', str(browser)])
     check('isolated exchange futures browser', [*preview, '--exchange-check', '--browser-check', '--browser', str(browser)])

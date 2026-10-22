@@ -10,11 +10,13 @@ public sealed record DealRiskRun(ExactMoney Base,ImmutableArray<DealFactorRisk> 
 internal static class ExactRepricing
 {
     internal static ExactDealRiskValues Measure(ExactMoney b,ExactMoney u,ExactMoney d,QuoteBump bump)
+        =>Measure(b,u,d,bump.Size,bump.Unit);
+    internal static ExactDealRiskValues Measure(ExactMoney b,ExactMoney u,ExactMoney d,ExactDecimal size,PriceUnit unit)
     {
         var two=ExactDecimal.Parse("2");
         return new(b,u,d,u.Subtract(b),d.Subtract(b),
-            new(u.Subtract(d).DivideBy(two).DivideBy(bump.Size),new(b.Currency,bump.Unit,1)),
-            new(u.Add(d).Subtract(b.Scale(two)).DivideBy(bump.Size).DivideBy(bump.Size),new(b.Currency,bump.Unit,2)));
+            new(u.Subtract(d).DivideBy(two).DivideBy(size),new(b.Currency,unit,1)),
+            new(u.Add(d).Subtract(b.Scale(two)).DivideBy(size).DivideBy(size),new(b.Currency,unit,2)));
     }
 }
 

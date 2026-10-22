@@ -40,7 +40,47 @@ lease recovery, cancellation and browser history/retry behavior. The standalone
 `tools/check_risk_jobs_db.py` exercises SQL authority and concurrent claims.
 Neither check qualifies a real Swarm cluster or single-run distributed reduction.
 
-The [connected calculation prototype](connected-calculation.md) was checked on
+The saved managed projection integration has a separate disposable gate:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin \
+  --dotnet /path/to/dotnet --check --connected-portfolio-check
+```
+
+Its named consumer publishes a synthetic managed recipe, explicitly binds one
+output to a monthly indexed swap, and compares scheduled PV, portfolio quote
+risk and the retained worker result. `tools/check_custom_projection_db.py` checks
+published-version/output retention, immutable economic bindings, worker read
+privileges and direct SQL refusals for mismatched revisions, missing sources and
+panel-only SQL transformations. `tools/check_connected_risk_db.py` checks the admitted graph/sample
+foreign keys, temporal freezing, publication knowledge cutoff and rejection of
+changed pins. Both SQL helpers run inside that owned preview; they are not
+commands for an existing database. Targeted MarketData.Checks switches are
+`--connected-recipes`, `--custom-projection` and `--connected-portfolios`.
+Rates.Checks includes exact rational connected scheduled-swap PV. This describes
+the registered gates, without claiming a hosted deployment or throughput result.
+
+The saved-projection phase passed locally on 2026-10-21 using macOS arm64,
+the pinned .NET/Node versions and disposable stock PostgreSQL 16. Verification
+covered the complete managed core suite (427 core checks plus registered connected
+checks), 76 rate checks, API schedule checks, 221 frontend checks and 46 Python
+checks. Focused integration passed for connected draft/book/portfolio/worker
+pricing, ordinary draft pricing, stored mixed swaps, retained risk jobs, and
+custom curves with 43 browser checks. All 60 swap-editor browser checks passed,
+including preservation of a real published projection through Price, Risk,
+preview, amendment, reopen and ordinary-new reset. All 36 risk browser checks
+also passed with that saved custom trade, including queued worker results. The
+connected test appends a historical
+price correction after queue admission: a new preview changes, while the retained
+interactive and worker results preserve their exact earlier values and manifests.
+An explicit quantity amendment retains the custom projection and uses the corrected
+price while earlier retained risk remains unchanged.
+Completed factor receipts retain no executable child scenario caches; independent
+work-count and nested-domain checks pass. Independent numerical, temporal,
+authorization and worker reviews found no remaining blocker. These are local
+synthetic results, not a hosted deployment or large financial throughput claim.
+
+The earlier [connected calculation prototype](connected-calculation.md) was checked on
 2026-10-21 with 427 managed core checks, the registered exact-price and connected
 curve checks, 75 rate checks, 34 shared temporal checks, API schedule checks,
 209 frontend checks and 46 Python checks. Focused disposable PostgreSQL 16

@@ -17,44 +17,42 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
 
 public sealed class UnitValuationContext
 {
-    internal CurveBuild? Market {get;}
+    internal CurveBuild? Market=>pricing?.Authority;
     internal ValuationSetup Setup {get;}
     internal MarketSnapshot Snapshot {get;}
-    private readonly IReadOnlyDictionary<CurveRequest,BuiltValue> values;
+    private readonly PreparedValuationMarket? pricing;
     private readonly UnitPricingContract? declaration;
-    private readonly IReadOnlyDictionary<CurveRequest,ImmutableArray<QuoteFactor>>? factors;
-    public PricingInputs Inputs=>declaration is {} contract&&Market is {} market?new(market,contract,values):
+    private readonly CancellationToken cancellation;
+    public PricingInputs Inputs=>declaration is {} contract&&pricing is {} market?new(market,contract,cancellation):
         throw new MarketDataException("risk_dependency","A unit valuation requires its declared market inputs.");
     public ValuationMeasure Measure=>Setup.Measure;
-    internal UnitValuationContext(MarketSnapshot snapshot,ValuationSetup setup,CurveBuild? market=null,
-        IReadOnlyDictionary<CurveRequest,BuiltValue>? values=null,UnitPricingContract? declaration=null,
-        IReadOnlyDictionary<CurveRequest,ImmutableArray<QuoteFactor>>? factors=null)
+    internal UnitValuationContext(MarketSnapshot snapshot,ValuationSetup setup,PreparedValuationMarket? market=null,UnitPricingContract? declaration=null,CancellationToken cancellation=default)
     {
         if(market is not null&&declaration is null&&(setup.Discounting??setup.InstrumentDiscounting.Values.FirstOrDefault()) is {} provider)
             SideValuationContext.Validate(snapshot,provider);
-        Snapshot=snapshot;Setup=setup;Market=market;this.values=values??ImmutableDictionary<CurveRequest,BuiltValue>.Empty;this.declaration=declaration;this.factors=factors;
+        Snapshot=snapshot;Setup=setup;pricing=market;this.declaration=declaration;this.cancellation=cancellation;
     }
-    internal UnitValuationContext For(UnitPricingContract contract)=>new(Snapshot,Setup,Market,values,contract,factors);
+    internal UnitValuationContext For(UnitPricingContract contract)=>new(Snapshot,Setup,pricing,contract,cancellation);
     public ImmutableArray<QuoteFactor> ResolveFactors(ImmutableArray<CurveRequest> dependencies)
     {
-        if(declaration is null||factors is null||dependencies.IsDefault||dependencies.Any(d=>!declaration.Dependencies.Contains(d)))
+        if(declaration is null||pricing is null||dependencies.IsDefault||dependencies.Any(d=>!declaration.Dependencies.Contains(d)))
             throw new MarketDataException("risk_dependency","Factor resolution requires this instrument's exact declared inputs.");
-        return dependencies.SelectMany(d=>factors.TryGetValue(d,out var found)?found:
-            throw new MarketDataException("risk_dependency","A declared market factor input is unavailable."))
-            .DistinctBy(f=>f.Input).OrderBy(f=>f.Input.Series.Id).ToImmutableArray();
+        return pricing.Factors(dependencies,cancellation);
     }
     internal FuturesMarketBinding Futures(Guid instrument)
     {
         if(!Setup.FuturesBindings.TryGetValue(instrument,out var binding)||binding.Instrument.Id!=instrument)
             throw new MarketDataException("valuation_binding","An exact futures pricing binding is required for this instrument.");
+        if(pricing is not null&&pricing.Authority is null)
+            throw new MarketDataException("valuation_binding","Futures pricing requires its exact qualified market definition authority.");
         return binding;
     }
     internal SideValuationContext SideContext()
     {
-        if(Market is null||declaration is null)
+        if(pricing is null||declaration is null)
             throw new MarketDataException("side_context","Supply the declared market and explicit payment discount inputs.");
         var provider=Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id);
-        return new(Market,provider,values,declaration.Dependencies);
+        return pricing.Context(provider,declaration.Dependencies,cancellation);
     }
 }
 
@@ -69,9 +67,9 @@ public sealed class PortfolioValue
     public int UnitValuations{get;}
     public int QuantityApplications{get;}
     internal ValuationPortfolio Owner{get;}
-    internal CurveBuild Market{get;}
+    internal PreparedValuationMarket Market{get;}
     internal ImmutableArray<UnitPricingContract> Declarations{get;}
-    internal PortfolioValue(ValuationPortfolio owner,CurveBuild market,ImmutableArray<UnitPricingContract> declarations,
+    internal PortfolioValue(ValuationPortfolio owner,PreparedValuationMarket market,ImmutableArray<UnitPricingContract> declarations,
         ImmutableArray<ExactMoney> positions,ImmutableArray<BookCurrencyValue> totals,ImmutableArray<ExactMoney> units,int calls,int quantityApplications)
     {Owner=owner;Market=market;Declarations=declarations;Positions=positions;Totals=totals;UnitValues=units;UnitValuations=calls;QuantityApplications=quantityApplications;}
 }
@@ -180,10 +178,10 @@ public sealed class ValuationPortfolio
         return RiskFactors(market,declarations,cancellation);
     }
     internal ImmutableArray<BookRiskFactors> RiskFactors(CurveBuild market,ImmutableArray<UnitPricingContract> declarations,CancellationToken cancellation)
+        =>RiskFactors(new BuiltValuationMarket(market),declarations,cancellation);
+    internal ImmutableArray<BookRiskFactors> RiskFactors(PreparedValuationMarket market,ImmutableArray<UnitPricingContract> declarations,CancellationToken cancellation)
     {
-        var live=market.Model.QuoteFactors(market.Snapshot);var values=market.Values.ToDictionary(v=>v.Request);
-        var factors=values.ToDictionary(v=>v.Key,v=>live.Where(f=>v.Value.Lineage.Contains(f.Observation)).ToImmutableArray());
-        var context=new UnitValuationContext(market.Snapshot,Setup,market,values,factors:factors);
+        var context=new UnitValuationContext(market.Snapshot,Setup,market,cancellation:cancellation);
         var byInstrument=Instruments.Select((instrument,n)=>
         {
             cancellation.ThrowIfCancellationRequested();
@@ -199,11 +197,11 @@ public sealed class ValuationPortfolio
         {
             cancellation.ThrowIfCancellationRequested();
             var supplied=Positions.Where(p=>p.BookId==book.Id).Select(p=>p.ValuationId).Distinct()
-                .SelectMany(id=>byInstrument[id]).Select(f=>f.Input).ToHashSet();
-            return new BookRiskFactors(book.Id,live.Where(f=>supplied.Contains(f.Input)).ToImmutableArray());
+                .SelectMany(id=>byInstrument[id]).DistinctBy(f=>f.Input).OrderBy(f=>f.Input.Series.Id).ToImmutableArray();
+            return new BookRiskFactors(book.Id,supplied);
         }).ToImmutableArray();
     }
-    internal ImmutableArray<UnitPricingContract> Declare(MarketSnapshot snapshot)
+    public ImmutableArray<UnitPricingContract> Declare(MarketSnapshot snapshot)
     {
         var context=new UnitValuationContext(snapshot,Setup);
         return Instruments.Select(instrument=>
@@ -220,20 +218,22 @@ public sealed class ValuationPortfolio
     }
     internal PortfolioValue PV(CurveBuild market,ImmutableArray<UnitPricingContract> declarations,CurveBuild? baseMarket=null,
         PortfolioValue? baseValue=null,CancellationToken ct=default,RiskDetail detail=RiskDetail.Holdings)
+        =>PV(new BuiltValuationMarket(market),declarations,baseMarket is null?null:new BuiltValuationMarket(baseMarket),baseValue,ct,detail);
+    internal PortfolioValue PV(PreparedValuationMarket market,ImmutableArray<UnitPricingContract> declarations,PreparedValuationMarket? baseMarket=null,
+        PortfolioValue? baseValue=null,CancellationToken ct=default,RiskDetail detail=RiskDetail.Holdings)
     {
         if(declarations.Length!=Instruments.Length||(baseMarket is null)!=(baseValue is null)||
-            baseMarket is not null&&(!market.Snapshot.HasSameInputs(baseMarket.Snapshot)||
-                !ReferenceEquals(baseValue!.Owner,this)||!ReferenceEquals(baseValue.Market,baseMarket)||
+            baseMarket is not null&&(!market.Compatible(baseMarket)||
+                !ReferenceEquals(baseValue!.Owner,this)||!ReferenceEquals(baseValue.Market.Identity,baseMarket.Identity)||
                 !baseValue.Declarations.SequenceEqual(declarations)))
             throw Error("instrument_context","Unit reuse requires complete declarations and the same pinned base inputs.");
-        var values=market.Values.ToDictionary(v=>v.Request);var before=baseMarket?.Values.ToDictionary(v=>v.Request);
-        var context=new UnitValuationContext(market.Snapshot,Setup,market,values);
+        var context=new UnitValuationContext(market.Snapshot,Setup,market,cancellation:ct);
         var unit=ImmutableArray.CreateBuilder<ExactMoney>(Instruments.Length);var calls=0;
         for(var n=0;n<Instruments.Length;n++)
         {
             ct.ThrowIfCancellationRequested();var contract=declarations[n];
             if(contract.Id!=Instruments[n].Id)throw Error("risk_contract","Declaration ordering must match exact instrument identities.");
-            var affected=before is null||contract.Dependencies.Any(r=>!ReferenceEquals(before[r],values[r]));
+            var affected=baseMarket is null||!market.Unchanged(baseMarket,contract.Dependencies,ct);
             var value=affected?Instruments[n].Value(context.For(contract)):baseValue!.UnitValues[n];
             if(value.Currency!=contract.Currency)throw Error("risk_currency","An instrument must retain its declared output currency.");
             unit.Add(value);if(affected)calls++;

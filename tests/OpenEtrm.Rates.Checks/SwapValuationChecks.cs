@@ -3,6 +3,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Calculation;
 
 internal static class SwapValuationChecks
 {
@@ -52,6 +53,51 @@ internal static class SwapValuationChecks
         { try { test(); } catch (MarketDataException e) when (e.Code == code) { return; } throw new Exception("Expected " + code); }
         var fixedSide = (FixedSide)instrument.Sides[0].Side;
         var floating = (FloatingSide)instrument.Sides[1].Side;
+        Check("a connected custom monthly projection keeps rational schedule cash and discount evidence",()=>
+        {
+            var fix=new IndexFixing(R("index"),quote.Key,contract.DeliveryFrom,contract.DeliveryTo,At("2021-01-01T12:00:00Z"),commodity.Key,R("source"),IndexFixing.SupportedImplementation);
+            var custom=new FloatingSide(Guid.NewGuid(),R("index"),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,[fix],payment,
+                FloatingAveraging.MonthlyIndexPrice,[new(new(curve.Key,contract.Key),contract)],FloatingSide.IndexedImplementation)
+                .WithCustomProjection(new(revision.CatalogId,Guid.NewGuid(),1,"mean",0,"single_output_position_v1","published_custom_curve_projection_v1"));
+            var swap=new FinancialSwapInstrument(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1")),new(custom,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,false);
+            var market=model.Build(snapshot,[new(curve.Key,contract.Key)]);
+            var context=new ResolvedCalculationContext(snapshot.Id,"synthetic-connected-swap",snapshot.ValuationAt,snapshot.MarketCutoff,snapshot.MarketCutoff,snapshot.MarketCutoff);
+            var sourcePoint=new ConnectedCurvePoint(new(curve.Key,Guid.NewGuid()),contract.DeliveryFrom,contract.DeliveryTo,PriceUnit.FromQuote(quote),
+                new ConnectedSource(new(curve.Key,contract.Key),new(commodity.Key,InputUse.Variable),snapshot.Selections[0].Observation,quote,commodity),contract);
+            // 3.1 / 3 = 31/30, so receive 31/30 and pay 3 gives -59/30.
+            var customCurve=new CurveKey(revision,"synthetic_custom_monthly");
+            var zeroKey=new CurveKey(revision,"synthetic_zero");
+            var zero=new ConnectedCurvePoint(new(zeroKey,Guid.NewGuid()),contract.DeliveryFrom,contract.DeliveryTo,sourcePoint.Unit,
+                new ConnectedWeightedSum([new(CurvePointReference.Exact(sourcePoint.Key),default(ExactDecimal))]));
+            var output=new ConnectedCurvePoint(new(customCurve,Guid.NewGuid()),contract.DeliveryFrom,contract.DeliveryTo,sourcePoint.Unit,
+                new ConnectedWeightedMean([new(CurvePointReference.Exact(sourcePoint.Key),ExactDecimal.Parse("1")),new(CurvePointReference.Exact(zero.Key),ExactDecimal.Parse("2"))]));
+            var plan=ConnectedCurves.Compile([new(curve.Key,[sourcePoint]),new(zeroKey,[zero]),new(customCurve,[output])],[output.Key],context,new VisibleConnectedCurves());
+            var connected=ConnectedValuation.Prepare(ConnectedScenario.Base(plan),snapshot);
+            var bindings=ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(custom.Dependencies.Single(),output.Key);
+            var result=FinancialSwapValuation.Evaluate(swap,connected,bindings,market,null);
+            if(result.Instrument.PresentValue.Numerator!="-59"||result.Instrument.PresentValue.Denominator!="30")throw new Exception("Custom schedule PV was rounded or bypassed.");
+            var cash=result.Sides.Single(side=>side.Contribution.Value.SideId==custom.Id).Payments.Single();
+            if(cash.Cashflow.CashAmount.Numerator!="31"||cash.Cashflow.CashAmount.Denominator!="30"||cash.Discount.Enabled||
+                result.Instrument.ScenarioId!=connected.Scenario.Id)throw new Exception("Connected exact cash, discount or scenario evidence was lost.");
+            var scaled=result.Scale(unit);
+            if(scaled.ExactPresentValue.Numerator!="-59"||scaled.ExactPresentValue.Denominator!="30"||scaled.NumericalPolicy!=FinancialSwapValue.ExactPolicy)
+                throw new Exception("Trade scaling must retain the exact rational PV.");
+            Reject("precision_loss",()=>{_ = scaled.PresentValue;});
+            var multiplier=new NumericValue(ExactDecimal.Parse("0.1"),new(R("rate"),NumericKind.Dimensionless,null,null,ExactDecimal.Parse("-0.1"),ExactDecimal.Parse("1")));
+            var scaledCurve=new CurveKey(revision,"synthetic_scaled_source");
+            var scaledPoint=new ConnectedCurvePoint(new(scaledCurve,Guid.NewGuid()),contract.DeliveryFrom,contract.DeliveryTo,sourcePoint.Unit,
+                new ConnectedBuiltCurve(CurveRule.ScaleAdd,CurvePointReference.Exact(sourcePoint.Key),CurvePointReference.Exact(zero.Key),multiplier,
+                    new(new(left,InputUse.Variable),new(left,null,null,R("rate")),snapshot.Selections[1].Observation),quote,
+                    new(snapshot.Id,snapshot.ValuationAt,snapshot.MarketCutoff,snapshot.SelectionPolicy,InputUse.Variable,false),CurveModel.NumericalPolicy),contract);
+            var weightedOutput=output with{Expression=new ConnectedWeightedMean([new(CurvePointReference.Exact(scaledPoint.Key),ExactDecimal.Parse("1")),new(CurvePointReference.Exact(zero.Key),ExactDecimal.Parse("2"))])};
+            var scaledPlan=ConnectedCurves.Compile([new(curve.Key,[sourcePoint]),new(zeroKey,[zero]),new(scaledCurve,[scaledPoint]),new(customCurve,[weightedOutput])],
+                [output.Key],context,new VisibleConnectedCurves());
+            var scaledResult=FinancialSwapValuation.Evaluate(swap,ConnectedValuation.Prepare(ConnectedScenario.Base(scaledPlan),snapshot),bindings,market,null);
+            var price=scaledResult.Sides.Single(side=>side.Contribution.Value.SideId==custom.Id).Payments.Single().Cashflow.Prices.Single();
+            if(price.ExactPrice.Numerator!="31"||price.ExactPrice.Denominator!="300"||
+                !price.Lineage.SetEquals(new[]{snapshot.Selections[0].Observation.Key,snapshot.Selections[1].Observation.Key}))
+                throw new Exception("A typed source multiplier must retain its exact numerical result and observation lineage.");
+        });
         var value = Price(snapshot, true, mapping);
         Check("independent side PVs preserve the common-payment high-precision trade oracle", () =>
         {
@@ -228,4 +274,9 @@ internal static class SwapValuationChecks
     }
 
     private static DateTimeOffset At(string text) => DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture).ToUniversalTime();
+    private sealed class VisibleConnectedCurves:ICurveBindingResolver
+    {
+        public CurveKey Resolve(LogicalCurveKey curve,ResolvedCalculationContext context)=>throw new MarketDataException("curve_binding","The synthetic test uses exact versions.");
+        public void RequireVisible(CurveKey curve,ResolvedCalculationContext context){}
+    }
 }

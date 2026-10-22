@@ -29,6 +29,7 @@ public sealed class GraphSession<T> where T:notnull
     public const int MaximumDepth=64;
     private readonly GraphEvaluator<T> evaluator;
     private readonly Func<T,T,T> add;
+    private readonly Action<int,T>? validate;
     private readonly GraphSession<T>? parent;
     private readonly GraphSession<T>[] layers;
     private readonly Dictionary<int,T> offsets;
@@ -47,15 +48,15 @@ public sealed class GraphSession<T> where T:notnull
 
     // The owner binds deterministic operators, exact context and numerical policy.
     // Values must themselves be immutable; this container does not clone T.
-    public GraphSession(DependencyPlan plan,GraphEvaluator<T> evaluator,Func<T,T,T> add)
+    public GraphSession(DependencyPlan plan,GraphEvaluator<T> evaluator,Func<T,T,T> add,Action<int,T>? validate=null)
     {
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(evaluator);ArgumentNullException.ThrowIfNull(add);
-        Plan=plan;this.evaluator=evaluator;this.add=add;offsets=[];layers=[];
+        Plan=plan;this.evaluator=evaluator;this.add=add;this.validate=validate;offsets=[];layers=[];
         baseValues=new T[plan.NodeCount];completed=new ulong[(plan.NodeCount+63L)/64];
     }
     private GraphSession(GraphSession<T> parent,Dictionary<int,T> offsets,HashSet<int> affected,long traversedEdges)
     {
-        this.parent=parent;Plan=parent.Plan;evaluator=parent.evaluator;add=parent.add;
+        this.parent=parent;Plan=parent.Plan;evaluator=parent.evaluator;add=parent.add;validate=parent.validate;
         this.offsets=offsets;this.affected=affected;this.traversedEdges=traversedEdges;changedValues=[];
         layers=new GraphSession<T>[parent.Depth+1];parent.layers.CopyTo(layers,0);layers[^1]=this;
     }
@@ -121,6 +122,10 @@ public sealed class GraphSession<T> where T:notnull
                             cancellation.ThrowIfCancellationRequested();value=add(value,offset);
                             if(value is null)throw new MarketDataException("graph_value","An additive operator returned no value.");
                         }
+                    // A consumer's declared domain applies to the effective
+                    // value, including inherited overlays, before any dependent
+                    // may consume or reuse it.
+                    validate?.Invoke(frame.Node,value);
                     cancellation.ThrowIfCancellationRequested();
                     if(baseValues is not null)
                     {baseValues[frame.Node]=value;completed![frame.Node>>6]|=1UL<<(frame.Node&63);}

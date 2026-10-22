@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 using Npgsql;
@@ -47,14 +48,35 @@ public sealed partial class SwapStore
     public async Task<object> PriceDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapDraftRequest body,CancellationToken ct)
     {
         var draft=await PrepareDraft(connection,data,frame,body,ct);var snapshot=draft.Data.Snapshot(draft.Frame);
-        var market=draft.Data.Model.Build(snapshot,draft.Instrument.DependenciesAt(snapshot));
-        var value=FinancialSwapValuation.Evaluate(draft.Instrument,market,draft.Instrument.Discounting,draft.Discount);
+        var connected=await ConnectedDraft(connection,draft,snapshot,ct);
+        var value=connected is null
+            ?FinancialSwapValuation.Evaluate(draft.Instrument,draft.Data.Model.Build(snapshot,draft.Instrument.DependenciesAt(snapshot)),draft.Instrument.Discounting,draft.Discount)
+            :FinancialSwapValuation.Evaluate(draft.Instrument,connected.Valuation,connected.Bindings,connected.Authority,draft.Discount,ct);
         return new{unbooked=true,measure="present_value",enteredQuantity=draft.Entered,quantity=draft.Quantity,
             currency=draft.Data.References["currencies"].Single(c=>c.Text("code")==draft.Instrument.Currency.Code).Text("display_code"),conversion=UnitConverter.Implementation,valuation=DraftValue(value,draft.Quantity),numericalPolicy=DealRisk.NumericalPolicy,bumpPolicy=DealRisk.BumpPolicy};
     }
     public async Task<object> RiskDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapDraftRiskRequest body,CancellationToken ct)
     {
         var draft=await PrepareDraft(connection,data,frame,body.Draft,ct);var snapshot=draft.Data.Snapshot(draft.Frame);
+        if(await ConnectedDraft(connection,draft,snapshot,ct) is {} connected)
+        {
+            if(body.BumpPolicy!=DealRisk.BumpPolicy||body.NumericalPolicy!=DealRisk.NumericalPolicy)
+                throw Error("risk_policy","Select the explicit quote-tick symmetric exact deal repricing policy.");
+            var instrument=draft.Instrument;
+            var connectedInputs=FinancialSwapValuation.CreateDiscounting(instrument,snapshot,draft.Discount);
+            var portfolio=new ValuationPortfolio([instrument],[new(instrument.Id,instrument.Id,instrument.Id,instrument.Id,draft.Quantity,
+                new(new Money(default,instrument.Currency),draft.Quantity.Specification),new(default,instrument.Currency))],
+                new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,connectedInputs));
+            var prepared=RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,[portfolio],connected.Authority,ct);
+            if(prepared.Factors.Length>128)throw Error("risk_factor","A draft supports at most 128 explicit live quote factors.");
+            var targets=PortfolioValuation.QuoteTargets(connected.Valuation.Scenario);
+            var result=RiskEngine.CalculateExact(prepared,prepared.Factors.Select(f=>new ConnectedRiskBump(CurveShockCoordinate.MarketQuote,
+                targets[f.Input],f.Unit,f.TradingTick,ConnectedRiskBump.Convention)).ToImmutableArray(),RiskEngine.ExactNumericalPolicy,ct);
+            var group=result.Groups.Single();
+            var connectedRun=new DealRiskRun(group.BaseValues.Single().Value,group.Factors.Select((f,n)=>new DealFactorRisk(prepared.Factors[n],
+                new(prepared.Factors[n].Input,prepared.Factors[n].Quote,f.Bump.Unit,f.Bump.Size,QuoteBump.Convention),f.Totals.Single().Values)).ToImmutableArray(),result.Work.ScenarioCount);
+            return DraftRisk.Result(draft.Data,connectedRun,"present_value");
+        }
         CurrencyDefaultDiscounting? inputs=null;
         var run=DealRisk.Calculate(draft.Data.Model,snapshot,draft.Instrument.DependenciesAt(snapshot),
             market=>
@@ -63,5 +85,13 @@ public sealed partial class SwapStore
                 return draft.Instrument.PV(new SideValuationContext(market,inputs)).PresentValue.Scale(draft.Quantity.Amount);
             },body.BumpPolicy,body.NumericalPolicy,ct);
         return DraftRisk.Result(draft.Data,run,"present_value");
+    }
+    private async Task<CustomCurves.PreparedMarket?> ConnectedDraft(NpgsqlConnection connection,PreparedDraft draft,MarketSnapshot snapshot,CancellationToken ct)
+    {
+        var dependencies=draft.Instrument.DependenciesAt(snapshot);
+        if(draft.Instrument.Floating.CustomProjection is null||dependencies.IsEmpty)return null;
+        if(draft.Frame.ContextId is not {} contextId)throw Error("swap_context","Connected draft pricing requires a retained financial context.");
+        var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
+        return await CustomCurves.PrepareMarket(connection,database,draft.Data,draft.Frame,snapshot,context,[draft.Instrument],dependencies,ct);
     }
 }

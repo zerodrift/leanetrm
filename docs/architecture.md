@@ -914,7 +914,7 @@ a direct shock to an already-built output curve. These are different scenario
 definitions. Do not shock a derived value and its primitive source accidentally
 or count inherited risk twice.
 
-The connected calculation prototype (D182) uses the managed backend for graph
+The connected calculation engine (D182–183) uses the managed backend for graph
 preparation, historical binding resolution, curve operators and scenarios.
 References retain exact versions, or explicitly resolve a logical identity under
 both effective and knowledge coordinates before becoming pinned. A different
@@ -930,8 +930,25 @@ Means, weighted baskets, rolling selections and schedule references are graph
 relationships with explicit numerical and date policies. Volatility and
 correlation conventions require separate supported contracts.
 
+The saved managed recipe adapter supplies an explicit projected price to the
+existing monthly indexed floating side. A booking pins a published custom curve
+version, its output node and position, and its selection/implementation policy.
+Its contractual index, actual-fixing rules, payment terms and quote unit remain
+independent. Distinct custom bindings have distinct economic identities and
+runtime pricing aliases. Actual fixings retain the existing qualified selection
+path; a custom forecast cannot replace a due actual.
+
+Migrations 0076–0077 retain the exact projection relationship and durable recipe,
+source-member and observation pins. Each historical sample carries its own
+snapshot/time/use evidence outside the primary snapshot's one-input selection
+map. Shared portfolio materialization and workers rebuild the same graph under
+the retained effective/knowledge context and compare its manifest. Current
+actor/delegation and worker service authority remain mandatory. Explicit booked
+versions do not implement database activation of logical curve aliases; the
+bitemporal logical-binding resolver remains a managed contract.
+
 See [connected calculation](connected-calculation.md) for the implemented
-prototype and its boundaries. The compact graph kernel has a separate
+integration and its boundaries. The compact graph kernel has a separate
 [large-graph benchmark](connected-graph-benchmark.md); that measurement does not
 qualify million-point financial compilation or hosted portfolio throughput.
 

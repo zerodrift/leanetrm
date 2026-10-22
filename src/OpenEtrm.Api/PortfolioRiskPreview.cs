@@ -44,7 +44,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
 
     private async Task<(PortfolioValuation.Prepared Portfolio,ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books)> PreparePortfolio(
         NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,
-        PortfolioValuationPolicy policy,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default)
+        PortfolioValuationPolicy policy,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null)
     {
         PortfolioValuation.ValidatePolicy(policy);
         if(frame.ContextId is not {} contextId||bookIds.IsDefault||portfolioIds.IsDefault)
@@ -55,7 +55,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         var selected=books.Where(b=>(bookIds.IsEmpty||bookIds.Contains(b.Id("id")))&&
             (portfolioIds.IsEmpty||portfolioIds.Contains(b.Id("portfolio_id")))).Select(b=>b.Id("id")).Order().ToImmutableArray();
         if(selected.IsEmpty)throw new MarketDataException("risk_position","Select visible books before running risk.");
-        var portfolio=await new PortfolioValuation(database).Prepare(connection,data,frame,data.Snapshot(frame),context,selected,policy,supplemental,ct);
+        var portfolio=await new PortfolioValuation(database).Prepare(connection,data,frame,data.Snapshot(frame),context,selected,policy,supplemental,ct,retainedGraphs);
         return (portfolio,selected,books);
     }
 
@@ -63,7 +63,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         =>Calculate(await Prepare(connection,data,frame,body,ct),ct);
 
     internal async Task<Prepared> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioRiskRequest body,CancellationToken ct,
-        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default)
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null)
     {
         var detail=body.Detail switch{null or "holdings"=>RiskDetail.Holdings,"books"=>RiskDetail.Books,
             _=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
@@ -72,7 +72,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit quote bumps.");
         if(!body.Stress.IsDefault&&(body.Stress.Length>16||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative quote shifts.");
-        var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental);
+        var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retainedGraphs);
         var available=portfolio.Markets.SelectMany(m=>m.Data.Model.QuoteFactors(m.Snapshot)).ToImmutableArray();
         QuoteFactor Selected(Guid series,string? quote)
         {
@@ -116,12 +116,12 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             gammaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Gamma.Unit.Factor)})²"};
         return new{detail=run.Detail.ToString(),convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
             engineVersion=RiskJobs.EngineVersion,displayPolicy=new{implementation="risk_decimal_display_v1",decimalPlaces=12,tieRule="to_even"},
-            run.Work,run.SnapshotId,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>p.InstrumentId).Distinct().Count(),
+            run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>p.InstrumentId).Distinct().Count(),
             inputs=new{pricingPolicy=run.Policy,markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
                 selectionPolicy=m.Snapshot.SelectionPolicy.ToString(),observations=m.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,
                     s.Observation.Series,s.Observation.Source,role=s.Observation.Role.ToString(),state=s.Observation.State.ToString(),
-                    s.Observation.ObservedAt,value=s.Observation.Value.ToString()})}),positions=run.Positions,run.DiscountInputs},
+                    s.Observation.ObservedAt,value=s.Observation.Value.ToString()})}),positions=run.Positions,run.DiscountInputs,connectedMarkets=prepared.Portfolio.ConnectedMarkets},
             modelContracts=run.ModelContracts.Select(c=>new{c.Id,c.ModelVersion,c.Dependencies,c.Quantity,c.Currency}),
             factors=prepared.Bumps.Select(b=>new{
                 factor=Factor(markets,run.Factors.Single(f=>f.Factor.Input==b.Input).Factor),
@@ -167,7 +167,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     {
         string Digest(object value)=>Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value,RiskJobs.Json)));
         var id=Digest(new{version="portfolio_quote_scenario_v1",markets=prepared.Portfolio.Markets.OrderBy(m=>m.Data.DefinitionRevision.RevisionId)
-            .Select(m=>new{m.Data.DefinitionRevision,m.Risk.Scenario.Id})});
+            .Select(m=>new{m.Data.DefinitionRevision,Id=m.ScenarioId})});
         string? parent=null;
         foreach(var shift in prepared.Stress){parent=id;id=Digest(new{version="portfolio_quote_scenario_v1",parent,shift});}
         return new{id,parentId=parent,depth=prepared.Stress.Length,isBase=prepared.Stress.IsEmpty,

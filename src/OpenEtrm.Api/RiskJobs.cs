@@ -47,6 +47,7 @@ public static class RiskJobs
         var pinnedFrame=PinFrame(frame with {ContextId=contextId,SwapMarketSelections=prepared.SupplementalMarkets
             .ToImmutableDictionary(m=>m.Data.DefinitionRevision.RevisionId,m=>m.Frame.ObservationIds)});
         pinnedFrame["supplementalMarkets"]=supplemental;
+        pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
         await using var command=ScheduleStore.Command(connection,
             "SELECT risk.submit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
             data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),pinnedFrame.ToJsonString(Json));

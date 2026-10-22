@@ -1137,7 +1137,7 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 Owner decisions become D rows when recorded. Every other rule in this document is a
 design call, recorded as P rows by section and open to correction until the owner
 approves it. Phase 3's four hosted gates are undecided. [decisions.md](decisions.md)
-records this section as D149–D156, D177, D183 and P24–P38, with the open-item updates
+records this section as D149–D156, D177, D184 and P24–P38, with the open-item updates
 below.
 
 **AGENTS.md exception:** model-provider vendor names (Anthropic, OpenAI, Google, xAI,
@@ -1172,7 +1172,7 @@ check proves equal (§7.1); Navigate follows the read tools and refuses a handle
 not issue, or a page the delegator cannot open, as `tool_arguments_invalid`; and a call
 whose tool requests would take the turn past its steps has none of them run (§7.5).
 
-**Read tool decisions** (D183, decided on the owner's delegation): working-data reads
+**Read tool decisions** (D184, decided on the owner's delegation): working-data reads
 bind the context the ask captured, never capturing or taking lock 730849102, and
 current-only definitions bind none (§7.2); contract definitions are read with the
 schedule library and exposed as `market_data.contract_definitions_v1`; page reports name

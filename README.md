@@ -18,7 +18,8 @@ without a seven-figure implementation.
   amendment history
 - **Curves:** futures, gas and power forwards, basis and interest rates, built from
   explicitly selected prices, with a diagram showing which inputs built each
-  contract's price
+  contract's price. Saved managed custom recipes can supply an explicitly pinned
+  monthly swap projection through the API; the trade editor has no custom-curve picker yet
 - **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
   and remaining projections. Shared quote scenarios produce exact delta and gamma;
   generated-close jobs retain mixed futures-and-swaps reports
@@ -99,7 +100,7 @@ existing database.
 - [Schedules and contract sequences](docs/schedules-and-contract-sequences.md)
 - [Power example and its limits](docs/power-preview.md)
 - [Risk calculation benchmark](docs/risk-benchmark.md)
-- [Connected curve calculation prototype and scenarios](docs/connected-calculation.md)
+- [Connected curve calculation, booked projections and scenarios](docs/connected-calculation.md)
 - [Large dependency-graph benchmark](docs/connected-graph-benchmark.md)
 - [Nested market scenarios and durable risk jobs](docs/risk-engine.md)
 - [Identity, agent login kinds and authorization](docs/security.md)

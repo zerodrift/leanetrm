@@ -8,17 +8,18 @@ public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableAr
 // A pricer sees only its declared inputs. No ambient market lookup or services.
 public sealed class PricingInputs
 {
-    private readonly IReadOnlyDictionary<CurveRequest,BuiltValue> values;
+    private readonly PreparedValuationMarket market;
+    private readonly CancellationToken cancellation;
     private readonly ImmutableHashSet<CurveRequest> permitted;
     public Guid SnapshotId{get;}
     public DateTimeOffset ValuationAt{get;}
     public DateTimeOffset MarketCutoff{get;}
     public string ScenarioId{get;}
-    public string NumericalPolicy=>CurveModel.NumericalPolicy;
-    internal PricingInputs(CurveBuild market,UnitPricingContract contract,IReadOnlyDictionary<CurveRequest,BuiltValue> values)
-    {SnapshotId=market.SnapshotId;ValuationAt=market.Snapshot.ValuationAt;MarketCutoff=market.Snapshot.MarketCutoff;ScenarioId=market.Scenario.Id;
-        this.values=values;permitted=contract.Dependencies.ToImmutableHashSet();}
-    public UnitPrice Price(CurveRequest request)=>permitted.Contains(request) && values.TryGetValue(request,out var value)?value.Price:
+    public string NumericalPolicy=>market.NumericalPolicy;
+    internal PricingInputs(PreparedValuationMarket market,UnitPricingContract contract,CancellationToken cancellation)
+    {SnapshotId=market.Snapshot.Id;ValuationAt=market.Snapshot.ValuationAt;MarketCutoff=market.Snapshot.MarketCutoff;ScenarioId=market.ScenarioId;
+        this.market=market;this.cancellation=cancellation;permitted=contract.Dependencies.ToImmutableHashSet();}
+    public UnitPrice Price(CurveRequest request)=>permitted.Contains(request)?market.WorkingPrice(request,cancellation):
         throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
 }
 public sealed record UnitMoney(ExactMoney Money,ReferenceKey Quantity)
@@ -84,7 +85,7 @@ public sealed record ExactBookRiskRun(Guid SnapshotId,string NumericalPolicy,Imm
 }
 public sealed record ExactGroupedRiskRun(Guid SnapshotId,ImmutableArray<ExactBookRiskRun> Groups,RiskWork Work);
 
-public static class RiskEngine
+public static partial class RiskEngine
 {
     public const string NumericalPolicy="exact_18_fractional_book_repricing_v2";
     public const string ExactNumericalPolicy="exact_rational_portfolio_repricing_v1";
@@ -239,13 +240,10 @@ public static class RiskEngine
             var upWork=new ScenarioWork(factor.Up.EvaluatedConstituents,factor.Up.ReusedConstituents,up.UnitValuations,contracts.Length-up.UnitValuations);
             var downWork=new ScenarioWork(factor.Down.EvaluatedConstituents,factor.Down.ReusedConstituents,down.UnitValuations,contracts.Length-down.UnitValuations);
             if(exact)
-                exactFactors.Add(new(factor.Bump,baseValue.Totals.Select((b,n)=>new ExactRiskBookTotal(b.BookId,
-                    ExactRepricing.Measure(b.Value,up.Totals[n].Value,down.Totals[n].Value,factor.Bump))).ToImmutableArray(),upWork,downWork)
                 {
-                    Positions=detail==RiskDetail.Books?[]:portfolio.Positions.Select((p,n)=>new ExactRiskPositionResult(
-                        p.TradeId,p.BindingId,p.BookId,p.ValuationId,
-                        ExactRepricing.Measure(baseValue.Positions[n],up.Positions[n],down.Positions[n],factor.Bump))).ToImmutableArray()
-                });
+                    var measured=MeasurePortfolio(portfolio,baseValue,up,down,factor.Bump.Size,factor.Bump.Unit,detail);
+                    exactFactors.Add(new(factor.Bump,measured.Totals,upWork,downWork){Positions=measured.Positions});
+                }
             else
             {
                 var rows=ImmutableArray.CreateBuilder<RiskPositionResult>(detail==RiskDetail.Holdings?portfolio.Positions.Length:0);
@@ -280,8 +278,7 @@ public static class RiskEngine
         internal RiskRun Finish()=>new RiskRun(baseMarket.SnapshotId,NumericalPolicy,contracts,factors.ToImmutable(),Work,baseMarket.Scenario){Detail=detail,BaseValues=baseValue.Totals};
         internal ExactBookRiskRun FinishExact()=>new(baseMarket.SnapshotId,ExactNumericalPolicy,contracts,baseValue.Totals,exactFactors.ToImmutable(),Work,baseMarket.Scenario)
         {
-            Detail=detail,BasePositions=detail==RiskDetail.Books?[]:portfolio.Positions.Select((p,n)=>
-                new ExactRiskPositionValue(p.TradeId,p.BindingId,p.BookId,p.ValuationId,baseValue.Positions[n])).ToImmutableArray()
+            Detail=detail,BasePositions=RiskEngine.BasePositions(portfolio,baseValue,detail)
         };
     }
     private static RiskValues Measure(Money b,Money u,Money d,QuoteBump bump)
