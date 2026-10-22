@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseBlotterViews,newBlotterView,blotterCsv} from '../dist/blotter-layout.js';
+import {parseBlotterViews,newBlotterView} from '../dist/blotter-layout.js';
+import {guardedCsv} from '../dist/csv-export.js';
 test('named views retain layout and filters without retaining market inputs or permissions',()=>{
  const view={...newBlotterView(),name:'Book review',columns:['book','contract','executionPnl'],query:'Jan',columnFilters:{book:'Book A'}};
  assert.deepEqual(parseBlotterViews(JSON.stringify([{...view,snapshotId:'private',role:'admin'}])),[view]);
@@ -11,7 +12,7 @@ test('saved views reject empty columns duplicates unknown fields and unsupported
  assert.throws(()=>parseBlotterViews(JSON.stringify(Array.from({length:21},()=>base))));
 });
 test('snapshot export retains exact decimal strings and guards textual spreadsheet formulas',()=>{
- const csv=blotterCsv([['Book','Quantity','Execution P&L'],['=untrusted','-40','0.000000000000000001'],['A,"B"','80','-4']],[1,2]);
+ const csv=guardedCsv([['Book','Quantity','Execution P&L'],['=untrusted','-40','0.000000000000000001'],['A,"B"','80','-4']],[1,2]);
  assert.ok(csv.includes("\"'=untrusted\""));assert.ok(csv.includes('"-40","0.000000000000000001"'));assert.ok(csv.includes('"A,""B""","80","-4"'));
 });
 test('new trade layouts expose stable references and revision without changing existing saved layouts',()=>{

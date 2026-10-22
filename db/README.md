@@ -883,3 +883,56 @@ The consumer and installation prerequisites are documented in
 migrations only through the reviewed installation process; the worker stack never
 migrates an existing database. The disposable check is
 `python3 tools/check_risk_jobs_db.py --pg-bin /path/to/postgresql/bin`.
+
+## Page-assistant usage
+
+[0075_model_usage.sql](migrations/0075_model_usage.sql) adds `ReadModelUsage`, held by the
+access administrator, with the Usage tab's report and audited export
+([ai-assistant.md](../docs/ai-assistant.md) §5.3, §5.4, §9). Three definer operations
+recheck it and refuse delegated agent contexts:
+- **`usage_directory`**: what a report is grouped by (model, user or agent), its longest
+  range, 366 days, and the latest 100 exports with their reader, zone, range and grouping.
+- **`usage_report`**: the reader's workspace over a half-open range of local dates, at
+  most 366 days (`report_range_invalid`), in a zone the database names exactly
+  (`report_zone_invalid`), never `localtime`, `posixrules`, `Factory` or a `posix/` or
+  `right/` name, host or tzcode artifacts it may also list. Each day is the half-open
+  interval from its start to the next day's start, and a call falls on the day that
+  holds its start. A day starts at the earlier of its midnight and the instant after the
+  previous date's last microsecond, each read in the zone as PostgreSQL resolves local
+  times: a skipped time takes the offset before the transition, a repeated one the
+  offset after it. This is the first instant the zone's clocks show the date, except
+  where a transition's skipped or repeated time strictly contains midnight in the tzdata
+  release the database uses; release 2026c has such dates only before 2011. Where the
+  clock moves back across midnight, no single interval holds a date's instants, so such
+  a day ends where the next one starts. The report names its format, `usage_report_v1`,
+  and a later format keeps a reader for every earlier one, since an export replays the
+  report it stored. It states its zone and UTC bounds, each day's bounds, and the
+  methods behind its amounts. Per exact currency reference, never added across
+  references, a row per model, user or agent, one for provider tests and a total each:
+  - count calls by usage state: priced, unpriced, unknown, unrecognized and open, and
+    those without a cost;
+  - sum each dimension's known tokens beside the calls that left it unknown, counting
+    unrecognized usage as unknown, as a turn's usage does;
+  - sum the cost of priced calls, with its share of the same-currency total's, and the
+    priced calls superseded by a later revision in force at their start, with their
+    cost; without a priced call there is no cost, never zero;
+  - count turns through their calls in the cell, by terminal state, with the answers'
+    cost of priced calls, a cost per answer only while each of their calls there has a
+    cost, and the other turns with their cost of priced calls apart.
+
+  Each day has, per currency, the cost of its priced calls, its calls and those
+  without a cost. A report names models, users and agents and holds no question,
+  answer or page report.
+- **`export_usage`**: records the report it returns, with its request, in the model
+  administration audit. A repeat answers with the recorded report and records nothing,
+  and any other use of its request identity, in Settings › AI or Users & access, is
+  `model_admin_conflict`. A constraint keeps an export from naming a provider, model,
+  agent or key. The record holds the whole report: a year of 100,000 calls by 50 users
+  stored about 14,650 bytes, 129,242 as text ([verification.md](../docs/verification.md)).
+
+`token_cost_report_v1` rounds a cost per answer once to 18 places and a share once to a
+2-place percentage, ties to even, and writes each with exactly those places;
+`token_cost_display_v1` groups a cost's whole part by thousands and trims its trailing
+zeros, rounding nothing. An index serves a report's range of call starts. The migration
+first verifies the helper it relies on. As a new migration it stops automatic hosted
+updates until the operator qualifies a new baseline (D135).

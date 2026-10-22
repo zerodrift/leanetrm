@@ -33,6 +33,7 @@ def main():
     parser.add_argument('--interval-series-check',action='store_true',help='Qualify audited interval series storage and API')
     parser.add_argument('--interval-curves-check',action='store_true',help='Qualify interval curves, shaping and resolution: storage, API and, with --browser-check, the screen')
     parser.add_argument('--interval-series-benchmark',action='store_true',help='Measure twenty-year interval series workloads in an owned fixture and print a JSON report')
+    parser.add_argument('--usage-benchmark',action='store_true',help='Measure a year of page-assistant usage at a stated volume in an owned fixture and print a JSON report')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
@@ -59,9 +60,9 @@ def main():
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
     fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check
-    if args.interval_series_benchmark:
-        if args.example != 'standard' or any(name.endswith('_check') and value for name,value in vars(args).items()):
-            parser.error('--interval-series-benchmark runs alone in the standard fixture, without any --*-check option')
+    if args.interval_series_benchmark or args.usage_benchmark:
+        if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
+            parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
     if args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
@@ -189,6 +190,9 @@ def main():
             if args.assistant_check and migration.name=='0072_tool_steps.sql':
                 from check_agent_turns import check_steps_upgrade
                 check_steps_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0075_model_usage.sql':
+                from check_model_usage import check_upgrade as check_usage_upgrade
+                check_usage_upgrade(query,migration.read_text())
             if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
@@ -378,6 +382,9 @@ def main():
             elif args.interval_series_benchmark:
                 from benchmark_interval_series import run_benchmark
                 print(json.dumps(run_benchmark(url,query,dotnet,child.pid),indent=2),flush=True)
+            elif args.usage_benchmark:
+                from benchmark_usage import run_benchmark as run_usage_benchmark
+                print(json.dumps(run_usage_benchmark(url,query,psql,manifest,app_env,dotnet,child.pid),indent=2),flush=True)
             elif args.power_actual_check:
                 from check_power_actual_http import run_checks as check_power_actual_http
                 check_power_actual_http(url,query,manifest)
@@ -506,43 +513,48 @@ def main():
             elif args.assistant_check:
                 # First, while nothing else can be writing to the application log.
                 from check_request_refusals import run_checks as check_request_refusals
-                check_request_refusals(url,temporary/'app.log')
+                # The preview holds at most 64 sessions, so the modules reuse the administrator's, a second of the
+                # administrator's and the viewer's sessions instead of each opening its own.
+                admin=check_request_refusals(url,temporary/'app.log')
                 from check_model_providers import run_checks as check_model_providers
-                check_model_providers(url,query,psql,manifest,temporary,app_env,dotnet)
+                viewer,again=check_model_providers(url,query,psql,manifest,temporary,app_env,dotnet,admin)
                 from check_model_catalog import run_checks as check_model_catalog
-                check_model_catalog(url,query,psql,manifest,app_env)
+                check_model_catalog(url,query,psql,manifest,app_env,admin,viewer,again)
                 from check_model_qualification import run_checks as check_model_qualification
-                check_model_qualification(url,query,psql,manifest,app_env)
+                check_model_qualification(query,psql,manifest,app_env,admin,viewer,again)
                 from check_model_versions import run_checks as check_model_versions
-                check_model_versions(url,query,psql,manifest,app_env)
+                check_model_versions(query,psql,manifest,app_env,admin,viewer,again)
                 from check_provider_test_http import run_checks as check_provider_test_http
-                check_provider_test_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                check_provider_test_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap,admin,viewer,again)
                 from check_provider_tests import run_checks as check_provider_tests
-                check_provider_tests(url,query,psql,manifest,app_env)
+                check_provider_tests(query,psql,manifest,app_env,admin)
                 from check_agent_administration import run_checks as check_agent_administration
-                check_agent_administration(url,query,psql,manifest,app_env)
+                check_agent_administration(query,psql,manifest,app_env,admin,viewer,again)
                 from check_agent_grants import run_checks as check_agent_grants
-                check_agent_grants(url,query,psql,manifest,app_env)
+                check_agent_grants(url,query,psql,manifest,app_env,admin,viewer)
                 from check_agent_turns import run_checks as check_agent_turns
                 check_agent_turns(url,query,psql,manifest,app_env)
                 from check_agent_turn_http import run_checks as check_agent_turn_http
                 check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                from check_model_usage import run_checks as check_model_usage
+                check_model_usage(url,query,psql,manifest,app_env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     # Roles holding one of Settings › AI's permissions each, so the browser sees every tab offered by its own.
                     query("INSERT INTO security.roles(id,code,name) VALUES(gen_random_uuid(),'synthetic_agents_admin','Synthetic agents administrator'),"
-                          "(gen_random_uuid(),'synthetic_models_admin','Synthetic models administrator');"
+                          "(gen_random_uuid(),'synthetic_models_admin','Synthetic models administrator'),(gen_random_uuid(),'synthetic_usage_reader','Synthetic usage reader');"
                           "INSERT INTO security.role_permissions SELECT id,'ManageAgents' FROM security.roles WHERE code='synthetic_agents_admin';"
-                          "INSERT INTO security.role_permissions SELECT id,'ManageModelProviders' FROM security.roles WHERE code='synthetic_models_admin';")
-                    # The browser's two tests reach the provider; its retry and refused test must not.
+                          "INSERT INTO security.role_permissions SELECT id,'ManageModelProviders' FROM security.roles WHERE code='synthetic_models_admin';"
+                          "INSERT INTO security.role_permissions SELECT id,'ReadModelUsage' FROM security.roles WHERE code='synthetic_usage_reader';")
+                    # Settings › AI's two tests and Usage's one reach the provider; the retry and the refused test must not.
                     from fake_model_provider import echo
-                    reached=len(fake_provider.received);fake_provider.respond(echo(),echo())
+                    reached=len(fake_provider.received);fake_provider.respond(echo(),echo(),echo())
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--assistant'],cwd=ROOT,env=env,start_new_session=True)
-                    # Settings › AI and its Agents tab run in one browser process.
+                    # Settings › AI and its Agents and Usage tabs run in one browser process.
                     if browser_process.wait(timeout=300):raise RuntimeError('Owned page-assistant settings browser checks failed')
-                    if len(fake_provider.received)!=reached+2:raise RuntimeError('The browser tests did not reach the provider exactly twice')
-                    print('PASS the browser tests reached the provider exactly twice: a retry and a refused test sent nothing',flush=True)
+                    if len(fake_provider.received)!=reached+3:raise RuntimeError('The browser tests did not reach the provider exactly three times')
+                    print('PASS the browser tests reached the provider exactly three times: a retry and a refused test sent nothing',flush=True)
             elif args.identity_check:
                 from check_units_preview import run_checks as check_units
                 check_units(url)

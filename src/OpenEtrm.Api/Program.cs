@@ -149,6 +149,7 @@ app.Use(async (context,next)=>
                 or "model_limit_exceeded" or "instructions_too_long" or "grant_duration_exceeded"
                 => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_runtime_unavailable" => (503,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "report_zone_invalid" or "report_range_invalid" => (422,p.MessageText,UsageReports.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "amount_format" or "futures_lot" => (422,p.MessageText,"Supply exact supported contract lot terms or deal display precision."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_conflict" or "interval_series_revision_conflict" => (409,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
@@ -1084,6 +1085,17 @@ if(hosted is null)
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Unfinished(connection,ct)),c.RequestAborted))));
     api.MapPost("/assistant/conversations/read",(HttpContext c,MarkReadRequest body)=>Locked(c,session=>
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.MarkRead(connection,body,ct)),c.RequestAborted)));
+    // Usage (§9) is read under ReadModelUsage alone. An export records the report it carries in the model administration
+    // audit, so like a change its outcome can be unknown, and repeating it answers as its original did.
+    Task<IResult> UsageRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
+        database.WithIdentity(Profile(session),"ReadModelUsage",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
+    api.MapGet("/settings/ai/usage",(Func<HttpContext,Task<IResult>>)(c=>UsageRead(c,async(connection,ct)=>await UsageReports.Directory(connection,ct))));
+    api.MapPost("/settings/ai/usage/report",(HttpContext c,UsageReportRequest body)=>UsageRead(c,async(connection,ct)=>await UsageReports.Report(connection,body,ct)));
+    api.MapPost("/settings/ai/usage/export",(HttpContext c,UsageExportRequest body)=>
+    {
+        c.Items["model_admin_attempted"]=true;
+        return UsageRead(c,async(connection,ct)=>await UsageReports.Export(connection,body,ct));
+    });
     api.MapPost("/settings/ai/providers/test",(HttpContext c,TestRequest body)=>Locked(c,async session=>
     {
         c.Items["model_admin_attempted"]=true;

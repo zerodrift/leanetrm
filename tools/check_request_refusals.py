@@ -36,6 +36,7 @@ def one_message_per_code(answers):
 
 
 def run_checks(url, log):
+    """Returns its administrator session, which the later page-assistant modules reuse."""
     passed = 0
 
     def check(name, condition=True):
@@ -68,3 +69,4 @@ def run_checks(url, log):
     for path, body, _, _ in routes:
         check(f'{path}: the readable body reaches its handler, which refuses it', admin.call(path, body, expected=422)['code'] == 'model_admin_input')
     print(f'{passed} request refusal checks passed.', flush=True)
+    return admin

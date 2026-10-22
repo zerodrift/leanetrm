@@ -3,7 +3,6 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from assistant_context import Contexts, check_guard, expect, holding, migration_body, refused, refused_at, state, waiting
-from preview_client import PreviewClient
 
 MODELS = 'settings/ai/models'
 PROVIDERS = 'settings/ai/providers'
@@ -52,7 +51,8 @@ def command(model, expected):
     return {'operationId': str(uuid4()), 'modelId': model, 'expectedVersion': expected}
 
 
-def run_checks(url, query, psql, manifest, environment):
+def run_checks(query, psql, manifest, environment, admin, viewer, again):
+    """`admin` and `again` are two sessions of the preview administrator, `viewer` one of the viewer, shared with the other modules."""
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -98,9 +98,6 @@ def run_checks(url, query, psql, manifest, environment):
         query(expect(f"INSERT INTO assistant.confirmed_mappings VALUES('anthropic','synthetic_messages_v3','2026-10-20',{sources});", '23514'))
     check("even for the owner, a confirmed mapping's sources are a list of distinct sources")
 
-    admin, viewer = PreviewClient(url), PreviewClient(url)
-    for client, profile in ((admin, 'admin'), (viewer, 'viewer')):
-        client.bootstrap(); client.call('profile', {'profile': profile})
     capable = admin.call(f'{MODELS}/add', {'operationId': str(uuid4()), 'vendor': 'anthropic', 'identifier': 'model-synthetic-capable',
                                             'displayName': 'Synthetic capable model'})
     unadapted = admin.call(f'{MODELS}/add', {'operationId': str(uuid4()), 'vendor': 'openai', 'identifier': 'model-synthetic-unadapted',
@@ -286,13 +283,12 @@ def run_checks(url, query, psql, manifest, environment):
 
     # Two sessions of one administrator send each command at once, each held at its first write:
     # the second waits for the first and replays its outcome.
-    duplicate = PreviewClient(url); duplicate.bootstrap(); duplicate.call('profile', {'profile': 'admin'})
     with ThreadPoolExecutor(2) as pool:
         def overlapping(path, body, operation, table):
             def overlap():
                 original = pool.submit(admin.call, f'{MODELS}/{path}', body)
                 waiting(query, 1, operation)
-                retry = pool.submit(duplicate.call, f'{MODELS}/{path}', body)
+                retry = pool.submit(again.call, f'{MODELS}/{path}', body)
                 waiting(query, 2, operation)
                 return original, retry
             original, retry = holding(psql, environment, f'LOCK TABLE assistant.{table} IN EXCLUSIVE MODE', overlap)

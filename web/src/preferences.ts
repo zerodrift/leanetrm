@@ -2,6 +2,8 @@
 export type Preferences={version:1;timeZone:string;browseBy:'commodity'|'marketType';market:string|null;marketType:'all'|'futures'|'forwards'|'rates';tab:'prices'|'inputs'|'dependencies';sidebarCollapsed:boolean;libraryCollapsed:boolean;collapsedMenus:string[];collapsedCurveGroups:string[]};
 export interface PreferenceStorage {getItem(key:string):string|null;setItem(key:string,value:string):void;}
 export function validTimeZone(zone:unknown):zone is string {if(typeof zone!=='string')return false;try{new Intl.DateTimeFormat('en',{timeZone:zone});return true;}catch{return false;}}
+// The time zones offered for a choice, UTC and the current choice first.
+export function zoneChoices(current:string){return [...new Set(['UTC',current,...Intl.supportedValuesOf('timeZone')])].map(zone=>({value:zone,name:zone.replaceAll('_',' ')}));}
 export function newPreferences(zone:string):Preferences {
   if(!validTimeZone(zone))throw Error('Choose a valid time zone.');
   return {version:1,timeZone:zone,browseBy:'commodity',market:null,marketType:'all',tab:'prices',sidebarCollapsed:false,libraryCollapsed:false,collapsedMenus:[],collapsedCurveGroups:[]};

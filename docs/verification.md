@@ -189,6 +189,10 @@ past it; in the contract-date library's, a save sent with a stale request token 
 answered 400 `request_token`. None of these pages keeps the request, and no party is
 saved.
 
+With its browser scenarios the run opens 32 of the 64 sessions a preview holds: its
+modules reuse the administrator's, a second of the administrator's and the viewer's
+sessions, and each opens only those its own personas, turns and races need.
+
 Direct runtime SQL checks also hold principal, provider, credential-storage and
 audit locks until a synthetic role grant or request context has expired. New key
 replacements and accepted-operation retries then fail with SQLSTATE 42501, with
@@ -730,13 +734,97 @@ after text unless too large, otherwise with its failure's code, and retried only
 a transport failure or overload whose input is known and that published nothing, while
 retries remain.
 
+Usage (`tools/check_model_usage.py`, in the same run, through the API and in SQL, over
+calls and turns it writes as the database owner at chosen instants of 2019, since a call
+records its own start):
+
+- **Access:** only the access administrator role reads usage; a viewer and a trader
+  neither read nor export it; an identity holding `ReadModelUsage` alone reads and
+  exports it and reads no model, provider or agent directory; an agent under a delegation
+  listing `ReadModelUsage` neither reads nor exports, and the runtime executes none of the
+  internal helpers; a reader in another workspace sees none of the calls.
+- **Inputs:** an unknown, differently cased, offset-only, blank, padded, NUL-bearing or
+  absent zone is `report_zone_invalid`, as are `localtime`, `posixrules`, `Factory` and
+  `posix/` and `right/` names, whether or not the database lists them; equal, reversed,
+  367-day, malformed, impossible, timed and absent dates are `report_range_invalid`; a
+  grouping other than model, user or agent, an export without a request identity and an
+  unknown member are refused; none of these records anything, and a range of exactly 366
+  days has 366 days.
+- **Days:** in New York the spring-forward day lasts 23 hours and the fall-back day 25,
+  holding both 1:30s; in Santiago the day whose midnight is skipped starts at 01:00 and
+  lasts 23 hours; in the Azores, whose fall back repeats midnight, 26 October 2025
+  starts at its first midnight, 00:00Z, lasts 25 hours and holds a call at 00:30Z,
+  while the 25th lasts 24; `CET` is read as the zone, so 2 July 2025 starts at 22:00Z on
+  the 1st and holds a call at 22:30Z; the 30 December 2011 that Apia skipped is a day of
+  no length; in Goose Bay, whose fall back from 00:01 repeated both midnight and the
+  instant before it, 7 November 2010 starts at the later midnight, 04:00Z, and the 6th
+  lasts 25 hours, as the documented rule gives; calls at 23:59:59.999999 and at midnight
+  fall on their own local dates, as do provider tests on the range's edges, which fall
+  inside or outside it.
+- **Figures:** a report names its format, `usage_report_v1`. By model, user and agent,
+  each member and provider tests count calls by usage state and those without a cost,
+  known tokens per dimension beside the calls that left each unknown, the cost of
+  priced calls and its share, turns by terminal state, answers with an exact cost per
+  answer and the other turns with their cost of priced calls apart, and each day's cost
+  of priced calls, all equal to amounts computed from the synthetic calls; the three
+  views have the same totals; two references sharing a code stay apart; a member whose
+  answer lacks a cost has no cost per answer, and one with no priced call no cost,
+  never zero; a revision appended later changes no cost and flags only the priced calls
+  that start while it is in force; no question, answer or page report appears.
+- **Methods:** `token_cost_report_v1` rounds ties to even at 18 places and at a 2-place
+  percentage and has no ratio without a positive whole; `token_cost_display_v1` groups and
+  trims without rounding, so 10^-18 shows in full.
+- **Labels:** a reader without market data sees no currency label, a reader of market
+  data sees each from its reference row with its catalog and revision, and each vendor is
+  named.
+- **Export:** an export records the report it returns with its request against the
+  reader, naming no provider, model, agent or key; the tab lists it first; a repeat
+  answers identically and records nothing; an export's request identity reused for
+  another grouping, by another reader or for an agent change is refused, as is an export
+  under the identity of a Users & access change, and none records anything; two
+  identical exports sent at once by one reader record one export, and both answer with
+  its report; the tab lists only the latest 100 exports; row triggers refuse any update
+  or delete of an export record, even from the owner, and check constraints refuse one
+  naming a provider, model, agent or key. Before 0075 applies, it refuses a change to
+  the definition or privileges of the helper it pins.
+
+Usage at volume is a measurement with sanity assertions and is not part of
+`tools/check_all.py`:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
+  --usage-benchmark
+```
+
+In an owned standard preview it qualifies a provider and makes three priced models, with
+a published agent on each, through Settings › AI. As the database owner it then writes
+one workspace's year in New York, 100,000 calls between 2025-01-01T05:00Z and
+2026-01-02T05:00Z: 50 users each ask one of the agents 980 questions with two calls
+each (49,000 turns), and 2,000 provider tests run beside them. One model prices no cache
+write, so its 30,496 recognized calls are unpriced; 2,646 calls have unknown usage; each
+user's last turn is still running, its second call open (50). The access administrator
+reads the 366 days grouped by user, 51 rows in one currency, three times in SQL
+(`EXPLAIN ANALYZE` execution time) and three times over HTTP, then exports them once.
+Every answer must count the declared calls and rows, and every read must finish within
+the API's 5-second command timeout, or the run fails naming its step.
+
+Three runs on 2026-10-21 (PostgreSQL 16.15, .NET 10.0.402 Debug build, Linux x86_64 with
+4 logical processors and 16.9 GB; client, API and database on one machine) wrote the
+workload in 17.0 to 18.0 s. The report took 0.90 to 1.20 s in SQL and 0.89 to 1.25 s
+over HTTP, and the export 0.99 to 1.09 s. The report is about 118,700 bytes of JSON; its
+export record holds 129,242 bytes as text and stores about 14,650 compressed. The call,
+outcome and turn tables hold 100,000, 99,950 and 49,000 rows in 108 to 110 MB, and the
+API's resident set grew by 18 to 19 MB across the reads, to at most 150 MB. A report's
+work grows with the calls in its range; these runs time one reader on one machine and
+qualify no larger volume, concurrent use or Release build.
+
 The Users & access checks expect `agent_managed` for an agent create, the agent reader
 role, and an agent update with and without roles, which leaves the agent unchanged. Its
 browser scenario creates its own agent and finds it listed as an agent reader without
 Edit. The temporal storage checks create an agent through `ManageAgents` and show it
 reads market data only under a current delegation. The reference-policy agent holds the
-agent reader role. The hosted checks find every agent, grant and turn route unmapped and
-the provisioned owner with exactly the six human roles.
+agent reader role. The hosted checks find every agent, grant, turn and usage route
+unmapped and the provisioned owner with exactly the six human roles.
 
 The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is
@@ -777,7 +865,8 @@ for its own identity only: the page offers it after an identity switch, before a
 opens, and after a failed directory read, and Discard forgets it without sending it. The
 last test is unmarked while its key and terms are attested; a new key marks it as run
 under an earlier key or terms, and the card says to attest before testing again. The
-launcher then confirms that only the two tests reached the fake provider. The key never reaches
+launcher then confirms that only these two tests and the Usage scenario's one reached
+the fake provider. The key never reaches
 session storage, local storage or the URL, its field clears when the request settles,
 and Retry asks for it again. Measured against the client width at 390 px, neither tab overflows the page. A revoked administrator keeps
 no model, price, capability, terms, test or audit rows on screen, a viewer sees no AI
@@ -785,12 +874,12 @@ settings, and hosted mode hides them.
 
 An Agents scenario follows in the same run. Through an independent session it qualifies
 and enables the provider and adds a priced, enabled model, so it relies on no earlier
-state; the launcher adds a role holding each of Settings › AI's two permissions alone. A
-trader is offered no AI settings. An identity holding only `ManageAgents` lands on
+state; the launcher adds a role holding each of Settings › AI's three permissions alone.
+A trader is offered no AI settings. An identity holding only `ManageAgents` lands on
 Settings › AI, is offered the Agents tab alone and reads only the agents directory; one
 holding only `ManageModelProviders` is offered Models & prices and Providers alone; an
-administrator of models and agents is offered all three. The tab says what a save,
-Publish and Retire do. A refused create keeps no request; Create lists the agent with
+access administrator is offered all four and opens on Models & prices. The tab says
+what a save, Publish and Retire do. A refused create keeps no request; Create lists the agent with
 nothing saved or published, sending only its identity and name, and opens its card. The
 card offers exactly the directory's models, each at its current capability version, the
 chosen model version's efforts, chosen anew, and its output limit, the roles that use
@@ -819,6 +908,36 @@ confirmation that it is permanent, after which the agent offers no change. At 39
 tab and card fit the page, and no internal identifier shows. A change refused on its
 first attempt because access ended keeps no request, and the administrator keeps no
 agent, version, audit or form data, whether the next change or the next read is refused.
+
+A Usage scenario ends the run. Through an independent session it prices a model and
+tests it once, so the report holds a priced provider test of this run in a currency
+reference it names; since the preview's other checks also record calls, the page is
+compared with the API's own answers, and the SQL checks own the figures. An identity
+holding only `ReadModelUsage` lands on Settings › AI, is offered the Usage tab alone and
+reads only its directory; the tab states the 366-day limit the API passes and chooses no
+grouping or day; an access administrator is offered Usage first among four tabs. The
+reporting zone is prefilled from Profile and stays as chosen when Profile changes. A
+report without a grouping or a first day is refused before any request; a reversed range
+and a zone the database does not name, added to the list for the check, are refused by
+the server, and a report a stubbed answer gives an unknown format is refused by name and
+not shown. A report sends exactly its zone, range and grouping and states them with its
+UTC bounds; it shows the API's currency references in order, each with its rows,
+provider tests last with the API's calls, cost of priced calls and calls without a cost,
+a summary and a daily chart, and this run's test priced. A reader of market data sees
+the currency named from its reference row, and one without sees only its code. Export
+sends only its identity, zone, range and grouping, saves the CSV of the report it
+recorded under that identity, whose generation instant the audit lists first, with the
+export ID, report format, zone, range, grouping, methods and the exact currency
+reference of the provider tests row, and keeps no request; a member a stubbed answer
+names like a formula shows as text and exports apostrophe-prefixed. An export a stubbed
+answer gives an unknown format is refused by name before its request is released, so no
+CSV is saved and Retry, still offered, answers with the report that export recorded. A
+lost export response keeps the exact request for its own identity only and says what it
+would export while the audit shows the export recorded; Retry answers with the recorded
+report, listed once. An export whose answer never came is kept until Discard, which
+sends nothing. At 390 px the tab and its report fit the page, and no internal identifier
+shows. An export refused because access ended keeps no request, and the reader keeps no
+usage, form or audit data, as does an administrator whose next read is refused.
 
 The Messages adapter has a conformance suite
 (`dotnet run --project tests/OpenEtrm.Api.Checks -- --model-providers`, also part of

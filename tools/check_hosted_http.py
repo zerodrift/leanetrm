@@ -179,10 +179,11 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         admin.call('/api/workspace/catalog',expected=403)
         admin.call('/api/power-imports',expected=403)
         print('PASS hosted startup projects current identity permissions without granting market-data authority',flush=True)
-        assert 'ManageModelProviders' in admin_access['permissions'] and 'ManageAgents' in admin_access['permissions']
+        assert {'ManageModelProviders','ManageAgents','ReadModelUsage'}<=set(admin_access['permissions'])
         admin.call('/api/settings/ai/providers',expected=404)
         admin.call('/api/settings/ai/models',expected=404)
         admin.call('/api/settings/ai/agents',expected=404)
+        admin.call('/api/settings/ai/usage',expected=404)
         admin.call('/api/assistant/agents',expected=404)
         admin.call('/api/assistant/grants',expected=404)
         for path in ('/api/assistant/conversations',f'/api/assistant/conversations/{uuid4()}?after=0','/api/assistant/turns/unfinished'):
@@ -203,10 +204,12 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
                           ('/api/assistant/turns/ask',{'operationId':str(uuid4()),'conversationId':None,'agentId':str(uuid4()),'version':1,
                                                        'question':'Hosted?','pageReport':{'page':'curves'},'knowledge':{'mode':'current','contextId':None,'frameId':None}}),
                           ('/api/assistant/turns/stop',{'turnId':str(uuid4())}),
-                          ('/api/assistant/conversations/read',{'conversationId':str(uuid4()),'through':0})):
+                          ('/api/assistant/conversations/read',{'conversationId':str(uuid4()),'through':0}),
+                          ('/api/settings/ai/usage/report',{'zone':'UTC','from':'2026-01-01','to':'2026-01-02','by':'model'}),
+                          ('/api/settings/ai/usage/export',{'operationId':str(uuid4()),'zone':'UTC','from':'2026-01-01','to':'2026-01-02','by':'model'})):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
-        print('PASS hosted mode maps no page-assistant administration, grant or turn route, even for a provider administrator',flush=True)
+        print('PASS hosted mode maps no page-assistant administration, usage, grant or turn route, even for a provider administrator',flush=True)
         assert query(worker) == before_worker
         print('PASS a hosted start takes no agent-worker lock and changes no worker generation or model call',flush=True)
         retained, _ = client.call('/api/bootstrap')

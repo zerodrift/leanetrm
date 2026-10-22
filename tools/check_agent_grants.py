@@ -54,7 +54,8 @@ def check_upgrade(query, migration):
             'assistant.retire_agent(uuid,uuid,integer)')))
 
 
-def run_checks(url, query, psql, manifest, environment):
+def run_checks(url, query, psql, manifest, environment, admin, viewer):
+    """`admin` and `viewer` are sessions of the preview administrator and the viewer, shared with the other modules."""
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -81,7 +82,7 @@ def run_checks(url, query, psql, manifest, environment):
                                       'kind': 'human', 'roles': roles})
         session.call('profile', {'profile': f'synthetic_grant_{name}_{stamp}'})
         return session
-    admin, trader, risk, editor, viewer = (client(profile) for profile in ('admin', 'trader', 'risk', 'editor', 'viewer'))
+    trader, risk, editor = (client(profile) for profile in ('trader', 'risk', 'editor'))
     # Managing agents lets a user use drafts; the curator lacks ReadTrades, which the guide's tools need.
     manager, curator = persona('manager', ['trader', 'access_administrator']), persona('curator', ['market_data_editor', 'access_administrator'])
 

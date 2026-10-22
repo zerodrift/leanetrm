@@ -19,10 +19,12 @@ const instant=at=>`at ${at}`;
 const entry=(changes={})=>({description:'Answers questions.',instructions:'Quote only values you read.',modelId:'m1',reasoning:'low',caching:'off',
   tools:['read_trades'],allowedRoles:['trader'],limits:{toolSteps:'8',inputTokens:'200000',outputTokens:'2048',elapsedSeconds:'120',retries:'0'},grantDays:'28',...changes});
 
-test('each Settings › AI tab is offered by its own permission',()=>{
+test('each Settings › AI tab is offered by its own permission, in the order Usage, Models & prices, Providers, Agents',()=>{
+  assert.deepEqual(aiTabs(['ReadModelUsage']),['usage']);
   assert.deepEqual(aiTabs(['ManageModelProviders']),['models','providers']);
   assert.deepEqual(aiTabs(['ManageAgents']),['agents']);
   assert.deepEqual(aiTabs(['ManageAgents','ManageModelProviders','ReadMarketData']),['models','providers','agents']);
+  assert.deepEqual(aiTabs(['ManageAgents','ReadModelUsage','ManageModelProviders']),['usage','models','providers','agents']);
   assert.deepEqual(aiTabs(['ReadMarketData','UseAgents']),[]);
 });
 

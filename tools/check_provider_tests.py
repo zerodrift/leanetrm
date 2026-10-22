@@ -10,7 +10,6 @@ from uuid import uuid4
 from assistant_context import ISSUER, Contexts, check_guard, expect, holding, refused, refused_at, state, waiting
 from check_model_qualification import command as provider_command, terms
 from check_model_versions import capabilities
-from preview_client import PreviewClient
 
 MODELS, PROVIDERS = 'settings/ai/models', 'settings/ai/providers'
 EMPTY = '00000000-0000-0000-0000-000000000000'
@@ -97,7 +96,8 @@ def usage(*dimensions):
     return ','.join('NULL,\'unknown\'' if d is None else "0,'not_billed'" if d == 'nb' else f"{d},'reported'" for d in dimensions)
 
 
-def run_checks(url, query, psql, manifest, environment):
+def run_checks(query, psql, manifest, environment, admin):
+    """`admin` is a session of the preview administrator, shared with the other modules."""
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -153,8 +153,6 @@ def run_checks(url, query, psql, manifest, environment):
         query(expect(statement, '55000'))
     check('even for the owner, the worker generation advances one at a time and is never removed')
 
-    admin = PreviewClient(url)
-    admin.bootstrap(); admin.call('profile', {'profile': 'admin'})
     admin.call('admin/create', {'operationId': str(uuid4()), 'login': 'provider_tester', 'name': 'Synthetic provider tester',
                                 'kind': 'human', 'roles': ['access_administrator']})
     tester_id = query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='provider_tester';")

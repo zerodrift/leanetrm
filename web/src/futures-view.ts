@@ -13,7 +13,8 @@ import {renderDataGrid} from './data-grid.js';
 import {pivotMatrix,type PivotGroup} from './analytics-model.js';
 import {renderChart,clearChart} from './chart-view.js';
 import {renderRegularTable} from './regular-table.js';
-import {blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,blotterCsv,type BlotterView} from './blotter-layout.js';
+import {blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,type BlotterView} from './blotter-layout.js';
+import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
@@ -250,7 +251,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   });
   get('blotter-delete').onclick=()=>void act(async()=>{const name=field('blotter-saved').value;if(!name)throw Error('Choose a saved view to delete.');await layoutApi('table-views/blotter/delete',{name,expectedVersion:draftBase?.name===name?draftBase.version:versions.get(name)});if(draftBase?.name===name)draftBase=undefined;savedViews=savedViews.filter(v=>v.name!==name);versions.delete(name);viewControls();field('blotter-name').value='';text('blotter-view-note','Saved view deleted. The displayed data is unchanged.');});
   get('blotter-export').onclick=()=>{if(busy()||!table||!holdings||!lastReadRequest)return;const rows=table.visibleRows();const metadata=[['Blotter snapshot'],['As of',holdings.asOf],['Knowledge cutoff',holdings.context.knownAt],['Convention',holdings.convention],['Display',view.mode],['Grouping',view.mode==='pivot'?view.groupBy.join(' / '):'None'],['Measures',view.mode==='pivot'?view.measures.join(' / '):'Trade rows'],['Portfolios',view.portfolioIds.length?catalog!.books.filter(b=>view.portfolioIds.includes(b.portfolio_id)).map(b=>b.portfolio).filter((v,i,a)=>a.indexOf(v)===i).join(' / '):'All authorized portfolios'],['Books',view.bookIds.length?catalog!.books.filter(b=>view.bookIds.includes(b.id)).map(b=>b.name).join(' / '):'All books in selected portfolios'],['Search',table.state().query],['Column filters',JSON.stringify(Object.fromEntries(table.state().columns.flatMap((v,i)=>v===null?[]:[[tableColumns[i],v]])))],['Numerical policy',holdings.pivotNumericalPolicy],['Pivot convention',view.mode==='pivot'?'trading_blotter_totals_v1':'Not applicable'],[]];
-    const csv=blotterCsv(metadata)+blotterCsv([table.headers(),...rows],table.numeric());void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='leanetrm-blotter.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),0);});
+    const csv=guardedCsv(metadata)+guardedCsv([table.headers(),...rows],table.numeric());void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv('leanetrm-blotter.csv',csv);});
   };
   get('futures-refresh').onclick=()=>void act(load);
   field('futures-contract').onchange=()=>{selectedContract=field('futures-contract').value;terms();};

@@ -2,11 +2,11 @@ import {renderRegularTable} from './regular-table.js';
 import {displayInstant,publicText} from './market-view.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {zonedInput} from './user-time.js';
-import {setupAgentSettings,type AiTab} from './agent-settings.js';
+import {setupAgentSettings,aiTabNames,type AiTab} from './agent-settings.js';
+import {setupUsageSettings} from './usage-settings.js';
+import {currencyKey,currencyLabels,type Currency,type CurrencyReference} from './currency-labels.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-export type CurrencyReference={catalogId:string;revisionId:string;code:string};
-type Currency=CurrencyReference&{displayCode:string;name:string;catalogCode:string;revisionKey:string};
 type Dimension='uncachedInput'|'cacheRead'|'cacheWrite'|'output';
 type Rates=Record<Dimension,string|null>;
 type Price={sequence:number;kind:string;currency:CurrencyReference|null;rates:Rates|null;tier:{threshold:number;rates:Rates}|null;effectiveFrom:string;effectiveTo:string|null;recordedAt:string;recordedBy:string};
@@ -58,13 +58,6 @@ const testRejections=['model_unpriced','parameter_required','credential_unavaila
 const inconsistent=()=>Error('The AI settings directory is inconsistent. Refresh AI settings.');
 const grouped=(count:number)=>count.toLocaleString('en-US');
 
-export const currencyKey=(c:CurrencyReference)=>JSON.stringify([c.catalogId,c.revisionId,c.code]);
-// A label names its catalog, revision and code only when two choices would otherwise read the same.
-export function currencyLabels(choices:Currency[]){
-  const plain=(c:Currency)=>`${c.displayCode} · ${c.name}`,counts=new Map<string,number>();
-  for(const c of choices)counts.set(plain(c),(counts.get(plain(c))??0)+1);
-  return new Map(choices.map(c=>[currencyKey(c),counts.get(plain(c))!>1?`${plain(c)} (${c.catalogCode} ${c.revisionKey} ${c.code})`:plain(c)]));
-}
 // Uncached input and output are always offered and cache write may never be; the directory says whether
 // cache read must be. Nothing blank is read as "not offered", and rates travel exactly as entered.
 export function priceTerms(entry:PriceEntry){
@@ -198,7 +191,7 @@ export function testRequest(entry:{modelId:string;reasoning:string}){
   return {modelId:entry.modelId,reasoning:entry.reasoning};
 }
 
-// Settings › AI (docs/ai-assistant.md §9): Models & prices, Providers and Agents, each offered by its own
+// Settings › AI (docs/ai-assistant.md §9): Usage, Models & prices, Providers and Agents, each offered by its own
 // permission. Models & prices and Providers read both their directories, since adding a vendor's first model
 // creates its provider and a model's capabilities draw on the usage mapping its provider's adapter applies.
 export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;tabs:()=>AiTab[]}){
@@ -382,7 +375,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     get('ai-key-pending-text').textContent=keyPending.command?`A key replacement for ${name} is unconfirmed. The providers table shows the current key once it loads. To retry, enter the same key and choose Retry; a different key is refused. Discard the request once the table shows your key.`:'';
     get<HTMLButtonElement>('ai-key-submit').disabled=busy||!!keyPending.command;get<HTMLButtonElement>('ai-key-cancel').hidden=!!keyPending.command;
   }
-  const agents=setupAgentSettings(options);
+  const agents=setupAgentSettings(options),usage=setupUsageSettings(options);
   async function loadModels(){
     const request=++generation,identity=options.identity();
     clearDirectories();
@@ -394,9 +387,9 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   // Each tab appears by its own permission and reads only its own directories.
   async function load(){
     const tabs=options.tabs();
-    for(const tab of ['models','providers','agents'] as const)get('ai-tab-'+tab).hidden=!tabs.includes(tab);
+    for(const tab of aiTabNames)get('ai-tab-'+tab).hidden=!tabs.includes(tab);
     if(!tabs.some(tab=>!get('ai-'+tab).hidden))show(tabs[0]??'models');
-    await Promise.all([tabs.includes('models')?loadModels():undefined,tabs.includes('agents')?agents.load():undefined]);
+    await Promise.all([tabs.includes('usage')?usage.load():undefined,tabs.includes('models')?loadModels():undefined,tabs.includes('agents')?agents.load():undefined]);
   }
   // A confirmed change clears only the form that made it.
   const resets:Record<string,(command:RequestCommand)=>void>={
@@ -435,7 +428,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     return {effectiveFrom:await from.instant(),effectiveTo:open?null:await to.instant()};
   }
 
-  for(const tab of ['models','providers','agents'] as const)get('ai-tab-'+tab).onclick=()=>{if(!options.busy())show(tab);};
+  for(const tab of aiTabNames)get('ai-tab-'+tab).onclick=()=>{if(!options.busy())show(tab);};
   for(const id of ['ai-models-refresh','ai-providers-refresh'])get(id).onclick=()=>void options.act(loadModels);
   for(const id of ['ai-price-form','ai-withdraw-form'])form(id).addEventListener('change',sync);
   // A dimension marked not offered has no rate in either set, so nothing typed there lingers unsent.
@@ -509,11 +502,11 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   get('ai-key-discard').onclick=()=>{if(options.busy())return;keyPending.clear();store(keyPending);keyVendor=undefined;input('ai-key-value').value='';sync();};
   get('ai-key-cancel').onclick=()=>{if(options.busy())return;keyVendor=undefined;input('ai-key-value').value='';sync();};
   function show(tab:AiTab){
-    for(const name of ['models','providers','agents']){const active=name===tab,b=get('ai-tab-'+name);get('ai-'+name).hidden=!active;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));}
+    for(const name of aiTabNames){const active=name===tab,b=get('ai-tab-'+name);get('ai-'+name).hidden=!active;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));}
   }
   return {load,
-    sync(){sync();agents.sync();},
-    refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();agents.refresh();},
+    sync(){sync();agents.sync();usage.sync();},
+    refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();agents.refresh();usage.refresh();},
     reset(){
       generation++;clearDirectories();selected=undefined;selectedVendor=undefined;statementPair='';
       for(const id of ['ai-model-form','ai-rename-form','ai-key-form','ai-terms-form','ai-attest-form','ai-test-form'])form(id).reset();resetModelForms();show('models');
@@ -522,6 +515,6 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       providerPending.command=stored(providerPending,c=>providerPaths.includes(c.path));
       keyPending.command=stored(keyPending,c=>c.path===keyPath&&Object.keys(c.body).sort().join()==='expectedVersion,vendor');
       testPending.command=stored(testPending,c=>c.path===testPath&&Object.keys(c.body).sort().join()==='modelId,reasoning');
-      sync();agents.reset();
+      sync();agents.reset();usage.reset();
     }};
 }
