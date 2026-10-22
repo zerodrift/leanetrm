@@ -90,28 +90,39 @@ static class AgentToolChecks
             &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData",
             "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools)");
         foreach(var tool in AgentTools.Tools)
+        {
             Require(tool.InputSchema.GetProperty("type").GetString()=="object"&&tool.InputSchema.GetProperty("additionalProperties").ValueKind==JsonValueKind.False
                 &&tool.Definition==new ModelTool(tool.Name,tool.Description,tool.InputSchema)&&tool.Description.Length>0,$"{tool.Name} states a closed object input schema");
+            // A member a view does not take is null rather than absent, so an input the schema accepts names every member,
+            // and the schema needs no top-level composition, which a provider's input schema need not accept.
+            var stated=tool.InputSchema.GetProperty("properties").EnumerateObject().Select(p=>p.Name).Order(StringComparer.Ordinal);
+            var required=tool.InputSchema.TryGetProperty("required",out var names)?names.EnumerateArray().Select(n=>n.GetString()!).Order(StringComparer.Ordinal):Enumerable.Empty<string>();
+            Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
+                $"{tool.Name} requires every member it states, with no top-level composition");
+        }
         Require(RuntimeSet.Turns=="turns_v2"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
             &&RuntimeSet.ToolRead==TimeSpan.FromSeconds(5),"turns_v2 bounds tool results and keeps a workspace's turns below its agent pools");
-        Console.WriteLine("PASS a version's switched-on read tools are offered in the fixed order with closed schemas and their permissions; Navigate is "+
-            "not offered; turns_v2 bounds results and keeps workspace turns below the agent pools");
+        Console.WriteLine("PASS a version's switched-on read tools are offered in the fixed order with closed schemas that require every member they "+
+            "state, and their permissions; Navigate is not offered; turns_v2 bounds results and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
+    // Every member of Read trades is named; those the other view takes are null.
+    const string NoTrade=""" "tradeId":null,"instrumentType":null,"revision":null""",NoBlotter=""" "mode":null,"bookIds":null,"portfolioIds":null,"groupBy":null,"measures":null""";
+    const string Blotter=$$"""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[],{{NoTrade}}}""";
 
     static void Inputs()
     {
-        var blotter=$$"""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[]}""";
+        var blotter=Blotter;
         foreach(var (tool,input,operation) in new[]{
-            ("read_market_data","""{"view":"curves"}""","market_data.curves_v1"),
+            ("read_market_data","""{"view":"curves","curve":null}""","market_data.curves_v1"),
             ("read_market_data","""{"view":"curve","curve":"future"}""","market_data.curve_v1"),
             ("read_market_data","""{"view":"observations","curve":"power.de-base_1"}""","market_data.observations_v1"),
-            ("read_market_data","""{"view":"contract_definitions"}""","market_data.contract_definitions_v1"),
+            ("read_market_data","""{"view":"contract_definitions","curve":null}""","market_data.contract_definitions_v1"),
             ("read_trades",blotter,"trades.blotter_v1"),
-            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":["{{Book}}"],"portfolioIds":[],"groupBy":["contract"],"measures":["lots","presentValue"]}""","trades.blotter_v1"),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future","revision":null}""","trades.trade_v1"),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"financial_swap","revision":2}""","trades.trade_v1"),
+            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":["{{Book}}"],"portfolioIds":[],"groupBy":["contract"],"measures":["lots","presentValue"],{{NoTrade}}}""","trades.blotter_v1"),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":null}""","trades.trade_v1"),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"financial_swap","revision":2}""","trades.trade_v1"),
             ("read_trade_parties","""{"kind":"legal_entity"}""","trade_parties.versions_v1"),
             ("read_schedules","""{"view":"library"}""","schedules.library_v1"),
             ("read_schedules","""{"view":"tou_products"}""","schedules.tou_products_v1"),
@@ -119,39 +130,51 @@ static class AgentToolChecks
             ("read_reference_data","""{"table":"units","search":""}""","reference_data.table_v1"),
             ("read_reference_data",$$"""{"table":"units","search":"{{new string('€',160)}}"}""","reference_data.table_v1")})
             Require(AgentTools.Parse(tool,Json(input)).Operation.Id==operation,$"{tool} accepts {input}");
-        var pivot=AgentTools.Parse("read_trades",Json($$"""{"view":"blotter","mode":"pivot","bookIds":["{{Book}}"],"portfolioIds":[],"groupBy":["contract"],"measures":["lots"]}"""));
-        var latest=AgentTools.Parse("read_trades",Json($$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future","revision":null}"""));
+        var pivot=AgentTools.Parse("read_trades",Json($$"""{"view":"blotter","mode":"pivot","bookIds":["{{Book}}"],"portfolioIds":[],"groupBy":["contract"],"measures":["lots"],{{NoTrade}}}"""));
+        var latest=AgentTools.Parse("read_trades",Json($$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":null}"""));
         Require(pivot.Arguments is BlotterArguments{View:{Mode:"pivot",PivotConvention:TradingBlotter.PivotConvention}} totals&&totals.View.BookIds.Single()==Guid.Parse(Book)
             &&AgentTools.Parse("read_trades",Json(blotter)).Arguments is BlotterArguments{View:{Mode:"trades",PivotConvention:null}}
             &&latest.Arguments==new TradeArguments(Guid.Parse(Trade),"future",null),
             "a pivot reads under the operation's fixed totals convention, and a trade's latest revision is named explicitly as null");
-        Console.WriteLine("PASS each tool accepts exactly the inputs its schema states, as its operation's arguments");
+        Console.WriteLine("PASS each tool accepts every member its schema states, its view's own as stated and the others null, as its operation's arguments");
 
         var ids=string.Join(",",Enumerable.Range(0,65).Select(_=>$"\"{Guid.NewGuid()}\""));
         foreach(var (tool,input) in new[]{
-            ("read_market_data","{}"),("read_market_data","""{"view":"curve"}"""),("read_market_data","""{"view":"curves","curve":"future"}"""),
+            ("read_market_data","{}"),("read_market_data","""{"view":"curve"}"""),("read_market_data","""{"view":"curves"}"""),
+            ("read_market_data","""{"view":"curve","curve":null}"""),("read_market_data","""{"view":"curves","curve":"future"}"""),
             ("read_market_data","""{"view":"curve","curve":""}"""),("read_market_data","""{"view":"curve","curve":"-future"}"""),
-            ("read_market_data",$$"""{"view":"curve","curve":"{{new string('a',65)}}"}"""),("read_market_data","""{"view":"Curves"}"""),
-            ("read_market_data","""{"view":1}"""),("read_market_data","""{"view":"curves","extra":null}"""),("read_market_data","[]"),
+            ("read_market_data",$$"""{"view":"curve","curve":"{{new string('a',65)}}"}"""),("read_market_data","""{"view":"Curves","curve":null}"""),
+            ("read_market_data","""{"view":1,"curve":null}"""),("read_market_data","""{"view":"curves","curve":null,"extra":null}"""),("read_market_data","[]"),
             ("read_market_data","\"curves\""),("read_market_data","""{"view":"curve","curve":"fut\u0000ure"}"""),
-            ("read_market_data","""{"view":"curves","view":"curves"}"""),
+            ("read_market_data","""{"view":"curves","view":"curves","curve":null}"""),
             ("read_trades","""{"view":"blotter"}"""),
-            ("read_trades","""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":["book"],"measures":[]}"""),
-            ("read_trades","""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":["book"],"measures":[]}"""),
-            ("read_trades","""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":["tradeCount"]}"""),
-            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":["{{Book.ToUpperInvariant()}}"],"portfolioIds":[],"groupBy":[],"measures":[]}"""),
-            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":["{{Book}}","{{Book}}"],"portfolioIds":[],"groupBy":[],"measures":[]}"""),
-            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":[{{ids}}],"portfolioIds":[],"groupBy":[],"measures":[]}"""),
-            ("read_trades","""{"view":"blotter","mode":"trades","bookIds":[1],"portfolioIds":[],"groupBy":[],"measures":[]}"""),
-            ("read_trades","""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":["book","book"],"measures":["tradeCount"]}"""),
-            ("read_trades","""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":["book"],"measures":["notional"]}"""),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future"}"""),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future","revision":0}"""),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future","revision":1.5}"""),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future","revision":"1"}"""),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"forward","revision":null}"""),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{{Trade}}}","instrumentType":"future","revision":null}"""),
-            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future","revision":null,"mode":"trades"}"""),
+            ("read_trades","""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[]}"""),
+            ("read_trades","""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[],"tradeId":null,"instrumentType":null}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[],"tradeId":"{{Trade}}","instrumentType":null,"revision":null}"""),
+            ("read_trades","""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[],"tradeId":null,"instrumentType":null,"revision":1}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":null,"bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":null,"portfolioIds":[],"groupBy":[],"measures":[],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":["book"],"measures":[],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":["book"],"measures":[],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":["tradeCount"],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":["{{Book.ToUpperInvariant()}}"],"portfolioIds":[],"groupBy":[],"measures":[],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":["{{Book}}","{{Book}}"],"portfolioIds":[],"groupBy":[],"measures":[],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":[{{ids}}],"portfolioIds":[],"groupBy":[],"measures":[],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"trades","bookIds":[1],"portfolioIds":[],"groupBy":[],"measures":[],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":["book","book"],"measures":["tradeCount"],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":["book"],"measures":["notional"],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future","revision":null}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future"}"""),
+            ("read_trades",$$"""{"view":"trade","mode":"trades","bookIds":null,"portfolioIds":null,"groupBy":null,"measures":null,"tradeId":"{{Trade}}","instrumentType":"future","revision":null}"""),
+            ("read_trades",$$"""{"view":"trade","mode":null,"bookIds":[],"portfolioIds":null,"groupBy":null,"measures":null,"tradeId":"{{Trade}}","instrumentType":"future","revision":null}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":null,"instrumentType":"future","revision":null}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":null,"revision":null}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":0}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":1.5}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":"1"}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"forward","revision":null}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{{Trade}}}","instrumentType":"future","revision":null}"""),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":null,"extra":null}"""),
             ("read_trade_parties","""{"kind":"broker"}"""),("read_trade_parties","""{"kind":"legal_entity","extra":null}"""),
             ("read_schedules","""{"view":"calendar"}"""),("read_schedules","{}"),
             ("read_reference_data","""{"table":"units"}"""),("read_reference_data","""{"table":"secrets","search":""}"""),
@@ -160,8 +183,8 @@ static class AgentToolChecks
             ("read_reference_data","""{"table":"units","search":null}"""),("read_market_data","""{"view":"curve","curve":"\ud800"}"""),
             ("read_current_page","{}"),("navigate","{}")})
             Require(Code(()=>AgentTools.Parse(tool,Json(input)))=="tool_arguments_invalid",$"{tool} refuses {input}");
-        Console.WriteLine("PASS each tool refuses unknown or repeated members, wrong types, values outside its schema, control characters, unpaired "+
-            "surrogates and conditional members out of place as tool_arguments_invalid");
+        Console.WriteLine("PASS each tool refuses missing, unknown or repeated members, wrong types, values outside its schema, control characters, "+
+            "unpaired surrogates, a view's member as null and another view's member named as tool_arguments_invalid");
 
         // Reading a string refuses an escaped unpaired surrogate, so text only ever holds whole characters, and a pair, which
         // holds no control character, is accepted.
@@ -173,7 +196,7 @@ static class AgentToolChecks
         // The largest inputs the schemas accept, which a step stores as jsonb: its text adds a space after each separator.
         string Ids()=>string.Join(",",Enumerable.Range(0,64).Select(_=>$"\"{Guid.NewGuid()}\""));
         foreach(var (tool,input) in new[]{
-            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[{{Ids()}}],"portfolioIds":[{{Ids()}}],"groupBy":["portfolio","book","market","contract","instrumentType"],"measures":["tradeCount","lots","quantity","executionPnl","presentValue"]}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[{{Ids()}}],"portfolioIds":[{{Ids()}}],"groupBy":["portfolio","book","market","contract","instrumentType"],"measures":["tradeCount","lots","quantity","executionPnl","presentValue"],{{NoTrade}}}"""),
             ("read_reference_data",$$"""{"table":"{{PreviewDatabase.ReferenceTables.MaxBy(t=>t.Length)}}","search":"{{new string('€',160)}}"}""")})
         {
             var parsed=Json(input);
@@ -186,19 +209,19 @@ static class AgentToolChecks
 
     static void Reports()
     {
-        var blotter="""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[]}""";
+        var blotter=Blotter;
         foreach(var (report,page,operation) in new[]{
-            ("""{"page":"curves","selection":{"view":"curves"}}""","curves","market_data.curves_v1"),
+            ("""{"page":"curves","selection":{"view":"curves","curve":null}}""","curves","market_data.curves_v1"),
             ("""{"page":"curves","selection":{"view":"curve","curve":"future"}}""","curves","market_data.curve_v1"),
             ("""{"page":"curves","selection":{"view":"observations","curve":"future"}}""","curves","market_data.observations_v1"),
-            ("""{"page":"contract_definitions","selection":{"view":"contract_definitions"}}""","contract_definitions","market_data.contract_definitions_v1"),
+            ("""{"page":"contract_definitions","selection":{"view":"contract_definitions","curve":null}}""","contract_definitions","market_data.contract_definitions_v1"),
             ("""{"page":"schedules","selection":{"view":"library"}}""","schedules","schedules.library_v1"),
             ("""{"page":"power_tous","selection":{"view":"tou_products"}}""","power_tous","schedules.tou_products_v1"),
             ("""{"page":"power_tous","selection":{"view":"power_hours"}}""","power_tous","schedules.power_hours_v1"),
             ("""{"page":"reference_data","selection":{"table":"units","search":"mega"}}""","reference_data","reference_data.table_v1"),
             ("""{"page":"parties","selection":{"kind":"counterparty"}}""","parties","trade_parties.versions_v1"),
             (Report("blotter",blotter),"blotter","trades.blotter_v1"),
-            (Report("blotter",$$"""{"view":"trade","tradeId":"{{Trade}}","instrumentType":"future","revision":3}"""),"blotter","trades.trade_v1")})
+            (Report("blotter",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":3}"""),"blotter","trades.trade_v1")})
         {
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
@@ -215,10 +238,11 @@ static class AgentToolChecks
         Console.WriteLine("PASS a page report names one page of the closed set, a supported page's selection in its read tool's input for a view it "+
             "shows and an unsupported page's none, and dispatches that read");
 
-        foreach(var report in new[]{"""{"page":"curves"}""","""{"page":"curves","selection":{"view":"curves"},"extra":1}""","""{"page":"pricing","selection":{}}""",
-            """{"page":1,"selection":{}}""","""{"page":"curves","selection":[]}""","""{"page":"curves","selection":{"view":"contract_definitions"}}""",
-            """{"page":"schedules","selection":{"view":"tou_products"}}""","""{"page":"jobs","selection":{"view":"curves"}}""",
-            """{"page":"curves","selection":{"view":"curve"}}""","""{"page":"Curves","selection":{"view":"curves"}}""","[]","null","\"curves\""})
+        foreach(var report in new[]{"""{"page":"curves"}""","""{"page":"curves","selection":{"view":"curves","curve":null},"extra":1}""","""{"page":"pricing","selection":{}}""",
+            """{"page":1,"selection":{}}""","""{"page":"curves","selection":[]}""","""{"page":"curves","selection":{"view":"contract_definitions","curve":null}}""",
+            """{"page":"schedules","selection":{"view":"tou_products"}}""","""{"page":"jobs","selection":{"view":"curves","curve":null}}""",
+            """{"page":"curves","selection":{"view":"curve"}}""","""{"page":"curves","selection":{"view":"curves"}}""",
+            """{"page":"Curves","selection":{"view":"curves","curve":null}}""","[]","null","\"curves\""})
             Require(Code(()=>PageReports.Require(Json(report)))=="page_report_invalid",$"ask refuses the page report {report}");
         Require(Code(()=>PageReports.Require(default))=="page_report_invalid","ask refuses a missing page report");
         Console.WriteLine("PASS ask refuses any other page report page_report_invalid, before admission");
@@ -229,7 +253,7 @@ static class AgentToolChecks
         var curve="""{"page":"curves","selection":{"view":"curve","curve":"future"}}""";
         ModelToolRequest Current(string input="{}")=>new("toolu_synthetic_01","read_current_page",Json(input));
         var (call,dispatched)=AgentTools.Requested(Turn(curve,"read_current_page","read_market_data"),Current());
-        var (own,ownDispatched)=AgentTools.Requested(Turn(curve,"read_market_data"),new("toolu_synthetic_02","read_market_data",Json("""{"view":"curves"}""")));
+        var (own,ownDispatched)=AgentTools.Requested(Turn(curve,"read_market_data"),new("toolu_synthetic_02","read_market_data",Json("""{"view":"curves","curve":null}""")));
         Require(call.Operation.Id=="market_data.curve_v1"&&call.Arguments==new CurveArguments("future")&&dispatched&&own.Operation.Id=="market_data.curves_v1"&&!ownDispatched,
             "Read current page dispatches the stored report's read with its selection; another tool reads its own input");
         Require(Code(()=>AgentTools.Requested(Turn(curve,"read_current_page"),Current()))=="tool_not_enabled"

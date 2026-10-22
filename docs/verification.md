@@ -734,12 +734,13 @@ for the browser and later suites):
 
 - **The loop:** a turn whose first two calls stop for tools completes once the third
   ends it. Each request offers the version's switched-on read tools in the fixed order
-  with automatic choice and closed schemas; each request is answered by a step,
-  numbered across the turn, before the next call opens; the next call replays the
-  reply unchanged and then the results in order; and the text is kept exactly as
-  streamed. A step records its tool, operation, the request's input, the instant it
-  read, after its call's close and before the next call, and every access its read ran
-  under, and its event carries only its number and tool; the turn records `turns_v2`.
+  with automatic choice and closed schemas that require every member they state; each
+  request is answered by a step, numbered across the turn, before the next call opens;
+  the next call replays the reply unchanged and then the results in order; and the
+  text is kept exactly as streamed. A step records its tool, operation, the request's
+  input, the instant it read, after its call's close and before the next call, and
+  every access its read ran under, and its event carries only its number and tool; the
+  turn records `turns_v2`.
 - **Identity:** each read runs in one request context of its own, issued to the agent's
   principal under the turn's grant on the `openetrm-agent-reads` backends; page views
   and trades bind the context the ask captured, even after the session selects a
@@ -791,10 +792,12 @@ for the browser and later suites):
 The managed tool checks rebuild the page's exact frame from a turn's record, for working
 data and a retained context, and refuse a record without its frame, of another catalog,
 naming another frame or in an unknown mode. They check the offered tools and their
-permissions; that each tool accepts exactly the inputs its schema states and refuses
-every other, keeping none, and that the largest accepted input fits a step's 8 KiB; the
-closed set of page reports, ask's refusals and Read current page's dispatch; how a
-read's refusal, denial, stop or failure is named and the fixed texts, and that a request
+permissions; that each schema requires every member it states, with no top-level
+composition; that each tool accepts every member, its view's own as stated and the
+others null, and refuses every other input, a member left out included, keeping none,
+and that the largest accepted input fits a step's 8 KiB; the closed set of page
+reports, ask's refusals and Read current page's dispatch; how a read's refusal,
+denial, stop or failure is named and the fixed texts, and that a request
 for a tool the version has not switched on is `tool_not_enabled` before any read; the
 500-record and 64 KiB bounds, never truncating; each result's envelope and projection,
 a trade's shown from its contract's increment and the deal's saved formats; and, over

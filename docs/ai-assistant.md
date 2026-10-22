@@ -607,7 +607,10 @@ The tool set is fixed; each tool is switched on per agent version.
 - Read tools call session-independent operations extracted from the page handlers (§12
   step 2), so pages and tools share one implementation and authorization path. A
   tool's contract is the operation's (architecture §10): versioned identifier, input
-  and output schema, permission, and the runtime set's row and byte bounds. A result
+  and output schema, permission, and the runtime set's row and byte bounds. An input
+  names every member its schema states, those its view does not take as null, so a
+  schema requires each member and needs no top-level composition, which a provider's
+  tool schema need not accept; a member left out is `tool_arguments_invalid`. A result
   over a bound fails with `result_too_large`, never truncated. The model may retry
   with narrower inputs the schema accepts; where it cannot narrow (a long party list)
   the agent cannot read it and the page still shows everything.

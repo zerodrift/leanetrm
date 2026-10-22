@@ -83,30 +83,33 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         Tool("read_market_data","Reads market data at the knowledge and As of frame pinned when the question was asked, never another date. View "+
             "curves lists the curve directory. View curve returns one curve's dated contracts with their exact prices at the frame. View observations "+
             "returns the input observations that curve's prices were built from. View contract_definitions lists the published shared contract date "+
-            "definitions.",
+            "definitions. Name the curve for the curve and observations views, and send it as null for the others.",
             """
             {"type":"object","properties":{"view":{"type":"string","enum":["curves","curve","observations","contract_definitions"]},
-             "curve":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9][A-Za-z0-9_.-]*$",
-              "description":"A curve code from the curves view, required for the curve and observations views and only for them."}},
-             "required":["view"],"additionalProperties":false}
+             "curve":{"type":["string","null"],"minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+              "description":"A curve code from the curves view for the curve and observations views; null for the others."}},
+             "required":["view","curve"],"additionalProperties":false}
             """,MarketData),
         Tool("read_trades","Reads trades at the pinned knowledge and As of frame. View blotter returns Blotter rows with their execution P&L or "+
             "present value (mode trades), or totals grouped by its dimensions (mode pivot), for the listed books and portfolios; empty lists read "+
             "every book you can read. View trade returns one trade's revision, or its latest under the pinned knowledge when revision is null, with "+
-            "its history.",
+            "its history. Send every member: those the other view takes are null.",
             $$$"""
             {"type":"object","properties":{"view":{"type":"string","enum":["blotter","trade"]},
-             "mode":{"type":"string","enum":["trades","pivot"],"description":"Blotter only: trade rows, or totals grouped by groupBy."},
-             "bookIds":{"type":"array","items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,"description":"Blotter only."},
-             "portfolioIds":{"type":"array","items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,"description":"Blotter only."},
-             "groupBy":{"type":"array","items":{"type":"string","enum":["portfolio","book","market","contract","instrumentType"]},"uniqueItems":true,
-              "description":"Blotter only: empty for trade rows, at least one dimension for totals."},
-             "measures":{"type":"array","items":{"type":"string","enum":["tradeCount","lots","quantity","executionPnl","presentValue"]},"uniqueItems":true,
-              "description":"Blotter only: empty for trade rows, at least one measure for totals; lots need the contract dimension."},
-             "tradeId":{"type":"string","pattern":"{{{Uuid}}}","description":"Trade only."},
-             "instrumentType":{"type":"string","enum":["future","financial_swap"],"description":"Trade only."},
-             "revision":{"type":["integer","null"],"minimum":1,"description":"Trade only: a revision, or null for its latest under the pinned knowledge."}},
-             "required":["view"],"additionalProperties":false}
+             "mode":{"type":["string","null"],"enum":["trades","pivot",null],"description":"Blotter: trade rows, or totals grouped by groupBy. Null for a trade."},
+             "bookIds":{"type":["array","null"],"items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,
+              "description":"Blotter: the books to read, empty for every book. Null for a trade."},
+             "portfolioIds":{"type":["array","null"],"items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,
+              "description":"Blotter: the portfolios to read, empty for every portfolio. Null for a trade."},
+             "groupBy":{"type":["array","null"],"items":{"type":"string","enum":["portfolio","book","market","contract","instrumentType"]},"uniqueItems":true,
+              "description":"Blotter: empty for trade rows, at least one dimension for totals. Null for a trade."},
+             "measures":{"type":["array","null"],"items":{"type":"string","enum":["tradeCount","lots","quantity","executionPnl","presentValue"]},"uniqueItems":true,
+              "description":"Blotter: empty for trade rows, at least one measure for totals; lots need the contract dimension. Null for a trade."},
+             "tradeId":{"type":["string","null"],"pattern":"{{{Uuid}}}","description":"Trade: the trade to read. Null for the blotter."},
+             "instrumentType":{"type":["string","null"],"enum":["future","financial_swap",null],"description":"Trade: its instrument type. Null for the blotter."},
+             "revision":{"type":["integer","null"],"minimum":1,
+              "description":"Trade: a revision, or null for its latest under the pinned knowledge. Null for the blotter."}},
+             "required":["view","mode","bookIds","portfolioIds","groupBy","measures","tradeId","instrumentType","revision"],"additionalProperties":false}
             """,["ReadMarketData","ReadTrades"]),
         Tool("read_trade_parties","Reads the legal entity or counterparty versions in force at the pinned As of frame, as known at the pinned knowledge.",
             """
@@ -167,30 +170,30 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     static ImmutableArray<ReadAccess> TradeAccess(PreviewManifest m)=>[new("trading_access",m.CatalogId,"ReadTrades"),..MarketAccess(m)];
     static ImmutableArray<ReadAccess> PartyAccess(PreviewManifest m)=>[new("trading_access",m.CatalogId,"ReadTradeParties"),new("market_access",m.CatalogId,"ReadMarketData")];
 
-    // A request's input, read against its tool's schema: exactly the members its view takes, each of its stated type and
-    // range; anything else is tool_arguments_invalid. Read current page takes none and dispatches the stored page report.
+    // A request's input, read against its tool's schema: every member it states, those its view takes each of its stated
+    // type and range and the others null; anything else is tool_arguments_invalid. Read current page takes none and
+    // dispatches the stored page report.
     internal static ToolCall Parse(string tool,JsonElement input)
     {
         var members=new ToolInput(input);
         switch(tool)
         {
             case "read_market_data":
+                members.Exactly("view","curve");
                 var market=members.Choice("view","curves","curve","observations","contract_definitions");
                 if(market is "curve" or "observations")
-                {
-                    members.Exactly("view","curve");
                     return new(Operations[$"market_data.{market}_v1"],new CurveArguments(members.Text("curve",1,64,CurveCode())));
-                }
-                members.Exactly("view");
+                members.Null("curve");
                 return new(Operations[$"market_data.{market}_v1"],new NoArguments());
             case "read_trades":
+                members.Exactly("view","mode","bookIds","portfolioIds","groupBy","measures","tradeId","instrumentType","revision");
                 if(members.Choice("view","blotter","trade")=="trade")
                 {
-                    members.Exactly("view","tradeId","instrumentType","revision");
+                    members.Null("mode","bookIds","portfolioIds","groupBy","measures");
                     return new(Operations["trades.trade_v1"],new TradeArguments(members.Id("tradeId"),members.Choice("instrumentType","future","financial_swap"),
                         members.Revision("revision")));
                 }
-                members.Exactly("view","mode","bookIds","portfolioIds","groupBy","measures");
+                members.Null("tradeId","instrumentType","revision");
                 var mode=members.Choice("mode","trades","pivot");
                 var groupBy=members.Choices("groupBy","portfolio","book","market","contract","instrumentType");
                 var measures=members.Choices("measures","tradeCount","lots","quantity","executionPnl","presentValue");
@@ -420,6 +423,12 @@ sealed class ToolInput
     public void Exactly(params string[] names)
     {
         if(members.Count!=names.Length||!names.All(members.ContainsKey))throw Invalid();
+    }
+
+    // Members another view takes, named as null.
+    public void Null(params string[] names)
+    {
+        if(!names.All(n=>members.TryGetValue(n,out var value)&&value.ValueKind==JsonValueKind.Null))throw Invalid();
     }
 
     public string Choice(string name,params ImmutableArray<string> values)=>
