@@ -12,7 +12,7 @@ namespace OpenEtrm.Api;
 public sealed record ConnectedSampleObservation(Guid Id,Guid SeriesId,string Use);
 public sealed record ConnectedSampleEvidence(Guid SnapshotId,DateTimeOffset At,string SourceCurve,Guid ContractId,
     bool FreezeHistorical,ImmutableArray<ConnectedSampleObservation> Observations);
-public sealed record ConnectedMarketEvidence(Guid RevisionId,string ManifestId,
+public sealed record ConnectedMarketEvidence(Guid RevisionId,string ManifestId,string SourceExecutionConvention,
     ImmutableArray<CustomCurveProjectionBinding> Recipes,ImmutableArray<ConnectedSampleEvidence> Samples);
 public sealed record ConnectedPreparationWork(int SourceCompilations,int DeclaredSourceNodes);
 
@@ -81,6 +81,7 @@ public static partial class CustomCurves
             var sourceData=await database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,historyPins,
                 includeCalendarDays:false,observationScope:retained is null?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
             var saved=await new CustomCurvesStore(database).Read(connection,ct);
+            var preparation=new RecipePreparation(connection,database,sourceData,frame,exact,resolved,saved);
             foreach(var group in recipeBindings.GroupBy(b=>(b.CatalogId,b.CurveId,b.Version)))
             {
                 ct.ThrowIfCancellationRequested();
@@ -91,13 +92,9 @@ public static partial class CustomCurves
                     version.PublishedAt>SchedulePreview.ParseAt(exact.KnownAt)||version.Sources.Values.Any(s=>s.CatalogId!=group.Key.CatalogId||s.RevisionId!=data.DefinitionRevision.RevisionId)||
                     group.Any(b=>b.OutputNode!=version.Definition.Output))
                     throw Invalid("Connected projections require a published managed recipe, its exact output and retained source revision.");
-                var materialized=await Inputs(connection,database,version.Definition,sourceData,frame,version.Sources,version.Calendars,version.Schedules,exact,ct);
-                var graph=RecipeEngine.Connect(version.Definition,materialized.Values,
-                    new(group.Key.CatalogId,group.Key.CurveId,group.Key.Version,version.EngineVersion),materialized.Samples,resolved,ct,materialized.References);
-                definitions.AddRange(graph.Definitions);samples.AddRange(materialized.Samples);
+                var graph=await preparation.Published(new(group.Key.CatalogId,group.Key.CurveId,group.Key.Version,version.Definition.Output),ct);
+                definitions.AddRange(graph.Definitions);
                 outputRoots.AddRange(graph.Outputs.Select(o=>o.Point));
-                sourceCompilations+=materialized.Samples.GroupBy(s=>(s.Model,s.Snapshot,s.FreezeHistorical)).Count();
-                declaredSourceNodes+=graph.Definitions.SelectMany(d=>d.Points).Count(p=>p.Expression is ConnectedSource or ConnectedBuiltCurve);
                 foreach(var binding in group)
                 {
                     var outputs=graph.Outputs.Where(p=>p.Position==binding.Position).ToArray();
@@ -105,6 +102,7 @@ public static partial class CustomCurves
                     foreach(var item in required.Where(c=>c.Binding==binding))bindings.Add(binding.Request(item.Original),outputs[0].Point);
                 }
             }
+            samples.AddRange(preparation.Samples);sourceCompilations+=preparation.SourceCompilations;declaredSourceNodes+=preparation.DeclaredSourceNodes;
         }
         if(bindings.Count!=dependencies.Length)throw Invalid("Every declared pricing dependency must have exactly one retained graph binding.");
         var merged=ConnectedCurves.MergeDefinitions(definitions);
@@ -114,7 +112,7 @@ public static partial class CustomCurves
         var plan=ConnectedCurves.Compile(merged,roots,resolved,new PreparedBindings(merged.Select(d=>d.Key).ToHashSet(),resolved),ct);
         if(samples.Any(s=>s.Snapshot.MarketCutoff!=s.Snapshot.ValuationAt))
             throw Invalid("This retained sample contract requires market cutoff and sample valuation to be the same explicit instant.");
-        var evidence=new ConnectedMarketEvidence(data.DefinitionRevision.RevisionId,plan.ManifestId,recipeBindings,
+        var evidence=new ConnectedMarketEvidence(data.DefinitionRevision.RevisionId,plan.ManifestId,data.FuturesConvention,recipeBindings,
             samples.DistinctBy(s=>(s.Source,s.Date,s.Contract)).OrderBy(s=>s.Source.Code,StringComparer.Ordinal).ThenBy(s=>s.Date).ThenBy(s=>s.Contract.Id)
                 .Select(s=>new ConnectedSampleEvidence(s.Snapshot.Id,s.Snapshot.ValuationAt,s.Source.Code,s.Contract.Id,s.FreezeHistorical,
                     s.Snapshot.Selections.OrderBy(o=>o.Input.Series.Id).ThenBy(o=>o.Input.Use)

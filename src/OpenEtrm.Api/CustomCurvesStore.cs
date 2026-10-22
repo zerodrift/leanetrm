@@ -41,6 +41,7 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
  ||coalesce((SELECT jsonb_build_object('curve',s.source_curve_code) FROM market_data.custom_curve_node_sources s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb)
  ||coalesce((SELECT jsonb_build_object('calendar',s.calendar_code) FROM market_data.custom_curve_node_calendars s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb)
  ||coalesce((SELECT jsonb_build_object('schedule',s.schedule_id::text||':'||s.schedule_version::text) FROM market_data.custom_curve_node_schedules s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb),
+ 'publishedSource',(SELECT jsonb_build_object('catalogId',s.source_catalog_id,'curveId',s.source_curve_id,'version',s.source_version,'outputNode',s.source_output_node) FROM market_data.custom_curve_node_published_sources s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),
  'contractWeights',coalesce((SELECT jsonb_agg(jsonb_build_object('outputPosition',w.output_position,'sourcePort',w.source_port,'contractId',w.contract_id,'weight',w.weight::text) ORDER BY w.output_position,w.source_port,w.contract_id) FROM market_data.custom_curve_contract_weights w WHERE(w.catalog_id,w.curve_id,w.version,w.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'[]'::jsonb),
  'inputs',coalesce((SELECT jsonb_object_agg(e.port,e.source_node) FROM market_data.custom_curve_edges e WHERE(e.catalog_id,e.curve_id,e.version,e.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb)) ORDER BY n.node_id)
  FROM market_data.custom_curve_nodes n WHERE(n.catalog_id,n.curve_id,n.version)=(v.catalog_id,v.curve_id,v.version)),'[]'::jsonb)::text,
@@ -125,7 +126,7 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         {
             await using var update=ScheduleStore.Command(connection,"UPDATE market_data.custom_curve_versions SET generation=$4,name=$5,output_node=$6,layout=$7::jsonb WHERE(catalog_id,curve_id,version)=($1,$2,$3)",Catalog,id,version,generation,body.Definition.Name,body.Definition.Output,JsonSerializer.Serialize(body.Layout,Json));
             await update.ExecuteNonQueryAsync(ct);
-            foreach(var table in new[]{"contract_weights","edges","node_sources","node_calendars","node_schedules","nodes"})
+            foreach(var table in new[]{"contract_weights","edges","node_published_sources","node_sources","node_calendars","node_schedules","nodes"})
             {
                 await using var delete=ScheduleStore.Command(connection,$"DELETE FROM market_data.custom_curve_{table} WHERE(catalog_id,curve_id,version)=($1,$2,$3)",Catalog,id,version);
                 await delete.ExecuteNonQueryAsync(ct);
@@ -144,6 +145,12 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         }
         foreach(var node in body.Definition.Nodes)
         {
+            if(node.PublishedSource is {} published)
+            {
+                await using var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.custom_curve_node_published_sources VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+                    Catalog,id,version,node.Id,published.CatalogId,published.CurveId,published.Version,published.OutputNode);
+                await insert.ExecuteNonQueryAsync(ct);
+            }
             foreach(var input in node.Inputs)
             {
                 await using var edge=ScheduleStore.Command(connection,"INSERT INTO market_data.custom_curve_edges VALUES($1,$2,$3,$4,$5,$6)",Catalog,id,version,node.Id,input.Key,input.Value);
@@ -176,6 +183,8 @@ INSERT INTO market_data.custom_curve_contract_weights(catalog_id,curve_id,versio
 """,Catalog,id,version,node.Id,weight.OutputPosition,weight.SourcePort,sourceNode,source.CatalogId,source.RevisionId,source.Code,weight.ContractId,weight.Weight);
             await insert.ExecuteNonQueryAsync(ct);
         }
+        await using(var visible=ScheduleStore.Command(connection,"SELECT security.custom_curve_visible($1,$2,$3)",Catalog,id,version))
+            if(!Equals(await visible.ExecuteScalarAsync(ct),true))throw Invalid("The saved dependency chain is unavailable, cyclic or exceeds its explicit bounds.");
         var saved=(await Read(connection,ct)).Single(v=>v.Id==id&&v.Version==version);
         await Record(connection,body.RequestId,"save",payload,saved,"WriteMarketDefinitions",ct);
         return saved;
@@ -201,6 +210,7 @@ INSERT INTO market_data.custom_curve_contract_weights(catalog_id,curve_id,versio
         var schedules=ImmutableDictionary.CreateBuilder<string,CurveScheduleReference>();
         foreach(var node in definition.Nodes)
         {
+            if(node.PublishedSource is {} published)await RequirePublishedSource(connection,published,data.DefinitionRevision.RevisionId,ct);
             if(node.Parameters.TryGetValue("curve",out var code))
             {
                 if(node.Kind!="source"||!data.Definitions["curves"].Any(c=>c.Text("code")==code))throw Invalid("Choose a visible source curve from the selected exact definition bundle.");
@@ -229,6 +239,15 @@ INSERT INTO market_data.custom_curve_contract_weights(catalog_id,curve_id,versio
                 throw Invalid("Every mapped contract must belong to its declared exact source curve.");
         }
         return(sources.ToImmutable(),calendars.ToImmutable(),schedules.ToImmutable());
+    }
+    internal async Task RequirePublishedSource(NpgsqlConnection connection,PublishedRecipeReference source,Guid revision,CancellationToken ct)
+    {
+        if(source.CatalogId!=Catalog)throw Invalid("Published sources must belong to the selected market catalog.");
+        await using var command=ScheduleStore.Command(connection,"""
+SELECT security.custom_curve_visible($1,$2,$3) AND security.custom_curve_uses_revision($1,$2,$3,$5)
+ AND EXISTS(SELECT 1 FROM market_data.custom_curve_versions WHERE(catalog_id,curve_id,version,output_node,state)=($1,$2,$3,$4,'published'))
+""",Catalog,source.CurveId,source.Version,source.OutputNode,revision);
+        if(!Equals(await command.ExecuteScalarAsync(ct),true))throw Invalid("Choose a visible published output whose complete source chain uses this exact market revision.");
     }
     static void ValidateLayout(RecipeDefinition definition,ImmutableDictionary<string,CurveNodePosition>? layout)
     {

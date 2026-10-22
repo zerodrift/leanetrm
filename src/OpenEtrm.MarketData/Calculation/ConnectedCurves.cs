@@ -277,7 +277,7 @@ public static class ConnectedCurves
         }
         var numericSpecifications=new Dictionary<ReferenceKey,ValueSpecification>();
         var currentNumericSelections=new Dictionary<InputKey,ObservationKey>();
-        var recipeDeclarations=new Dictionary<ConnectedRecipeIdentity,string>();
+        var recipeDeclarations=new Dictionary<ConnectedRecipeIdentity,ConnectedRecipeDeclaration>();
         var recipeCalendars=new Dictionary<ReferenceKey,DateSet>();
         var recipeSchedules=new Dictionary<(Guid,Guid,int),string>();
         foreach(var point in points)
@@ -310,9 +310,9 @@ public static class ConnectedCurves
             if(point.Expression is ConnectedRecipeProjection projection)
             {
                 var declaration=projection.Declaration;
-                if(recipeDeclarations.TryGetValue(declaration.Identity,out var prior)&&prior!=declaration.ManifestId)
+                if(recipeDeclarations.TryGetValue(declaration.Identity,out var prior)&&prior.ManifestId!=declaration.ManifestId)
                     throw Invalid("One exact saved recipe version cannot carry conflicting declarations.");
-                recipeDeclarations[declaration.Identity]=declaration.ManifestId;
+                recipeDeclarations[declaration.Identity]=declaration;
                 foreach(var calendar in declaration.References.Calendars.Concat(declaration.References.Schedules.Where(s=>s.Calendar is not null).Select(s=>s.Calendar!)))
                 {
                     if(recipeCalendars.TryGetValue(calendar.Reference,out var dates)&&!dates.Equals(calendar.BusinessDates))
@@ -327,6 +327,14 @@ public static class ConnectedCurves
                     recipeSchedules[identity]=evidence;
                 }
             }
+        }
+        foreach(var declaration in points.Select(p=>p.Expression).OfType<ConnectedRecipeProjection>().Select(p=>p.Declaration).DistinctBy(d=>d.Identity))
+        foreach(var published in declaration.PublishedSources.IsDefault?[]:declaration.PublishedSources)
+        {
+            var identity=new ConnectedRecipeIdentity(published.Reference.CatalogId,published.Reference.CurveId,published.Reference.Version,RecipeEngine.Version);
+            if(!recipeDeclarations.TryGetValue(identity,out var imported)||imported.ManifestId!=published.ManifestId||imported.Curve!=published.Curve||
+                imported.Definition.Output!=published.Reference.OutputNode)
+                throw Invalid("A published source must retain its exact imported declaration and graph coordinates.");
         }
         var nodes=nodeOperations.Select(op=>new ConnectedNode(op.Source,op.Dependencies.Select(p=>indexes[p]).ToImmutableArray(),op.Weights,op.Divisor,op.Built)).ToImmutableArray();
         var edges=nodes.SelectMany((node,index)=>node.Dependencies.Distinct().Select(dependency=>new DependencyEdge(index,dependency)));

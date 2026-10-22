@@ -1025,3 +1025,18 @@ after the read as the account directory is, and writes nothing; Revoke stays the
 delegator's. A new index serves the latest records. The migration first verifies the
 helper it relies on. As a new migration it stops automatic hosted updates until the
 operator qualifies a new baseline (D135).
+
+
+Migration [0082_published_curve_sources.sql](migrations/0082_published_curve_sources.sql)
+adds reusable published custom panels (D187). The normalized node binding names
+an exact catalog/curve/version/output node, requires a published declared output
+and preserves immutable ancestry. Visibility covers transitive native sources,
+calendars, schedules and certified publication receipts, with current authority
+checked on reads. Closure is bounded to 32 published-source edges per path and
+256 exact versions; shared paths are deduplicated. Publication revalidates typed
+binding completeness and the explicit whole-panel selection policy. Monthly
+projection admission and retained-job source checks use that same closure. Workers
+have read-only source-binding access and retain the source execution convention
+separately from the risk convention. No saved graph or retained financial result
+is rewritten. As a schema change, installation requires a separately qualified
+baseline; applying it does not qualify deployment or production throughput.

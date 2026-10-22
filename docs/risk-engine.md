@@ -133,6 +133,13 @@ snapshot: multiple dates may retain different observations of the same series.
 Historical samples are frozen; current quote factors remain explicit. Workers
 read the captured IDs and reject a different reconstructed manifest. Changing
 the UI afterward does not change the job.
+Published-source chains retain every ancestor declaration in that graph manifest
+and all native sample pins through the immutable exact-version relationships
+(0082). A shock to a parent output propagates through its descendants; a shock to
+the child output preserves the parent's inputs. Each market also explicitly
+retains its source execution-eligibility convention. Workers use that convention
+to reconstruct source selection, separately from the portfolio risk convention;
+missing, unsupported or conflicting conventions reject.
 The browser discards results when its context or input generation changes.
 
 See the [cutover checklist](connected-calculation.md#adopting-the-schema-cutover)

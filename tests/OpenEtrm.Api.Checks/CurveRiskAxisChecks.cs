@@ -47,7 +47,7 @@ internal static class CurveRiskAxisChecks
         var prepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(scenario,snapshot,[earlier]),
             ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(dependency,output),[portfolio]);
         var market=new PortfolioValuation.MarketPartition(data,frame,snapshot,prepared,[PortfolioValuation.SwapMeasure],
-            new(snapshot.Definitions.RevisionId,plan.ManifestId,[],[]),new(2,2));
+            new(snapshot.Definitions.RevisionId,plan.ManifestId,FuturesMarketBinding.Implementation,[],[]),new(2,2));
         var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
             SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
         var operation=new PortfolioValuation.Prepared(snapshot.Id,new(snapshot.ValuationAt.ToString("yyyy-MM-dd"),null,
@@ -84,7 +84,7 @@ internal static class CurveRiskAxisChecks
         var savedPlan=ConnectedCurves.Compile(saved.Definitions,saved.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible());
         var savedPrepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(ConnectedScenario.Base(savedPlan),snapshot),
             ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(dependency,saved.Outputs[0].Point),[portfolio]);
-        var savedMarket=market with{Connected=savedPrepared,Evidence=new(snapshot.Definitions.RevisionId,savedPlan.ManifestId,[],[])};
+        var savedMarket=market with{Connected=savedPrepared,Evidence=new(snapshot.Definitions.RevisionId,savedPlan.ManifestId,FuturesMarketBinding.Implementation,[],[])};
         var labels=saved.Outputs.Select(o=>CurveRiskAxes.Resolve(savedMarket,CurveShockCoordinate.ComputedOutput,
             new PointCurveTarget(saved.Curve,[o.Point.PointId]),default).Label).ToArray();
         if(labels.Distinct().Count()!=2||!labels[0].Contains("version 7",StringComparison.Ordinal)||

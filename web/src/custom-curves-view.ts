@@ -1,4 +1,4 @@
-import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,knownCurveRejection,curveFieldVisible,editCurveParameters} from './custom-curve-model.js';
+import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type PublishedSourceReference,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,knownCurveRejection,curveFieldVisible,editCurveParameters} from './custom-curve-model.js';
 import {renderRegularTable} from './regular-table.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
 import {displayInstant,publicText} from './market-view.js';
@@ -11,7 +11,7 @@ type Template={code:string;name:string;description?:string;available?:boolean;un
 type Recipe={id:string;version:number;generation:number;state:string;definition:CurveDefinition;layout?:CurveLayout;publishedAt?:string};
 type Source={code:string;name:string;catalogId?:string;revisionId?:string;contracts?:{id:string;label:string;deliveryFrom:string;deliveryTo:string}[]};
 type Schedule={id?:string;version:number;symbol?:string;name:string};
-type Catalog={context?:{effectiveOn?:string;knownAt?:string};canEdit:boolean;canPublish:boolean;operators:Operator[];templates:Template[];sources:Source[];calendars:(Source&{reference?:unknown})[];schedules:Schedule[];recipes:Recipe[];formulaSupported?:boolean};
+type Catalog={context?:{effectiveOn?:string;knownAt?:string};canEdit:boolean;canPublish:boolean;operators:Operator[];templates:Template[];sources:Source[];publishedSources?:{label:string;reference:PublishedSourceReference}[];calendars:(Source&{reference?:unknown})[];schedules:Schedule[];recipes:Recipe[];formulaSupported?:boolean};
 type Preview={columns:string[];rows:(string|null)[][];at?:string;snapshotId?:string;chart?:ChartSpec;context?:{effectiveOn?:string;knownAt?:string};dependencies?:unknown[];inputs?:unknown[];trace?:unknown;warnings?:string[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Options={api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;source:()=>{snapshotId:string;context?:unknown};historical:()=>boolean;marketScopeChanged?:()=>void};
@@ -93,7 +93,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  function addNode(operator:Operator,parameters:Record<string,unknown>={}){let i=1;while(definition.nodes.some(n=>n.id===operator.kind+'_'+i))i++;const id=operator.kind+'_'+i;definition={...definition,nodes:[...definition.nodes,{id,kind:operator.kind,parameters,inputs:{}}]};layout=curveLayout(definition,layout);selectedNode=id;invalidate();render();}
  function selectNode(id:string){if(o.busy()||drag)return;selectedNode=id;renderGraph();renderInspector();}
  function nodeTitle(node:CurveNode){return catalog?.operators.find(op=>op.kind===node.kind)?.label??node.kind;}
- function describe(node:CurveNode){if(node.kind==='weighted_contracts')return `${node.contractWeights?.length??0} explicit contract connections · ${Object.keys(node.inputs).length} sources`;const fields=catalog?.operators.find(operator=>operator.kind===node.kind)?.fields??[];return fields.filter(field=>curveFieldVisible(field,node.parameters)&&node.parameters[field.key]!==undefined).map(field=>{const value=node.parameters[field.key],choice=choicesFor(field).find(choice=>JSON.stringify(choice.value)===JSON.stringify(value));return field.label+': '+(choice?.label??(field.type==='schedule'?'Retained schedule':String(value)));}).join(' · ');}
+ function fieldValue(node:CurveNode,field:Field){return field.type==='published_source'?node.publishedSource:node.parameters[field.key];}
+ function describe(node:CurveNode){if(node.kind==='weighted_contracts')return `${node.contractWeights?.length??0} explicit contract connections · ${Object.keys(node.inputs).length} sources`;const fields=catalog?.operators.find(operator=>operator.kind===node.kind)?.fields??[];return fields.filter(field=>curveFieldVisible(field,node.parameters)&&fieldValue(node,field)!==undefined).map(field=>{const value=fieldValue(node,field),choice=choicesFor(field).find(choice=>JSON.stringify(choice.value)===JSON.stringify(value));return field.label+': '+(choice?.label??(field.type==='schedule'?'Retained schedule':field.type==='published_source'?'Retained published output':String(value)));}).join(' · ');}
  function render(){code.value=definition.code;name.value=definition.name;renderGraph();renderInspector();renderStatus();setMode(mode);}
  function positionCanvas(){const width=parseFloat(canvas.style.width)||720,height=parseFloat(canvas.style.height)||340;if(fit&&board.clientWidth)zoom=Math.max(.2,Math.min(1,(board.clientWidth-24)/width,(board.clientHeight-24)/height));canvas.style.transform=`scale(${zoom})`;scene.style.width=width*zoom+'px';scene.style.height=height*zoom+'px';zoomLabel.textContent=Math.round(zoom*100)+'%';}
  function renderGraph(){canvas.replaceChildren();layout=curveLayout(definition,layout);const width=Math.max(720,...Object.values(layout).map(p=>p.x+248)),height=Math.max(340,...Object.values(layout).map(p=>p.y+144));canvas.style.width=width+'px';canvas.style.height=height+'px';positionCanvas();
@@ -109,12 +110,14 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  }
  function choicesFor(field:Field):Choice[]{if(field.options?.length)return field.options;
   if(field.type==='curve')return (catalog?.sources??[]).map(source=>({value:source.code,label:source.name}));
+  if(field.type==='published_source')return (catalog?.publishedSources??[]).map(source=>({value:source.reference,label:source.label}));
   if(field.type==='calendar')return (catalog?.calendars??[]).map(calendar=>({value:calendar.code,label:calendar.name??calendar.code}));
   if(field.type==='schedule')return (catalog?.schedules??[]).map(schedule=>({value:schedule.id+':'+schedule.version,label:`${schedule.name}${schedule.symbol?' · '+schedule.symbol:''} · v${schedule.version}`}));
   return [];
  }
  function changeParameter(nodeId:string,key:string,value:unknown){
   const node=definition.nodes.find(node=>node.id===nodeId);if(!node)return;
+  if(key==='publishedSource'){definition={...definition,nodes:definition.nodes.map(current=>current.id===nodeId?{...current,publishedSource:value===null?undefined:value as PublishedSourceReference}:current)};invalidate();renderGraph();return;}
   const fields=catalog?.operators.find(operator=>operator.kind===node.kind)?.fields??[];
   const parameters=editCurveParameters(node.parameters,key,value,fields);
   const visible=(values:Record<string,unknown>)=>fields.filter(field=>curveFieldVisible(field,values)).map(field=>field.key).join('|');
@@ -147,8 +150,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   const add=button('Add contract connection','custom-curve-add-weight',()=>saveRows([...currentRows(),{outputPosition:null,sourcePort:'',contractId:'',weight:''}],true));add.className='secondary';section.append(add);properties.append(section);
  }
  function renderInspector(){properties.replaceChildren();const node=definition.nodes.find(n=>n.id===selectedNode);if(!node){properties.append(el('p','Select a graph card to edit its properties.'));return;}const operator=catalog?.operators.find(op=>op.kind===node.kind);properties.append(el('h4',nodeTitle(node)),el('p',operator?.description??''));
-  for(const spec of operator?.fields??[]){if(!curveFieldVisible(spec,node.parameters))continue;if(spec.type==='contract_weights'){renderWeights(node,spec);continue;}const choices=choicesFor(spec),currentValue=node.parameters[spec.key],id='custom-curve-property-'+spec.key;let control:HTMLInputElement|HTMLSelectElement;
-   if(choices.length||['select','curve','calendar','schedule'].includes(spec.type)){const select=el('select');select.id=id;option(select,'','Choose…');choices.forEach((choice,index)=>option(select,String(index),choice.label));const index=choices.findIndex(choice=>JSON.stringify(choice.value)===JSON.stringify(currentValue));select.value=index<0?'':String(index);if(currentValue!==undefined&&index<0){option(select,'retained','Retained value · '+pretty(currentValue));select.value='retained';}select.onchange=()=>{if(o.busy()||!editAllowed())return;const value=select.value;if(value==='retained')return;changeParameter(node.id,spec.key,value===''?null:choices[Number(value)].value);};control=select;
+  for(const spec of operator?.fields??[]){if(!curveFieldVisible(spec,node.parameters))continue;if(spec.type==='contract_weights'){renderWeights(node,spec);continue;}const choices=choicesFor(spec),currentValue=fieldValue(node,spec),id='custom-curve-property-'+spec.key;let control:HTMLInputElement|HTMLSelectElement;
+   if(choices.length||['select','curve','calendar','schedule','published_source'].includes(spec.type)){const select=el('select');select.id=id;option(select,'','Choose…');choices.forEach((choice,index)=>option(select,String(index),choice.label));const index=choices.findIndex(choice=>JSON.stringify(choice.value)===JSON.stringify(currentValue));select.value=index<0?'':String(index);if(currentValue!==undefined&&index<0){option(select,'retained','Retained value · '+pretty(currentValue));select.value='retained';}select.onchange=()=>{if(o.busy()||!editAllowed())return;const value=select.value;if(value==='retained')return;changeParameter(node.id,spec.key,value===''?null:choices[Number(value)].value);};control=select;
    }else{const input=field(id,spec.type==='boolean'?'checkbox':spec.type==='integer'?'number':'text');if(spec.type==='boolean')input.checked=currentValue==='true';else input.value=currentValue===undefined||currentValue===null?'':String(currentValue);if(spec.type==='integer')input.step='1';input.onchange=()=>{if(o.busy()||!editAllowed())return;changeParameter(node.id,spec.key,spec.type==='boolean'?String(input.checked):input.value);};control=input;}
    control.required=spec.required??false;const item=label(spec.label,control);if(spec.help)item.append(el('small',spec.help));properties.append(item);
   }

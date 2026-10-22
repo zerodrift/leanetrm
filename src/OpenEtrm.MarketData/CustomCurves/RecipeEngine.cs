@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using OpenEtrm.MarketData.Calculation;
 
 namespace OpenEtrm.MarketData.CustomCurves;
 
@@ -15,6 +16,7 @@ public static partial class RecipeEngine
     private static readonly ImmutableDictionary<string,ImmutableDictionary<string,string>> Ports=new Dictionary<string,ImmutableDictionary<string,string>>
     {
         ["source"]=ImmutableDictionary<string,string>.Empty,
+        ["published_source"]=ImmutableDictionary<string,string>.Empty,
         ["select"]=new Dictionary<string,string>{{"source","source"}}.ToImmutableDictionary(),
         ["dates"]=ImmutableDictionary<string,string>.Empty,
         ["sample"]=new Dictionary<string,string>{{"selection","selection"},{"dates","dates"}}.ToImmutableDictionary(),
@@ -41,12 +43,17 @@ public static partial class RecipeEngine
             foreach(var (port,id) in node.Inputs)
             {
                 if(!nodes.TryGetValue(id,out var upstream))throw Invalid($"Node {node.Id} refers to a missing input.");
-                var type=upstream.Kind switch{"sample" or "mean"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
+                var type=upstream.Kind switch{"sample" or "mean" or "published_source"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
                 if(type!=ports[port])throw Invalid($"Port {port} on {node.Id} requires {ports[port]}.");
             }
             switch(node.Kind)
             {
                 case "source":Required(node,"curve");break;
+                case "published_source":
+                    if(node.PublishedSource is not {} published||published.CatalogId==Guid.Empty||published.CurveId==Guid.Empty||
+                        published.Version is <1 or >64||!Identity(published.OutputNode)||Required(node,"selection")!="all_output_points_v1")
+                        throw Invalid("Choose an exact published curve version/output and explicit whole-panel selection.");
+                    break;
                 case "select":
                     if(Required(node,"mode") is not ("positions" or "daily_delivery"))throw Invalid("Select positions or daily delivery explicitly.");
                     if(Required(node,"binding") is not ("each_sample" or "context"))throw Invalid("Select a contract binding policy explicitly.");
@@ -69,11 +76,12 @@ public static partial class RecipeEngine
                     break;
             }
             if(!weighted&&!node.ContractWeights.IsDefaultOrEmpty)throw Invalid("Contract weights belong only to the explicit weighted mapping operator.");
+            if(node.Kind!="published_source"&&node.PublishedSource is not null)throw Invalid("A published source binding belongs only to its published-source operator.");
             string[] parameters=node.Kind switch
             {
                 "source"=>["curve"],"select"=>node.Parameters["mode"]=="positions"?["mode","first","count","binding"]:["mode","binding"],
                 "dates"=>["mode","sampling","corrections","count","includeContext","calendar","schedule","first"],
-                "mean"=>["axis"],"weighted_contracts"=>["aggregation"],_=>[]
+                "mean"=>["axis"],"weighted_contracts"=>["aggregation"],"published_source"=>["selection"],_=>[]
             };
             if(node.Parameters.Keys.Any(key=>!parameters.Contains(key,StringComparer.Ordinal)))throw Invalid($"Node {node.Id} contains an unsupported or conflicting parameter.");
         }
@@ -94,11 +102,12 @@ public static partial class RecipeEngine
     private static string Required(RecipeNode node,string key)=>node.Parameters.TryGetValue(key,out var value)&&!string.IsNullOrWhiteSpace(value)?value:throw Invalid($"Node {node.Id} requires {key}.");
     private static int Number(RecipeNode node,string key,int min,int max)=>int.TryParse(Required(node,key),NumberStyles.None,CultureInfo.InvariantCulture,out var value)&&value>=min&&value<=max?value:throw Invalid($"Node {node.Id} requires {key} between {min} and {max}.");
     private static bool Identity(string? value)=>value is {Length:>0 and <=32}&&value[0] is >= 'a' and <= 'z'&&value.All(c=>c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_');
-    private sealed record SampleKey(CurveKey Source,DateOnly Date,ContractKey Contract);
-    private sealed record CellFormula(string Node,int Index,SampleKey? Sample,ImmutableArray<CellFormula> Inputs,ImmutableArray<ExactDecimal> Weights,string Aggregation);
-    private sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,PriceUnit Unit,ImmutableArray<SampleKey> Inputs,CellFormula Formula);
-    private sealed record Panel(ImmutableArray<Cell> Cells);
-    private static Panel Prepare(RecipeDefinition definition,RecipeInputs inputs,ImmutableArray<ConnectedRecipeSample> samples,CancellationToken cancellation)
+    internal sealed record SampleKey(CurveKey Source,DateOnly Date,ContractKey Contract);
+    internal sealed record CellFormula(string Node,int Index,SampleKey? Sample,ImmutableArray<CellFormula> Inputs,ImmutableArray<ExactDecimal> Weights,string Aggregation,CurvePointKey? PublishedPoint=null);
+    internal sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,PriceUnit Unit,ImmutableArray<SampleKey> Inputs,CellFormula Formula);
+    internal sealed record Panel(ImmutableArray<Cell> Cells);
+    private static Panel Prepare(RecipeDefinition definition,RecipeInputs inputs,ImmutableArray<ConnectedRecipeSample> samples,CancellationToken cancellation,
+        IReadOnlyDictionary<string,ConnectedRecipeGraph> publishedSources)
     {
         cancellation.ThrowIfCancellationRequested();Validate(definition);
         if(inputs.ValuationAt.Offset!=TimeSpan.Zero||inputs.ContextDate!=DateOnly.FromDateTime(inputs.ValuationAt.UtcDateTime)||
@@ -127,6 +136,10 @@ public static partial class RecipeEngine
             switch(node.Kind)
             {
                 case "source":result=inputs.Sources[id];break;
+                case "published_source":
+                    var published=publishedSources[id];
+                    result=new Panel(published.PreparedPanel.Cells.Select((cell,i)=>cell with{
+                        Formula=new(id,i,null,[],[],SignedSum,published.Outputs[i].Point)}).ToImmutableArray());break;
                 case "select":case "weighted_contracts":result=node;break;
                 case "dates":
                     var dates=inputs.Dates[id];if(dates.IsDefaultOrEmpty||dates.Length>366||dates.Distinct().Count()!=dates.Length||!dates.SequenceEqual(dates.Order()))throw Missing("A date binding requires one to 366 distinct ascending dates.");result=dates;break;

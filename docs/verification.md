@@ -56,6 +56,16 @@ computed-output risk with an independent numerical oracle.
 immutable economic bindings, worker read privileges and direct SQL refusals for
 mismatched revisions and missing sources. `tools/check_recipe_weights_db.py`
 checks the normalized member-weight relationships and rejected invalid mappings.
+`tools/check_published_curve_sources.py` adds parent/child/grandchild panels,
+exact formula/storage roundtrips, booked PV, primitive quote sensitivities,
+nested ancestor-output stresses and retained worker equality after a historical
+source correction. It also checks successor publication without rebinding and
+certified historical versions/prices. `tools/check_published_curve_sources_db.py`
+checks immutable output FKs, final publication completeness, transitive scope
+revocation and the 32/33-edge boundary. The managed connected-recipe checks cover
+shared ancestors, context mismatch, exact cycles and forged imported manifests
+or output names. The custom-curve browser suite chooses, previews, saves/reloads
+and formula-roundtrips the typed published source without frontend arithmetic.
 `tools/check_connected_risk_db.py` checks the admitted graph/sample
 foreign keys, temporal freezing, publication knowledge cutoff and rejection of
 changed pins. These SQL helpers run inside that owned preview; they are not

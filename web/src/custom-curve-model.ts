@@ -1,7 +1,8 @@
 /** Presentation contracts for the managed custom-curve operations. No market
  * selection, dates, aggregation or financial arithmetic runs in this module. */
 export type ContractWeight={outputPosition:number|null;sourcePort:string;contractId:string;weight:string};
-export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[]};
+export type PublishedSourceReference={catalogId:string;curveId:string;version:number;outputNode:string};
+export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[];publishedSource?:PublishedSourceReference};
 export type CurveDefinition={code:string;name:string;nodes:CurveNode[];output:string};
 export type NodePosition={x:number;y:number};
 export type CurveLayout=Record<string,NodePosition>;

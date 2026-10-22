@@ -202,11 +202,16 @@ public static class RiskWorker
             p.Value.SwapMarketSelections is {Count:>0})||frame.SwapMarketSelections is null||
             frame.SwapMarketSelections.Count!=supplemental.Count||supplemental.Any(p=>!frame.SwapMarketSelections.TryGetValue(p.Key,out var pins)||!pins.SequenceEqual(p.Value.ObservationIds)))
             throw new MarketDataException("risk_job_context","Every market must use the exact retained context and observation pins.");
+        var connected=job["frame"]!["connectedMarkets"]?.Deserialize<ImmutableArray<ConnectedMarketEvidence>>(RiskJobs.Json)
+            ??throw new MarketDataException("risk_graph_manifest","The retained job must include every connected market manifest.");
+        var sourceConventions=connected.Select(m=>m.SourceExecutionConvention).Distinct().ToArray();
+        if(sourceConventions.Length!=1||!OpenEtrm.MarketData.Trading.FuturesMarketBinding.Supported(sourceConventions[0]))
+            throw new MarketDataException("risk_graph_manifest","Every connected market must retain the same explicit source execution convention.");
         var manifest=new PreviewManifest("retained-risk-job",catalog,revision,selected.Id("reference_catalog_id"),selected.Id("reference_revision_id"),
             job["tenantId"]!.GetValue<Guid>(),job["workspaceId"]!.GetValue<Guid>(),[],null,
             SwapMarkets:supplemental.Select(p=>new PreviewSwapMarket(p.Key,[new(p.Value.At,p.Value.ObservationIds.ToArray(),
                 p.Value.CurveContracts.ToDictionary(c=>c.Key,c=>c.Value.ToArray()))])).ToArray(),
-            FuturesConvention:request.PricingPolicy.FuturesConvention);
+            FuturesConvention:sourceConventions[0]);
         var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
         await using var database=new PreviewDatabase(manifest,source);
         var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,
@@ -215,8 +220,6 @@ public static class RiskWorker
         foreach(var market in supplemental.OrderBy(p=>p.Key))
             markets.Add((await database.Read(connection,ct,market.Key,observationIds:market.Value.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),market.Value));
-        var connected=job["frame"]!["connectedMarkets"]?.Deserialize<ImmutableArray<ConnectedMarketEvidence>>(RiskJobs.Json)
-            ??throw new MarketDataException("risk_graph_manifest","The retained job must include every connected market manifest.");
         var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,request,ct,markets.ToImmutable(),connected);
         var axes=job["frame"]!["scenarioAxes"]?.Deserialize<ImmutableArray<RetainedRiskAxis>>(RiskJobs.Json)
             ??throw new MarketDataException("risk_graph_manifest","The retained job must include its exact resolved scenario coordinates.");
