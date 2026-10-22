@@ -1,5 +1,11 @@
 # Risk scenarios and durable runs
 
+The hosted paths described here retain their existing live-quote conventions.
+A separate managed [connected calculation prototype](connected-calculation.md)
+adds computed-output, parallel, bucket and dated-contract scenarios over linked
+curves. It is not yet wired into these routes or retained jobs. Its graph-kernel
+capacity measurements are recorded [separately](connected-graph-benchmark.md).
+
 The risk operation uses the same resolved financial environment as the header
 date selectors. Effective and knowledge coordinates select retained business
 state; the selected market frame supplies explicit valuation/observation cutoffs

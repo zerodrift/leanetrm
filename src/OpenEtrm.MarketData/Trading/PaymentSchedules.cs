@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -104,9 +105,13 @@ public sealed class SideValuationContext
     private readonly IReadOnlyDictionary<CurveRequest, BuiltValue> prices;
     private readonly ImmutableHashSet<CurveRequest>? permitted;
     private readonly ISideDiscounting? discounting;
+    private readonly Func<CurveRequest,ExactUnitPrice>? exactPrices;
+    private readonly string? connectedNumericalPolicy;
+    private readonly string? connectedScenarioId;
     public MarketSnapshot Snapshot { get; }
     public ISideDiscounting Discounting => discounting??throw new MarketDataException("side_context","Supply this instrument's explicit payment discount inputs.");
-    public string CurveNumericalPolicy => CurveModel.NumericalPolicy;
+    public string CurveNumericalPolicy => connectedNumericalPolicy??CurveModel.NumericalPolicy;
+    public string? ScenarioId=>market?.Scenario.Id??connectedScenarioId;
     public SideValuationContext(MarketSnapshot snapshot, ISideDiscounting discounting)
     {
         Validate(snapshot,discounting);
@@ -136,12 +141,28 @@ public sealed class SideValuationContext
         this.market=market;Snapshot=market.Snapshot;this.discounting=discounting;
         this.prices=prices;permitted=dependencies.ToImmutableHashSet();
     }
+    // Connected calculations retain the same pricer contract and dependency
+    // fence. Rational inputs are resolved on demand under their active scenario.
+    internal SideValuationContext(MarketSnapshot snapshot,ISideDiscounting? discounting,
+        ImmutableArray<CurveRequest> dependencies,Func<CurveRequest,ExactUnitPrice> exactPrices,string numericalPolicy,string scenarioId)
+    {
+        Snapshot=snapshot;this.discounting=discounting;this.exactPrices=exactPrices;
+        prices=ImmutableDictionary<CurveRequest,BuiltValue>.Empty;permitted=dependencies.ToImmutableHashSet();
+        connectedNumericalPolicy=numericalPolicy;connectedScenarioId=scenarioId;
+    }
     public UnitPrice Price(CurveRequest request)
     {
         if(permitted is not null&&!permitted.Contains(request))
             throw new MarketDataException("risk_dependency","An instrument requested an undeclared market input.");
+        if(exactPrices is not null)return exactPrices(request).ToUnitPriceExact();
         return prices.TryGetValue(request,out var value)?value.Price:
             throw new MarketDataException("risk_dependency","An instrument's declared market input is unavailable.");
+    }
+    public ExactUnitPrice ExactPrice(CurveRequest request)
+    {
+        if(permitted is not null&&!permitted.Contains(request))
+            throw new MarketDataException("risk_dependency","An instrument requested an undeclared market input.");
+        return exactPrices is not null?exactPrices(request):ExactUnitPrice.FromPrice(Price(request));
     }
     internal ResolvedSchedulePrice Resolve(SchedulePriceTerm term)
     {

@@ -914,6 +914,27 @@ a direct shock to an already-built output curve. These are different scenario
 definitions. Do not shock a derived value and its primitive source accidentally
 or count inherited risk twice.
 
+The connected calculation prototype (D182) uses the managed backend for graph
+preparation, historical binding resolution, curve operators and scenarios.
+References retain exact versions, or explicitly resolve a logical identity under
+both effective and knowledge coordinates before becoming pinned. A different
+historical context may select different edges and recipes. UI code presents
+inputs and returned results; it does not select contracts, apply weights/shocks,
+price instruments or aggregate risk.
+
+Price scenarios may target an exact futures/forward contract, all retained
+points of a curve, explicit point buckets or supported delivery buckets. Input
+and computed-output coordinates are distinct. An additive output offset keeps
+its upstream connections and flows into every affected downstream calculation.
+Means, weighted baskets, rolling selections and schedule references are graph
+relationships with explicit numerical and date policies. Volatility and
+correlation conventions require separate supported contracts.
+
+See [connected calculation](connected-calculation.md) for the implemented
+prototype and its boundaries. The compact graph kernel has a separate
+[large-graph benchmark](connected-graph-benchmark.md); that measurement does not
+qualify million-point financial compilation or hosted portfolio throughput.
+
 ## 5. Shared scenarios and black-box pricers
 
 The fundamental operation is **shock market factors, then compute the affected

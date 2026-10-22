@@ -15,6 +15,12 @@ if(args is ["--block-shaping"]){BlockShapingChecks.Run();return;}
 if(args is ["--interval-pricing"]){IntervalPricingChecks.Run();return;}
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
+if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();return;}
+if(args is ["--dependency-plan"]){DependencyPlanChecks.Run();return;}
+if(args is ["--connected-curves"]){ConnectedCurveChecks.Run();return;}
+if(args is ["--connected-scenarios"]){ConnectedScenarioChecks.Run();return;}
+if(args is ["--temporal-bindings"]){TemporalBindingChecks.Run();return;}
+if(args is ["--connected-graph-benchmark",var graphOutput]){ConnectedGraphBenchmark.Run(graphOutput);return;}
 if(args is ["--index-fixings"]){IndexFixingChecks.Run();return;}
 if(args is ["--risk-propagation"]){RiskPropagationChecks.Run();return;}
 
@@ -39,6 +45,7 @@ if (args.Length > 0)
 
 PowerHoursChecks.Run();
 CustomCurveChecks.Run();
+ExactCurvePriceChecks.Run();
 var passed = 0;
 void Check(string label, Action run) { run(); passed++; Console.WriteLine($"PASS {label}"); }
 void Equal<T>(T actual, T expected) where T : notnull
@@ -401,6 +408,10 @@ passed += NestedScenarioChecks.Run();
 passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
 passed += InstrumentRiskChecks.Run();
+passed += DependencyPlanChecks.Run();
+ConnectedCurveChecks.Run();
+passed += ConnectedScenarioChecks.Run();
+passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");
 
