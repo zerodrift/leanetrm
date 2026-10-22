@@ -278,6 +278,15 @@ DECLARE heads trading.ppa_trade_revisions[];r trading.ppa_trade_revisions;BEGIN
  IF NOT security.trading_access(catalog,'ReadTrades') THEN RAISE EXCEPTION 'Trading access expired' USING ERRCODE='42501';END IF;
  RETURN QUERY SELECT h.* FROM unnest(heads) h ORDER BY h.trade_id;
 END$$;
+-- The connected-risk consumer needs complete-scope refusal, not PPA head rows.
+CREATE FUNCTION security.ppa_scope_has_positions(catalog uuid,ids uuid[]) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE present boolean;worker boolean=pg_has_role(session_user,'openetrm_risk_worker','MEMBER');BEGIN
+ IF worker AND NOT risk.worker_read() THEN RAISE EXCEPTION 'No current risk worker authority' USING ERRCODE='42501';END IF;
+ SELECT EXISTS(SELECT 1 FROM security.ppa_scope_heads(catalog,'books',ids)) INTO present;
+ IF worker AND NOT risk.worker_read() THEN RAISE EXCEPTION 'No current risk worker authority' USING ERRCODE='42501';END IF;
+ RETURN present;
+END$$;
 CREATE FUNCTION security.ppa_side_output(catalog uuid,side uuid) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE s trading.ppa_sides;codes text[];BEGIN
  SELECT * INTO STRICT s FROM trading.ppa_sides WHERE(catalog_id,id)=(catalog,side);
@@ -737,7 +746,10 @@ END$$;
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security' AND(p.proname LIKE 'ppa_%' OR p.proname IN('read_ppa_terms','retain_ppa_terms','save_ppa_booking')) LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
-  IF f.proname IN('save_ppa_booking','read_ppa_terms','ppa_operation_status','ppa_current_head','ppa_scope_heads','ppa_read_scope','ppa_require_market','ppa_tou_versions','ppa_discount_default') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
+  IF f.proname IN('save_ppa_booking','read_ppa_terms','ppa_operation_status','ppa_current_head','ppa_scope_heads','ppa_scope_has_positions','ppa_read_scope','ppa_require_market','ppa_tou_versions','ppa_discount_default') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
  END LOOP;
 END$$;
+-- Read-only complete-scope refusal for the dedicated connected-risk consumer.
+-- This grants no PPA terms, booking, meter or source-series access.
+GRANT EXECUTE ON FUNCTION security.ppa_scope_has_positions(uuid,uuid[]) TO openetrm_risk_worker;
 COMMIT;

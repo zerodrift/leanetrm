@@ -127,7 +127,9 @@ complete within the interactive 20-second target.
   reversals and automated correction adjustments are deferred. No settlement
   worker, gas settlement expansion or generated-close PPA cutover is included.
 - Existing-close PPA risk preserves admission pins across retries and uses fenced
-  renewable ownership with an explicit overall deadline. The connected portfolio
+  renewable ownership with an explicit overall deadline. The dedicated connected-risk worker reads shared expiry metadata under its
+  existing current-service and scoped temporal predicates, omits unused PPA
+  asset/source metadata, and uses a trusted boolean complete-scope guard. The connected portfolio
   consumer refuses books containing unsupported PPA positions as a whole.
 - Migrations **0087–0095** append current master (through 0086). Fresh installation
   is tested. Upgrades from existing populated databases, including unpublished

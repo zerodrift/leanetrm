@@ -111,8 +111,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("portfolio_context","Select explicit books and exact market frames under one certified effective context.");
         if(!data.Snapshot(frame).HasSameInputs(snapshot))
             throw new MarketDataException("portfolio_context","Every selected observation and use must match the exact authorized snapshot inputs.");
-        await using(var ppa=ScheduleStore.Command(connection,"SELECT count(*) FROM security.ppa_scope_heads($1,'books',$2::uuid[])",database.Manifest.CatalogId,bookIds.ToArray()))
-            if((long)(await ppa.ExecuteScalarAsync(ct))!>0)
+        await using(var ppa=ScheduleStore.Command(connection,"SELECT security.ppa_scope_has_positions($1,$2::uuid[])",database.Manifest.CatalogId,bookIds.ToArray()))
+            if((bool)(await ppa.ExecuteScalarAsync(ct))!)
                 throw new MarketDataException("portfolio_ppa_unsupported","The complete books contain PPA positions outside the connected portfolio consumer.");
         var futuresStore=new FuturesStore(database.Manifest);
         var books=await futuresStore.Books(connection,ct);

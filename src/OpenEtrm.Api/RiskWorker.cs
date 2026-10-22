@@ -215,11 +215,11 @@ public static class RiskWorker
         var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
         await using var database=new PreviewDatabase(manifest,source);
         var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,
-            referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
+            referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins,includePpaReferences:false);
         var markets=ImmutableArray.CreateBuilder<(PreviewData Data,InputFrame Frame)>();
         foreach(var market in supplemental.OrderBy(p=>p.Key))
             markets.Add((await database.Read(connection,ct,market.Key,observationIds:market.Value.ObservationIds,
-                referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),market.Value));
+                referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins,includePpaReferences:false),market.Value));
         var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,request,ct,markets.ToImmutable(),connected);
         var axes=job["frame"]!["scenarioAxes"]?.Deserialize<ImmutableArray<RetainedRiskAxis>>(RiskJobs.Json)
             ??throw new MarketDataException("risk_graph_manifest","The retained job must include its exact resolved scenario coordinates.");

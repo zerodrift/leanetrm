@@ -246,7 +246,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
 
     public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null,ImmutableArray<Guid>? observationIds=null,
         ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=true,
-        ObservationReadScope observationScope=ObservationReadScope.FactHistory,PpaBundle? ppaBundle=null)
+        ObservationReadScope observationScope=ObservationReadScope.FactHistory,PpaBundle? ppaBundle=null,bool includePpaReferences=true)
     {
         if(selectedRevision is {} requested&&!DeclaredBundle(requested))throw new PreviewDeniedException();
         if(ppaBundle is {} p && (p.DefinitionRevisionId==Guid.Empty || p.ReferenceCatalogId==Guid.Empty || p.ReferenceRevisionId==Guid.Empty))throw new PreviewDeniedException();
@@ -254,6 +254,10 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         var definitions = new Dictionary<string, ImmutableArray<JsonElement>>();
         foreach (var (table,key) in DefinitionTables)
         {
+            // The connected risk worker refuses complete scopes containing PPA positions.
+            // It needs curve expiry contracts, but not PPA asset/location/source metadata.
+            if(!includePpaReferences&&table is "generation_assets" or "generation_asset_versions" or "volume_sources" or "location_valuation_assignments")
+            {definitions[table]=[];continue;}
             var revisionColumn = table == "revisions" ? "id" : "revision_id";
             definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2 ORDER BY {key}) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
         }

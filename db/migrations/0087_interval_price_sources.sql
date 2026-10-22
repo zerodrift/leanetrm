@@ -179,4 +179,15 @@ CREATE POLICY reference_insert ON market_data.curve_expiry_rules AS RESTRICTIVE 
  WITH CHECK(EXISTS(SELECT 1 FROM market_data.curves c
   WHERE(c.catalog_id,c.revision_id,c.code)=(curve_expiry_rules.catalog_id,curve_expiry_rules.revision_id,curve_expiry_rules.curve_code)
    AND security.reference_access(c.reference_catalog_id,'ReadMarketData')));
+-- The shared curve loader also serves the dedicated connected-risk worker.
+-- Preserve every runtime SELECT predicate and add its current service fence.
+DO $$DECLARE p record;BEGIN
+ FOR p IN SELECT * FROM pg_policies WHERE schemaname='market_data' AND tablename='curve_expiry_rules'
+  AND 'openetrm_runtime'=ANY(roles) AND cmd='SELECT' LOOP
+  EXECUTE format('CREATE POLICY %I ON market_data.curve_expiry_rules AS %s FOR SELECT TO openetrm_risk_worker USING(%s)',
+   'risk_worker_'||p.policyname,p.permissive,p.qual);
+ END LOOP;
+END$$;
+CREATE POLICY risk_worker_service ON market_data.curve_expiry_rules AS RESTRICTIVE FOR SELECT TO openetrm_risk_worker USING(risk.worker_read());
+GRANT SELECT ON market_data.curve_expiry_rules TO openetrm_risk_worker;
 COMMIT;
