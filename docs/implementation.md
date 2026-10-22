@@ -1334,8 +1334,9 @@ remain separate release operations.
 Phase A of the [PPA design](ppa-design.md) (§5, §10; proposal P40) is implemented as
 an audited store of values per UTC interval (D173). Shaped interval curves
 ([phase B](#interval-prices-curves-and-block-shaping)) read additive and
-multiplicative shape series; PPA valuation (phase C) is not built, so no quantity or
-settlement is derived from a stored value.
+multiplicative shape series. Phase C now consumes forecast and meter series
+through exact asset/source bindings for quantity preparation and valuation.
+Settlement acceptance and payment recording remain unimplemented.
 
 **Definition.** A series pins a kind, one exact specification in a sealed reference
 revision, a clock and a resolution of 5, 15, 30 or 60 minutes
@@ -1608,12 +1609,102 @@ The browser's cost to render the largest window is measured by the browser check
 explicitly analyzed before the reads, so the reads used whatever planner statistics
 existed at the time.
 
+### Durable PPA bookings and bounded HTTP base previews
+
+Slice 4 implements migration 0089, exact typed term storage, immutable binding
+revisions and authorized catalog, validation, booking, amendment, termination,
+status, editor, binding-page and base-preview operations. Concurrent identical
+operation IDs produce one durable result; conflicting reuse refuses. Forward
+amendment and termination preserve historical bindings and original economics.
+The binding-page operation returns stored bindings, not valued schedule rows.
+
+Accepted R3 admission checks the complete requested PPA position set before any
+valuation. Incompatible definition/reference pins refuse the whole operation;
+explicit compatible subsets remain labeled as subsets. Retained obligations and
+certificate holdings survive ended delivery. Current reference authorization
+precedes pin diagnostics and is rechecked before disclosure. Separately authorized
+PPA frame discovery does not add PPA-only bundles to ordinary workspace inventory.
+The legacy trading blotter lists futures and swaps; it does not list PPA bookings.
+
+Verification passes 44 durable-storage checks, 12 temporal-storage checks, three
+whole-book consumer guards, 18 basic HTTP checks, 43 independent economic HTTP
+checks and 18 R3 checks covering all ten accepted cases. Advertised compositions
+have exact compiler/book/editor/stored-valuation round trips. Independent probes
+cover authority expiry and revocation, full payment-calendar coverage, exact
+response/work boundaries and original-price replay over selected delivery coverage.
+The managed suite retains 493 checks and all 122 independent Fraction/ZoneInfo
+oracle comparisons; prior source, swap, draft and pilot-close regressions pass.
+
+Complete HTTP base previews were measured with one instrument, one binding, five
+sides and one scenario per workload. Each request performed one unit valuation,
+five side calculations and two series validations/selections. A separate two-binding
+80+20 MW check produced exact 2,500 with one unit valuation and one reused result.
+
+| Workload | Native intervals / evaluated side rows | Full HTTP seconds | Allocated bytes through result construction | Sampled peak resident bytes |
+| --- | --- | --- | --- | --- |
+| 20-year hourly | 175,320 / 876,600 | 9.007 | 6,614,174,904 | 3,165,044,736 |
+| 10-year quarter-hour | 350,688 / 1,753,440 | 19.005 | 12,895,192,872 | 4,510,285,824 |
+
+Both measured requests met the existing 20-second target. Each is one warm-service
+sample with fresh request-owned preparation, not a latency guarantee. The hourly
+case uses Eastern weekday 07–23 and 720 unique market contracts; the quarter-hour
+case uses Central weekday 06–22 and 360 contracts, with an explicitly compatible
+ERCOT 15-minute source. Exact independent totals are 80,803,200 and 40,408,960.
+The environment is macOS 26.6.2 Arm64, 14 logical processors, 48 GiB RAM, .NET SDK
+10.0.402, Debug API and stock PostgreSQL 16.14 on the same machine over loopback.
+
+Full HTTP time includes authorization, reads, preparation, valuation, serialization,
+transfer and JSON parsing. Admission/definition reads took 0.206/0.217 seconds;
+remaining reads/preparation took 6.510/13.285 seconds; valuation/result construction
+took 2.273/5.484 seconds. Allocation deltas are process-wide cumulative traffic
+through result construction, excluding serialization. RSS was sampled every 100 ms
+(84/176 samples, maximum gaps 0.125/0.128 seconds); these maxima include process
+history and are not OS high-water marks. The platform returned no usable .NET peak
+working-set measurement. Neither wire byte counts nor repeated latency percentiles
+were measured.
+
+D196 bounds requests independently of the timings: 32 KiB bodies, 8 memberships,
+100 assets, 256 bindings, 360 hourly or 120 quarter-hour months, two million
+evaluated rows, four million preparation contributions, 35,136 returned native rows
+over at most twelve detail months and 8 MiB UTF-8 responses. Capacity preparation
+uses a conservative day-count bound. The 20-second cancellation deadline is not
+hard CPU preemption; managed work checks cancellation at phase boundaries.
+Unproven standalone TOU versions and scopes with no retained bindings refuse
+explicitly. Whole-month capacity pricing remains required. No secondary
+optimization is implemented; later slices are described in their own sections.
+
+Independent adversarial review resolved reproduced correctness findings. The
+enlarged long-workload fixture's ordinary navigation failure was subsequently
+reproduced and fixed in a separately bounded follow-up. The curve-classification
+query used nested joins that repeatedly scanned exact-revision contracts and
+interval metadata, repeating volatile RLS visibility checks. Its five-second
+Npgsql command timeout canceled the query; a database-owner timing concealed the
+runtime authorization cost. The query now materializes those two exact-revision
+sources once under the same runtime RLS context before its unchanged left joins,
+membership validation and interval-curve exclusion. No timeout, policy, schema,
+inventory semantics or financial calculation changed.
+
+On fresh owned fixtures, baseline navigation changed from 0.084 to 0.058 seconds;
+enlarged navigation changed from HTTP 500 after 5.039 seconds to 0.175 seconds.
+The enlarged selected bundle contains 1,372 memberships, 1,342 contracts and 97
+interval metadata rows. Runtime EXPLAIN ANALYZE confirms one scan of each
+materialized source; the fixed classification query took 168.552 ms. A failing
+HTTP regression preceded the fix. The baseline and enlarged checks compare the
+complete authorized directory and retained contexts, including hidden-member
+refusal, revoked scopes, restored access and PPA frame exclusion. Independent
+adversarial probes reproduce those outcomes. These are local synthetic samples,
+not concurrent-load qualification. The follow-up also reruns all 43 independent PPA
+HTTP economic cases, all 18 R3 checks and exact reuse checks. Complete hourly and
+quarter-hour previews take 9.435/19.186 seconds, both below 20 seconds, with
+6,604,508,952/12,914,644,984 bytes allocated through construction and
+3,094,724,608/4,429,676,544 bytes sampled peak RSS under the same measurement limits.
+
 ### Not done and limits
 
-- No consumer: interval curves, PPA valuation and settlement (phases B to D) do not
-  read series, and no pricer declares a dependency on one.
-- No owner bindings. A series is not tied to a curve or an asset, so access follows
-  the market catalog and the pinned reference version only.
+- Interval curves and PPA quantities consume series through their exact sealed
+  curve/source/asset bindings. The series itself remains an independent reusable
+  definition; visibility follows catalog/reference and applicable restrictive
+  policies. There is no settlement acceptance consumer.
 - No historical session mode. Series pages and routes refuse a session in a
   historical view, and storage shows such a session no series rows; history is
   available only through an explicit `knownAt`.
@@ -1655,8 +1746,9 @@ existed at the time.
 
 Phase B of the [PPA design](ppa-design.md) (§6, §9 oracles 1–4, §10; proposal P40) is
 implemented as reusable interval-price behaviour in `src/OpenEtrm.MarketData/Power`,
-authorized reads and a Market data screen (D174). Nothing books, values or settles a
-trade from it: sides, booking, valuation and settlement are phases C and D. The
+authorized reads and a Market data screen (D174). Phase C now consumes these
+prices for reusable PPA sides, durable bookings, base valuation and existing-close
+risk. Settlement remains Phase D work. The
 storage contract is in [db/README.md](../db/README.md#interval-curves)
 ([migration 0070](../db/migrations/0070_interval_curves.sql)).
 
@@ -1742,26 +1834,227 @@ interval, the repeated hour with its UTC offset. Choosing a row or an aggregate 
 where its price came from, without internal identifiers. An unavailable curve is
 listed with its reason and cannot be read.
 
+### Shared price resolution and balance blocks
+
+Phase C slice 1 (D192) adds `PreparedCurve` and `IntervalPriceResolver`. Each
+request prepares exact sources, shape revisions, actuals, coverage, valuation and
+knowledge inputs once, partitioned by operating month. Resolvers retain those same
+immutable inputs per scenario. Unaffected months reuse their base arrays; a changed
+month reuses unchanged block calibrations. New requests cannot borrow a prior
+request's cache, even when their curve codes match. `ExactQuantity.Times(ExactUnitPrice)`
+produces exact money with the quote multiplier applied once.
+
+[Migration 0087](../db/migrations/0087_interval_price_sources.sql) adds shaped actual
+rules, explicit period/balance membership and opt-in `freeze_final_settlement_v1`.
+The collected-source predicate is shared without changing its accepted inputs.
+Sealed balance definitions retain exact quote, commodity, location, profile, product
+membership and operating-day coverage. A selected live balance calibrates its own
+complete period; actuals replace individual cells unchanged. Overlapping selected
+live anchors for the same product interval and missing coverage are refused.
+
+An expired opted-in block requires the exact selected final contract settlement;
+there is no last-mark fallback. Its source, final role/state, expiry condition,
+market cutoff and certified publication knowledge must qualify. A live cell cannot
+use a final learned after valuation, even at a later research cutoff. Derived cells
+are `Modeled`, labelled `final_settlement_anchor` and `frozen_anchor_only`, explicitly
+reporting missing live market-risk coverage. A raw shaped read refuses frozen
+anchors so it cannot omit these labels. Ended cells before the actual deadline
+remain `Unresolved` with an optional estimate; due missing actuals are refused.
+
+`POST /api/period-curves/values` consumes whole date-only periods of single-index
+curves under the same authorized read operation. Live marks are `Projected`;
+qualified due index fixings are `PublishedFixing` through the existing swap
+eligibility helper. Missing due fixings and expired marks without a qualified
+fixing fail. The managed period consumer also supports explicit empty fixing
+schedules; the HTTP factory currently requires a single-index settlement target.
+The interval screen shows resolved shaped states, estimates, anchors and missing
+live coverage; optional exact quote shocks use the shared scenario engine.
+
+Verification includes 385 managed check groups, 208 web tests, 84 interval storage
+checks, 51 HTTP checks and 22 Chrome checks, plus the unchanged 23-check collected
+source suite. A separate Python `Fraction`/`ZoneInfo` oracle matches 8,528 exact
+HTTP cells across ten additive, multiplicative, frozen and base/up/down comparisons.
+The 20-year hourly reuse workload covers 240 months, 480 unique block contracts and
+24 factor pairs: each shock recalibrates one block and reuses 239 whole months.
+This is a curve-consumer measurement, excluding database, API, authorization, trades
+and portfolios; it does not qualify production throughput.
+
+### Asset quantities and exact contract factors
+
+Phase C slice 2 (D193) implements the quantity foundation, using migration
+[0088](../db/migrations/0088_ppa_reference.sql). Generation assets, effective
+capacity/accreditation versions, volume sources and location/attribute assignments
+are sealed market definitions with exact reference foreign keys and current
+authorization checks. There is no runtime definition-write API. Reads retain one
+selected definition/reference bundle; they do not choose a policy for future
+bindings across revisions.
+
+`AssetVolumes` computes whole-asset MWh from capacity-factor forecasts and native
+interval duration, applying only explicitly selected forecast adjustments. Meters
+are already MWh. Requested generated/delivered stage conversion applies exactly
+once. Sources pin their series, clock, grid, stages and `meter_due_v1` elapsed-minute
+deadline. Delivered readings and corrections follow the certified knowledge cutoff;
+live intervals always use forecasts. Before a missing meter's deadline, only explicit
+`estimate_until_actual_v1` permits an estimate. At deadline equality and afterwards,
+both pending policies refuse missing meters. Price deadlines remain independent.
+
+`CapacityNormalization` sums every declared asset's energy at the requested stage,
+then divides by the sum of those same assets' MW capacity bases in force. Explicit
+zero energy retains its capacity denominator; missing or duplicate contributions
+fail. Each asset retains its own normalized contribution, source revision and
+capacity version. Daily accreditation uses summed accredited MW over summed basis
+MW, requiring explicit accreditation for every asset. External contract MW scales
+the result once. `ContractProfileQuantity` instead compiles per-contract-MW energy
+on all-hours or exact published peak/off-peak profiles without asset normalization.
+
+`anniversary_step_v1` uses an explicit non-February-29 base. Escalation `(1+r)^t`
+and degradation `(1-r)^t` use bounded exact fractions, including twenty-year
+powers that exceed eighteen decimal places. `LocationValuation` requires one exact
+assignment across each consumed interval or operating day, retaining its declared
+additive adjustment and price unit. It refuses gaps, overlaps and subdivisions.
+
+Authorized current-session `POST /api/ppa/quantities`, `/api/ppa/capacity` and
+`/api/ppa/profile` consume these definitions and return exact rational quantities
+with version/source lineage. The interval read window is at most 365 elapsed days,
+at 15 or 60 minutes; an asset set contains 1–100 distinct assets. These operations
+provide quantity previews, not schedule amounts or instrument valuations.
+
+Independent managed acceptance adds 26 behavior groups covering the same-asset
+numerator/denominator, zero versus missing contributions, capacity-version changes,
+exact compounding, DST, deadline equality and later-known corrections. Adversarial
+regressions cover exact identities, immutable prepared rows, certified revision
+ordering and multi-year holiday calendars. All 411 managed PASS groups and 208 web
+tests pass, including the preserved slice 1 checks. Another 76 native PostgreSQL
+storage checks and 32 HTTP checks exercise seals, authority, certified reads and
+endpoint contracts. The slice 1 interval/storage/browser/oracle and collected-source
+suites also pass against migration 0088.
+
+### Managed covered side valuation
+
+The managed consumer adds physical energy, fixed and indexed payments, certificate
+holdings and whole-month capacity agreements. Each side generates a schedule and
+values exact quantity/price components through the shared resolver; `SidedInstrument`
+applies membership signs. The shared portfolio then applies binding MW once.
+Physical, virtual, indexed and basis compositions have explicit role and quantity
+validation. Price multipliers precede adders; anniversary and stepped strikes retain
+their original dates across coverage boundaries.
+
+Bindings retain the full instrument term and select native half-open delivery
+coverage. Payment dates come from original complete operating months. Earlier
+coverage retains outstanding amounts and current marks for its original certificate
+vintages, including annual vintages. Capacity sums daily accredited-MW/basis ratios
+into one MW-day period row with asset/location contributions. It requires complete
+operating months and one price assignment covering each component's whole month.
+
+`ValueExcludingOverdue` includes future dated PV and current holding value. Known
+and estimated overdue cash remain separately visible, without PV, and make
+`CompletePv` unavailable even when their net balance is zero. Historical physical
+value is separate. Commodity risk preserves these base companion measures and
+reports their contributing bindings. Holdings remain exposed to their exact vintage
+marks. Input and scope receipts retain source/policy pins, native coverage, scenario
+and resolved factors even when no row detail is requested.
+
+Preparation requires an explicit coverage map for every selected instrument. Its
+union selects native quantity cells before meter admission; uncovered history does
+not create a meter or price requirement. Complete declared price blocks still
+calibrate using their full shape. Valuation outside prepared coverage is refused.
+An explicit profile mask may select no delivery cells and has a zero result.
+
+One request owns its prepared quantities, raw prices and covered unit calculations.
+Raw source/month work is shared; normalization remains instrument-specific and is
+not counted as normalized-row reuse. A complete side value is evaluated within its instrument and sibling context. Unit
+cache admission compares resolved factors as well as immutable input/coverage
+identity; commodity scenarios reject a changed factor context. The managed consumer
+admits at most two million evaluated rows per scenario session and 35,136 detailed
+rows per unit request before row valuation. Selected-coverage quantity/input preparation
+remains eager; native grid compilation may still visit unselected months.
+D196 adds HTTP work and response limits; D198 adds durable admission limits.
+These bound admitted work, not every preparation allocation or completion time.
+
+Checkpoint B correctness verification passes 474 managed PASS groups (490 internal
+runner checks), including 45 independent acceptance groups and 14 preparation
+groups. A separately implemented Python Fraction/ZoneInfo oracle matches all 122
+managed outputs across the 12 accepted cases and nine additional example families.
+The rates suite passes 76 checks; the API builds with zero warnings/errors. Existing
+swap, draft and pilot-close checks retain their financial expectations, and the
+slice 1/2 native storage, HTTP, browser and oracle checks remain green. Independent
+review reproduced and resolved scaling, factor-context, vintage, coverage-admission,
+composition and receipt defects before closure.
+
+Checkpoint B reuse measurements use one 20-year hourly five-side instrument,
+175,320 hours, 100 trades at 80 MW, five books, 720 unique market contracts and
+49 scenarios. Three fresh-input Release samples per workload ran on an Apple M4
+Pro (14 logical processors, 48 GiB), macOS 26.6.2 Arm64 and .NET 10.0.13. Full-term
+bindings have one scope, 49 unit calls and 245 side calculations; 50 full-term trades
+plus 50 two-segment trades have three scopes, 101 unit calls, 46 unchanged scenario
+values reused and 505 side calculations. Both perform 240 raw source/month
+computations, resolve 528 curve months and reuse 22,992. Evaluated rows are
+42,953,400 and 65,748,490 respectively. Every sample matches independent exact
+base/delta/gamma expectations and work counters.
+
+Full-term total samples take 77.695/121.953/109.983 seconds; amended samples take
+121.155/114.473/138.711 seconds. Median totals are 109.983/121.155 seconds and
+scenario-stage medians 35.701/52.862 seconds. Median cumulative managed allocation
+is 84,478,248,384/117,711,909,032 bytes. The complete benchmark process peaks at
+1,320,943,616 resident bytes, measured by the OS; that is not a separate workload
+peak. Preparation is included, synthetic fixture creation excluded, and there is
+no explicit warm-up. Preparation variability and substantial allocation traffic
+limit performance conclusions. This completes Checkpoint B. At that checkpoint service work remained deferred; D195 subsequently
+accepts R3 policy without implementing its booking or whole-book operations.
+
+The subsequent bounded optimization prepares immutable quantity-series indexes
+once per request. Exact series content, captured clock rules and the fixed knowledge
+context govern reuse. Consumer headers still validate on every use; complete supplied
+cells retain native-grid, duplicate/revision and certification checks before cutoff
+selection, including cells outside selected coverage. Meter deadlines remain per
+interval. The index caches observations, not normalized quantities or side values.
+Standalone quantity calls use fresh owners, and reader withdrawal/authority behavior
+is unchanged.
+
+A runtime work-count check first failed with four full-series validations/selections
+across two months, two instruments and four sides, then passed with two: one forecast
+and one meter per request. Twelve independent preservation groups, all prior managed
+checks and the 122-output independent oracle pass. Native PPA, interval/browser,
+collected-source, stored-swap, draft and pilot-worker regressions also pass. The full
+managed run contains 487 PASS groups (492 runner checks).
+
+For one five-side instrument, one 80 MW binding and base valuation only, three
+fresh-process Release samples reduce median 20-year hourly time from 31.984 to
+5.126 seconds and cumulative allocation from 23.814 to 5.757 GB. The 10-year native
+quarter-hour case falls from 35.802 to 9.072 seconds and from 29.602 to 11.438 GB.
+The workloads evaluate 876,600 and 1,753,440 side rows over 720 and 360 unique market
+contracts, with one scenario, one unit calculation and five side calculations each.
+Whole-series validation and selection pass counts fall from 480/240 to two in both
+cases; raw source/month and numerical row work remain unchanged.
+
+Maximum observed process RSS across each control and three instrumented samples is
+0.932 to 0.930 GB hourly and 1.969 to 1.791 GB quarter-hour. This includes fixture
+construction and report output, whereas elapsed/allocation measurements exclude
+them. Allocations are cumulative traffic, not retained memory. Measurements use the
+same M4 Pro, 48 GiB, 14-processor, .NET 10.0.13 Release environment described above.
+They establish the stated in-process base workloads only, without a service latency
+or preparation-memory guarantee. No secondary optimization is implemented.
+
 ### Not done and limits
 
-- Shaped curves do not resolve against actuals: a shaped curve has no curve row to
-  bind a collected-price source to. A uniform interval-price consumer for sides, an
-  exact price × quantity step for schedule rows and a per-scenario price cache shared
-  by sides belong to phase C.
-- Scenario reuse has no production risk consumer yet; managed checks exercise it.
+- Synchronous PPA HTTP previews provide base valuation. Read-only existing-close
+  book risk has authorized HTTP admission, worker execution and persisted typed
+  reports (D198/D199). Legacy generated-close operations still refuse PPA
+  positions; generated-close cutover is unimplemented. No operation publishes a
+  supported subset as a complete incompatible-book total. Settlement acceptance
+  and payment recording remain unimplemented; realised valuation is not payment.
+- The measured reuse workload is synthetic in-process arithmetic, not service
+  throughput or production qualification. Selected-input preparation is eager; detail limits
+  apply before valuation but do not establish a preparation memory bound.
 - There is no historical session mode. Knowledge times are explicit per request,
   not pinned in a frame.
 - A live interval priced by an actual known at the valuation instant (a day-ahead
   fixing) is evidenced by managed checks only: the collection worker certifies
   actuals at the database clock, after every synthetic frame.
-- A block constituent must stay live through its delivery period: once a block
-  contract expires its mark is no longer built, so a delivering (prompt) month cannot
-  be shaped from its block. Shaping against a settled block mark belongs with the
-  phase C consumers.
-- Two seal rules are not exercised against storage: blocks of one shaped curve that
-  differ in quote, commodity, location or profile, and a due rule whose source differs
-  in clock or interval length. The synthetic reference has one location, and no
-  supported source can be bound to the eastern hourly curve with another grid.
+- Live balance and frozen-anchor pricing require explicitly admitted definitions
+  and selections. Frozen-only coverage is a limited valuation model, not complete
+  remaining-period market-risk coverage. Real publisher final schedules and usage
+  rights require separate qualification.
 - Block holidays come from the delivery profile's calendar, which must cover each
   block period (`power_calendar`).
 - The screen was measured on the synthetic shaped curve's widest span, 1,465 hourly
@@ -1819,3 +2112,299 @@ ties to even. Futures execution P&L and swap PV stay separate measures, and rate
 remain fixed under commodity shocks. Unaffected market partitions retain every
 requested holding with zero sensitivity. The common engine's existing decimal
 policy continues to reject unrepresentable output instead of changing its meaning.
+
+### Guided PPA booking and inspection
+
+The PPA page uses the installed composition and reference catalog, with explicit
+parties, book, delivery coverage, contract MW, independent components and payment
+conventions. Validation and base valuation precede a reviewed booking. Amendments
+preserve the original revision pins and label the replacement-only preview;
+termination shows the exact boundary and retained bindings. An uncertain submission
+keeps its operation identity and exact body in actor/workspace-scoped browser session
+storage for status recovery or identical retry. Browser storage grants no authority.
+
+The PPA blotter pages authorized retained trades separately from other products.
+Individual valuation is an explicit subset; complete-book valuation refuses every
+incompatible binding under R3. The page displays all four C7 measures, economic
+classes, original payment periods and historical bindings. Exact fractional amounts
+remain fractional strings. Native inspection pages show selected interval quantities,
+prices, units, states, gross values and provenance, including both repeated DST
+hours. The inspector is read-only and does not imply cash settlement.
+
+`POST /api/ppa/directory` admits the selected books before returning at most 64
+trades. `POST /api/ppa/inspect` accepts one trade, binding, side and detail month,
+returning at most 128 interval rows. The existing full-request limits and current
+authority rechecks apply. Neither route introduces cross-request valuation reuse
+or changes the bounded consumer's economic policies. The guided browser suite is
+part of `tools/check_all.py` and uses only the launcher's owned synthetic database.
+
+Migration 0090 supplies the narrowly authorized authoring directory and historical
+binding projection. Authoring choices are current-known and eligible at the selected
+frame's effective instant, matching the existing booking execution contract. The
+migration preserves private visibility helpers, actor-owned operation recovery and
+all prior row-security rules; it introduces no tables or write permissions.
+
+Local qualification passed 30 browser checks against the owned enlarged synthetic
+fixture, 215 frontend tests, 493 managed core checks, the durable booking and
+temporal storage checks, 43 independent economic HTTP checks, 18 R3 checks and
+8 UI API groups. Browser evidence covers physical and virtual booking, original
+payments and retained certificate holdings, separate known/estimated overdue
+amounts, repeated DST hours, revision refusals, duplicate clicks and recovery after
+a lost reply and reload. MW-only amendment preserves independent component
+quantities, exact links and normalization assets. Current authority/context changes
+clear retained views; another authorized reader can inspect history without
+accessing the submitting actor's private operation receipt. Enlarged-fixture
+navigation and a 390 px mobile layout pass, with no uncaught browser errors.
+Independent adversarial review closed with no unresolved blocker.
+
+This qualifies the synthetic local browser flow, not every browser/device,
+production authentication, accessibility certification or concurrent deployment.
+Wide detail tables scroll locally; the four primary measures remain visible at
+390 px. No new long-term performance measurement or secondary optimization is
+claimed. The existing-close risk consumer is described below.
+
+
+### Existing-close PPA book risk
+
+`POST /api/jobs/close-book-risk/create` admits the explicit one-off
+`close_book_risk_v1` operation. It selects an existing recorded close and complete
+books, not a set of generated marks. The admitted receipt retains the close,
+certified context, trading publication head, valuation-instant PPA knowledge
+cutoff, economic/numerical policies and resolved native bump list. Replays return
+the original admission. Retries prepare against those exact retained inputs and
+check the resulting factors and declared work against the receipt.
+
+The managed portfolio adapter includes coverage-bound PPA positions in the shared
+base/up/down valuation engine. Complete-scope admission checks authorization and
+exact bundle compatibility before product-specific reads can hide positions.
+Incompatible or unsupported bindings refuse the whole operation with authorized
+binding diagnostics. Held certificates keep their native vintage-mark sensitivity;
+known and estimated overdue balances remain separate from outstanding value.
+Report mode distinguishes an existing close from a generated close. Typed receipt
+rows retain interval input revisions, shape and collected actual sources, asset
+versions and payment discount provenance.
+
+Migration 0091 adds the admission and report relationships. The new claim overload
+accepts an explicit supported-operation list. Old signatures keep their historical
+operation set, and a generated-v1 occurrence containing PPA positions is blocked
+before a legacy worker can omit them. Existing jobs, runs and reports are not
+renamed. The existing-close processor shares the report phase and cannot publish
+market prices. Retained reads reuse certified contexts instead of certifying later
+corrections. Current owner/service authority and the live occurrence fence remain
+mandatory, including after blocking reads and before report publication.
+
+Bound admission needs exact immutable series headers before a worker profile
+exists. The metadata helper is owned by `openetrm_interval_metadata_reader`, a
+`NOLOGIN`, `NOBYPASSRLS` role inheriting runtime policies. Only that helper's
+metadata read has a current-read exception; scoped, reference and additional
+restrictive policies remain active. Runtime roles cannot assume the helper role.
+Ordinary historical raw headers, revisions and values remain hidden. A hidden
+required header hides the source binding, and callers explicitly refuse missing
+header metadata. This replaces an owner-based read that bypassed additional
+restrictive policies, detected by the preserved PPA storage regression.
+
+Admission ceilings are 128 selected books, 256 PPA bindings, 4,096 native factors
+and 2,000,000,000 declared PPA row-scenario evaluations. The latter sums each
+unique instrument/coverage unit's rows times its base and affected factor scenarios;
+unrelated monthly factors do not consume that unit's budget. Existing two-million
+schedule-row and four-million quantity-preparation bounds also apply. Admission
+prepares and validates inputs; it refuses excessive scenario work before PV risk
+evaluation or creation of a claimable job.
+
+At the initial slice-6 qualification, the worker used a maximum 120-second lease
+without renewal during a portfolio transaction. The full 480-factor measurements
+below therefore qualified the managed engine and reuse counters, not durable-job
+completion, HTTP latency or production throughput. D199 subsequently qualifies
+renewable existing-close completion for the separately identified workload below.
+The resource ceiling still does not promise that every admitted workload finishes
+within its explicit overall deadline. Generated-close cutover, settlement and
+further performance changes remain outside this implementation.
+
+The following synthetic measurements used three fresh processes per case, Release
+.NET 10.0.13 on macOS 26.6.2 Arm64, 14 logical processors and 48 GiB RAM. Up to four
+samples overlapped, with other local build/test work on the same host. These are
+observed elapsed times under that schedule, not isolated latency comparisons.
+Samples used frozen binaries. A subsequent change added explicit selected-factor
+validation/filtering to the admission work-count helper; source-hash comparison
+verified that the timed valuation implementation was unchanged.
+Managed timing includes preparation and exact risk evaluation, but excludes fixture
+construction, subsequent oracle assertions, database reads, HTTP and queueing.
+Allocations are cumulative managed allocation traffic, not retained memory. Peak
+resident memory is the maximum OS process-lifetime measurement, including fixture
+and assertion work. GB below means decimal gigabytes. Swap usage was unchanged at
+611.56 MiB between the recorded start and end snapshots.
+
+| Workload | Median seconds (range) | Median allocated GB | Maximum resident GB | Row-scenario evaluations |
+| --- | ---: | ---: | ---: | ---: |
+| 20-year hourly, one binding, base only | 6.149 (6.072–6.203) | 6.446 | 0.935 | 876,600 |
+| 20-year hourly, shared instrument | 886.614 (875.950–889.397) | 1,604.687 | 1.865 | 842,412,600 |
+| 20-year hourly, amended coverage | 471.861 (470.588–473.572) | 812.662 | 1.777 | 423,404,780 |
+| 20-year hourly, two distinct instruments | 1,723.645 (1,703.622–1,729.349) | 3,193.364 | 2.512 | 1,684,825,200 |
+| 10-year quarter-hour, one binding, base only | 10.770 (10.654–10.913) | 12.792 | 1.745 | 1,753,440 |
+
+Each instrument has five independent sides. The hourly term has 240 months and
+175,320 native intervals; the quarter-hour term has 120 months and 350,688 native
+intervals. The three risk cases use 100 trades across five books, 720 market
+contracts and 480 explicit peak/off-peak energy bumps, producing 961 scenarios.
+Certificate vintages remain inputs but are not bumped in this benchmark. The
+amended case splits every trade at a mid-month boundary into two adjacent scopes
+(200 bindings, one instrument). The distinct case has two actual strikes, 40 and
+41; it does not represent 100 distinct economic contracts.
+
+| Risk case | Unit-pricer calls | Side calculations | Quantity applications | Resolved / reused curve months | Calibrated / reused blocks |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Shared | 961 | 4,805 | 4,805 | 1,440 / 459,840 | 1,440 / 960 |
+| Amended | 966 | 4,830 | 4,830 | 1,440 / 231,360 | 1,440 / 960 |
+| Two distinct | 1,922 | 9,610 | 9,610 | 1,440 / 459,840 | 1,440 / 960 |
+
+Quantity applications scale reused unit results by net book holdings; repeated
+trades do not materialize their own schedules. The amended scopes reuse 956
+unaffected unit-scenario values. Independent calendar arithmetic, full repricing
+of selected factors and raw-output review verified exact values and invariant
+work counters in all 15 samples. These measurements support the declared work
+accounting. At that qualification, each of the three risk cases exceeded the
+nonrenewing 120-second worker lease; the admission ceiling and overall timeout
+were not raised. These original engine samples were not rerun as durable jobs by
+the bounded D199 completion fix.
+
+The complete local synthetic gate passed on 2026-10-22 with stock PostgreSQL 16,
+the pinned .NET SDK and Node versions, and Chrome. It includes 497 managed core
+checks, 215 frontend tests, 43 independent PPA HTTP economic checks, 18 R3 checks,
+30 PPA browser checks, enlarged-fixture navigation, the actual existing-close
+worker and unchanged generated-close regressions. Independent adversarial review
+also passed current owner/service revocation, missing/later retained-context
+refusals without certification writes, restrictive metadata policies, helper-role
+isolation, cancellation and natural lease expiry during blocked reads. The
+pre-upgrade comparison preserves historical jobs, runs, reports and financial
+rows. No unresolved correctness finding remains in this bounded local scope;
+the original long-running completion gap is addressed only by the specific D199
+qualification below; broader workload and deployment limits remain open.
+
+
+### Renewable existing-close completion qualification
+
+D199 separates preparation, immutable CPU valuation and atomic publication.
+The first failing actual-worker regression observed no renewal of a 15-second
+lease during real ten-year hourly risk work. A second failing HTTP regression
+observed a version conflict when cancellation followed committed success; the
+narrow completed-outcome reconciliation now preserves that success.
+
+A real one-instrument, five-side, one-binding, one-book workload covering
+2031-11-01 through 2041-11-01 completed in 326.922 seconds. The recovery run killed
+a calculating worker after renewal, waited for natural expiry, replaced it under
+a higher fence with the original deadline/pins, and introduced a later forecast
+correction. The replacement completed in 329.441 seconds. A Unix-domain
+PostgreSQL wire proxy dropped its successful COMMIT acknowledgement only after
+an independent direct query observed one report and terminal success. The worker
+reconciled that committed occurrence and exited successfully. Repeated execution
+and later cancellation retained exactly one report and one success audit event.
+
+Independent civil-time/Fraction integration counted 87,672 delivery hours and
+41,744 peak hours, giving exact base value 40,408,960. All 360 monthly energy and
+certificate factor results matched independent up/down, delta and zero-gamma
+checks. The 721 scenarios required 721 unit calls, 3,605 side calculations and
+316,057,560 row evaluations. Quantity preparation ran once per month (120), with
+960 resolved and 172,080 reused curve-months, and 1,080 rebuilt and 258,480 reused
+curve nodes. These sum to the independently counted scenario/month work. No
+numerical or reuse implementation changed.
+
+The explicitly selected 15-second lease renewed every five seconds. During the
+replacement, 62 observed lease advances ranged from 5.002430 to 5.016796 seconds
+(median 5.004067); observation began after preparation. Original deadline, input
+profile, cutoff and economic policies remained unchanged. Renewal failure,
+cancellation and service-authority loss stopped CPU work in 3.553, 3.237 and
+2.795 seconds respectively, without a report. The 45-second overall-deadline case
+also produced no report; post-exit cleanup had committed within 0.501 seconds of
+the original deadline. Database publication refuses expired ownership immediately;
+physical cessation remains cooperative, bounded by renewal cadence/call latency
+and calculation cancellation checks, not a zero-lag process-kill guarantee.
+
+Observed worker startup, claim and preparation took 22.155–22.615 seconds in the
+fault cases. Preparation retains the authorization epoch share lock during its
+transaction, so authority edits can queue during that phase. Job/run ownership
+rows are free: independent tests renewed in 0.015 seconds and cancelled in 0.014
+seconds while a bound preparation transaction remained open. CPU valuation has
+no database transaction. During CPU work, authority loss and cancellation changes
+committed in 0.010 and 0.015 seconds. Publication retains short fenced locks and
+commits the validated report and terminal success atomically. SQL timeouts bound
+individual calls, not the total preparation duration.
+
+Affected regressions passed: 497 managed core checks; independent PPA HTTP/R3
+oracles; existing-close held-certificate, overdue and discount receipts; legacy
+actual workers, historical identity and report recovery; automation ownership and
+control; and verification-entry checks. Independent adversarial review passed
+post-lock expiry, replacement fencing, deadline clamp, current owner/service
+revocation, lock behavior, outcome replay and actual lost-acknowledgement recovery.
+The earlier 44-stage complete gate remains historical evidence; the new renewable
+completion stage is included in the now 45-stage gate and was run separately with
+the affected suites for this bounded fix. No new complete-gate run is claimed.
+
+Measurements use Release .NET 10.0.13, stock PostgreSQL 16 and macOS Arm64 on the
+same 14-logical-processor, 48-GiB host; some local regression work overlapped.
+These are completion/recovery observations, not repeated throughput or memory
+benchmarks. Other previously measured large books have not been rerun end to
+end. Legacy generated-close leases remain unchanged. Production deployment,
+generated-close cutover and settlement remain unqualified/outside this change.
+
+
+## Final Phase C scope
+
+[Phase C qualification](ppa-phase-c.md) reconciles the five supported catalog
+compositions, durable booking and guided UI, existing-close risk, renewable
+completion and remaining limits. Final review adds descriptive unsupported-feature
+metadata and aligns managed slot ordinals with the existing storage range 0–7;
+neither change alters financial arithmetic or accepted policies. Current API
+validation, persisted terms and catalog limits use the same bound. The
+[next settlement task](ppa-settlement-next.md) is a proposal only.
+
+
+Final Phase C qualification subsequently ran the entire expanded 45-stage gate on
+the corrected tree: all stages passed in 1,532.375 seconds. The narrow final worker
+fix contains cancellation callback AggregateExceptions after cancellation is
+requested, joins renewal and preserves the authoritative exact-outcome lookup;
+callback failure never implies a successful commit. Deterministic throwing-callback
+checks, current-authority/caller-cancellation refusals and the actual long recovery
+case pass. Replacement with lost acknowledgement completed in 332.465 seconds with
+one report/success audit and unchanged exact value/work counts. 62 lease advances
+had median 5.003870 seconds. Renewal-loss/cancellation/authority-loss stopping was
+observed in 2.003/1.736/1.121 seconds after control; preparation took 23.307–24.550 seconds.
+These are recovery observations, not new throughput or allocation benchmarks.
+Independent whole-branch review is closed with no open material finding; all
+remaining limits in the qualification record still apply.
+
+
+### Shared meter-finality prerequisite (D200)
+
+[Meter-finality operations and boundaries](meter-finality.md) describe migration
+0093. Immutable final/suspended/withdrawn heads, exact source/raw/calendar foreign
+keys, current scoped verification authority, complete-payload idempotency and
+commit-certified temporal selection are implemented as authenticated runtime
+database operations. A retained source definition covers the original operating
+cell; later verification does not switch to a current source. The existing-close
+worker context shortcut remains unchanged. No HTTP endpoint/capability, cash
+acceptance, obligation, payment, settlement worker or gas implementation is added.
+Existing Phase C quantity and valuation consumers do not consume this evidence yet.
+
+
+### Bounded payment planning and gross preview (D201)
+
+[Implementation and qualification](settlement-preview.md) cover migration 0094,
+`MonthlyGrossPreview`, `SettlementPreview` and two authorized HTTP operations.
+They add immutable explicit lineage mappings and read-only complete-month cash
+previews with exact evidence and once-per-occurrence rounding. The capability
+catalog advertises policies, permission, limits and exclusions. No existing
+booking is automatically opted in and no role receives the proposal permission
+by default. Existing Phase C valuation and finality publication are unchanged.
+No approved/persisted cash proposal, acceptance, obligation, payment or worker is
+implemented. Global S1/S2 and gas remain open.
+
+
+D202 resets the current PPA MVP to settlement calculations, exact draft break-even
+pricing and an extension of the existing graphical editor. The
+[pricing and graphical workbench record](ppa-break-even.md) records its implemented scope
+and independent evidence. Approvals, accepted-cash accounting, payments, reversals
+and automated correction adjustments are deferred, not pricing prerequisites.
+Trade amendments remain contractual changes; market/meter corrections remain
+versioned inputs. Earlier lifecycle specifications are retained for future work;
+they do not authorize a separate settlement approval workflow or claim global
+settlement-phase completion.

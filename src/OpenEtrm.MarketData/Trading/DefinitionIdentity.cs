@@ -103,6 +103,11 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             SwapObservationCalendar c => ["observation_calendar", c.Key, c.BusinessDays],
             PaymentCalendar c => ["payment_calendar", c.Key, c.BusinessDays],
             DateSet d => ["date_set", d.From, d.To, d.Dates],
+            Power.AssetKey k => ["asset", k.Revision, k.Code],
+            Power.VolumeSourceKey k => ["volume_source", k.Revision, k.Code],
+            Power.DeliveryCoverage c => ["coverage", c.From, c.To],
+            Power.DeliveryHours h => ["delivery_hours", h.Membership, h.Peak, h.Holidays],
+            Power.TouPeak p => ["tou_peak", p.StartHour, p.EndHour, p.Saturday],
             PaymentRule r => ["payment_rule", PaymentRule.Implementation, r.Frequency, r.Rule, r.Days, r.DayOfMonth,
                 r.DayBasis, r.ShortMonthPolicy, r.Adjustment, r.Calendar],
             _ => throw Error()

@@ -7,9 +7,12 @@ Phase B (section 6, interval curves and shaping) is implemented and recorded as 
 its contract, verified oracles 1–4 and limits, including shaped-curve resolution
 deferred to phase C, are in
 [the implementation record](implementation.md#interval-prices-curves-and-block-shaping).
-Phases C and D are design only. Proposed choices are recorded as P40, not as agreed financial
-conventions. The implementation inventory below was checked against source revision
-`4a0a6a7`, before phase A.
+Phase C is implemented in the bounded scope recorded by D192–D199: five catalog
+compositions, durable booking, guided inspection and existing-close book risk.
+See [current Phase C scope](ppa-phase-c.md) for qualification and limits. Phase D
+settlement remains proposed under P39/P40; no acceptance, obligation or payment
+lifecycle is implemented. The original inventory below predates phase A; current
+implementation statements are qualified explicitly.
 
 ## 1. Outcome and scope
 
@@ -362,21 +365,24 @@ history for the life of the deal. Cash sides report realised cash; physical side
 report realised delivery value, kept separate.
 
 PPA valuation adopts the partition in [settlement design §5.2](settlement-plan.md#52-keep-cash-present-after-fixing-and-due-dates).
-Each cash row is counted exactly once as remaining projected, delivered but not
-yet in an accepted obligation, accepted outstanding, or paid. Paid cash leaves
-outstanding PV but stays in realised history. Unpaid cash at or after its due
-date shows its known balance with an unavailable-PV reason until an explicit
-due/overdue policy is selected. For PPA sides this partition replaces the current
-`side_payment_due` refusal; existing swap behaviour is unchanged. Before
-settlement exists (phase C), delivered rows sit in the second bucket.
+The implemented Phase C payment states are `RemainingProjected` and
+`DeliveredUnsettled`. Accepted obligations and paid cash are proposed Phase D
+states. Under accepted R1/R2/C7, `ValueExcludingOverdue` is the primary measure:
+future dated PV plus retained certificate holdings. At due-date equality or
+later, known and estimated cash balances are reported separately without discount
+or inferred interest; `CompletePv` is unavailable while any overdue row exists,
+even if opposing balances net to zero. This replaces `side_payment_due` only for
+PPA sides; existing swap behaviour is unchanged.
 
 Delivered prices in phase C come from each curve's collected actual-price source
 (0063) under D171's latest-collected-revision rule, for physical and floating
 sides alike. A virtual PPA's floating side reads hourly actuals through that
 association, not through per-hour fixing observations. Rows show the
 `collected` publication status; settlement determinations later require the
-publication eligibility of settlement phase S1. The 0063 validation is
-generalised beyond its current currency and clock limits.
+publication eligibility of settlement phase S1. Accepted C9 preserves every
+0063 source-compatibility restriction, including currency, clock, location,
+provider, native cadence and energy units. Unsupported combinations refuse; no
+source substitution or fallback is inferred.
 
 The location adjustment applies to projected and actual prices alike. Each
 delivery interval uses the location assignment effective for that interval, as
@@ -391,8 +397,17 @@ persisted close results. Historical TOU publication is a later prerequisite.
 
 Performance: a 20-year hourly PPA with five sides has about 876,000 rows per unit
 instrument. Unit-instrument reuse values each instrument once per scenario.
-Single-instrument preview and valuation are interactive; book risk runs as a
-durable job, as generated closes do. Re-evaluating only the rows behind a bumped
+Single-instrument preview and valuation are interactive; existing-close book risk
+uses the explicit `close_book_risk_v1` durable operation (D198). It pins admission
+inputs across retries, checks current authority and refuses incomplete or
+incompatible books. Its report retains held-certificate sensitivity and separate
+known and estimated overdue balances. Generated-close PPA cutover remains separate
+work. D199 adds renewable short leases for this operation while retaining the
+explicit overall deadline. Actual ten-year hourly risk completed beyond 120
+seconds, including replacement and lost-acknowledgement recovery. This qualifies
+that workload, not every admitted book or concurrent throughput; legacy generated
+closes retain their original leases. See [implementation measurements](implementation.md#existing-close-ppa-book-risk).
+Re-evaluating only the rows behind a bumped
 block is an optimisation to add only if the benchmark requires it. Qualify with
 the benchmark rules in AGENTS.md before claiming capacity.
 
@@ -476,8 +491,9 @@ phase's consumer.
 
 ## 11. Design calls
 
-Recorded as P40 and open to review; none is an agreed financial convention until
-accepted:
+The Phase C choices below were accepted under D192–D195. Settlement grouping,
+contractual rounding and the Phase D lifecycle remain proposals; their inclusion
+in this design does not authorize implementation:
 
 - Unit is 1 MW of contract capacity; metered per-unit volume divides by the
   asset's capacity basis.

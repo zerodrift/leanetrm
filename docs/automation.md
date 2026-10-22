@@ -343,7 +343,7 @@ owner and service permissions, source scopes, deadlines and leases are required
 at each phase. Publication uses a private operation-local permission window;
 the service context cannot use generic observation imports or close publication.
 A lease replacement reuses committed marks and reports under a new fence.
-The current worker does not renew its lease inside a calculation transaction.
+The generated-close worker does not renew its lease inside a calculation transaction.
 Each phase must finish within its explicitly configured lease (at most 120
 seconds) and overall deadline; a longer job timeout does not extend that lease.
 No large-book latency guarantee is established by the small synthetic fixture.
@@ -406,3 +406,43 @@ worker, documented in [risk scenarios and jobs](risk-engine.md). It uses the sam
 financial context and current-authority principles, but does not execute arbitrary
 container profiles. Its Swarm replicas process independent complete runs; the
 existing scheduler and generated-close mixed-product adapter remain supported.
+
+### Renewable existing-close completion
+
+Migration `0092_close_risk_renewal.sql` applies only to `close_book_risk_v1`.
+The explicitly configured 5–120 second worker lease is renewed every one third
+of that duration through a separate scheduler connection. A renewal command is
+bounded by the integral one-third lease duration (at least one second). Renewal
+checks database time after ownership lock waits and refuses expired, cancelled,
+replaced or unauthorized ownership. It cannot change the original overall
+1–3,600 second job deadline, admission profile, input pins, attempt or fence.
+
+Preparation retains a read-committed authorization fence and live per-read claim
+checks, but does not hold job/run row locks. Request-context expiry for this
+operation is bounded by the original deadline and job expiry; that token never
+substitutes for the live lease check. Renewal does not update bound context rows.
+After preparation commits, deterministic valuation uses immutable admitted inputs
+outside any database transaction. Authority updates, cancellation and recovery
+therefore do not wait for CPU valuation. A fresh context is bound for publication.
+SQL statements retain a five-second bound and ownership lock waits a one-second
+bound; these are statement bounds, not a total preparation time guarantee.
+
+The publication wrapper waits on the existing report queue before locking the
+job/run rows. The validated report and terminal success commit atomically. The
+inner publisher and terminal helper are not callable by the runtime login.
+Completion reconciliation is a read-only scheduler operation over the exact
+run, login, worker and fence under current authority. Unknown commit outcomes
+never cause a guessed failure or a second report. Success-first cancellation
+returns the completed outcome without changing state; cancellation-first fences
+publication. Authorization and command-key replay/conflict checks apply to both.
+Cancellation callback failures are retained after the token is cancelled; they
+cannot bypass joining renewal and the exact committed-outcome lookup. A callback
+exception proves neither success nor failure of publication. Current authority
+and caller cancellation still govern reconciliation; no receipt means no success.
+
+Renewal failure cancels local calculation cooperatively and leaves durable
+ownership to expire for ordinary recovery; it does not revive or repin the run.
+Publication has a hard database deadline. Physical calculation stops at its next
+cancellation check after failed renewal, so cessation can lag that deadline by
+heartbeat cadence, the bounded renewal call and cooperative cancellation latency.
+Generated-close, readiness and controller worker paths are unchanged.

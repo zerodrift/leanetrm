@@ -54,6 +54,22 @@ public readonly partial record struct ExactDecimal : IComparable<ExactDecimal>
     }
 
     public int CompareTo(ExactDecimal other) => scaled.CompareTo(other.scaled);
+    // Compounded values retain exact fractions instead of crossing the 18-place decimal boundary.
+    public (BigInteger Numerator,BigInteger Denominator) Power(int exponent)
+    {
+        if(exponent<0)throw new MarketDataException("numeric_exponent","An exact contract factor requires a nonnegative integer exponent.");
+        var gcd=BigInteger.GreatestCommonDivisor(BigInteger.Abs(scaled),Scale);
+        var n=scaled/gcd;var d=Scale/gcd;var resultN=BigInteger.One;var resultD=BigInteger.One;
+        while(exponent>0)
+        {
+            if((exponent&1)!=0){resultN*=n;resultD*=d;Bound(resultN,resultD);}
+            exponent>>=1;
+            if(exponent>0){n*=n;d*=d;Bound(n,d);}
+        }
+        return(resultN,resultD);
+        static void Bound(BigInteger n,BigInteger d)
+        {if(n.GetBitLength()>4096 || d.GetBitLength()>4096)throw new MarketDataException("numeric_range","The exact contract factor exceeds the supported 4096-bit bound.");}
+    }
     public ExactDecimal DivideExact(ExactDecimal denominator) => DivideExactProduct(this,denominator);
     // Divide as a rational expression so h*h need not fit the working scale.
     // Only the final quotient is represented; there is never implicit rounding.

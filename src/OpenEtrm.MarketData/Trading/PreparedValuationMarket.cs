@@ -13,6 +13,7 @@ public abstract class PreparedValuationMarket
     public abstract string NumericalPolicy{get;}
     internal abstract object Identity{get;}
     internal abstract CurveBuild? Authority{get;}
+    internal virtual CurveBuild? NativeIntervalScenario=>null;
     internal abstract ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation);
     internal virtual UnitPrice WorkingPrice(CurveRequest request,CancellationToken cancellation)=>Price(request,cancellation).ToUnitPriceExact();
     internal abstract ImmutableHashSet<ObservationKey> Lineage(CurveRequest request,CancellationToken cancellation);

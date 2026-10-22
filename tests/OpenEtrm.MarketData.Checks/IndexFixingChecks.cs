@@ -55,7 +55,7 @@ internal static class IndexFixingChecks
             var deps = swap.DependenciesAt(snapshot); Equal(deps.Length, 1); Equal(deps[0], daily.Projections[2].Market);
             var value = Value(daily, snapshot, swap);
             Equal(value.PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "18");
-            var resets = value.Sides[1].Value.Payments[0].Resets;
+            var resets = ((PaymentSideValuation)value.Sides[1].Value).Payments[0].Resets;
             Equal(string.Join(',', resets.Select(r => r.Price.State)), "Actual,Actual,Projected");
             Equal(string.Join(',', resets.Select(r => r.Price.Price.Value.ToString())), "10,20,33");
             Equal(resets[0].Price.Lineage.Single(), snapshot.Selections.Single(s => s.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact)).Observation.Key);
@@ -168,7 +168,7 @@ internal static class IndexFixingChecks
             InstrumentValuation Price(CurveBuild market) => swap.PV(new(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
             Equal(Price(pair.Up).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "18.1");
             Equal(Price(pair.Down).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "17.9");
-            var actual = Price(pair.Up).Sides[1].Value.Payments[0].Prices[0];
+            var actual = ((PaymentSideValuation)Price(pair.Up).Sides[1].Value).Payments[0].Prices[0];
             Equal(actual.Price.Value.ToString(), "10");
             Equal(actual.Lineage.Single(), snapshot.Selections.Single(s => s.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact)).Observation.Key);
             Reject("risk_factor", () => daily.Model.Scenarios(build, [bump with { Input = new(daily.Series[0].Key, InputUse.FrozenFact) }]).ToArray());

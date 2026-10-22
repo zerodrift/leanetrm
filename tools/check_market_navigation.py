@@ -18,11 +18,15 @@ def run_checks(c, check, query, manifest):
     def compare(nav, workspace):
         definitions, references = workspace['definitions'], workspace['references']
         contracts = {row['id']: row for row in definitions['contracts']}
+        interval_contracts = {row['contract_id'] for row in definitions['contract_intervals']}
         commodities = {row['code']: row['name'] for row in references['commodities']}
         expected = []
         for curve in definitions['curves']:
-            kinds = {contracts[row['contract_id']]['kind'] for row in definitions['curve_members']
-                     if row['curve_code'] == curve['code']}
+            members = [row['contract_id'] for row in definitions['curve_members']
+                       if row['curve_code'] == curve['code']]
+            if interval_contracts.intersection(members):
+                continue
+            kinds = {contracts[contract]['kind'] for contract in members}
             if not kinds or not kinds <= {'future', 'forward'}:
                 raise AssertionError('Fixture curve has no explicit supported classification')
             kind = 'mixed' if len(kinds) == 2 else {'future': 'futures', 'forward': 'forwards'}[next(iter(kinds))]
@@ -44,10 +48,12 @@ def run_checks(c, check, query, manifest):
           and navigation['live'] is None
           and navigation['kind'] == 'market_navigation'
           and all(set(frame) == {'id', 'name', 'at','originCloseId'} and frame['originCloseId'] is None for frame in navigation['frames']))
+    # PPA-only configured frames consume retained session capacity but are not listed here.
+    ppa_frames = sum(bool(frame.get('ppaBundle')) for frame in manifest['frames'])
     check('ordinary navigation declares its bounded exact stored-close discovery policy',
           navigation['frameCatalog']=={'durableSelection':'exact_recorded_close_pins_v1',
                                       'selectionPolicy':'preserved_session_plus_latest_visible_closes_v1',
-                                      'maximumFrames':128,'durableLimit':128-len(navigation['frames']),
+                                      'maximumFrames':128,'durableLimit':128-len(navigation['frames'])-ppa_frames,
                                       'hasMoreDurableCloses':False})
     check('working navigation supplies only its exact unapplied display-metadata identity',
           navigation['referenceDisplay'] == {'sourceRevision':navigation['referenceRevision'],

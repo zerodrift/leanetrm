@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.MarketData;
 
@@ -23,6 +24,8 @@ public sealed record ExactQuantity
   this.numerator=numerator;this.denominator=denominator;Specification=specification;
  }
  public static ExactQuantity FromQuantity(Quantity value)=>new(value.Amount.ScaledValue,ExactDecimal.WorkingScale,value.Specification);
+ public ExactQuantity Scale(ExactDecimal factor)=>ScaleFraction(factor.ScaledValue,ExactDecimal.WorkingScale);
+ internal ExactQuantity ScaleFraction(BigInteger factor,BigInteger divisor)=>new(numerator*factor,denominator*divisor,Specification);
  public ExactQuantity Add(ExactQuantity other)
  {
   if(other is null || Specification!=other.Specification)throw new MarketDataException("quantity_mismatch","Exact quantities require the same quantity specification.");
@@ -41,6 +44,12 @@ public sealed record ExactQuantity
   if(price is null || price.Unit.Quantity!=Specification)throw new MarketDataException("quantity_mismatch","The price denominator must match the exact scheduled quantity.");
   return ExactMoney.FromFraction(numerator*price.Value.ScaledValue*price.Unit.Multiplier.ScaledValue,
    denominator*ExactDecimal.WorkingScale*ExactDecimal.WorkingScale,price.Unit.Currency);
+ }
+ public ExactMoney Times(ExactUnitPrice price)
+ {
+  if(price is null || price.Unit.Quantity!=Specification)throw new MarketDataException("quantity_mismatch","The price denominator must match the exact scheduled quantity.");
+  return ExactMoney.FromFraction(numerator*price.NumeratorValue*price.Unit.Multiplier.ScaledValue,
+   denominator*price.DenominatorValue*ExactDecimal.WorkingScale,price.Unit.Currency);
  }
  internal string FormatValue(AmountFormat format)=>format.FormatFraction(numerator,denominator);
  public string ToString(AmountFormat format,AmountLabel unit)=>FormatValue(format)+" "+unit.Require(Specification);

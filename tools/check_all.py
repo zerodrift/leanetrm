@@ -26,6 +26,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
 
     check('verification runner', [sys.executable, '-m', 'unittest', 'discover',
                                   '-s', 'tests', '-p', 'test_*.py'])
+    check('independent settlement specification', [sys.executable, '-m', 'unittest', 'discover', '-s', 'specs/settlement', '-v'])
     check('standalone dependencies', [sys.executable, 'tools/check_standalone.py'])
     check('owned process cleanup', [sys.executable, 'tools/check_owned_process.py'])
     check('owned browser readiness', ['node', '--test', 'tests/browser/owned-browser.test.mjs'])
@@ -58,6 +59,11 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
     check('mapped collected power interval settlement', [*preview, '--power-actual-check'])
     check('audited interval series', [*preview, '--interval-series-check', '--browser-check', '--browser', str(browser)])
     check('interval curves, block shaping and resolution', [*preview, '--interval-curves-check', '--browser-check', '--browser', str(browser)])
+    check('PPA reference and quantity sources', [*preview, '--ppa-check'])
+    check('quarter-hour fixed and indexed settlement preview', [*preview, '--settlement-quarter-check'])
+    check('Durable PPA bookings, HTTP oracles, revision admission and browser', [*preview, '--ppa-bookings-check', '--browser-check', '--browser', str(browser)])
+    check('read-only existing-close risk and fenced workers', [*preview, '--close-risk-check'])
+    check('renewable existing-close completion and recovery', [*preview, '--close-risk-lease-check'])
     check('standard futures execution policies', [*preview, '--execution-check'])
     check('shared contract-date library', [*preview, '--contract-dates-check', '--browser-check', '--browser', str(browser)])
     check('stored mixed portfolio valuation and swap risk', [*preview, '--swap-risk-holdings-check'])

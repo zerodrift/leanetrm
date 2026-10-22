@@ -754,3 +754,19 @@ body.assistant-open main{margin-right:var(--assistant-width)}
   .assistant-resize{display:none}
   .assistant-launcher-text{display:none}
 }
+
+/* PPA forms and exact inspection stay within the page; wide native tables scroll locally. */
+#ppa-page{min-width:0}#ppa-page fieldset{min-width:0;border:0;padding:0;margin:16px 0}#ppa-page legend{font-weight:650;margin-bottom:14px}#ppa-page .schedule-fields label{min-width:0}#ppa-page input:not([type=checkbox]),#ppa-page select,#ppa-page textarea{max-width:100%;width:100%;min-width:0}#ppa-page select[multiple]{min-height:100px}.ppa-steps{display:flex;flex-wrap:wrap;gap:10px 28px;padding-left:24px}.ppa-steps [aria-current=step]{font-weight:700;color:var(--accent,#2255a4)}.ppa-evidence{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;font-size:12px;background:#f4f6f8;padding:12px;border-radius:8px}.ppa-components{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px}.ppa-component{margin:0!important;min-width:0}#ppa-page .table-wrap{max-width:100%;overflow:auto}#ppa-page td,#ppa-page th{padding:9px 12px;vertical-align:top;text-align:left}#ppa-page td button{margin:2px;white-space:nowrap}#ppa-page .schedule-actions{flex-wrap:wrap}#ppa-page label:has(input[type=checkbox]){display:flex;align-items:flex-start;gap:8px}#ppa-pins,#ppa-trade-title{overflow-wrap:anywhere}@media(max-width:600px){.ppa-steps{display:block}.ppa-steps li{padding:3px 0}#ppa-page .schedule-fields{grid-template-columns:minmax(0,1fr)}#ppa-page .card{padding:16px}#ppa-page .schedule-actions button{max-width:100%}}
+#ppa-measures table{width:100%;min-width:0;table-layout:fixed}#ppa-measures th,#ppa-measures td{white-space:normal;overflow-wrap:anywhere;width:50%}#ppa-measures td:nth-child(2){font-variant-numeric:tabular-nums}
+
+.ppa-plots { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr)); gap:1rem; }
+.ppa-plot { min-width:0; border:1px solid var(--line,#dce4d8); border-radius:.5rem; padding:.75rem; }
+.ppa-plot svg { display:block; width:100%; height:auto; }
+.ppa-plot h4 { margin:.25rem 0; }
+.ppa-root-marker { font-weight:600; overflow-wrap:anywhere; }
+#ppa-pricing { min-width:0; overflow-wrap:anywhere; }
+#ppa-pricing .table-wrap { max-height:30rem; }
+
+#ppa-pricing .ppa-pricing-summary { max-height:none; }
+.ppa-pricing-summary table { width:100%; min-width:0; table-layout:fixed; }
+#ppa-page .ppa-pricing-summary th,#ppa-page .ppa-pricing-summary td { white-space:normal; overflow-wrap:anywhere; width:50%; }

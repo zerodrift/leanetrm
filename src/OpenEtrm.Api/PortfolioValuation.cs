@@ -4,6 +4,7 @@ using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Calculation;
+using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 using System.Globalization;
@@ -20,6 +21,7 @@ public sealed record PortfolioValuationPolicy(string CurveNumericalPolicy,string
 public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid BindingId,Guid InstrumentId,
     Guid ValuationId,Guid BookId,string Measure,Guid DefinitionRevisionId,int PublicationOrder,Quantity Quantity)
 {
+    public DeliveryCoverage? Coverage{get;init;}
     public string TradeReference{get;init;}="";
     public string InstrumentReference{get;init;}="";
     public string InstrumentType{get;init;}="";
@@ -28,7 +30,8 @@ public sealed record PortfolioFactor(PortfolioRiskAxis Axis,ExactDecimal BumpSiz
 public sealed record PortfolioTotal(string Measure,Guid BookId,ExactMoney Value);
 public sealed record PortfolioFactorRisk(string Measure,Guid BookId,ReferenceKey Currency,string Factor,
     ExactMoney Up,ExactMoney Down,ExactMoney UpPnl,ExactMoney DownPnl,ExactRiskDerivative Delta,ExactRiskDerivative Gamma);
-public sealed record PortfolioDiscountEvidence(Guid InstrumentId,SidePaymentKey Payment,PaymentDiscount Input);
+public sealed record PortfolioDiscountEvidence(Guid InstrumentId,SidePaymentKey Payment,PaymentDiscount Input)
+{public bool Ppa{get;init;}}
 public sealed record PortfolioConnectedScenario(DefinitionRevision Definitions,string ManifestId,string Id,string? ParentId,int Depth,GraphWork Work,ConnectedPreparationWork Preparation);
 public sealed record PortfolioHoldingValue(string Measure,ExactRiskPositionValue Position);
 public sealed record PortfolioHoldingRisk(string Measure,string Factor,ExactRiskPositionResult Position);
@@ -46,6 +49,7 @@ public sealed record PortfolioValuationResult(Guid SnapshotId,ScheduleContext Co
 
 public sealed class PortfolioValuation(PreviewDatabase database)
 {
+    public const string PpaMeasure="ppa_value_excluding_overdue";
     public const string FuturesMeasure="futures_execution_pnl";
     public const string SwapMeasure="swap_present_value";
     public sealed record MarketPartition(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,
@@ -107,6 +111,9 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("portfolio_context","Select explicit books and exact market frames under one certified effective context.");
         if(!data.Snapshot(frame).HasSameInputs(snapshot))
             throw new MarketDataException("portfolio_context","Every selected observation and use must match the exact authorized snapshot inputs.");
+        await using(var ppa=ScheduleStore.Command(connection,"SELECT count(*) FROM security.ppa_scope_heads($1,'books',$2::uuid[])",database.Manifest.CatalogId,bookIds.ToArray()))
+            if((long)(await ppa.ExecuteScalarAsync(ct))!>0)
+                throw new MarketDataException("portfolio_ppa_unsupported","The complete books contain PPA positions outside the connected portfolio consumer.");
         var futuresStore=new FuturesStore(database.Manifest);
         var books=await futuresStore.Books(connection,ct);
         var futures=await futuresStore.ReadTrades(connection,data,books,bookIds,[],ct);

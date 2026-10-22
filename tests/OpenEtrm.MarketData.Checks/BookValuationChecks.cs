@@ -17,6 +17,12 @@ internal static class BookValuationChecks
             new(ExactDecimal.Parse(quantity),instrument.UnitQuantity.Specification),
             new(new Money(default,instrument.Currency),instrument.UnitQuantity.Specification),new(default,instrument.Currency));
         var portfolio=new ValuationPortfolio([instrument],[Position(a,"2"),Position(a,"-1"),Position(b,"3")],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+        try
+        {
+            _=new ValuationPortfolio([instrument],[Position(a,"1") with{Coverage=new(snapshot.ValuationAt,snapshot.ValuationAt.AddDays(1))}],portfolio.Setup);
+            throw new Exception("A legacy instrument must not silently ignore selected delivery coverage.");
+        }
+        catch(MarketDataException e)when(e.Code=="ppa_segment_coverage"){}
         var bump=new QuoteBump(new(f.S(1),InputUse.Variable),f.R("gas_out"),PriceUnit.FromQuote(f.Quotes.Single(q=>q.Key==f.R("gas_out"))),ExactDecimal.Parse("0.1"),QuoteBump.Convention);
         var reported=portfolio.RiskFactors(model,snapshot);
         if(instrument.FactorDeclarations!=1||reported.Length!=2||reported.Any(b=>b.Factors.Length!=1||b.Factors[0].Input!=bump.Input))
@@ -110,8 +116,21 @@ internal static class BookValuationChecks
             }
             catch(OperationCanceledException){}
         }
+        var covered=new PpaAcceptanceFixture();var originalPpa=covered.Physical();var amendedPpa=covered.Physical("50");
+        var coveredTrade=Guid.NewGuid();var coveredBook=Guid.NewGuid();var split=covered.From.AddHours(10);
+        RiskPosition Covered(PpaInstrument ppa,DateTimeOffset from,DateTimeOffset to)=>new(coveredTrade,Guid.NewGuid(),coveredBook,ppa.Id,
+            new(ExactDecimal.Parse("80"),ppa.UnitQuantity.Specification),new(new Money(default,ppa.Currency),ppa.UnitQuantity.Specification),new(default,ppa.Currency)){Coverage=new(from,to)};
+        var firstCovered=Covered(originalPpa,covered.From,split);var nextCovered=Covered(amendedPpa,split,covered.To);
+        _=new ValuationPortfolio([originalPpa,amendedPpa],[firstCovered,nextCovered],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+        try
+        {
+            _=new ValuationPortfolio([originalPpa,amendedPpa],[firstCovered,nextCovered with{Coverage=new(covered.From,covered.To)}],
+                new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+            throw new Exception("A trade must not double count overlapping retained and amended PPA coverage, even with different instrument identities.");
+        }
+        catch(MarketDataException e)when(e.Code=="ppa_segment_coverage"){}
         Console.WriteLine("PASS book valuation: unit Instrument.Value is shared across trades/books; external quantities retain exact scenario results");
-        return 17;
+        return 19;
     }
     [EconomicDefinition("synthetic_probe_unit_v1")]
     internal sealed record Probe:Instrument
