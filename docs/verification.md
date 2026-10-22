@@ -700,7 +700,8 @@ Grants (`tools/check_agent_grants.py`, in the same run, through the API and in S
   is unrevoked, even an expired one, revoking nothing, and refuses a change to each
   pinned helper.
 - **A workspace's grants:**
-  - a user's grants and a workspace's name each vendor as the Agents directory does;
+  - the agents a user may use, a user's grants and a workspace's name each vendor as the
+    Agents directory does;
   - the workspace lists a grant in force and its granted record with exactly their
     person, agent, version, model, permissions and times, and reading them writes
     nothing;
@@ -1004,6 +1005,11 @@ for the browser and later suites):
   the reference catalog's scope stops at once on Stop, ending the turn cancelled with no
   step, and past the 5-second `ToolRead` fails the turn `tool_failed` with a step naming
   Navigate's operation, the check's instant and its accesses.
+- **Go and Back:** the panel selects a target's retained context again by its id, which
+  yields exactly that context, which the session then shows and an ask pins, without
+  capturing another; a request without the correction policy, naming an unknown context
+  or with any other member is refused, leaving working data selected. Hosted mode does
+  not map the route.
 - **Refusals:** a read refusing the page's selection is `page_selection_unavailable`,
   arguments outside the schema `tool_arguments_invalid` and a read's own refusal its
   code (`missing_curve`), each a step the model receives as an error with only its code
@@ -1263,8 +1269,8 @@ for its own identity only: the page offers it after an identity switch, before a
 opens, and after a failed directory read, and Discard forgets it without sending it. The
 last test is unmarked while its key and terms are attested; a new key marks it as run
 under an earlier key or terms, and the card says to attest before testing again. The
-launcher then confirms that only these two tests and the Usage scenario's one reached
-the fake provider. The key never reaches
+launcher then confirms that the fake provider was reached only by these two tests, the
+Usage scenario's one and once for each answer the panel's scenario scripts. The key never reaches
 session storage, local storage or the URL, its field clears when the request settles,
 and Retry asks for it again. Measured against the client width at 390 px, neither tab overflows the page. A revoked administrator keeps
 no model, price, capability, terms, test or audit rows on screen, a viewer sees no AI
@@ -1323,7 +1329,7 @@ and show no internal identifier. In the standard run Users & access shows both c
 and a refused reload or retry clears them with the accounts; in hosted mode Agent access
 and the cards are hidden and no assistant route is read.
 
-A Usage scenario ends the run. Through an independent session it prices a model and
+A Usage scenario follows. Through an independent session it prices a model and
 tests it once, so the report holds a priced provider test of this run in a currency
 reference it names; since the preview's other checks also record calls, the page is
 compared with the API's own answers, and the SQL checks own the figures. An identity
@@ -1352,6 +1358,53 @@ report, listed once. An export whose answer never came is kept until Discard, wh
 sends nothing. At 390 px the tab and its report fit the page, and no internal identifier
 shows. An export refused because access ended keeps no request, and the reader keeps no
 usage, form or audit data, as does an administrator whose next read is refused.
+
+The panel's scenario ends the run. Through an independent session it qualifies the
+provider, prices and enables a model and publishes two agents a trader may use, and it
+scripts every answer through the fake provider's loopback control listener, which can
+hold an answer after its first block until released. A viewer, and an editor whose
+agents read lists none, see no launcher. The panel opens docked beside the narrowed page
+on Choose an agent with Send disabled, names each usable version with its provider and
+model, and widens by keyboard, remembering the width; Looking at names the page, what it
+shows and its context, working data being askable only at an As of date. Asking without
+a grant shows the §7.1 consent with the date the grant would end; Allow grants that
+version alone and sends the same question under a new request identity, with exactly the
+page report and knowledge Looking at showed. A live page target moves the page with a
+notice and Back; step lines are collapsed and name each tool in plain words; the answer
+draws emphasis, a list and code from text nodes, a link and markup staying literal; the
+usage line gives tokens by dimension and the turn's exact cost; Back restores the page,
+what it showed and its As of date. A target pinned to an As of date the page no longer
+shows waits for Go and says why, and Go selects that date and opens the curve. A live
+target that would leave unsaved booking edits waits and offers Go anyway, which moves,
+with Back, and Back from a page with unsaved edits says so first too, offering Back
+anyway. On Delivery prices Looking at says the page is not read, and Read current page
+is refused `page_not_supported` in plain words. During a turn Send becomes Stop with the
+agent and conversation fixed, and Stop marks the answer incomplete. A send lost before it
+left keeps the draft with Retry and Discard, also after a reload, and Retry sends the same
+identity once; while an ask is in flight History offers no conversation to open. After a
+reload mid-turn the panel reopens on its conversation, resumes after exactly the last
+event it read and shows the stored answer exactly. Closed mid-turn it keeps its stream;
+the answer finishing lights the launcher without a read mark, another tab holding no
+stream finds it unread in History, and opening the panel marks it read. Opening the turn
+in a second tab replaces the first tab's stream, which offers Resume; resumed, it follows
+the turn again, and a target it then receives waits for Go. With six tabs open on one
+unfinished turn only the asking tab holds a stream. A target pinned to a historical view
+waits in working data; Go selects that view again by its id, at its As of date, and Back
+returns to working data. After a reload every target of the conversation waits for Go;
+a Go whose page read then fails keeps Go and Back, and Back restores what the page
+showed. Another agent starts a new conversation; after a reload the last explicit choice
+is preselected, and once its version is no longer listed nothing is. At 390 px the panel
+is a full-width sheet that fits the page and shows no internal identifier, and no tab
+raises an uncaught error.
+
+The panel's own modules have unit checks (`web/tests/assistant-*.test.mjs`): the stream
+accepts only its fixed event names with their closed payloads, and a conversation read
+the same events; a turn's view joins text in order, drops a repeated sequence and keeps a
+hidden answer hidden; page reports, Looking at, when a target changes context or moves,
+Back's places, step, ending and usage lines, the consent sentence with its date across a
+daylight-saving change, the picker's labels and preselection, a kept ask read back only in
+its exact form, a stream's order with its gaps, and the Markdown subset, whose links,
+images and markup stay text and whose lines over 2,000 characters stay text whole.
 
 The Messages adapter has a conformance suite
 (`dotnet run --project tests/OpenEtrm.Api.Checks -- --model-providers`, also part of

@@ -114,5 +114,5 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
   get('admin-retry').onclick=()=>void run(async()=>{if(pending.command)await send(pending.command);});
   get('admin-discard').onclick=()=>{if(busy())return;pending.clear();store();pendingNote();};
   get('admin-new').onclick=()=>{if(!busy()&&directory&&!pending.command)fill();};get('admin-refresh').onclick=()=>void run(load);
-  return {load,reset(){clearDirectory();pending.clear();},refresh(){render();}};
+  return {load,unconfirmed:()=>!!pending.command,reset(){clearDirectory();pending.clear();},refresh(){render();}};
 }

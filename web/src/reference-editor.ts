@@ -1,3 +1,4 @@
+import {trackEdits} from './edit-tracking.js';
 type Row=Record<string,unknown>;
 type Revision={catalogId:string;revisionId:string};
 type Page={table:string;referenceRevision:Revision;rows:readonly Row[];context?:unknown};
@@ -22,6 +23,7 @@ export function setupReferenceEditor(options:Options){
   const versionLabel=node('label','Saved versions'),versions=node('select'),review=node('div'),apply=node('button','Apply display changes to current curves');
   versions.id='reference-edit-version';versionLabel.htmlFor=versions.id;apply.type='button';apply.id='reference-edit-apply';
   const retry=node('button','Retry retained request'),pendingMessage=node('p');retry.type='button';retry.id='reference-edit-retry';
+  const edits=trackEdits(form);
   pendingPanel.append(pendingMessage,retry);form.append(rowLabel,rows,inputs,save);content.append(status,form,versionLabel,versions,review,apply);host.replaceChildren(open,pendingPanel,content);
   const storageKey=()=>`openetrm.reference.request.${options.identity()}`;
   function retain(){try{if(pending)sessionStorage.setItem(storageKey(),JSON.stringify(pending));else sessionStorage.removeItem(storageKey());}catch{/* The exact request remains in memory. */}sync();}
@@ -29,7 +31,7 @@ export function setupReferenceEditor(options:Options){
   function text(value:unknown){return value===null||value===undefined?'':String(value);}
   function selectedRow(){return page?.rows.find(r=>text(r.code)===rows.value);}
   function drawFields(){
-    inputs.replaceChildren();const row=catalog?.item;if(!row||!catalog||text(row.code)!==rows.value)return;
+    inputs.replaceChildren();edits.clear();const row=catalog?.item;if(!row||!catalog||text(row.code)!==rows.value)return;
     if(catalog.fields.some(field=>!Number.isSafeInteger(field.maxLength)||field.maxLength<1))throw Error('Reference field limits are unavailable. Reload reference details before editing.');
     for(const field of catalog.fields){const wrapper=node('div'),label=node('label',field.label),input=node('input');input.name=field.key;input.id='reference-edit-'+field.key;label.htmlFor=input.id;
       input.type='text';input.value=text(row[field.key]);input.required=!field.nullable;if(field.kind==='decimal')input.inputMode='decimal';
@@ -96,6 +98,8 @@ export function setupReferenceEditor(options:Options){
     versions.disabled=options.busy()||!!pending;apply.hidden=!selectedVersion;apply.disabled=options.busy()||!!pending||!catalog?.canApply;
   }
   restore();sync();
-  return{setPage(next:Page|undefined){const nextScope=next?JSON.stringify([options.identity(),next.table,next.referenceRevision,next.context??null]):'';const same=nextScope===scope&&!!next;page=next;if(same){sync();return;}scope=nextScope;generation++;catalog=undefined;selectedVersion=undefined;content.hidden=true;inputs.replaceChildren();rows.replaceChildren();versions.replaceChildren();review.replaceChildren();sync();},
-    reset(){generation++;scope='';page=undefined;catalog=undefined;selectedVersion=undefined;content.hidden=true;inputs.replaceChildren();rows.replaceChildren();versions.replaceChildren();review.replaceChildren();restore();sync();},sync};
+  return{setPage(next:Page|undefined){const nextScope=next?JSON.stringify([options.identity(),next.table,next.referenceRevision,next.context??null]):'';const same=nextScope===scope&&!!next;page=next;if(same){sync();return;}scope=nextScope;generation++;catalog=undefined;selectedVersion=undefined;content.hidden=true;inputs.replaceChildren();edits.clear();rows.replaceChildren();versions.replaceChildren();review.replaceChildren();sync();},
+    reset(){generation++;scope='';page=undefined;catalog=undefined;selectedVersion=undefined;content.hidden=true;inputs.replaceChildren();edits.clear();rows.replaceChildren();versions.replaceChildren();review.replaceChildren();restore();sync();},sync,
+    // Display edits not yet saved, or a change whose outcome is unconfirmed.
+    unsaved:()=>!!pending||edits.edited()&&!content.hidden};
 }

@@ -2,6 +2,7 @@ import {displayDate,displayInstant,publicText,friendly} from './market-view.js';
 import {renderRegularTable} from './regular-table.js';
 import {zonedInput} from './user-time.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
+import {trackEdits} from './edit-tracking.js';
 
 type Calendar={name:string;from:string;to:string;weekendDays:number[];closedDates:string[]};
 type Definition={name:string;symbol:string;firstMonth:string;lastMonth:string;anchor:string;day:number|null;shortMonth:string;adjustment:string;calendar:Calendar|null};
@@ -50,7 +51,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   let library=empty(),selected:Version|undefined,shownDates:SavedDates|undefined,shownCurve:Candidate|undefined;
   let pinnedContext:Context|undefined,exactKnownAt:string|undefined;
   let contractSelected:ContractVersion|undefined,contractDirty=false,generation=0;
-  const pending=new PendingCommand(knownContractDateRejection);
+  const pending=new PendingCommand(knownContractDateRejection),dateEdits=trackEdits(form);
   const storageKey=()=>`openetrm.contract-dates.request.${identity()}`;
   const fence=()=>({generation,identity:identity()});
   const current=(started:ReturnType<typeof fence>)=>started.generation===generation&&started.identity===identity();
@@ -100,7 +101,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     clearDates();versionLabel();calendarNote();
   }
   function open(version:Version){
-    selected=version;set('dates-calendar',version.calendar?calendarKey(version.calendar):'');fill(version.definition);set('dates-selection',version.selection);set('dates-effective-from',version.effectiveFrom);set('dates-effective-to',version.effectiveTo);versionLabel();
+    selected=version;dateEdits.clear();set('dates-calendar',version.calendar?calendarKey(version.calendar):'');fill(version.definition);set('dates-selection',version.selection);set('dates-effective-from',version.effectiveFrom);set('dates-effective-to',version.effectiveTo);versionLabel();
   }
   function showDates(result:SavedDates){
     shownDates=result;get('dates-result-title').textContent=publicText(`${result.definition.symbol} · ${result.dates.length} dates`);
@@ -156,7 +157,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     if(JSON.stringify(definition())!==JSON.stringify(selected.definition)||value('dates-calendar')!==(selected.calendar?calendarKey(selected.calendar):'')||value('dates-selection')!==selected.selection||value('dates-effective-from')!==selected.effectiveFrom||value('dates-effective-to')!==selected.effectiveTo)throw Error('Save your changes before publishing.');
     const published=await api<Version>('date-schedules/publish',{id:selected.id,version:selected.version,generation:selected.generation});selected=published;await load();open(published);
   });
-  get('dates-new').onclick=()=>{if(!isBusy()){selected=undefined;form.reset();clearDates();versionLabel();calendarNote();}};
+  get('dates-new').onclick=()=>{if(!isBusy()){selected=undefined;form.reset();dateEdits.clear();clearDates();versionLabel();calendarNote();}};
   get('dates-example').onclick=()=>void run(async()=>{selected=undefined;
     const example=library.examples.monthly;if(!example)throw Error('The monthly example is unavailable. Reload schedules.');
     // Exact example terms come from the backend; the calendar stays an explicit choice.
@@ -212,5 +213,8 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   get('curve-dates-discard').onclick=()=>{if(isBusy())return;pending.clear();storePending();contractState();};
   get('curve-dates-new').onclick=()=>{if(isBusy()||!library.canEdit)return;contractSelected=undefined;contractDirty=false;curveForm.reset();get('curve-dates-rows').replaceChildren();clearCurve();contractState();};
   get('curve-dates-reload').onclick=()=>void run(async()=>{const id=contractSelected?.id,version=contractSelected?.version;await load();const fresh=library.contractDefinitions.find(v=>v.id===id&&v.version===version);if(fresh)openContract(fresh);});
-  return {load,context,setContext,showContext,sync:contractState,clearContext(){pinnedContext=undefined;exactKnownAt=undefined;set('date-context-on','');knownInput.clear();},refresh(){knownInput.refresh();if(shownDates)showDates(shownDates);if(shownCurve)showCurve(shownCurve);},reset(){generation++;pending.clear();contractSelected=undefined;contractDirty=false;get('curve-dates-status').textContent='';library=empty();selected=undefined;form.reset();curveForm.reset();get<HTMLFormElement>('date-expression-form').reset();set('date-context-on','');set('date-context-view','');pinnedContext=undefined;exactKnownAt=undefined;knownInput.clear();options('curve-dates-schedule',[],'Choose a published schedule…');options('curve-dates-example-kind',[],'Choose an example…');clearDates();clearCurve();clearExpression();get('curve-dates-rows').replaceChildren();get('dates-table').replaceChildren();get('curve-dates-table').replaceChildren();list();versionLabel();}};
+  return {load,context,setContext,showContext,sync:contractState,
+    // Unsaved edits: a contract-date definition, or a command whose outcome is unconfirmed; and a date schedule.
+    contractsUnsaved:()=>contractDirty||!!pending.command,datesUnsaved:dateEdits.edited,
+    clearContext(){pinnedContext=undefined;exactKnownAt=undefined;set('date-context-on','');knownInput.clear();},refresh(){knownInput.refresh();if(shownDates)showDates(shownDates);if(shownCurve)showCurve(shownCurve);},reset(){generation++;pending.clear();contractSelected=undefined;contractDirty=false;get('curve-dates-status').textContent='';library=empty();selected=undefined;form.reset();dateEdits.clear();curveForm.reset();get<HTMLFormElement>('date-expression-form').reset();set('date-context-on','');set('date-context-view','');pinnedContext=undefined;exactKnownAt=undefined;knownInput.clear();options('curve-dates-schedule',[],'Choose a published schedule…');options('curve-dates-example-kind',[],'Choose an example…');clearDates();clearCurve();clearExpression();get('curve-dates-rows').replaceChildren();get('dates-table').replaceChildren();get('curve-dates-table').replaceChildren();list();versionLabel();}};
 }

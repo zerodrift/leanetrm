@@ -231,5 +231,5 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  function contextChanged(){generation++;effectiveCurve=undefined;clearActivation();mode='visual';clearPreview();catalog=undefined;selected=undefined;definition=empty();layout={};selectedNode='';dirty=false;render();notifyMarketScope();}
  function refresh(){renderStatus();if(lastPreview)showPreview(lastPreview.values,lastPreview.source);}
  async function liveRefresh(){generation++;drag=undefined;if(!activationDirty)clearActivation();else activationLoaded=false;renderStatus();if(lastPreview){if(effectiveCurve)await previewEffective(true);else await preview(true);}}
- reset();initialized=true;return {load,reset,refresh,snapshotChanged,contextChanged,liveRefresh,sync,dateDefinition};
+ reset();initialized=true;return {load,reset,refresh,snapshotChanged,contextChanged,liveRefresh,sync,dateDefinition,unconfirmed:()=>!!pending.command};
 }

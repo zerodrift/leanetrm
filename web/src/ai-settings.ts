@@ -506,6 +506,8 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   }
   return {load,
     sync(){sync();agents.sync();usage.sync();},
+    // A change, key, test or export whose outcome is unconfirmed, on any tab.
+    unconfirmed:()=>[pending,providerPending,keyPending,testPending].some(p=>!!p.command)||agents.unconfirmed()||usage.unconfirmed(),
     refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();agents.refresh();usage.refresh();},
     reset(){
       generation++;clearDirectories();selected=undefined;selectedVendor=undefined;statementPair='';

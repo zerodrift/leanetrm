@@ -686,6 +686,20 @@ runs them ([ai-assistant.md](ai-assistant.md) §7.2, §7.4, §8):
   that fails is refused `tool_arguments_invalid` and adds nothing to it. The database
   takes a target only from a Navigate step that names its check, on a page the
   assistant reads, keeping the turn's pinned context, and publishes it with its step.
+- **Panel:** the browser reads only the stream's fixed event names with closed payloads; a
+  payload it cannot read, or a gap in the stream's sequence, closes the stream and reads the
+  turn again. Answers are built from text nodes: no link,
+  image, table or markup is drawn, and URLs stay text, so injected text cannot carry data
+  out; identifiers show as "internal record". The page moves only to a target the server
+  published, and only one that arrives live for a question its tab asked, keeps the
+  page's knowledge and frame and leaves nothing unsaved; any other waits for the person's
+  Go. Go and Back select a retained context only by its id, through the person's own
+  `ReadMarketData` read of it, binding exactly that context, as a historical view binds
+  the one it captures, and capturing none. The panel's width, the last agent chosen, whether it
+  is open and the conversation a tab shows are browser-local presentation: a stored
+  conversation is read again through its owner's read, and a kept ask is the exact
+  request whose repeat the server answers as it first did, so browser storage grants no
+  authority.
 - **Publication recheck:** each answer append and tool step, a Navigate step's target
   included, takes the epoch row `FOR SHARE` before the turn and then rechecks that
   authority and the turn's sources, so it waits for a revocation in progress and

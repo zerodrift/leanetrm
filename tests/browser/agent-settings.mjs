@@ -1,4 +1,5 @@
 import {sideSession} from './side-session.mjs';
+import {qualifyProvider,pricedModel} from './model-fixture.mjs';
 import {run as agentGrants} from './agent-grants.mjs';
 
 // The Agents tab of Settings › AI, after the providers scenario in the assistant check's preview. The scenario
@@ -22,26 +23,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const side=await sideSession(url);
   await side.call('admin/create',{operationId:crypto.randomUUID(),login:pricer,name:'Browser agents pricing',kind:'human',roles:['access_administrator','viewer']});
   await side.call('profile',{profile:pricer});
-  const provider=async()=>(await side.call('settings/ai/providers')).providers.find(p=>p.vendor==='anthropic');
-  const vendor=async()=>({operationId:crypto.randomUUID(),vendor:'anthropic',expectedVersion:(await provider()).version});
-  await side.call('settings/ai/providers/key',{...await vendor(),key:'sk-synthetic-browser-agents-'+stamp});
-  await side.call('settings/ai/providers/terms',{...await vendor(),accountType:'Synthetic commercial API organization',
-    retention:'Synthetic: inputs and outputs are deleted within 30 days.',retentionSource:'https://example.invalid/synthetic/retention',retentionCheckedOn:'2026-10-01',
-    training:'Synthetic: submitted content is not used for training.',trainingSource:'https://example.invalid/synthetic/training',trainingCheckedOn:'2026-10-01',
-    ownerAccess:'Synthetic: organization owners can view request logs.',ownerAccessSource:'https://example.invalid/synthetic/owner-access',ownerAccessCheckedOn:'2026-10-01'});
-  await side.call('settings/ai/providers/attest',await vendor());
-  await side.call('settings/ai/providers/enable',await vendor());
-  const added=await side.call('settings/ai/models/add',{operationId:crypto.randomUUID(),vendor:'anthropic',identifier,displayName:'Browser agent model'});
-  const listed=async()=>(await side.call('settings/ai/models')).models.find(m=>m.id===added.id);
-  const capabilities=async efforts=>side.call('settings/ai/models/edit',{operationId:crypto.randomUUID(),modelId:added.id,expectedVersion:(await listed()).version,outputLimit:4096,
-    reasoningEfforts:efforts,acceptedServed:[],...Object.fromEntries(['outputLimit','reasoning','identifierStability','acceptedServed','tools','streaming']
-      .flatMap(fact=>[[fact+'Source','https://example.invalid/synthetic/'+fact],[fact+'CheckedOn','2026-10-01']]))});
-  await capabilities(['low','high']);
-  const usd=(await side.call('settings/ai/models')).currencies.find(c=>c.code==='usd');
-  await side.call('settings/ai/models/price',{operationId:crypto.randomUUID(),modelId:added.id,expectedSequence:(await listed()).priceSequence,
-    currency:{catalogId:usd.catalogId,revisionId:usd.revisionId,code:usd.code},rates:{uncachedInput:'1.234',cacheRead:'0.0123',cacheWrite:'2.5',output:'9.87'},
-    tier:null,effectiveFrom:'2020-01-01T00:00:00Z',effectiveTo:null});
-  await side.call('settings/ai/models/enable',{operationId:crypto.randomUUID(),modelId:added.id,expectedVersion:(await listed()).version});
+  await qualifyProvider(side,'sk-synthetic-browser-agents-'+stamp);
+  const added=await pricedModel(side,{identifier,displayName:'Browser agent model',efforts:['low','high']}),{capabilities}=added;await added.enable();
 
   const rows=table=>`[...document.querySelectorAll('#${table} tbody tr')].map(r=>[...r.cells].map(c=>c.textContent))`;
   const row=(table,text)=>`${rows(table)}.find(r=>r.some(c=>c.includes(${JSON.stringify(text)})))`;

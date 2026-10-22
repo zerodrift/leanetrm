@@ -600,7 +600,8 @@ def main():
                 print(f'PASS this process opened {opened} of the {cap} sessions a scope keeps by the end of the page-assistant checks, leaving {cap-opened}, at least {margin} for the browser and later suites',flush=True)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    # The panel's scenario scripts the fake provider's answers, and releases the ones it holds, through its control listener.
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'provider':fake_provider.control()}))
                     # Roles holding one of Settings › AI's permissions each, so the browser sees every tab offered by its own.
                     query("INSERT INTO security.roles(id,code,name) VALUES(gen_random_uuid(),'synthetic_agents_admin','Synthetic agents administrator'),"
                           "(gen_random_uuid(),'synthetic_models_admin','Synthetic models administrator'),(gen_random_uuid(),'synthetic_usage_reader','Synthetic usage reader');"
@@ -611,10 +612,11 @@ def main():
                     from fake_model_provider import echo
                     reached=len(fake_provider.received);fake_provider.respond(echo(),echo(),echo())
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--assistant'],cwd=ROOT,env=env,start_new_session=True)
-                    # Settings › AI and its Agents and Usage tabs run in one browser process.
-                    if browser_process.wait(timeout=300):raise RuntimeError('Owned page-assistant settings browser checks failed')
-                    if len(fake_provider.received)!=reached+3:raise RuntimeError('The browser tests did not reach the provider exactly three times')
-                    print('PASS the browser tests reached the provider exactly three times: a retry and a refused test sent nothing',flush=True)
+                    # Settings › AI, its Agents and Usage tabs and the assistant panel run in one browser process.
+                    if browser_process.wait(timeout=600):raise RuntimeError('Owned page-assistant browser checks failed')
+                    if len(fake_provider.received)!=reached+3+fake_provider.controlled or fake_provider.script:
+                        raise RuntimeError('The browser tests did not reach the provider exactly once for each answer they scripted and three times besides')
+                    print('PASS the browser tests reached the provider once for each answer the panel scripted and three times besides: a retry and a refused test sent nothing',flush=True)
             elif args.identity_check:
                 from check_units_preview import run_checks as check_units
                 check_units(url)

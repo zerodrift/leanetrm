@@ -203,5 +203,5 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const blob=new Blob([JSON.stringify(report,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);
   });
   get('risk-close').onclick=reset;
-  return {open,reset,sync};
+  return {open,reset,sync,unconfirmed:()=>submissions.has(options.profile())};
 }
