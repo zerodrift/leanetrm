@@ -28,8 +28,8 @@ public sealed record ModelVendor(string Code,string Name,string Protocol,Uri? En
 // Model-provider administration (docs/ai-assistant.md §5, §6.3, §9): the Providers directory, Replace
 // key, Record terms, Attest, Enable and Disable. A key is checked, digested and sealed here, so only its
 // sealed form, last four characters and keyed digest reach the database. The database decides
-// qualification and every terms field's form. Under the preview's check endpoint, the directory shows
-// where requests actually go, marked as a check endpoint.
+// qualification and every terms field's form. Under the check endpoint, the directory shows where
+// requests actually go, marked as a check endpoint.
 public sealed partial class ModelProviders(CredentialCustody custody,PreviewManifest manifest,Uri? checkEndpoint)
 {
     public static readonly ImmutableArray<ModelVendor> Vendors=[new("anthropic","Anthropic","Messages API",MessagesAdapter.Endpoint),

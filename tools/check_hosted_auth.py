@@ -23,6 +23,9 @@ def run_checks(query, manifest):
     assert auth(f"SELECT security.finish_hosted_login('{account}',1,'wrong_hash',true,'{session}') IS NULL;") == 't'
     assert auth(f"SELECT security.finish_hosted_login('{account}',1,'private_hash_v1',true,'{session}');") == account
     assert auth(f"SELECT subject='{account}' AND login='synthetic_login' FROM security.hosted_session_info('{session}');") == 't'
+    # A session's information names when it ends, which an application session and its turns end by (docs/ai-assistant.md §11).
+    assert query(f"SELECT i.expires_at=s.expires_at FROM security.hosted_sessions s,security.hosted_session_info(s.token_digest) i "
+                 f"WHERE s.token_digest='{session}';") == 't'
     capability=auth(f"SELECT security.issue_hosted_context('{session}','preview_runtime');")
     assert query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{capability}');SELECT security.require_hosted_session();SELECT true;COMMIT;")=='t'
     assert query("SELECT NOT has_table_privilege('preview_runtime','security.hosted_accounts','SELECT') AND NOT has_function_privilege('preview_runtime','security.claim_hosted_invitation(text,text,text,text)','EXECUTE');") == 't'

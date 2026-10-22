@@ -276,6 +276,13 @@ static class TurnStreamChecks
             Require(Kinds(frames)==":open accepted text refused"&&frames[^1].Contains("access_denied",StringComparison.Ordinal),"a read refused for want of UseAgents refuses the stream access_denied");
         }
         {
+            var run=Start(opening,[],failure:new PreviewSessionEnded());
+            run.Streams.Ended(TurnId);
+            var frames=await run.Finished();
+            Require(Kinds(frames)==":open accepted text refused"&&frames[^1].Contains("session_ended",StringComparison.Ordinal),
+                "a read whose sign-in session was revoked elsewhere refuses the stream session_ended");
+        }
+        {
             var run=Start(opening,[],failure:new NpgsqlException("unavailable"));
             run.Streams.Ended(TurnId);
             var frames=await run.Finished();

@@ -408,9 +408,11 @@ version. Only nonce, ciphertext, tag and last four characters are stored. The au
 keeps a redaction marker and the digest, so an identical retry returns its original
 outcome and any other reuse of the request identity in that workspace conflicts.
 The preview runner creates both 32-byte key files, readable only by their owner,
-once per database. A key file that is unset, missing, a symbolic link, of another
-length or open to anyone else, and a credential that fails authentication, are
-`credential_unavailable`. These routes do not exist under `--hosted-pilot` (P37).
+once per database; under `--hosted-pilot` the installation's `host.json` names them
+and `tools/provision_hosted.py` writes them once, for the account the API runs as
+(D192). A key file that is unset, missing, a symbolic link, of another length or open
+to anyone else, and a credential that fails authentication, are
+`credential_unavailable`.
 
 Migration 0045 preserves the granted operation's signature, owner and privileges.
 Credential replacement rechecks current authority after its principal and provider
@@ -513,7 +515,23 @@ Provider Test (migration 0062, step 4) is the first route that calls a provider:
   - A worker start closes, once, every test an earlier generation left open. Migration
     0065 has it wait for in-flight opens before it stamps its start, so a test it closes
     never closes before it started.
-- **Hosted:** none of this exists under `--hosted-pilot`.
+- **Hosted:** the installation's one serving API process holds the worker; a deploy's
+  disposable candidate refuses agent work while it does (D192).
+
+Under `--hosted-pilot` (migration 0087, D192) an application session belongs to the
+sign-in session it was opened under: it names itself to the database by that session's
+token digest, ends no later than the session, and is refused once a later sign-in
+replaces it: `session_ended` on the assistant's routes and `access_denied` on pages. A hosted ask must bind the sign-in session its request
+context was issued for, ending no later than it, or it is `turn_input`. Revoking a
+sign-in session, by signing out, a password reset or disabling the account or its
+membership, cancels its turns `session_ended` in the revoking transaction, and signing
+out also ends its streams at once. Agent reads bind the agent's own context, which has
+no sign-in session; the revocation reaches them through their turn. Model requests go
+only to a provider's fixed endpoint, a turn's once it is enabled and Test's fixed
+synthetic prompt once it is attested, or to the loopback check endpoint that only owned
+checks set and a deployment refuses in a serving API. The installation's firewall allows
+the API container outbound HTTPS and DNS alone, and every deployment verifies that fence
+([hosted-pilot.md](hosted-pilot.md)).
 
 Migration 0064 has the Providers directory also state each provider's latest test, as
 `test_state` gives it, which carries no token digest, generation or sealed key, and
@@ -806,4 +824,4 @@ and never runs under a delegated context, so an agent never reads usage
   could read as a formula with an apostrophe.
 - **Records:** row triggers refuse any update or delete of an export record, even from
   the owner; the runtime holds no privilege on the audit and executes none of the
-  report's internal helpers. None of these routes exists under `--hosted-pilot`.
+  report's internal helpers.

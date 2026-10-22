@@ -108,6 +108,12 @@ static class TurnWorkerChecks
             Require(AgentWorker.Temporary(failure)==temporary,$"{failure.GetType().Name} {(failure as PostgresException)?.SqlState} is {(temporary?"":"not ")}retried");
         Console.WriteLine("PASS a worker write that must land is retried after a timeout, a lost connection or a conflict the database may not repeat, "+
             "never after a refusal or a violated invariant");
+        // A record write the sign-in session's end stopped records that end first, so the turn ends cancelled session_ended
+        // as a running turn's does (docs/ai-assistant.md §11); a refused permission stays access_denied.
+        Require(AgentTurns.Failure(new PreviewSessionEnded())==("request_cancelled",true)&&AgentTurns.Failure(State("42501"))==("access_denied",false)
+            &&AgentTurns.Failure(new OperationCanceledException())==("request_cancelled",false)&&AgentTurns.Failure(new InvalidOperationException())==("agent_runtime_unavailable",false),
+            "a failed record write ends its turn by its cause");
+        Console.WriteLine("PASS a record write stopped by the sign-in session's end ends its turn as that end does, and other failures by their cause");
     }
 
     static void Require(bool condition,string message){if(!condition)throw new Exception(message);}

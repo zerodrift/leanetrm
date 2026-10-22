@@ -36,6 +36,9 @@ def main():
     parser.add_argument('--commit', required=True)
     parser.add_argument('--gh', required=True)
     parser.add_argument('--previous-image', required=True)
+    parser.add_argument('--previous-credential-keys', required=True, choices=['absent', 'named'],
+                        help="Whether the previous image's host.json names the page assistant's credential key files; images before "
+                             'migration 0087 refuse them, so the check adds them before deploying, as the operator does')
     args = parser.parse_args()
     require(os.geteuid() == 0, 'disposable Docker qualification requires root')
     deploy.command(deploy.attestation_command(args.gh, args.bundle, args.attestation, args.repository, 'master', 'ci.yml', args.commit), timeout=180)
@@ -62,7 +65,8 @@ def main():
         tzdb = deploy.command(['docker', 'run', '--rm', '--network', 'none', '--read-only', '--entrypoint', 'head', args.previous_image,
                                '-n', '1', '/usr/share/zoneinfo/tzdata.zi']).decode().strip().split()[-1]
         prepare(origin, installation, tzdb, root / 'bootstrap')
-        shutil.copyfile(root / 'bootstrap/manifest.json', application / 'manifest.json')
+        for name in ('manifest.json', 'credential.key', 'credential-retry.key'):
+            shutil.copyfile(root / 'bootstrap' / name, application / name)
         runtime_password, auth_password = secrets.token_hex(32), secrets.token_hex(32)
         for filename, login, password in [('runtime.connection', 'synthetic_runtime', runtime_password),
                                            ('authenticator.connection', 'synthetic_authenticator', auth_password)]:
@@ -71,6 +75,8 @@ def main():
                 'webDirectory': '/opt/openetrm/web', 'manifestDirectory': '/run/private', 'runtimeConnectionFile': '/run/private/runtime.connection',
                 'authenticatorConnectionFile': '/run/private/authenticator.connection', 'listenPort': 8080,
                 'trustedProxyNetwork': '127.0.0.1/32', 'protectionCertificateFile': '/run/private/protection.pfx'}
+        keys = {'credentialKeyFile': '/run/private/credential.key', 'credentialRetryKeyFile': '/run/private/credential-retry.key'}
+        if args.previous_credential_keys == 'named': host.update(keys)
         (application / 'host.json').write_text(json.dumps(host))
         certificate, key = root / 'tls.crt', root / 'tls.key'
         deploy.command(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
@@ -130,6 +136,10 @@ def main():
                     deploy.http_checks(origin, certificate=str(certificate)); break
                 except (deploy.ReleaseError, deploy.InfrastructureError): time.sleep(1)
             else: raise RuntimeError('owned baseline API was not ready')
+            if args.previous_credential_keys == 'absent':
+                # Once the previous API has started for the last time, as an installation's operator does (docs/hosted-pilot.md).
+                host.update(keys); (application / 'host.json').write_text(json.dumps(host))
+                os.chown(application / 'host.json', 1654, 1654); (application / 'host.json').chmod(0o600)
             baseline = {'phase': 'completed', 'database': {'systemIdentifier': psql('SELECT system_identifier FROM pg_control_system();')},
                         'migrations': [{'name': path.name, 'sha256': sha256(path)} for path in migrations]}
             baseline_path = root / 'initialization.json'; deploy.atomic_json(baseline_path, baseline)
@@ -138,7 +148,7 @@ def main():
             settings = {'repository': args.repository, 'branch': 'master', 'workflow': 'ci.yml', 'stateDirectory': str(operator),
                         'gh': args.gh, 'environmentFile': str(env), 'composeFile': str(compose_file), 'composeSha256': sha256(compose_file),
                         'initializationFile': str(baseline_path), 'schemaSha256': deploy.schema_fingerprint(dump),
-                        'hostConfigurationSha256': sha256(application / 'host.json'), 'ingressGuard': None,
+                        'hostConfigurationSha256': sha256(application / 'host.json'), 'ingressGuard': None, 'egressGuard': None,
                         'privateRoot': str(private), 'applicationStateRoot': str(state), 'apiContainer': values['API_CONTAINER'],
                         'databaseContainer': values['DATABASE_CONTAINER'], 'publicOrigin': origin, 'tlsCertificate': str(certificate),
                         'ingressNetwork': project + '_web_ingress', 'databaseNetwork': project + '_database', 'candidatePort': candidate_port,

@@ -164,6 +164,9 @@ def require_rendered(rendered, settings):
 
 
 def require_actual(actual, settings, image):
+    # Only owned checks name a provider check endpoint (docs/ai-assistant.md §5.2); a serving API never does.
+    require(not any(value.startswith('OPENETRM_PROVIDER_CHECK_ENDPOINT=') for value in actual['Config'].get('Env') or []),
+            'the serving API names a provider check endpoint')
     require(actual['Image'] == image and actual['State']['Running'] and actual['Config']['User'] == '1654:1654'
             and actual['HostConfig']['ReadonlyRootfs'], 'serving image/process mismatch')
     require(actual['HostConfig']['PortBindings'] == {'8080/tcp': [{'HostIp': settings['gatewayAddress'], 'HostPort': str(settings['gatewayPort'])}]}
@@ -171,6 +174,34 @@ def require_actual(actual, settings, image):
     mounts = {(item['Source'], item['Destination'], item['RW']) for item in actual['Mounts'] if item['Type'] == 'bind'}
     require(mounts == {(settings['privateRoot'] + '/application', '/run/private', False),
                        (settings['applicationStateRoot'] + '/application', '/var/lib/openetrm', True)}, 'serving private mounts mismatch')
+
+
+def fence_rules(table, chain, hook):
+    """A live nftables chain's rules, with counters cleared, once its hook line matches."""
+    live = command(['nft', 'list', 'chain', 'inet', table, chain]).decode()
+    require(hook in live, 'live ' + table + ' fence priority mismatch')
+    rules = []
+    for line in live.splitlines():
+        line = line.strip()
+        if line in {'table inet ' + table + ' {', 'chain ' + chain + ' {', '}', hook}:
+            continue
+        if line:
+            rules.append(re.sub(r'counter packets [0-9]+ bytes [0-9]+', 'counter', line))
+    return rules
+
+
+def egress_fence(settings):
+    """The page assistant's egress fence (docs/hosted-pilot.md): its persisted file unchanged, its recorded rules live, and the
+    bridge they name still the ingress network's, which a recreated network changes. None records an installation without one."""
+    guard = settings['egressGuard']
+    if guard is None:
+        return
+    require(sha256(guard['file']) == guard['sha256'], 'persisted egress fence changed')
+    network = json.loads(command(['docker', 'network', 'inspect', settings['ingressNetwork']]))[0]
+    bridge = (network.get('Options') or {}).get('com.docker.network.bridge.name') or 'br-' + network['Id'][:12]
+    require(guard['bridge'] == bridge, 'egress fence names another bridge than the ingress network')
+    require(fence_rules('openetrm_egress', 'api_egress', 'type filter hook forward priority -200; policy accept;') == guard['rules'],
+            'live egress fence changed')
 
 
 def write_environment(path, values):
@@ -220,17 +251,9 @@ class Deployment:
             require(ipaddress.ip_address(s['gatewayAddress']).is_loopback, 'non-loopback gateway requires an ingress fence')
         else:
             require(sha256(guard['file']) == guard['sha256'], 'persistent ingress fence changed')
-            live = command(['nft', 'list', 'chain', 'inet', 'openetrm_ingress', 'public_ingress']).decode()
-            require('type filter hook prerouting priority -200; policy accept;' in live, 'live ingress fence priority mismatch')
-            rules = []
-            for line in live.splitlines():
-                line = line.strip()
-                if line in {'table inet openetrm_ingress {', 'chain public_ingress {', '}',
-                            'type filter hook prerouting priority -200; policy accept;'}:
-                    continue
-                if line:
-                    rules.append(re.sub(r'counter packets [0-9]+ bytes [0-9]+', 'counter', line))
-            require(rules == guard['rules'], 'live ingress fence changed')
+            require(fence_rules('openetrm_ingress', 'public_ingress', 'type filter hook prerouting priority -200; policy accept;') == guard['rules'],
+                    'live ingress fence changed')
+        egress_fence(s)
         baseline = json.loads(Path(s['initializationFile']).read_text())
         require(baseline['phase'] == 'completed', 'initialization is incomplete')
         sql = 'SELECT system_identifier FROM pg_control_system(); SHOW track_commit_timestamp; SHOW timezone;'
