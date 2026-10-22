@@ -17,20 +17,22 @@ public static class RecipeFormula
             var id=parser.Identifier();parser.Take('=');var kind=parser.Identifier();parser.Take('(');
             var parameters=ImmutableDictionary.CreateBuilder<string,string>();var inputs=ImmutableDictionary.CreateBuilder<string,string>();
             var weights=default(ImmutableArray<RecipeContractWeight>);
+            PublishedRecipeReference? published=null;
             if(!parser.Peek(')'))
             {
                 do
                 {
                     var key=parser.Identifier();parser.Take('=');
-                    if(parameters.ContainsKey(key)||inputs.ContainsKey(key)||key=="contractWeights"&&!weights.IsDefault)throw Invalid("Each argument may appear once.");
+                    if(parameters.ContainsKey(key)||inputs.ContainsKey(key)||key=="contractWeights"&&!weights.IsDefault||key=="publishedSource"&&published is not null)throw Invalid("Each argument may appear once.");
                     if(key=="contractWeights")weights=parser.Weights();
+                    else if(key=="publishedSource")published=parser.PublishedSource();
                     else if(parser.Peek('@')){parser.Take('@');inputs.Add(key,parser.Identifier());}
                     else parameters.Add(key,parser.String());
                     if(!parser.Peek(','))break;parser.Take(',');
                 }while(true);
             }
             parser.Take(')');
-            nodes.Add(new(id,kind,parameters.ToImmutable(),inputs.ToImmutable(),weights));
+            nodes.Add(new(id,kind,parameters.ToImmutable(),inputs.ToImmutable(),weights,published));
         }
         var outputs=nodes.Where(n=>n.Kind=="output").ToArray();
         if(outputs.Length!=1)throw Invalid("A formula requires exactly one output node.");
@@ -46,7 +48,8 @@ public static class RecipeFormula
         return string.Join("\n",definition.Nodes.Select(node=>node.Id+" = "+node.Kind+"("+
             string.Join(", ",node.Parameters.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>p.Key+"="+JsonSerializer.Serialize(p.Value))
                 .Concat(node.Inputs.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>p.Key+"=@"+p.Value))
-                .Concat(node.ContractWeights.IsDefaultOrEmpty?[]:new[]{"contractWeights="+JsonSerializer.Serialize(node.ContractWeights,new JsonSerializerOptions(JsonSerializerDefaults.Web))}))+")"));
+                .Concat(node.ContractWeights.IsDefaultOrEmpty?[]:new[]{"contractWeights="+JsonSerializer.Serialize(node.ContractWeights,new JsonSerializerOptions(JsonSerializerDefaults.Web))})
+                .Concat(node.PublishedSource is null?[]:new[]{"publishedSource="+JsonSerializer.Serialize(node.PublishedSource,new JsonSerializerOptions(JsonSerializerDefaults.Web))}))+")"));
     }
     static bool IdentifierValid(string text)=>text.Length is >0 and <=80&&char.IsAsciiLetter(text[0])&&text.All(c=>char.IsAsciiLetterOrDigit(c)||c=='_');
     static MarketDataException Invalid(string message)=>new("recipe_formula",message);
@@ -63,18 +66,20 @@ public static class RecipeFormula
             while(index<text.Length&&(char.IsAsciiLetterOrDigit(text[index])||text[index]=='_'))index++;
             var value=text[start..index];if(!IdentifierValid(value))throw Invalid($"Expected an identifier at character {start+1}.");return value;
         }
-        public ImmutableArray<RecipeContractWeight> Weights()
+        public ImmutableArray<RecipeContractWeight> Weights()=>Structured<ImmutableArray<RecipeContractWeight>>('[',']',"Contract weights");
+        public PublishedRecipeReference PublishedSource()=>Structured<PublishedRecipeReference>('{','}',"Published source");
+        T Structured<T>(char opening,char closing,string label)
         {
-            Space();var start=index;Take('[');var depth=1;var quoted=false;var escaped=false;
+            Space();var start=index;Take(opening);var depth=1;var quoted=false;var escaped=false;
             while(index<text.Length&&depth>0)
             {
                 var token=text[index++];
                 if(quoted){if(!escaped&&token=='"')quoted=false;escaped=!escaped&&token=='\\';continue;}
-                if(token=='"')quoted=true;else if(token=='[')depth++;else if(token==']')depth--;
+                if(token=='"')quoted=true;else if(token==opening)depth++;else if(token==closing)depth--;
             }
-            if(depth!=0)throw Invalid("A contract weight array is incomplete.");
-            try{return JsonSerializer.Deserialize<ImmutableArray<RecipeContractWeight>>(text[start..index],new JsonSerializerOptions(JsonSerializerDefaults.Web));}
-            catch(JsonException){throw Invalid("Contract weights require typed output positions, source ports, exact contract IDs and decimal strings.");}
+            if(depth!=0)throw Invalid(label+" is incomplete.");
+            try{return JsonSerializer.Deserialize<T>(text[start..index],new JsonSerializerOptions(JsonSerializerDefaults.Web)) is {} value?value:throw Invalid(label+" requires an explicit typed value.");}
+            catch(JsonException){throw Invalid(label+" requires the exact typed fields.");}
         }
         public string String()
         {

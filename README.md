@@ -19,7 +19,8 @@ without a seven-figure implementation.
 - **Curves:** futures, gas and power forwards, basis and interest rates, built from
   explicitly selected prices, with a diagram showing which inputs built each
   contract's price. The custom-curve workbench supports visual/formula recipes and
-  explicit weighted contract baskets; the swap editor selects compatible published
+  explicit weighted contract baskets and reusable published curve outputs that
+  keep their upstream graph links; the swap editor selects compatible published
   outputs for monthly projections
 - **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
   and remaining projections. Connected quote and computed-output scenarios produce

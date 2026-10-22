@@ -2,7 +2,8 @@
 
 Status: one connected evaluator for ordinary curves, basis relationships and
 saved recipes, with monthly booked projections and retained portfolio execution
-(D182–183, D186). The custom-curve workbench edits exact weighted mappings; the trade
+(D182–183, D186–187). The custom-curve workbench edits exact weighted mappings and
+exact-version published custom sources; the trade
 editor selects compatible published outputs; portfolio risk exposes quote and
 computed-output targets through the API and UI. The backend uses the database's
 existing certified financial context. Contract/date selection, formula compilation,
@@ -23,6 +24,15 @@ new preparation; a price shock creates a child scenario over the existing graph.
 Rolling contract and schedule selections stay pinned during price shocks.
 Publishing a new recipe version does not rebind an existing booked projection.
 Historical samples deliberately remain frozen when current quotes are shocked.
+
+Published custom sources import their exact output panel through direct graph
+edges. Parent declarations, manifests, calendars/schedules and genuine native
+samples remain in the compiled closure, including shared ancestors. All versions
+use the same resolved context; the saved relationship is an exact output-node FK
+under migration 0082. The supported bound is 32 published-source edges per path
+and 256 exact recipe versions. Native source history stays within one exact market
+revision. This adds composition without changing resampling or panel-alignment
+policies; see [custom recipes](custom-curves.md).
 
 | Change | Calculation behavior |
 | --- | --- |
@@ -231,7 +241,7 @@ MarketData.Checks switches `--dependency-plan`, `--curve-engine-cutover`,
 `--exact-curve-prices`,
 `--connected-recipes`, `--custom-projection` and `--connected-portfolios`.
 `tools/run_preview.py --connected-portfolio-check` exercises the saved projection,
-weighted multi-source recipes, booking, shared portfolio and durable worker path
+weighted multi-source recipes, published-source chains, booking, shared portfolio and durable worker path
 in a disposable database. Before applying 0080/0081, that gate also verifies
 refusal over retained draft/published v1 recipes and queued/completed jobs, with
 unchanged rows/schema and rolled-back fixtures. `--risk-jobs-check` includes HTTP

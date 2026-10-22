@@ -11,6 +11,7 @@ public sealed record ConnectedRecipeSample(CurveKey Source,DateOnly Date,Contrac
 public sealed record ConnectedRecipeOutput(CurvePointKey Point,int Position,ImmutableArray<DateOnly> Dates,
     ImmutableArray<ContractKey> Contracts,int SampleCount);
 public sealed record ConnectedRecipeSourceReference(string Node,CurveKey Curve);
+public sealed record ConnectedPublishedRecipeReference(string Node,PublishedRecipeReference Reference,CurveKey Curve,string ManifestId);
 public sealed record ConnectedRecipeDateBinding(string Node,ImmutableArray<DateOnly> Dates);
 public sealed record ConnectedRecipeCalendarPin(string Node,ReferenceKey Reference,DateSet BusinessDates);
 public sealed record ConnectedRecipeSchedulePin(string Node,Guid CatalogId,Guid ScheduleId,int Version,string EngineVersion,
@@ -22,7 +23,7 @@ public sealed record ConnectedRecipeProjection(CurvePointReference Value,Connect
 
 public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity,RecipeDefinition Definition,
     ImmutableArray<ConnectedRecipeSourceReference> Sources,ImmutableArray<ConnectedRecipeDateBinding> Dates,
-    ConnectedRecipeReferencePins References)
+    ConnectedRecipeReferencePins References,ImmutableArray<ConnectedPublishedRecipeReference> PublishedSources=default)
 {
     public CurveKey Curve=>new(new(Identity.CatalogId,ConnectedIdentity.Id(new{Version="saved_recipe_graph_v1",Identity})),Definition.Code);
     public string ManifestId=>ConnectedIdentity.Digest(Canonical);
@@ -30,8 +31,9 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         Nodes=Definition.Nodes.OrderBy(n=>n.Id,StringComparer.Ordinal).Select(n=>new{n.Id,n.Kind,
             ContractWeights=n.ContractWeights.IsDefault?[]:n.ContractWeights.OrderBy(w=>w.OutputPosition).ThenBy(w=>w.SourcePort,StringComparer.Ordinal).ThenBy(w=>w.ContractId).ToArray(),
             Parameters=n.Parameters.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>new{p.Key,p.Value}).ToArray(),
-            Inputs=n.Inputs.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>new{p.Key,p.Value}).ToArray()}).ToArray(),
+            Inputs=n.Inputs.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>new{p.Key,p.Value}).ToArray(),n.PublishedSource}).ToArray(),
         Sources=Sources.OrderBy(s=>s.Node,StringComparer.Ordinal).ToArray(),Dates=Dates.OrderBy(d=>d.Node,StringComparer.Ordinal).ToArray(),
+        PublishedSources=PublishedSources.IsDefault?[]:PublishedSources.OrderBy(s=>s.Node,StringComparer.Ordinal).ToArray(),
         References=new{Calendars=References.Calendars.OrderBy(c=>c.Node,StringComparer.Ordinal).Select(CalendarEvidence).ToArray(),
             Schedules=References.Schedules.OrderBy(s=>s.Node,StringComparer.Ordinal).Select(s=>new{s.Node,s.CatalogId,s.ScheduleId,s.Version,
                 s.EngineVersion,s.KnownFrom,s.PublicationOrder,s.Selection,s.Origin,s.First,s.Count,s.Occurrences,
@@ -47,6 +49,13 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         if(Identity is null||Identity.CatalogId==Guid.Empty||Identity.CurveId==Guid.Empty||Identity.Version<1||Identity.EngineVersion!=RecipeEngine.Version)
             throw new MarketDataException("recipe_identity","Select an exact saved recipe identity and its supported engine.");
         RecipeEngine.Validate(Definition);
+        var published=PublishedSources.IsDefault?ImmutableArray<ConnectedPublishedRecipeReference>.Empty:PublishedSources;
+        if(published.Any(p=>p is null||p.Reference is null||p.Reference.CatalogId!=Identity.CatalogId||p.Reference.CurveId==Guid.Empty||
+            p.Reference.Version<1||p.Reference.OutputNode is null||p.Curve.Revision.CatalogId!=Identity.CatalogId||p.Curve.Revision.RevisionId==Guid.Empty||
+            p.ManifestId is not {Length:64}||p.ManifestId.Any(c=>c is not(>= '0' and <= '9' or >= 'a' and <= 'f')))||published.Select(p=>p.Node).Distinct().Count()!=published.Length||
+            !Definition.Nodes.Where(n=>n.Kind=="published_source").Select(n=>n.Id).ToHashSet().SetEquals(published.Select(p=>p.Node))||
+            published.Any(p=>Definition.Nodes.Single(n=>n.Id==p.Node).PublishedSource!=p.Reference))
+            throw new MarketDataException("recipe_reference","Retain every exact published source and graph manifest.");
         if(Sources.IsDefault||Dates.IsDefault||Sources.Any(s=>s is null)||Dates.Any(d=>d is null)||
             Sources.Select(s=>s.Node).Distinct().Count()!=Sources.Length||Dates.Select(d=>d.Node).Distinct().Count()!=Dates.Length||
             !Definition.Nodes.Where(n=>n.Kind=="source").Select(n=>n.Id).ToHashSet().SetEquals(Sources.Select(s=>s.Node))||
@@ -102,9 +111,13 @@ public sealed class ConnectedRecipeGraph
     public ConnectedRecipeIdentity Identity{get;internal init;}=null!;
     public ImmutableArray<ConnectedCurveDefinition> Definitions{get;internal init;}
     public ImmutableArray<ConnectedRecipeOutput> Outputs{get;internal init;}
+    public int SourceCompilations{get;internal init;}
+    public int DeclaredSourceNodes{get;internal init;}
+    public int PublishedDepth{get;internal init;}
     internal ResolvedCalculationContext Context{get;init;}=null!;
     internal ImmutableArray<(ConnectedRecipeSample Sample,CurvePointKey Point)> SamplePoints{get;init;}
     internal ConnectedRecipeDeclaration Declaration{get;init;}=null!;
+    internal RecipeEngine.Panel PreparedPanel{get;init;}=null!;
     public RecipeResult Result(ConnectedScenario scenario,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -136,39 +149,65 @@ public static partial class RecipeEngine
 {
     public static ConnectedRecipeGraph Connect(RecipeDefinition definition,RecipeInputs inputs,ConnectedRecipeIdentity identity,
         ImmutableArray<ConnectedRecipeSample> samples,ResolvedCalculationContext context,CancellationToken cancellation=default,
-        ConnectedRecipeReferencePins? references=null)
+        ConnectedRecipeReferencePins? references=null,IReadOnlyDictionary<string,ConnectedRecipeGraph>? publishedSources=null)
     {
         cancellation.ThrowIfCancellationRequested();
         if(inputs is null||context is null||samples.IsDefault||inputs.ValuationAt!=context.ValuationAt)
             throw Missing("Supply the same resolved valuation context and explicit source snapshot bindings.");
+        Validate(definition);
+        publishedSources??=ImmutableDictionary<string,ConnectedRecipeGraph>.Empty;
+        if(samples.Any(s=>s is null)||samples.Select(s=>(s.Source,s.Date,s.Contract)).Distinct().Count()!=samples.Length)
+            throw Missing("Each directly declared source sample must be supplied once.");
+        if(!definition.Nodes.Where(n=>n.Kind=="published_source").Select(n=>n.Id).ToHashSet().SetEquals(publishedSources.Keys)||
+            publishedSources.Any(p=>p.Value is null||p.Value.Context!=context||p.Value.PreparedPanel is null||
+                definition.Nodes.Single(n=>n.Id==p.Key).PublishedSource!=new PublishedRecipeReference(p.Value.Identity.CatalogId,p.Value.Identity.CurveId,p.Value.Identity.Version,p.Value.Declaration.Definition.Output)))
+            throw Missing("Every published source requires its exact graph under the same resolved context.");
+        if(publishedSources.Values.SelectMany(g=>g.Definitions).SelectMany(d=>d.Points).Any(p=>
+            p.Expression is ConnectedRecipeProjection projection&&projection.Declaration.Identity==identity))
+            throw Invalid("Published recipe dependencies must be acyclic.");
+        var publishedDepth=publishedSources.Count==0?0:publishedSources.Values.Max(g=>g.PublishedDepth)+1;
+        if(publishedDepth>32)throw Missing("A recipe supports at most 32 published-source edges in any dependency path.");
+        if(publishedSources.Values.SelectMany(g=>g.Definitions).SelectMany(d=>d.Points)
+            .Where(p=>p.Expression is ConnectedRecipeProjection).Select(p=>((ConnectedRecipeProjection)p.Expression).Declaration.Identity).Distinct().Count()>=256)
+            throw Missing("A calculation supports at most 256 exact published recipe versions.");
         var declaration=new ConnectedRecipeDeclaration(identity,definition,
             inputs.Sources.Select(s=>new ConnectedRecipeSourceReference(s.Key,s.Value.Key)).ToImmutableArray(),
-            inputs.Dates.Select(d=>new ConnectedRecipeDateBinding(d.Key,d.Value)).ToImmutableArray(),references??new([],[]));
+            inputs.Dates.Select(d=>new ConnectedRecipeDateBinding(d.Key,d.Value)).ToImmutableArray(),references??new([],[]),
+            publishedSources.Select(p=>new ConnectedPublishedRecipeReference(p.Key,definition.Nodes.Single(n=>n.Id==p.Key).PublishedSource!,p.Value.Curve,p.Value.Declaration.ManifestId)).ToImmutableArray());
         declaration.Validate(context);
         var retained=new Dictionary<SampleKey,ConnectedRecipeSample>();
-        foreach(var sample in samples)
+        foreach(var sample in samples.Concat(publishedSources.Values.SelectMany(g=>g.SamplePoints.Select(p=>p.Sample))))
         {
             if(sample is null||sample.Model is null||sample.Snapshot is null||sample.Source.Revision!=sample.Contract.Revision||
                 sample.Snapshot.Definitions!=sample.Source.Revision||sample.Date!=DateOnly.FromDateTime(sample.Snapshot.ValuationAt.UtcDateTime)||
-                sample.FreezeHistorical!=(sample.Snapshot.ValuationAt<inputs.ValuationAt)||
-                !retained.TryAdd(new(sample.Source,sample.Date,sample.Contract),sample))
+                sample.FreezeHistorical!=(sample.Snapshot.ValuationAt<inputs.ValuationAt))
                 throw Missing("Each exact source/date/contract requires one coherent snapshot and historical-use policy.");
+            var key=new SampleKey(sample.Source,sample.Date,sample.Contract);
+            if(retained.TryGetValue(key,out var prior))
+            {if(prior.FreezeHistorical!=sample.FreezeHistorical||!prior.Snapshot.HasSameInputs(sample.Snapshot))throw Missing("A shared source sample has conflicting retained inputs.");}
+            else retained.Add(key,sample);
         }
         if(samples.Any(s=>!inputs.Sources.Values.Any(v=>v.Key==s.Source)))throw Missing("A sample belongs to an undeclared source.");
-        var panel=Prepare(definition,inputs,samples,cancellation);
+        var panel=Prepare(definition,inputs,samples,cancellation,publishedSources);
         var used=panel.Cells.SelectMany(c=>c.Inputs).Distinct().OrderBy(k=>k.Source.Code,StringComparer.Ordinal).ThenBy(k=>k.Date).ThenBy(k=>k.Contract.Id).ToArray();
         var exports=new List<ConnectedCurveExport>();var samplePoints=new Dictionary<SampleKey,CurvePointKey>();
-        foreach(var group in used.Select(k=>(Key:k,Binding:retained[k])).GroupBy(s=>(s.Binding.Model,s.Binding.Snapshot,s.Binding.FreezeHistorical)))
+        foreach(var point in publishedSources.Values.SelectMany(g=>g.SamplePoints))
+        {
+            var key=new SampleKey(point.Sample.Source,point.Sample.Date,point.Sample.Contract);
+            if(samplePoints.TryGetValue(key,out var prior)&&prior!=point.Point)throw Missing("A shared source sample has conflicting graph coordinates.");
+            samplePoints[key]=point.Point;
+        }
+        foreach(var group in used.Where(k=>!samplePoints.ContainsKey(k)).Select(k=>(Key:k,Binding:retained[k])).GroupBy(s=>(s.Binding.Model,s.Binding.Snapshot,s.Binding.FreezeHistorical)))
         {
             cancellation.ThrowIfCancellationRequested();
             var requests=group.Select(s=>new CurveRequest(s.Key.Source,s.Key.Contract)).Distinct().ToImmutableArray();
             var export=group.Key.Model.Compile(group.Key.Snapshot,requests,group.Key.FreezeHistorical,context,cancellation);exports.Add(export);
-            var directory=export.Definitions.SelectMany(d=>d.Points).ToDictionary(p=>p.Key);
+            var exportedPoints=export.Definitions.SelectMany(d=>d.Points).ToDictionary(p=>p.Key);
             foreach(var item in group)
             {
                 var request=new CurveRequest(item.Key.Source,item.Key.Contract);var point=export.Points[(request,InputUse.Variable)];
                 var sources=inputs.Sources.Values.Where(v=>v.Key==item.Key.Source).ToArray();
-                if(sources.Any(v=>v.Unit!=directory[point].Unit||v.Contracts.Single(c=>c.Contract.Key==item.Key.Contract).Contract!=directory[point].Contract))
+                if(sources.Any(v=>v.Unit!=exportedPoints[point].Unit||v.Contracts.Single(c=>c.Contract.Key==item.Key.Contract).Contract!=exportedPoints[point].Contract))
                     throw Missing("Recipe source metadata must match its exact compiled curve and contract.");
                 samplePoints.Add(item.Key,point);
             }
@@ -176,18 +215,21 @@ public static partial class RecipeEngine
         var curve=declaration.Curve;
         var internalCurve=new CurveKey(new(identity.CatalogId,ConnectedIdentity.Id(new{Version="saved_recipe_internal_curve_v2",identity})),definition.Code);
         var created=new Dictionary<(string,int),CurvePointKey>();var points=new List<ConnectedCurvePoint>();
+        var imported=ConnectedCurves.MergeDefinitions(exports.SelectMany(e=>e.Definitions).Concat(publishedSources.Values.SelectMany(g=>g.Definitions)));
+        var directory=imported.SelectMany(d=>d.Points).ToDictionary(p=>p.Key);
         CurvePointKey CompileFormula(CellFormula formula)
         {
+            if(formula.PublishedPoint is {} published)return published;
             cancellation.ThrowIfCancellationRequested();if(formula.Sample is {} sample)return samplePoints[sample];
             if(created.TryGetValue((formula.Node,formula.Index),out var prior))return prior;
             var dependencies=formula.Inputs.Select(CompileFormula).ToImmutableArray();
             var key=new CurvePointKey(internalCurve,ConnectedIdentity.Id(new{Version="saved_recipe_cell_v2",identity,formula.Node,formula.Index}));
-            var members=formula.Inputs.SelectMany(Leaves).ToArray();
-            var contracts=members.Select(m=>inputs.Sources.Values.First(s=>s.Key==m.Source).Contracts.Single(c=>c.Contract.Key==m.Contract).Contract).ToArray();
+            var members=dependencies.Select(p=>directory[p]).ToArray();
             var terms=dependencies.Select((point,i)=>(point,weight:formula.Weights[i])).GroupBy(t=>t.point)
                 .Select(g=>new ConnectedWeightedTerm(CurvePointReference.Exact(g.Key),g.Aggregate(default(ExactDecimal),(sum,t)=>sum+t.weight))).ToImmutableArray();
             ConnectedCurveExpression expression=formula.Aggregation==WeightedMean?new ConnectedWeightedMean(terms):new ConnectedWeightedSum(terms);
-            points.Add(new(key,contracts.Min(c=>c.DeliveryFrom),contracts.Max(c=>c.DeliveryTo),inputs.Sources.Values.First(s=>s.Key==members[0].Source).Unit,expression));
+            var calculated=new ConnectedCurvePoint(key,members.Min(c=>c.DeliveryFrom),members.Max(c=>c.DeliveryTo),members[0].Unit,expression);
+            points.Add(calculated);directory.Add(key,calculated);
             created.Add((formula.Node,formula.Index),key);return key;
         }
         var outputs=ImmutableArray.CreateBuilder<ConnectedRecipeOutput>();
@@ -195,20 +237,15 @@ public static partial class RecipeEngine
         {
             var cell=panel.Cells[i];var source=CompileFormula(cell.Formula);
             var key=new CurvePointKey(curve,ConnectedIdentity.Id(new{Version="saved_recipe_output_v2",identity,definition.Output,Index=i}));
-            var members=cell.Inputs.Select(s=>inputs.Sources.Values.First(v=>v.Key==s.Source).Contracts.Single(c=>c.Contract.Key==s.Contract).Contract).ToArray();
-            points.Add(new(key,members.Min(c=>c.DeliveryFrom),members.Max(c=>c.DeliveryTo),cell.Unit,new ConnectedRecipeProjection(CurvePointReference.Exact(source),declaration,cell.Position)));
+            var member=directory[source];
+            points.Add(new(key,member.DeliveryFrom,member.DeliveryTo,cell.Unit,new ConnectedRecipeProjection(CurvePointReference.Exact(source),declaration,cell.Position)));
             outputs.Add(new(key,cell.Position,cell.Dates,cell.Inputs.Select(s=>s.Contract).Distinct().ToImmutableArray(),cell.Inputs.Length));
         }
-        var definitions=ConnectedCurves.MergeDefinitions(exports.SelectMany(e=>e.Definitions).Concat(points.GroupBy(p=>p.Key.Curve).Select(g=>new ConnectedCurveDefinition(g.Key,g.ToImmutableArray()))));
+        var definitions=ConnectedCurves.MergeDefinitions(imported.Concat(points.GroupBy(p=>p.Key.Curve).Select(g=>new ConnectedCurveDefinition(g.Key,g.ToImmutableArray()))));
         return new(){Curve=curve,Identity=identity,Context=context,Declaration=declaration,Definitions=definitions,Outputs=outputs.ToImmutable(),
-            SamplePoints=used.Select(key=>(retained[key],samplePoints[key])).ToImmutableArray()};
+            SamplePoints=used.Select(key=>(retained[key],samplePoints[key])).ToImmutableArray(),PreparedPanel=panel,
+            SourceCompilations=exports.Count,DeclaredSourceNodes=exports.Sum(e=>e.Definitions.Sum(d=>d.Points.Length)),PublishedDepth=publishedDepth};
     }
-    private static IEnumerable<SampleKey> Leaves(CellFormula formula)
-    {
-        if(formula.Sample is {} sample){yield return sample;yield break;}
-        foreach(var input in formula.Inputs)foreach(var leaf in Leaves(input))yield return leaf;
-    }
-
     public static ImmutableArray<DateOnly> PriorBusinessDates(DateSet calendar,DateOnly contextDate,int count,bool includeContext)
     {
         var last=includeContext?contextDate:contextDate.AddDays(-1);

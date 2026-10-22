@@ -19,6 +19,14 @@ published outputs from the authorized backend catalog and preserves the selected
 exact version/output through amendments. Daily custom mappings, cross-revision
 rolling histories and historical VaR/covariance remain work.
 
+Published custom curves also act as reusable sources in the same visual/formula
+workbench (D187). Explicit version/output FKs import the complete parent panel
+under the same resolved context, keeping graph edges and transitive native sample
+pins through booked PV and retained risk. Shared ancestors prepare once per
+operation; cycles, more than 32 published-source edges per path or more than 256
+exact versions reject. Separate historical resampling and arbitrary weighted
+alignment of published panels remain work.
+
 The managed [connected calculation engine](connected-calculation.md) (D182–183, D186)
 adds compact dependency plans, nested sparse scenarios, bitemporal logical-to-exact
 bindings, rational means/baskets, rolling selections and resolved schedule

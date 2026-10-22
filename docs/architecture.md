@@ -6,6 +6,13 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+Published custom recipes compose through normalized exact-version/output
+relationships (D187, migration 0082). Their output panels retain direct graph
+dependencies, resolved under the same effective date, knowledge cutoff and
+current authority as their consumers. Scenario evaluation retains the complete
+ancestor declarations and native sample pins. Source execution eligibility is
+an explicit retained input distinct from the risk repricing convention.
+
 ## 1. Product purpose
 
 Build an ETRM that an AI can use as a complete application. People, internal

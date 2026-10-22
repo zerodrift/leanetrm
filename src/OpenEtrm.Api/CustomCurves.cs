@@ -26,6 +26,16 @@ public static partial class CustomCurves
             var schedules=new ScheduleStore(database.Manifest.CatalogId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId);
             var versions=pin.Context is {} selected?await schedules.ReadAt(connection,selected,ct):await schedules.Read(connection,ct);
             var calendars=await schedules.Calendars(connection,ct);
+            var recipes=await store.Read(connection,ct);
+            var publishedSources=new List<object>();
+            foreach(var recipe in recipes.Where(r=>r.State=="published"&&r.EngineVersion==RecipeEngine.Version))
+            {
+                await using var eligible=ScheduleStore.Command(connection,"SELECT security.custom_curve_uses_revision($1,$2,$3,$4)",
+                    data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,data.DefinitionRevision.RevisionId);
+                if(Equals(await eligible.ExecuteScalarAsync(ct),true))publishedSources.Add(new{
+                    label=$"{recipe.Definition.Name} ({recipe.Definition.Code}) · v{recipe.Version} · {recipe.Definition.Output}",
+                    reference=new PublishedRecipeReference(data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,recipe.Definition.Output)});
+            }
             async Task<bool> Can(string permission)
             {
                 await using var command=ScheduleStore.Command(connection,"SELECT security.has_permission($1)",permission);
@@ -35,7 +45,7 @@ public static partial class CustomCurves
                 sources=data.Definitions["curves"].Select(row=>new{code=row.Text("code"),name=row.Text("name"),catalogId=data.DefinitionRevision.CatalogId,revisionId=data.DefinitionRevision.RevisionId,contracts=data.DefinitionRows("curve_members","curve_code",row.Text("code")).OrderBy(m=>m.GetProperty("ordinal").GetInt32()).Select(m=>data.ContractRows(m.Id("contract_id")).Single()).Select(k=>new{id=k.Key.Id,label=k.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),k.DeliveryFrom,k.DeliveryTo})}),
                 calendars=calendars.Select(row=>new{code=row.Reference.Code,name=row.Reference.Code,row.Reference.CatalogId,row.Reference.RevisionId}),
                 schedules=versions.Where(v=>v.State=="published").Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
-                operators=Operators(),templates=Templates(data),recipes=await store.Read(connection,ct),formulaSupported=true});
+                operators=Operators(),templates=Templates(data),recipes,publishedSources,formulaSupported=true});
         })));
         api.MapPost("/custom-curves/compile",(HttpContext c,CustomCurveCompileRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
@@ -83,7 +93,7 @@ public static partial class CustomCurves
     static bool Equivalent(RecipeDefinition left,RecipeDefinition right)
     {
         if(left.Code!=right.Code||left.Name!=right.Name||left.Output!=right.Output||left.Nodes.Length!=right.Nodes.Length)return false;
-        return left.Nodes.All(node=>right.Nodes.Any(other=>node.Id==other.Id&&node.Kind==other.Kind&&node.Parameters.Count==other.Parameters.Count&&node.Parameters.All(p=>other.Parameters.GetValueOrDefault(p.Key)==p.Value)&&Weights(node).SequenceEqual(Weights(other))&&node.Inputs.Count==other.Inputs.Count&&node.Inputs.All(p=>other.Inputs.GetValueOrDefault(p.Key)==p.Value)));
+        return left.Nodes.All(node=>right.Nodes.Any(other=>node.Id==other.Id&&node.Kind==other.Kind&&node.PublishedSource==other.PublishedSource&&node.Parameters.Count==other.Parameters.Count&&node.Parameters.All(p=>other.Parameters.GetValueOrDefault(p.Key)==p.Value)&&Weights(node).SequenceEqual(Weights(other))&&node.Inputs.Count==other.Inputs.Count&&node.Inputs.All(p=>other.Inputs.GetValueOrDefault(p.Key)==p.Value)));
     }
     static IEnumerable<RecipeContractWeight> Weights(RecipeNode node)=>(node.ContractWeights.IsDefault?[]:node.ContractWeights).OrderBy(w=>w.OutputPosition).ThenBy(w=>w.SourcePort,StringComparer.Ordinal).ThenBy(w=>w.ContractId);
     public static void Validate(RecipeDefinition definition)
@@ -92,7 +102,7 @@ public static partial class CustomCurves
         if(!System.Text.RegularExpressions.Regex.IsMatch(definition.Code,@"\A[a-z][a-z0-9_]{0,31}\z")||definition.Name.Length>80||definition.Nodes.Length>32||definition.Nodes.Any(n=>!System.Text.RegularExpressions.Regex.IsMatch(n.Id,@"\A[a-z][a-z0-9_]{0,31}\z")))throw Invalid("Use stable lowercase codes, at most 32 nodes and an 80-character name.");
         foreach(var node in definition.Nodes)
         {
-            var allowed=node.Kind switch{"source"=>new[]{"curve"},"select" when node.Parameters["mode"]=="positions"=>new[]{"mode","binding","first","count"},"select"=>new[]{"mode","binding"},"mean"=>new[]{"axis"},"weighted_contracts"=>new[]{"aggregation"},"dates"=>node.Parameters.Keys.ToArray(),_=>Array.Empty<string>()};
+            var allowed=node.Kind switch{"source"=>new[]{"curve"},"published_source"=>new[]{"selection"},"select" when node.Parameters["mode"]=="positions"=>new[]{"mode","binding","first","count"},"select"=>new[]{"mode","binding"},"mean"=>new[]{"axis"},"weighted_contracts"=>new[]{"aggregation"},"dates"=>node.Parameters.Keys.ToArray(),_=>Array.Empty<string>()};
             if(node.Parameters.Keys.Any(key=>!allowed.Contains(key)))throw Invalid("A node contains unsupported settings for its selected operator.");
         }
         foreach(var node in definition.Nodes.Where(n=>n.Kind=="dates"))
@@ -144,6 +154,7 @@ public static partial class CustomCurves
         object Port(string name,string type)=>new{name,label=name,type,required=true};
         object Operator(string kind,string label,string output,object[] fields,params object[] ports)=>new{kind,label,outputType=output,fields,inputPorts=ports};
         return [Operator("source","Source curve","curve",[Field("curve","Curve","curve")]),
+            Operator("published_source","Published custom curve","panel",[Field("publishedSource","Published version/output","published_source"),Field("selection","Output selection","select",[Option("all_output_points_v1","All points under the selected context")])]),
             Operator("select","Select contracts","selection",[Field("mode","Contract selection","select",[Option("positions","Relative positions"),Option("daily_delivery","Daily delivery periods")]),Field("first","First position","integer",when:When("positions")),Field("count","Number of positions","integer",when:When("positions")),Field("binding","Resolve contracts","select",[Option("each_sample","At each sampling instant"),Option("context","Once at context instant")])],Port("source","curve")),
             Operator("dates","Date sequence","dates",[Field("mode","Date sequence","select",[Option("context","Context date"),Option("prior_calendar","Prior calendar dates"),Option("prior_business","Prior publication business dates"),Option("balance_month","Context date through month-end"),Option("schedule","Published date schedule")]),Field("count","Date count","integer",when:When("prior_calendar","prior_business","schedule")),Field("includeContext","Include context date","boolean",when:When("prior_calendar","prior_business")),Field("calendar","Calendar","calendar",when:When("prior_business")),Field("schedule","Published schedule","schedule",when:When("schedule")),Field("first","First schedule occurrence","integer",when:When("schedule")),Field("sampling","Sampling time","select",[Option("context_utc_time","Exact context UTC time on each sampling date")]),Field("corrections","Corrections","select",[Option("exact_context_frame_history_latest_visible","Exact selected context inputs; latest visible historical corrections")])]),
             Operator("sample","Sample prices","panel",[],Port("selection","selection"),Port("dates","dates")),
@@ -160,11 +171,11 @@ public static partial class CustomCurves
     {
         var exact=PinnedContext.Exact(context);
         if(frame.ContextId!=exact.ContextId)throw Invalid("The recipe frame must belong to its exact resolved knowledge context.");
-        var inputs=await Inputs(connection,database,definition,data,frame,sources,calendars,schedules,exact,ct);
         var identity=new ConnectedRecipeIdentity(data.DefinitionRevision.CatalogId,
             StablePreviewId(definition),1,RecipeEngine.Version);
         var resolved=CalculationContext(frame,data.DefinitionRevision,exact);
-        var graph=RecipeEngine.Connect(definition,inputs.Values,identity,inputs.Samples,resolved,ct,inputs.References);
+        var preparation=new RecipePreparation(connection,database,data,frame,exact,resolved,await new CustomCurvesStore(database).Read(connection,ct));
+        var graph=await preparation.Definition(definition,identity,sources,calendars,schedules,ct);
         var plan=ConnectedCurves.Compile(graph.Definitions,graph.Outputs.Select(o=>o.Point).ToImmutableArray(),resolved,
             new PreparedBindings(graph.Definitions.Select(d=>d.Key).ToHashSet(),resolved),ct);
         return graph.Result(ConnectedScenario.Base(plan),ct);

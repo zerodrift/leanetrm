@@ -3,7 +3,7 @@
 The local Custom curves workspace authors versioned graphs and previews their
 computed values. Published versions are immutable. Visual editing and the formula
 representation use the same managed validation and execution operation.
-Exact source curves, calendars and published
+Exact source curves, published custom outputs, calendars and published
 schedule versions are retained as foreign keys. Layout coordinates have no
 financial meaning.
 
@@ -23,6 +23,28 @@ outputs supply explicitly pinned projections to existing monthly indexed swaps
 through the trade editor, API and shared portfolio/risk path (D183, D186). Ordinary
 curves, basis relationships and custom recipes use the same connected evaluator.
 The implementation does not add theoretical options or historical VaR/covariance.
+
+A **Published custom curve** operation reuses the complete output panel of an
+explicitly selected published version (D187). Choose its exact version/output and
+`all_output_points_v1`, then connect it to a mean or curve output. The panel keeps
+its positions, observation dates, delivery metadata and native-input lineage.
+Its values remain graph references: a quote or computed-output shock on an
+ancestor flows through every dependent curve. There is no replacement price
+buffer or invented futures contract.
+
+The typed `publishedSource` formula argument contains `catalogId`, `curveId`,
+`version` and `outputNode`. Migration 0082 retains these as a normalized exact
+output-node foreign key. All ancestors resolve under the same header/job context,
+including its effective date, knowledge cutoff and current authority. A new
+upstream version never changes an existing pin. Exact-version graphs may refer
+to an older version of the same logical curve; cycles reject. Preparation permits
+at most 32 published-source edges per path and 256 exact recipe versions, sharing
+common ancestors within the operation.
+
+This operation imports the parent's output under that context. It does not
+resample it at a separately supplied date window. Contract selectors and weighted
+contract mappings consume native curves; arbitrary alignment/weighting of
+published panels requires a separate explicit contract and remains work.
 
 The three starting recipes are:
 

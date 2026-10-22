@@ -8,8 +8,11 @@ namespace OpenEtrm.MarketData.CustomCurves;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RecipeContractWeight(int OutputPosition,string SourcePort,Guid ContractId,string Weight);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PublishedRecipeReference(Guid CatalogId,Guid CurveId,int Version,string OutputNode);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RecipeNode(string Id,string Kind,ImmutableDictionary<string,string> Parameters,ImmutableDictionary<string,string> Inputs,
-    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<RecipeContractWeight> ContractWeights=default);
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<RecipeContractWeight> ContractWeights=default,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PublishedRecipeReference? PublishedSource=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RecipeDefinition(string Code,string Name,ImmutableArray<RecipeNode> Nodes,string Output);
 public sealed record RecipeContract(MarketContract Contract,DateTimeOffset EligibleFrom);

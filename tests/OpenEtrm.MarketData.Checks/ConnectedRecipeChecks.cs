@@ -89,6 +89,7 @@ internal static class ConnectedRecipeChecks
         Equal("Explicit multi-source contract weights normalize once",weightedPrice.Numerator,"57");
         Equal("Weighted source prices retain exact denominator",weightedPrice.Denominator,"2");
         var connected=RecipeEngine.Connect(definition,inputs,identity,bindings,context);
+        PublishedRecipeChecks.Run(connected,context,f.S(1));
         var plan=ConnectedCurves.Compile(connected.Definitions,connected.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible());
         var baseline=ConnectedScenario.Base(plan);var result=connected.Result(baseline).Points.Single().Price;
         Equal("A saved recipe preserves the exact average of its typed source graph",result.Numerator,"221");

@@ -55,7 +55,8 @@ def run_checks(query, manifest, psql=None, environment=None):
     axis = {'id': 'a' * 64, 'marketRevisionId': revision, 'factor': factor,
             'points': [{'curve': curve, 'pointId': str(uuid4())}]}
     frame.update(supplementalMarkets={}, swapMarketSelections={}, scenarioAxes=[axis],
-                 connectedMarkets=[{'revisionId': revision, 'manifestId': 'b' * 64, 'recipes': [], 'samples': []}])
+                 connectedMarkets=[{'revisionId': revision, 'manifestId': 'b' * 64,
+                     'sourceExecutionConvention': 'fixed_total_cash_execution_pnl_v1', 'recipes': [], 'samples': []}])
     request = {'context': {'snapshotId': frame['id'], 'contextId': context, 'knowledgeMode': 'retained', 'convention': 'trading_workspace_v1'},
                'bookIds': books, 'portfolioIds': [],
                'bumps': [{'factor': factor, 'size': '0.01', 'convention': 'absolute_curve_coordinate_symmetric_v1'}],
@@ -113,7 +114,8 @@ def run_checks(query, manifest, psql=None, environment=None):
     generic_frame = {**frame, 'supplementalMarkets': {supplemental_revision: supplemental_frame},
                      'swapMarketSelections': {supplemental_revision: supplemental_frame['observationIds']},
                      'connectedMarkets': [*frame['connectedMarkets'],
-                         {'revisionId': supplemental_revision, 'manifestId': 'c' * 64, 'recipes': [], 'samples': []}]}
+                         {'revisionId': supplemental_revision, 'manifestId': 'c' * 64,
+                          'sourceExecutionConvention': 'fixed_total_cash_execution_pnl_v1', 'recipes': [], 'samples': []}]}
     generic_request = {**request, 'engineVersion': 'synthetic_portfolio_engine_v1'}
     # The cutover refuses old financial operations and missing graph/axis pins;
     # each rejection is exercised against the same otherwise valid fixture.

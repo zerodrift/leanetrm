@@ -374,6 +374,8 @@ def main():
                 def run_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
                 check_connected_portfolio(url,manifest,query,run_worker)
+                from check_published_curve_sources import run_checks as check_published_curve_sources
+                check_published_curve_sources(url,manifest,query,run_worker)
             elif args.risk_jobs_check:
                 from preview_client import PreviewClient
                 from check_risk_preview import run_checks as check_risk

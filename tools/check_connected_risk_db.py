@@ -46,6 +46,8 @@ def run_checks(query, manifest, job_id):
     # real accepted baseline, then change one independent pin per rejection.
     submit(frame)
     changes = [
+        (lambda f: f['connectedMarkets'][custom_index].pop('sourceExecutionConvention'), 'risk_graph_input'),
+        (lambda f: f['connectedMarkets'][custom_index].update(sourceExecutionConvention='unprocessed_futures_execution_pnl_risk_v2'), 'risk_graph_input'),
         (lambda f: f['connectedMarkets'][custom_index].update(manifestId=''), 'risk_graph_input'),
         (lambda f: f['connectedMarkets'][custom_index]['recipes'][0].update(version=64), 'custom_projection'),
         (lambda f: f['connectedMarkets'][custom_index]['samples'][0].update(sourceCurve='missing_source'), 'risk_graph_input'),
