@@ -607,12 +607,13 @@ api.MapPost("/date-schedules/contracts/publish",(HttpContext c,ContractDatePubli
     Results.Ok(await contractDateStore.Publish(connection,body,ct))));
 api.MapPost("/date-schedules/contracts/resolve",(HttpContext c,ContractDateResolveRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await contractDateStore.Resolve(connection,body,session.MarketContext,ct))));
-api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(c,async session=>
+// Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
+async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve)
 {
-    if(body.Selection!="latest_correction")throw new MarketDataException("selection_policy","Choose the explicit latest-known correction policy.");
+    if(selection!="latest_correction")throw new MarketDataException("selection_policy","Choose the explicit latest-known correction policy.");
     var snapshot=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
-        var captured=await knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct);
+        var captured=await resolve(connection,ct);
         await MarketContextStore.Bind(connection,database.Manifest.CatalogId,captured.Context,ct);
         var data=await database.Read(connection,ct);
         var aliases=session.SelectContextAliases(data,captured.Context);
@@ -622,7 +623,9 @@ api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(
     session.StopLive();session.ApplyFrames(snapshot.plan);
     session.MarketContext=snapshot.captured.Context;
     return Results.Ok(snapshot.captured);
-}));
+}
+api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(c,session=>
+    SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct))));
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
 {
     await database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>Task.FromResult(true),c.RequestAborted);
@@ -1119,6 +1122,10 @@ if(hosted is null)
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Unfinished(connection,ct)),c.RequestAborted))));
     api.MapPost("/assistant/conversations/read",(HttpContext c,MarkReadRequest body)=>Locked(c,session=>
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.MarkRead(connection,body,ct)),c.RequestAborted)));
+    // The panel's Go and Back (§10.1) select a target's retained context again by its id: exactly that context, which an ask
+    // may then pin, never a new capture.
+    api.MapPost("/market/context/retained",(HttpContext c,RetainedContextRequest body)=>Locked(c,session=>
+        SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Read(connection,body.ContextId,ct))));
     // Usage (§9) is read under ReadModelUsage alone. An export records the report it carries in the model administration
     // audit, so like a change its outcome can be unknown, and repeating it answers as its original did.
     Task<IResult> UsageRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>

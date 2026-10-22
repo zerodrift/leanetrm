@@ -13,7 +13,7 @@ static class RuntimeSet
     public const int AgentInstructions=6000;
     // The longest grant a version may ask for (§7.1).
     public const int MaxGrantDays=90;
-    public const string Turns="turns_v3";
+    public const string Turns="turns_v4";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.

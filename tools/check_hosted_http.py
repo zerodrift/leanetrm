@@ -207,11 +207,12 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
                                                        'question':'Hosted?','pageReport':{'page':'curves'},'knowledge':{'mode':'current','contextId':None,'frameId':None}}),
                           ('/api/assistant/turns/stop',{'turnId':str(uuid4())}),
                           ('/api/assistant/conversations/read',{'conversationId':str(uuid4()),'through':0}),
+                          ('/api/market/context/retained',{'contextId':str(uuid4()),'selection':'latest_correction'}),
                           ('/api/settings/ai/usage/report',{'zone':'UTC','from':'2026-01-01','to':'2026-01-02','by':'model'}),
                           ('/api/settings/ai/usage/export',{'operationId':str(uuid4()),'zone':'UTC','from':'2026-01-01','to':'2026-01-02','by':'model'})):
             refused,_=admin.call(path,body,expected=400)
             assert refused['code']=='request_token'
-        print('PASS hosted mode maps no page-assistant administration, usage, grant or turn route, even for a provider administrator',flush=True)
+        print('PASS hosted mode maps no page-assistant administration, usage, grant, turn or panel route, even for a provider administrator',flush=True)
         assert query(worker) == before_worker
         print('PASS a hosted start takes no agent-worker lock and changes no worker generation or model call',flush=True)
         retained, _ = client.call('/api/bootstrap')

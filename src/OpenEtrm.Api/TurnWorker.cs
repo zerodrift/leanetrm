@@ -7,17 +7,17 @@ using Npgsql;
 namespace OpenEtrm.Api;
 
 // The turn worker (docs/ai-assistant.md §7.3–§7.6): runs each turn its process admitted, from its start to its end,
-// holding the turn's token only in memory. A turn's calls form the tool loop: a call that stops for tools is answered
-// by one step per request, in order, each a read in the agent's request context, and the next call replays the reply
-// with the results; a failure that sent nothing is retried while the version's retries allow. Each call opens with the
-// database's checks, the decrypted key and the adapter's own checks in one transaction, so nothing is sent unless the
-// open commits; it streams within the turn's elapsed limit and publishes its text in batches the database rechecks. A
-// cancel request, a publication refused or not taken, the end of the session that asked or of this process's
-// generation stops the call or read in flight, which is closed with the usage it has, and nothing more is read,
-// published or sent; the database then decides the ending, except that a stopping process or a lost generation leaves
-// the turn to the next start, which interrupts it. A write the database does not take fails the turn
-// agent_runtime_unavailable, unless the database ended it otherwise. The turn's streams hear each piece of text and
-// each step once it commits, and the end of each run (§8).
+// holding the turn's token and the navigation targets its steps issued only in memory. A turn's calls form the tool
+// loop: a call that stops for tools is answered by one step per request, in order, each a read or Navigate's check in
+// the agent's request context, and the next call replays the reply with the results; a failure that sent nothing is
+// retried while the version's retries allow. Each call opens with the database's checks, the decrypted key and the
+// adapter's own checks in one transaction, so nothing is sent unless the open commits; it streams within the turn's
+// elapsed limit and publishes its text in batches the database rechecks. A cancel request, a publication refused or not
+// taken, the end of the session that asked or of this process's generation stops the call or read in flight, which is
+// closed with the usage it has, and nothing more is read, published or sent; the database then decides the ending,
+// except that a stopping process or a lost generation leaves the turn to the next start, which interrupts it. A write
+// the database does not take fails the turn agent_runtime_unavailable, unless the database ended it otherwise. The
+// turn's streams hear each piece of text and each step once it commits, and the end of each run (§8).
 public sealed class TurnWorker:IAsyncDisposable
 {
     // The fixed preamble before every version's instructions (§7.6); instructions cannot replace it.
@@ -155,6 +155,7 @@ public sealed class TurnWorker:IAsyncDisposable
             return;
         }
         var offered=AgentTools.Offered(reads.Tools);
+        var targets=new TurnTargets();
         ImmutableArray<ModelMessage> messages=[new ModelUserText(Message(version.GetProperty("earlier"),state.GetProperty("question").GetString()!))];
         var (steps,failures)=(0,0);
         string? failed=null;
@@ -187,7 +188,7 @@ public sealed class TurnWorker:IAsyncDisposable
                 var results=ImmutableArray.CreateBuilder<ModelToolResult>(requests.Length);
                 foreach(var request in requests)
                 {
-                    if(await Answer(turn,r,reads,request,deadline) is not {} result)return;
+                    if(await Answer(turn,r,reads,targets,request,deadline) is not {} result)return;
                     results.Add(result);
                 }
                 steps+=requests.Length;
@@ -233,9 +234,10 @@ public sealed class TurnWorker:IAsyncDisposable
     // Answers one tool request with its step (§7.3, §7.5): a read bounded by the runtime set and the turn's deadline,
     // recorded once and never retried, since a step that may have landed cannot be told from a new one. A read that
     // returns once the turn is to stop is no step, whatever it returned (Settled); a step the database recorded and
-    // published reaches the model, and any other answer ends the turn. The result the model receives, or none once the
-    // turn has ended or is left to the next start.
-    async Task<ModelToolResult?> Answer(Guid turn,Running r,TurnReads reads,ModelToolRequest request,DateTimeOffset deadline)
+    // published reaches the model, its result's targets then named by their handles, and any other answer ends the turn.
+    // A Navigate step's target is recorded with it, with the turn's pinned context. The result the model receives, or
+    // none once the turn has ended or is left to the next start.
+    async Task<ModelToolResult?> Answer(Guid turn,Running r,TurnReads reads,TurnTargets targets,ModelToolRequest request,DateTimeOffset deadline)
     {
         if(await Halted(turn,r,deadline))return null;
         var remaining=Remaining(deadline);
@@ -244,7 +246,7 @@ public sealed class TurnWorker:IAsyncDisposable
         using(var bound=CancellationTokenSource.CreateLinkedTokenSource(r.Cancel.Token))
         {
             bound.CancelAfter(byDeadline?remaining:RuntimeSet.ToolRead);
-            read=await r.Tools.Run(reads,request,bound.Token);
+            read=await r.Tools.Run(reads,targets,request,bound.Token);
         }
         // The database ends a turn whose cancel was requested cancelled.
         if(Settled(read,r.Cancel.IsCancellationRequested||Abandoned(r),byDeadline) is not {} step)
@@ -252,9 +254,10 @@ public sealed class TurnWorker:IAsyncDisposable
             if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
             return null;
         }
-        var recorded=await Write("SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb)::text",turn,r.Token,step.Tool,
-            (object?)step.Operation??DBNull.Value,step.Input is {} input?input.GetRawText():DBNull.Value,(object?)step.Code??DBNull.Value,(object?)step.ReadAt??DBNull.Value,
-            step.ReadAt is null?DBNull.Value:JsonSerializer.Serialize(step.Access,JsonSerializerOptions.Web));
+        var recorded=await Write("SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb,$9::jsonb)::text",turn,r.Token,
+            step.Tool,(object?)step.Operation??DBNull.Value,step.Input is {} input?input.GetRawText():DBNull.Value,(object?)step.Code??DBNull.Value,
+            (object?)step.ReadAt??DBNull.Value,step.ReadAt is null?DBNull.Value:JsonSerializer.Serialize(step.Access,JsonSerializerOptions.Web),
+            step.Target is {} target?NavigationTargets.Json(target,reads.Pin).ToJsonString():DBNull.Value);
         // The database refused the step's publication, which ends the turn access_changed, or the turn's cancel was
         // requested, which ends it cancelled, whatever the code.
         if(!recorded.TryGetProperty("step",out _))
@@ -262,8 +265,9 @@ public sealed class TurnWorker:IAsyncDisposable
             await End(turn,r,"failed",recorded.TryGetProperty("refused",out var refused)?refused.GetString():"request_cancelled");
             return null;
         }
-        // The step's event has committed; the turn's streams read it (§8).
+        // The step's events have committed, a Navigate step's target after its step; the turn's streams read them (§8).
         streams.Published(turn,recorded.GetProperty("sequence").GetInt64(),null);
+        targets.Issue(step.Issued);
         if(step.End==ToolStepEnd.Failure)
         {
             await End(turn,r,"failed",step.Code);

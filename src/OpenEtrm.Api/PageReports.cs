@@ -13,26 +13,35 @@ sealed record PageRead(string Page,ToolCall? Call);
 // Read current page dispatches the stored report with the same parser.
 static class PageReports
 {
-    sealed record Page(string? Tool,ImmutableHashSet<string> Operations);
+    // A page: the tool that reads it, the operations behind the views it shows and, for a page the assistant reads, the
+    // name navigation targets label it with.
+    sealed record Page(string? Tool,ImmutableHashSet<string> Operations,string? Name);
 
     static readonly ImmutableDictionary<string,Page> Pages=new Dictionary<string,Page>
     {
-        ["curves"]=new("read_market_data",["market_data.curves_v1","market_data.curve_v1","market_data.observations_v1"]),
-        ["contract_definitions"]=new("read_market_data",["market_data.contract_definitions_v1"]),
-        ["schedules"]=new("read_schedules",["schedules.library_v1"]),
-        ["power_tous"]=new("read_schedules",["schedules.tou_products_v1","schedules.power_hours_v1"]),
-        ["reference_data"]=new("read_reference_data",["reference_data.table_v1"]),
-        ["parties"]=new("read_trade_parties",["trade_parties.versions_v1"]),
-        ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1"]),
+        ["curves"]=new("read_market_data",["market_data.curves_v1","market_data.curve_v1","market_data.observations_v1"],"Curves & prices"),
+        ["contract_definitions"]=new("read_market_data",["market_data.contract_definitions_v1"],"Contract definitions"),
+        ["schedules"]=new("read_schedules",["schedules.library_v1"],"Schedules"),
+        ["power_tous"]=new("read_schedules",["schedules.tou_products_v1","schedules.power_hours_v1"],"Power TOUs"),
+        ["reference_data"]=new("read_reference_data",["reference_data.table_v1"],"Reference data"),
+        ["parties"]=new("read_trade_parties",["trade_parties.versions_v1"],"Entities & counterparties"),
+        ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1"],"Blotter"),
         ["blotter_risk"]=Unsupported(),["delivery_prices"]=Unsupported(),["custom_curves"]=Unsupported(),["interval_series"]=Unsupported(),
         ["interval_curves"]=Unsupported(),["jobs"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported()
     }.ToImmutableDictionary(StringComparer.Ordinal);
 
-    static Page Unsupported()=>new(null,[]);
+    static Page Unsupported()=>new(null,[],null);
 
     // The pages the assistant reads, and those it does not.
     internal static IEnumerable<string> Supported=>Pages.Where(p=>p.Value.Tool is not null).Select(p=>p.Key);
     internal static IEnumerable<string> NotSupported=>Pages.Where(p=>p.Value.Tool is null).Select(p=>p.Key);
+
+    // A page the assistant reads: its read tool, the operations behind the views it shows and its name; and the page an
+    // operation reads.
+    internal static string Tool(string page)=>Pages[page].Tool??throw new InvalidOperationException("The assistant does not read this page.");
+    internal static ImmutableHashSet<string> Operations(string page)=>Pages[page].Operations;
+    internal static string Name(string page)=>Pages[page].Name??throw new InvalidOperationException("The assistant does not read this page.");
+    internal static string PageOf(string operation)=>Pages.Single(p=>p.Value.Operations.Contains(operation)).Key;
 
     // A report ask accepts, or page_report_invalid.
     public static void Require(JsonElement report)

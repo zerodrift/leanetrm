@@ -88,14 +88,35 @@ def status(code, body=None, headers=()):
     return respond
 
 
+def scripted(spec, releases):
+    """A response a browser check names in JSON, served as the model the request names: `text`, a call for `tools` after
+    optional text, or either held after its first content block until the release `hold` names is set."""
+    if not isinstance(spec, dict) or not set(spec) <= {'text', 'tools', 'hold'} or not isinstance(spec.get('text', ''), str) \
+            or not all(isinstance(r, list) and len(r) == 3 for r in spec.get('tools', [])):
+        raise ValueError('A scripted response names text, tools as [id, name, input] and an optional hold, and nothing else.')
+
+    def respond(handler):
+        model = json.loads(handler.body)['model']
+        requests = [tuple(r) for r in spec.get('tools', [])]
+        recorded = tool_use(model, requests, text=spec.get('text')) if requests else recording(model, text=spec.get('text', ''))
+        if 'hold' not in spec:
+            return stream(recorded)(handler)
+        cut = recorded.index('event: content_block_stop')
+        stream(recorded[:cut], releases.setdefault(spec['hold'], threading.Event()), recorded[cut:])(handler)
+    return respond
+
+
 class FakeProvider:
     def __init__(self):
         self.received = []
         self.script = []
+        self.controlled = 0
+        self.releases = {}
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
         self.server.daemon_threads = True
         self.server.fake = self
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.controller = None
 
     @property
     def url(self):
@@ -104,9 +125,21 @@ class FakeProvider:
     def respond(self, *responses):
         self.script.extend(responses)
 
+    def control(self):
+        """A loopback listener for the browser checks, which run in another process: POST /respond appends the responses
+        a JSON list names, POST /release/<name> lets a held one finish, and GET /state counts what was received and what
+        is still scripted. Returns its URL."""
+        self.controller = ThreadingHTTPServer(('127.0.0.1', 0), _Control)
+        self.controller.daemon_threads = True
+        self.controller.fake = self
+        threading.Thread(target=self.controller.serve_forever, daemon=True).start()
+        return f'http://127.0.0.1:{self.controller.server_port}'
+
     def close(self):
-        self.server.shutdown()
-        self.server.server_close()
+        for server in (self.server, self.controller):
+            if server is not None:
+                server.shutdown()
+                server.server_close()
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -123,6 +156,41 @@ class _Handler(BaseHTTPRequestHandler):
         (fake.script.pop(0) if fake.script else status(500, {'type': 'error', 'error': {'type': 'api_error', 'message': 'Unscripted request'}}))(self)
 
     do_GET = do_PUT = do_DELETE = do_POST
+
+
+class _Control(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def answer(self, code, body):
+        payload = json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_GET(self):
+        fake = self.server.fake
+        if self.path != '/state':
+            return self.answer(404, {})
+        self.answer(200, {'received': len(fake.received), 'controlled': fake.controlled, 'waiting': len(fake.script)})
+
+    def do_POST(self):
+        fake = self.server.fake
+        body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        if self.path == '/respond':
+            try:
+                responses = [scripted(spec, fake.releases) for spec in json.loads(body)]
+            except (ValueError, TypeError):
+                return self.answer(400, {})
+            fake.respond(*responses)
+            fake.controlled += len(responses)
+            return self.answer(200, {'controlled': fake.controlled})
+        if self.path.startswith('/release/') and len(self.path) > len('/release/'):
+            fake.releases.setdefault(self.path[len('/release/'):], threading.Event()).set()
+            return self.answer(200, {})
+        self.answer(404, {})
 
 
 class Trap:

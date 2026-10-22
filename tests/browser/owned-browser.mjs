@@ -93,6 +93,27 @@ export async function stopOwnedBrowser(chrome,primaryError,grace=5000){
   }
 }
 
+// One debugger connection, once open: its commands and the page helpers the checks use. Every connection reports its
+// page's uncaught exceptions into the same list.
+async function connect(socket,errors){
+  await new Promise((accept,reject)=>{const timeout=setTimeout(()=>reject(Error('Browser connection timed out')),5000);socket.onopen=()=>{clearTimeout(timeout);accept();};socket.onerror=error=>{clearTimeout(timeout);reject(error);};});
+  let sequence=0;const pending=new Map();
+  socket.onmessage=event=>{
+    const message=JSON.parse(event.data);
+    if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails.text);
+    if(message.id){const p=pending.get(message.id);if(!p)return;pending.delete(message.id);clearTimeout(p.timeout);message.error?p.reject(Error(JSON.stringify(message.error))):p.accept(message.result);}
+  };
+  const abandon=(reason='Browser check finished')=>{for(const p of pending.values()){clearTimeout(p.timeout);p.reject(Error(reason));}pending.clear();};
+  socket.onclose=()=>abandon('Browser connection closed.');
+  function command(method,params={}){const id=++sequence;return new Promise((accept,reject)=>{const timeout=setTimeout(()=>{pending.delete(id);reject(Error('Browser command timed out: '+method));},20000);pending.set(id,{accept,reject,timeout});socket.send(JSON.stringify({id,method,params}));});}
+  async function evaluate(expression){const response=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(response.exceptionDetails)throw Error(JSON.stringify(response.exceptionDetails));return response.result.value;}
+  async function wait(expression){for(let i=0;i<200;i++){if(await evaluate(expression))return;await delay(50);}throw Error('Timed out: '+expression);}
+  async function click(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);await wait(idle);}
+  async function set(selector,value){await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
+  async function submit(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);await wait(idle);}
+  return {command,evaluate,wait,click,set,submit,abandon};
+}
+
 export async function withOwnedBrowser(targetFile,browserPath,run){
   const root=dirname(resolve(targetFile)),target=JSON.parse(await readFile(targetFile,'utf8'));
   const url=new URL(target.url);
@@ -115,35 +136,34 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
   if(!(await stat(browserPath)).isFile())throw Error('Configure an installed Chromium-compatible browser executable.');
   const directory=await mkdtemp(join(root,'browser-'));
   const chrome=spawn(browserPath,[...certificateFlags,'--headless=new','--no-first-run','--disable-background-networking','--disable-component-update','--disable-sync','--disable-extensions','--disable-default-apps','--metrics-recording-only',`--user-data-dir=${directory}`,'--remote-debugging-port=0','about:blank'],{stdio:'ignore'});
-  let socket,sequence=0,passed=0,primaryError;
-  const pending=new Map(),errors=[];
+  let socket,passed=0,primaryError;
+  const errors=[],tabs=[];
   try{
     socket=new WebSocket(await waitForBrowserPage(directory,chrome));
-    await new Promise((accept,reject)=>{const timeout=setTimeout(()=>reject(Error('Browser connection timed out')),5000);socket.onopen=()=>{clearTimeout(timeout);accept();};socket.onerror=error=>{clearTimeout(timeout);reject(error);};});
-    socket.onmessage=event=>{
-      const message=JSON.parse(event.data);
-      if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails.text);
-      if(message.id){const p=pending.get(message.id);if(!p)return;pending.delete(message.id);clearTimeout(p.timeout);message.error?p.reject(Error(JSON.stringify(message.error))):p.accept(message.result);}
-    };
-    socket.onclose=()=>{for(const p of pending.values()){clearTimeout(p.timeout);p.reject(Error('Browser connection closed.'));}pending.clear();};
-    function command(method,params={}){const id=++sequence;return new Promise((accept,reject)=>{const timeout=setTimeout(()=>{pending.delete(id);reject(Error('Browser command timed out: '+method));},20000);pending.set(id,{accept,reject,timeout});socket.send(JSON.stringify({id,method,params}));});}
-    async function evaluate(expression){const response=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(response.exceptionDetails)throw Error(JSON.stringify(response.exceptionDetails));return response.result.value;}
-    async function wait(expression){for(let i=0;i<200;i++){if(await evaluate(expression))return;await delay(50);}throw Error('Timed out: '+expression);}
-    async function click(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);await wait(idle);}
-    async function set(selector,value){await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
-    async function submit(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);await wait(idle);}
+    const {command,evaluate,wait,click,set,submit,abandon}=await connect(socket,errors);
+    // Another tab of this browser, sharing its cookies and storage origin, over a debugger connection of its own.
+    async function tab(){
+      const port=await waitForBrowserPort(directory,chrome),response=await fetch(`http://127.0.0.1:${port}/json/new?about:blank`,{method:'PUT'});
+      const created=await response.json(),address=new URL(created.webSocketDebuggerUrl);
+      if(created.type!=='page'||address.protocol!=='ws:'||address.hostname!=='127.0.0.1'||address.port!==String(port)||!/^\/devtools\/page\/[^/]+$/.test(address.pathname))
+        throw Error('Browser debugger tab URL does not match the exact owned loopback port.');
+      const other=new WebSocket(address.href),driver=await connect(other,errors);tabs.push({other,driver});
+      await driver.command('Runtime.enable');await driver.command('Page.enable');await driver.command('Emulation.setTimezoneOverride',{timezoneId:'UTC'});
+      return {...driver,async close(){driver.abandon();other.close();await fetch(`http://127.0.0.1:${port}/json/close/${created.id}`);}};
+    }
     async function persona(id){await click('#profile-open');await set('#profile',id);await click('#open');}
     // An optional detail expression reports observed state only when the check fails.
     async function check(label,expression,detail){if(!await evaluate(expression))throw Error('FAIL '+label+(detail===undefined?'':' · observed '+JSON.stringify(await evaluate(detail).catch(error=>'unavailable: '+error.message))));passed++;console.log('PASS '+label);}
     async function shot(name){if(!/^[a-z-]+$/.test(name))throw Error('Invalid screenshot name');const result=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(root,name+'.png'),Buffer.from(result.data,'base64'));}
     await command('Emulation.setTimezoneOverride',{timezoneId:'UTC'});
-    await run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url:url.origin});
-    if(errors.length)throw Error('Uncaught browser exceptions: '+JSON.stringify(errors));
-    return passed;
+    try{
+      await run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url:url.origin,provider:target.provider,tab});
+      if(errors.length)throw Error('Uncaught browser exceptions: '+JSON.stringify(errors));
+      return passed;
+    }finally{abandon();for(const {other,driver} of tabs){driver.abandon();other.close();}}
   }catch(error){primaryError=error;throw error;}
   finally{
     socket?.close();
-    for(const p of pending.values()){clearTimeout(p.timeout);p.reject(Error('Browser check finished'));}pending.clear();
     await stopOwnedBrowser(chrome,primaryError);
     // run_preview.py removes profiles after stopping the entire owned process group.
   }

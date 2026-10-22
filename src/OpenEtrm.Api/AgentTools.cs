@@ -36,6 +36,8 @@ sealed record ReferenceArguments(string Table,string Search):ToolArguments;
 sealed record PartyArguments(string Kind):ToolArguments;
 sealed record BlotterArguments(FuturesBlotterView View):ToolArguments;
 sealed record TradeArguments(Guid TradeId,string InstrumentType,int? Revision):ToolArguments;
+// Navigate's request names exactly one of a page the assistant reads and a handle a read issued.
+sealed record NavigateArguments(string? Page,string? Handle):ToolArguments;
 
 // A refusal of a request before its read runs.
 sealed class ToolRefusal(string code):Exception(code)
@@ -58,21 +60,26 @@ public enum ToolStepEnd {Result,Refusal,Failure,Interrupted}
 
 // A request's step (§7.3): what record_tool_step records, and the content the model receives for a result or refusal.
 // A read names its operation, the instant it read and every access it ran under; a refusal before any read names none.
+// A Navigate step names the target it issued, which its navigation event publishes; a read's step names the targets its
+// result issued, which name targets once the step is published.
 public sealed record ToolStep(string Tool,string? Operation,JsonElement? Input,string? Code,DateTimeOffset? ReadAt,ImmutableArray<ReadAccess> Access,
     string? Content,ToolStepEnd End)
 {
+    public NavigationTarget? Target {get;init;}
+    public ImmutableArray<IssuedTarget> Issued {get;init;}=[];
     public override string ToString()=>nameof(ToolStep);
 }
 
-// The fixed read tools over the session-independent page reads (§7.3, §12 step 2): pages and tools share each read and its
-// authorization path. Every read runs in a request context issued to the turn's agent under its grant, at the pin the
-// turn's record rebuilds, and returns the page's own values, bounded by the runtime set and never truncated.
+// The fixed tools (§7.3, §12 step 2): reads over the session-independent page reads, so pages and tools share each read
+// and its authorization path, and Navigate. Every read runs in a request context issued to the turn's agent under its
+// grant, at the pin the turn's record rebuilds, and returns the page's own values, bounded by the runtime set and never
+// truncated, with the navigation targets it issues; Navigate checks its target's page in such a context.
 public sealed partial class AgentTools(PreviewDatabase database,MarketReads market,ScheduleReads schedules,PartyReads parties,TradeReads trades,ILogger logger)
 {
     const string Uuid="^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
     static readonly ImmutableArray<string> MarketData=["ReadMarketData"];
 
-    // The fixed tools, in the order every request offers them. Navigate and Show card come later.
+    // The fixed tools, in the order every request offers them. Show card comes later.
     internal static readonly ImmutableArray<AgentTool> Tools=
     [
         Tool("read_current_page","Reads the page the user asked from, with what it had selected then, at the knowledge and As of frame pinned when "+
@@ -126,7 +133,16 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             $$$"""
             {"type":"object","properties":{"table":{"type":"string","enum":[{{{string.Join(",",PreviewDatabase.ReferenceTables.Select(t=>$"\"{t}\""))}}}]},
              "search":{"type":"string","maxLength":160}},"required":["table","search"],"additionalProperties":false}
-            """,MarketData)
+            """,MarketData),
+        Tool("navigate","Requests a move of the user to a page, or to what a read in this turn showed. Every read result names a target handle for its "+
+            "own view, and each curve and trade it lists names one too. Send page, with target null, to open a page as it opens; or send a handle as "+
+            "target, with page null. The move keeps the knowledge and As of frame pinned when the question was asked. Say where it leads.",
+            $$$"""
+            {"type":"object","properties":{"page":{"type":["string","null"],"enum":[{{{string.Join(",",PageReports.Supported.Order(StringComparer.Ordinal).Select(p=>$"\"{p}\""))}}},null],
+              "description":"A page to open, or null to open a target."},
+             "target":{"type":["string","null"],"pattern":"^n[1-9][0-9]{0,8}$","description":"A target handle a read in this turn returned, or null to open a page."}},
+             "required":["page","target"],"additionalProperties":false}
+            """,[])
     ];
 
     static AgentTool Tool(string name,string description,string schema,ImmutableArray<string> permissions)
@@ -164,6 +180,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("reference_data.table_v1","read_reference_data",ToolNeeds.View,MarketAccess,[])
     }.ToImmutableDictionary(o=>o.Id);
     internal static ToolOperation Operation(string id)=>Operations[id];
+    // Navigate reads no page: the accesses its check runs under are those of its target's page.
+    static readonly ToolOperation Navigation=new(NavigationTargets.Operation,"navigate",ToolNeeds.View,_=>[],[]);
     // Market and reference reads check both catalogs; trades and parties read a market catalog's trading data, with its
     // market data (§7.1). An access recorded and not checked only makes later rechecks stricter.
     static ImmutableArray<ReadAccess> MarketAccess(PreviewManifest m)=>[new("market_access",m.CatalogId,"ReadMarketData"),new("reference_access",m.ReferenceCatalogId,"ReadMarketData")];
@@ -209,18 +227,29 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             case "read_reference_data":
                 members.Exactly("table","search");
                 return new(Operations["reference_data.table_v1"],new ReferenceArguments(members.Choice("table",[..PreviewDatabase.ReferenceTables]),members.Text("search",0,160)));
+            case "navigate":
+                members.Exactly("page","target");
+                if(members.Has("page"))
+                {
+                    members.Null("target");
+                    return new(Navigation,new NavigateArguments(members.Choice("page",[..PageReports.Supported]),null));
+                }
+                members.Null("page");
+                return new(Navigation,new NavigateArguments(null,members.Text("target",2,10,Handle())));
             default:
                 throw ToolInput.Invalid();
         }
     }
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9_.-]*\z")] private static partial Regex CurveCode();
+    [GeneratedRegex(@"^n[1-9][0-9]{0,8}\z")] private static partial Regex Handle();
 
     // The fixed text each refusal carries, never a read's own message, which may name business data (§7.3, D177). A
     // structured refusal this table does not name carries the generic sentence.
     static readonly ImmutableDictionary<string,string> Texts=new Dictionary<string,string>
     {
-        ["tool_arguments_invalid"]="The request's arguments do not match this tool's input schema. Correct them and ask again.",
+        ["tool_arguments_invalid"]="The request's arguments are not ones this tool accepts: they do not match its input schema, name a target handle no "+
+            "read in this turn returned, or name a page this agent cannot open for the user. Correct them and ask again.",
         ["page_not_supported"]="The page this question was asked from is not one the assistant reads, so nothing was read from it.",
         ["tool_not_enabled"]="This agent version does not have the tool that reads the page this question was asked from switched on.",
         ["page_selection_unavailable"]="What the page had selected when the question was asked is not available at the pinned knowledge and As of frame.",
@@ -286,9 +315,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     }
 
     // Runs one request as a step (§7.3): checks its arguments and what it needs of the pin before any read, then reads in
-    // the agent's request context. A read that bound its context joins the source set with every access it runs under,
-    // even when it is then denied or fails; a refusal before that adds none.
-    public async Task<ToolStep> Run(TurnReads turn,ModelToolRequest request,CancellationToken ct)
+    // the agent's request context, issuing the result's targets from the turn's next handle. A read that bound its context
+    // joins the source set with every access it runs under, even when it is then denied or fails; a refusal before that
+    // adds none. Navigate resolves its target before its check, refusing an unissued handle with the input kept.
+    public async Task<ToolStep> Run(TurnReads turn,TurnTargets targets,ModelToolRequest request,CancellationToken ct)
     {
         var (tool,input)=(request.Name,(JsonElement?)request.Input);
         ToolStep Before(string code,JsonElement? kept)=>new(tool,null,kept,code,null,[],Refusal(code),ToolStepEnd.Refusal);
@@ -301,6 +331,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         }
         catch(ToolRefusal refused){return Before(refused.Code,refused.Code=="tool_arguments_invalid"?null:input);}
         catch(MarketDataException refused){return Before(refused.Code,input);}
+        if(call.Arguments is NavigateArguments navigate)
+            return Target(targets,navigate) is {} target?await Navigate(turn,tool,input!.Value,target,ct):Before("tool_arguments_invalid",input);
         var operation=call.Operation;
         var access=operation.Access(database.Manifest);
         DateTimeOffset? readAt=null;
@@ -309,8 +341,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         {
             var result=await database.WithAgent(turn.Agent,Tools.Single(t=>t.Name==operation.Tool).Permissions,at=>readAt=at,
                 (connection,read)=>Read(connection,turn.Pin,call,read),ct);
-            return Bounded(Envelope(turn.Pin,operation,readAt!.Value,result),result.Rows) is {} content?Step(null,content,ToolStepEnd.Result)
-                :Step("result_too_large",Refusal("result_too_large"),ToolStepEnd.Refusal);
+            return Returned(tool,request.Input,call,turn.Pin,readAt!.Value,access,result,targets.Next);
         }
         catch(Exception e)
         {
@@ -320,6 +351,64 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             var shown=Shown(operation,dispatched,code!);
             return Step(shown,Refusal(shown),end);
         }
+    }
+
+    // A read's step once it returned (§7.3): its result within the runtime set's row and byte bounds, with the targets it
+    // issues numbered from the turn's next handle; otherwise result_too_large, never a truncated result, issuing none.
+    // Rows are counted before any target is issued, and bytes after, since handles count toward them.
+    internal static ToolStep Returned(string tool,JsonElement input,ToolCall call,TurnPin pin,DateTimeOffset readAt,ImmutableArray<ReadAccess> access,
+        ToolResult result,int next)
+    {
+        ToolStep Step(string? code,string content,ToolStepEnd end)=>new(tool,call.Operation.Id,input,code,readAt,access,content,end);
+        var tooLarge=Step("result_too_large",Refusal("result_too_large"),ToolStepEnd.Refusal);
+        if(result.Rows>RuntimeSet.ToolResultRows)return tooLarge;
+        var issued=NavigationTargets.Issue(call,result.Value,next);
+        return Bounded(Envelope(pin,call.Operation,readAt,result,issued[0].Handle),result.Rows) is {} content?Step(null,content,ToolStepEnd.Result) with{Issued=issued}
+            :tooLarge;
+    }
+
+    // The target a Navigate request names (§7.3): a page the assistant reads, or a handle a published step of this turn
+    // issued; none for any other handle.
+    internal static NavigationTarget? Target(TurnTargets targets,NavigateArguments navigate)=>
+        navigate.Page is {} page?NavigationTargets.Page(page):targets.Find(navigate.Handle!);
+
+    // Navigate's step (§7.3): its target, once its page is checked in a request context issued to the agent, under the
+    // turn's grant against the delegator's permissions, by the accesses and permissions that page's reads run under, which
+    // then join the source set. A page the agent cannot open for its delegator is tool_arguments_invalid, keeping the
+    // input and adding nothing to the source set (D190); a check stopped or failing once bound ends as a read does,
+    // recording the instant and accesses it ran under (§7.5).
+    async Task<ToolStep> Navigate(TurnReads turn,string tool,JsonElement input,NavigationTarget target,CancellationToken ct)
+    {
+        ToolStep Unopened()=>new(tool,null,input,"tool_arguments_invalid",null,[],Refusal("tool_arguments_invalid"),ToolStepEnd.Refusal);
+        var access=NavigationTargets.Access(target.Page,database.Manifest);
+        DateTimeOffset? checkedAt=null;
+        bool opens;
+        try{opens=await database.WithAgent(turn.Agent,NavigationTargets.Permissions(target.Page),at=>checkedAt=at,(connection,c)=>Opens(connection,access,c),ct);}
+        catch(Exception e)
+        {
+            var (code,end)=Classify(e);
+            if(end==ToolStepEnd.Refusal)return Unopened();
+            if(end==ToolStepEnd.Failure)logger.LogError("A navigation target's check failed: {ErrorType}",e.GetType().Name);
+            return new(tool,checkedAt is null?null:NavigationTargets.Operation,input,code,checkedAt,checkedAt is null?[]:access,null,end);
+        }
+        return opens?new(tool,NavigationTargets.Operation,input,null,checkedAt,access,NavigationTargets.Echo(target),ToolStepEnd.Result){Target=target}:Unopened();
+    }
+
+    // Whether the bound request context opens a page: each access its reads run under holds.
+    static async Task<bool> Opens(NpgsqlConnection connection,ImmutableArray<ReadAccess> access,CancellationToken ct)
+    {
+        foreach(var held in access)
+        {
+            await using var command=ScheduleStore.Command(connection,held.Access switch
+            {
+                "market_access"=>"SELECT security.market_access($1,$2)",
+                "reference_access"=>"SELECT security.reference_access($1,$2)",
+                "trading_access"=>"SELECT security.trading_access($1,$2)",
+                _=>throw new InvalidOperationException("An access has no check.")
+            },held.CatalogId,held.Permission);
+            if(!Equals(await command.ExecuteScalarAsync(ct),true))return false;
+        }
+        return true;
     }
 
     // A read's refusal as its step names it: for a page's selection, the refusals that mean the selection is unavailable
@@ -392,8 +481,9 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     }
 
     // A result with the knowledge it was read at (§7.2): the turn's pinned context and cutoff, or for current-only
-    // definitions the instant they were read, never the cutoff; and the As of frame where the read consumed one.
-    internal static JsonObject Envelope(TurnPin pin,ToolOperation operation,DateTimeOffset readAt,ToolResult result)
+    // definitions the instant they were read, never the cutoff; the As of frame where the read consumed one; and the
+    // handle of its own target (§7.3).
+    internal static JsonObject Envelope(TurnPin pin,ToolOperation operation,DateTimeOffset readAt,ToolResult result,string target)
     {
         var context=operation.Needs is ToolNeeds.CurrentOnly or ToolNeeds.CurrentOnlyFrame
             ?new JsonObject{["knowledge"]="current_definitions",["readAt"]=JsonSerializer.SerializeToNode(readAt)}
@@ -402,6 +492,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             context["frame"]=new JsonObject{["id"]=frame.Id.ToString(),["name"]=frame.Name,["at"]=JsonSerializer.SerializeToNode(frame.At)};
         var envelope=new JsonObject{["operation"]=operation.Id,["context"]=context};
         if(result.Displayed)envelope["amountDisplay"]=ToolAmountDisplay.Implementation;
+        envelope["target"]=target;
         envelope["result"]=result.Value;
         return envelope;
     }
@@ -424,6 +515,9 @@ sealed class ToolInput
     {
         if(members.Count!=names.Length||!names.All(members.ContainsKey))throw Invalid();
     }
+
+    // Whether a member holds a value rather than null.
+    public bool Has(string name)=>members.TryGetValue(name,out var value)&&value.ValueKind!=JsonValueKind.Null;
 
     // Members another view takes, named as null.
     public void Null(params string[] names)

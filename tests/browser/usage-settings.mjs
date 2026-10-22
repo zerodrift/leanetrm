@@ -1,4 +1,5 @@
 import {sideSession} from './side-session.mjs';
+import {qualifyProvider,pricedModel} from './model-fixture.mjs';
 
 // The Usage tab of Settings › AI, after the Agents scenario in the assistant check's preview. An independent session
 // prices a model and tests it once against the fake provider, so the report holds a priced provider test of this run in
@@ -23,23 +24,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const side=await sideSession(url);
   await side.call('admin/create',{operationId:crypto.randomUUID(),login:pricer,name:'Browser usage pricing',kind:'human',roles:['access_administrator','viewer']});
   await side.call('profile',{profile:pricer});
-  const provider=async()=>(await side.call('settings/ai/providers')).providers.find(p=>p.vendor==='anthropic');
-  const vendor=async()=>({operationId:crypto.randomUUID(),vendor:'anthropic',expectedVersion:(await provider()).version});
-  await side.call('settings/ai/providers/key',{...await vendor(),key:'sk-synthetic-browser-usage-'+stamp});
-  await side.call('settings/ai/providers/terms',{...await vendor(),accountType:'Synthetic commercial API organization',
-    retention:'Synthetic: inputs and outputs are deleted within 30 days.',retentionSource:'https://example.invalid/synthetic/retention',retentionCheckedOn:'2026-10-01',
-    training:'Synthetic: submitted content is not used for training.',trainingSource:'https://example.invalid/synthetic/training',trainingCheckedOn:'2026-10-01',
-    ownerAccess:'Synthetic: organization owners can view request logs.',ownerAccessSource:'https://example.invalid/synthetic/owner-access',ownerAccessCheckedOn:'2026-10-01'});
-  await side.call('settings/ai/providers/attest',await vendor());
-  const added=await side.call('settings/ai/models/add',{operationId:crypto.randomUUID(),vendor:'anthropic',identifier:'browser-usage-model-'+stamp,displayName:'Browser usage model'});
-  const listed=async()=>(await side.call('settings/ai/models')).models.find(m=>m.id===added.id);
-  await side.call('settings/ai/models/edit',{operationId:crypto.randomUUID(),modelId:added.id,expectedVersion:(await listed()).version,outputLimit:4096,
-    reasoningEfforts:['low'],acceptedServed:[],...Object.fromEntries(['outputLimit','reasoning','identifierStability','acceptedServed','tools','streaming']
-      .flatMap(fact=>[[fact+'Source','https://example.invalid/synthetic/'+fact],[fact+'CheckedOn','2026-10-01']]))});
-  const usd=(await side.call('settings/ai/models')).currencies.find(c=>c.code==='usd');
-  await side.call('settings/ai/models/price',{operationId:crypto.randomUUID(),modelId:added.id,expectedSequence:(await listed()).priceSequence,
-    currency:{catalogId:usd.catalogId,revisionId:usd.revisionId,code:usd.code},rates:{uncachedInput:'1.234',cacheRead:'0.0123',cacheWrite:'2.5',output:'9.87'},
-    tier:null,effectiveFrom:'2020-01-01T00:00:00Z',effectiveTo:null});
+  await qualifyProvider(side,'sk-synthetic-browser-usage-'+stamp,{enable:false});
+  const added=await pricedModel(side,{identifier:'browser-usage-model-'+stamp,displayName:'Browser usage model',efforts:['low']}),{usd}=added;
   const tested=await side.call('settings/ai/providers/test',{operationId:crypto.randomUUID(),modelId:added.id,reasoning:'low'});
   if(tested.outcome!=='succeeded'||tested.cost?.status!=='priced')throw Error('The synthetic provider test recorded no priced call: '+JSON.stringify(tested));
 

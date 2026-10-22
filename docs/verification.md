@@ -700,7 +700,8 @@ Grants (`tools/check_agent_grants.py`, in the same run, through the API and in S
   is unrevoked, even an expired one, revoking nothing, and refuses a change to each
   pinned helper.
 - **A workspace's grants:**
-  - a user's grants and a workspace's name each vendor as the Agents directory does;
+  - the agents a user may use, a user's grants and a workspace's name each vendor as the
+    Agents directory does;
   - the workspace lists a grant in force and its granted record with exactly their
     person, agent, version, model, permissions and times, and reading them writes
     nothing;
@@ -787,6 +788,22 @@ and the worker with a session of its own holding the agent-worker lock):
   failed does not complete though an earlier one did; after a call whose usage was not
   recognized the next call ends the turn `limit_input_unverifiable`, and once the input
   its calls reported is past the limit `limit_input_tokens`.
+- **Navigation targets:** only a Navigate step without a code carries a target, and it
+  names Navigate's operation, the instant its page was checked from its call's close and
+  the accesses it was checked under, as a read names its own; a read, a refusal or a
+  Navigate result without a target or Navigate's operation is refused `turn_input`, as
+  is a target that is not exactly a page, selection, context, kind and label, on a page
+  the assistant does not read, with a kind other than page, record or filter, a record
+  off Curves & prices and the Blotter, or a selection that does not fit its kind or
+  exceeds 8 KiB, with a context other than the turn's
+  pinned mode, context and frame, or with a label that is not 1 to 200 characters of
+  plain text, and nothing is written. The step is published as its step event and then
+  a navigation event carrying its number and the target, the answer naming the latter's
+  sequence; a refusal, such as an unissued handle keeping its input, publishes its step
+  alone; a source the grant no longer covers refuses the publication of both. The
+  owner's reads show each target, and once the replay recheck hides the turn's answer
+  the conversation and the stream's reads show its hidden marker instead, leaving its
+  steps as they are.
 - **Sources:** a read joins the source set with what it ran under even when it then
   failed, and a refusal before any read adds nothing; a source the turn's grant no
   longer covers refuses a step's and text's publication and ends the turn
@@ -884,7 +901,9 @@ and the worker with a session of its own holding the agent-worker lock):
   privileges of one; before 0072 applies, it refuses a change to each definition it
   replaces or helper it relies on, or to the privileges of one; before 0078 applies, it
   refuses a change to the definition it replaces or a helper the stream's read relies
-  on, or to the privileges of one, the risk worker's on the access functions included.
+  on, or to the privileges of one, the risk worker's on the access functions included;
+  before 0086 applies, it refuses a change to each definition it replaces or helper a
+  Navigate step relies on, or to the privileges of one.
 
 Turns over HTTP (`tools/check_agent_turn_http.py`, in the same run after the SQL turn
 checks, through the API against the loopback fake provider):
@@ -932,21 +951,23 @@ checks, through the API against the loopback fake provider):
   turn and marks a conversation read, and no other person sees them; no log line or
   request body carries the key, and no request goes through a proxy.
 
-Read tools over HTTP (`tools/check_agent_tool_http.py`, in the same run after the turn
+Tools over HTTP (`tools/check_agent_tool_http.py`, in the same run after the turn
 checks, in the administrator and trader sessions they hand over, so it opens no session
 of its own; once the Usage checks have run too, the run asserts that the sessions the
 process has opened, in every suite before, leave at least ten of the 64 a scope keeps
 for the browser and later suites):
 
 - **The loop:** a turn whose first two calls stop for tools completes once the third
-  ends it. Each request offers the version's switched-on read tools in the fixed order
-  with automatic choice and closed schemas that require every member they state; each
-  request is answered by a step, numbered across the turn, before the next call opens;
-  the next call replays the reply unchanged and then the results in order; and the
-  text is kept exactly as streamed. A step records its tool, operation, the request's
-  input, the instant it read, after its call's close and before the next call, and
-  every access its read ran under, and its event carries only its number and tool; the
-  turn records `turns_v3`.
+  ends it. Each request offers the version's switched-on tools in the fixed order,
+  Navigate after the reads, with automatic choice and closed schemas that require every
+  member they state; each request is answered by a step, numbered across the turn,
+  before the next call opens; the next call replays the reply unchanged and then the
+  results in order; and the text is kept exactly as streamed. A step records its tool,
+  operation, the request's input, the instant it read, after its call's close and before
+  the next call, and every access its read ran under, and its event carries only its
+  number and tool; each read names a target handle for its own selection and one for
+  each curve or trade it lists, numbered on across the turn and its calls; the turn
+  records `turns_v4`.
 - **Identity:** each read runs in one request context of its own, issued to the agent's
   principal under the turn's grant on the `openetrm-agent-reads` backends; page views
   and trades bind the context the ask captured, even after the session selects a
@@ -966,6 +987,29 @@ for the browser and later suites):
   own inputs: a row's ticks and deal formats, the default for totals and a swap's
   terms, a futures trade's prices at its contract's settlement-price increment, and a
   swap's valuation and each side by the money formats the trader saved for the deal.
+- **Navigate:** a request names a page the assistant reads or a handle a read returned
+  in this turn: a Blotter row's trade, the Blotter itself and a curve from the curve
+  directory are each published as a navigation event right after its step, with the
+  page, the selection (the trade at its row's revision), the turn's pinned mode, context
+  and frame, the kind and the label, and the model receives the target's page, kind and
+  label; each step records Navigate's operation, the instant its page was checked and
+  that page's reads' accesses, each check in a request context of its own issued to the
+  agent under the turn's grant on the agent pools. An unissued handle, a handle that
+  only a party name the model read names, and a page outside the schema are refused
+  `tool_arguments_invalid` before any check, the first two keeping their input, and the
+  turn continues; under a grant that lists only market data, the Blotter is refused so,
+  adding nothing to the source set, while Curves & prices is a target. A follow-up in
+  the same conversation naming a handle its earlier turn issued, before it reads, is
+  refused so too, keeping its input. A historical view without a frame publishes a page
+  target keeping its retained context with no frame. A page check held where it reads
+  the reference catalog's scope stops at once on Stop, ending the turn cancelled with no
+  step, and past the 5-second `ToolRead` fails the turn `tool_failed` with a step naming
+  Navigate's operation, the check's instant and its accesses.
+- **Go and Back:** the panel selects a target's retained context again by its id, which
+  yields exactly that context, which the session then shows and an ask pins, without
+  capturing another; a request without the correction policy, naming an unknown context
+  or with any other member is refused, leaving working data selected. Hosted mode does
+  not map the route.
 - **Refusals:** a read refusing the page's selection is `page_selection_unavailable`,
   arguments outside the schema `tool_arguments_invalid` and a read's own refusal its
   code (`missing_curve`), each a step the model receives as an error with only its code
@@ -1009,9 +1053,21 @@ for a tool the version has not switched on is `tool_not_enabled` before any read
 a trade's shown from its contract's increment and the deal's saved formats; and, over
 the corpus in `tests/fixtures/amount-display-cases.json` that the page's checks also
 assert, with the tick and format an editor's walk starts from, that results show
-amounts as the page does, each amount once, by the last walk that reaches it. A tool
-stop continues the loop with the reply and the results in order, and a request for a
-tool the request did not offer is unreadable, keeping its final usage.
+amounts as the page does, each amount once, by the last walk that reaches it. They
+check that each read issues its own selection as a target and then each curve or trade
+it lists as a record target, a trade at the revision read, under handles numbered from
+the turn's next, each a page report its page reads, labeled with the page and what it
+shows; that a page target names one of the seven pages the assistant reads, checked by
+the accesses and permissions that page's reads all run under; that a target's event
+keeps the turn's pinned mode, context and frame, and Navigate answers with the
+target's page, kind and label; that Navigate's schema offers exactly those pages and
+the handle form, and its parser takes exactly one of them; that a turn's handles name
+targets only once their step is published, numbered on without a gap or a repeat, so a
+handle the turn did not issue resolves to none; and that a result past the row or byte
+bound issues no target, its rows counted before any target is issued, so the turn's
+next read issues from the same handle. A tool stop continues the loop with the reply and
+the results in order, and a request for a tool the request did not offer is
+unreadable, keeping its final usage.
 
 The live stream over HTTP (`tools/check_turn_stream_http.py`, in the same run after the
 turn checks over HTTP, through the API against the loopback fake provider). It opens no
@@ -1036,9 +1092,11 @@ cookie.
 - **Live:** a stream of a stalled turn holds no database transaction while it waits and
   sends each piece of text once it commits, in order without a gap or repeat, through
   the terminal event, its text the stored answer; a step reaches a stream already live
-  once it commits, while the call after it is still open; an answer holding CR, LF,
-  CRLF, `event:`, `data:` and `id:` lines and a blank line arrives only inside text
-  events, byte for byte the stored answer; a stream dropped while its turn runs resumes
+  once it commits, while the call after it is still open; a navigation target reaches
+  the stream as a `navigation` event right after its step, as the conversation read
+  shows it; an answer holding CR, LF, CRLF, `event:`, `data:` and `id:` lines and a
+  blank line arrives only inside text events, never as a `navigation` event, byte for
+  byte the stored answer; a stream dropped while its turn runs resumes
   through `Last-Event-ID`, and one opened once the turn has ended through `after`, each
   with exactly the events that followed.
 - **Endings:** a newer stream of an unfinished turn, in the same session or another of
@@ -1211,8 +1269,8 @@ for its own identity only: the page offers it after an identity switch, before a
 opens, and after a failed directory read, and Discard forgets it without sending it. The
 last test is unmarked while its key and terms are attested; a new key marks it as run
 under an earlier key or terms, and the card says to attest before testing again. The
-launcher then confirms that only these two tests and the Usage scenario's one reached
-the fake provider. The key never reaches
+launcher then confirms that the fake provider was reached only by these two tests, the
+Usage scenario's one and once for each answer the panel's scenario scripts. The key never reaches
 session storage, local storage or the URL, its field clears when the request settles,
 and Retry asks for it again. Measured against the client width at 390 px, neither tab overflows the page. A revoked administrator keeps
 no model, price, capability, terms, test or audit rows on screen, a viewer sees no AI
@@ -1271,7 +1329,7 @@ and show no internal identifier. In the standard run Users & access shows both c
 and a refused reload or retry clears them with the accounts; in hosted mode Agent access
 and the cards are hidden and no assistant route is read.
 
-A Usage scenario ends the run. Through an independent session it prices a model and
+A Usage scenario follows. Through an independent session it prices a model and
 tests it once, so the report holds a priced provider test of this run in a currency
 reference it names; since the preview's other checks also record calls, the page is
 compared with the API's own answers, and the SQL checks own the figures. An identity
@@ -1300,6 +1358,53 @@ report, listed once. An export whose answer never came is kept until Discard, wh
 sends nothing. At 390 px the tab and its report fit the page, and no internal identifier
 shows. An export refused because access ended keeps no request, and the reader keeps no
 usage, form or audit data, as does an administrator whose next read is refused.
+
+The panel's scenario ends the run. Through an independent session it qualifies the
+provider, prices and enables a model and publishes two agents a trader may use, and it
+scripts every answer through the fake provider's loopback control listener, which can
+hold an answer after its first block until released. A viewer, and an editor whose
+agents read lists none, see no launcher. The panel opens docked beside the narrowed page
+on Choose an agent with Send disabled, names each usable version with its provider and
+model, and widens by keyboard, remembering the width; Looking at names the page, what it
+shows and its context, working data being askable only at an As of date. Asking without
+a grant shows the §7.1 consent with the date the grant would end; Allow grants that
+version alone and sends the same question under a new request identity, with exactly the
+page report and knowledge Looking at showed. A live page target moves the page with a
+notice and Back; step lines are collapsed and name each tool in plain words; the answer
+draws emphasis, a list and code from text nodes, a link and markup staying literal; the
+usage line gives tokens by dimension and the turn's exact cost; Back restores the page,
+what it showed and its As of date. A target pinned to an As of date the page no longer
+shows waits for Go and says why, and Go selects that date and opens the curve. A live
+target that would leave unsaved booking edits waits and offers Go anyway, which moves,
+with Back, and Back from a page with unsaved edits says so first too, offering Back
+anyway. On Delivery prices Looking at says the page is not read, and Read current page
+is refused `page_not_supported` in plain words. During a turn Send becomes Stop with the
+agent and conversation fixed, and Stop marks the answer incomplete. A send lost before it
+left keeps the draft with Retry and Discard, also after a reload, and Retry sends the same
+identity once; while an ask is in flight History offers no conversation to open. After a
+reload mid-turn the panel reopens on its conversation, resumes after exactly the last
+event it read and shows the stored answer exactly. Closed mid-turn it keeps its stream;
+the answer finishing lights the launcher without a read mark, another tab holding no
+stream finds it unread in History, and opening the panel marks it read. Opening the turn
+in a second tab replaces the first tab's stream, which offers Resume; resumed, it follows
+the turn again, and a target it then receives waits for Go. With six tabs open on one
+unfinished turn only the asking tab holds a stream. A target pinned to a historical view
+waits in working data; Go selects that view again by its id, at its As of date, and Back
+returns to working data. After a reload every target of the conversation waits for Go;
+a Go whose page read then fails keeps Go and Back, and Back restores what the page
+showed. Another agent starts a new conversation; after a reload the last explicit choice
+is preselected, and once its version is no longer listed nothing is. At 390 px the panel
+is a full-width sheet that fits the page and shows no internal identifier, and no tab
+raises an uncaught error.
+
+The panel's own modules have unit checks (`web/tests/assistant-*.test.mjs`): the stream
+accepts only its fixed event names with their closed payloads, and a conversation read
+the same events; a turn's view joins text in order, drops a repeated sequence and keeps a
+hidden answer hidden; page reports, Looking at, when a target changes context or moves,
+Back's places, step, ending and usage lines, the consent sentence with its date across a
+daylight-saving change, the picker's labels and preselection, a kept ask read back only in
+its exact form, a stream's order with its gaps, and the Markdown subset, whose links,
+images and markup stay text and whose lines over 2,000 characters stay text whole.
 
 The Messages adapter has a conformance suite
 (`dotnet run --project tests/OpenEtrm.Api.Checks -- --model-providers`, also part of

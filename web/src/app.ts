@@ -27,6 +27,9 @@ import {type Preferences,newPreferences,loadPreferences,savePreferences,validTim
 import {setupShortcutEditor,scheduleErrorMessage} from './shortcut-view.js';
 import {setupTouProducts} from './tou-products.js';
 import {validateMarketNavigation,navigationGroups,navigationCategories,navigationCurveKind,type MarketNavigation,type FrameSummary} from './market-navigation.js';
+import {setupAssistant} from './assistant-panel.js';
+import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
+import {readPages,type TargetContext} from './assistant-events.js';
 
 const exampleId=new URLSearchParams(location.search).get('example')??'baseline';
 if(!['baseline','exchange'].includes(exampleId))throw Error('Choose an available example.');
@@ -74,7 +77,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();marketCalendar.sync();if(initialWorkspaceReady)customCurves.sync();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();marketCalendar.sync();if(initialWorkspaceReady)customCurves.sync();assistant.sync();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -178,7 +181,9 @@ async function openMarketCalendar(allowCatalogRefresh=true):Promise<void>{
   throw error;
  }
 }
-function renderFrames(value:string){const context=historicalContext();const frames=context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;choose('snapshot',[{value:'',name:frames.length?'Choose a date…':'No inputs for this context date'},...frameOptions(frames,prefs.timeZone)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;invalidateMarketDates();}
+// The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
+function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
+function renderFrames(value:string){const frames=offeredFrames();choose('snapshot',[{value:'',name:frames.length?'Choose a date…':'No inputs for this context date'},...frameOptions(frames,prefs.timeZone)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;invalidateMarketDates();}
 function renderBrowse(){
   const categories=navigationCategories(directory()),commodities=categories.map(c=>c.code);
   // No commodity code is empty, so the empty value can only mean All markets.
@@ -471,7 +476,7 @@ async function loadIdentity(initialAccess?:unknown){
     if(!access||access.profile!==currentProfile||!Array.isArray(access.permissions)||!access.permissions.every(p=>typeof p==='string'))throw Error('The workspace access metadata is missing or inconsistent. Refresh and try again.');
     permissions=[...access.permissions];
   }
-  loadProfile();renderTimeZones();
+  loadProfile();renderTimeZones();assistant.reset();
   // Navigation follows current permissions; the backend still authorizes every operation.
   const read=can('ReadMarketData'),author=read&&(can('WriteMarketDefinitions')||can('SealMarketDefinitions')),manage=can('ManageAccess')&&can('ManageIdentities');
   for(const id of ['nav-market','nav-custom-curves','nav-delivery','nav-interval-series','nav-interval-curves','nav-power','nav-reference','nav-schedules'])$(id).hidden=!read;
@@ -487,25 +492,24 @@ $('snapshot').onchange=()=>void act(async()=>{marketCalendar.selectedChanged();c
 $('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await build();});
 $('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').onchange=()=>void act(async()=>updateFilters());
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];updateFilters();}));
-document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);});
+document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
 function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();parties.reset();clearReference();futures.reset();power.reset();contextDirty=true;clearPrices();text('environment-context-note','Context changed · choose View this context to apply it.');}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
-$('nav-parties').onclick=()=>void act(async()=>{if(contextDirty)await applyContext();await setPage('parties');await parties.load();});
 const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=>administrationScope+':'+currentProfile,profileChoices,()=>!hostedPilot);
 // A person's own agent grants, in the profile dialog; the page assistant exists only in the local preview (docs/ai-assistant.md §7.1, §11).
 const agentGrants=setupAgentGrants({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,available:()=>!hostedPilot});
 $('profile-dialog').addEventListener('close',agentGrants.hide);
-$('nav-admin').onclick=()=>void act(async()=>{await setPage('admin');await administration.load();});
 // Settings › AI exists only in the local preview; hosted mode maps none of its routes (docs/ai-assistant.md §11).
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
-$('nav-ai').onclick=()=>void act(async()=>{await setPage('ai');await aiSettings.load();});
 const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile);
 $('date-context').addEventListener('input',dirtyContext);
 async function applyContext(){
   jobs.contextChanged();
   const context=await dateEditor.context();
-  const snapshot=await api<{context:Context}>('market/context',{effectiveOn:context.effectiveOn,knownAt:context.knownAt,mode:'at',selection:'latest_correction'});
+  await viewContext(await api<{context:Context}>('market/context',{effectiveOn:context.effectiveOn,knownAt:context.knownAt,mode:'at',selection:'latest_correction'}));
+}
+async function viewContext(snapshot:{context:Context}){
   futures.reset();dateEditor.setContext(snapshot.context);contextDirty=false;clearPrices();await reload('');
   text('environment-context-note','Historical view · working snapshots use the latest known corrections; stored closes retain their original inputs. Changes are disabled.');
 }
@@ -528,7 +532,6 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
  open:()=>void act(openMarketCalendar),select:id=>{select('snapshot').value=id;select('snapshot').dispatchEvent(new Event('change',{bubbles:true}));}
 });
-$('nav-custom-curves').onclick=()=>void act(async()=>{if(contextDirty)await applyContext();await setPage('custom-curves');await customCurves.load();});
 const deliveryPrices=setupPowerImports({api,act,busy:()=>busy,instant});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
@@ -537,18 +540,10 @@ const referenceEditor=setupReferenceEditor({host:$('reference-editor'),api,act,b
  const selected=select('snapshot').value,offset=referencePage?.offset??0,search=referencePage?.search??'';
  await reload(selected);await loadReference(offset,search);if(result)renderPrices();
 }});
-$('nav-jobs').onclick=()=>void act(async()=>{await setPage('jobs');await jobs.load();});
-$('nav-delivery').onclick=()=>void act(async()=>{if(contextDirty)await applyContext();await setPage('delivery');await deliveryPrices.load();});
-$('nav-interval-curves').onclick=()=>void act(async()=>{await setPage('interval-curves');await intervalCurves.load();});
-$('nav-interval-series').onclick=()=>void act(async()=>{await setPage('interval-series');await intervalSeries.load();});
 const power=setupPowerView({api,act,zone:()=>prefs.timeZone,name:curveName,source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');const f=frame();return {snapshotId:f.id,curve,name:instant(f.at)};}});
 const unitConverter=setupUnitConverter({api,act,busy:()=>busy});
 const futures=setupFutures({api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>contextDirty?'Apply the changed historical context first.':historicalContext()?'Historical view is read-only. Return to working data to book or amend.':!permissions.includes('BookTrade')?'Your current role does not have Book Trade permission.':'Choose an As of date to book a trade.',zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
-$('nav-futures').onclick=()=>void act(async()=>{if(contextDirty)await applyContext();await setPage('futures');futures.reset();if(select('snapshot').value)await futures.load();});
 const touProducts=setupTouProducts(act,api,()=>busy,()=>prefs.timeZone,async()=>{power.reset();if(select('snapshot').value)await power.load();});
-$('nav-power').onclick=$('curve-power').onclick=()=>void act(async()=>{await setPage('power');power.reset();await touProducts.load();if(select('snapshot').value)await power.load();});
-$('nav-schedules').onclick=()=>void act(async()=>{await setPage('schedules');await schedules.load();await dateEditor.load();});
-$('nav-configuration').onclick=()=>{if(busy)return;void act(async()=>{if(contextDirty)await applyContext();await setPage('configuration');await dateEditor.load();});};$('nav-market').onclick=()=>void act(async()=>{if(contextDirty)await applyContext();await setPage('market');});$('nav-reference').onclick=()=>void act(async()=>{if(contextDirty)await applyContext();await setPage('reference');$<HTMLInputElement>('reference-search').value='';await loadReference();});
 $('reference-table').onchange=()=>void act(async()=>{$<HTMLInputElement>('reference-search').value='';await loadReference();});
 $('reference-search-form').onsubmit=event=>{event.preventDefault();void act(()=>loadReference(0,$<HTMLInputElement>('reference-search').value));};
 $('reference-previous').onclick=()=>void act(()=>loadReference(Math.max(0,referencePage!.offset-referencePage!.pageSize),referencePage!.search));
@@ -557,6 +552,140 @@ for(const id of ['source-contract','pricing-contract'])select(id).onchange=()=>v
 for(const id of ['source-all','pricing-all'])$(id).onclick=()=>void act(async()=>{showAllContracts=!showAllContracts;renderDependencies();renderInputs();});
 $('history-close').onclick=()=>{historyRequested=false;clearChart($('history-chart'));$('history-card').hidden=true;historyData=undefined;contract='';};
 $('correction-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const current=frame(),next=await api<{frame:Frame;observationId:string}>('corrections',{snapshotId:current.id,observationId:input,value:$<HTMLInputElement>('correction-value').value});clearPrices();await reload(next.frame.id);input=next.observationId;await build();notice('Your change was saved. The market date now shows the corrected prices. Earlier versions are still available.');});};
+// Opens a page as its navigation does. The assistant's moves and Back open pages the same way.
+async function showPage(next:string){
+  switch(next){
+    case 'market':await setPage('market');return;
+    case 'custom-curves':await setPage('custom-curves');await customCurves.load();return;
+    case 'delivery':await setPage('delivery');await deliveryPrices.load();return;
+    case 'interval-series':await setPage('interval-series');await intervalSeries.load();return;
+    case 'interval-curves':await setPage('interval-curves');await intervalCurves.load();return;
+    case 'jobs':await setPage('jobs');await jobs.load();return;
+    case 'power':await setPage('power');power.reset();await touProducts.load();if(select('snapshot').value)await power.load();return;
+    case 'reference':await setPage('reference');$<HTMLInputElement>('reference-search').value='';await loadReference();return;
+    case 'schedules':await setPage('schedules');await schedules.load();await dateEditor.load();return;
+    case 'configuration':await setPage('configuration');await dateEditor.load();return;
+    case 'parties':await setPage('parties');await parties.load();return;
+    case 'admin':await setPage('admin');await administration.load();return;
+    case 'ai':await setPage('ai');await aiSettings.load();return;
+    case 'futures':await setPage('futures');futures.reset();if(select('snapshot').value)await futures.load();return;
+    default:throw Error('This page could not load. Please refresh.');
+  }
+}
+// Pages that read the selected historical view apply a changed one before they open.
+const readsContext=['market','custom-curves','delivery','reference','configuration','parties','futures'];
+const navigate=(next:string)=>()=>void act(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);});
+for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
+  $('nav-'+name).onclick=navigate(name);
+$('curve-power').onclick=navigate('power');
+
+// What the page shows, as the assistant's Looking at reports it and an ask sends it (docs/ai-assistant.md §8, §10.1).
+function pageState():PageState{
+  switch(page){
+    case 'market':return {page,curve:curve||null,tab:prefs.tab};
+    case 'power':return {page,frame:!!select('snapshot').value};
+    case 'reference':return {page,table:referencePage?.table??'',search:referencePage?.search??''};
+    case 'parties':return {page,kind:select('party-kind').value};
+    case 'futures':return {page,...futures.report()};
+    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'jobs':case 'admin':case 'ai':return {page};
+    default:throw Error('This page could not load. Please refresh.');
+  }
+}
+function pageContext():PageContext{
+  if(contextDirty)return {mode:'unapplied'};
+  const chosen=select('snapshot').value,shown=chosen?navigation?.frames.find(f=>f.id===chosen):undefined,frameLabel=shown?instant(shown.at):null,view=historicalContext();
+  return view?{mode:'retained',contextId:view.contextId!,effectiveOn:view.effectiveOn,knownAtLabel:instant(view.knownAt!),frameId:shown?.id??null,frameLabel}
+    :{mode:'current',frameId:shown?.id??null,frameLabel};
+}
+const place=():Place=>({page,report:pageReport(pageState()),context:pageContext()});
+// Edits not yet saved, and requests whose outcome is unconfirmed, on the page a move would leave.
+function unsaved(){
+  switch(page){
+    case 'futures':return futures.unsaved();
+    case 'parties':return parties.unsaved();
+    case 'reference':return referenceEditor.unsaved();
+    case 'configuration':return dateEditor.contractsUnsaved();
+    case 'schedules':return schedules.unsaved()||dateEditor.datesUnsaved();
+    case 'custom-curves':return customCurves.unconfirmed();
+    case 'interval-series':return intervalSeries.unconfirmed();
+    case 'jobs':return jobs.unconfirmed();
+    case 'admin':return administration.unconfirmed();
+    case 'ai':return aiSettings.unconfirmed();
+    default:return false;
+  }
+}
+// Opens a target's page with what it selects: the curve directory, a curve or its inputs, a reference table, a party
+// kind, a Blotter view or a trade. A page target, and a view the page shows by itself, open as navigation opens them.
+async function showTarget(report:string,selection:Record<string,unknown>|null){
+  const next=webPage(report);
+  if(!selection)return showPage(next);
+  // What a target names is checked before the page changes, so a target the page cannot show leaves it as it was.
+  switch(report){
+    case 'curves':{
+      const code=String(selection.curve);
+      if(selection.view!=='curves'&&!directory().curves.some(c=>c.code===code))throw Error('That curve is not in this market data.');
+      await setPage('market');
+      if(selection.view==='curves'){curve='';invalidateMarketDates();clearPrices();renderContext();return;}
+      prefs.tab=selection.view==='observations'?'inputs':prefs.tab==='inputs'?'prices':prefs.tab;persist();
+      curve=code;invalidateMarketDates();clearPrices();
+      if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}
+      return;
+    }
+    case 'reference_data':{
+      const table=String(selection.table),search=String(selection.search);await loadWorkspace();
+      if(!dataSections(Object.keys(data().references)).some(g=>g.sections.some(t=>t.value===table)))throw Error('That reference table is not available here.');
+      await setPage('reference');referenceCategory();select('reference-table').value=table;
+      $<HTMLInputElement>('reference-search').value=search;await loadReference(0,search);return;
+    }
+    case 'parties':{
+      const kind=String(selection.kind);
+      if(![...select('party-kind').options].some(o=>o.value===kind))throw Error('That kind of party is not one this page shows.');
+      await setPage('parties');select('party-kind').value=kind;await parties.load();return;
+    }
+    case 'blotter':
+      await setPage('futures');futures.reset();
+      if(selection.view==='trade'){
+        if(select('snapshot').value)await futures.load();
+        await futures.openTrade(String(selection.tradeId),selection.instrumentType==='financial_swap'?'financial_swap':'future',selection.revision as number|null);
+      }else await futures.show(selection as Parameters<typeof futures.show>[0]);
+      return;
+    default:return showPage(next);
+  }
+}
+// Selects knowledge and an As of frame, as a target pins them or a place showed them, before a page opens there.
+async function selectContext(knowledge:TargetContext|{mode:'current'|'retained';contextId:string|null;frameId:string|null}){
+  if(knowledge.mode==='current'){if(contextDirty||historicalContext())await currentInputs();}
+  else if(contextDirty||historicalContext()?.contextId!==knowledge.contextId)await selectRetained(knowledge.contextId!);
+  const frame=knowledge.frameId??'';
+  if(select('snapshot').value===frame)return;
+  if(frame&&!offeredFrames().some(f=>f.id===frame))throw Error('That As of date is not available in this session. Choose an As of date, or ask again.');
+  renderFrames(frame);
+  marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset();clearPrices();
+}
+// A historical view selected again by its id, exactly as it was captured.
+async function selectRetained(contextId:string){
+  jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();parties.reset();unitConverter.reset();futures.reset();power.reset();
+  const snapshot=await api<{context:Context}>('market/context/retained',{contextId,selection:'latest_correction'});
+  if(snapshot.context.contextId!==contextId)throw Error('The historical view could not be selected exactly. Reload the page.');
+  await viewContext(snapshot);
+}
+// Back restores the place a move left: its knowledge and frame, then its page and what that showed.
+async function restorePlace(origin:Place){
+  const c=origin.context;
+  if(c.mode!=='unapplied')await selectContext(c.mode==='current'?{mode:'current',contextId:null,frameId:c.frameId}:{mode:'retained',contextId:c.contextId,frameId:c.frameId});
+  if(readPages.includes(origin.report.page))await showTarget(origin.report.page,origin.report.selection);else await showPage(origin.page);
+}
+function tableName(code:string){
+  const section=workspace?dataSections(Object.keys(workspace.references)).flatMap(g=>g.sections).find(s=>s.value===code):undefined;
+  return section?.name??friendly(code);
+}
+// The assistant panel, only in the local preview and for a person who uses agents (docs/ai-assistant.md §10.1, §11).
+const assistant=setupAssistant({api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
+  available:()=>!hostedPilot&&can('UseAgents'),pageBusy:()=>busy,act,place,names:()=>({curve:curveName,table:tableName}),
+  trade:()=>futures.report().trade?.reference,unsaved,open:target=>showTarget(target.page,target.selection),
+  go:async target=>{await selectContext(target.context);await showTarget(target.page,target.selection);},restore:restorePlace});
+for(const id of ['trade-editor','swap-editor'])$(id).addEventListener('close',()=>assistant.sync());
+$('risk-close').addEventListener('click',()=>assistant.sync());
 let initialWorkspaceReady=false;
 void act(async()=>{
 const [examples,boot]=await Promise.all([transport<{id:string;name:string;url:string}[]>('examples',undefined,'/api/'),api<ProfileChoices & {csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access?:StartupAccess|null}>(startupBootstrapPath)]);

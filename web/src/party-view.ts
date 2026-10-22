@@ -2,6 +2,7 @@ import {renderRegularTable} from './regular-table.js';
 import {displayInstant} from './market-view.js';
 import {zonedInput} from './user-time.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
+import {trackEdits} from './edit-tracking.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Party={id:string;revision:number;code:string;name:string;effectiveAt:string;knownAt?:string};
@@ -13,12 +14,12 @@ export function setupPartyEditors(o:{api:Api;act:(work:()=>Promise<void>)=>Promi
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
  const effective=zonedInput(get<HTMLInputElement>('party-effective'),o.zone,o.api);
- const pending=new PendingCommand(knownPartyRejection);let directory:Directory|undefined,selected:Party|undefined,generation=0;
+ const pending=new PendingCommand(knownPartyRejection),edits=trackEdits(get('party-form'));let directory:Directory|undefined,selected:Party|undefined,generation=0;
  const storageKey=()=>`openetrm.parties.request.${o.profile()}`;
  function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The command remains available in memory for this visit. */}}
  function sync(){get<HTMLFieldSetElement>('party-fields').disabled=o.busy()||!directory?.canEdit||!!pending.command;field('party-code').disabled=!!selected;get<HTMLButtonElement>('party-new').disabled=o.busy()||!directory?.canEdit||!!pending.command;field('party-kind').disabled=o.busy()||!!pending.command;get('party-pending').hidden=!directory||!pending.command;}
  function fill(party?:Party){
-  selected=party;field('party-code').value=party?.code??'';field('party-code').disabled=!!party;
+  selected=party;edits.clear();field('party-code').value=party?.code??'';field('party-code').disabled=!!party;
   field('party-name').value=party?.name??'';effective.clear();
   get('party-edit-title').textContent=party?`Edit ${party.name} · revision ${party.revision}`:'New party';
   renderRegularTable(get('party-history'),'party-history',JSON.stringify([o.source(),field('party-kind').value,party?.id]),
@@ -73,5 +74,8 @@ export function setupPartyEditors(o:{api:Api;act:(work:()=>Promise<void>)=>Promi
  field('party-kind').onchange=()=>{if(!pending.command){selected=undefined;void o.act(async()=>{await load();});}};
  get('party-retry').onclick=()=>void o.act(async()=>{if(pending.command)await send(pending.command);});
  get('party-discard').onclick=()=>{if(!o.busy()){pending.clear();store();sync();}};
- return{load,sync,reset(){generation++;directory=undefined;selected=undefined;pending.clear();effective.clear();field('party-code').value='';field('party-name').value='';get('party-edit-title').textContent='New party';get('party-list').replaceChildren();get('party-history').replaceChildren();get('party-saved').textContent='';get<HTMLFormElement>('party-form').hidden=true;get('party-pending').hidden=true;},refresh(){effective.refresh();if(directory)render();}};
+ return{load,sync,
+  // Party edits not yet saved, or a save whose outcome is unconfirmed.
+  unsaved:()=>!!pending.command||edits.edited()&&!get('party-form').hidden,
+  reset(){generation++;directory=undefined;selected=undefined;pending.clear();edits.clear();effective.clear();field('party-code').value='';field('party-name').value='';get('party-edit-title').textContent='New party';get('party-list').replaceChildren();get('party-history').replaceChildren();get('party-saved').textContent='';get<HTMLFormElement>('party-form').hidden=true;get('party-pending').hidden=true;},refresh(){effective.refresh();if(directory)render();}};
 }

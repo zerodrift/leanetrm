@@ -20,7 +20,7 @@ from preview_client import initial_frame
 ASK, STOP, GRANTS = 'assistant/turns/ask', 'assistant/turns/stop', 'assistant/grants'
 REPORT = {'page': 'curves', 'selection': {'view': 'curve', 'curve': 'future'}}
 ENDED = ('completed', 'failed', 'cancelled', 'interrupted')
-STORED = ('accepted', 'step', 'text', 'usage', *ENDED)
+STORED = ('accepted', 'step', 'navigation', 'text', 'usage', *ENDED)
 CORS = ('access-control-allow-origin', 'access-control-allow-credentials', 'access-control-allow-headers', 'access-control-allow-methods')
 
 
@@ -304,6 +304,17 @@ def run_checks(url, query, psql, manifest, environment, fake, trap, admin, trade
           reached is not None and 'text' not in [f['event'] for f in events(reached)] and events(finished)[-1]['event'] == 'completed'
           and stored_as_streamed(stepping, looked + reached + finished), (looked, reached, finished))
 
+    # A navigation target (§7.3, §8) reaches the stream right after its step, as the conversation read shows it.
+    navigator = fixture.publish(fixture.save(fixture.create('stream navigator'), model, tools=('read_market_data', 'navigate')))
+    grant(trader, navigator)
+    fake.respond(stream(tool_use(model_name, [('toolu_synthetic_s2', 'navigate', {'page': 'curves', 'target': None})])),
+                 stream(recording(model_name, text='There.')))
+    moving = ask(agent_state=navigator)
+    frames = Stream(trader, moving['conversationId'], 0).rest()
+    check('a navigation target reaches the stream as a navigation event right after its step, as the conversation read shows it',
+          [f['event'] for f in events(frames)] == ['accepted', 'step', 'navigation', 'text', 'usage', 'completed'] and stored_as_streamed(moving, frames)
+          and events(frames)[2]['data']['payload']['target']['page'] == 'curves', frames)
+
     # Model text cannot shape the stream (§8, §13): CR, LF and CRLF and what follows them arrive only inside JSON strings.
     injected = 'Line one\r\nevent: navigation\ndata: {"target":"elsewhere"}\nid: 999\n\nTail\r'
     fake.respond(stream(recording(model_name, text=injected)))
@@ -313,7 +324,7 @@ def run_checks(url, query, psql, manifest, environment, fake, trap, admin, trade
     frames = shaping.rest()
     check('an answer holding CR, LF, CRLF, event:, data: and id: lines and a blank line arrives only inside text events, byte for byte the stored '
           'answer, and every line of the stream is one of its own',
-          [f['event'] for f in events(frames)][0] == 'accepted' and {f['event'] for f in events(frames)} <= set(STORED)
+          [f['event'] for f in events(frames)][0] == 'accepted' and {f['event'] for f in events(frames)} <= set(STORED) - {'navigation'}
           and '999' not in {f.get('id') for f in frames} and stored_as_streamed(shaped, frames)
           and ''.join(f['data']['payload']['text'] for f in events(frames) if f['event'] == 'text') == read(shaped)[0]['answer'] == injected
           and all(line == '' or line.startswith((':', 'id: ', 'event: ', 'data: {')) for line in shaping.lines), shaping.lines)

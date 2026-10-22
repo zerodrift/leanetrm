@@ -217,7 +217,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  }
 
  return{
-  sync,
+  sync,unconfirmed:()=>holders.some(h=>!!h.pending.command),
   async load(){
    // A failed read leaves an empty page, never the previous visit's catalog.
    const selectedId=series()?.id;unload();
