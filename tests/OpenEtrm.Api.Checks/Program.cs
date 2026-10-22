@@ -45,6 +45,7 @@ if (args is ["--schedules"])
     ConnectedSampleChecks.Run();
     FuturesExecutionChecks.Run();
     HostedAccessChecks.Run();
+    HostedConfigurationChecks.Run();
     CredentialCustodyChecks.Run();
     await ModelProviderChecks.Run();
     TurnWorkerChecks.Run();

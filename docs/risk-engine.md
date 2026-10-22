@@ -276,7 +276,7 @@ This allocates a disposable database and synthetic inputs. The shared
 remaining deployment limits are recorded in [verification](verification.md).
 
 
-Computed-curve combinations (D192) use the same connected plan in previews,
+Computed-curve combinations (D193) use the same connected plan in previews,
 booked PV, portfolio risk and retained jobs. Their explicit panel weights do not
 allocate PV exposure: base/up/down instrument PV determines sensitivities.
 A primitive quote shock follows all declared paths; a computed-parent output

@@ -20,5 +20,9 @@ internal static class LiveContextChecks
         Reject(()=>live.Resolve(context,resolved with{ContextId=Guid.NewGuid()},"synthetic-head"));
         Reject(()=>live.Resolve(context with{EffectiveOn="2026-01-03"},resolved,"synthetic-head"));
         Console.WriteLine("PASS live context: explicit correction policy, immutable generations and fixed date coordinates");
+        // A hosted sign-in session revoked elsewhere ends the stream at its next read, as a refused read does (docs/ai-assistant.md §11).
+        if(!LiveContexts.Ends(new PreviewSessionEnded())||!LiveContexts.Ends(new PreviewDeniedException())||LiveContexts.Ends(new InvalidOperationException()))
+            throw new Exception("A started live stream must end quietly when its session ends or its access is refused, and only then.");
+        Console.WriteLine("PASS live context: a started stream ends quietly when its session ends or a read is refused, and not on an unexpected failure");
     }
 }

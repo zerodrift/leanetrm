@@ -465,7 +465,7 @@ applies, its body is refused after the directory's definition changes and after 
 provider state helper's privileges change.
 
 Provider tests (migration 0062) are checked next, first over HTTP. The API reaches a
-loopback fake provider through the preview's provider endpoint override, and every proxy
+loopback fake provider through the provider check endpoint, and every proxy
 variable names a trap:
 
 - **Worker:** before serving, the API takes the agent-worker lock and starts a generation,
@@ -1227,8 +1227,56 @@ role, and an agent update with and without roles, which leaves the agent unchang
 browser scenario creates its own agent and finds it listed as an agent reader without
 Edit. The temporal storage checks create an agent through `ManageAgents` and show it
 reads market data only under a current delegation. The reference-policy agent holds the
-agent reader role. The hosted checks find every agent, grant, turn, stream and usage
-route unmapped and the provisioned owner with exactly the six human roles.
+agent reader role. The hosted checks find the provisioned owner with exactly the six
+human roles.
+
+Under `--hosted-pilot` (D192) the hosted check runs the assistant against the loopback
+fake provider (`tools/check_hosted_assistant.py`), through a proxy that passes event
+streams through as the gateway does:
+- the hosted start takes the worker lock and starts the next generation, calling no
+  provider;
+- Replace key without the installation's key file is `credential_unavailable` and stores
+  nothing;
+- Settings › AI qualifies a provider, prices and enables a model and publishes an agent,
+  which a person grants and asks;
+- the ask's read runs on the hosted agent pools in the agent's own context, its requests
+  reach the check endpoint alone, and the turn binds the sign-in session it was asked
+  under, ending with it;
+- signing out ends that session's stream with `session_ended` at once, while a held
+  generation row keeps the worker from ending the turn, then the turn ends cancelled
+  `session_ended`, while another account's turn runs on to its answer;
+- a password reset and disabling the member in Users & access each cancel the turn of
+  the session they revoke `session_ended`;
+- an application session opened under an earlier sign-in is refused `session_ended` on
+  assistant routes, and the next bootstrap opens one bound to the current sign-in.
+
+The hosted browser scenario finds the person's grants in the profile dialog and offers a
+provider administrator Settings › AI and the workspace's grants. In SQL,
+`check_agent_turns.py` refuses a hosted ask `turn_input` whose binding names another
+sign-in session or ends after it, and finds that signing out, a password reset and
+disabling the account or its membership each request the cancel of the session's turn
+`session_ended`, with its notification, while another account's turn runs on, as does
+the account's own turn asked under another of its sign-in sessions; before 0087 applies,
+it refuses a change to each definition it replaces or helper it relies on, or to their
+privileges. The managed checks:
+- refuse a host configuration without either key file, naming both, and one with a
+  relative key file, one among the served assets or one file as both keys;
+- bind an application session to its sign-in session's digest and end;
+- refuse a stream `session_ended` once its read finds the sign-in session revoked;
+- end a started live market stream quietly in that case;
+- end a turn whose record write found its sign-in session ended as that end does, by
+  recording it first.
+
+`tests/test_provision_hosted.py` checks that provisioning writes both key files, 32
+bytes each and owner-only, never replaces one, and leaves none behind when writing
+fails. `tests/test_release_deployment.py` checks that a deployment verifies the egress
+fence: an unchanged persisted file, the recorded rules live, and the ingress network's
+own bridge, refusing a network recreated with another. It also refuses a serving API
+that names a provider check endpoint. `tools/check_release_docker.py` starts the
+previous image with the host configuration it accepts (`--previous-credential-keys`)
+and adds the key files' fields before the deployment, as an operator does. `tools/check_public_routes.py` checks that the gateway passes an event
+stream's first frame through before the application ends the response; a copy of the
+template with buffering on fails it.
 
 The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is

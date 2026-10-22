@@ -11,7 +11,8 @@ services:
       POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --data-checksums
       TZ: UTC
       PGTZ: UTC
-    command: [postgres, -c, track_commit_timestamp=on, -c, timezone=UTC, -c, max_connections=40]
+    # The API's pools hold at most 46 connections (docs/ai-assistant.md §11), beside the collector and operator sessions.
+    command: [postgres, -c, track_commit_timestamp=on, -c, timezone=UTC, -c, max_connections=80]
     volumes:
       - ${STATE_ROOT:?}/postgres:/var/lib/postgresql/data
       - ${PRIVATE_ROOT:?}/database-owner:/run/secrets/database-owner:ro

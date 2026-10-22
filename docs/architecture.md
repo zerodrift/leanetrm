@@ -958,7 +958,7 @@ The UI and HTTP portfolio operation expose these coordinate/target forms using
 backend catalog descriptors. Volatility and correlation conventions require
 separate supported contracts.
 
-D192 adds `weighted_panels` to that same recipe evaluator: typed weights on
+D193 adds `weighted_panels` to that same recipe evaluator: typed weights on
 named panel edges, explicit signed sum or normalized mean, and
 `exact_delivery_intervals_v1`. Complete unique delivery sets and exact price units
 must match before consumer demand selects outputs. Computed parents remain graph

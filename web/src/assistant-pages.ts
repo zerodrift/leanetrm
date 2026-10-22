@@ -197,7 +197,7 @@ const messages:Record<string,string>={turn_active:'Wait for your current answer 
     +'conversation, or ask an administrator to restore the agent\'s access.',
   context_required:'Ask over the knowledge the page shows: working data, or the selected historical view.',
   snapshot_missing:'Choose an As of date to ask about working data.',page_report_invalid:'The page could not say what it shows. Reload it and ask again.',
-  agent_runtime_unavailable:'The assistant is not running in this preview right now. Try again shortly.',
+  agent_runtime_unavailable:'The assistant is not running right now. Try again shortly.',
   agent_not_allowed:'This agent version is not one you may use. Choose another agent.',agent_retired:'This agent is retired. Choose another agent.',
   grant_permission_missing:'You lack a permission this agent version’s tools need.',access_denied:'Your current access cannot use the assistant.',
   turn_not_found:'You have no such question here.',session_ended:'Your session changed. Reload the page to continue.',

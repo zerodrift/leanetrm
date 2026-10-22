@@ -30,7 +30,7 @@ fixed synthetic prompt through the model's adapter and records the call, its out
 usage by dimension and exact cost (`token_cost_v1`) under the agent worker's generation
 (§5.1, §5.3, §7.4, §9). A provider's card tests one of its models, retaining a test whose
 outcome was not confirmed, and the Providers tab shows each vendor's endpoint, marked when
-it is the preview's check endpoint, and its last test, marked when it ran under a key or
+it is the check endpoint, and its last test, marked when it ran under a key or
 terms no longer attested. From step 5, agent administration works through the API:
 `ManageAgents` and `UseAgents`, the agent reader role held only by agent principals,
 agents with immutable versions, and create, save, Publish and Retire (§5.4, §9), while
@@ -70,7 +70,7 @@ its stored events after a sequence, read in their own request context with the r
 recheck, then each piece of answer text the worker publishes once its publication
 recheck has committed, with every other event, steps included, read the same way,
 through to the turn's terminal event, with resume, heartbeats, one stream per turn and
-the refusals §8 lists; the runtime set is `turns_v5` (D192). `ReadModelUsage` reads usage
+the refusals §8 lists; the runtime set is `turns_v5` (D193). `ReadModelUsage` reads usage
 through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
@@ -88,18 +88,22 @@ notice and Back, and any other offers Go, which first selects its context, a ret
 view again by its id. A tab keeps an unfinished turn's stream while the panel is closed
 and lights the launcher when it ends, which History marks unread; Stop, Retry, Resume
 after a newer stream and a reload offer once the session ends follow §8. Show card is
-not implemented.
+not implemented. Phase 3 runs all of this under `--hosted-pilot` too (§11, D192): the
+signed-in account asks, its turns and streams end with its sign-in session, the
+installation's `host.json` names its credential key files, and the API sends model
+requests only to a qualified provider's fixed endpoint, a turn's only once it is
+enabled.
 
-The page assistant ships in three phases, each with its own design:
+The page assistant ships in three phases:
 
 1. **Local-preview core** (this document): Settings › AI, model provider adapters,
    usage and cost, agent principals and access grants, context pinning, fixed read
    tools plus Navigate and Show card, an in-process worker, a server-sent event
-   stream, the assistant panel, application-drawn cards and conversation memory. It
-   runs only under `--local-preview`.
+   stream, the assistant panel, application-drawn cards and conversation memory.
 2. **Agent notes** (later design): agent notebooks plus one common notebook that every
    agent can read and write, with versioned, sourced notes and a Notes view (§11).
-3. **Hosted baseline** (later design): the assistant under `--hosted-pilot`.
+3. **Hosted baseline** (§11): phase 1 under `--hosted-pilot`, as an installation
+   someone else operates runs it.
 
 Phase 1 brings a bounded slice of [Milestone 5](plan.md) forward. It does not satisfy
 Milestone 5's acceptance criteria. [architecture.md](architecture.md) §9–§12 and the
@@ -277,15 +281,17 @@ audit as history.
   not exactly 32 bytes or open to anyone but its owner, and a failed tag, are
   `credential_unavailable`. Nothing is generated at API start, and nothing depends on
   ASP.NET data protection. Rotation is out of scope; losing a file means re-entering
-  every key.
+  every key. Under `--hosted-pilot` the installation's `host.json` names the two files,
+  which `tools/provision_hosted.py` writes (§11).
 - The API returns only "set", the last four characters, who set it and when.
 - Keys travel only in headers. Provider clients follow no redirects, use a
   `SocketsHttpHandler` with `UseProxy=false`, keep default certificate validation, and
   take connect and idle timeouts and a response byte bound from the runtime set.
-- Each vendor endpoint is a sourced, dated HTTPS constant in its adapter. The preview
-  accepts one optional override that must be an IP-literal loopback URL, so checks can
-  reach the loopback fake provider (`tools/fake_model_provider.py`), which serves only
-  synthetic recordings.
+- Each vendor endpoint is a sourced, dated HTTPS constant in its adapter. The API
+  accepts one optional override, `OPENETRM_PROVIDER_CHECK_ENDPOINT`, that must be an
+  IP-literal loopback URL and that only owned checks set, so they can reach the loopback
+  fake provider (`tools/fake_model_provider.py`), which serves only synthetic
+  recordings.
 
 ### 5.3 Prices and cost
 
@@ -1070,16 +1076,11 @@ credential entries read only "key replaced".
 
 ## 11. Hosted mode and later phases
 
-Under `--hosted-pilot` phase 1 is inert: assistant, stream and Settings › AI routes,
-and the panel's selection of a retained context by its id, are not mapped; no worker, model-provider client, agent pool or worker connection
-exists; the API reports the assistant unavailable, so the launcher and Settings › AI
-are hidden; `tools/check_hosted_http.py` asserts it. Its migrations still ship, so the
-first hosted release after phase 1 waits for operator baseline qualification (D135).
-The SQL applies in every mode: the new permissions appear in role listings, Users &
-access refuses agent principals and the agent reader role, and
-`tools/provision_hosted.py` grants the owner an explicit list of human role codes
-instead of every role, because the agent reader role cannot be held by a human. No
-`host.json` field or Compose change.
+Under `--hosted-pilot` the assistant runs as phase 3 below describes. The SQL applies
+in every mode: the assistant's permissions appear in role listings, Users & access
+refuses agent principals and the agent reader role, and `tools/provision_hosted.py`
+grants the owner an explicit list of human role codes instead of every role, because
+the agent reader role cannot be held by a human.
 
 **Phase 2 (agent notes)** adds Search notes and Save note tools, notebooks, note
 permissions, provenance and a Notes view. Notes live in an agent's own notebook or in
@@ -1096,19 +1097,89 @@ its exact text in the panel. Whether an agent notebook is also kept per user is
 decided with that design. Phase 1 already stores what this needs: source sets as exact
 tool-read ids with access rows, and the pinned-context record.
 
-**Phase 3 (hosted baseline)** adds agent contexts bound to the account session, hosted
-credential key files, API egress, gateway stream settings, multi-process worker leases
-and four gates the owner has not decided: retention (O11), approval to enable a
-provider, per-catalog data scope (O22, and a new open item recorded with phase 3) and
-egress control. Phase 1 keeps these open: the session binding is a typed field, the
-worker generation seeds a lease fence, endpoints are code constants, credentials do
-not depend on data protection, and the heartbeat already fits the gateway's 20-second
-read timeout.
+**Phase 3 (hosted baseline)**, decided by the owner on 2026-10-22 (D192), runs phase 1
+under `--hosted-pilot` as an installation someone else operates runs it. Migration
+0087 is a schema change, so its release waits for operator baseline qualification
+(D135), and the installation's operator adds the key files, `host.json` fields,
+connection limit and firewall rule below in the same window.
+
+- **Routes and worker.** Hosted mode maps the assistant, stream and Settings › AI
+  routes and the panel's selection of a retained context by its id, and runs the
+  worker, provider client and agent pools as the local preview does, on the
+  installation's own runtime and authenticator logins. The signed-in account takes the
+  place of a preview profile: the launcher, Settings › AI and the grants in Users &
+  access appear by permission, as in the preview.
+- **Sessions.** An application session belongs to the sign-in session it was opened
+  under: it names itself to the database by that session's digest and ends when that
+  session does, at most 30 minutes after sign-in, and one opened under an earlier
+  sign-in is never used again. Turns and streams bind it (§7.2, §8), and the database
+  refuses a hosted ask (`turn_input`) whose binding names another sign-in session or
+  ends after the one its request context was issued for. Revoking a sign-in session,
+  which signing out, a password reset and disabling the account or its membership all
+  do, cancels its turns `session_ended` in the same transaction. Signing out also ends
+  its streams at once with `session_ended`, and a stream that reads after its session
+  was revoked elsewhere is refused `session_ended`. The session's end stops its turns
+  and streams as in the preview.
+- **Administration.** Providers, keys, models, prices, agents and usage are
+  administered in Settings › AI by holders of their permissions, each change audited,
+  as in the preview. Enabling a provider is the access administrator's decision there,
+  after recording the vendor's terms and attesting; there is no installation-level
+  list of vendors.
+- **Credential keys.** `host.json` names the two key files of §5.2 in
+  `credentialKeyFile` and `credentialRetryKeyFile`: both required and named when
+  missing, two different files, absolute and outside the served assets, like the
+  installation's other private files. Earlier images refuse the two fields, so an
+  operator adds them last, after the previous API's last start.
+  `tools/provision_hosted.py` writes them with a new installation's other private
+  files, and its `--credential-keys` mode writes just the two into an existing
+  installation's private directory for the account the API runs as, refusing either
+  that exists; no person handles their bytes. The custody checks are the preview's
+  (§5.2). They are backed up with the installation's other private files; losing them
+  means entering every vendor key again.
+- **Retention (O11).** Conversations are kept, as in the preview. A retention policy
+  waits until an installation needs one.
+- **Data scope (O22).** An agent reads its workspace's primary catalogs through the
+  tools its version switches on and its grant lists, which the consent names.
+  Explicit curve dependencies can also name reference calendars in other catalogs
+  (D193). Those reads require current workspace scope and `ReadMarketData`, and
+  their catalogs join the turn's source-access rechecks. There is no per-agent
+  catalog selector; O28 records that optional policy.
+- **Egress.** The API sends model requests only to a provider's fixed endpoint: a
+  turn's calls once the provider is enabled, and Test's one synthetic prompt once it is
+  attested (§9). Owned checks instead set the IP-literal loopback endpoint in
+  `OPENETRM_PROVIDER_CHECK_ENDPOINT`, in either mode (§5.2), which a deployment refuses
+  in a serving API. The installation's host firewall lets the API container open
+  outbound TCP 443 and DNS only, and every deployment verifies that fence, refusing a
+  changed rule or a network recreated with another bridge
+  ([hosted-pilot.md](hosted-pilot.md)). A proxy filtering by host name waits for an
+  installation that requires one.
+- **Worker.** One API process per installation holds the worker generation (§7.4). A
+  deploy's disposable candidate refuses agent work `agent_runtime_unavailable` while the
+  serving process holds the lock. When none does, as on the first deploy, it takes the
+  lock and starts a generation, but its checks never ask.
+  Replacing the serving process leaves its unfinished turns to the next start, which
+  interrupts them. Leases for several serving processes stay a later item.
+- **Connections.** The API's pools hold at most 46 database connections: 8 each for
+  page requests on the runtime and authenticator logins and for sign-in, 6 for each
+  agent pool (§7.4), 8 for worker writes, the worker's lock and the calculation
+  listener. `deploy/compose.yaml` allows the database 80.
+- **Gateway.** Unchanged: it already sets `proxy_buffering off` and a 20-second read
+  timeout, which the stream's 15-second heartbeat fits. `tools/check_public_routes.py`
+  checks that a stream passes through it unbuffered.
+- **Qualification (O09).** Before anyone else gets the launcher, an installation's
+  owner enters their own vendor key in Settings › AI, records the vendor's terms and
+  attests, adds a model with its capabilities and the price they enter, runs Test, and
+  asks a scripted question from the panel that reads and navigates. Anything the live
+  API sends that the adapter refuses is fixed under a recorded check. O09 then closes
+  for that vendor only.
+- **Spending.** D153 is unchanged: per-turn limits and full cost reporting, with the
+  vendor account's spending limit, which the Providers tab states, the only cumulative
+  cap.
 
 ## 12. Delivery order
 
 Each step leaves the application working with no provider configured, keeps the hosted
-inert check green, and updates every document it makes inaccurate (db/README.md,
+checks green, and updates every document it makes inaccurate (db/README.md,
 security.md, reference-data.md, hosted-pilot.md).
 
 1. Record §14 in decisions.md (first removing the blank lines that split the
@@ -1197,10 +1268,15 @@ synthetic data and the fake provider. The cases that coverage does not imply:
   a CSV member name starting `=` is apostrophe-prefixed; the 390 px layout shows no
   identifiers and no uncaught errors.
 - **Changed and hosted checks:** `check_admin_preview.py` expects `agent_managed`;
-  `run_preview.py --hosted-check` expects explicit human roles; `check_hosted_http.py`
-  finds assistant routes unmapped (404, and `request_token` for a POST), the assistant
-  reported unavailable, no provider client and no turn, call or usage row changed by a
-  hosted start.
+  `run_preview.py --hosted-check` expects explicit human roles. Under `--hosted-pilot`,
+  `check_hosted_http.py` takes the worker generation at start; administers a provider,
+  model, price and agent in Settings › AI against the loopback fake provider; grants;
+  asks and streams through the hosted proxy; and checks that signing out, a password
+  reset and disabling the member each cancel a running turn `session_ended`, that
+  signing out ends its stream `session_ended`, that a turn asked under another sign-in
+  session runs on, that an application session never outlives its sign-in session or
+  serves a later one, and that a missing key file is `credential_unavailable`. The database check
+  refuses a hosted ask bound to another sign-in session or past its end.
 - **Pool isolation:** turns at the workspace limit against a fixed-latency fake, one
   capture per ask and one stream per turn, with a fixed UI mix of working-data and
   explicit-cutoff reads; record environment, pool sizes, UI latency with and without
@@ -1216,15 +1292,14 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 
 Owner decisions become D rows when recorded. Every other rule in this document is a
 design call, recorded as P rows by section and open to correction until the owner
-approves it. Phase 3's four hosted gates are undecided. [decisions.md](decisions.md)
-records this section as D149–D156, D177, D184, D185, D190, D191 and P24–P38, with the
-open-item updates below.
+approves it. [decisions.md](decisions.md) records this section as D149–D156, D177,
+D184, D185, D190–D193 and P24–P38, with the open-item updates below.
 
 **AGENTS.md exception:** model-provider vendor names (Anthropic, OpenAI, Google, xAI,
 Meta) and their public API identifiers may appear in source, documentation, fixtures
 and commits; real prices are not shipped.
 
-**Owner decisions:** the three phases, phase 1 inert when hosted; a docked panel with
+**Owner decisions:** the three phases; a docked panel with
 page questions and navigation, more tools later; Settings › AI's four tabs and the
 Agents form as mocked, with saved drafts and Publish replacing its "Test in pop-up"
 and unsaved definitions refused; four card kinds, no embedded views and no
@@ -1244,7 +1319,7 @@ common notebook alongside agent notebooks.
 **Tool decisions** (D177): the record keeps an As of frame's exact pins, from which tool
 reads rebuild the page's frame (§7.2); a read's own refusal of its input returns to the
 model as a refused step with its code and the page's fixed text; Interval series
-and Jobs & Infrastructure are not supported pages; D192 adds Custom curves below; Read market data
+and Jobs & Infrastructure are not supported pages; D193 adds Custom curves below; Read market data
 reads the pinned frame only, curve history later; a step records its operation, input,
 code, read instant and accesses, and results wait for cards (§7.3); worker writes
 evaluate the source-access check as a context issued to the turn's agent would, which a
@@ -1314,13 +1389,26 @@ identity; the usage line shows exact recorded costs by currency code, `unknown` 
 `unpriced`; answers use a Markdown subset drawn from text nodes, and step lines name tools
 and reasons in plain words (§8, §10.1).
 
+**Hosted decisions** (D192, decided by the owner, superseding P37): phase 1 runs under
+`--hosted-pilot`; an application session belongs to its sign-in session, and revoking or
+ending that session cancels its turns and ends its streams `session_ended`; providers
+are enabled in Settings › AI alone, with no installation list of vendors;
+`host.json` names the credential key files, which provisioning generates and no person
+handles; conversations are kept (O11); agents read their workspace's one market and one
+reference catalog (O22, O28); the API reaches only a qualified provider's endpoint, a
+turn's calls only an enabled one's, and
+the host firewall allows outbound TCP 443 and DNS; one serving process holds the worker;
+the database allows 80 connections; the gateway is unchanged; and the owner qualifies
+a vendor live before anyone else uses it (O09) (§11).
+
 The agent reader role amends D42 (seven role templates).
 
 **Open items:** O04 partly resolved (agent principals only through `ManageAgents`;
 standing, revocable delegations with explicit duration; redelegation, MFA and
 federation stay open). O09 stays open until real task outcomes are recorded. O07 adds
 reclaiming the retained contexts assistant asks consume. O10 gates phase 1 performance
-acceptance.
+acceptance. O11 keeps conversations until an installation needs a retention policy, and
+O28 records per-catalog agent data scope.
 
 **plan.md:** this Milestone 5 slice is brought forward in three phases, with P&L
 comparison next and spending caps later.
@@ -1331,7 +1419,7 @@ runtime-set values within the stated constraints; the formatting renderer and th
 navigation history structure.
 
 
-**Curve preparation (D192).** Runtime set `turns_v5` adds
+**Curve preparation (D193).** Runtime set `turns_v5` adds
 `custom_curves.catalog_v1` (`read_custom_curves`) and
 `custom_curves.prepare_v1` (`prepare_custom_curve`), both requiring delegated
 `ReadMarketData`. Catalog/preparation call the same managed reads as the editor,
@@ -1351,6 +1439,9 @@ access. It returns only an unpriced definition and origin dates to the ordinary
 editor, keeping the selected header. Preview then calculates under that header;
 Save and Publish require the person's existing permissions. Revoking the agent's
 delegation alone does not revoke the current owner's ordinary source access.
+The same owner operation runs in preview and hosted modes, under the current
+human's sign-in session. A fresh authorized sign-in may review an earlier
+completed proposal; a stale application session cannot.
 Unknown/other-owner/non-preparation steps reject. Reopening no longer readable
 sources rejects. No agent write tool, agent-run portfolio risk or new conversation
 artifact table is introduced. Custom curves' Looking at describes the saved

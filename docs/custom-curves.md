@@ -46,7 +46,7 @@ resample it at a separately supplied date window. Contract selectors and weighte
 contract mappings consume native curves. The `weighted_panels` contract below
 combines computed panels; resampling and interpolation remain work.
 
-**Combine published curves** is a guided entry point (D192). Choose each exact
+**Combine published curves** is a guided entry point (D193). Choose each exact
 published ingredient/version, its decimal weight, signed sum or normalized mean,
 and exact delivery-period matching. Choices start blank. Build constructs the
 ordinary backend graph and explains it in plain words; Preview, Save and Publish

@@ -96,7 +96,7 @@ public sealed class TurnStream(PreviewDatabase database,string scope,AgentWorker
         "turn_not_running"=>"This conversation has no unfinished answer to stream. Read the conversation for its answers.",
         "replay_unavailable"=>"The stream cannot resume from there. Read the conversation again, then open a new stream.",
         "stream_expired"=>"This answer passed its time limit without ending. Read the conversation for its state.",
-        "session_ended"=>"Your preview session has ended. Reload the page to continue.",
+        "session_ended"=>"Your session has ended. Reload the page to continue.",
         "access_denied"=>"You can no longer use this agent. Read the conversation for its state.",
         "agent_runtime_unavailable"=>ModelCatalog.Refusal(code),
         _=>throw new ArgumentOutOfRangeException(nameof(code),code,"A stream is refused only with a documented code.")
@@ -196,6 +196,12 @@ internal sealed class TurnDelivery(Stream output,Func<long,CancellationToken,Tas
     {
         StreamRead answer;
         try{answer=await read(last,aborted);}
+        // The session was revoked elsewhere (§11).
+        catch(PreviewSessionEnded)
+        {
+            await Refuse("session_ended",aborted);
+            return false;
+        }
         catch(Exception e) when(e is PreviewDeniedException or PostgresException{SqlState:"42501"})
         {
             await Refuse("access_denied",aborted);

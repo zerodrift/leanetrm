@@ -44,6 +44,69 @@ explicit trusted proxy network may supply them. Proxy-network membership is not 
 authenticated application identity. Route an exact hostname and maintain a valid
 certificate plus a renewal reload hook. Do not expose the synthetic persona mode.
 
+## Page assistant
+
+The page assistant runs under `--hosted-pilot` ([ai-assistant.md](ai-assistant.md) §11,
+D192). Its release adds migration 0087, so it ships in an operator schema window (D135),
+which also makes these installation changes:
+
+1. **Credential key files.** As root on the host, run
+   `python3 tools/provision_hosted.py --credential-keys <PRIVATE_ROOT>/application --owner 1654:1654`.
+   It writes `credential.key` and `credential-retry.key`, 32 random bytes each, mode
+   0600 and owned by the account the API runs as. Each appears only once complete, it
+   refuses either that exists, and it shows no key. A new installation's provisioning
+   output already holds both. Back them up with the installation's other private
+   files: losing them means entering every vendor key again.
+2. **Connection limit.** The API's pools hold at most 46 database connections, so
+   `deploy/compose.yaml` allows the database 80. Install it, record its hash
+   (`composeSha256`) and recreate the database container once.
+3. **Egress.** Let the API container open outbound TCP 443 and DNS, and nothing else.
+   With nftables, a forward chain on the bridge Docker created for the project's
+   `web_ingress` network does it. The bridge is named `br-` and the first 12 characters
+   of the network's id:
+
+   ```nft
+   table inet openetrm_egress {
+     chain api_egress {
+       type filter hook forward priority -200; policy accept;
+       iifname "<bridge>" oifname != "<bridge>" ct state established,related counter accept
+       iifname "<bridge>" oifname != "<bridge>" meta l4proto { tcp, udp } th dport 53 counter accept
+       iifname "<bridge>" oifname != "<bridge>" tcp dport 443 counter accept
+       iifname "<bridge>" oifname != "<bridge>" counter drop
+     }
+   }
+   ```
+
+   Persist it like the ingress fence. Record it in the deployment settings as
+   `egressGuard`: its file and that file's hash, the bridge, and its rules as
+   `nft list chain inet openetrm_egress api_egress` prints them, counters cleared. Every
+   deployment then refuses to proceed if the file or a live rule changed, or if the
+   network was recreated with another bridge.
+   Confirm from a disposable container on that network that HTTPS to the vendor's
+   endpoint connects while another port does not.
+4. **Host configuration, last.** The previous image refuses a `host.json` naming the key
+   files, so add `"credentialKeyFile": "/run/private/credential.key"` and
+   `"credentialRetryKeyFile": "/run/private/credential-retry.key"` only after the
+   previous API has started for the last time, just before the head deploys. Record the
+   reviewed hash (`hostConfigurationSha256`).
+   - The new image refuses to start without the two fields and names them.
+   - Keep the previous `host.json` and its hash: rolling back to the previous image means
+     restoring both first.
+
+One serving API process holds the agent worker. A deploy's disposable candidate refuses
+agent work while it does, and replacing the serving process interrupts its unfinished
+turns at the next start. The gateway needs no change: it already passes event streams
+through unbuffered, with a read timeout above the stream's heartbeat.
+
+Before anyone else gets the launcher, the installation's owner qualifies a vendor live,
+entering their own key in Settings › AI so that no one else handles it:
+- records the vendor's terms and attests;
+- adds the model with its capabilities and the price they enter, and runs Test;
+- asks a scripted question from the panel that reads and navigates.
+
+Anything the live API sends that the adapter refuses is fixed under a recorded check
+first. Conversations are kept until an installation needs a retention policy (O11).
+
 ## Public homepage and workspace routing
 
 The open-source homepage is the buildless content in [site](../site/README.md).

@@ -4,6 +4,7 @@ import http.client
 import http.cookiejar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -16,8 +17,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import build_opener, HTTPCookieProcessor, HTTPSHandler, HTTPRedirectHandler, Request
 from uuid import uuid4
+from check_hosted_assistant import run_checks as check_hosted_assistant
 from check_provider_tests import HOLDERS, released
 from check_request_refusals import is_refusal, one_message_per_code, unreadable
+from fake_model_provider import FakeProvider, Trap
 
 
 def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, control_url=None, run_id=None):
@@ -31,17 +34,25 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
     class Proxy(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def forward(self):
-            connection = http.client.HTTPConnection('127.0.0.1', api_port, timeout=10)
+            # The gateway's read timeout (deploy/nginx.conf.template), which an event stream's heartbeat fits.
+            connection = http.client.HTTPConnection('127.0.0.1', api_port, timeout=20)
             headers = {k: v for k, v in self.headers.items() if k.lower() not in ('host', 'x-forwarded-proto', 'x-forwarded-for', 'connection')}
             headers.update({'Host': self.headers['Host'], 'X-Forwarded-Proto': 'https', 'X-Forwarded-For': self.client_address[0]})
             body = self.rfile.read(int(self.headers.get('Content-Length', '0')))
             try:
                 connection.request(self.command, self.path, body, headers)
-                response = connection.getresponse(); content = response.read()
+                response = connection.getresponse()
+                streamed = response.getheader('Content-Type', '').startswith('text/event-stream')
+                content = b'' if streamed else response.read()
                 self.send_response(response.status)
                 for key, value in response.getheaders():
                     if key.lower() not in ('connection', 'transfer-encoding', 'content-length'): self.send_header(key, value)
-                self.send_header('Content-Length', str(len(content))); self.end_headers(); self.wfile.write(content)
+                if not streamed:
+                    self.send_header('Content-Length', str(len(content))); self.end_headers(); self.wfile.write(content); return
+                # An event stream passes through unbuffered, as the gateway's proxy_buffering off sends it, until it ends.
+                self.end_headers()
+                while chunk := response.read1(65536):
+                    self.wfile.write(chunk); self.wfile.flush()
             except ConnectionRefusedError:
                 self.send_response(503); self.end_headers()
             finally: connection.close()
@@ -60,13 +71,21 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
     (definitions / 'manifest.json').write_text(json.dumps(selected))
     for name, variable in [('runtime', 'OPENETRM_PREVIEW_RUNTIME'), ('authenticator', 'OPENETRM_PREVIEW_AUTHENTICATOR')]:
         (directory / (name + '.connection')).write_text(environment[variable])
+    # The two credential key files provisioning writes once per installation (docs/ai-assistant.md §5.2, §11).
+    keys = [str(directory / name) for name in ('credential.key', 'credential-retry.key')]
+    for key in keys:
+        with os.fdopen(os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as file: file.write(secrets.token_bytes(32))
     installation = str(uuid4())
     config = {'installationId': installation, 'publicOrigin': origin, 'stateDirectory': str(state), 'webDirectory': str(root / 'web'),
               'manifestDirectory': str(definitions), 'runtimeConnectionFile': str(directory / 'runtime.connection'),
               'authenticatorConnectionFile': str(directory / 'authenticator.connection'), 'listenPort': api_port,
-              'trustedProxyNetwork': '127.0.0.1/32', 'protectionCertificateFile': str(pfx)}
+              'trustedProxyNetwork': '127.0.0.1/32', 'protectionCertificateFile': str(pfx), 'credentialKeyFile': keys[0], 'credentialRetryKeyFile': keys[1]}
     configuration = directory / 'host.json'; configuration.write_text(json.dumps(config))
-    app_environment = {**environment, 'OPENETRM_HOSTED_CONFIG': str(configuration)}
+    # Model requests reach the loopback fake provider through the check endpoint, and every proxy setting names a trap that
+    # no request may reach (docs/ai-assistant.md §5.2, §11).
+    fake, trap = FakeProvider(), Trap()
+    app_environment = {**environment, 'OPENETRM_HOSTED_CONFIG': str(configuration), 'OPENETRM_PROVIDER_CHECK_ENDPOINT': fake.url, 'no_proxy': '', 'NO_PROXY': '',
+                       **{name: trap.url for name in ('http_proxy', 'https_proxy', 'all_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY')}}
     class NoRedirect(HTTPRedirectHandler):
         def redirect_request(self, *args): return None
     class Client:
@@ -131,8 +150,7 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         finally:
             if probe.poll() is None:probe.terminate();probe.wait(timeout=10)
             query('DROP TABLE public.hosted_ownership_probe;')
-        # The page assistant's agent worker exists only in the local preview. Its session ends first, so a hosted worker
-        # would find the lock free.
+        # The preview's agent worker lets go of its lock first, so the hosted start can take it (docs/ai-assistant.md §7.4, §11).
         worker = ("SELECT json_build_object('generation',(SELECT row_to_json(w) FROM assistant.worker_generation w),"
                   f"'calls',(SELECT count(*) FROM assistant.model_calls),'holders',(SELECT json_agg(pid ORDER BY pid) FROM({HOLDERS})h))::text;")
         query(f'SELECT pg_terminate_backend(pid) FROM({HOLDERS})h;')
@@ -180,41 +198,11 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         admin.call('/api/power-imports',expected=403)
         print('PASS hosted startup projects current identity permissions without granting market-data authority',flush=True)
         assert {'ManageModelProviders','ManageAgents','ReadModelUsage'}<=set(admin_access['permissions'])
-        admin.call('/api/settings/ai/providers',expected=404)
-        admin.call('/api/settings/ai/models',expected=404)
-        admin.call('/api/settings/ai/agents',expected=404)
-        admin.call('/api/settings/ai/usage',expected=404)
-        admin.call('/api/assistant/agents',expected=404)
-        admin.call('/api/assistant/grants',expected=404)
-        admin.call('/api/assistant/grants/workspace',expected=404)
-        for path in ('/api/assistant/conversations',f'/api/assistant/conversations/{uuid4()}?after=0',f'/api/assistant/conversations/{uuid4()}/events?after=0',
-                     '/api/assistant/turns/unfinished'):
-            admin.call(path,expected=404)
-        # A request token is bound to its route's scope, so an unmapped route refuses a token that a mapped one accepts.
-        provider={'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0}
-        for path,body in (('/api/settings/ai/providers/key',{**provider,'key':'sk-synthetic-hosted-0000'}),
-                          *((f'/api/settings/ai/providers/{action}',provider) for action in ('terms','attest','enable','disable')),
-                          ('/api/settings/ai/models/add',{'operationId':str(uuid4()),'vendor':'anthropic','identifier':'hosted-model','displayName':'Hosted model'}),
-                          *((f'/api/settings/ai/models/{action}',{'operationId':str(uuid4()),'modelId':str(uuid4()),'expectedVersion':1})
-                            for action in ('edit','enable','disable')),
-                          ('/api/settings/ai/providers/test',{'operationId':str(uuid4()),'modelId':str(uuid4()),'reasoning':'low'}),
-                          ('/api/settings/ai/agents/create',{'operationId':str(uuid4()),'name':'Hosted agent'}),
-                          *((f'/api/settings/ai/agents/{action}',{'operationId':str(uuid4()),'agentId':str(uuid4()),'expectedVersion':1})
-                            for action in ('save','publish','retire')),
-                          ('/api/assistant/grants/grant',{'operationId':str(uuid4()),'agentId':str(uuid4()),'version':1}),
-                          ('/api/assistant/grants/revoke',{'operationId':str(uuid4()),'grantId':str(uuid4())}),
-                          ('/api/assistant/turns/ask',{'operationId':str(uuid4()),'conversationId':None,'agentId':str(uuid4()),'version':1,
-                                                       'question':'Hosted?','pageReport':{'page':'curves'},'knowledge':{'mode':'current','contextId':None,'frameId':None}}),
-                          ('/api/assistant/turns/stop',{'turnId':str(uuid4())}),
-                          ('/api/assistant/conversations/read',{'conversationId':str(uuid4()),'through':0}),
-                          ('/api/market/context/retained',{'contextId':str(uuid4()),'selection':'latest_correction'}),
-                          ('/api/settings/ai/usage/report',{'zone':'UTC','from':'2026-01-01','to':'2026-01-02','by':'model'}),
-                          ('/api/settings/ai/usage/export',{'operationId':str(uuid4()),'zone':'UTC','from':'2026-01-01','to':'2026-01-02','by':'model'})):
-            refused,_=admin.call(path,body,expected=400)
-            assert refused['code']=='request_token'
-        print('PASS hosted mode maps no page-assistant administration, usage, grant, turn or panel route, even for a provider administrator',flush=True)
-        assert query(worker) == before_worker
-        print('PASS a hosted start takes no agent-worker lock and changes no worker generation or model call',flush=True)
+        started, earlier = json.loads(query(worker)), json.loads(before_worker)
+        assert (started['generation']['generation'] == earlier['generation']['generation'] + 1 and started['holders'] == [started['generation']['worker_pid']]
+                and started['calls'] == earlier['calls']), (earlier, started)
+        print('PASS a hosted start takes the agent-worker lock and starts the next worker generation, calling no provider', flush=True)
+        check_hosted_assistant(Client, provision, query, manifest, fake, trap, origin, ssl.create_default_context(cafile=str(cert)), keys, password)
         retained, _ = client.call('/api/bootstrap')
         assert retained['frames'] == boot['frames']
         assert all(cookie.secure for cookie in client.cookies)
@@ -266,4 +254,4 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         print('PASS hosted HTTPS: private invitation/password login, malformed-login rejection, secure cookies, immutable actor, persona/admin-create denial, scoped business read, CSRF logout, origin/host checks, restart persistence, cross-human session reset and revocation', flush=True)
     finally:
         if api and api.poll() is None: api.terminate(); api.wait(timeout=10)
-        proxy.shutdown(); proxy.server_close(); thread.join(timeout=5); log.close()
+        proxy.shutdown(); proxy.server_close(); thread.join(timeout=5); log.close(); fake.close(); trap.close()

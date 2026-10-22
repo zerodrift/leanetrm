@@ -25,7 +25,7 @@ workbench (D187). Explicit version/output FKs import the complete parent panel
 under the same resolved context, keeping graph edges and transitive native sample
 pins through booked PV and retained risk. Shared ancestors prepare once per
 operation; cycles, more than 32 published-source edges per path or more than 256
-exact versions reject. D192 adds signed/normalized weighted combinations of these panels under explicit
+exact versions reject. D193 adds signed/normalized weighted combinations of these panels under explicit
 exact-delivery alignment. A guided composer builds the same graph as the advanced
 visual/formula editor. Agent catalog/preparation tools use shared backend reads and
 hand an unpriced proposal to the ordinary editor only on explicit Review.
@@ -886,7 +886,8 @@ the model runtime and client adapters rather than a separate business-rule path.
 
 The page assistant brings a bounded slice of this milestone forward in three
 phases (D149): a [local-preview core](ai-assistant.md), agent notes and a hosted
-baseline. The slice does not meet the acceptance criteria below. Day-over-day and
+baseline, which runs the core under `--hosted-pilot` (D192). The slice does not meet
+the acceptance criteria below. Day-over-day and
 period P&L comparison is the next slice and monthly spending caps a later one
 (D153); until caps exist, the slice bounds cost per turn instead of the resource
 budgets below.

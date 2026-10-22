@@ -49,7 +49,7 @@ public static class UsageReports
     static ModelAdministrationException Refused(string code)=>new(code,Refusal(code));
     internal static string Refusal(string code)=>code switch
     {
-        "report_zone_invalid"=>"Choose a time zone the preview's database knows, named exactly as it names it.",
+        "report_zone_invalid"=>"Choose a time zone the database knows, named exactly as it names it.",
         "report_range_invalid"=>"Enter a From date before the To date, each written yyyy-MM-dd, no further apart than the Usage tab states.",
         _=>ModelCatalog.Refusal(code)
     };
