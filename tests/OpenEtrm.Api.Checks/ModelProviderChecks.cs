@@ -398,7 +398,7 @@ static class ModelProviderChecks
         Console.WriteLine("PASS Messages refusals before sending: reasoning, identifiers, keys, request shape and replies are checked first");
     }
 
-    // The preview's one provider endpoint override (§5.2): none, or an origin whose host is a loopback IP
+    // The one provider endpoint override (§5.2): none, or an origin whose host is a loopback IP
     // literal, written exactly as the origin it parses to.
     static void CheckEndpoint()
     {
@@ -413,7 +413,7 @@ static class ModelProviderChecks
             catch(InvalidOperationException){continue;}
             throw new Exception("Accepted the provider endpoint override "+refused);
         }
-        Console.WriteLine("PASS the preview's provider endpoint override is only a loopback IP-literal origin");
+        Console.WriteLine("PASS the provider endpoint override is only a loopback IP-literal origin");
     }
 
     // A local fake provider: each request must reach exactly the documented endpoint with only the

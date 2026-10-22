@@ -1092,6 +1092,21 @@ verifies the helpers it relies on and the definitions it replaces, each with exa
 the privileges it was written against. As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).
 
+## Hosted page-assistant sessions
+
+[0087_hosted_turn_sessions.sql](migrations/0087_hosted_turn_sessions.sql) binds hosted
+turns to their sign-in session ([ai-assistant.md](../docs/ai-assistant.md) §11; D192).
+`security.hosted_session_info` is recreated with the session's end as one more column,
+keeping its owner and grant, so an application session can end with its sign-in
+session; its SQL callers read it by column name. `assistant.ask_turn` is replaced in
+place, keeping its owner and grants, and refuses `turn_input` a hosted ask whose binding
+names another sign-in session than its request context's or ends after it; a preview
+ask is unchanged. A trigger on `security.hosted_sessions` requests the cancel of a
+revoked session's queued and running turns with `session_ended`, in id order, in the
+revoking transaction, which notifies the worker as every other cancel does. The
+migration first pins the definitions it replaces and the helpers the binding relies on,
+with their privileges, and refuses to apply over any other.
+
 ## Shaped interval price sources
 
 [0088_interval_price_sources.sql](migrations/0088_interval_price_sources.sql) adds explicit

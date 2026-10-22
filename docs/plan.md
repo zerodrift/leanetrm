@@ -912,7 +912,8 @@ the model runtime and client adapters rather than a separate business-rule path.
 
 The page assistant brings a bounded slice of this milestone forward in three
 phases (D149): a [local-preview core](ai-assistant.md), agent notes and a hosted
-baseline. The slice does not meet the acceptance criteria below. Day-over-day and
+baseline, which runs the core under `--hosted-pilot` (D192). The slice does not meet
+the acceptance criteria below. Day-over-day and
 period P&L comparison is the next slice and monthly spending caps a later one
 (D153); until caps exist, the slice bounds cost per turn instead of the resource
 budgets below.

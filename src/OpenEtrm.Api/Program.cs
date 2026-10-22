@@ -47,17 +47,21 @@ var httpContext=hosted is null?null:app.Services.GetRequiredService<IHttpContext
 await using var database=new PreviewDatabase(root,hosted:hosted,hostedSession:hosted is null?null:()=>HostedAuthentication.SessionDigest(httpContext!.HttpContext??throw new PreviewDeniedException()));
 if(hosted is not null)await database.ValidateHostedBoundary(CancellationToken.None);
 if(hostedAuthentication is not null){hostedAuthentication.Tenant=database.Manifest.TenantId;hostedAuthentication.Workspace=database.Manifest.WorkspaceId;app.UseForwardedHeaders();}
-// The page assistant's worker and provider client exist only in the local preview (docs/ai-assistant.md §11). The
-// worker starts its generation before serving, closing whatever an earlier one left open. Only checks set the
-// preview's provider endpoint override (§5.2).
-var checkEndpoint=hosted is null?ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PROVIDER_ENDPOINT")):null;
-await using var agentWorker=hosted is null?new AgentWorker(PreviewDatabase.AgentSource(root),PreviewDatabase.AgentWrites(root),app.Logger):null;
-var (custody,adapter)=agentWorker is null?(null,null):(CredentialCustody.FromEnvironment(),new MessagesAdapter(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider));
-var providerTests=agentWorker is null?null:new ProviderTests(custody!,agentWorker,adapter!,app.Logger);
+// The page assistant's worker and provider client (docs/ai-assistant.md §7.4, §11). The worker starts its generation
+// before serving, closing whatever an earlier one left open. Only owned checks set the provider check endpoint (§5.2).
+var checkEndpoint=ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_PROVIDER_CHECK_ENDPOINT"));
+var (workerHolder,workerWrites)=PreviewDatabase.WorkerSources(root,hosted);
+await using var agentWorker=new AgentWorker(workerHolder,workerWrites,app.Logger);
+// Provider keys are sealed under the installation's key files when hosted, else the preview runner's (§5.2, §11).
+var custody=hosted is null?CredentialCustody.FromEnvironment():new CredentialCustody(hosted.CredentialKeyFile,hosted.CredentialRetryKeyFile);
+var adapter=new MessagesAdapter(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider);
+var providerTests=new ProviderTests(custody,agentWorker,adapter,app.Logger);
 // The live event stream's subscriptions, which the worker tells of what it publishes (§8).
-var turnStreams=agentWorker is null?null:new TurnStreams();
-await using var turnWorker=agentWorker is null?null:new TurnWorker(agentWorker,custody!,adapter!,turnStreams!,app.Logger);
-if(agentWorker is not null)await agentWorker.Generation(CancellationToken.None);
+var turnStreams=new TurnStreams();
+await using var turnWorker=new TurnWorker(agentWorker,custody,adapter,turnStreams,app.Logger);
+await agentWorker.Generation(CancellationToken.None);
+// Signing out ends the session's streams at once; revoking its sign-in session has cancelled its turns (§11).
+if(hostedAuthentication is not null)hostedAuthentication.SignedOut=turnStreams.EndSession;
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
 
@@ -78,7 +82,7 @@ app.Use(async (context,next)=>
     context.Items["client_aborted"]=context.RequestAborted;
     // Authorized event streams have their own session, heartbeat and write bounds.
     using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-    if(!LiveContexts.Matches(context.Request.Method,apiPath)&&(hosted is not null||!TurnStream.Matches(context.Request.Method,apiPath)))deadline.CancelAfter(TimeSpan.FromSeconds(apiPath.StartsWithSegments("/api/ppa")?20:15));
+    if(!LiveContexts.Matches(context.Request.Method,apiPath)&&!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(apiPath.StartsWithSegments("/api/ppa")?20:15));
     context.RequestAborted=deadline.Token;
     const string malformed="The request is incomplete or malformed.";
     try
@@ -284,11 +288,13 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
 {
     foreach(var item in sessions.Where(x=>DateTimeOffset.UtcNow>x.Value.Ends).ToArray()) sessions.TryRemove(item.Key,out _);
     PreviewSession session;
-    if (context.Request.Cookies.TryGetValue(cookieName,out var cookie)&&sessions.TryGetValue(cookie,out var existing)) session=existing;
+    // A hosted application session belongs to the sign-in session it was opened under (docs/ai-assistant.md §11).
+    if (context.Request.Cookies.TryGetValue(cookieName,out var cookie)&&sessions.TryGetValue(cookie,out var existing)
+        &&(hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context))) session=existing;
     else
     {
         if (sessions.Count>=64) throw new PreviewDeniedException();
-        var id=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)); session=new PreviewSession(database.Manifest);
+        var id=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)); session=new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context));
         sessions[id]=session;
         context.Response.Cookies.Append(cookieName,id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=PreviewSession.Lifetime,Path="/"});
     }
@@ -314,6 +320,7 @@ PreviewSession Session(HttpContext context)
 {
     if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow>session.Ends) throw new PreviewSessionEnded();
     if(hosted is not null&&session.Profile!=HostedAuthentication.Current(context).Subject)throw new PreviewDeniedException();
+    if(hosted is not null&&session.Digest!=HostedAuthentication.SessionDigest(context))throw new PreviewSessionEnded();
     return session;
 }
 async Task<IResult> Locked(HttpContext context,Func<PreviewSession,Task<IResult>> work)
@@ -403,8 +410,8 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
     // Then the switch ends the streams the session opened under the profile it left, before it cancels the turns the session
     // asked, so no stream carries that cancel instead; a stream still being admitted finds the new profile
     // (docs/ai-assistant.md §7.2, §8).
-    turnStreams?.EndSession(session.Digest,left);
-    turnWorker?.EndSession(session.Digest);
+    turnStreams.EndSession(session.Digest,left);
+    turnWorker.EndSession(session.Digest);
     return Task.FromResult(Results.Ok(new {profile=session.Profile}));
 }));
 PreviewSequenceCoverage ScheduleSource(string? code) => (database.Manifest.Schedules ?? []).SingleOrDefault(s=>s.Curve==code)
@@ -1098,125 +1105,122 @@ async Task<IResult> AdminMutation(HttpContext c,object body,string action)=>awai
 });
 api.MapPost("/admin/create",(HttpContext c,AdminCreate body)=>hosted is null?AdminMutation(c,body,"create"):Task.FromResult<IResult>(Results.Json(new{code="access_denied",message="Hosted accounts require a private invitation."},statusCode:403)));
 api.MapPost("/admin/update",(HttpContext c,AdminUpdate body)=>AdminMutation(c,body,"update"));
-// Settings › AI administers the page assistant, which exists only in the local preview (P37).
-if(hosted is null)
+// Settings › AI administers the page assistant (docs/ai-assistant.md §9, §11).
+var (modelProviders,modelCatalog)=(new ModelProviders(custody,database.Manifest,checkEndpoint),new ModelCatalog());
+Task<IResult> ModelRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
+Task<IResult> ModelCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,session=>
 {
-    var (modelProviders,modelCatalog)=(new ModelProviders(CredentialCustody.FromEnvironment(),database.Manifest,checkEndpoint),new ModelCatalog());
-    Task<IResult> ModelRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
-        database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
-    Task<IResult> ModelCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,session=>
+    c.Items["model_admin_attempted"]=true;
+    return database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await command(connection,ct)),c.RequestAborted);
+});
+api.MapGet("/settings/ai/providers",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,modelProviders.Directory)));
+api.MapGet("/settings/ai/models",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,async(connection,ct)=>await modelCatalog.Directory(connection,ct))));
+api.MapPost("/settings/ai/providers/key",(HttpContext c,ReplaceKeyRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.ReplaceKey(connection,body,ct)));
+api.MapPost("/settings/ai/providers/terms",(HttpContext c,RecordTermsRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.RecordTerms(connection,body,ct)));
+api.MapPost("/settings/ai/providers/attest",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Attest(connection,body,ct)));
+api.MapPost("/settings/ai/providers/enable",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Enable(connection,body,ct)));
+api.MapPost("/settings/ai/providers/disable",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Disable(connection,body,ct)));
+api.MapPost("/settings/ai/models/add",(HttpContext c,AddModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddModel(connection,body,ct)));
+api.MapPost("/settings/ai/models/rename",(HttpContext c,RenameModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.RenameModel(connection,body,ct)));
+api.MapPost("/settings/ai/models/price",(HttpContext c,AddPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddPrice(connection,body,ct)));
+api.MapPost("/settings/ai/models/withdraw",(HttpContext c,WithdrawPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.WithdrawPrice(connection,body,ct)));
+api.MapPost("/settings/ai/models/edit",(HttpContext c,EditModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EditModel(connection,body,ct)));
+api.MapPost("/settings/ai/models/enable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EnableModel(connection,body,ct)));
+api.MapPost("/settings/ai/models/disable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.DisableModel(connection,body,ct)));
+// Agents (§5.4, §9). Create and Retire write control tables: the database refuses them with admission_required once
+// every check has passed under the shared admission, and they are repeated under exclusive admission, so a refusal
+// or a repeat never takes the epoch row exclusively.
+Task<IResult> AgentCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command,bool control=false)=>Locked(c,async session=>
+{
+    c.Items["model_admin_attempted"]=true;
+    try{return Results.Ok(await database.WithIdentity(Profile(session),"ManageAgents",command,c.RequestAborted));}
+    catch(PostgresException p) when(control&&p.SqlState=="P0001"&&p.MessageText=="admission_required")
+    {return Results.Ok(await database.WithIdentity(Profile(session),"ManageAgents",command,c.RequestAborted,Admission.Agents));}
+});
+api.MapGet("/settings/ai/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ManageAgents",async(connection,ct)=>Results.Ok(await AgentAdministration.Directory(connection,ct)),c.RequestAborted))));
+api.MapPost("/settings/ai/agents/create",(HttpContext c,CreateAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Create(connection,body,ct),control:true));
+api.MapPost("/settings/ai/agents/save",(HttpContext c,SaveAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Save(connection,body,ct)));
+api.MapPost("/settings/ai/agents/publish",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Publish(connection,body,ct)));
+api.MapPost("/settings/ai/agents/retire",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Retire(connection,body,ct),control:true));
+// Grants (§7.1, §8): the agents a user may use and the user's grants. Grant and Revoke write control tables, so like
+// Create and Retire they repeat under exclusive admission only once every check has passed; Revoke needs no UseAgents.
+Task<IResult> GrantCommand(HttpContext c,string? permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,async session=>
+{
+    c.Items["grant_attempted"]=true;
+    try{return Results.Ok(await database.WithIdentity(Profile(session),permission,command,c.RequestAborted));}
+    catch(PostgresException p) when(p.SqlState=="P0001"&&p.MessageText=="admission_required")
+    {return Results.Ok(await database.WithIdentity(Profile(session),permission,command,c.RequestAborted,Admission.Grants));}
+});
+api.MapGet("/assistant/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"UseAgents",async(connection,ct)=>Results.Ok(await AgentGrants.Usable(connection,ct)),c.RequestAborted))));
+api.MapGet("/assistant/grants",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await AgentGrants.Grants(connection,ct)),c.RequestAborted))));
+// A workspace's grants, read-only, for those who administer its access: the database also requires ManageIdentities
+// and refuses a delegated context. Revoke stays the delegator's.
+api.MapGet("/assistant/grants/workspace",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>Results.Ok(await AgentGrants.Workspace(connection,ct)),c.RequestAborted))));
+api.MapPost("/assistant/grants/grant",(HttpContext c,GrantRequest body)=>GrantCommand(c,"UseAgents",(connection,ct)=>AgentGrants.Grant(connection,body,ct)));
+api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>GrantCommand(c,null,(connection,ct)=>AgentGrants.Revoke(connection,body,ct)));
+// Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
+// is selected, a retained context only when it is the selected one, and a frame only of the session's current market
+// context. Working data is captured at its frame's date, so it needs one. Nothing else is pinned, and nothing falls back.
+var agentTurns=new AgentTurns(database,turnScope,agentWorker,turnWorker,new AgentTools(database,marketReads,scheduleReads,partyReads,tradeReads,app.Logger),app.Logger);
+(string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge)
+{
+    var selected=session.MarketContext?.ContextId;
+    var (mode,retained)=knowledge switch
     {
-        c.Items["model_admin_attempted"]=true;
-        return database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await command(connection,ct)),c.RequestAborted);
-    });
-    api.MapGet("/settings/ai/providers",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,modelProviders.Directory)));
-    api.MapGet("/settings/ai/models",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,async(connection,ct)=>await modelCatalog.Directory(connection,ct))));
-    api.MapPost("/settings/ai/providers/key",(HttpContext c,ReplaceKeyRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.ReplaceKey(connection,body,ct)));
-    api.MapPost("/settings/ai/providers/terms",(HttpContext c,RecordTermsRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.RecordTerms(connection,body,ct)));
-    api.MapPost("/settings/ai/providers/attest",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Attest(connection,body,ct)));
-    api.MapPost("/settings/ai/providers/enable",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Enable(connection,body,ct)));
-    api.MapPost("/settings/ai/providers/disable",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Disable(connection,body,ct)));
-    api.MapPost("/settings/ai/models/add",(HttpContext c,AddModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddModel(connection,body,ct)));
-    api.MapPost("/settings/ai/models/rename",(HttpContext c,RenameModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.RenameModel(connection,body,ct)));
-    api.MapPost("/settings/ai/models/price",(HttpContext c,AddPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddPrice(connection,body,ct)));
-    api.MapPost("/settings/ai/models/withdraw",(HttpContext c,WithdrawPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.WithdrawPrice(connection,body,ct)));
-    api.MapPost("/settings/ai/models/edit",(HttpContext c,EditModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EditModel(connection,body,ct)));
-    api.MapPost("/settings/ai/models/enable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EnableModel(connection,body,ct)));
-    api.MapPost("/settings/ai/models/disable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.DisableModel(connection,body,ct)));
-    // Agents (§5.4, §9). Create and Retire write control tables: the database refuses them with admission_required once
-    // every check has passed under the shared admission, and they are repeated under exclusive admission, so a refusal
-    // or a repeat never takes the epoch row exclusively.
-    Task<IResult> AgentCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command,bool control=false)=>Locked(c,async session=>
-    {
-        c.Items["model_admin_attempted"]=true;
-        try{return Results.Ok(await database.WithIdentity(Profile(session),"ManageAgents",command,c.RequestAborted));}
-        catch(PostgresException p) when(control&&p.SqlState=="P0001"&&p.MessageText=="admission_required")
-        {return Results.Ok(await database.WithIdentity(Profile(session),"ManageAgents",command,c.RequestAborted,Admission.Agents));}
-    });
-    api.MapGet("/settings/ai/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-        database.WithIdentity(Profile(session),"ManageAgents",async(connection,ct)=>Results.Ok(await AgentAdministration.Directory(connection,ct)),c.RequestAborted))));
-    api.MapPost("/settings/ai/agents/create",(HttpContext c,CreateAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Create(connection,body,ct),control:true));
-    api.MapPost("/settings/ai/agents/save",(HttpContext c,SaveAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Save(connection,body,ct)));
-    api.MapPost("/settings/ai/agents/publish",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Publish(connection,body,ct)));
-    api.MapPost("/settings/ai/agents/retire",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Retire(connection,body,ct),control:true));
-    // Grants (§7.1, §8): the agents a user may use and the user's grants. Grant and Revoke write control tables, so like
-    // Create and Retire they repeat under exclusive admission only once every check has passed; Revoke needs no UseAgents.
-    Task<IResult> GrantCommand(HttpContext c,string? permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,async session=>
-    {
-        c.Items["grant_attempted"]=true;
-        try{return Results.Ok(await database.WithIdentity(Profile(session),permission,command,c.RequestAborted));}
-        catch(PostgresException p) when(p.SqlState=="P0001"&&p.MessageText=="admission_required")
-        {return Results.Ok(await database.WithIdentity(Profile(session),permission,command,c.RequestAborted,Admission.Grants));}
-    });
-    api.MapGet("/assistant/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-        database.WithIdentity(Profile(session),"UseAgents",async(connection,ct)=>Results.Ok(await AgentGrants.Usable(connection,ct)),c.RequestAborted))));
-    api.MapGet("/assistant/grants",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await AgentGrants.Grants(connection,ct)),c.RequestAborted))));
-    // A workspace's grants, read-only, for those who administer its access: the database also requires ManageIdentities
-    // and refuses a delegated context. Revoke stays the delegator's.
-    api.MapGet("/assistant/grants/workspace",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-        database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>Results.Ok(await AgentGrants.Workspace(connection,ct)),c.RequestAborted))));
-    api.MapPost("/assistant/grants/grant",(HttpContext c,GrantRequest body)=>GrantCommand(c,"UseAgents",(connection,ct)=>AgentGrants.Grant(connection,body,ct)));
-    api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>GrantCommand(c,null,(connection,ct)=>AgentGrants.Revoke(connection,body,ct)));
-    // Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
-    // is selected, a retained context only when it is the selected one, and a frame only of the session's current market
-    // context. Working data is captured at its frame's date, so it needs one. Nothing else is pinned, and nothing falls back.
-    var agentTurns=new AgentTurns(database,turnScope,agentWorker!,turnWorker!,new AgentTools(database,marketReads,scheduleReads,partyReads,tradeReads,app.Logger),app.Logger);
-    (string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge)
-    {
-        var selected=session.MarketContext?.ContextId;
-        var (mode,retained)=knowledge switch
-        {
-            {Mode:"current",ContextId:null} when selected is null=>("current",(Guid?)null),
-            {Mode:"retained",ContextId:{} id} when id==selected=>("retained",id),
-            _=>throw new MarketDataException("context_required","Ask over the knowledge the page shows: current knowledge, or the selected historical view.")
-        };
-        var frame=knowledge.FrameId is {} chosen?Frame(session,chosen):null;
-        if(frame is not null&&frame.ContextId!=retained)throw PinnedContext.Missing();
-        return mode=="current"&&frame is null?throw PinnedContext.Missing():(mode,retained,frame);
-    }
-    api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,session=>
-    {
-        var (mode,retained,frame)=Knowledge(session,body.Knowledge);
-        c.Items["turn_attempted"]=true;
-        return agentTurns.Ask(session,Profile(session),body,mode,retained,frame,c.RequestAborted);
-    }));
-    api.MapPost("/assistant/turns/stop",(HttpContext c,StopRequest body)=>Locked(c,session=>
-        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Stop(connection,body,ct)),c.RequestAborted)));
-    api.MapGet("/assistant/conversations",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversations(connection,ct)),c.RequestAborted))));
-    api.MapGet("/assistant/conversations/{id:guid}",(HttpContext c,Guid id,long after)=>Locked(c,session=>
-        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversation(connection,id,after,ct)),c.RequestAborted)));
-    // The live event stream (§8) takes no session semaphore, so the session's commands, Stop among them, never wait for it.
-    var turnStream=new TurnStream(database,turnScope,agentWorker!,turnStreams!,
-        app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions,
-        TimeProvider.System,app.Lifetime.ApplicationStopping,app.Logger);
-    api.MapGet("/assistant/conversations/{id:guid}/events",(HttpContext c,Guid id,long after)=>turnStream.Serve(c,()=>Session(c),id,after));
-    api.MapGet("/assistant/turns/unfinished",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Unfinished(connection,ct)),c.RequestAborted))));
-    api.MapPost("/assistant/conversations/read",(HttpContext c,MarkReadRequest body)=>Locked(c,session=>
-        database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.MarkRead(connection,body,ct)),c.RequestAborted)));
-    // The panel's Go and Back (§10.1) select a target's retained context again by its id: exactly that context, which an ask
-    // may then pin, never a new capture.
-    api.MapPost("/market/context/retained",(HttpContext c,RetainedContextRequest body)=>Locked(c,session=>
-        SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Read(connection,body.ContextId,ct))));
-    // Usage (§9) is read under ReadModelUsage alone. An export records the report it carries in the model administration
-    // audit, so like a change its outcome can be unknown, and repeating it answers as its original did.
-    Task<IResult> UsageRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
-        database.WithIdentity(Profile(session),"ReadModelUsage",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
-    api.MapGet("/settings/ai/usage",(Func<HttpContext,Task<IResult>>)(c=>UsageRead(c,async(connection,ct)=>await UsageReports.Directory(connection,ct))));
-    api.MapPost("/settings/ai/usage/report",(HttpContext c,UsageReportRequest body)=>UsageRead(c,async(connection,ct)=>await UsageReports.Report(connection,body,ct)));
-    api.MapPost("/settings/ai/usage/export",(HttpContext c,UsageExportRequest body)=>
-    {
-        c.Items["model_admin_attempted"]=true;
-        return UsageRead(c,async(connection,ct)=>await UsageReports.Export(connection,body,ct));
-    });
-    api.MapPost("/settings/ai/providers/test",(HttpContext c,TestRequest body)=>Locked(c,async session=>
-    {
-        c.Items["model_admin_attempted"]=true;
-        return Results.Ok(await providerTests!.Run(database,Profile(session),body,c.RequestAborted,(CancellationToken)c.Items["client_aborted"]!));
-    }));
+        {Mode:"current",ContextId:null} when selected is null=>("current",(Guid?)null),
+        {Mode:"retained",ContextId:{} id} when id==selected=>("retained",id),
+        _=>throw new MarketDataException("context_required","Ask over the knowledge the page shows: current knowledge, or the selected historical view.")
+    };
+    var frame=knowledge.FrameId is {} chosen?Frame(session,chosen):null;
+    if(frame is not null&&frame.ContextId!=retained)throw PinnedContext.Missing();
+    return mode=="current"&&frame is null?throw PinnedContext.Missing():(mode,retained,frame);
 }
+api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,session=>
+{
+    var (mode,retained,frame)=Knowledge(session,body.Knowledge);
+    c.Items["turn_attempted"]=true;
+    return agentTurns.Ask(session,Profile(session),body,mode,retained,frame,c.RequestAborted);
+}));
+api.MapPost("/assistant/turns/stop",(HttpContext c,StopRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Stop(connection,body,ct)),c.RequestAborted)));
+api.MapGet("/assistant/conversations",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversations(connection,ct)),c.RequestAborted))));
+api.MapGet("/assistant/conversations/{id:guid}",(HttpContext c,Guid id,long after)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversation(connection,id,after,ct)),c.RequestAborted)));
+// The live event stream (§8) takes no session semaphore, so the session's commands, Stop among them, never wait for it.
+var turnStream=new TurnStream(database,turnScope,agentWorker,turnStreams,
+    app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions,
+    TimeProvider.System,app.Lifetime.ApplicationStopping,app.Logger);
+api.MapGet("/assistant/conversations/{id:guid}/events",(HttpContext c,Guid id,long after)=>turnStream.Serve(c,()=>Session(c),id,after));
+api.MapGet("/assistant/turns/unfinished",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Unfinished(connection,ct)),c.RequestAborted))));
+api.MapPost("/assistant/conversations/read",(HttpContext c,MarkReadRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.MarkRead(connection,body,ct)),c.RequestAborted)));
+// The panel's Go and Back (§10.1) select a target's retained context again by its id: exactly that context, which an ask
+// may then pin, never a new capture.
+api.MapPost("/market/context/retained",(HttpContext c,RetainedContextRequest body)=>Locked(c,session=>
+    SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Read(connection,body.ContextId,ct))));
+// Usage (§9) is read under ReadModelUsage alone. An export records the report it carries in the model administration
+// audit, so like a change its outcome can be unknown, and repeating it answers as its original did.
+Task<IResult> UsageRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadModelUsage",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
+api.MapGet("/settings/ai/usage",(Func<HttpContext,Task<IResult>>)(c=>UsageRead(c,async(connection,ct)=>await UsageReports.Directory(connection,ct))));
+api.MapPost("/settings/ai/usage/report",(HttpContext c,UsageReportRequest body)=>UsageRead(c,async(connection,ct)=>await UsageReports.Report(connection,body,ct)));
+api.MapPost("/settings/ai/usage/export",(HttpContext c,UsageExportRequest body)=>
+{
+    c.Items["model_admin_attempted"]=true;
+    return UsageRead(c,async(connection,ct)=>await UsageReports.Export(connection,body,ct));
+});
+api.MapPost("/settings/ai/providers/test",(HttpContext c,TestRequest body)=>Locked(c,async session=>
+{
+    c.Items["model_admin_attempted"]=true;
+    return Results.Ok(await providerTests.Run(database,Profile(session),body,c.RequestAborted,(CancellationToken)c.Items["client_aborted"]!));
+}));
 }
 var files=new PhysicalFileProvider(webRoot);
 app.UseDefaultFiles(new DefaultFilesOptions {FileProvider=files});
@@ -1240,10 +1244,11 @@ public sealed partial class PreviewSession
 {
     public static readonly TimeSpan Lifetime=TimeSpan.FromMinutes(30);
     public DateTimeOffset Created {get;}=DateTimeOffset.UtcNow;
-    public DateTimeOffset Ends=>Created+Lifetime;
-    // Names the session to the database, which binds its turns to it (docs/ai-assistant.md §7.2); random, so it reveals
-    // nothing of the session's cookie.
-    public string Digest {get;}=Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+    // Within its lifetime and, in hosted mode, no later than the sign-in session it belongs to (docs/ai-assistant.md §11).
+    public DateTimeOffset Ends {get;}
+    // Names the session to the database, which binds its turns to it (docs/ai-assistant.md §7.2, §11): its sign-in
+    // session's digest in hosted mode, otherwise random, so it reveals nothing of the session's cookie.
+    public string Digest {get;}
     public SemaphoreSlim Gate {get;}=new(1,1);
     public string? Profile {get;set;}
     public ScheduleContext? MarketContext {get;set;}
@@ -1252,8 +1257,10 @@ public sealed partial class PreviewSession
     public PreviewShortcutLibrary Shortcuts {get;}=new();
     public DateWorkspace Dates {get;}=new();
     public Guid[] InitialFrames {get;}
-    public PreviewSession(PreviewManifest manifest)
+    public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null)
     {
+        Ends=signIn is {} s&&s.Ends<Created+Lifetime?s.Ends:Created+Lifetime;
+        Digest=signIn?.Digest??Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         foreach(var f in manifest.Frames) {
             if(f.CurveContracts is null)throw new MarketDataException("missing_curve_view","Every seed frame requires explicit curve contract selections.");
             var frame=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",f.At,f.ObservationIds.ToImmutableArray(),

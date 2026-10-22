@@ -89,9 +89,13 @@ public sealed class LiveContexts(PreviewDatabase database,CalculationChanges cha
                 await Task.Delay(TimeSpan.FromMilliseconds(250),ct);
             }
         }
-        catch(Exception e)when(c.Response.HasStarted&&e is OperationCanceledException or IOException or PreviewDeniedException or PostgresException or OpenEtrm.MarketData.MarketDataException or OpenEtrm.Shared.Temporal.TemporalException){}
+        catch(Exception e)when(c.Response.HasStarted&&Ends(e)){}
         finally{changes.Remove(subscription.Id);session.ReleaseLiveStream();}
         return Results.Empty;
     }
+    // The failures that end a started stream quietly: the client left or the process is stopping, the session ended, a read
+    // was refused, or the selection no longer resolves (docs/ai-assistant.md §11 for a hosted session revoked elsewhere).
+    internal static bool Ends(Exception e)=>e is OperationCanceledException or IOException or PreviewDeniedException or PreviewSessionEnded
+        or PostgresException or OpenEtrm.MarketData.MarketDataException or OpenEtrm.Shared.Temporal.TemporalException;
     internal static bool Matches(string method,PathString path)=>HttpMethods.IsGet(method)&&path.Equals("/api/market/live/events",StringComparison.OrdinalIgnoreCase);
 }

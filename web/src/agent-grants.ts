@@ -60,8 +60,7 @@ export const keptNote=(agentName:string)=>`A revocation of your grant to ${agent
 
 // Agent access in the profile dialog (docs/ai-assistant.md §7.1): a person's own grants in force, read when asked, with
 // Revoke, which needs no UseAgents.
-export function setupAgentGrants(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;
-  available:()=>boolean}){
+export function setupAgentGrants(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const text=(id:string,value:string)=>{get(id).textContent=publicText(value);};
   const pending=new PendingCommand(knownGrantRejection);
@@ -143,6 +142,6 @@ export function setupAgentGrants(options:{api:Api;act:(work:()=>Promise<void>)=>
       clear();setError();pending.clear();kept='';
       let stored:string|null=null;try{stored=sessionStorage.getItem(storage());}catch{/* Nothing is kept. */}
       const restored=keptRevoke(stored);if(restored){pending.command=restored.command;kept=restored.agent;}
-      get('profile-grants').hidden=!options.available();sync();
+      sync();
     }};
 }

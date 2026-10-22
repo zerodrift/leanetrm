@@ -2,7 +2,7 @@ using Npgsql;
 
 namespace OpenEtrm.Api;
 
-// One agent worker per database (docs/ai-assistant.md §7.4). The local preview holds the agent-worker advisory lock on
+// One agent worker per database (docs/ai-assistant.md §7.4, §11). The API process holds the agent-worker advisory lock on
 // a connection of its own, which then listens for the turns whose cancel was requested, and works under the generation
 // it started; starting one closes whatever an earlier generation left open. However that connection ends, the
 // generation ends with it: this process's turns are told to stop, and the lock goes with the connection, so the next
