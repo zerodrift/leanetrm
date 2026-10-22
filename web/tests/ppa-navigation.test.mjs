@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
 const source=readFileSync(new URL('../src/app.ts',import.meta.url),'utf8');
-const handler=source.match(/\$\('nav-ppa'\)\.onclick=\(\)=>void act\((async\(\)=>\{[^\n]+\})\);/)[1];
+const branch=source.match(/case 'ppa':(await setPage\('ppa'\);[^\n]+return;)/)[1];
+const handler='async()=>{'+branch+'}';
 const navigation=(setPage,load)=>new Function('setPage','ppa','return '+handler)(setPage,{load});
 
 test('PPA reads wait for live pause and page readiness',async()=>{
@@ -18,4 +19,13 @@ test('failed live pause refuses PPA loading through the normal action error path
  const failure=Error('pause refused');let reads=0;
  await assert.rejects(navigation(()=>Promise.reject(failure),async()=>{reads++;})(),failure);
  assert.equal(reads,0);
+});
+
+
+test('manual navigation, page reporting and unsaved checks include the PPA page',()=>{
+ assert.match(source,/for\(const name of \[[^\n]*'ppa'\]\)\s*\$\('nav-'\+name\)\.onclick=navigate\(name\)/);
+ const report=source.match(/function pageState\(\):PageState\{([\s\S]*?)\n\}/)[1];
+ assert.deepEqual(new Function('page',report)('ppa'),{page:'ppa'});
+ const unsaved=source.match(/function unsaved\(\)\{([\s\S]*?)\n\}/)[1];
+ assert.equal(new Function('page','ppa',unsaved)('ppa',{unsaved:()=>true}),true);
 });

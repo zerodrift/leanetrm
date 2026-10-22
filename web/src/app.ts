@@ -535,7 +535,6 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
 });
 const deliveryPrices=setupPowerImports({api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
-$('nav-ppa').onclick=()=>void act(async()=>{await setPage('ppa');await ppa.load();});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone});
@@ -563,6 +562,7 @@ async function showPage(next:string){
     case 'delivery':await setPage('delivery');await deliveryPrices.load();return;
     case 'interval-series':await setPage('interval-series');await intervalSeries.load();return;
     case 'interval-curves':await setPage('interval-curves');await intervalCurves.load();return;
+    case 'ppa':await setPage('ppa');await ppa.load();return;
     case 'jobs':await setPage('jobs');await jobs.load();return;
     case 'power':await setPage('power');power.reset();await touProducts.load();if(select('snapshot').value)await power.load();return;
     case 'reference':await setPage('reference');$<HTMLInputElement>('reference-search').value='';await loadReference();return;
@@ -578,7 +578,7 @@ async function showPage(next:string){
 // Pages that read the selected historical view apply a changed one before they open.
 const readsContext=['market','custom-curves','delivery','reference','configuration','parties','futures'];
 const navigate=(next:string)=>()=>void act(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);});
-for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
+for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures','ppa'])
   $('nav-'+name).onclick=navigate(name);
 $('curve-power').onclick=navigate('power');
 
@@ -590,7 +590,7 @@ function pageState():PageState{
     case 'reference':return {page,table:referencePage?.table??'',search:referencePage?.search??''};
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
-    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'jobs':case 'admin':case 'ai':return {page};
+    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'jobs':case 'admin':case 'ai':case 'ppa':return {page};
     default:throw Error('This page could not load. Please refresh.');
   }
 }
@@ -604,6 +604,7 @@ const place=():Place=>({page,report:pageReport(pageState()),context:pageContext(
 // Edits not yet saved, and requests whose outcome is unconfirmed, on the page a move would leave.
 function unsaved(){
   switch(page){
+    case 'ppa':return ppa.unsaved();
     case 'futures':return futures.unsaved();
     case 'parties':return parties.unsaved();
     case 'reference':return referenceEditor.unsaved();
