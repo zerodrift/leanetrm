@@ -1,0 +1,487 @@
+using System.Collections.Immutable;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using Npgsql;
+using OpenEtrm.MarketData;
+using OpenEtrm.Shared.Temporal;
+
+namespace OpenEtrm.Api;
+
+// A tool the worker offers (docs/ai-assistant.md §7.3): its definition, sent to the model, and the permissions its reads
+// need, which the turn's grant lists.
+public sealed record AgentTool(string Name,string Description,JsonElement InputSchema,ImmutableArray<string> Permissions)
+{
+    public ModelTool Definition=>new(Name,Description,InputSchema);
+}
+
+// What a read needs of the turn's pin before it runs (§7.2): its pinned context, with or without the As of frame, or
+// current-only definitions, with or without the frame.
+enum ToolNeeds {View,Frame,CurrentOnly,CurrentOnlyFrame}
+
+// A versioned read operation (architecture §10): its tool, what it needs of the pin, the accesses its read runs under, and
+// which of its read's refusals mean that a page's selection is unavailable.
+sealed record ToolOperation(string Id,string Tool,ToolNeeds Needs,Func<PreviewManifest,ImmutableArray<ReadAccess>> Access,ImmutableHashSet<string> SelectionRefusals);
+
+// One access a read ran under, as record_tool_step takes it (§7.1).
+public sealed record ReadAccess(string Access,Guid CatalogId,string Permission);
+
+// A request's operation and its arguments.
+sealed record ToolCall(ToolOperation Operation,ToolArguments Arguments);
+abstract record ToolArguments;
+sealed record NoArguments:ToolArguments;
+sealed record CurveArguments(string Curve):ToolArguments;
+sealed record ReferenceArguments(string Table,string Search):ToolArguments;
+sealed record PartyArguments(string Kind):ToolArguments;
+sealed record BlotterArguments(FuturesBlotterView View):ToolArguments;
+sealed record TradeArguments(Guid TradeId,string InstrumentType,int? Revision):ToolArguments;
+
+// A refusal of a request before its read runs.
+sealed class ToolRefusal(string code):Exception(code)
+{
+    public string Code {get;}=code;
+}
+
+// The turn's agent, in whose request context every read runs: its principal and the turn's grant, fixed at ask (§7.1).
+public sealed record AgentIdentity(string Principal,Guid Delegation)
+{
+    public override string ToString()=>nameof(AgentIdentity);
+}
+
+// What a turn's reads run with: its pin, its agent, the page report stored at ask and the version's switched-on tools.
+public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools);
+
+// How a step ended: with a result or a refusal the model receives, a failure that ends the turn, or a read the worker
+// stopped, whose cause it names.
+public enum ToolStepEnd {Result,Refusal,Failure,Interrupted}
+
+// A request's step (§7.3): what record_tool_step records, and the content the model receives for a result or refusal.
+// A read names its operation, the instant it read and every access it ran under; a refusal before any read names none.
+public sealed record ToolStep(string Tool,string? Operation,JsonElement? Input,string? Code,DateTimeOffset? ReadAt,ImmutableArray<ReadAccess> Access,
+    string? Content,ToolStepEnd End)
+{
+    public override string ToString()=>nameof(ToolStep);
+}
+
+// The fixed read tools over the session-independent page reads (§7.3, §12 step 2): pages and tools share each read and its
+// authorization path. Every read runs in a request context issued to the turn's agent under its grant, at the pin the
+// turn's record rebuilds, and returns the page's own values, bounded by the runtime set and never truncated.
+public sealed partial class AgentTools(PreviewDatabase database,MarketReads market,ScheduleReads schedules,PartyReads parties,TradeReads trades,ILogger logger)
+{
+    const string Uuid="^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
+    static readonly ImmutableArray<string> MarketData=["ReadMarketData"];
+
+    // The fixed tools, in the order every request offers them. Navigate and Show card come later.
+    internal static readonly ImmutableArray<AgentTool> Tools=
+    [
+        Tool("read_current_page","Reads the page the user asked from, with what it had selected then, at the knowledge and As of frame pinned when "+
+            "the question was asked. Navigating while you answer changes nothing it reads. Takes no input.",
+            """
+            {"type":"object","properties":{},"additionalProperties":false}
+            """,[]),
+        Tool("read_market_data","Reads market data at the knowledge and As of frame pinned when the question was asked, never another date. View "+
+            "curves lists the curve directory. View curve returns one curve's dated contracts with their exact prices at the frame. View observations "+
+            "returns the input observations that curve's prices were built from. View contract_definitions lists the published shared contract date "+
+            "definitions. Name the curve for the curve and observations views, and send it as null for the others.",
+            """
+            {"type":"object","properties":{"view":{"type":"string","enum":["curves","curve","observations","contract_definitions"]},
+             "curve":{"type":["string","null"],"minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+              "description":"A curve code from the curves view for the curve and observations views; null for the others."}},
+             "required":["view","curve"],"additionalProperties":false}
+            """,MarketData),
+        Tool("read_trades","Reads trades at the pinned knowledge and As of frame. View blotter returns Blotter rows with their execution P&L or "+
+            "present value (mode trades), or totals grouped by its dimensions (mode pivot), for the listed books and portfolios; empty lists read "+
+            "every book you can read. View trade returns one trade's revision, or its latest under the pinned knowledge when revision is null, with "+
+            "its history. Send every member: those the other view takes are null.",
+            $$$"""
+            {"type":"object","properties":{"view":{"type":"string","enum":["blotter","trade"]},
+             "mode":{"type":["string","null"],"enum":["trades","pivot",null],"description":"Blotter: trade rows, or totals grouped by groupBy. Null for a trade."},
+             "bookIds":{"type":["array","null"],"items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,
+              "description":"Blotter: the books to read, empty for every book. Null for a trade."},
+             "portfolioIds":{"type":["array","null"],"items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,
+              "description":"Blotter: the portfolios to read, empty for every portfolio. Null for a trade."},
+             "groupBy":{"type":["array","null"],"items":{"type":"string","enum":["portfolio","book","market","contract","instrumentType"]},"uniqueItems":true,
+              "description":"Blotter: empty for trade rows, at least one dimension for totals. Null for a trade."},
+             "measures":{"type":["array","null"],"items":{"type":"string","enum":["tradeCount","lots","quantity","executionPnl","presentValue"]},"uniqueItems":true,
+              "description":"Blotter: empty for trade rows, at least one measure for totals; lots need the contract dimension. Null for a trade."},
+             "tradeId":{"type":["string","null"],"pattern":"{{{Uuid}}}","description":"Trade: the trade to read. Null for the blotter."},
+             "instrumentType":{"type":["string","null"],"enum":["future","financial_swap",null],"description":"Trade: its instrument type. Null for the blotter."},
+             "revision":{"type":["integer","null"],"minimum":1,
+              "description":"Trade: a revision, or null for its latest under the pinned knowledge. Null for the blotter."}},
+             "required":["view","mode","bookIds","portfolioIds","groupBy","measures","tradeId","instrumentType","revision"],"additionalProperties":false}
+            """,["ReadMarketData","ReadTrades"]),
+        Tool("read_trade_parties","Reads the legal entity or counterparty versions in force at the pinned As of frame, as known at the pinned knowledge.",
+            """
+            {"type":"object","properties":{"kind":{"type":"string","enum":["legal_entity","counterparty"]}},"required":["kind"],"additionalProperties":false}
+            """,["ReadMarketData","ReadTradeParties"]),
+        Tool("read_schedules","View library returns published date schedules and their calendars at the pinned knowledge. View tou_products returns "+
+            "the current published TOU products, and view power_hours their hourly masks with the As of frame's single-index power contracts; both "+
+            "are current definitions, read now and labeled with that instant, and a historical view does not read them.",
+            """
+            {"type":"object","properties":{"view":{"type":"string","enum":["library","tou_products","power_hours"]}},"required":["view"],"additionalProperties":false}
+            """,MarketData),
+        Tool("read_reference_data","Reads one reference table at the pinned knowledge, at most 200 rows: narrow a larger table with search, a literal "+
+            "case-insensitive match anywhere in a row; an empty search matches every row.",
+            $$$"""
+            {"type":"object","properties":{"table":{"type":"string","enum":[{{{string.Join(",",PreviewDatabase.ReferenceTables.Select(t=>$"\"{t}\""))}}}]},
+             "search":{"type":"string","maxLength":160}},"required":["table","search"],"additionalProperties":false}
+            """,MarketData)
+    ];
+
+    static AgentTool Tool(string name,string description,string schema,ImmutableArray<string> permissions)
+    {
+        using var parsed=JsonDocument.Parse(schema);
+        return new(name,description,parsed.RootElement.Clone(),permissions);
+    }
+
+    // What a started turn's reads run with (§7.1, §7.2), from start_turn's answer: its pin, rebuilt from its record for
+    // this scope's catalog, the agent and grant it was asked under, its stored page report and its version's tools.
+    public TurnReads Reads(JsonElement turn,JsonElement started)=>new(
+        TurnPin.From(turn.GetProperty("context"),started.GetProperty("pins"),started.GetProperty("catalogId").GetGuid(),database.Manifest),
+        new(started.GetProperty("agentPrincipal").GetString()!,started.GetProperty("delegationId").GetGuid()),turn.GetProperty("pageReport").Clone(),
+        [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)]);
+
+    // The definitions a version's request offers: its switched-on tools that this release implements, in the fixed order.
+    public static ImmutableArray<ModelTool> Offered(IEnumerable<string> switchedOn)
+    {
+        var on=switchedOn.ToHashSet(StringComparer.Ordinal);
+        return [..Tools.Where(t=>on.Contains(t.Name)).Select(t=>t.Definition)];
+    }
+
+    static readonly ImmutableDictionary<string,ToolOperation> Operations=new ToolOperation[]
+    {
+        new("market_data.curves_v1","read_market_data",ToolNeeds.View,MarketAccess,[]),
+        new("market_data.curve_v1","read_market_data",ToolNeeds.Frame,MarketAccess,["missing_curve"]),
+        new("market_data.observations_v1","read_market_data",ToolNeeds.Frame,MarketAccess,["missing_curve"]),
+        new("market_data.contract_definitions_v1","read_market_data",ToolNeeds.View,MarketAccess,[]),
+        new("trades.blotter_v1","read_trades",ToolNeeds.Frame,TradeAccess,["blotter_view"]),
+        new("trades.trade_v1","read_trades",ToolNeeds.Frame,TradeAccess,["futures_trade","swap_trade"]),
+        new("trade_parties.versions_v1","read_trade_parties",ToolNeeds.Frame,PartyAccess,[]),
+        new("schedules.library_v1","read_schedules",ToolNeeds.View,MarketAccess,[]),
+        new("schedules.tou_products_v1","read_schedules",ToolNeeds.CurrentOnly,MarketAccess,[]),
+        new("schedules.power_hours_v1","read_schedules",ToolNeeds.CurrentOnlyFrame,MarketAccess,[]),
+        new("reference_data.table_v1","read_reference_data",ToolNeeds.View,MarketAccess,[])
+    }.ToImmutableDictionary(o=>o.Id);
+    internal static ToolOperation Operation(string id)=>Operations[id];
+    // Market and reference reads check both catalogs; trades and parties read a market catalog's trading data, with its
+    // market data (§7.1). An access recorded and not checked only makes later rechecks stricter.
+    static ImmutableArray<ReadAccess> MarketAccess(PreviewManifest m)=>[new("market_access",m.CatalogId,"ReadMarketData"),new("reference_access",m.ReferenceCatalogId,"ReadMarketData")];
+    static ImmutableArray<ReadAccess> TradeAccess(PreviewManifest m)=>[new("trading_access",m.CatalogId,"ReadTrades"),..MarketAccess(m)];
+    static ImmutableArray<ReadAccess> PartyAccess(PreviewManifest m)=>[new("trading_access",m.CatalogId,"ReadTradeParties"),new("market_access",m.CatalogId,"ReadMarketData")];
+
+    // A request's input, read against its tool's schema: every member it states, those its view takes each of its stated
+    // type and range and the others null; anything else is tool_arguments_invalid. Read current page takes none and
+    // dispatches the stored page report.
+    internal static ToolCall Parse(string tool,JsonElement input)
+    {
+        var members=new ToolInput(input);
+        switch(tool)
+        {
+            case "read_market_data":
+                members.Exactly("view","curve");
+                var market=members.Choice("view","curves","curve","observations","contract_definitions");
+                if(market is "curve" or "observations")
+                    return new(Operations[$"market_data.{market}_v1"],new CurveArguments(members.Text("curve",1,64,CurveCode())));
+                members.Null("curve");
+                return new(Operations[$"market_data.{market}_v1"],new NoArguments());
+            case "read_trades":
+                members.Exactly("view","mode","bookIds","portfolioIds","groupBy","measures","tradeId","instrumentType","revision");
+                if(members.Choice("view","blotter","trade")=="trade")
+                {
+                    members.Null("mode","bookIds","portfolioIds","groupBy","measures");
+                    return new(Operations["trades.trade_v1"],new TradeArguments(members.Id("tradeId"),members.Choice("instrumentType","future","financial_swap"),
+                        members.Revision("revision")));
+                }
+                members.Null("tradeId","instrumentType","revision");
+                var mode=members.Choice("mode","trades","pivot");
+                var groupBy=members.Choices("groupBy","portfolio","book","market","contract","instrumentType");
+                var measures=members.Choices("measures","tradeCount","lots","quantity","executionPnl","presentValue");
+                if(mode=="trades"?!groupBy.IsEmpty||!measures.IsEmpty:groupBy.IsEmpty||measures.IsEmpty)throw ToolInput.Invalid();
+                return new(Operations["trades.blotter_v1"],new BlotterArguments(new(mode,members.Ids("bookIds"),members.Ids("portfolioIds"),groupBy,measures,
+                    mode=="pivot"?TradingBlotter.PivotConvention:null)));
+            case "read_trade_parties":
+                members.Exactly("kind");
+                return new(Operations["trade_parties.versions_v1"],new PartyArguments(members.Choice("kind","legal_entity","counterparty")));
+            case "read_schedules":
+                members.Exactly("view");
+                return new(Operations[$"schedules.{members.Choice("view","library","tou_products","power_hours")}_v1"],new NoArguments());
+            case "read_reference_data":
+                members.Exactly("table","search");
+                return new(Operations["reference_data.table_v1"],new ReferenceArguments(members.Choice("table",[..PreviewDatabase.ReferenceTables]),members.Text("search",0,160)));
+            default:
+                throw ToolInput.Invalid();
+        }
+    }
+
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9_.-]*\z")] private static partial Regex CurveCode();
+
+    // The fixed text each refusal carries, never a read's own message, which may name business data (§7.3, D177). A
+    // structured refusal this table does not name carries the generic sentence.
+    static readonly ImmutableDictionary<string,string> Texts=new Dictionary<string,string>
+    {
+        ["tool_arguments_invalid"]="The request's arguments do not match this tool's input schema. Correct them and ask again.",
+        ["page_not_supported"]="The page this question was asked from is not one the assistant reads, so nothing was read from it.",
+        ["tool_not_enabled"]="This agent version does not have the tool that reads the page this question was asked from switched on.",
+        ["page_selection_unavailable"]="What the page had selected when the question was asked is not available at the pinned knowledge and As of frame.",
+        ["snapshot_missing"]="The question was asked without an As of frame, so this read is unavailable.",
+        ["power_historical"]="TOU products and power hours are current definitions, which a historical view does not read.",
+        ["result_too_large"]="The result is larger than one read returns, so nothing was returned rather than a truncated result. Narrow the request and ask again.",
+        ["access_denied"]="The read was denied under the agent's current access.",
+        ["missing_curve"]="No curve with this code exists in the pinned market data.",
+        ["missing_curve_view"]="The pinned As of frame selects no contracts for this curve.",
+        ["empty_curve_view"]="This curve has no remaining contracts at the pinned As of frame.",
+        ["missing_observation"]="Market data this curve needs is missing at the pinned As of frame.",
+        ["source_expired"]="An input this curve needs has expired at the pinned As of frame.",
+        ["market_date"]="The As of frame's date differs from the pinned context's date.",
+        ["temporal_context"]="The pinned context cannot be read as it was recorded.",
+        ["unit_catalog"]="The configured unit catalog is unavailable at the pinned knowledge.",
+        ["reference_catalog"]="The reference catalog is unavailable at the pinned knowledge.",
+        ["reference_page"]="Choose a supported reference table and search text of at most 160 characters.",
+        ["ambiguous_reference"]="A required exact reference is missing or ambiguous at the pinned knowledge.",
+        ["market_navigation"]="The curve directory has missing or conflicting classifications.",
+        ["revision_conflict"]="An observation has conflicting corrections.",
+        ["snapshot_inputs"]="The pinned As of frame does not name each of its inputs exactly once.",
+        ["blotter_view"]="Choose available books and portfolios, with supported groupings and measures; lots need contract grouping.",
+        ["futures_trade"]="This futures trade is unavailable at the pinned knowledge.",
+        ["swap_trade"]="This swap is unavailable at the pinned knowledge.",
+        ["futures_definition"]="A held futures contract cannot be resolved at the pinned knowledge.",
+        ["swap_context"]="A swap market this read needs is unavailable at the pinned As of frame.",
+        ["clock_rule"]="A market clock this read needs is incomplete or unreadable.",
+        ["clock_tzdb"]="A market clock this read needs declares a time-zone release other than the installed one.",
+        ["power_calendar"]="A settlement index calendar does not cover a whole delivery period.",
+        ["knowledge_coverage"]="The pinned knowledge cutoff cannot be certified for this read.",
+        ["knowledge_clock"]="The pinned knowledge cutoff cannot be certified for this read.",
+        ["knowledge_tracking"]="The pinned knowledge cutoff cannot be certified for this read.",
+        ["knowledge_retention"]="The pinned knowledge cutoff cannot be certified for this read.",
+        ["knowledge_timeline"]="The pinned knowledge cutoff cannot be certified for this read.",
+        ["precision_loss"]="An exact result needs more precision than this read keeps."
+    }.ToImmutableDictionary();
+    internal const string GenericText="The read refused this request; its code states why.";
+    internal static string Text(string code)=>Texts.GetValueOrDefault(code,GenericText);
+
+    // How a read that returned nothing ended (§7.3): a structured refusal of its input or a denial is a refused step, whose
+    // publication the database rechecks; a cancellation is the worker's to name; anything else fails the turn tool_failed.
+    internal static (string? Code,ToolStepEnd End) Classify(Exception e)=>e switch
+    {
+        OperationCanceledException=>(null,ToolStepEnd.Interrupted),
+        PreviewDeniedException or PostgresException{SqlState:"42501"}=>("access_denied",ToolStepEnd.Refusal),
+        MarketDataException m=>(m.Code,ToolStepEnd.Refusal),
+        TemporalException t=>(t.Code,ToolStepEnd.Refusal),
+        PostgresException{SqlState:"P0001"} p when RefusalCode().IsMatch(p.MessageText)=>(p.MessageText,ToolStepEnd.Refusal),
+        _=>("tool_failed",ToolStepEnd.Failure)
+    };
+
+    [GeneratedRegex(@"^[a-z][a-z0-9_]{0,63}\z")] private static partial Regex RefusalCode();
+
+    // A refusal's content: only its code and fixed text.
+    internal static string Refusal(string code)=>JsonSerializer.Serialize(new{code,message=Text(code)});
+
+    // A result within the runtime set's row and byte bounds, whole; otherwise none, never a truncated one (§7.3).
+    internal static string? Bounded(JsonObject result,int rows)
+    {
+        if(rows>RuntimeSet.ToolResultRows)return null;
+        var content=result.ToJsonString();
+        return Encoding.UTF8.GetByteCount(content)<=RuntimeSet.ToolResultBytes?content:null;
+    }
+
+    // Runs one request as a step (§7.3): checks its arguments and what it needs of the pin before any read, then reads in
+    // the agent's request context. A read that bound its context joins the source set with every access it runs under,
+    // even when it is then denied or fails; a refusal before that adds none.
+    public async Task<ToolStep> Run(TurnReads turn,ModelToolRequest request,CancellationToken ct)
+    {
+        var (tool,input)=(request.Name,(JsonElement?)request.Input);
+        ToolStep Before(string code,JsonElement? kept)=>new(tool,null,kept,code,null,[],Refusal(code),ToolStepEnd.Refusal);
+        ToolCall call;
+        bool dispatched;
+        try
+        {
+            (call,dispatched)=Requested(turn,request);
+            Require(turn.Pin,call.Operation.Needs);
+        }
+        catch(ToolRefusal refused){return Before(refused.Code,refused.Code=="tool_arguments_invalid"?null:input);}
+        catch(MarketDataException refused){return Before(refused.Code,input);}
+        var operation=call.Operation;
+        var access=operation.Access(database.Manifest);
+        DateTimeOffset? readAt=null;
+        ToolStep Step(string? code,string? content,ToolStepEnd end)=>new(tool,readAt is null?null:operation.Id,input,code,readAt,readAt is null?[]:access,content,end);
+        try
+        {
+            var result=await database.WithAgent(turn.Agent,Tools.Single(t=>t.Name==operation.Tool).Permissions,at=>readAt=at,
+                (connection,read)=>Read(connection,turn.Pin,call,read),ct);
+            return Bounded(Envelope(turn.Pin,operation,readAt!.Value,result),result.Rows) is {} content?Step(null,content,ToolStepEnd.Result)
+                :Step("result_too_large",Refusal("result_too_large"),ToolStepEnd.Refusal);
+        }
+        catch(Exception e)
+        {
+            var (code,end)=Classify(e);
+            if(end==ToolStepEnd.Failure)logger.LogError("A tool read failed: {ErrorType}",e.GetType().Name);
+            if(end!=ToolStepEnd.Refusal)return Step(code,null,end);
+            var shown=Shown(operation,dispatched,code!);
+            return Step(shown,Refusal(shown),end);
+        }
+    }
+
+    // A read's refusal as its step names it: for a page's selection, the refusals that mean the selection is unavailable
+    // at the pin are page_selection_unavailable; every other refusal keeps its code.
+    internal static string Shown(ToolOperation operation,bool dispatched,string code)=>
+        dispatched&&operation.SelectionRefusals.Contains(code)?"page_selection_unavailable":code;
+
+    // The call a request names: its own read, or for Read current page the read its stored page report dispatches, while
+    // the version has that read's tool switched on.
+    internal static (ToolCall Call,bool Dispatched) Requested(TurnReads turn,ModelToolRequest request)
+    {
+        // The adapter fails a call that requests a tool it did not offer, so this is defense in depth: such a request
+        // reads nothing, and the database records no step for a tool the version has not switched on (turn_input), a
+        // write it does not take, which fails the turn agent_runtime_unavailable.
+        if(!turn.Tools.Contains(request.Name))throw new ToolRefusal("tool_not_enabled");
+        if(request.Name!="read_current_page")return(Parse(request.Name,request.Input),false);
+        new ToolInput(request.Input).Exactly();
+        return PageReports.Dispatch(turn.PageReport) switch
+        {
+            null=>throw new ToolRefusal("page_not_supported"),
+            {Call:null}=>throw new ToolRefusal("page_selection_unavailable"),
+            {Call:{} call} when!turn.Tools.Contains(call.Operation.Tool)=>throw new ToolRefusal("tool_not_enabled"),
+            {Call:{} call}=>(call,true)
+        };
+    }
+
+    // What a read needs of the pin, checked before it runs (§7.2): working data for current-only definitions
+    // (power_historical), and a frame where it consumes one (snapshot_missing).
+    static void Require(TurnPin pin,ToolNeeds needs)
+    {
+        if(needs is ToolNeeds.CurrentOnly or ToolNeeds.CurrentOnlyFrame)pin.CurrentOnly();
+        if(Consumes(needs))pin.RequireFrame();
+    }
+
+    static bool Consumes(ToolNeeds needs)=>needs is ToolNeeds.Frame or ToolNeeds.CurrentOnlyFrame;
+
+    // One read at the turn's pin (§7.2): page views and trades as of the turn's context, read exactly as its record names
+    // it, and current-only definitions with no context bound.
+    async Task<ToolResult> Read(NpgsqlConnection connection,TurnPin pin,ToolCall call,CancellationToken ct)
+    {
+        async Task<ScheduleContext> Context()=>(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,pin.ContextId,ct)).Context;
+        return call switch
+        {
+            {Operation.Id:"market_data.curves_v1"}=>ToolResults.Curves(await market.Navigation(connection,pin.Page(await Context()),ct)),
+            {Operation.Id:"market_data.curve_v1",Arguments:CurveArguments curve}=>ToolResults.Curve(await market.Evaluate(connection,pin.Page(await Context()),curve.Curve,ct)),
+            {Operation.Id:"market_data.observations_v1",Arguments:CurveArguments curve}=>
+                ToolResults.Observations(await market.Evaluate(connection,pin.Page(await Context()),curve.Curve,ct)),
+            {Operation.Id:"market_data.contract_definitions_v1"}=>ToolResults.ContractDefinitions(await schedules.Library(connection,pin.Page(await Context()),ct)),
+            {Operation.Id:"reference_data.table_v1",Arguments:ReferenceArguments table}=>
+                ToolResults.Reference(await market.References(connection,pin.Page(await Context()),table.Table,0,table.Search,ct)),
+            {Operation.Id:"schedules.library_v1"}=>ToolResults.Library(await schedules.Library(connection,pin.Page(await Context()),ct)),
+            {Operation.Id:"schedules.tou_products_v1"}=>ToolResults.TouProducts(await schedules.TouProducts(connection,pin.CurrentOnly(),ct)),
+            {Operation.Id:"schedules.power_hours_v1"}=>ToolResults.PowerHours(await schedules.PowerCatalog(connection,pin.CurrentOnly(),ct)),
+            {Operation.Id:"trade_parties.versions_v1",Arguments:PartyArguments party}=>
+                ToolResults.Parties(await parties.Catalog(connection,pin.Trading(await Context()),party.Kind,ct),party.Kind),
+            {Operation.Id:"trades.blotter_v1",Arguments:BlotterArguments blotter}=>ToolResults.Blotter(await trades.Blotter(connection,pin.Trading(await Context()),blotter.View,ct)),
+            {Operation.Id:"trades.trade_v1",Arguments:TradeArguments trade}=>await Trade(connection,pin.Trading(await Context()),trade,ct),
+            _=>throw new InvalidOperationException("An operation has no read.")
+        };
+    }
+
+    // A trade's editor read, then the deal's saved display formats it is shown by, in the same transaction under the
+    // trading context it bound. Formats are current shared presentation, which the page reads the same way.
+    async Task<ToolResult> Trade(NpgsqlConnection connection,TradingView view,TradeArguments trade,CancellationToken ct)
+    {
+        var editor=trade.InstrumentType=="future"?await trades.FuturesTrade(connection,view,trade.TradeId,trade.Revision,ct)
+            :await trades.SwapTrade(connection,view,trade.TradeId,trade.Revision,ct);
+        var formats=(await DealAmountFormats.All(connection,database.Manifest.CatalogId,ct)).GetValueOrDefault(trade.TradeId);
+        return ToolResults.Trade(editor,trade.InstrumentType,formats);
+    }
+
+    // A result with the knowledge it was read at (§7.2): the turn's pinned context and cutoff, or for current-only
+    // definitions the instant they were read, never the cutoff; and the As of frame where the read consumed one.
+    internal static JsonObject Envelope(TurnPin pin,ToolOperation operation,DateTimeOffset readAt,ToolResult result)
+    {
+        var context=operation.Needs is ToolNeeds.CurrentOnly or ToolNeeds.CurrentOnlyFrame
+            ?new JsonObject{["knowledge"]="current_definitions",["readAt"]=JsonSerializer.SerializeToNode(readAt)}
+            :new JsonObject{["knowledge"]=pin.Working?"working_data":"retained",["contextId"]=pin.ContextId.ToString(),["cutoff"]=JsonSerializer.SerializeToNode(pin.Cutoff)};
+        if(Consumes(operation.Needs)&&pin.Frame is {} frame)
+            context["frame"]=new JsonObject{["id"]=frame.Id.ToString(),["name"]=frame.Name,["at"]=JsonSerializer.SerializeToNode(frame.At)};
+        var envelope=new JsonObject{["operation"]=operation.Id,["context"]=context};
+        if(result.Displayed)envelope["amountDisplay"]=ToolAmountDisplay.Implementation;
+        envelope["result"]=result.Value;
+        return envelope;
+    }
+}
+
+// A tool input's members, each read with its exact JSON type; any other member, type or value refuses the input as
+// tool_arguments_invalid. Text holds no control character, which a step's stored input could not keep.
+sealed class ToolInput
+{
+    const int MaximumItems=64;
+    readonly Dictionary<string,JsonElement> members=new(StringComparer.Ordinal);
+
+    public ToolInput(JsonElement input)
+    {
+        if(input.ValueKind!=JsonValueKind.Object)throw Invalid();
+        foreach(var member in input.EnumerateObject())if(!members.TryAdd(member.Name,member.Value))throw Invalid();
+    }
+
+    public void Exactly(params string[] names)
+    {
+        if(members.Count!=names.Length||!names.All(members.ContainsKey))throw Invalid();
+    }
+
+    // Members another view takes, named as null.
+    public void Null(params string[] names)
+    {
+        if(!names.All(n=>members.TryGetValue(n,out var value)&&value.ValueKind==JsonValueKind.Null))throw Invalid();
+    }
+
+    public string Choice(string name,params ImmutableArray<string> values)=>
+        String(Member(name,JsonValueKind.String)) is var value&&values.Contains(value)?value:throw Invalid();
+
+    public string Text(string name,int minimum,int maximum,Regex? pattern=null)
+    {
+        var value=String(Member(name,JsonValueKind.String));
+        return value.Length>=minimum&&value.Length<=maximum&&Plain(value)&&(pattern is null||pattern.IsMatch(value))?value:throw Invalid();
+    }
+
+    public Guid Id(string name)=>Canonical(Member(name,JsonValueKind.String));
+
+    public ImmutableArray<Guid> Ids(string name)
+    {
+        var ids=Items(name).Select(Canonical).ToImmutableArray();
+        return ids.Distinct().Count()==ids.Length?ids:throw Invalid();
+    }
+
+    public ImmutableArray<string> Choices(string name,params ImmutableArray<string> values)
+    {
+        var chosen=Items(name).Select(i=>i.ValueKind==JsonValueKind.String&&String(i) is var value&&values.Contains(value)?value:throw Invalid()).ToImmutableArray();
+        return chosen.Distinct().Count()==chosen.Length?chosen:throw Invalid();
+    }
+
+    // A revision, or null for the latest: always named, never left to a default.
+    public int? Revision(string name)
+    {
+        if(!members.TryGetValue(name,out var value))throw Invalid();
+        if(value.ValueKind==JsonValueKind.Null)return null;
+        return value.ValueKind==JsonValueKind.Number&&value.TryGetInt32(out var revision)&&revision>=1?revision:throw Invalid();
+    }
+
+    IEnumerable<JsonElement> Items(string name)
+    {
+        var items=Member(name,JsonValueKind.Array);
+        return items.GetArrayLength()<=MaximumItems?items.EnumerateArray():throw Invalid();
+    }
+
+    JsonElement Member(string name,JsonValueKind kind)=>members.TryGetValue(name,out var value)&&value.ValueKind==kind?value:throw Invalid();
+
+    static Guid Canonical(JsonElement id)=>id.ValueKind==JsonValueKind.String&&String(id) is {Length:36} text&&Guid.TryParseExact(text,"D",out var parsed)
+        &&parsed.ToString()==text?parsed:throw Invalid();
+
+    // A string's text; an escape that names no character, such as an unpaired surrogate, refuses the input, so text is
+    // always whole characters.
+    static string String(JsonElement value)
+    {
+        try{return value.GetString()!;}
+        catch(InvalidOperationException){throw Invalid();}
+    }
+
+    static bool Plain(string text)=>!text.Any(char.IsControl);
+
+    public static ToolRefusal Invalid()=>new("tool_arguments_invalid");
+}

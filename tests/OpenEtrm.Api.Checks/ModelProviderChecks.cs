@@ -291,6 +291,10 @@ static class ModelProviderChecks
             var (_,end)=await Call(new FakeProvider(Sse(recording)),Request(tools:[ReadTrades]));
             Require(end is ModelFailed{Failure:ModelFailure.Transport,Usage.Status:UsageStatus.Unknown},"a malformed stream fails as unreadable with unknown usage: "+name);
         }
+        var unoffered=ToolRecording.Replace("\"id\":\"toolu_synthetic_02\",\"name\":\"read_trades\"","\"id\":\"toolu_synthetic_02\",\"name\":\"navigate\"");
+        Require((await Call(new FakeProvider(Sse(unoffered)),Request(tools:[ReadTrades]))).End is ModelFailed{Failure:ModelFailure.Transport,Usage.Status:UsageStatus.Recognized}
+            &&(await Call(new FakeProvider(Sse(ToolRecording)),Request())).End is ModelFailed{Failure:ModelFailure.Transport,Usage.Status:UsageStatus.Recognized},
+            "a request for a tool the request did not offer, or any tool where it offered none, fails as unreadable, keeping the final usage billed");
         var invalid=Encoding.UTF8.GetBytes(Text().Replace("answer.","answer\u0001")+"\n\n");invalid[Array.IndexOf(invalid,(byte)1)]=0xFF;
         Require((await Call(new FakeProvider(_=>Task.FromResult(Reply(HttpStatusCode.OK,"text/event-stream",new MemoryStream(invalid)))),Request())).End is ModelFailed{Failure:ModelFailure.Transport},
             "invalid UTF-8 fails as unreadable");

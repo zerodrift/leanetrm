@@ -25,16 +25,15 @@ static class ModelCalls
 
     static byte[] Bytes(JsonElement opened,string name)=>Convert.FromHexString(opened.GetProperty(name).GetString()!);
 
-    // A call succeeds only for a well-formed response that ends normally or at the output limit with recognized usage.
-    // A stream this program cancelled ends with the outcome its caller names.
+    // A call succeeds only for a well-formed response that ends normally, at the output limit or requesting the tools it
+    // was offered, with recognized usage; the adapter reads a tool request no request offered as unreadable. A stream
+    // this program cancelled ends with the outcome its caller names.
     public static string Outcome(ModelEvent end,string cancelled)=>end switch
     {
-        ModelCompleted{Stop:ModelStop.EndTurn or ModelStop.OutputLimit,Usage.Status:UsageStatus.Recognized}=>"succeeded",
-        ModelCompleted{Stop:ModelStop.EndTurn or ModelStop.OutputLimit}=>"usage_unrecognized",
+        ModelCompleted{Stop:ModelStop.EndTurn or ModelStop.OutputLimit or ModelStop.ToolUse,Usage.Status:UsageStatus.Recognized}=>"succeeded",
+        ModelCompleted{Stop:ModelStop.EndTurn or ModelStop.OutputLimit or ModelStop.ToolUse}=>"usage_unrecognized",
         ModelCompleted{Stop:ModelStop.Refusal}=>"model_refused",
         ModelCompleted{Stop:ModelStop.ContextWindow}=>"context_window_exceeded",
-        // No call offers a tool yet, so a tool request is not the documented response.
-        ModelCompleted=>"model_provider_transport",
         ModelFailed{Failure:ModelFailure.Cancelled}=>cancelled,
         ModelFailed{Failure:var failure}=>failure switch
         {

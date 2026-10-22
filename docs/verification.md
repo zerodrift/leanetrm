@@ -727,11 +727,12 @@ checks, through the API against the loopback fake provider):
   worker to completion, keeping the streamed answer and closing its call with the usage
   the stream reported before the terminal event. Its one request carries the key only
   in its header, and sends the fixed preamble with the version's instructions, the
-  question, the version's output limit and effort, and no tools. The turn records the
-  frame's exact pins. A repeat answers with its turn as it stands and sends nothing. A
-  follow-up sends the earlier turn as history, labeled with its ending and pinned
-  context, before the question. An answer streamed in many deltas at once is coalesced
-  and published whole and in order, in pieces of at most 2,048 bytes.
+  question, the version's output limit and effort, and, for a version without tools,
+  none; this check's agents have none, and the tool checks below give theirs. The turn
+  records the frame's exact pins. A repeat answers with its turn as it stands and sends
+  nothing. A follow-up sends the earlier turn as history, labeled with its ending and
+  pinned context, before the question. An answer streamed in many deltas at once is
+  coalesced and published whole and in order, in pieces of at most 2,048 bytes.
 - **Knowledge:** working data is asked only at a frame of the session
   (`snapshot_missing` without one or for another). While a historical view is
   selected, its retained context is asked with a frame of it, pinned as named with the
@@ -765,6 +766,87 @@ checks, through the API against the loopback fake provider):
   turn and marks a conversation read, and no other person sees them; no log line or
   request body carries the key, and no request goes through a proxy.
 
+Read tools over HTTP (`tools/check_agent_tool_http.py`, in the same run after the turn
+checks, in the administrator and trader sessions they hand over, so it opens no session
+of its own; once the Usage checks have run too, the run asserts that the sessions the
+process has opened, in every suite before, leave at least ten of the 64 a scope keeps
+for the browser and later suites):
+
+- **The loop:** a turn whose first two calls stop for tools completes once the third
+  ends it. Each request offers the version's switched-on read tools in the fixed order
+  with automatic choice and closed schemas that require every member they state; each
+  request is answered by a step, numbered across the turn, before the next call opens;
+  the next call replays the reply unchanged and then the results in order; and the
+  text is kept exactly as streamed. A step records its tool, operation, the request's
+  input, the instant it read, after its call's close and before the next call, and
+  every access its read ran under, and its event carries only its number and tool; the
+  turn records `turns_v2`.
+- **Identity:** each read runs in one request context of its own, issued to the agent's
+  principal under the turn's grant on the `openetrm-agent-reads` backends; page views
+  and trades bind the context the ask captured, even after the session selects a
+  historical view while the turn runs, current-only definitions none, and no read
+  captures a context.
+- **Values:** each read returns its page's values without page-only material: the
+  curve's prices, equal to the page's `evaluate` with the displays the page's display
+  operation returns; the curve directory and the curve's input observations; contract
+  definitions; a reference table's rows; the schedule library; TOU products and power
+  hours, labeled with the instant they were read and power hours with the frame; the
+  counterparties; and the Blotter's rows, a pivot's totals and a booked futures
+  trade's and swap's revisions, with the swap's valuation, at the turn's context. Read
+  current page reads the page stored at ask. A party name addressed to the model
+  reaches it only inside a tool result.
+- **Displays:** every amount a read displays, in Blotter rows, pivot and book totals
+  and both trades, is the display the page's display operation returns for the page's
+  own inputs: a row's ticks and deal formats, the default for totals and a swap's
+  terms, a futures trade's prices at its contract's settlement-price increment, and a
+  swap's valuation and each side by the money formats the trader saved for the deal.
+- **Refusals:** a read refusing the page's selection is `page_selection_unavailable`,
+  arguments outside the schema `tool_arguments_invalid` and a read's own refusal its
+  code (`missing_curve`), each a step the model receives as an error with only its code
+  and fixed text, and the turn continues; a page whose tool is off is
+  `tool_not_enabled`, reading nothing, and a version offers only its switched-on tools.
+  A historical view without a frame refuses frame-consuming reads `snapshot_missing`,
+  current-only definitions `power_historical` and an unsupported page
+  `page_not_supported`, each before reading, and reads the curve directory at its
+  retained context.
+- **Endings:** a call whose requests would pass the tool steps has none run: no read, no
+  request context and no step, and the turn fails `limit_tool_steps` without another
+  call. Stop during the call after a step ends the turn cancelled, keeping its step and
+  text. After the delegator's role is revoked while a call is held before its tool stop,
+  the read is denied, its step recorded with the accesses it was denied but not
+  published, and the turn fails `access_changed` without another call, its text then
+  hidden from the owner's reads.
+- **Reads in flight:** a read held where it reads, once its context is bound: Stop ends
+  the turn cancelled and the session's end `session_ended`, each stopping the read
+  well within its own bound and writing no step or other call; a read whose call
+  stopped for it shortly before the turn's deadline is stopped there, failing the turn
+  `limit_elapsed`, and one past the 5-second `ToolRead` fails it `tool_failed`, each
+  with a step naming that bound with the read's instant and accesses; and a worker that
+  loses its generation stops the read at once and writes no step for a second, the
+  next start interrupts the turn, and once the lock is free the next ask completes.
+- **Page reports and the key:** ask refuses a page report outside the closed set, or
+  with a selection its page does not read, `page_report_invalid`, writing and sending
+  nothing; no log line or request body carries the key, and no request goes through a
+  proxy.
+
+The managed tool checks rebuild the page's exact frame from a turn's record, for working
+data and a retained context, and refuse a record without its frame, of another catalog,
+naming another frame or in an unknown mode. They check the offered tools and their
+permissions; that each schema requires every member it states, with no top-level
+composition; that each tool accepts every member, its view's own as stated and the
+others null, and refuses every other input, a member left out included, keeping none,
+and that the largest accepted input fits a step's 8 KiB; the closed set of page
+reports, ask's refusals and Read current page's dispatch; how a read's refusal,
+denial, stop or failure is named and the fixed texts, and that a request
+for a tool the version has not switched on is `tool_not_enabled` before any read; the
+500-record and 64 KiB bounds, never truncating; each result's envelope and projection,
+a trade's shown from its contract's increment and the deal's saved formats; and, over
+the corpus in `tests/fixtures/amount-display-cases.json` that the page's checks also
+assert, with the tick and format an editor's walk starts from, that results show
+amounts as the page does, each amount once, by the last walk that reaches it. A tool
+stop continues the loop with the reply and the results in order, and a request for a
+tool the request did not offer is unreadable, keeping its final usage.
+
 The managed checks split answer text into appends of at most 2,048 bytes, never inside
 a character and filling each to the bound where a character ends there, and send each
 earlier turn's ending, pinned context and answer, marked when incomplete or noted as
@@ -772,7 +854,9 @@ missing, before the question. A table of call endings shows how each ends its tu
 completed, at the output limit, at the deadline whatever was published, interrupted
 after text unless too large, otherwise with its failure's code, and retried only after
 a transport failure or overload whose input is known and that published nothing, while
-retries remain.
+retries remain. A read that returns once its turn is to stop is no step, whatever it
+returned, and one its bound stopped fails the turn `limit_elapsed` at the deadline,
+else `tool_failed`.
 
 Usage (`tools/check_model_usage.py`, in the same run, through the API and in SQL, over
 calls and turns it writes as the database owner at chosen instants of 2019, since a call

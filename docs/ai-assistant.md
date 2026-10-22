@@ -53,13 +53,18 @@ the tool loop's next call, each read's sources joining the turn's source set, th
 source-access check in the agent's authority before every call and publication, the
 replay recheck on the owner's reads, earlier turns included only while their sources
 pass, and the tool-step, retry and input limits across the loop, all checked in SQL.
-The worker offers no tools yet, so a turn still makes one call. `ReadModelUsage` reads
-usage through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and
-the exact cost of priced calls by model, user or agent over a half-open range of local
-dates in a zone prefilled from Profile, a call falling on the day whose bounds hold its
-start, per exact currency reference with provider tests as their own row and a daily
-chart, and an audited export of that report as a formula-guarded CSV. The stream and
-the panel are not implemented, so no page asks yet.
+The worker runs the tool loop with the six read tools (§7.3): a version's switched-on
+read tools are offered, and each request is answered by a step whose read runs in a
+request context issued to the turn's agent under its grant, on agent pools of its own,
+at the turn's pin; Read current page dispatches the page report checked at ask (§8),
+and results carry the page's values and display within the runtime set `turns_v2`.
+`ReadModelUsage` reads usage through the API and the Usage tab of Settings › AI (§5.3,
+§9): calls, tokens and the exact cost of priced calls by model, user or agent over a
+half-open range of local dates in a zone prefilled from Profile, a call falling on the
+day whose bounds hold its start, per exact currency reference with provider tests as
+their own row and a daily chart, and an audited export of that report as a
+formula-guarded CSV. Navigate, Show card, the stream and the panel are not
+implemented, so no page asks yet.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -255,7 +260,8 @@ audit as history.
   take connect and idle timeouts and a response byte bound from the runtime set.
 - Each vendor endpoint is a sourced, dated HTTPS constant in its adapter. The preview
   accepts one optional override that must be an IP-literal loopback URL, so checks can
-  reach the fake provider under `tests/`, which is not published.
+  reach the loopback fake provider (`tools/fake_model_provider.py`), which serves only
+  synthetic recordings.
 
 ### 5.3 Prices and cost
 
@@ -501,9 +507,13 @@ audit as history.
   principal, issued through `security.issue_context` (login kind `agent_credential`)
   with the turn's grant, fixed at ask and never taken from browser input, model output
   or another turn. SQL then requires the agent's permission, the grant and the
-  delegator's current permissions. Binding a turn to its owner's grant is the server's
-  job, under the same trusted-authenticator boundary that binds a page request to its
-  session.
+  delegator's current permissions, which a read checks once its context is bound and
+  again after it reads. The check after the read is defense in depth: the bind holds
+  the epoch row `FOR SHARE` until the read's transaction ends, so no revocation commits
+  during a read, and a grant or role grant whose term ends during it, the one change
+  that check can see, also fails the step's publication recheck. Binding a turn to its
+  owner's grant is the server's job, under the same trusted-authenticator boundary that
+  binds a page request to its session.
 - **Before the ask and every model call**: current authority and the source-access
   check; agent active; model enabled, qualified, priced, its version still current;
   provider enabled and qualified; credential decrypts. Failures: `access_changed`,
@@ -550,11 +560,15 @@ audit as history.
   730849102, refuses with `knowledge_budget_reserved` when fewer than the runtime
   set's reserve would remain, keeping it for page captures. Reclaiming stays open
   (O07).
-- Tools take no context, snapshot or workspace inputs. Current-only definitions (TOU
-  products, power hours) run only under a working-data pin (`power_historical`
-  otherwise) and are labeled with their recorded read instant, never the pinned
-  cutoff. Reads that consume a frame (curve prices and history, parties, trades, power
-  hours) fail with `snapshot_missing` when the turn pinned none.
+- Tools take no context, snapshot or workspace inputs. Each read binds the turn's
+  pinned context exactly as its record names it, at its recorded cutoff: over working
+  data the context the ask captured, as of the turn's frame, as trades re-read an
+  earlier capture; under a historical view its retained context. Current-only
+  definitions (TOU products, power hours) run only under a working-data pin
+  (`power_historical` otherwise), bind no context and are labeled with their recorded
+  read instant, never the pinned cutoff. Reads that consume a frame (curve prices and
+  history, parties, trades, power hours) fail with `snapshot_missing` when the turn
+  pinned none.
 - **Page report.** Stored at ask and never changed, so navigation during the turn
   never changes what Read current page reads; its selection is checked when the tool
   runs (`page_selection_unavailable`).
@@ -593,7 +607,10 @@ The tool set is fixed; each tool is switched on per agent version.
 - Read tools call session-independent operations extracted from the page handlers (§12
   step 2), so pages and tools share one implementation and authorization path. A
   tool's contract is the operation's (architecture §10): versioned identifier, input
-  and output schema, permission, and the runtime set's row and byte bounds. A result
+  and output schema, permission, and the runtime set's row and byte bounds. An input
+  names every member its schema states, those its view does not take as null, so a
+  schema requires each member and needs no top-level composition, which a provider's
+  tool schema need not accept; a member left out is `tool_arguments_invalid`. A result
   over a bound fails with `result_too_large`, never truncated. The model may retry
   with narrower inputs the schema accepts; where it cannot narrow (a long party list)
   the agent cannot read it and the page still shows everything.
@@ -602,20 +619,51 @@ The tool set is fixed; each tool is switched on per agent version.
   `result_too_large`, `card_too_large`, `card_invalid`, `tool_arguments_invalid`,
   `tool_not_enabled`, `page_selection_unavailable`, or the read's own refusal of its
   input, such as `missing_curve`, `missing_observation` or `knowledge_coverage`),
-  carrying only the code and the page's fixed text, after which the turn continues; or
-  a turn-ending failure (authority, session and fencing codes, otherwise
-  `tool_failed`). Refusals count as steps.
+  carrying only the code and the fixed text the server keeps for it, or one fixed
+  generic sentence for a code without one, after which the turn continues; or a
+  turn-ending failure (authority, session and fencing codes, otherwise `tool_failed`).
+  Refusals count as steps. Read current page's read refusing the page's selection
+  itself is `page_selection_unavailable`: each operation declares which of its refusals
+  mean that (`missing_curve`, `blotter_view`, `futures_trade`, `swap_trade`).
+- **Operations** (runtime set `turns_v2`): `market_data.curves_v1`, `curve_v1`,
+  `observations_v1` and `contract_definitions_v1`; `trades.blotter_v1` and
+  `trades.trade_v1`; `trade_parties.versions_v1`; `schedules.library_v1`,
+  `tou_products_v1` and `power_hours_v1`; and `reference_data.table_v1`. Contract
+  definitions are read with the schedule library, under the one bind a request makes,
+  so the page and the tool share that read. A result names its operation, the
+  knowledge it was read at (the pinned context and cutoff, or for current-only
+  definitions the read instant) and the frame it consumed, and returns the page read's
+  own fields, without what only the page uses: booking catalogs, rights, workspace
+  payloads, the pricing trace and the frame the result already names. A reference
+  table returns one whole page of at most 200 rows, and more matching rows are
+  `result_too_large`. Bounds are 500 records and 64 KiB.
 - Steps answer a call's tool requests in order, numbered across the turn, and the tool
   loop's next call opens only once each request has one. A step records its tool, the
   operation and the instant it read, the request's input (an object of at most 8 KiB,
   absent only when its arguments were refused) and its code; its event carries only
   its number, tool and code. Results are stored with cards (step 7), their consumer.
-- A read whose operation ran under its access check is a tool read, and joins the
-  source set, even when it then fails. A refusal before the operation runs adds none.
+- A refusal before the agent's context is bound adds none to the source set; once
+  bound, a read's accesses join the source set even when it is then denied or fails.
 - Read market data reads the pinned frame only; curve history is not read yet.
-- Results carry exact values and server-formatted strings (D114). The preamble
-  requires quoting only returned values and deriving none. Prose is model output;
-  cards are the exact channel.
+- Results carry exact values and server-formatted strings (D114): where the page
+  shows formatted amounts (curve prices, Blotter rows and totals, trade detail), each
+  amount is `{value, display}` under `tool_amount_display_v1`, the page's own rule
+  applied on the server from the inputs the page starts it with: a field's name gives
+  its kind; a price shows by its nearest tick, a mark by its row's mark tick, and other
+  amounts by the nearest deal format, ties to even, thousands grouped and trailing
+  zeros trimmed except for money. A trade shows as its editor shows it: a futures
+  trade by the deal's trade format with its prices at its contract's settlement-price
+  increment, where the catalog lists the contract; a swap's valuation by the deal's
+  trade format and each side by its own. The deal's saved formats are read under the
+  agent's context in the read's transaction; they are current shared presentation
+  without history, as the page reads them, so a retained read shows its pinned values
+  with the formats saved when it ran. Where the page starts from the viewer's own
+  display precision (curve prices, the Blotter's book and pivot totals, a swap's
+  terms), a preference outside the turn's pins, a result starts from the default (3
+  places for money and quantities, 4 for prices, 6 for factors). One corpus of
+  payloads, starting ticks and formats, and displays is asserted by both the managed
+  and the page's checks. The preamble requires quoting only returned values and
+  deriving none. Prose is model output; cards are the exact channel.
 - **Navigation targets** are issued by the server; the model never composes one. A
   page target names a page the user can currently open, checked under the agent
   context against the delegator's permissions, and keeps the pinned context. Record,
@@ -650,14 +698,15 @@ The tool set is fixed; each tool is switched on per agent version.
   `ask_incomplete`. Every ending frees both slots.
 - Agent work uses its own runtime and authenticator pools per scope on the existing
   logins, never the UI pools; workspace concurrency stays below their size, and each
-  tool read fits one 5-second command in one request context. No transaction, request
-  context or epoch lock is held across a model call, backoff or stream write. Worker
-  writes use a pool of their own on the runtime login. Text deltas are coalesced for
-  at most the runtime set's interval and published in pieces of at most 2,048 bytes,
-  each with its publication recheck. A worker write the database does not take within
-  the runtime set's bound stops the call in flight, which is still closed, and fails
-  the turn `agent_runtime_unavailable` unless the database ended it otherwise; ending
-  writes are retried while they fail transiently.
+  tool read runs in one request context and is bounded by `ToolRead`, 5 seconds, over
+  all its commands. No transaction, request context or epoch lock is held across a
+  model call, backoff or stream write. Worker writes use a pool of their own on the
+  runtime login. Text deltas are coalesced for at most the runtime set's interval and
+  published in pieces of at most 2,048 bytes, each with its publication recheck. A
+  worker write the database does not take within the runtime set's bound stops the
+  call in flight, which is still closed, and fails the turn `agent_runtime_unavailable`
+  unless the database ended it otherwise; ending writes are retried while they fail
+  transiently.
 - **Fencing.** Every worker write is a narrow security-definer operation presenting
   the turn's fencing token, held only in the admitting process (the database stores
   its digest). The record write is accepted only from queued without a record, the
@@ -680,11 +729,12 @@ The tool set is fixed; each tool is switched on per agent version.
 - Each agent version declares, and each turn records: maximum tool steps, total input
   tokens per turn, output tokens per call (not above the model's:
   `model_limit_exceeded`), elapsed time from the ask, retry count and the caching
-  switch. Exceeding
-  one ends the turn with `limit_tool_steps`, `limit_input_tokens`,
+  switch. Exceeding one ends the turn with `limit_tool_steps`, `limit_input_tokens`,
   `limit_output_tokens` or `limit_elapsed`; a tool request cut off by a limit is not
   run, and a call whose tool requests would take the turn past its steps has none of
-  them run.
+  them run. A read in flight at the turn's deadline ends it `limit_elapsed`, and one
+  past the runtime set's `ToolRead` ends it `tool_failed`, each recording its step with
+  the instant and accesses it read under.
 - The input limit is checked before each attempt against input that earlier attempts
   reported; nothing is estimated, so the crossing attempt completes and is billed. An
   earlier unknown or unrecognized input ends the turn with `limit_input_unverifiable`
@@ -723,8 +773,9 @@ The tool set is fixed; each tool is switched on per agent version.
   switch the provider off), Retire, revocation, a profile switch and the session end (a
   worker timer set from the recorded end) move affected turns to cancel requested,
   except a turn whose publication was refused, which fails `access_changed`. No read,
-  call or content event starts after it; the call in flight is cancelled; final
-  reported usage is kept and the rest is unknown. The turn ends cancelled:
+  call or content event starts after it; the call or read in flight is cancelled, and
+  a read that returns once the turn is to stop records no step, whatever it returned;
+  final reported usage is kept and the rest is unknown. The turn ends cancelled:
   `model_provider_disabled` (provider Disable, Replace key, Record terms),
   `model_disabled`, `agent_retired`, `access_changed` (revocation) or `session_ended`
   (profile switch, session end); Stop carries no code. Changes that cancel nothing (a
@@ -758,12 +809,20 @@ The tool set is fixed; each tool is switched on per agent version.
   the rest require only ownership.
 - **Ask** carries the agent version, an existing conversation or none, the question,
   the knowledge mode or retained context, the frame id when selected, and the page
-  report: a page identifier from a closed set (one per coverage row, blotter rows and
-  risk results separate) with its selection in that read's input schema, exactly as
-  Looking at shows. Before admission and writing nothing it refuses an invalid report
-  (`page_report_invalid`), a conversation the principal does not own in this scope,
-  answered like an unknown id (`conversation_not_found`), and an agent other than the
-  conversation's (`conversation_agent_mismatch`).
+  report, exactly `{"page","selection"}` as Looking at shows: one page identifier per
+  navigable view from a closed set, `curves`, `contract_definitions`, `schedules`,
+  `power_tous`, `reference_data`, `parties` and `blotter`, which the assistant reads,
+  and `blotter_risk`, `delivery_prices`, `custom_curves`, `interval_series`,
+  `interval_curves`, `jobs`, `users_access` and `settings_ai`, which it does not. A
+  read page's selection is its read tool's input for a view the page shows; any other
+  page's is empty. Before admission and writing nothing it refuses an invalid report
+  (`page_report_invalid`, checked by the parser Read current page dispatches with), a
+  conversation the principal does not own in this scope, answered like an unknown id
+  (`conversation_not_found`), and an agent other than the conversation's
+  (`conversation_agent_mismatch`). The report is checked before the operation identity,
+  so a repeat of an ask admitted under `turns_v1` with a report outside the closed set
+  is refused `page_report_invalid`: the one repeat that the closed set's introduction
+  does not answer as its original did.
 - **Reads** (conversations with unread markers, one conversation's turns and events,
   the unfinished turn) pass the replay recheck.
 - **Stream:** `GET …/assistant/conversations/{id}/events?after={sequence}`, read by
@@ -1078,7 +1137,8 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 Owner decisions become D rows when recorded. Every other rule in this document is a
 design call, recorded as P rows by section and open to correction until the owner
 approves it. Phase 3's four hosted gates are undecided. [decisions.md](decisions.md)
-records this section as D149–D156, D177 and P24–P38, with the open-item updates below.
+records this section as D149–D156, D177, D184 and P24–P38, with the open-item updates
+below.
 
 **AGENTS.md exception:** model-provider vendor names (Anthropic, OpenAI, Google, xAI,
 Meta) and their public API identifiers may appear in source, documentation, fixtures
@@ -1111,6 +1171,22 @@ evaluate the source-access check as a context issued to the turn's agent would, 
 check proves equal (§7.1); Navigate follows the read tools and refuses a handle it did
 not issue, or a page the delegator cannot open, as `tool_arguments_invalid`; and a call
 whose tool requests would take the turn past its steps has none of them run (§7.5).
+
+**Read tool decisions** (D184, decided on the owner's delegation): working-data reads
+bind the context the ask captured, never capturing or taking lock 730849102, and
+current-only definitions bind none (§7.2); contract definitions are read with the
+schedule library and exposed as `market_data.contract_definitions_v1`; page reports name
+one id per navigable view and are refused at ask, in the API, before admission (§8);
+refusal texts come from a closed server table, with one generic sentence, and each
+operation declares the refusals that make a page's selection unavailable; results show
+amounts by `tool_amount_display_v1`, from the inputs the page starts its display with: a
+trade's from its contract's increment and the deal's saved formats, and the viewer's own
+precision as the default; Navigate is not offered until it is built, and a request for a
+tool not offered is unreadable; reads after a call whose usage is unrecognized or past
+the input limit run, and the next open ends the turn, the worker checking only the step
+limit before reading; a denied read's step publication decides whether the turn
+continues; each read is bounded by the runtime set's `ToolRead` and runs on agent pools
+named `openetrm-agent-reads`, and one that returns once its turn is to stop is no step.
 
 The agent reader role amends D42 (seven role templates).
 

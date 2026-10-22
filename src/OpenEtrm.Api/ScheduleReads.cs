@@ -4,7 +4,9 @@ using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
-public sealed record ScheduleLibrary(int KnownThrough,ImmutableArray<ScheduleVersion> Versions,bool CanEdit,bool CanPublish,ImmutableArray<LibraryCalendar> Calendars);
+// The date schedule library and the shared contract date definitions, read under one pin.
+public sealed record ScheduleLibrary(int KnownThrough,ImmutableArray<ScheduleVersion> Versions,bool CanEdit,bool CanPublish,ImmutableArray<LibraryCalendar> Calendars,
+    ImmutableArray<ContractDateVersion> ContractDefinitions);
 // A reference calendar's exact version, coverage and weekend days, with the dates its day rows close or open.
 public sealed record LibraryCalendar(CalendarReference Reference,DateOnly CoverageFrom,DateOnly CoverageTo,ImmutableArray<string> WeekendDays,
     ImmutableArray<DateOnly> ClosedDates,ImmutableArray<DateOnly> OpenDates)
@@ -17,12 +19,22 @@ public sealed record TouProductLibrary(ImmutableArray<TouProductVersion> Version
 // Schedule reads callable without an HTTP request or workspace session, on the same terms as
 // MarketReads. Date schedules and their calendars follow the pin; TOU products and power hours
 // are current definitions, which a historical pin refuses rather than substitutes.
-public sealed class ScheduleReads(PreviewDatabase database)
+public sealed class ScheduleReads
 {
-    readonly ScheduleStore schedules=new(database.Manifest.CatalogId,database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId);
-    readonly TouProductStore products=new(database.Manifest.CatalogId,database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId);
+    readonly PreviewDatabase database;
+    readonly ScheduleStore schedules;
+    readonly TouProductStore products;
+    readonly ContractDateStore contracts;
 
-    // Row security returns drafts to authors only; readers receive published versions. A historical view is read-only.
+    public ScheduleReads(PreviewDatabase database)
+    {
+        var m=database.Manifest;
+        (this.database,schedules,products)=(database,new(m.CatalogId,m.ReferenceCatalogId,m.ReferenceRevisionId),new(m.CatalogId,m.ReferenceCatalogId,m.ReferenceRevisionId));
+        contracts=new(m.CatalogId,schedules);
+    }
+
+    // Row security returns drafts to authors only; readers receive published versions. A historical view is read-only. The
+    // contract date definitions are read under the same bind, which a request makes once.
     public async Task<ScheduleLibrary> Library(NpgsqlConnection connection,PinnedContext pin,CancellationToken ct)
     {
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
@@ -35,7 +47,7 @@ public sealed class ScheduleReads(PreviewDatabase database)
         return new(knownThrough,versions,
             working&&await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct),
             working&&await PreviewDatabase.HasPermission(connection,"SealMarketDefinitions",ct),
-            [..(await schedules.Calendars(connection,ct)).Select(LibraryCalendar.From)]);
+            [..(await schedules.Calendars(connection,ct)).Select(LibraryCalendar.From)],await contracts.Read(connection,ct));
     }
 
     // Row security returns drafts to authors only; readers receive published versions.
@@ -63,6 +75,7 @@ public sealed class ScheduleReads(PreviewDatabase database)
 
     // Current definitions are read with no market context bound: row security hides TOU products
     // under any bound context. A historical pin is refused rather than given current definitions.
-    public static PinnedContext RequireCurrent(PinnedContext pin)=>pin.Context is null?pin:
-        throw new MarketDataException("power_historical","TOU products and power hours require current inputs; historical TOU publication is not implemented.");
+    public static PinnedContext RequireCurrent(PinnedContext pin)=>pin.Context is null?pin:throw Historical();
+    internal static MarketDataException Historical()=>
+        new("power_historical","TOU products and power hours require current inputs; historical TOU publication is not implemented.");
 }

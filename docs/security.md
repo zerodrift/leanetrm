@@ -644,6 +644,32 @@ local preview the API asks, stops and reads them and an in-process worker runs t
   it and its membership, and the catalogs' scopes; for a disabled agent, which no context
   is issued to, it answers nothing accessible. The reads themselves run in an agent
   context.
+- **Tool reads:** the API issues one request context per read to the turn's agent
+  principal (`agent_credential`) under the turn's grant, and binds it in a READ
+  COMMITTED transaction on pools of the scope's own for agent reads, on the same logins
+  as the pages' and never one of theirs (Application Name `openetrm-agent-reads`, six
+  connections each, above the four turns a workspace runs). Every permission the tool
+  needs is checked once the context is bound and again after the read. The later check
+  is defense in depth: the bind holds the epoch row `FOR SHARE` until the read's
+  transaction ends, so no revocation commits during a read, and a grant or role grant
+  whose term ends during it, the one change that check can see, also fails the step's
+  publication recheck. A read binds the turn's pinned context exactly as its record
+  names it, at its recorded cutoff, and never captures one; current-only definitions
+  bind none. Once its context is bound, a read joins the source set with every access
+  it may check, even when it is then denied or fails, so a denied read is a refused
+  step whose publication recheck ends the turn `access_changed` once that access is
+  lost. Each read is bounded by the runtime set's
+  5-second `ToolRead` and the turn's deadline, and a read that returns once its turn is
+  to stop, whatever stopped it, records no step. A request for a tool the version has
+  not switched on, which the adapter already fails, reads nothing. Results stay in the
+  worker's memory and reach only the model; a refusal carries only its code and fixed
+  text, never the read's message, and logs name error types only.
+- **Page reports:** an ask's page report is exactly one page of the closed set with a
+  selection its read can take; any other is refused `page_report_invalid` before
+  admission, writing nothing. A repeat of an ask admitted under `turns_v1` with such a
+  report is refused too, the one repeat this change does not answer as its original
+  did. Read current page dispatches only the report stored at ask, so navigation during
+  a turn changes nothing it reads.
 - **Publication recheck:** each answer append and tool step takes the epoch row `FOR
   SHARE` before the turn and then rechecks that authority and the turn's sources, so it
   waits for a revocation in progress and publishes nothing once it commits. The turn
@@ -693,11 +719,13 @@ local preview the API asks, stops and reads them and an in-process worker runs t
   nothing is sent unless the open commits. The key stays in the worker's memory and
   reaches only the request's header. A cancel notification, a profile switch, the
   session's end or a publication the database refuses or does not take stops the call
-  in flight, and nothing more is published or sent; the call is closed with the usage
-  it has, a call this program abandons closing interrupted at the next start, and the
-  database decides the ending. A session's end is recorded before the turn ends, so the
-  turn ends cancelled `session_ended`; a write the database does not take, that end's
-  included, fails the turn `agent_runtime_unavailable`.
+  in flight, or the read, and nothing more is read, published or sent; the call is
+  closed with the usage it has, a call this program abandons closing interrupted at the
+  next start, and the database decides the ending. A tool step is recorded once and
+  never retried, since a step that may have landed cannot be told from a new one. A
+  session's end is recorded before the turn ends, so the turn ends cancelled
+  `session_ended`; a write the database does not take, that end's included, fails the
+  turn `agent_runtime_unavailable`.
 
 Usage (migration 0075, step 5) needs `ReadModelUsage`, held by the access administrator,
 and never runs under a delegated context, so an agent never reads usage

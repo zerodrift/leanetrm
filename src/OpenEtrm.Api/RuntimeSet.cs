@@ -13,7 +13,7 @@ static class RuntimeSet
     public const int AgentInstructions=6000;
     // The longest grant a version may ask for (§7.1).
     public const int MaxGrantDays=90;
-    public const string Turns="turns_v1";
+    public const string Turns="turns_v2";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.
@@ -25,6 +25,12 @@ static class RuntimeSet
     // How long streamed text gathers before one publication, and the most UTF-8 bytes one publication carries.
     public static readonly TimeSpan TextCoalescing=TimeSpan.FromMilliseconds(250);
     public const int TextChunkBytes=2048;
+    // The most records and UTF-8 bytes one tool result returns; a larger result is refused whole, never truncated (§7.3).
+    public const int ToolResultRows=500,ToolResultBytes=64*1024;
+    // The connections each scope's agent reads may hold on each login, above its workspace turns, which read one at a time
+    // (§7.4), and the longest one read may take, whatever its statements.
+    public const int AgentPool=6;
+    public static readonly TimeSpan ToolRead=TimeSpan.FromSeconds(5);
     // The wait before a turn's first retry, doubled for each later one.
     public static readonly TimeSpan RetryBackoff=TimeSpan.FromSeconds(1);
     // The longest one worker write may take, and the wait before a write that must land is tried again.
