@@ -882,23 +882,23 @@ The tool set is fixed; each tool is switched on per agent version.
   the stream then subscribes, takes the worker's generation as an ask does, starting
   one if it can (`agent_runtime_unavailable`, 503, while another process holds it),
   reads again what committed before it subscribed, and replaces the older stream; a
-  profile switch before then refuses it `session_ended`, replacing none. No CORS
-  headers; the only side effects are that replacement and the worker's start. Failures
-  are non-2xx, which stops `EventSource`, and the panel re-reads once. A missing or
-  expired session is `session_ended` on assistant routes (pages keep `access_denied`),
-  with a reload offer and no retry loop.
+  switch away from its profile before then refuses it `session_ended`, replacing none.
+  No CORS headers; the only side effects are that replacement and the worker's start.
+  Failures are non-2xx, which stops `EventSource`, and the panel re-reads once. A
+  missing or expired session is `session_ended` on assistant routes (pages keep
+  `access_denied`), with a reload offer and no retry loop.
 - **Delivery.** The server flushes headers and a comment on open and heartbeats every
   15 seconds while idle, checking before each write that the session is unexpired with
-  an unchanged profile (else `refused`, `session_ended`); a profile switch ends its
-  session's streams at once. A waiting stream holds no database connection. The worker
-  pushes each piece of answer text in memory once its publication recheck has
-  committed, and the stream sends the piece that follows the last event it sent. Every
-  other event, a gap and the turn's ending come from a short read in the owner's own
-  request context with the replay recheck: when a published event is not the next
-  piece of text, when the worker's run of the turn ends, and at each heartbeat until
-  the turn starts, so an ending its worker never wrote still arrives. Duplicates are
-  dropped by sequence. Once a read hides the turn's answer, every later text is hidden
-  too.
+  an unchanged profile (else `refused`, `session_ended`); a profile switch ends at once
+  the streams its session opened under the profile it left. A waiting stream holds no
+  database connection. The worker pushes each piece of answer text in memory once its
+  publication recheck has committed, and the stream sends the piece that follows the
+  last event it sent. Every other event, a gap and the turn's ending come from a short
+  read in the owner's own request context with the replay recheck: when a published
+  event is not the next piece of text, when the worker's run of the turn ends, and at
+  each heartbeat until the turn starts, so an ending its worker never wrote still
+  arrives. Duplicates are dropped by sequence. Once a read hides the turn's answer,
+  every later text is hidden too.
   - A run that ends with its turn unfinished, as a lost generation's does, and the
     server's shutdown send `refused` with `agent_runtime_unavailable`; a read refused
     for lost `UseAgents` sends `refused` with `access_denied`.

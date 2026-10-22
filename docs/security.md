@@ -716,8 +716,8 @@ runs them ([ai-assistant.md](ai-assistant.md) §7.2, §7.4, §8):
   profile with `UseAgents`, takes no session semaphore and holds no connection while
   it waits. Its only effects are replacing the owner's older stream of the turn and
   starting the worker as an ask does. Before each write the session must be unexpired
-  with the profile the stream was opened under, and a profile switch ends the
-  session's streams at once (`session_ended`).
+  with the profile the stream was opened under, and a profile switch ends at once the
+  streams the session opened under the profile it left (`session_ended`).
 - **Stream delivery:** a stream sends a turn's events to its owner from two places
   only. Every event, text included, may come from the stream read (`turn_stream`) in
   the owner's own request context under `UseAgents`, with the replay recheck, which

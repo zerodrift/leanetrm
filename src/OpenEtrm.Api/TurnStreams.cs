@@ -5,8 +5,8 @@ namespace OpenEtrm.Api;
 // The live event stream's subscriptions in this process (docs/ai-assistant.md §8). The worker that runs a turn tells
 // them of each event it published once that has committed, a piece of text with its content and any other event by its
 // sequence alone, which a stream then reads, and of the end of its run of the turn; a profile switch ends the streams
-// its session opened. Nothing here waits for a stream or fails a writer: a subscription whose buffer is full is cut,
-// and the stored events, which a stream reads again, are the truth.
+// its session opened under the profile it left. Nothing here waits for a stream or fails a writer: a subscription whose
+// buffer is full is cut, and the stored events, which a stream reads again, are the truth.
 public sealed class TurnStreams
 {
     readonly object gate=new();
@@ -15,9 +15,9 @@ public sealed class TurnStreams
     readonly Dictionary<Guid,TurnSubscription> streaming=[];
 
     // A subscription that hears its turn from now on without yet replacing the turn's stream.
-    public TurnSubscription Subscribe(Guid turn,string session)
+    public TurnSubscription Subscribe(Guid turn,string session,string profile)
     {
-        var subscription=new TurnSubscription(turn,session);
+        var subscription=new TurnSubscription(turn,session,profile);
         lock(gate)
         {
             if(!subscribers.TryGetValue(turn,out var heard))subscribers[turn]=heard=[];
@@ -54,12 +54,14 @@ public sealed class TurnStreams
     // The worker's run of the turn has ended, whether or not the turn has.
     internal void Ended(Guid turn)=>Offer(turn,TurnSignal.End);
 
-    // A profile switch ends every stream its session opened (§7.2, §8).
-    public void EndSession(string session)
+    // A profile switch, once the session has its new profile, ends every stream the session opened under the one it left
+    // (§7.2, §8); when the profile changes, not one opened under the new profile meanwhile. It stops them under the lock
+    // Activate takes, so a stream it stops replaces none, and one that subscribes after it finds the new profile.
+    public void EndSession(string session,string? left)
     {
-        TurnSubscription[] ended;
-        lock(gate)ended=[..subscribers.Values.SelectMany(s=>s).Where(s=>s.Session==session)];
-        foreach(var subscription in ended)subscription.Stop(StreamStop.SessionEnded);
+        lock(gate)
+            foreach(var subscription in subscribers.Values.SelectMany(s=>s).Where(s=>s.Session==session&&s.Profile==left))
+                subscription.Stop(StreamStop.SessionEnded);
     }
 
     void Offer(Guid turn,TurnSignal signal)
@@ -84,14 +86,17 @@ internal readonly record struct TurnSignal(long Sequence,string? Text)
 // is kept beside the buffer, so it is never lost to a full one and is seen before the signals still buffered.
 public sealed class TurnSubscription
 {
+    // Its waiters resume asynchronously, so a stop under the subscriptions' lock runs none of them there.
     readonly Channel<TurnSignal> signals=Channel.CreateBounded<TurnSignal>(new BoundedChannelOptions(RuntimeSet.SubscriberEvents)
-        {SingleReader=true,FullMode=BoundedChannelFullMode.Wait});
+        {SingleReader=true,FullMode=BoundedChannelFullMode.Wait,AllowSynchronousContinuations=false});
     int stopped;
 
-    internal TurnSubscription(Guid turn,string session)=>(Turn,Session)=(turn,session);
+    internal TurnSubscription(Guid turn,string session,string profile)=>(Turn,Session,Profile)=(turn,session,profile);
 
     public Guid Turn {get;}
     public string Session {get;}
+    // The profile the stream was opened under.
+    public string Profile {get;}
     public StreamStop Stopped=>(StreamStop)Volatile.Read(ref stopped);
     internal ChannelReader<TurnSignal> Signals=>signals.Reader;
 

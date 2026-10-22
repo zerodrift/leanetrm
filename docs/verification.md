@@ -913,15 +913,17 @@ cookie.
 - **Endings:** a newer stream of an unfinished turn, in the same session or another of
   its owner's, sends the older `replaced`; after Stop the stream sends the usage and the
   cancelled ending, incomplete; a profile switch ends the session's streams
-  `session_ended` while a turn asked in another session completes, and one while a
-  stream is admitted, its first read held, refuses it `session_ended`, replacing none,
-  while the turn's stream goes on to its ending; a stream whose owner loses `UseAgents`
-  is refused `access_denied` once the turn failed `access_changed`; a lost generation
-  refuses its streams `agent_runtime_unavailable`, a stream is refused with a 503 while
-  another session holds the lock, and once it is free a stream starts the next
-  generation and replays to the interrupted ending; an idle stream pings 13 to 20
-  seconds apart, and one whose turn stays unfinished past its elapsed limit and the
-  admission deadline, its row held, is refused `stream_expired`.
+  `session_ended` at once, not at their next heartbeat, while a turn asked in another
+  session completes; choosing the profile a session already has ends its streams too and
+  cancels its turn `session_ended`; a switch while a stream is admitted, its first read
+  held, refuses that stream `session_ended`, replacing none, while the turn's stream
+  goes on to its ending; a stream whose owner loses `UseAgents` is refused
+  `access_denied` once the turn failed `access_changed`; a lost generation refuses its
+  streams `agent_runtime_unavailable`, a stream is refused with a 503 while another
+  session holds the lock, and once it is free a stream starts the next generation and
+  replays to the interrupted ending; an idle stream pings 13 to 20 seconds apart, and
+  one whose turn stays unfinished past its elapsed limit and the admission deadline, its
+  row held, is refused `stream_expired`.
 - **Sessions:** the cookies of both sessions are as they were handed, no response is
   left scripted and no request goes through a proxy.
 
@@ -944,7 +946,8 @@ where it resumes, pushed text in order once, a gap, a step and the run's end rea
 heartbeats and the re-read before the turn starts, the session's end and profile,
 expiry, a newer stream, a cut, shutdown, refused and failed reads, and a hidden answer.
 The subscriptions replace a turn's older stream unless the newer one stopped first, end
-a session's streams, and cut a full buffer without the writer waiting.
+the streams a session opened under the profile it switches from, and cut a full buffer
+without the writer waiting.
 
 Usage (`tools/check_model_usage.py`, in the same run, through the API and in SQL, over
 calls and turns it writes as the database owner at chosen instants of 2019, since a call

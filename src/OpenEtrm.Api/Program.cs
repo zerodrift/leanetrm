@@ -375,10 +375,14 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
 {
     if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
-    // A profile switch cancels the turns the session asked and ends the streams it opened (docs/ai-assistant.md §7.2, §8).
+    var left=session.Profile;
+    session.ForgetDiscoveredFrames(resetAliasIdentities:true);session.Profile=body.Profile; session.MarketContext=null;
+    // Then the switch ends the streams the session opened under the profile it left, before it cancels the turns the session
+    // asked, so no stream carries that cancel instead; a stream still being admitted finds the new profile
+    // (docs/ai-assistant.md §7.2, §8).
+    turnStreams?.EndSession(session.Digest,left);
     turnWorker?.EndSession(session.Digest);
-    turnStreams?.EndSession(session.Digest);
-    session.ForgetDiscoveredFrames(resetAliasIdentities:true);session.Profile=body.Profile; session.MarketContext=null; return Task.FromResult(Results.Ok(new {profile=session.Profile}));
+    return Task.FromResult(Results.Ok(new {profile=session.Profile}));
 }));
 PreviewSequenceCoverage ScheduleSource(string? code) => (database.Manifest.Schedules ?? []).SingleOrDefault(s=>s.Curve==code)
     ?? throw new MarketDataException("sequence_source","Choose an explicitly configured contract schedule.");

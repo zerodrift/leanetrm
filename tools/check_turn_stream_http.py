@@ -374,12 +374,25 @@ def run_checks(url, query, psql, manifest, environment, fake, trap, admin, trade
     admin.call('profile', {'profile': 'trader'})
     switched = Stream(admin, bound['conversationId'], 0)
     switched.until(texted)
+    switched_at = time.monotonic()
     admin.call('profile', {'profile': 'admin'})
     frames = switched.rest()
+    ended = time.monotonic() - switched_at
     release.set()
-    check("a profile switch ends the session's streams with refused session_ended, and a turn asked in another session goes on",
-          [f['event'] for f in events(frames)] == ['refused'] and events(frames)[0]['data']['code'] == 'session_ended'
-          and settled(bound)[0]['state'] == 'completed', frames)
+    check("a profile switch ends the session's streams with refused session_ended at once, not at their next heartbeat, and a turn asked in "
+          'another session goes on', [f['event'] for f in events(frames)] == ['refused'] and events(frames)[0]['data']['code'] == 'session_ended'
+          and ended < 5 and settled(bound)[0]['state'] == 'completed', (frames, ended))
+
+    # Choosing the profile a session already has ends its streams too, as it cancels its turns (§7.2, §8).
+    stalling()
+    reselected = ask()
+    reselecting = Stream(trader, reselected['conversationId'], 0)
+    reselecting.until(texted)
+    trader.call('profile', {'profile': 'trader'})
+    frames = reselecting.rest()
+    check('choosing the profile a session already has ends its streams with refused session_ended and cancels its turns with '
+          'session_ended', [f['event'] for f in events(frames)] == ['refused'] and events(frames)[0]['data']['code'] == 'session_ended'
+          and settled(reselected)[0]['outcome'] == 'session_ended', frames)
 
     # A switch that lands while a stream is admitted (§8): that stream, its first read held here behind the conversations
     # table, is refused session_ended and replaces none, so the turn's stream goes on.
