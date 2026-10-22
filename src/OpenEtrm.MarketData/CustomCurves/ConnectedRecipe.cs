@@ -118,6 +118,7 @@ public sealed class ConnectedRecipeGraph
     internal ImmutableArray<(ConnectedRecipeSample Sample,CurvePointKey Point)> SamplePoints{get;init;}
     internal ConnectedRecipeDeclaration Declaration{get;init;}=null!;
     internal RecipeEngine.Panel PreparedPanel{get;init;}=null!;
+    internal CurvePointKey OutputPoint(int index)=>new(Curve,ConnectedIdentity.Id(new{Version="saved_recipe_output_v2",identity=Identity,Output=Declaration.Definition.Output,Index=index}));
     public RecipeResult Result(ConnectedScenario scenario,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -149,12 +150,15 @@ public static partial class RecipeEngine
 {
     public static ConnectedRecipeGraph Connect(RecipeDefinition definition,RecipeInputs inputs,ConnectedRecipeIdentity identity,
         ImmutableArray<ConnectedRecipeSample> samples,ResolvedCalculationContext context,CancellationToken cancellation=default,
-        ConnectedRecipeReferencePins? references=null,IReadOnlyDictionary<string,ConnectedRecipeGraph>? publishedSources=null)
+        ConnectedRecipeReferencePins? references=null,IReadOnlyDictionary<string,ConnectedRecipeGraph>? publishedSources=null,RecipeOutputDemand? demand=null)
     {
         cancellation.ThrowIfCancellationRequested();
         if(inputs is null||context is null||samples.IsDefault||inputs.ValuationAt!=context.ValuationAt)
             throw Missing("Supply the same resolved valuation context and explicit source snapshot bindings.");
         Validate(definition);
+        if(demand is not null&&(demand.Deliveries is null||demand.Deliveries.IsEmpty||demand.Deliveries.Any(d=>d.To.DayNumber-d.From.DayNumber!=1)||
+            demand.SamplingInstants is null||demand.SamplingInstants.Any(s=>s.Value.Offset!=TimeSpan.Zero||DateOnly.FromDateTime(s.Value.UtcDateTime)!=s.Key)))
+            throw Missing("Daily output demand requires explicit one-day intervals and coherent UTC sampling instants.");
         publishedSources??=ImmutableDictionary<string,ConnectedRecipeGraph>.Empty;
         if(samples.Any(s=>s is null)||samples.Select(s=>(s.Source,s.Date,s.Contract)).Distinct().Count()!=samples.Length)
             throw Missing("Each directly declared source sample must be supplied once.");
@@ -188,8 +192,18 @@ public static partial class RecipeEngine
             else retained.Add(key,sample);
         }
         if(samples.Any(s=>!inputs.Sources.Values.Any(v=>v.Key==s.Source)))throw Missing("A sample belongs to an undeclared source.");
-        var panel=Prepare(definition,inputs,samples,cancellation,publishedSources);
-        var used=panel.Cells.SelectMany(c=>c.Inputs).Distinct().OrderBy(k=>k.Source.Code,StringComparer.Ordinal).ThenBy(k=>k.Date).ThenBy(k=>k.Contract.Id).ToArray();
+        var panel=Prepare(definition,inputs,samples,cancellation,publishedSources,demand);
+        var selected=panel.Cells.Select((cell,index)=>(Cell:cell,Index:index))
+            .Where(c=>demand is null||demand.Deliveries.Contains(new(c.Cell.DeliveryFrom,c.Cell.DeliveryTo))).ToArray();
+        var used=selected.SelectMany(c=>c.Cell.Inputs).Distinct().OrderBy(k=>k.Source.Code,StringComparer.Ordinal).ThenBy(k=>k.Date).ThenBy(k=>k.Contract.Id).ToArray();
+        if(demand is not null)
+        foreach(var key in used.Where(k=>inputs.Sources.Values.Any(s=>s.Key==k.Source)))
+        {
+            var contract=inputs.Sources.Values.First(s=>s.Key==key.Source).Contracts.Single(c=>c.Contract.Key==key.Contract);
+            if(!retained.TryGetValue(key,out var sample)||!demand.SamplingInstants.TryGetValue(key.Date,out var at)||
+                sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at)
+                throw Missing("Every consumed forecast requires its exact live eligible sample; actuals cannot supply forecasts.");
+        }
         var exports=new List<ConnectedCurveExport>();var samplePoints=new Dictionary<SampleKey,CurvePointKey>();
         foreach(var point in publishedSources.Values.SelectMany(g=>g.SamplePoints))
         {
@@ -233,9 +247,9 @@ public static partial class RecipeEngine
             created.Add((formula.Node,formula.Index),key);return key;
         }
         var outputs=ImmutableArray.CreateBuilder<ConnectedRecipeOutput>();
-        for(var i=0;i<panel.Cells.Length;i++)
+        foreach(var (cell,i) in selected)
         {
-            var cell=panel.Cells[i];var source=CompileFormula(cell.Formula);
+            var source=CompileFormula(cell.Formula);
             var key=new CurvePointKey(curve,ConnectedIdentity.Id(new{Version="saved_recipe_output_v2",identity,definition.Output,Index=i}));
             var member=directory[source];
             points.Add(new(key,member.DeliveryFrom,member.DeliveryTo,cell.Unit,new ConnectedRecipeProjection(CurvePointReference.Exact(source),declaration,cell.Position)));

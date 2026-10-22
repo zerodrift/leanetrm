@@ -75,8 +75,44 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin \
   --dotnet /path/to/dotnet --check --connected-portfolio-check
 ```
 
+The D189 additions run in that same gate. `tools/check_curve_activation.py`
+checks certified effective/knowledge selection, inactive gaps, unchanged exact
+pins, replay/conflict behavior, concurrent expected revisions and half-open date
+boundaries. Rollback-only SQL probes verify bound-catalog isolation and current
+authority after receipt/head assembly, including permission expiry during normal
+publication and exact retry. A separately sealed synthetic revision reuses a
+native curve code with different prices to prove exact source-revision isolation.
+Managed API input checks (`--curve-activation-inputs`, also registered with
+`--schedules`) preserve explicit zero revisions, minimum dates and null daily
+coordinates while rejecting omitted fields. The owned HTTP checks verify the
+same refusals before any activation or booking is written.
+
+`tools/check_daily_custom_projection.py` checks every reset's delivery and exact
+price against a deliberately reversed output layout, complete weighted PV and
+31 primitive sensitivities. It covers missing/duplicate delivery refusals,
+binding reuse through booking/amendment, nested primitive/output stresses and
+worker parity after successor activation. A partially fixed January period keeps
+three actuals, 28 remaining forecasts, the original denominator and exact worker
+results. A separate book consumes one historical ancestor as a full scalar panel
+and through a daily child subset, exercising coalesced overlapping demands.
+It also consumes a second version with a smaller historical set in the same
+book, verifying independent sample-frame admission and worker reconstruction.
+Managed API `--connected-samples` checks preserve already-covered receipt rows
+while retaining otherwise missing frames; these also run with `--schedules`.
+The curve browser gate adds eleven activation checks: publication after Live starts,
+both exact-version controls, explicit versus effective intent, inactive/stale
+display, pending-request recovery, draft preservation, account reset and access.
+
+The D189 full synthetic runner passed locally on 2026-10-22 in the environment
+listed above, including 63 curve browser checks. Final managed API and connected
+integration reruns passed after required-input and independent historical-frame
+retention corrections. The frontend checks and read-only Compose/Swarm render
+checks passed. Independent numerical, temporal/authorization and UI reviews found
+no remaining blocker. These results do not qualify financial throughput, an
+existing hosted schema upgrade or a deployed cluster.
+
 Its named consumers publish synthetic recipes, explicitly bind outputs to monthly
-indexed swaps, and compare scheduled PV, portfolio risk and retained worker results.
+or daily indexed swaps, and compare scheduled PV, portfolio risk and retained worker results.
 `tools/check_weighted_portfolio.py` adds multiple source ports with signed and
 normalized weights, exact member relationships, picker eligibility and nested
 computed-output risk with an independent numerical oracle.

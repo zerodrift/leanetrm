@@ -94,6 +94,8 @@ app.Use(async (context,next)=>
             PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
             AutomationException a => (422,a.Code,a.Message),
             OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
+            PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("curve_activation_",StringComparison.Ordinal) => (422,p.MessageText,"Supply disjoint effective intervals and exact published outputs under the complete timeline policy."),
             PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
             PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
             PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),

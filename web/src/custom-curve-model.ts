@@ -27,7 +27,7 @@ export function previewTable(preview:{columns:string[];rows:(string|null)[][]}){
 }
 
 export function knownCurveRejection(code:string|undefined):boolean{
- return !!code&&['custom_curve_conflict','custom_curve_definition','recipe_definition','recipe_transform','custom_curve_limit','access_denied','historical_read_only','request_format','request_too_large','request_token','definition_rejected'].includes(code);
+ return !!code&&['curve_activation_conflict','curve_activation_input','curve_activation_overlap','custom_curve_conflict','custom_curve_definition','recipe_definition','recipe_transform','custom_curve_limit','access_denied','historical_read_only','request_format','request_too_large','request_token','definition_rejected'].includes(code);
 }
 export type ConditionalCurveField={key:string;when?:{key:string;values:string[]}};
 export function curveFieldVisible(field:ConditionalCurveField,parameters:Record<string,unknown>):boolean{

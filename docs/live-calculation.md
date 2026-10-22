@@ -23,7 +23,10 @@ selection from working inputs.
 The implemented policy is
 `selected_facts_latest_committed_corrections_v1`. It does not advance a clock,
 select a newer observation time, roll delivery contracts or switch a published
-recipe version. Those require separate explicit selection contracts. Frozen
+recipe version in exact preview mode. **Preview effective version** explicitly
+follows the custom timeline selected at each new certified knowledge context
+(D189); ordinary **Preview** returns to an exact version. Native activation and
+other rolling policies require separate explicit selection contracts. Frozen
 actuals retain the existing frozen-input policy. A live correction is a newly
 admitted market frame, not a scenario offset.
 
@@ -70,7 +73,10 @@ Migration 0083 sends identifier-free PostgreSQL notifications on actual financia
 publications and authority changes. Existing commit-serialized publication
 streams are the durable catch-up record. Each API process listens independently;
 reconnection reconciles committed state. Context certification writes do not
-notify themselves.
+notify themselves. Migration 0084 adds custom activation publications to this
+same wakeup/head path. An inactive effective interval makes a live effective
+preview stale and retains its last successful displayed value. Publishing or
+editing a timeline clears an explicit preview until it is calculated again.
 
 The SSE stream subscribes before reconciling. It sends a complete authorized
 context/frame summary at admission and after an authorized head changes. Resume

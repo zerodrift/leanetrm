@@ -3,6 +3,8 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
+if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
 if(args is ["--live-calculation"]){LiveContextChecks.Run();return;}
 
 if(args is ["--preview-data"]){PreviewDataChecks.Run();return;}
@@ -39,6 +41,8 @@ if(args is ["--turn-streams"]){await TurnStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
+    CurveActivationInputChecks.Run();
+    ConnectedSampleChecks.Run();
     FuturesExecutionChecks.Run();
     HostedAccessChecks.Run();
     CredentialCustodyChecks.Run();

@@ -5,7 +5,7 @@ from decimal import Decimal
 from preview_fixture import CAT, REV, R, M
 
 
-def prepare(reference,market,manifest):
+def prepare(reference,market,manifest,*,daily_lifecycle=False):
     manifest=deepcopy(manifest)
     refs=[f"INSERT INTO ref_data.futures_products SELECT (jsonb_populate_record(NULL::ref_data.futures_products,to_jsonb(p)||'{{\"code\":\"custom_ng_future\",\"name\":\"Synthetic NG recipe future\"}}'::jsonb)).* FROM ref_data.futures_products p WHERE(p.catalog_id,p.revision_id,p.code)=({R},'test_gas_future');",
           f"INSERT INTO ref_data.futures_product_terms SELECT catalog_id,revision_id,'custom_ng_future',profile_code,index_code FROM ref_data.futures_product_terms WHERE(catalog_id,revision_id,product_code)=({R},'test_gas_future');"]
@@ -30,13 +30,16 @@ def prepare(reference,market,manifest):
                             f"INSERT INTO market_data.series VALUES({M},'{sid}','custom_ng_monthly_{ordinal}',{R},'{cid}','test_gas_outright',NULL);",
                             f"INSERT INTO market_data.curve_members VALUES({M},'ng_monthly','{cid}',{ordinal});"])
         monthly.append((cid,sid,ordinal,datetime.combine(expiry,datetime.min.time(),timezone.utc)+timedelta(hours=15,minutes=30)))
-    for ordinal in range(62):
+    for ordinal in range(90 if daily_lifecycle else 62):
         start=date(2020,12,1)+timedelta(days=ordinal);end=start+timedelta(days=1)
         cid=key('e',200+ordinal);sid=key('e',2000+ordinal)
         definitions.extend([f"INSERT INTO market_data.contracts VALUES({M},'{cid}',{R},'forward','{start}','{end}','{end} 00:00:00+00',NULL);",
                             f"INSERT INTO market_data.series VALUES({M},'{sid}','custom_ng_daily_{ordinal}',{R},'{cid}','test_gas_outright',NULL);",
                             f"INSERT INTO market_data.curve_members VALUES({M},'ng_daily','{cid}',{ordinal});"])
         daily.append((cid,sid,ordinal,datetime.combine(end,datetime.min.time(),timezone.utc)))
+        if start>=date(2021,1,1):
+            fixing_day=start-timedelta(days=1)
+            definitions.append(f"INSERT INTO market_data.index_fixing_observations(catalog_id,revision_id,index_code,observation_from,observation_to,reference_catalog_id,reference_revision_id,quote_code,series_id,source_code,fixing_at,implementation) SELECT {M},t.index_a_code,'{start}','{end}',{R},'test_gas_outright','{sid}','fixture','{fixing_day} 12:00:00+00','published_index_observations_v1' FROM ref_data.settlement_targets t WHERE(t.catalog_id,t.revision_id,t.code)=({R},'test_index_target');")
     # A supported two-level basis chain has an explicitly frozen, expired
     # futures input and independent live spreads over the same delivery month.
     fixed_future=monthly[1]
@@ -57,20 +60,29 @@ def prepare(reference,market,manifest):
     final_id=key('f',900000)
     observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{final_id}','{REV}','{fixed_future[1]}',{R},'fixture','custom_frozen_final','1','final_contract_settlement','final','{fixed_future[3].isoformat()}','{now}',3.25,NULL);")
     frames={frame['at']:frame for frame in manifest['frames']}
-    first=date(2020,11,18);last=date(2020,12,31)
+    actuals=[]
+    if daily_lifecycle:
+        for ordinal in range(3):
+            fixing_at=datetime(2020,12,31,12,tzinfo=timezone.utc)+timedelta(days=ordinal)
+            oid=key('f',920000+ordinal);sid=daily[31+ordinal][1]
+            observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','custom_daily_actual_{ordinal}','1','index_fixing','final','{fixing_at.isoformat()}','{now}',{10*(ordinal+1)},NULL);")
+            actuals.append((oid,fixing_at))
+    first=date(2020,11,18);last=date(2021,1,2) if daily_lifecycle else date(2020,12,31)
     for day_index in range((last-first).days+1):
         day=first+timedelta(days=day_index);instant=f'{day}T16:00:00Z'
         frame=frames.setdefault(instant,{'at':instant,'observationIds':[],'curveContracts':{}})
         if day>=date(2020,11,28) and day!=date(2020,12,17):
             frame['observationIds'].append(final_id)
-        for ordinal,code in enumerate(('ng_fixed_spread','ng_fixed_basis')):
+        for ordinal,code in enumerate(('ng_fixed_spread','ng_fixed_basis') if day<date(2021,1,1) else ()):
             oid=key('f',910000+day_index*10+ordinal)
             value=Decimal('.5')+Decimal(day_index-28)*Decimal('.1') if ordinal==0 else Decimal('.2')
             observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{key('e',3000+ordinal)}',{R},'fixture','custom_fixed_spread_{ordinal}_{day_index}','1','trader_mark','final','{instant}','{now}',{value},NULL);")
             frame['observationIds'].append(oid)
             frame['curveContracts'][code]=[key('e',300+ordinal)]
-        frame['curveContracts']['ng_fixed_bridge']=[key('e',300)]
-        frame['curveContracts']['ng_fixed_location']=[key('e',301)]
+        if day<date(2021,1,1):
+            frame['curveContracts']['ng_fixed_bridge']=[key('e',300)]
+            frame['curveContracts']['ng_fixed_location']=[key('e',301)]
+        frame['observationIds'].extend(oid for oid,at in actuals if at<=datetime.combine(day,datetime.min.time(),timezone.utc)+timedelta(hours=16))
         for code,contracts,role in [('ng_monthly',monthly,'daily_settlement'),('ng_daily',daily,'trader_mark')]:
             frame['curveContracts'][code]=[]
             for cid,sid,ordinal,expiry in contracts:

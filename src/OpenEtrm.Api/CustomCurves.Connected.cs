@@ -41,6 +41,19 @@ public static partial class CustomCurves
         return new Guid(SHA256.HashData(bytes).AsSpan(0,16));
     }
 
+    internal static ImmutableArray<ConnectedRecipeSample> RetainSamples(IEnumerable<ConnectedRecipeSample> samples)
+    {
+        var all=samples.ToImmutableArray();
+        var retained=all.DistinctBy(s=>(s.Source,s.Date,s.Contract)).ToList();
+        var frames=retained.Select(s=>(s.Snapshot.Id,s.Snapshot.Definitions)).ToHashSet();
+        // Each row carries its complete exact frame. Preserve existing receipt
+        // rows, adding evidence only when an independently required frame would
+        // otherwise disappear behind a larger version's overlapping samples.
+        foreach(var sample in all)
+            if(frames.Add((sample.Snapshot.Id,sample.Snapshot.Definitions)))retained.Add(sample);
+        return retained.ToImmutableArray();
+    }
+
     internal static async Task<PreparedMarket> PrepareMarket(NpgsqlConnection connection,PreviewDatabase database,
         PreviewData data,InputFrame frame,MarketSnapshot snapshot,ScheduleContext context,
         ImmutableArray<Instrument> instruments,ImmutableArray<CurveRequest> dependencies,CancellationToken ct,
@@ -81,7 +94,26 @@ public static partial class CustomCurves
             var sourceData=await database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,historyPins,
                 includeCalendarDays:false,observationScope:retained is null?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
             var saved=await new CustomCurvesStore(database).Read(connection,ct);
-            var preparation=new RecipePreparation(connection,database,sourceData,frame,exact,resolved,saved);
+            // Coalesce every exact ancestor's demand before loading any sample.
+            // Overlapping historical projections must share the same admitted
+            // sample frame, including when a version is also consumed directly.
+            var demands=new Dictionary<(Guid,int),ImmutableHashSet<RecipeDelivery>?>();
+            void Require(Guid id,int version,ImmutableHashSet<RecipeDelivery>? deliveries,int depth)
+            {
+                if(depth>32||demands.Count>=256&&!demands.ContainsKey((id,version)))throw Invalid("Published source preparation supports 32 dependency edges and 256 exact versions.");
+                if(demands.TryGetValue((id,version),out var prior))
+                {
+                    if(prior is null||deliveries is not null&&deliveries.IsSubsetOf(prior))return;
+                    deliveries=deliveries is null?null:prior.Union(deliveries);
+                }
+                demands[(id,version)]=deliveries;
+                var definition=saved.SingleOrDefault(v=>v.Id==id&&v.Version==version)?.Definition??throw Invalid("The exact published custom curve is unavailable.");
+                foreach(var node in definition.Nodes.Where(n=>n.Kind=="published_source"))Require(node.PublishedSource!.CurveId,node.PublishedSource.Version,deliveries,depth+1);
+            }
+            foreach(var group in recipeBindings.GroupBy(b=>(b.CurveId,b.Version)))
+                Require(group.Key.CurveId,group.Key.Version,group.All(b=>b.Selection==CustomCurveProjectionBinding.DeliverySelection)?required.Where(c=>group.Contains(c.Binding))
+                    .Select(c=>data.Contracts.Single(k=>k.Key==c.Original.Contract)).Select(k=>new RecipeDelivery(k.DeliveryFrom,k.DeliveryTo)).ToImmutableHashSet():null,0);
+            var preparation=new RecipePreparation(connection,database,sourceData,frame,exact,resolved,saved,demands);
             foreach(var group in recipeBindings.GroupBy(b=>(b.CatalogId,b.CurveId,b.Version)))
             {
                 ct.ThrowIfCancellationRequested();
@@ -95,11 +127,14 @@ public static partial class CustomCurves
                 var graph=await preparation.Published(new(group.Key.CatalogId,group.Key.CurveId,group.Key.Version,version.Definition.Output),ct);
                 definitions.AddRange(graph.Definitions);
                 outputRoots.AddRange(graph.Outputs.Select(o=>o.Point));
+                var mapping=ProjectionMapping(graph);
                 foreach(var binding in group)
                 {
-                    var outputs=graph.Outputs.Where(p=>p.Position==binding.Position).ToArray();
-                    if(outputs.Length!=1)throw Invalid("The explicit output position must identify exactly one computed price.");
-                    foreach(var item in required.Where(c=>c.Binding==binding))bindings.Add(binding.Request(item.Original),outputs[0].Point);
+                    foreach(var item in required.Where(c=>c.Binding==binding))
+                    {
+                        var contract=data.Contracts.Single(c=>c.Key==item.Original.Contract);
+                        bindings.Add(binding.Request(item.Original),mapping.Resolve(binding,contract));
+                    }
                 }
             }
             samples.AddRange(preparation.Samples);sourceCompilations+=preparation.SourceCompilations;declaredSourceNodes+=preparation.DeclaredSourceNodes;
@@ -113,7 +148,7 @@ public static partial class CustomCurves
         if(samples.Any(s=>s.Snapshot.MarketCutoff!=s.Snapshot.ValuationAt))
             throw Invalid("This retained sample contract requires market cutoff and sample valuation to be the same explicit instant.");
         var evidence=new ConnectedMarketEvidence(data.DefinitionRevision.RevisionId,plan.ManifestId,data.FuturesConvention,recipeBindings,
-            samples.DistinctBy(s=>(s.Source,s.Date,s.Contract)).OrderBy(s=>s.Source.Code,StringComparer.Ordinal).ThenBy(s=>s.Date).ThenBy(s=>s.Contract.Id)
+            samples.OrderBy(s=>s.Source.Code,StringComparer.Ordinal).ThenBy(s=>s.Date).ThenBy(s=>s.Contract.Id).ThenBy(s=>s.Snapshot.Id)
                 .Select(s=>new ConnectedSampleEvidence(s.Snapshot.Id,s.Snapshot.ValuationAt,s.Source.Code,s.Contract.Id,s.FreezeHistorical,
                     s.Snapshot.Selections.OrderBy(o=>o.Input.Series.Id).ThenBy(o=>o.Input.Use)
                         .Select(o=>new ConnectedSampleObservation(o.Observation.Key.Id,o.Input.Series.Id,o.Input.Use.ToString())).ToImmutableArray())).ToImmutableArray());
@@ -121,5 +156,10 @@ public static partial class CustomCurves
             throw new MarketDataException("risk_graph_manifest","The rebuilt graph differs from its admitted recipe, sample or topology manifest.");
         var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan,database.Calculations,ct),snapshot,samples.Select(s=>s.Snapshot).Distinct().ToImmutableArray(),ct);
         return new(valuation,authority,bindings.ToImmutable(),evidence,new(sourceCompilations,declaredSourceNodes));
+    }
+    static CustomProjectionMapping ProjectionMapping(ConnectedRecipeGraph graph)
+    {
+        var points=graph.Definitions.SelectMany(d=>d.Points).ToDictionary(p=>p.Key);
+        return new(graph.Outputs.Select(o=>new ProjectionOutput(o.Position,o.Point,new(points[o.Point].DeliveryFrom,points[o.Point].DeliveryTo))));
     }
 }

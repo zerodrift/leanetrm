@@ -16,8 +16,9 @@ contract; formulas compile only in the backend. SQL panel execution is removed.
 Published recipes supply explicit monthly indexed swap projections through
 booking, portfolio and retained-risk operations. The editor offers compatible
 published outputs from the authorized backend catalog and preserves the selected
-exact version/output through amendments. Daily custom mappings, cross-revision
-rolling histories and historical VaR/covariance remain work.
+exact version/output through amendments. Daily indexed projections can map each
+unfixed reset to one computed output with the same exact delivery interval.
+Cross-revision rolling histories and historical VaR/covariance remain work.
 
 Published custom curves also act as reusable sources in the same visual/formula
 workbench (D187). Explicit version/output FKs import the complete parent panel
@@ -50,7 +51,7 @@ schema cutovers, not silent conversions of retained history.
 Interactive preparation reads visible source-revision history and compiles source
 topology without evaluation. `SourceCompilations` and `DeclaredSourceNodes` report
 that work; the futures materialization build is still separately counted.
-Historical query pushdown, database activation of logical bindings, broader
+Historical query pushdown, broader
 live-feed selection policies, financial workload qualification, volatility and correlation
 scenarios remain work. Graph propagation within a pinned scenario is implemented. Explicit
 [live corrections](live-calculation.md) advance successive certified header
@@ -59,6 +60,15 @@ bounded numerical memoization. An existing scenario/job remains pinned; live
 clock advancement and observation/contract rolling policies remain work. See the
 [cutover prerequisites](connected-calculation.md#adopting-the-schema-cutover).
 All calculation behavior stays in the backend.
+
+Persisted custom-curve activation (D189) selects a complete effective timeline at
+the certified knowledge cutoff, then an exact published output for the effective
+date. Authoring requires current publishing authority and expected-revision
+concurrency; gaps are inactive. The workbench supports timeline replacement and
+effective preview through the existing evaluator. Exact booked/job references
+remain independent of activation. Native-curve activation, resampling and
+interpolation of published panels, and histories crossing market revisions remain
+separate work.
 
 The header's As of calendar qualifies available exact snapshots through the
 managed backend (D162), including all inputs of a custom graph's history window.
@@ -435,7 +445,8 @@ implementation is [the schedule-backed relative-contract resolver](schedules-and
 over supplied futures rows, reusing series/milestone references. Tests qualify
 explicit revision corrections, coverage, expiry boundaries and eligibility.
 Certified historical schedule resolution and bounded monthly generation now run
-in the preview; qualified futures-series generation and durable curve activation remain work.
+in the preview; qualified futures-series generation and durable native-curve
+activation remain work. D189 supplies separate custom effective-version timelines.
 Do not build a broad date scripting language or duplicate holiday/expiry catalogs.
 The separate daily/BALMO month-end selection remains open.
 
