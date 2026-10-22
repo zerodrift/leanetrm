@@ -26,7 +26,8 @@ static class PageReports
         ["reference_data"]=new("read_reference_data",["reference_data.table_v1"],"Reference data"),
         ["parties"]=new("read_trade_parties",["trade_parties.versions_v1"],"Entities & counterparties"),
         ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1"],"Blotter"),
-        ["blotter_risk"]=Unsupported(),["delivery_prices"]=Unsupported(),["custom_curves"]=Unsupported(),["interval_series"]=Unsupported(),
+        ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1"],"Custom curves"),
+        ["blotter_risk"]=Unsupported(),["delivery_prices"]=Unsupported(),["interval_series"]=Unsupported(),
         ["interval_curves"]=Unsupported(),["jobs"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported()
     }.ToImmutableDictionary(StringComparer.Ordinal);
 

@@ -494,7 +494,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
           and {t['code']: t['permissions'] for t in listing['tools']} == {
               'navigate': [], 'read_current_page': [], 'read_market_data': ['ReadMarketData'], 'read_reference_data': ['ReadMarketData'],
               'read_schedules': ['ReadMarketData'], 'read_trade_parties': ['ReadMarketData', 'ReadTradeParties'],
-              'read_trades': ['ReadMarketData', 'ReadTrades']})
+              'read_trades': ['ReadMarketData', 'ReadTrades'], 'read_custom_curves': ['ReadMarketData'], 'prepare_custom_curve': ['ReadMarketData']})
     check("the directory names every supported vendor and the runtime set's bounds on instructions and grants",
           listing['vendors'] == [{'code': 'anthropic', 'name': 'Anthropic'}, {'code': 'openai', 'name': 'OpenAI'}, {'code': 'google', 'name': 'Google'},
                                  {'code': 'xai', 'name': 'xAI'}, {'code': 'meta', 'name': 'Meta'}]

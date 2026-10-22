@@ -621,6 +621,16 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
   if(!selection)return showPage(next);
   // What a target names is checked before the page changes, so a target the page cannot show leaves it as it was.
   switch(report){
+    case 'custom_curves':{
+      if(!Object.keys(selection).length)return showPage('custom-curves');
+      const scope=()=>JSON.stringify([marketSelection(),historicalContext()?.contextId]);
+      const requested=scope(),editor=customCurves.guard();
+      const proposal=await api<Parameters<typeof customCurves.openPrepared>[0]>('assistant/curve-proposal',selection);
+      if(requested!==scope())throw Error('The account or financial context changed. Review the proposed curve again.');
+      await setPage('custom-curves');await customCurves.load();
+      if(requested!==scope())throw Error('The account or financial context changed. Review the proposed curve again.');
+      customCurves.openPrepared(proposal,editor);return;
+    }
     case 'curves':{
       const code=String(selection.curve);
       if(selection.view!=='curves'&&!directory().curves.some(c=>c.code===code))throw Error('That curve is not in this market data.');
@@ -683,7 +693,7 @@ function tableName(code:string){
 const assistant=setupAssistant({api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
   available:()=>!hostedPilot&&can('UseAgents'),pageBusy:()=>busy,act,place,names:()=>({curve:curveName,table:tableName}),
   trade:()=>futures.report().trade?.reference,unsaved,open:target=>showTarget(target.page,target.selection),
-  go:async target=>{await selectContext(target.context);await showTarget(target.page,target.selection);},restore:restorePlace});
+  go:async target=>{if(target.kind!=='proposal')await selectContext(target.context);await showTarget(target.page,target.selection);},restore:restorePlace});
 for(const id of ['trade-editor','swap-editor'])$(id).addEventListener('close',()=>assistant.sync());
 $('risk-close').addEventListener('click',()=>assistant.sync());
 let initialWorkspaceReady=false;

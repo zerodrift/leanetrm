@@ -11,6 +11,7 @@ public static partial class RecipeEngine
     public const string Version="custom_curve_recipe_v2";
     public const string SignedSum="signed_sum_v1";
     public const string WeightedMean="normalized_weighted_mean_v1";
+    public const string ExactDeliveryAlignment="exact_delivery_intervals_v1";
     private static MarketDataException Invalid(string message)=>new("recipe_definition",message);
     private static MarketDataException Missing(string message)=>new("recipe_input",message);
     private static readonly ImmutableDictionary<string,ImmutableDictionary<string,string>> Ports=new Dictionary<string,ImmutableDictionary<string,string>>
@@ -35,15 +36,15 @@ public static partial class RecipeEngine
         if(!nodes.TryGetValue(definition.Output??"",out var output)||output.Kind!="output")throw Invalid("Select an output node.");
         foreach(var node in definition.Nodes)
         {
-            var weighted=node.Kind=="weighted_contracts";
-            var ports=weighted?node.Inputs.Keys.ToImmutableDictionary(k=>k,_=>"source"):
+            var weighted=node.Kind=="weighted_contracts";var panels=node.Kind=="weighted_panels";
+            var ports=weighted||panels?node.Inputs.Keys.ToImmutableDictionary(k=>k,_=>panels?"panel":"source"):
                 Ports.GetValueOrDefault(node.Kind)??throw Invalid($"Node {node.Id} has an unsupported kind.");
-            if(!ports.Keys.ToHashSet().SetEquals(node.Inputs.Keys)||weighted&&(node.Inputs.Count is <1 or >32||node.Inputs.Keys.Any(p=>!Identity(p))))
+            if(!ports.Keys.ToHashSet().SetEquals(node.Inputs.Keys)||(weighted||panels)&&(node.Inputs.Count is <1 or >32||node.Inputs.Keys.Any(p=>!Identity(p))))
                 throw Invalid($"Node {node.Id} has unsupported input ports.");
             foreach(var (port,id) in node.Inputs)
             {
                 if(!nodes.TryGetValue(id,out var upstream))throw Invalid($"Node {node.Id} refers to a missing input.");
-                var type=upstream.Kind switch{"sample" or "mean" or "published_source"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
+                var type=upstream.Kind switch{"sample" or "mean" or "published_source" or "weighted_panels"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
                 if(type!=ports[port])throw Invalid($"Port {port} on {node.Id} requires {ports[port]}.");
             }
             switch(node.Kind)
@@ -61,6 +62,16 @@ public static partial class RecipeEngine
                     else if(node.Parameters["binding"]!="context")throw Invalid("Daily forwards use one context observation frame.");break;
                 case "dates":Required(node,"mode");break;
                 case "mean":if(Required(node,"axis") is not ("dates" or "contracts"))throw Invalid("Choose the averaging axis explicitly.");break;
+                case "weighted_panels":
+                    if(Required(node,"alignment")!=ExactDeliveryAlignment||Required(node,"aggregation") is not(SignedSum or WeightedMean)||
+                        node.PanelWeights.IsDefaultOrEmpty||node.PanelWeights.Any(w=>w is null||string.IsNullOrEmpty(w.SourcePort))||
+                        node.PanelWeights.Select(w=>w.SourcePort).Distinct().Count()!=node.PanelWeights.Length||
+                        !node.Inputs.Keys.ToHashSet().SetEquals(node.PanelWeights.Select(w=>w.SourcePort)))
+                        throw Invalid("Choose exact delivery alignment, an aggregation and one explicit weight for every curve input.");
+                    var panelWeights=node.PanelWeights.Select(w=>Weight(w.Weight)).ToArray();
+                    if(node.Parameters["aggregation"]==WeightedMean&&(panelWeights.Any(w=>w.CompareTo(default)<0)||panelWeights.Aggregate(default(ExactDecimal),(a,b)=>a+b).CompareTo(default)<=0))
+                        throw Invalid("A normalized weighted mean requires nonnegative weights with a positive sum.");
+                    break;
                 case "weighted_contracts":
                     if(Required(node,"aggregation") is not (SignedSum or WeightedMean)||node.ContractWeights.IsDefaultOrEmpty||node.ContractWeights.Length>1024||
                         node.ContractWeights.Any(w=>w is null||w.OutputPosition is <1 or >120||w.ContractId==Guid.Empty||!node.Inputs.ContainsKey(w.SourcePort))||
@@ -76,12 +87,13 @@ public static partial class RecipeEngine
                     break;
             }
             if(!weighted&&!node.ContractWeights.IsDefaultOrEmpty)throw Invalid("Contract weights belong only to the explicit weighted mapping operator.");
+            if(!panels&&!node.PanelWeights.IsDefaultOrEmpty)throw Invalid("Curve weights belong only to the computed-curve combination operator.");
             if(node.Kind!="published_source"&&node.PublishedSource is not null)throw Invalid("A published source binding belongs only to its published-source operator.");
             string[] parameters=node.Kind switch
             {
                 "source"=>["curve"],"select"=>node.Parameters["mode"]=="positions"?["mode","first","count","binding"]:["mode","binding"],
                 "dates"=>["mode","sampling","corrections","count","includeContext","calendar","schedule","first"],
-                "mean"=>["axis"],"weighted_contracts"=>["aggregation"],"published_source"=>["selection"],_=>[]
+                "mean"=>["axis"],"weighted_contracts"=>["aggregation"],"weighted_panels"=>["alignment","aggregation"],"published_source"=>["selection"],_=>[]
             };
             if(node.Parameters.Keys.Any(key=>!parameters.Contains(key,StringComparer.Ordinal)))throw Invalid($"Node {node.Id} contains an unsupported or conflicting parameter.");
         }
@@ -95,9 +107,9 @@ public static partial class RecipeEngine
     }
     private static ExactDecimal Weight(string text)
     {
-        if(string.IsNullOrWhiteSpace(text)||text.Trim()!=text)throw Invalid("Every contract weight must be explicit exact decimal text.");
+        if(string.IsNullOrWhiteSpace(text)||text.Trim()!=text)throw Invalid("Every weight must be explicit exact decimal text.");
         try{return ExactDecimal.Parse(text);}catch(Exception error)when(error is FormatException or OverflowException or ArgumentException)
-        {throw Invalid("Every contract weight must be explicit exact decimal text.");}
+        {throw Invalid("Every weight must be explicit exact decimal text.");}
     }
     private static string Required(RecipeNode node,string key)=>node.Parameters.TryGetValue(key,out var value)&&!string.IsNullOrWhiteSpace(value)?value:throw Invalid($"Node {node.Id} requires {key}.");
     private static int Number(RecipeNode node,string key,int min,int max)=>int.TryParse(Required(node,key),NumberStyles.None,CultureInfo.InvariantCulture,out var value)&&value>=min&&value<=max?value:throw Invalid($"Node {node.Id} requires {key} between {min} and {max}.");
@@ -189,6 +201,8 @@ public static partial class RecipeEngine
                             values[0].Unit,values.SelectMany(c=>c.Inputs).ToImmutableArray(),new(id,index,null,values.Select(c=>c.Formula).ToImmutableArray(),Enumerable.Repeat(ExactDecimal.Parse("1"),values.Length).ToImmutableArray(),WeightedMean),
                             values.Min(c=>c.DeliveryFrom),values.Max(c=>c.DeliveryTo));
                     }).ToImmutableArray());break;
+                case "weighted_panels":
+                    result=CombinePanels(node,node.Inputs.ToDictionary(p=>p.Key,p=>(Panel)Node(p.Value)),inputs.ContextDate,cancellation,ref work);break;
                 case "output":result=Node(node.Inputs["values"]);break;
                 default:throw Invalid("Unsupported node.");
             }

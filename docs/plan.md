@@ -25,8 +25,11 @@ workbench (D187). Explicit version/output FKs import the complete parent panel
 under the same resolved context, keeping graph edges and transitive native sample
 pins through booked PV and retained risk. Shared ancestors prepare once per
 operation; cycles, more than 32 published-source edges per path or more than 256
-exact versions reject. Separate historical resampling and arbitrary weighted
-alignment of published panels remain work.
+exact versions reject. D192 adds signed/normalized weighted combinations of these panels under explicit
+exact-delivery alignment. A guided composer builds the same graph as the advanced
+visual/formula editor. Agent catalog/preparation tools use shared backend reads and
+hand an unpriced proposal to the ordinary editor only on explicit Review.
+Historical resampling, interpolation and conversion remain work.
 
 The managed [connected calculation engine](connected-calculation.md) (D182–183, D186)
 adds compact dependency plans, nested sparse scenarios, bitemporal logical-to-exact

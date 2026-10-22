@@ -16,6 +16,7 @@ static class AgentToolChecks
 {
     public static void Run()
     {
+        CurvePreparation();
         TurnPins();
         Definitions();
         Inputs();
@@ -24,6 +25,22 @@ static class AgentToolChecks
         Results();
         Display();
         Navigation();
+    }
+    static void CurvePreparation()
+    {
+        var offered=AgentTools.Offered(["read_custom_curves","prepare_custom_curve"]);
+        Require(offered.Select(t=>t.Name).SequenceEqual(["read_custom_curves","prepare_custom_curve"]),"curve catalog and preparation are real offered tools");
+        Require(AgentTools.Parse("read_custom_curves",Json("{}" )).Operation.Id=="custom_curves.catalog_v1","curve catalog is a versioned read");
+        const string request="""{"code":"synthetic_blend","name":"Synthetic blend","engine":"custom_curve_recipe_v2","formula":"output = output(values=@input)"}""";
+        Require(AgentTools.Parse("prepare_custom_curve",Json(request)).Operation.Id=="custom_curves.prepare_v1","preparation retains explicit formula, identity and engine");
+        foreach(var invalid in new[]{request.Replace(",\"engine\":\"custom_curve_recipe_v2\"",""),request.Replace("custom_curve_recipe_v2","unknown"),request.Replace("\"code\":\"synthetic_blend\"","\"code\":null")})
+            Require(Code(()=>AgentTools.Parse("prepare_custom_curve",Json(invalid)))=="tool_arguments_invalid","missing or unsupported financial preparation choices refuse before reads");
+        var context=new ScheduleContext("2020-12-18",1,Cutoff.ToString("O"),Guid.NewGuid());
+        var frame=Working with{ContextId=context.ContextId};
+        CustomCurves.RequireFrameContext(frame,context);
+        Require(Code(()=>CustomCurves.RequireFrameContext(frame with{At=frame.At.AddDays(1)},context))=="custom_curve_definition",
+            "matching context identity cannot disguise a different effective frame date");
+        Console.WriteLine("PASS agent curves: catalog and explicit preparation tool contracts");
     }
 
     static readonly Guid Catalog=Guid.Parse("c1000000-0000-0000-0000-000000000001");
@@ -88,7 +105,7 @@ static class AgentToolChecks
             "a version's switched-on tools are offered in the fixed order, Navigate after the read tools, a version without tools offers none, "+
             "and Show card is not offered");
         var permissions=AgentTools.Tools.ToDictionary(t=>t.Name,t=>string.Join(",",t.Permissions));
-        Require(permissions.Count==7&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
+        Require(permissions.Count==9&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
             &&permissions["read_trades"]=="ReadMarketData,ReadTrades"&&permissions["read_trade_parties"]=="ReadMarketData,ReadTradeParties"
             &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData"&&permissions["navigate"]=="",
             "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools), and Navigate needs none of its own");
@@ -103,10 +120,10 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v4"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
-            &&RuntimeSet.ToolRead==TimeSpan.FromSeconds(5),"turns_v4 bounds tool results and keeps a workspace's turns below its agent pools");
+        Require(RuntimeSet.Turns=="turns_v5"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
+            &&RuntimeSet.ToolRead==TimeSpan.FromSeconds(5),"turns_v5 bounds tool results and keeps a workspace's turns below its agent pools");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v4 bounds results and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v5 bounds results and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
@@ -242,9 +259,9 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"blotter_risk","delivery_prices","custom_curves","interval_series","interval_curves","jobs","users_access","settings_ai"};
+        var unsupported=new[]{"blotter_risk","delivery_prices","interval_series","interval_curves","jobs","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
-                .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter"}.Order()),
+                .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves"}.Order()),
             "the closed set names one id per navigable view, with each coverage row the assistant reads and each it does not");
         foreach(var page in unsupported)
         {
@@ -265,7 +282,7 @@ static class AgentToolChecks
 
         // Read current page (§7.3): its own input is empty, then the stored report's page, then the version's tools.
         var working=Pin("current",Guid.NewGuid(),Working);
-        TurnReads Turn(string report,params string[] tools)=>new(working,new("agent",Guid.NewGuid()),Json(report),[..tools]);
+        TurnReads Turn(string report,params string[] tools)=>new(working,new("agent",Guid.NewGuid()),Json(report),[..tools],Guid.NewGuid());
         var curve="""{"page":"curves","selection":{"view":"curve","curve":"future"}}""";
         ModelToolRequest Current(string input="{}")=>new("toolu_synthetic_01","read_current_page",Json(input));
         var (call,dispatched)=AgentTools.Requested(Turn(curve,"read_current_page","read_market_data"),Current());
@@ -536,7 +553,7 @@ static class AgentToolChecks
             "numbered across the turn, each a page report its page reads, labeled with the page and what it shows");
 
         var names=new Dictionary<string,string>{["curves"]="Curves & prices",["contract_definitions"]="Contract definitions",["schedules"]="Schedules",
-            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter"};
+            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Custom curves"};
         Require(PageReports.Supported.Order().SequenceEqual(names.Keys.Order())
             &&names.All(n=>NavigationTargets.Page(n.Key) is {Kind:"page",Selection:null} target&&target.Page==n.Key&&target.Label==n.Value),
             "a page target names one of the seven pages the assistant reads with no selection, the page as it opens, labeled with the page's name");

@@ -274,3 +274,15 @@ python3 tools/run_preview.py --pg-bin /path/to/stock-postgres/bin \
 This allocates a disposable database and synthetic inputs. The shared
 `tools/check_all.py` workflow includes the risk suite. Verification results and
 remaining deployment limits are recorded in [verification](verification.md).
+
+
+Computed-curve combinations (D192) use the same connected plan in previews,
+booked PV, portfolio risk and retained jobs. Their explicit panel weights do not
+allocate PV exposure: base/up/down instrument PV determines sensitivities.
+A primitive quote shock follows all declared paths; a computed-parent output
+shock follows its weighted edges; a child-output offset changes that coordinate
+with upstream inputs held constant. These axes answer different questions and
+must not be summed as independent exposures. Synthetic integration checks book
+a two-parent combination and verify independent parent/root deltas, nested
+stresses, base isolation and exact retained-worker parity. Historical resampling,
+volatility/correlation and financial throughput qualification remain work.
