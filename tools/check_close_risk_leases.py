@@ -24,7 +24,13 @@ def check_work(work, cells, admission):
     assert work['rowEvaluations'] == cells*5*scenarios
     assert admission['declaredRows'] == cells*5 and admission['declaredRowScenarios'] == cells*5*scenarios
     assert work['resolvedCurveMonths']+work['reusedCurveMonths'] == 2*months*scenarios
-    assert work['rebuiltCurveNodes']+work['reusedCurveNodes'] == 3*months*scenarios
+    # PpaReads prepares the base before the risk loop. The connected cache
+    # supplies those base values without new evaluation or explicit-parent reuse.
+    # Each signed direct-factor shock evaluates one node and reuses the other
+    # factors from its parent. These counters exclude the earlier preparation.
+    factors = 3*months
+    assert work['rebuiltCurveNodes'] == 2*factors, work
+    assert work['reusedCurveNodes'] == 2*factors*(factors-1), work
 
 
 def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, environment):

@@ -138,3 +138,10 @@ complete within the interactive 20-second target.
 [Phase C](ppa-phase-c.md), [pricing](ppa-break-even.md) and
 [meter finality](meter-finality.md) document individual historical qualifications.
 The draft PR records the current integrated commit's gate and CI results.
+
+The durable recovery workload checks the risk loop's curve counters separately:
+for 360 direct factors and 721 scenarios it expects 720 rebuilt nodes and
+258,480 explicit-parent reuses. The preceding PPA preparation warms the base;
+its 360 cached base values cause neither a new evaluation nor an explicit-parent
+reuse in that loop. These fields do not measure complete preparation work or
+all cache hits. Complete worker elapsed time includes preparation.
