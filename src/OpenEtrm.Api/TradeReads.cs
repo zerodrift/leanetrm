@@ -29,18 +29,18 @@ public sealed class TradeReads
             await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
             return new{catalog,blotter=empty};
         }
-        return Read(connection,view,async data=>new{catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.Frame,ct),
-            blotter=await blotter.Read(connection,data,view.Frame,report,ct)},ct,directory?EmptyDirectory:null,
+        return Read(connection,view,async data=>new{catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ct),
+            blotter=await blotter.Read(connection,data,view.CalculationFrame,report,ct)},ct,directory?EmptyDirectory:null,
             referenceScope:directory?ReferenceReadScope.DefinitionClosure:ReferenceReadScope.TradeValuation,
             observationScope:directory?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
     }
     public Task<object> Blotter(NpgsqlConnection connection,TradingView view,FuturesBlotterView report,CancellationToken ct)=>
-        Read(connection,view,data=>blotter.Read(connection,data,view.Frame,report,ct),ct);
+        Read(connection,view,data=>blotter.Read(connection,data,view.CalculationFrame,report,ct),ct);
     // A trade's selected revision, or its latest under the view, with every revision the view knows.
     public Task<object> FuturesTrade(NpgsqlConnection connection,TradingView view,Guid tradeId,int? revision,CancellationToken ct)=>
-        Read(connection,view,data=>futures.Editor(connection,data,view.Frame,tradeId,revision,ct),ct);
+        Read(connection,view,data=>futures.Editor(connection,data,view.CalculationFrame,tradeId,revision,ct),ct);
     public Task<object> SwapTrade(NpgsqlConnection connection,TradingView view,Guid tradeId,int? revision,CancellationToken ct)=>
-        Read(connection,view,data=>swaps.Editor(connection,data,view.Frame,tradeId,revision,ct),ct);
+        Read(connection,view,data=>swaps.Editor(connection,data,view.CalculationFrame,tradeId,revision,ct),ct);
 
     // The one trading read path: a read of the view's frame under its cutoff and trading context. A
     // read that can answer without the frame's market data goes first, and falls back with null.

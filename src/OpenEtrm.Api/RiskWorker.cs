@@ -223,7 +223,8 @@ public static class RiskWorker
             foreach(var market in supplemental.OrderBy(p=>p.Key))
                 markets.Add((await database.Read(connection,ct,market.Key,observationIds:market.Value.ObservationIds,
                     referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),market.Value));
-            var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,genericRequest!,ct,markets.ToImmutable());
+            var connected=job["frame"]!["connectedMarkets"]?.Deserialize<ImmutableArray<ConnectedMarketEvidence>>(RiskJobs.Json)??[];
+            var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,genericRequest!,ct,markets.ToImmutable(),connected);
             loaded=new(token=>PortfolioRiskPreview.Calculate(prepared,token),context,frame.At);
         }
         else

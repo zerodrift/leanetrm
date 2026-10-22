@@ -17,7 +17,10 @@ public sealed record CurvePointReference(ConnectedCurveReference Curve,Guid Poin
 
 public abstract record ConnectedCurveExpression;
 public sealed record ConnectedSource(CurveRequest Request,InputKey Input,MarketObservation Observation,
-    QuoteSpecification Quote,MarketSeries Series) : ConnectedCurveExpression;
+    QuoteSpecification Quote,MarketSeries Series) : ConnectedCurveExpression
+{
+    public ConnectedSourceSample? Sample{get;init;}
+}
 public sealed record ConnectedWeightedTerm(CurvePointReference Point,ExactDecimal? Weight);
 public sealed record ConnectedWeightedSum(ImmutableArray<ConnectedWeightedTerm> Terms) : ConnectedCurveExpression;
 public sealed record ConnectedWeightedMean(ImmutableArray<ConnectedWeightedTerm> Terms) : ConnectedCurveExpression;
@@ -121,6 +124,31 @@ public static class ConnectedCurves
             {
                 case ConnectedSource source:
                     ValidateSource(point,source,context);operation=new(source,[],[],one);break;
+                case ConnectedBuiltCurve built:
+                    ValidateSample(built.Sample,context);
+                    if(built.NumericalPolicy!=CurveModel.NumericalPolicy||built.Rule is not (CurveRule.Add or CurveRule.ScaleAdd)||
+                        built.Quote is null||built.Rule==CurveRule.Add&&(built.Multiplier is not null||built.MultiplierInput is not null)||
+                        built.Rule==CurveRule.ScaleAdd&&built.Multiplier is null||point.Unit!=PriceUnit.FromQuote(built.Quote))
+                        throw Invalid("A source calculation must retain its typed rule, quote and working numerical policy.");
+                    if(built.MultiplierInput is {} numeric)
+                    {
+                        if(built.Multiplier is null||numeric.Series is null||numeric.Observation is null||numeric.Input.Use!=InputUse.Variable||
+                            numeric.Input.Series!=numeric.Series.Key||numeric.Observation.Series!=numeric.Series.Key||numeric.Series.Quote is not null||
+                            numeric.Series.ValueSpecification!=built.Multiplier.Specification.Key||numeric.Observation.Role!=ObservationRole.Parameter||
+                            numeric.Observation.State!=PublicationState.Final||numeric.Observation.Value!=built.Multiplier.Value||
+                            numeric.Observation.ObservedAt.Offset!=TimeSpan.Zero||numeric.Observation.ObservedAt>built.Sample.MarketCutoff||
+                            numeric.Observation.Key.CatalogId!=numeric.Series.Key.Revision.CatalogId||numeric.Observation.Key.Id==Guid.Empty||
+                            numeric.Observation.Source.Revision!=built.Multiplier.Specification.Key.Revision)
+                            throw Invalid("A source multiplier requires its exact numeric series, final observation and specification.");
+                        Money.RequireKey(numeric.Observation.Source);
+                    }
+                    operation=new(null,[ResolvePoint(built.Base),ResolvePoint(built.Spread)],[one,one],one,built);break;
+                case ConnectedRecipeProjection projection:
+                    if(projection.Declaration is null)throw Invalid("A saved-recipe output requires its retained declaration.");
+                    projection.Declaration.Validate(context);
+                    if(point.Key.Curve!=projection.Declaration.Curve)
+                        throw Invalid("A saved-recipe output must retain its exact adapter identity.");
+                    operation=new(null,[ResolvePoint(projection.Value)],[one],one);break;
                 case ConnectedWeightedSum sum:operation=Weighted(sum.Terms,false);break;
                 case ConnectedWeightedMean mean:operation=Weighted(mean.Terms,true);break;
                 case ConnectedMean mean:
@@ -193,7 +221,10 @@ public static class ConnectedCurves
             foreach(var dependency in operation.Dependencies)
             {
                 if(!directory.TryGetValue(dependency,out var input))throw Missing("A required exact curve point is absent.");
-                if(input.Unit!=point.Unit)throw new MarketDataException("unit_mismatch","Connected curve operators require identical explicit price units.");
+                var expected=input.Unit;
+                if(operation.Built is {} built&&dependency==operation.Dependencies[0]&&built.Multiplier is {} multiplier)
+                    expected=new UnitPrice(default,input.Unit).Times(multiplier).Unit;
+                if(expected!=point.Unit)throw new MarketDataException("unit_mismatch","Connected curve operators require their exact declared price units.");
                 pending.Enqueue(dependency);
             }
         }
@@ -247,13 +278,66 @@ public static class ConnectedCurves
             }
             indexes.Add(point.Key,nodeOperations.Count);nodeOperations.Add(operation);
         }
-        var nodes=nodeOperations.Select(op=>new ConnectedNode(op.Source,op.Dependencies.Select(p=>indexes[p]).ToImmutableArray(),op.Weights,op.Divisor)).ToImmutableArray();
+        var numericSpecifications=new Dictionary<ReferenceKey,ValueSpecification>();
+        var currentNumericSelections=new Dictionary<InputKey,ObservationKey>();
+        var recipeDeclarations=new Dictionary<ConnectedRecipeIdentity,string>();
+        var recipeCalendars=new Dictionary<ReferenceKey,DateSet>();
+        var recipeSchedules=new Dictionary<(Guid,Guid,int),string>();
+        foreach(var point in points)
+        {
+            if(point.Expression is ConnectedBuiltCurve built)
+            {
+                if(quoteEvidence.TryGetValue(built.Quote.Key,out var quote)&&quote!=built.Quote)
+                    throw Invalid("One exact quote cannot carry conflicting source or computed domains.");
+                quoteEvidence[built.Quote.Key]=built.Quote;
+                if(built.Multiplier is {} multiplier)
+                {
+                    if(numericSpecifications.TryGetValue(multiplier.Specification.Key,out var prior)&&prior!=multiplier.Specification)
+                        throw Invalid("One exact multiplier specification cannot carry conflicting metadata.");
+                    numericSpecifications[multiplier.Specification.Key]=multiplier.Specification;
+                }
+                if(built.MultiplierInput is {} numeric)
+                {
+                    if(seriesEvidence.TryGetValue(numeric.Series.Key,out var priorSeries)&&priorSeries!=numeric.Series||
+                        observationEvidence.TryGetValue(numeric.Observation.Key,out var priorObservation)&&priorObservation!=numeric.Observation)
+                        throw Invalid("One exact numeric input cannot carry conflicting series or observation evidence.");
+                    seriesEvidence[numeric.Series.Key]=numeric.Series;observationEvidence[numeric.Observation.Key]=numeric.Observation;
+                    if(!built.Sample.FreezeHistorical)
+                    {
+                        if(currentNumericSelections.TryGetValue(numeric.Input,out var selected)&&selected!=numeric.Observation.Key)
+                            throw Invalid("A current numeric input has conflicting selected observations in this context.");
+                        currentNumericSelections[numeric.Input]=numeric.Observation.Key;
+                    }
+                }
+            }
+            if(point.Expression is ConnectedRecipeProjection projection)
+            {
+                var declaration=projection.Declaration;
+                if(recipeDeclarations.TryGetValue(declaration.Identity,out var prior)&&prior!=declaration.ManifestId)
+                    throw Invalid("One exact saved recipe version cannot carry conflicting declarations.");
+                recipeDeclarations[declaration.Identity]=declaration.ManifestId;
+                foreach(var calendar in declaration.References.Calendars.Concat(declaration.References.Schedules.Where(s=>s.Calendar is not null).Select(s=>s.Calendar!)))
+                {
+                    if(recipeCalendars.TryGetValue(calendar.Reference,out var dates)&&!dates.Equals(calendar.BusinessDates))
+                        throw Invalid("One exact calendar version cannot carry conflicting complete business-day coverage.");
+                    recipeCalendars[calendar.Reference]=calendar.BusinessDates;
+                }
+                foreach(var schedule in declaration.References.Schedules)
+                {
+                    var identity=(schedule.CatalogId,schedule.ScheduleId,schedule.Version);var evidence=ConnectedRecipeDeclaration.ScheduleEvidence(schedule);
+                    if(recipeSchedules.TryGetValue(identity,out var priorSchedule)&&priorSchedule!=evidence)
+                        throw Invalid("One exact schedule version cannot carry conflicting publication, calendar or occurrence evidence.");
+                    recipeSchedules[identity]=evidence;
+                }
+            }
+        }
+        var nodes=nodeOperations.Select(op=>new ConnectedNode(op.Source,op.Dependencies.Select(p=>indexes[p]).ToImmutableArray(),op.Weights,op.Divisor,op.Built)).ToImmutableArray();
         var edges=nodes.SelectMany((node,index)=>node.Dependencies.Distinct().Select(dependency=>new DependencyEdge(index,dependency)));
         var plan=DependencyPlan.Compile(nodes.Length,edges,cancellation);
         return new(context,points.ToImmutableDictionary(p=>p.Key),indexes.ToImmutableDictionary(),primitives.ToImmutable(),nodes,plan,roots);
     }
 
-    private sealed record Operation(ConnectedSource? Source,ImmutableArray<CurvePointKey> Dependencies,ImmutableArray<ExactDecimal> Weights,ExactDecimal Divisor);
+    private sealed record Operation(ConnectedSource? Source,ImmutableArray<CurvePointKey> Dependencies,ImmutableArray<ExactDecimal> Weights,ExactDecimal Divisor,ConnectedBuiltCurve? Built=null);
     private static bool Valid(CurveKey curve)=>curve.Revision.CatalogId!=Guid.Empty&&curve.Revision.RevisionId!=Guid.Empty&&!string.IsNullOrWhiteSpace(curve.Code)&&curve.Code.Trim()==curve.Code;
     private static void RequireMean(string convention)
     {if(convention!=UniformMean)throw Invalid("Select the explicit uniform arithmetic mean convention.");}
@@ -275,13 +359,50 @@ public static class ConnectedCurves
             throw Invalid("The source requires coherent exact quote references and positive trading and clearing increments.");
         if(source.Input.Use==InputUse.Variable&&(observation.Role is not (ObservationRole.TraderMark or ObservationRole.DailySettlement)||contract.Expiry<=context.ValuationAt))
             throw Invalid("Only live selected market quotes may be variable inputs; fixings and expired contract facts stay frozen.");
+        if(source.Sample is {} sample)
+        {
+            ValidateSample(sample,context);
+            if(source.Input.Use!=(sample.FreezeHistorical?InputUse.FrozenFact:sample.OriginalUse)||observation.ObservedAt>sample.MarketCutoff||
+                sample.OriginalUse==InputUse.Variable&&contract.Expiry<=sample.ValuationAt)
+                throw Invalid("A sampled source must preserve its original selected use and explicit historical freezing.");
+        }
         var value=new UnitPrice(observation.Value,source.Quote);
         if(value.Unit!=point.Unit)throw new MarketDataException("unit_mismatch","The source price must retain its exact selected quote unit.");
+    }
+    private static void ValidateSample(ConnectedSourceSample sample,ResolvedCalculationContext context)
+    {
+        if(sample is null||sample.SnapshotId==Guid.Empty||!TemporalCurveBindings.IsInstant(sample.ValuationAt)||
+            !TemporalCurveBindings.IsInstant(sample.MarketCutoff)||sample.MarketCutoff>sample.ValuationAt||sample.MarketCutoff>context.MarketAsOf||
+            sample.ValuationAt>context.ValuationAt||sample.SelectionPolicy!=InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering||
+            !Enum.IsDefined(sample.OriginalUse)||sample.FreezeHistorical!=(sample.ValuationAt<context.ValuationAt)||
+            !sample.FreezeHistorical&&sample.MarketCutoff!=context.MarketAsOf)
+            throw Invalid("A source sample requires exact snapshot and UTC coordinates, selection policy and historical-freeze semantics.");
+    }
+
+    public static ImmutableArray<ConnectedCurveDefinition> MergeDefinitions(IEnumerable<ConnectedCurveDefinition> definitions)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+        var points=new Dictionary<CurvePointKey,ConnectedCurvePoint>();
+        foreach(var definition in definitions)
+        {
+            if(definition is null||!Valid(definition.Key)||definition.Points.IsDefaultOrEmpty)
+                throw Invalid("Merge complete exact curve definitions with explicit points.");
+            foreach(var point in definition.Points)
+            {
+                if(point is null||point.Key.Curve!=definition.Key||point.Key.PointId==Guid.Empty)
+                    throw Invalid("Merged points must belong to their exact curve definition.");
+                if(points.TryGetValue(point.Key,out var prior)&&ConnectedIdentity.Digest(prior)!=ConnectedIdentity.Digest(point))
+                    throw Invalid("A shared exact connected point has conflicting declarations.");
+                points[point.Key]=point;
+            }
+        }
+        return points.Values.GroupBy(p=>p.Key.Curve).OrderBy(g=>g.Key.Revision.CatalogId).ThenBy(g=>g.Key.Revision.RevisionId)
+            .ThenBy(g=>g.Key.Code,StringComparer.Ordinal).Select(g=>new ConnectedCurveDefinition(g.Key,g.OrderBy(p=>p.Key.PointId).ToImmutableArray())).ToImmutableArray();
     }
 }
 
 public sealed record ConnectedPrimitive(int Node,ConnectedSource Source,PriceUnit Unit);
-internal sealed record ConnectedNode(ConnectedSource? Source,ImmutableArray<int> Dependencies,ImmutableArray<ExactDecimal> Weights,ExactDecimal Divisor);
+internal sealed record ConnectedNode(ConnectedSource? Source,ImmutableArray<int> Dependencies,ImmutableArray<ExactDecimal> Weights,ExactDecimal Divisor,ConnectedBuiltCurve? Built);
 
 public sealed class ConnectedCurvePlan
 {
@@ -301,7 +422,7 @@ public sealed class ConnectedCurvePlan
         // Canonical resolved evidence, including exact scalar text. Dictionary
         // iteration order and display rounding cannot change a plan's identity.
         object Unit(PriceUnit unit)=>new{unit.Currency,unit.Quantity,Multiplier=unit.Multiplier.ToString()};
-        object Source(ConnectedSource source)=>new{source.Request,source.Input,SeriesDefinition=source.Series,source.Observation.Key,source.Observation.Series,
+        object Source(ConnectedSource source)=>new{source.Request,source.Input,source.Sample,SeriesDefinition=source.Series,source.Observation.Key,source.Observation.Series,
             source.Observation.Source,source.Observation.Role,source.Observation.State,source.Observation.ObservedAt,
             Value=source.Observation.Value.ToString(),Quote=new{source.Quote.Key,source.Quote.Kind,source.Quote.Currency,source.Quote.Quantity,
                 Multiplier=source.Quote.Multiplier.ToString(),TradingTick=source.Quote.TradingTick.ToString(),ClearingIncrement=source.Quote.ClearingIncrement.ToString(),
@@ -317,6 +438,9 @@ public sealed class ConnectedCurvePlan
         object Expression(ConnectedCurveExpression expression)=>expression switch
         {
             ConnectedSource source=>Source(source),
+            ConnectedBuiltCurve built=>ConnectedIdentity.Evidence(built),
+            ConnectedRecipeProjection projection=>new{Value=PointReference(projection.Value),projection.Declaration.ManifestId,projection.Declaration.Identity,
+                Declaration=projection.Declaration.Canonical},
             ConnectedWeightedSum sum=>new{Terms=Terms(sum.Terms)},
             ConnectedWeightedMean mean=>new{Terms=Terms(mean.Terms)},
             ConnectedMean mean=>new{Points=mean.Points.Select(PointReference).ToArray(),mean.Convention},
@@ -335,16 +459,28 @@ public sealed class ConnectedCurvePlan
     }
     public ConnectedCurvePoint GetPoint(CurvePointKey point)=>Points.TryGetValue(point,out var value)?value:throw new MarketDataException("connected_curve_point","The point does not belong to this compiled graph.");
     public int IndexOf(CurvePointKey point)=>indexes.TryGetValue(point,out var index)?index:throw new MarketDataException("connected_curve_point","The point does not belong to this compiled graph.");
-    public GraphSession<ExactUnitPrice> CreateSession()=>new(DependencyPlan,EvaluateNode,(a,b)=>a.Add(b));
+    public GraphSession<ExactUnitPrice> CreateSession()=>new(DependencyPlan,EvaluateNode,(a,b)=>a.Add(b),ValidateNode);
     public ExactUnitPrice Evaluate(CurvePointKey point,CancellationToken cancellation=default)
         =>CreateSession().Get(IndexOf(point),cancellation);
     private ExactUnitPrice EvaluateNode(int node,GraphInputs<ExactUnitPrice> inputs,CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();var operation=nodes[node];
         if(operation.Source is {} source)return ExactUnitPrice.FromPrice(new(source.Observation.Value,source.Quote));
+        if(operation.Built is {} built)
+        {
+            var value=inputs.Get(operation.Dependencies[0]).ToUnitPriceExact();
+            if(built.Multiplier is {} multiplier)value=value.Times(multiplier);
+            value=value.Add(inputs.Get(operation.Dependencies[1]).ToUnitPriceExact());
+            return ExactUnitPrice.FromPrice(value);
+        }
         var sum=inputs.Get(operation.Dependencies[0]).Scale(operation.Weights[0]);
         for(var i=1;i<operation.Dependencies.Length;i++)
         {cancellation.ThrowIfCancellationRequested();sum=sum.Add(inputs.Get(operation.Dependencies[i]).Scale(operation.Weights[i]));}
         return sum.Divide(operation.Divisor);
+    }
+    private void ValidateNode(int node,ExactUnitPrice value)
+    {
+        var operation=nodes[node];var quote=operation.Source?.Quote??operation.Built?.Quote;
+        if(quote is not null)value.ToUnitPriceExact().RequireQuote(quote);
     }
 }

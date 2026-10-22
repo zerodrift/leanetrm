@@ -13,7 +13,7 @@ namespace OpenEtrm.Api;
 public delegate Task<IResult> CustomCurveOperation(HttpContext context,string permission,Guid? snapshotId,
     Func<NpgsqlConnection,PinnedContext,CancellationToken,Task<IResult>> work);
 
-public static class CustomCurves
+public static partial class CustomCurves
 {
     static MarketDataException Invalid(string message)=>new("custom_curve_definition",message);
     public static void MapCustomCurves(this RouteGroupBuilder api,PreviewDatabase database,CustomCurveOperation operation)
@@ -148,15 +148,20 @@ public static class CustomCurves
         ScheduleContext? context,CancellationToken ct)
     {
         var inputs=await Inputs(connection,database,definition,data,frame,sources,calendars,schedules,context,ct);
-        return await RecipeEngine.EvaluateAsync(definition,inputs,(code,values,cancel)=>RegisteredCurveSql.Execute(connection,code,values,cancel),ct);
+        return await RecipeEngine.EvaluateAsync(definition,inputs.Values,(code,values,cancel)=>RegisteredCurveSql.Execute(connection,code,values,cancel),ct);
     }
-    static async Task<RecipeInputs> Inputs(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
+    private sealed record RecipeMaterialization(RecipeInputs Values,ImmutableArray<ConnectedRecipeSample> Samples,ConnectedRecipeReferencePins References);
+    static async Task<RecipeMaterialization> Inputs(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
         PreviewData data,InputFrame frame,ImmutableDictionary<string,CurveSourceReference> sourceReferences,
         ImmutableDictionary<string,CalendarReference> calendarReferences,ImmutableDictionary<string,CurveScheduleReference> scheduleReferences,
         ScheduleContext? context,CancellationToken ct)
     {
         var day=DateOnly.FromDateTime(frame.At.UtcDateTime);
         var dates=ImmutableDictionary.CreateBuilder<string,ImmutableArray<DateOnly>>();
+        var calendarPins=ImmutableArray.CreateBuilder<ConnectedRecipeCalendarPin>();
+        var schedulePins=ImmutableArray.CreateBuilder<ConnectedRecipeSchedulePin>();
+        ConnectedRecipeCalendarPin CalendarPin(string node,ReferenceCalendar calendar)=>new(node,
+            new(new(calendar.Reference.CatalogId,calendar.Reference.RevisionId),calendar.Reference.Code),DateWorkspace.Calendar(calendar));
         var scheduleStore=new ScheduleStore(database.Manifest.CatalogId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId);
         foreach(var node in definition.Nodes.Where(n=>n.Kind=="dates"))
         {
@@ -178,13 +183,8 @@ public static class CustomCurves
                         if(!calendarReferences.TryGetValue(node.Id,out var reference))throw Invalid("Choose the exact publication calendar.");
                         var calendar=await scheduleStore.Calendar(connection,reference,ct);
                         var sequence=DateWorkspace.Calendar(calendar);
-                        var selected=ImmutableArray.CreateBuilder<DateOnly>();
-                        for(var candidate=last;selected.Count<count;candidate=candidate.AddDays(-1))
-                        {
-                            if(candidate<calendar.CoverageFrom||candidate>=calendar.CoverageTo)throw Invalid("The complete date window falls outside the retained calendar coverage.");
-                            if(sequence.Contains(candidate))selected.Add(candidate);
-                        }
-                        dates[node.Id]=[..selected.ToImmutable().Reverse()];
+                        calendarPins.Add(CalendarPin(node.Id,calendar));
+                        dates[node.Id]=RecipeEngine.PriorBusinessDates(sequence,day,count,bool.Parse(node.Parameters["includeContext"]));
                     }
                     break;
                 case "schedule":
@@ -194,9 +194,14 @@ public static class CustomCurves
                     if(context is not null&&retained.PublicationOrder>context.KnownThrough)throw Invalid("The exact schedule was not published by this knowledge cutoff.");
                     var compiled=PublishedSchedules.Compile(retained.Definition,retained.EngineVersion,retained.ResolvedCalendar);
                     var first=int.Parse(node.Parameters["first"],CultureInfo.InvariantCulture);var length=int.Parse(node.Parameters["count"],CultureInfo.InvariantCulture);
-                    var origin=retained.Selection switch{"absolute_index"=>0,"context_month"=>compiled.Dates.FindIndex(d=>d.Month.Year==day.Year&&d.Month.Month==day.Month),_=>-1};
-                    if(origin<0||origin+first+length>compiled.Dates.Count)throw Invalid("The selected occurrence range is outside the exact published schedule.");
-                    dates[node.Id]=[..compiled.Dates.Skip(origin+first).Take(length).Select(d=>d.Date)];
+                    dates[node.Id]=RecipeEngine.ScheduleDates([..compiled.Dates],retained.Selection,day,first,length,out var origin);
+                    if(context is not null)
+                    {
+                        if(retained.Temporal is null||retained.PublicationOrder is null)throw Invalid("A connected schedule requires its exact retained publication coordinates.");
+                        schedulePins.Add(new(node.Id,schedule.CatalogId,schedule.Id,schedule.Version,retained.EngineVersion,
+                            retained.Temporal.KnownFrom,retained.PublicationOrder.Value,retained.Selection,origin,first,length,
+                            [..compiled.Dates],retained.ResolvedCalendar is {} calendar?CalendarPin(node.Id,calendar):null));
+                    }
                     break;
                 default:throw Invalid("Choose a supported explicit date sequence.");
             }
@@ -226,6 +231,7 @@ public static class CustomCurves
             frames.Add(sampleDay,new(Guid.NewGuid(),"Exact historical sampling inputs",at,[],frame.CurveContracts,frame.ContextId));
         }
         var sources=ImmutableDictionary.CreateBuilder<string,RecipeSource>();
+        var connected=ImmutableArray.CreateBuilder<ConnectedRecipeSample>();
         foreach(var sourceNode in definition.Nodes.Where(n=>n.Kind=="source"))
         {
             ct.ThrowIfCancellationRequested();
@@ -262,10 +268,12 @@ public static class CustomCurves
                 var sampleFrame=frames[sampleDay];
                 var requests=requiredContracts.Select(key=>new CurveRequest(new(data.DefinitionRevision,reference.Code),key)).ToImmutableArray();
                 var snapshot=SourceSnapshot(data,sampleFrame,requests,sampleDay==day,ct);
+                if(sampleDay!=day)snapshot=snapshot with {Id=StableSampleId(snapshot)};
                 var build=data.Model.Build(snapshot,requests);
                 var factors=data.Model.QuoteFactors(snapshot);
                 foreach(var value in build.Values)
                 {
+                    connected.Add(new(value.Request.Curve,sampleDay,value.Request.Contract,build,sampleDay!=day));
                     var lineage=value.Lineage.ToHashSet();
                     var liveFactors=sampleFrame.At==frame.At?factors.Where(f=>lineage.Contains(f.Observation)).ToImmutableArray():[];
                     samples.Add(new(DateOnly.FromDateTime(sampleFrame.At.UtcDateTime),sampleFrame.At,value.Request.Contract,value.Price,
@@ -274,7 +282,7 @@ public static class CustomCurves
             }
             sources.Add(sourceNode.Id,new(new(data.DefinitionRevision,reference.Code),PriceUnit.FromQuote(quote),contracts,samples.ToImmutable()));
         }
-        return new(day,frame.At,sources.ToImmutable(),dates.ToImmutable());
+        return new(new(day,frame.At,sources.ToImmutable(),dates.ToImmutable()),connected.ToImmutable(),new(calendarPins.ToImmutable(),schedulePins.ToImmutable()));
     }
     private sealed record SourceLeaf(SeriesKey Series,ReferenceKey Source,ObservationRole Role,InputUse Use,DateTimeOffset? FinalFrom);
     // Select the exact leaves of requested members, rather than every maturity

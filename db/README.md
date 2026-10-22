@@ -877,12 +877,40 @@ Frozen input uses are explicit retained pins. A dedicated `openetrm_risk_worker`
 role can read only the required financial tables under forced RLS; it cannot
 issue runtime capabilities, book trades or launch containers.
 
+[0074_portfolio_risk_jobs.sql](migrations/0074_portfolio_risk_jobs.sql) extends the
+same queue to the shared instrument portfolio contract. Exact supplemental swap
+revisions, observations, frozen uses and curve members are retained separately;
+existing futures request conventions and engine fingerprints remain valid.
+
+[0076_custom_curve_projections.sql](migrations/0076_custom_curve_projections.sql)
+adds an immutable published custom-output binding to the existing monthly indexed
+floating side. The relationship pins the curve version, output node and position,
+selection and implementation. Existing indexed save callers retain their original
+signature and null-binding command identity. Custom and ordinary projections have
+different economic keys; actual-fixing qualification and payment rules remain.
+The dedicated worker receives only the additional custom-graph/schedule SELECT
+policies and pure visibility helpers, with its independent live service check.
+
+[0077_connected_risk_inputs.sql](migrations/0077_connected_risk_inputs.sql) retains
+graph manifests and exact recipe/source-member/sample-observation relationships.
+Historical samples stay separate from the primary snapshot's input selections;
+each sample keeps its snapshot, instant, use and explicit historical freezing.
+Admission checks the selected certified knowledge context. Current authority also
+covers retained recipe calendars and schedules, and workers verify reconstructed
+manifests before pricing. These tables support the saved managed recipe consumer,
+not logical curve activation by name or distributed graph execution.
+
 The consumer and installation prerequisites are documented in
 [risk scenarios and jobs](../docs/risk-engine.md). Existing automation migrations
 0035/0036 and generated-close reports remain separate consumers. Apply ordered
 migrations only through the reviewed installation process; the worker stack never
 migrates an existing database. The disposable check is
 `python3 tools/check_risk_jobs_db.py --pg-bin /path/to/postgresql/bin`.
+The saved-projection integration gate is
+`python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet --check --connected-portfolio-check`.
+It invokes the custom projection and connected risk SQL checks in its owned
+database. Migrations 0076–0077 require a separately reviewed schema baseline;
+neither an application image update nor a worker rollout applies them implicitly.
 
 ## Page-assistant usage
 

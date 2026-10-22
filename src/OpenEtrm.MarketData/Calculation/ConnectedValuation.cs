@@ -1,11 +1,14 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
+using OpenEtrm.MarketData.CustomCurves;
+using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.MarketData.Calculation;
 
-// Managed prototype boundary for an already-authorized, pinned instrument.
-// Persisted custom-index booking and hosted portfolio jobs require an adapter
-// that materializes these same exact bindings; this is not an admission API.
+// The caller supplies an already-authorized, pinned graph and lifecycle snapshot.
+// Historical graph samples retain their own exact observation evidence in the
+// plan; the current snapshot remains the instrument's fixing/lifecycle authority.
 public sealed class ConnectedValuation
 {
     public ConnectedScenario Scenario{get;}
@@ -15,6 +18,8 @@ public sealed class ConnectedValuation
 
     // Validate the shared source closure once, outside the per-instrument loop.
     public static ConnectedValuation Prepare(ConnectedScenario scenario,MarketSnapshot snapshot,CancellationToken cancellation=default)
+        =>Prepare(scenario,snapshot,[],cancellation);
+    public static ConnectedValuation Prepare(ConnectedScenario scenario,MarketSnapshot snapshot,ImmutableArray<MarketSnapshot> sourceSnapshots,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
         if(scenario is null||snapshot is null||snapshot.Id==Guid.Empty||snapshot.Definitions.CatalogId==Guid.Empty||
@@ -22,12 +27,58 @@ public sealed class ConnectedValuation
             !snapshot.HasCoherentSelections()||snapshot.SelectionPolicy!=InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering||
             snapshot.ValuationAt!=scenario.Plan.Context.ValuationAt||snapshot.MarketCutoff!=scenario.Plan.Context.MarketAsOf)
             throw new MarketDataException("instrument_context","Supply one pinned graph scenario, compatible snapshot and exact instrument pricing bindings.");
-        var selected=snapshot.Selections.ToDictionary(s=>s.Input);
-        foreach(var primitive in scenario.Plan.Primitives)
+        if(sourceSnapshots.IsDefault)throw new MarketDataException("instrument_context","Supply the exact admitted source snapshot list, including an explicit empty list when unused.");
+        var admitted=new Dictionary<(Guid,DefinitionRevision),(MarketSnapshot Metadata,Dictionary<InputKey,MarketObservation> Inputs)>();
+        var selectedInputs=new HashSet<(InputKey,MarketObservation)>();
+        var currentInputs=snapshot.Selections.ToDictionary(selected=>selected.Input,selected=>selected.Observation);
+        var observed=new Dictionary<ObservationKey,MarketObservation>();
+        var visited=new HashSet<MarketSnapshot>(ReferenceEqualityComparer.Instance);
+        foreach(var retained in sourceSnapshots.Prepend(snapshot))
         {
-            cancellation.ThrowIfCancellationRequested();var source=primitive.Source;
-            if(!selected.TryGetValue(source.Input,out var retained)||retained.Observation!=source.Observation)
-                throw new MarketDataException("instrument_context","The instrument snapshot must retain the graph's exact source observations and use roles.");
+            cancellation.ThrowIfCancellationRequested();
+            if(retained is not null&&!visited.Add(retained))continue;
+            if(retained is null||retained.Id==Guid.Empty||retained.Definitions.CatalogId==Guid.Empty||retained.Definitions.RevisionId==Guid.Empty||
+                !retained.HasCoherentSelections()||!TradingInstant.IsSupported(retained.ValuationAt)||!TradingInstant.IsSupported(retained.MarketCutoff)||
+                retained.SelectionPolicy!=snapshot.SelectionPolicy||retained.MarketCutoff>retained.ValuationAt||retained.ValuationAt>snapshot.ValuationAt||retained.MarketCutoff>snapshot.MarketCutoff)
+                throw new MarketDataException("instrument_context","Every admitted source snapshot requires coherent exact inputs and dates within the retained calculation context.");
+            var key=(retained.Id,retained.Definitions);
+            if(admitted.TryGetValue(key,out var existing))
+            {
+                if(existing.Metadata.ValuationAt!=retained.ValuationAt||existing.Metadata.MarketCutoff!=retained.MarketCutoff||existing.Metadata.SelectionPolicy!=retained.SelectionPolicy)
+                    throw new MarketDataException("instrument_context","Partial selections of one exact frame must retain identical temporal coordinates.");
+            }
+            else admitted.Add(key,existing=(retained,new()));
+            foreach(var selected in retained.Selections)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if(existing.Inputs.TryGetValue(selected.Input,out var prior)&&prior!=selected.Observation||
+                    observed.TryGetValue(selected.Observation.Key,out var priorObservation)&&priorObservation!=selected.Observation)
+                    throw new MarketDataException("instrument_context","Partial selections of one exact frame cannot contain conflicting input or observation evidence.");
+                existing.Inputs[selected.Input]=selected.Observation;observed[selected.Observation.Key]=selected.Observation;
+                selectedInputs.Add((selected.Input,selected.Observation));
+            }
+        }
+        void Require(InputKey input,MarketObservation observation,ConnectedSourceSample? sample)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if(sample is not null)
+            {
+                if(!admitted.TryGetValue((sample.SnapshotId,input.Series.Revision),out var retained)||retained.Metadata.ValuationAt!=sample.ValuationAt||
+                    retained.Metadata.MarketCutoff!=sample.MarketCutoff||retained.Metadata.SelectionPolicy!=sample.SelectionPolicy)
+                    throw new MarketDataException("instrument_context","A graph sample requires its independently admitted exact snapshot and coordinates.");
+                if(!retained.Inputs.TryGetValue(input,out var selected)||selected!=observation)
+                    throw new MarketDataException("instrument_context","Every graph sample requires its exact admitted observation and original use.");
+            }
+            else if(input.Use==InputUse.Variable?(!currentInputs.TryGetValue(input,out var current)||current!=observation):!selectedInputs.Contains((input,observation)))
+                throw new MarketDataException("instrument_context","Every graph source requires its independently admitted exact observation and original use.");
+        }
+        foreach(var point in scenario.Plan.Points.Values)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if(point.Expression is ConnectedSource source)
+                Require(source.Input with{Use=source.Sample?.OriginalUse??source.Input.Use},source.Observation,source.Sample);
+            else if(point.Expression is ConnectedBuiltCurve {MultiplierInput:{} numeric} built)
+                Require(numeric.Input,numeric.Observation,built.Sample);
         }
         return new(scenario,snapshot);
     }
@@ -39,8 +90,102 @@ public sealed class ConnectedValuation
         return new(scenario,Snapshot);
     }
 
+    internal PreparedValuationMarket Market(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation)
+        =>new ConnectedMarket(this,bindings,authority,cancellation);
+
+    internal static PreparedValuationMarket WithScenario(PreparedValuationMarket market,ConnectedValuation valuation)
+        =>market is ConnectedMarket connected?connected.WithScenario(valuation):
+            throw new MarketDataException("instrument_context","A connected child requires its prepared pricing bindings.");
+
+    private sealed class ConnectedMarket : PreparedValuationMarket
+    {
+        private readonly ConnectedValuation valuation;
+        private readonly ImmutableDictionary<CurveRequest,CurvePointKey> bindings;
+        private readonly CurveBuild? authority;
+        private readonly ImmutableDictionary<int,ConnectedPrimitive> primitives;
+        private readonly ImmutableDictionary<int,CurvePointKey> primitivePoints;
+        private readonly ImmutableDictionary<int,ObservationKey> numericObservations;
+        private readonly ConcurrentDictionary<int,QuoteFactor> factors=new();
+        internal ConnectedMarket(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation)
+        {
+            if(bindings is null||authority is not null&&!authority.Snapshot.HasSameInputs(valuation.Snapshot))
+                throw new MarketDataException("instrument_context","Connected pricing and lifecycle authority require the same exact pinned snapshot.");
+            this.valuation=valuation;this.bindings=bindings;this.authority=authority;
+            primitives=valuation.Scenario.Plan.Primitives.ToImmutableDictionary(p=>p.Node);
+            primitivePoints=valuation.Scenario.Plan.Points.Keys.Select(point=>(Node:valuation.Scenario.Plan.IndexOf(point),Point:point))
+                .Where(p=>primitives.ContainsKey(p.Node)).DistinctBy(p=>p.Node).ToImmutableDictionary(p=>p.Node,p=>p.Point);
+            var numeric=ImmutableDictionary.CreateBuilder<int,ObservationKey>();
+            foreach(var point in valuation.Scenario.Plan.Points.Values)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if(point.Expression is ConnectedBuiltCurve {MultiplierInput:{} multiplier})
+                    numeric.Add(valuation.Scenario.Plan.IndexOf(point.Key),multiplier.Observation.Key);
+            }
+            numericObservations=numeric.ToImmutable();
+            foreach(var point in bindings.Values){cancellation.ThrowIfCancellationRequested();valuation.Scenario.Plan.GetPoint(point);}
+        }
+        private ConnectedMarket(ConnectedMarket parent,ConnectedValuation valuation)
+        {this.valuation=valuation;bindings=parent.bindings;authority=parent.authority;primitives=parent.primitives;primitivePoints=parent.primitivePoints;numericObservations=parent.numericObservations;}
+        internal ConnectedMarket WithScenario(ConnectedValuation child)
+        {
+            if(!ReferenceEquals(child.Scenario.Plan,valuation.Scenario.Plan)||!child.Snapshot.HasSameInputs(Snapshot))
+                throw new MarketDataException("instrument_context","Connected reuse requires one exact plan and lifecycle context.");
+            return new(this,child);
+        }
+        public override MarketSnapshot Snapshot=>valuation.Snapshot;
+        public override string ScenarioId=>valuation.Scenario.Id;
+        public override string NumericalPolicy=>ConnectedCurves.NumericalPolicy;
+        internal override object Identity=>this;
+        internal override CurveBuild? Authority=>authority;
+        private CurvePointKey Point(CurveRequest request)=>bindings.TryGetValue(request,out var point)?point:
+            throw new MarketDataException("risk_dependency","The exact connected pricing binding is unavailable.");
+        internal override ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation)=>valuation.Scenario.Price(Point(request),cancellation);
+        private ImmutableArray<ConnectedPrimitive> Sources(ImmutableArray<CurveRequest> requests,CancellationToken cancellation,ImmutableHashSet<ObservationKey>.Builder? lineage=null)
+        {
+            // Walk only the requested closure. No transitive closure is retained
+            // on every graph node, and no unrelated plan nodes are scanned.
+            var plan=valuation.Scenario.Plan;var visited=new HashSet<int>();var pending=new Stack<int>();
+            foreach(var request in requests)pending.Push(plan.IndexOf(Point(request)));
+            var found=ImmutableArray.CreateBuilder<ConnectedPrimitive>();
+            while(pending.TryPop(out var node))
+            {
+                cancellation.ThrowIfCancellationRequested();if(!visited.Add(node))continue;
+                if(primitives.TryGetValue(node,out var primitive)){found.Add(primitive);lineage?.Add(primitive.Source.Observation.Key);}
+                if(lineage is not null&&numericObservations.TryGetValue(node,out var numeric))lineage.Add(numeric);
+                foreach(var dependency in plan.DependencyPlan.Dependencies(node))pending.Push(dependency);
+            }
+            return found.ToImmutable();
+        }
+        private ImmutableHashSet<ObservationKey> Lineage(CurveRequest request,CancellationToken cancellation)
+        {
+            var lineage=ImmutableHashSet.CreateBuilder<ObservationKey>();Sources([request],cancellation,lineage);return lineage.ToImmutable();
+        }
+        internal override ImmutableArray<QuoteFactor> Factors(ImmutableArray<CurveRequest> requests,CancellationToken cancellation)=>
+            Sources(requests,cancellation).Where(p=>p.Source.Input.Use==InputUse.Variable).Select(p=>factors.GetOrAdd(p.Node,_=>
+            {
+                var source=p.Source;var price=valuation.Scenario.Price(primitivePoints[p.Node],cancellation).ToUnitPriceExact();
+                return new(source.Input,source.Quote.Key,p.Unit,source.Request.Contract,source.Observation.Key,source.Observation.Source,
+                    source.Observation.Role,price.Value,[source.Request.Curve],source.Quote.TradingTick);
+            })).OrderBy(f=>f.Input.Series.Id).ToImmutableArray();
+        internal override bool Compatible(PreparedValuationMarket prior)=>prior is ConnectedMarket connected&&
+            ReferenceEquals(bindings,connected.bindings)&&ReferenceEquals(valuation.Scenario.Plan,connected.valuation.Scenario.Plan)&&
+            ReferenceEquals(authority,connected.authority)&&Snapshot.HasSameInputs(connected.Snapshot);
+        internal override bool Unchanged(PreparedValuationMarket prior,ImmutableArray<CurveRequest> requests,CancellationToken cancellation)
+        {
+            if(prior is not ConnectedMarket connected)return false;
+            foreach(var request in requests)if(!ReferenceEquals(Price(request,cancellation),connected.Price(request,cancellation)))return false;
+            return true;
+        }
+        internal override SideValuationContext Context(ISideDiscounting? discounting,ImmutableArray<CurveRequest> dependencies,CancellationToken cancellation)=>
+            authority is null?new(Snapshot,discounting,dependencies,request=>Price(request,cancellation),NumericalPolicy,ScenarioId):
+                new(authority,discounting,dependencies,request=>Price(request,cancellation),request=>Lineage(request,cancellation),NumericalPolicy,ScenarioId);
+    }
+
     public InstrumentValuation PV(Instrument instrument,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
         ISideDiscounting? discounting=null,CancellationToken cancellation=default)
+        =>PV(instrument,bindings,null,discounting,cancellation);
+    public InstrumentValuation PV(Instrument instrument,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
+        CurveBuild? authority,ISideDiscounting? discounting,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
         if(instrument is null||bindings is null)
@@ -57,10 +202,8 @@ public sealed class ConnectedValuation
             throw new MarketDataException("risk_dependency","Connected pricing bindings must match the instrument's complete declared input set.");
         foreach(var point in bindings.Values)
         {cancellation.ThrowIfCancellationRequested();scenario.Plan.GetPoint(point);}
-        var context=new SideValuationContext(snapshot,discounting,declaration.Dependencies,
-            request=>bindings.TryGetValue(request,out var point)?scenario.Price(point,cancellation):
-                throw new MarketDataException("risk_dependency","The requested connected curve input is undeclared."),
-            ConnectedCurves.NumericalPolicy,scenario.Id);
+        if(discounting is not null)SideValuationContext.Validate(snapshot,discounting);
+        var context=Market(bindings,authority,cancellation).Context(discounting,declaration.Dependencies,cancellation);
         var value=instrument.PV(context);
         cancellation.ThrowIfCancellationRequested();
         if(value is null||value.InstrumentId!=instrument.Id||value.Currency!=instrument.Currency||

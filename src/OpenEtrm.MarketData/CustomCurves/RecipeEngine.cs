@@ -5,7 +5,7 @@ using OpenEtrm.MarketData.Risk;
 
 namespace OpenEtrm.MarketData.CustomCurves;
 
-public static class RecipeEngine
+public static partial class RecipeEngine
 {
     public const string Version="custom_curve_recipe_v1";
     private static MarketDataException Invalid(string message)=>new("recipe_definition",message);
@@ -85,13 +85,21 @@ public static class RecipeEngine
     private static bool Identity(string? value)=>value is {Length:>0 and <=32}&&value[0] is >= 'a' and <= 'z'&&value.All(c=>c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_');
 
     private sealed record Selection(RecipeSource Source,string Mode,int First,int Count,string Binding);
-    private sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,ExactUnitPrice Price,ImmutableArray<RecipeSample> Inputs);
+    private sealed record CellFormula(string Node,int Index,CurveKey? Source,RecipeSample? Sample,ImmutableArray<CellFormula> Inputs);
+    private sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,ExactUnitPrice Price,
+        ImmutableArray<RecipeSample> Inputs,CellFormula? Formula=null);
     private sealed record Panel(ImmutableArray<Cell> Cells);
 
     public static RecipeResult Evaluate(RecipeDefinition definition,RecipeInputs inputs,CancellationToken cancellation=default)
         =>EvaluateAsync(definition,inputs,null,cancellation).GetAwaiter().GetResult();
 
     public static async Task<RecipeResult> EvaluateAsync(RecipeDefinition definition,RecipeInputs inputs,RecipeSqlExecutor? sql,CancellationToken cancellation=default)
+        =>(await EvaluatePrepared(definition,inputs,sql,cancellation)).Result;
+
+    // Selection and panel grouping have one implementation. The retained formula
+    // tree lets a connected consumer preserve that topology without selecting or
+    // averaging a second time under different rules.
+    private static async Task<(RecipeResult Result,Panel Panel)> EvaluatePrepared(RecipeDefinition definition,RecipeInputs inputs,RecipeSqlExecutor? sql,CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();Validate(definition);
         if(inputs.ValuationAt.Offset!=TimeSpan.Zero||inputs.ContextDate!=DateOnly.FromDateTime(inputs.ValuationAt.UtcDateTime))throw Missing("The context date and UTC valuation instant must agree under this sampling policy.");
@@ -119,15 +127,15 @@ public static class RecipeEngine
                     if(dates.IsDefaultOrEmpty||dates.Length>366||dates.Distinct().Count()!=dates.Length||!dates.SequenceEqual(dates.Order()))
                         throw Missing("A date binding requires one to 366 distinct ascending dates.");
                     result=dates;break;
-                case "sample":result=Sample((Selection)await Input("selection"),(ImmutableArray<DateOnly>)await Input("dates"));break;
-                case "mean":result=Mean((Panel)await Input("values"),node.Parameters["axis"]);break;
+                case "sample":result=Sample(id,(Selection)await Input("selection"),(ImmutableArray<DateOnly>)await Input("dates"));break;
+                case "mean":result=Mean(id,(Panel)await Input("values"),node.Parameters["axis"]);break;
                 case "sql_transform":result=await SqlMean((Panel)await Input("values"),node.Parameters["sqlTransformCode"]);break;
                 case "output":result=await Input("values");break;
                 default:throw Invalid("Unsupported node.");
             }
             cache.Add(id,result);return result;
         }
-        Panel Sample(Selection selection,ImmutableArray<DateOnly> dates)
+        Panel Sample(string node,Selection selection,ImmutableArray<DateOnly> dates)
         {
             var source=selection.Source;var samples=source.Samples.ToDictionary(s=>(s.Date,s.Contract));
             var instants=source.Samples.GroupBy(s=>s.Date).ToDictionary(g=>g.Key,g=>g.Select(s=>s.At).Distinct().ToArray());
@@ -156,7 +164,8 @@ public static class RecipeEngine
                     if(!samples.TryGetValue((sampleDate,contract.Contract.Key),out var sample)||
                         selection.Mode=="daily_delivery"&&sample.At!=inputs.ValuationAt||sample.At<contract.EligibleFrom||sample.At>=contract.Contract.Expiry)
                         throw Missing($"A required live price is missing for {date:yyyy-MM-dd}, position {selection.First+i}.");
-                    cells.Add(new(selection.Mode=="daily_delivery"?cells.Count+1:selection.First+i,[date],sampleDate,ExactUnitPrice.FromPrice(sample.Price),[sample]));
+                    cells.Add(new(selection.Mode=="daily_delivery"?cells.Count+1:selection.First+i,[date],sampleDate,ExactUnitPrice.FromPrice(sample.Price),[sample],
+                        new(node,cells.Count,source.Key,sample,[])));
                 }
             }
             return new(cells.ToImmutable());
@@ -191,8 +200,8 @@ public static class RecipeEngine
                 throw Missing("A live factor has conflicting exact bindings.");
             factors.Add(first with{Curves=group.SelectMany(f=>f.Curves).Distinct().OrderBy(c=>c.Revision.CatalogId).ThenBy(c=>c.Revision.RevisionId).ThenBy(c=>c.Code,StringComparer.Ordinal).ToImmutableArray()});
         }
-        return new(panel.Cells.Select(c=>new RecipePoint(c.Position.ToString(CultureInfo.InvariantCulture),c.Position,c.Price,
-            c.Inputs.Select(s=>s.Contract).Distinct().ToImmutableArray(),c.Dates.Distinct().Order().ToImmutableArray(),c.Inputs.Length)).ToImmutableArray(),used,factors.ToImmutable());
+        return (new(panel.Cells.Select(c=>new RecipePoint(c.Position.ToString(CultureInfo.InvariantCulture),c.Position,c.Price,
+            c.Inputs.Select(s=>s.Contract).Distinct().ToImmutableArray(),c.Dates.Distinct().Order().ToImmutableArray(),c.Inputs.Length)).ToImmutableArray(),used,factors.ToImmutable()),panel);
     }
     // Used by authorized input retrieval as well as evaluation: select exact
     // contracts before loading prices, without promoting a missing quote.
@@ -216,15 +225,16 @@ public static class RecipeEngine
         if(selected.Any(c=>c.EligibleFrom>at||c.Contract.Expiry<=at))throw Missing("The selected contract is not live and eligible at the resolution instant.");
         return selected.ToImmutableArray();
     }
-    private static Panel Mean(Panel panel,string axis)
+    private static Panel Mean(string node,Panel panel,string axis)
     {
         var groups=axis=="dates"?panel.Cells.GroupBy(c=>c.Position.ToString(CultureInfo.InvariantCulture)):
             panel.Cells.GroupBy(c=>c.ObservationDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture));
-        return new(groups.Select(group=>
+        return new(groups.Select((group,index)=>
         {
             var cells=group.ToArray();var sum=cells[0].Price;
             foreach(var cell in cells.Skip(1))sum=sum.Add(cell.Price);
-            return new Cell(axis=="dates"?cells[0].Position:1,cells.SelectMany(c=>c.Dates).Distinct().Order().ToImmutableArray(),cells[0].ObservationDate,sum.Divide(cells.Length),cells.SelectMany(c=>c.Inputs).ToImmutableArray());
+            return new Cell(axis=="dates"?cells[0].Position:1,cells.SelectMany(c=>c.Dates).Distinct().Order().ToImmutableArray(),cells[0].ObservationDate,sum.Divide(cells.Length),cells.SelectMany(c=>c.Inputs).ToImmutableArray(),
+                cells.All(c=>c.Formula is not null)?new(node,index,null,null,cells.Select(c=>c.Formula!).ToImmutableArray()):null);
         }).ToImmutableArray());
     }
     private static void ValidateSource(RecipeNode node,RecipeSource source,DateTimeOffset valuationAt)

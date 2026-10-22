@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Calculation;
 
 namespace OpenEtrm.Rates;
 
@@ -156,22 +157,24 @@ public sealed record DiscountedSideValuation
 public sealed record FinancialSwapValue
 {
     public const string Policy = "financial_swap_trade_scale_exact_18_v1";
-    public string NumericalPolicy => Policy;
+    public const string ExactPolicy = "financial_swap_trade_scale_exact_rational_v1";
+    public string NumericalPolicy => Instrument.CurveNumericalPolicy==ConnectedCurves.NumericalPolicy?ExactPolicy:Policy;
     public InstrumentValuation Instrument { get; }
     public Quantity Quantity { get; }
     public ImmutableArray<DiscountedSideValuation> Sides { get; }
-    public Money PresentValue { get; }
+    public ExactMoney ExactPresentValue { get; }
+    public Money PresentValue => ExactPresentValue.ToMoney();
     internal FinancialSwapValue(InstrumentValuation instrument, Quantity quantity, ImmutableArray<DiscountedSideValuation> sides)
     {
         if (quantity is null || quantity.Specification != instrument.UnitQuantity.Specification || quantity.Amount.CompareTo(default) <= 0)
             throw new MarketDataException("swap_quantity", "Supply a positive trade quantity in the exact financial swap unit.");
         Instrument = instrument; Quantity = quantity; Sides = sides;
-        PresentValue = instrument.PresentValue.Scale(quantity.Amount).ToMoney();
+        ExactPresentValue = instrument.PresentValue.Scale(quantity.Amount);
     }
 }
 
 // Immutable per-instrument valuation. Trade sizes and books never enter this
-// object; only final Scale converts exact side money into working Money.
+// object. Scale retains exact money; working-decimal projection is explicit.
 public sealed record FinancialSwapEvaluation
 {
     public InstrumentValuation Instrument { get; }
@@ -191,6 +194,15 @@ public static class FinancialSwapValuation
         Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
     public static FinancialSwapEvaluation Evaluate(MonthlyFinancialSwap instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
         Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
+    public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,ConnectedValuation valuation,
+        ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,CurrencyDiscountCurve? currencyDefault,CancellationToken cancellation=default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if(instrument is null||valuation is null||authority is null)
+            throw new MarketDataException("swap_context","An exact instrument, prepared connected valuation and qualified lifecycle authority are required.");
+        var inputs=CreateDiscounting(instrument,valuation.Snapshot,currencyDefault);
+        return Result(valuation.PV(instrument,bindings,authority,inputs,cancellation),inputs);
+    }
     private static FinancialSwapEvaluation Evaluate(SidedInstrument? instrument,CurveBuild market,bool discounting,
         CurrencyDiscountCurve? currencyDefault,bool? declaredDiscounting)
     {
@@ -198,8 +210,10 @@ public static class FinancialSwapValuation
         if(discounting!=declaredDiscounting)throw new MarketDataException("swap_valuation","Discounting must match the immutable instrument definition.");
         var inputs=new CurrencyDefaultDiscounting(instrument.Sides.Select(m=>m.Side.GenerateSchedule()),market.Snapshot,discounting,currencyDefault);
         var value=instrument.PV(new SideValuationContext(market,inputs));
-        return new(value,value.Sides.Select(s=>new DiscountedSideValuation(s,s.Value.Payments.Select(p=>new DiscountedSidePayment(p,inputs.Inputs[p.Plan.Key],value.Snapshot)).ToImmutableArray())).ToImmutableArray());
+        return Result(value,inputs);
     }
+    private static FinancialSwapEvaluation Result(InstrumentValuation value,CurrencyDefaultDiscounting inputs)=>
+        new(value,value.Sides.Select(s=>new DiscountedSideValuation(s,s.Value.Payments.Select(p=>new DiscountedSidePayment(p,inputs.Inputs[p.Plan.Key],value.Snapshot)).ToImmutableArray())).ToImmutableArray());
     public static FinancialSwapValue Price(FinancialSwapInstrument instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
         Price(instrument,market,quantity,discounting,currencyDefault,instrument?.Discounting);
     public static FinancialSwapValue Price(MonthlyFinancialSwap instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
