@@ -535,7 +535,7 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
 });
 const deliveryPrices=setupPowerImports({api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
-$('nav-ppa').onclick=()=>void act(async()=>{setPage('ppa');await ppa.load();});
+$('nav-ppa').onclick=()=>void act(async()=>{await setPage('ppa');await ppa.load();});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone});
