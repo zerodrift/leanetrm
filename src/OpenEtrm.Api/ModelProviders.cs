@@ -34,6 +34,8 @@ public sealed partial class ModelProviders(CredentialCustody custody,PreviewMani
 {
     public static readonly ImmutableArray<ModelVendor> Vendors=[new("anthropic","Anthropic","Messages API",MessagesAdapter.Endpoint),
         new("openai","OpenAI","Responses API"),new("google","Google","generateContent"),new("xai","xAI","Responses API"),new("meta","Meta","Responses API")];
+    // Each vendor's code and name, for the pages that name a model's provider.
+    public static readonly JsonElement VendorNames=JsonSerializer.SerializeToElement(Vendors.Select(v=>new{code=v.Code,name=v.Name}));
     // A vendor without a provider row has had nothing administered for it.
     static readonly JsonElement Unadministered=JsonSerializer.Deserialize<JsonElement>(
         """{"version":0,"enabled":false,"qualified":false,"credential":null,"terms":null,"attestation":null}""");

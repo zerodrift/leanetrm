@@ -186,6 +186,7 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         admin.call('/api/settings/ai/usage',expected=404)
         admin.call('/api/assistant/agents',expected=404)
         admin.call('/api/assistant/grants',expected=404)
+        admin.call('/api/assistant/grants/workspace',expected=404)
         for path in ('/api/assistant/conversations',f'/api/assistant/conversations/{uuid4()}?after=0',f'/api/assistant/conversations/{uuid4()}/events?after=0',
                      '/api/assistant/turns/unfinished'):
             admin.call(path,expected=404)

@@ -957,3 +957,18 @@ runtime. The migration first verifies the helpers it relies on and the definitio
 replaces, each with exactly the privileges it was written against, the risk worker's
 on the market and reference access functions since 0073 included. As a new migration
 it stops automatic hosted updates until the operator qualifies a new baseline (D135).
+
+## Page-assistant workspace grants
+
+[0077_workspace_grants.sql](migrations/0077_workspace_grants.sql) lets those who
+administer a workspace's access read its page-assistant grants
+([ai-assistant.md](../docs/ai-assistant.md) §7.1). `assistant.workspace_grants` lists
+every grant in force there, unrevoked and unexpired, by person and then agent, and the
+latest 100 grant audit records, newest first, so a grant older than those records is
+still listed. Each names its person, agent and version, the model it was given for and
+the permissions it lists, and nothing a turn holds. It needs `ManageIdentities` and
+`ManageAccess` in an undelegated, unexpired request context of the workspace, rechecked
+after the read as the account directory is, and writes nothing; Revoke stays the
+delegator's. A new index serves the latest records. The migration first verifies the
+helper it relies on. As a new migration it stops automatic hosted updates until the
+operator qualifies a new baseline (D135).

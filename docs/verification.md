@@ -528,6 +528,24 @@ Grants (`tools/check_agent_grants.py`, in the same run, through the API and in S
   even from the owner. Before 0068 applies, it refuses to start while any delegation
   is unrevoked, even an expired one, revoking nothing, and refuses a change to each
   pinned helper.
+- **A workspace's grants:**
+  - a user's grants and a workspace's name each vendor as the Agents directory does;
+  - the workspace lists a grant in force and its granted record with exactly their
+    person, agent, version, model, permissions and times, and reading them writes
+    nothing;
+  - a replacement's two records share their instant in one order every read, a Revoke
+    is recorded once by its delegator however often it repeats, Retire's ends are
+    recorded against the administrator, and an ended grant is no longer in force;
+  - a grant whose person is suspended is still in force there; the history is the
+    latest 100 records, newest first, while a grant older than all of them stays
+    listed in force; and the grants in force are exactly those their people list,
+    ordered by person and then agent;
+  - only an undelegated holder of `ManageIdentities` with `ManageAccess` reads them: the
+    API refuses a trader and a viewer, and the database a person lacking either, an
+    agent delegated both, an administrator acting under a delegation and an expired
+    request context, and refuses at its recheck a read whose roles expire while it
+    waits; an administrator of another workspace sees none of them;
+  - before 0077 applies, it refuses a change to the helper it pins.
 
 Turns (`tools/check_agent_turns.py`, in the same run, in SQL, playing the asking request
 and the worker with a session of its own holding the agent-worker lock):
@@ -975,6 +993,22 @@ confirmation that it is permanent, after which the agent offers no change. At 39
 tab and card fit the page, and no internal identifier shows. A change refused on its
 first attempt because access ended keeps no request, and the administrator keeps no
 agent, version, audit or form data, whether the next change or the next read is refused.
+
+A grants scenario follows in the Agents scenario's browser and with its pricing session,
+so the run opens no session for it. The page creates a trader and publishes an agent for
+them. Profile reads the trader's grants only once Agent access is asked for, reading
+nothing else, and lists each with its agent and version, model, what it reads and its
+term, and a Revoke named for the agent. After a lost answer to a committed Revoke the
+page keeps the request for that identity only, shows the grants in force and moves focus
+to Retry, which resends the identical request and keeps nothing. A trader demoted to
+viewer, who no longer uses agents, still lists and revokes a grant, sending only its
+request identity and grant; a read refused while the membership is suspended shows no
+grant and keeps no request, and restored the person lists the grant again. Users &
+access then lists a grant in force by person, offering no Revoke, and the agent's changes
+newest first, the retried Revoke recorded once. Agent access and both cards fit 390 px
+and show no internal identifier. In the standard run Users & access shows both cards,
+and a refused reload or retry clears them with the accounts; in hosted mode Agent access
+and the cards are hidden and no assistant route is read.
 
 A Usage scenario ends the run. Through an independent session it prices a model and
 tests it once, so the report holds a priced provider test of this run in a currency

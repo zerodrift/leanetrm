@@ -33,7 +33,7 @@ await withOwnedBrowser(target,process.argv[3],async({command,evaluate,wait,set,c
   await check('changing a parent filter clears all dependent selections',"['provider','market','location','source'].every(x=>document.querySelector('#delivery-price-'+x).value===''&&document.querySelector('#delivery-price-'+x).disabled)");
   await evaluate("document.querySelector('#profile-open').click()");
   await wait("document.querySelector('#profile-dialog').open");
-  await check('hosted profile has sign out and no selectable demo identities',"document.querySelector('#preview-access').hidden && !document.querySelector('#sign-out').hidden");
+  await check('hosted profile has sign out, no selectable demo identities and no agent access',"document.querySelector('#preview-access').hidden && !document.querySelector('#sign-out').hidden && document.querySelector('#profile-grants').hidden");
   await shot('hosted-profile');
   // An expired browser cookie must remove displayed business data on its next operation.
   await command('Network.clearBrowserCookies');
@@ -54,5 +54,5 @@ await withOwnedBrowser(target,process.argv[3],async({command,evaluate,wait,set,c
   await evaluate("document.querySelector('#signin').requestSubmit()");
   await wait("location.pathname==='/'&&document.querySelector('#admin-page')?.hidden===false&&"+idle);
   await check('hosted administration-only startup avoids every market read and access round trip',"JSON.stringify(window.__hostedStartupAccess)===JSON.stringify(['true'])&&!window.__hostedStartupReads.includes('/api/access')&&!window.__hostedStartupReads.includes('/api/workspace/navigation')&&window.__hostedStartupReads.includes('/api/admin')&&document.querySelector('#nav-market').hidden&&document.querySelector('#error').hidden");
-  await check('hosted mode hides Settings › AI even from a provider administrator',"document.querySelector('#nav-ai').hidden&&document.querySelector('#ai-page').hidden&&!window.__hostedStartupReads.some(path=>path.startsWith('/api/settings/ai'))");
+  await check("hosted mode hides Settings › AI and the workspace's agent grants even from a provider administrator, reading no assistant route","document.querySelector('#nav-ai').hidden&&document.querySelector('#ai-page').hidden&&!window.__hostedStartupReads.some(path=>path.startsWith('/api/settings/ai'))&&document.querySelector('#admin-grants-card').hidden&&document.querySelector('#admin-grant-history-card').hidden&&!window.__hostedStartupReads.some(path=>path.startsWith('/api/assistant'))");
 });

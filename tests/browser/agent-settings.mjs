@@ -1,4 +1,5 @@
 import {sideSession} from './side-session.mjs';
+import {run as agentGrants} from './agent-grants.mjs';
 
 // The Agents tab of Settings › AI, after the providers scenario in the assistant check's preview. The scenario
 // qualifies the provider and adds a priced, enabled model through an independent session, so it relies on no
@@ -274,5 +275,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await revoke(manager);
   await click('#ai-agents-refresh');
   await check('a read refused because access ended leaves the administrator no agent, version, audit or form data',`${shown}.includes('make that change')&&${wiped}`);
+  // Agent access and a workspace's grants follow in this browser and with the pricing session, opening no session.
+  await agentGrants({command,evaluate,wait,click,persona,check,idle,fitsWidth},{side,model:added.id,identifier,stamp});
   await check('no uncaught JavaScript exceptions',JSON.stringify(errors.length===0));
 }

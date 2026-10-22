@@ -356,7 +356,11 @@ form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}
 .admin-role p{overflow-wrap:anywhere;margin:6px 0 0}
 #admin-name{width:100%}
 #admin-enabled-field{display:flex;align-items:center;gap:8px;margin-top:14px}
-#admin-pending button{margin:6px 8px 0 0}
+#admin-pending button,#profile-grants-pending button{margin:6px 8px 0 0}
+.profile-grants{border-top:1px solid var(--border);margin-top:20px}.profile-grants h3{font-size:14px;margin:14px 0 4px}
+.grant-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.grant-list li{display:grid;gap:2px;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--text-2);overflow-wrap:anywhere}
+.grant-list li strong{color:var(--text)}.grant-list li button{justify-self:start;margin-top:6px}
 #ai-models-pending button,#ai-providers-pending button,#ai-key-pending button,#ai-usage-pending button{margin:6px 8px 0 0}
 .ai-usage-currency{border-top:1px solid var(--border);padding-top:16px;margin-top:16px}.ai-usage-summary{font-size:13px;color:var(--text-2);line-height:1.6;margin:8px 0 12px;padding-left:20px}
 @media(max-width:760px){#ai-page>.tabs{gap:16px}}
