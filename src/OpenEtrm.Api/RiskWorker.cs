@@ -213,13 +213,13 @@ public static class RiskWorker
                 p.Value.CurveContracts.ToDictionary(c=>c.Key,c=>c.Value.ToArray()))])).ToArray(),
             FuturesConvention:sourceConventions[0]);
         var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
-        await using var database=new PreviewDatabase(manifest,source);
+        await using var database=new PreviewDatabase(manifest,source,includePpaReferences:false);
         var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,
-            referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins,includePpaReferences:false);
+            referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
         var markets=ImmutableArray.CreateBuilder<(PreviewData Data,InputFrame Frame)>();
         foreach(var market in supplemental.OrderBy(p=>p.Key))
             markets.Add((await database.Read(connection,ct,market.Key,observationIds:market.Value.ObservationIds,
-                referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins,includePpaReferences:false),market.Value));
+                referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),market.Value));
         var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,request,ct,markets.ToImmutable(),connected);
         var axes=job["frame"]!["scenarioAxes"]?.Deserialize<ImmutableArray<RetainedRiskAxis>>(RiskJobs.Json)
             ??throw new MarketDataException("risk_graph_manifest","The retained job must include its exact resolved scenario coordinates.");

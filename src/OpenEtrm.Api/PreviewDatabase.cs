@@ -95,9 +95,10 @@ public sealed class PreviewDatabase : IAsyncDisposable
 
     // The scheduler's application adapter receives an already-qualified runtime
     // source. It has no authenticator capability or HTTP host construction.
-    internal PreviewDatabase(PreviewManifest manifest,NpgsqlDataSource runtime)
+    private readonly bool includePpaReferences=true;
+    internal PreviewDatabase(PreviewManifest manifest,NpgsqlDataSource runtime,bool includePpaReferences=true)
     {
-        Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;
+        Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;this.includePpaReferences=includePpaReferences;
     }
 
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
@@ -246,7 +247,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
 
     public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null,ImmutableArray<Guid>? observationIds=null,
         ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=true,
-        ObservationReadScope observationScope=ObservationReadScope.FactHistory,PpaBundle? ppaBundle=null,bool includePpaReferences=true)
+        ObservationReadScope observationScope=ObservationReadScope.FactHistory,PpaBundle? ppaBundle=null)
     {
         if(selectedRevision is {} requested&&!DeclaredBundle(requested))throw new PreviewDeniedException();
         if(ppaBundle is {} p && (p.DefinitionRevisionId==Guid.Empty || p.ReferenceCatalogId==Guid.Empty || p.ReferenceRevisionId==Guid.Empty))throw new PreviewDeniedException();
