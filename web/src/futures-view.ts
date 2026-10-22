@@ -164,11 +164,11 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
     try{current=JSON.stringify([options.profile(),options.source()]);}catch{/* A cleared source cannot receive the old result. */}
     if(started!==generation||current!==scope)throw Error('The account or market selection changed. Reload the Blotter before continuing.');
   }
-  async function load(bookingCatalog:BookingCatalog='directory'){
+  async function load(bookingCatalog:BookingCatalog='directory',live=false){
     restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([readView()]))[0];const source=options.source();
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
-    if(snapshot!==source.snapshotId){get<HTMLFormElement>('futures-form').reset();selectedContract='';snapshot=source.snapshotId;}
-    clear();
+    if(snapshot!==source.snapshotId){if(!live){get<HTMLFormElement>('futures-form').reset();selectedContract='';}snapshot=source.snapshotId;}
+    if(live){generation++;risk.reset();}else clear();
     const started=generation,scope=JSON.stringify([options.profile(),source]);
     const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
     try{
@@ -180,7 +180,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
       if(!selected.contextId||selected.contextId!==reported.contextId||selected.effectiveOn!==reported.effectiveOn||selected.knownAt!==reported.knownAt||combined.catalog.asOf!==combined.blotter.asOf)throw Error('The trading workspace returned inconsistent market contexts. Refresh and try again.');
       catalog=combined.catalog;holdings=combined.blotter;viewControls();
       const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;render();await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);workspace.closeMenus();
-    }catch(error){if(started===generation)clear();throw error;}
+    }catch(error){if(started===generation&&(!live||(error as {code?:string}).code==='access_denied'))clear();throw error;}
   }
   async function loadChart(reportRequest:{context:unknown;view:unknown},started:number,scope:string){
     if(!view.chart.visible)return;
@@ -255,5 +255,5 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   };
   get('futures-refresh').onclick=()=>void act(load);
   field('futures-contract').onchange=()=>{selectedContract=field('futures-contract').value;terms();};
-  return {load,reset,sync,refresh(){draft.reset();editor.refresh();swapEditor.refresh();annotations.refresh();captureFilters();render();}};
+  return {load,reset,sync,async liveRefresh(){await load(catalog?.kind??'directory',true);await draft.liveRefresh();await editor.liveRefresh();await swapEditor.liveRefresh();},refresh(){draft.reset();editor.refresh();swapEditor.refresh();annotations.refresh();captureFilters();render();}};
 }

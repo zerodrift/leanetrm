@@ -25,6 +25,7 @@ without a seven-figure implementation.
 - **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
   and remaining projections. Connected quote and computed-output scenarios produce
   exact delta and gamma; generated-close jobs retain mixed futures-and-swaps reports
+- **Live corrections:** push updates through the shared header context, with visible refresh/stale status; [policy and limits](docs/live-calculation.md)
 - **Risk jobs:** temporary nested stresses, risk around the stressed market,
   and queued mixed-book runs pinned to the header's financial context, with retained
   results and cancellation; see [the risk engine](docs/risk-engine.md)

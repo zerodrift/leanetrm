@@ -26,7 +26,7 @@ public sealed class TurnStream(PreviewDatabase database,string scope,AgentWorker
     {
         // EventSource sends no anti-forgery header, so a stream is admitted only from the application's own page: a page
         // on another loopback port shares its cookie but not its origin (§8).
-        if(!FromOwnPage(context.Request.Headers))throw new PreviewDeniedException();
+        if(!EventStreamAdmission.FromOwnPage(context.Request.Headers))throw new PreviewDeniedException();
         var session=bound();
         var profile=session.Profile??throw new PreviewDeniedException();
         var from=Resume(after,context.Request.Headers["Last-Event-ID"]);
@@ -72,9 +72,6 @@ public sealed class TurnStream(PreviewDatabase database,string scope,AgentWorker
 
     // Whether the session still binds the stream: unexpired, under the profile it was opened with (§8).
     bool Bound(PreviewSession session,string profile)=>time.GetUtcNow()<=session.Ends&&session.Profile==profile;
-
-    static bool FromOwnPage(IHeaderDictionary headers)=>
-        headers["Sec-Fetch-Site"] is [string site]&&site=="same-origin"&&headers["Sec-Fetch-Mode"] is [string mode]&&mode=="cors";
 
     // Whether a request is a stream, which the first middleware exempts from the request deadline (§8); the route's
     // conversation is a guid, as its constraint reads one.

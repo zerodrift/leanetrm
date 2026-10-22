@@ -16,6 +16,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
 {
     public string Kind=>"market_navigation";
     public FrameCatalogInfo? FrameCatalog{get;init;}
+    public object? Live{get;init;}
 
     // Interval curves are listed by the interval-curve screen, not here.
     internal static async Task<ImmutableArray<NavigationCurve>> ReadCurves(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)

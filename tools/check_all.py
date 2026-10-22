@@ -40,6 +40,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
     check('locked worker restore',[str(dotnet),'restore',worker_project,'--locked-mode'])
     check('independent worker build',[str(dotnet),'build',worker_project,'--no-restore'])
     check('managed automation contracts',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--automation'])
+    check('managed live context contracts',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--live-calculation'])
     check('managed preview data',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--preview-data'])
     check('owned automation database',[sys.executable,'tools/check_automation.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)])
     check('owned reference metadata database',[sys.executable,'tools/check_reference_editing.py','--pg-bin',str(pg_bin)])
@@ -48,6 +49,7 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
                                    '--pg-bin', str(pg_bin), '--market', '--security'])
     preview = [sys.executable, 'tools/run_preview.py', '--pg-bin', str(pg_bin),
                '--dotnet', str(dotnet), '--no-build', '--check']
+    check('integrated live calculation and browser',[*preview,'--live-calculation-check','--browser-check','--browser',str(browser)])
     check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)])
     check('isolated party maintenance and power browser', [*preview, '--party-check', '--browser-check', '--browser', str(browser)])
     check('isolated page-assistant administration and browser', [*preview, '--assistant-check', '--browser-check', '--browser', str(browser)])

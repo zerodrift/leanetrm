@@ -690,3 +690,10 @@ dialog label{margin-top:16px}
 #interval-series-page p:empty{display:none}
 #interval-series-values-note{margin-top:12px}
 #interval-series-define .mode-banner,#interval-series-pending{margin-top:12px;flex-wrap:wrap}
+
+.live-status {display:inline-flex;align-items:center;gap:.45rem;padding:.25rem .65rem;border-radius:1rem;font-size:.82rem;border:1px solid currentColor;}
+.live-status[hidden] {display:none;}
+.live-status::before {content:"";width:.5rem;height:.5rem;border-radius:50%;background:currentColor;flex:none;}
+.live-status[data-state="live"] {color:#146546;background:#eaf7ef;}
+.live-status[data-state="updating"] {color:#765414;background:#fff5d9;}
+.live-status[data-state="stale"] {color:#9c283a;background:#fff0f2;}

@@ -16,7 +16,17 @@ UI_CAPABILITIES = {'canRunDealRisk', 'canBook', 'canAmendTrades', 'bookingUnavai
 
 
 def financial(report):
-    return {key: value for key, value in report.items() if key not in UI_CAPABILITIES}
+    result = deepcopy({key: value for key, value in report.items() if key not in UI_CAPABILITIES})
+    # Numerical memoization changes physical work across process/cache histories.
+    # Keep financial evidence, topology, scenarios and unit-pricer counts exact.
+    def physical(work, fields):
+        for field in fields:
+            value = work.pop(field)
+            assert type(value) is int and value >= 0, (field, value)
+    physical(result['work'], ('rebuiltCurveNodes', 'reusedCurveNodes'))
+    for scenario in result['connectedScenarios']:
+        physical(scenario['work'], ('evaluatedNodes', 'reusedReads', 'affectedNodes', 'traversedAffectedEdges'))
+    return result
 
 
 def identity(row):
@@ -171,8 +181,8 @@ def run_checks(Client, check, run_worker):
         if holding['instrumentType'] == 'future':
             assert Fraction(position['values']['base']) == Fraction(originals[identity(position)]['values']['base']) + Fraction(holding['quantity']) * Fraction('0.15')
     check('leaving nested stresses restores exact parent and original results without modifying normal valuations',
-          risk.call('portfolio/risk', parent_request) == parent
-          and risk.call('portfolio/risk', request) == result
+          financial(risk.call('portfolio/risk', parent_request)) == financial(parent)
+          and financial(risk.call('portfolio/risk', request)) == financial(result)
           and risk.call('trading/blotter', {'context': retained, 'view': VIEW}) == holdings)
     for field in ('pricingPolicy', 'convention', 'numericalPolicy'):
         invalid = deepcopy(request); del invalid[field]
@@ -192,13 +202,13 @@ def run_checks(Client, check, run_worker):
     completed = risk.call('portfolio/risk/jobs/' + job['id'])
     check('mixed worker completes despite a later UI date selection', completed['state'] == 'completed' and completed['context'] == parent['context'])
     report = completed['result']
-    check('mixed immediate and worker results match exact holdings, totals, contexts, market receipts and work', financial(report) == financial(parent))
+    check('mixed immediate and worker results match exact holdings, totals, contexts, market receipts and unit pricing work', financial(report) == financial(parent))
     recent = risk.call('portfolio/risk/jobs')
     check('mixed queued receipts remain discoverable without embedding financial results',
           any(item['id'] == job['id'] and item['requestId'] == operation['requestId'] for item in recent)
           and all(item.get('result') is None for item in recent))
     stopped = risk.call('portfolio/risk/jobs/' + job['id'] + '/cancel', {})
-    check('completed mixed risk remains readable after a later cancellation request', stopped['state'] == 'completed' and financial(stopped['result']) == financial(parent))
+    check('completed mixed risk remains readable after a later cancellation request', stopped['state'] == 'completed' and stopped['result'] == report)
     trader = Client(); trader.bootstrap(); trader.call('profile', {'profile': 'trader'})
     trader.call('portfolio/risk/jobs/' + job['id'], expected=403)
     trader.call('portfolio/risk/jobs', expected=403)

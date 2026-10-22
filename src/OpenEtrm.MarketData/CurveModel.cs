@@ -24,14 +24,16 @@ public sealed partial class CurveModel
     private readonly ImmutableDictionary<ReferenceKey, ValueSpecification> valueSpecs;
     private readonly ImmutableDictionary<SeriesKey, MarketSeries> series;
     private readonly ImmutableDictionary<(ContractKey, ReferenceKey), SeriesKey> priceSeries;
+    private readonly Calculation.ConnectedCalculationCache? calculations;
 
     public CurveModel(DefinitionRevision revision, ReferenceRevision reference,
         IEnumerable<QuantitySpecification> quantities, IEnumerable<QuoteSpecification> quotes,
         IEnumerable<MarketContract> contracts, IEnumerable<Curve> curves,
         IEnumerable<FuturesSeriesSpecification> futures,
-        IEnumerable<ValueSpecification> valueSpecs, IEnumerable<MarketSeries> series)
+        IEnumerable<ValueSpecification> valueSpecs, IEnumerable<MarketSeries> series,Calculation.ConnectedCalculationCache? calculations=null)
     {
         this.revision = revision;
+        this.calculations=calculations;
         this.reference = reference;
         this.quantities = Unique(quantities, q => q.Key);
         this.quotes = Unique(quotes, q => q.Key);
@@ -395,7 +397,7 @@ public sealed partial class CurveModel
         var compiled=CompileValidated(snapshot,requests,false,context,inputs,cancellation);
         var plan=Calculation.ConnectedCurves.Compile(compiled.Definitions,requests.Select(r=>compiled.Points[(r,InputUse.Variable)]).ToImmutableArray(),
             context,new DefinitionBindings(this),cancellation);
-        return Materialize(snapshot,requests,compiled,Calculation.ConnectedScenario.Base(plan),receipt,null,null,cancellation);
+        return Materialize(snapshot,requests,compiled,Calculation.ConnectedScenario.Base(plan,calculations,cancellation),receipt,null,null,cancellation);
     }
 
     private CurveBuild Materialize(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,Calculation.ConnectedCurveExport compiled,

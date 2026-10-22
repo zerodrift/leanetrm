@@ -15,6 +15,13 @@ and exact observation pins. The existing supported date modes remain unchanged.
 An actor's current authority accompanies that environment and is checked
 separately. A historical context never restores a historical permission.
 
+The explicit [Live corrections](live-calculation.md) selection advances the
+shared header between runs. Each interactive risk calculation still freezes one
+resolved frame for its complete base/up/down work; retained jobs never advance.
+Instrument PVs and side schedules use the same bound context and normal pricing
+operations. Numerical curve memoization does not cache permissions or reuse
+instrument PVs across frames.
+
 ## Nested scenarios
 
 The composition convention is
@@ -224,8 +231,10 @@ calculation path; generated-close publication remains a separate typed operation
 
 Additional workers increase concurrency across independent runs. Splitting a
 single run into distributed scenario batches, distributed result reduction,
-cross-run caching and recurring scheduling of these interactive risk requests remain future work. Those
-extensions need workload evidence and their own failure/replay qualification.
+cross-run PV/result caching and recurring scheduling of these interactive risk
+requests remain future work. Qualified curve memoization is implemented in the
+shared [live calculation path](live-calculation.md). These extensions need
+workload evidence and their own failure/replay qualification.
 Workers claim only jobs matching the managed-assembly fingerprint captured at
 admission. A differently versioned worker leaves that job queued. Drain or retain
 compatible workers when changing the implementation; submitting a run does not
