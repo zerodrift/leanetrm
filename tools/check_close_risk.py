@@ -111,6 +111,8 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
     print('PASS close risk: legacy and undeclared workers cannot claim existing-close risk',flush=True)
     claim=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_next('{uuid4()}',120,ARRAY['close_book_risk_v1']::text[])::text;"))
     assert claim['operation']=='close_book_risk_v1'
+    from check_close_risk_authority import run_checks as check_close_risk_authority
+    check_close_risk_authority(query,claim)
     old_token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{claim['id']}',{claim['fence']},'{claim['workerId']}');")
     query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{old_token}');DO $$BEGIN PERFORM automation.publish_pilot_close('[]','[]','[]');RAISE EXCEPTION 'Existing-close operation published market prices';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;ROLLBACK;")
     # Correction is after admission and after the selected valuation cutoff.

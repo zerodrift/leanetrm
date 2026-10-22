@@ -1295,3 +1295,10 @@ publication certification supplies temporal visibility. It creates no cash
 determination, approval, claim, obligation, payment or worker table. See the
 [bounded preview contract](../docs/settlement-preview.md). Schema deployment
 remains separately qualified; no deployment is implied.
+
+
+Migration `0099_close_risk_read_authority.sql` selects the worker eligibility
+branch explicitly and evaluates the complete current existing-close authority
+once per live-context check. Repeated calls still recheck current grants,
+ownership, cancellation, lease and overall deadline. Legacy eligibility, function
+ownership/ACLs, final read/publication guards and statement timeouts are unchanged.

@@ -2413,3 +2413,11 @@ Trade amendments remain contractual changes; market/meter corrections remain
 versioned inputs. Earlier lifecycle specifications are retained for future work;
 they do not authorize a separate settlement approval workflow or claim global
 settlement-phase completion.
+
+
+The experimental PPA checkpoint reuses the immutable native quantity/evidence
+rows of a single explicitly linked delivery slot. It validates distinct native
+starts and explicit quantity states before reuse; multi-slot exact aggregation
+remains unchanged. Migration 0099 removes one duplicate complete authority
+evaluation from each existing-close worker context check without caching
+authority or changing timeout/lease limits.

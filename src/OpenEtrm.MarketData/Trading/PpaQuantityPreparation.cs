@@ -111,6 +111,13 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
         if(selected.Any(rows=>rows.IsDefault || rows.Select(r=>r.Interval.Start).Distinct().Count()!=rows.Length))
             throw Invalid("Every bound delivery slot must supply distinct native quantity rows.");
         var first=selected[0];
+        // One immutable sibling already has the complete native quantity and evidence.
+        // Keep the validation above; no aggregation or row reconstruction is needed.
+        if(selected.Length==1)
+        {
+            foreach(var row in first)RequireState(row.State);
+            return first;
+        }
         if(selected.Any(rows=>rows.Length!=first.Length || !rows.Select(r=>r.Interval).SequenceEqual(first.Select(r=>r.Interval))))throw Cadence();
         return [..Enumerable.Range(0,first.Length).Select(n=>
         {
@@ -184,10 +191,14 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
     }
     private PowerClock Clock(ReferenceKey key)=>inputs.Reference.Clocks.TryGetValue(key,out var value)?value:throw Invalid("A required exact operating clock is absent from the selected reference revision.");
     private static ExactQuantity Convert(ExactQuantity value,ReferenceKey target,ExactDecimal factor)=>new(value.NumeratorValue*factor.ScaledValue,value.DenominatorValue*ExactDecimal.WorkingScale,target);
+    private static void RequireState(VolumeState state)
+    {
+        if(!Enum.IsDefined(state))throw Invalid("Every quantity contribution must retain its explicit state.");
+    }
     private static VolumeState State(IEnumerable<VolumeState> values)
     {
         var states=values.ToArray();
-        if(states.Any(s=>!Enum.IsDefined(s)))throw Invalid("Every quantity contribution must retain its explicit state.");
+        foreach(var state in states)RequireState(state);
         return states.Contains(VolumeState.Estimated)?VolumeState.Estimated:states.Contains(VolumeState.Forecast)?VolumeState.Forecast:
             states.Contains(VolumeState.Metered)?VolumeState.Metered:VolumeState.Contractual;
     }
