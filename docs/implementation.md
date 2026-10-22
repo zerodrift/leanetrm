@@ -4,6 +4,13 @@ Status: local synthetic preview. This is a bounded
 foundation with a runnable local market-data and bounded futures trading preview. No existing application or production
 resource is used by its checks.
 
+A separate managed [connected calculation prototype](connected-calculation.md)
+now exercises temporal graph selection, linked curve operators, nested input and
+output shocks and ordinary instrument PV. It adds no browser business logic or
+hosted routes. Its [large-graph benchmark](connected-graph-benchmark.md) measures
+the compact integer execution kernel; saved custom-curve booking, worker
+integration and large exact financial workloads remain work.
+
 Earlier foundation checkpoint verification (2026-10-17): 60 frontend, 102 managed core,
 24 mixed-resolution managed, 29 rate, 31 shared temporal and 20 schedule checks;
 173 stock PostgreSQL schema checks; 198 standard and 24 mixed HTTP, 14 schedule-storage,

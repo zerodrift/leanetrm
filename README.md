@@ -99,6 +99,8 @@ existing database.
 - [Schedules and contract sequences](docs/schedules-and-contract-sequences.md)
 - [Power example and its limits](docs/power-preview.md)
 - [Risk calculation benchmark](docs/risk-benchmark.md)
+- [Connected curve calculation prototype and scenarios](docs/connected-calculation.md)
+- [Large dependency-graph benchmark](docs/connected-graph-benchmark.md)
 - [Nested market scenarios and durable risk jobs](docs/risk-engine.md)
 - [Identity, agent login kinds and authorization](docs/security.md)
 - [Reference schema and disposable verification](db/README.md)

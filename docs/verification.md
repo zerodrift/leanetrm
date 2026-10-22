@@ -40,6 +40,22 @@ lease recovery, cancellation and browser history/retry behavior. The standalone
 `tools/check_risk_jobs_db.py` exercises SQL authority and concurrent claims.
 Neither check qualifies a real Swarm cluster or single-run distributed reduction.
 
+The [connected calculation prototype](connected-calculation.md) was checked on
+2026-10-21 with 427 managed core checks, the registered exact-price and connected
+curve checks, 75 rate checks, 34 shared temporal checks, API schedule checks,
+209 frontend checks and 46 Python checks. Focused disposable PostgreSQL 16
+regression runs also passed for mixed-book valuation, saved custom curves
+(43 browser checks) and retained risk jobs (36 browser checks). Their application,
+browser and database resources completed teardown. The new managed checks exercise
+deep and shared graphs, concurrent sibling scenarios, sparse allocation, cancellation, exact
+rational means, rolling and schedule connections, input/output shocks, source
+identity conflicts and historical topology changes through ordinary instrument
+PV. Independent numerical and temporal review findings were resolved before
+publication. The [separate benchmark](connected-graph-benchmark.md) records three
+Release runs through five million integer graph edges and the measured scope.
+These checks do not qualify the financial compiler at that size or connect it
+to hosted portfolio jobs.
+
 Nested-risk qualification on 2026-10-21 passed 398 managed core checks,
 206 frontend checks, 19 preview-data checks, 46 Python checks, 382 standard
 browser checks and the isolated retained-risk SQL, HTTP and 32 browser checks.
