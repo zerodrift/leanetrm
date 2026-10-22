@@ -40,7 +40,9 @@ def check_wait_authority(query, psql, environment, contexts, check):
         check('an expired provider operation leaves all provider, credential and audit rows unchanged', query(rows) == before)
 
 
-def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
+def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin):
+    """Runs in the administrator session `admin`; returns the viewer session and a second administrator session it opens,
+    which the later page-assistant modules reuse."""
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -60,13 +62,13 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
           query(f"SELECT count(*) {tables} AND(has_table_privilege('preview_runtime',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
                 "OR has_any_column_privilege('preview_runtime',c.oid,'SELECT,INSERT,UPDATE,REFERENCES'));") == '0')
     functions = "SELECT string_agg(proname,',' ORDER BY proname) FROM pg_proc WHERE pronamespace='assistant'::regnamespace"
-    check('the administration, grant, turn, Test and worker operations are the only definers and all the runtime may execute',
+    check('the administration, grant, turn, Test, worker and usage operations are the only definers and all the runtime may execute',
           query(f"{functions} AND prosecdef;") == query(f"{functions} AND has_function_privilege('preview_runtime',oid,'EXECUTE');")
           == 'add_model,add_price,agent_directory,append_turn_text,ask_turn,attest,close_test,close_turn_call,conversation,conversations,'
           'create_agent,credential_slot,disable_model,disable_provider,edit_model,enable_model,enable_provider,end_turn,end_turn_session,'
-          'grant_agent,grants,mark_read,model_directory,open_test,open_turn_call,pin_turn,provider_directory,publish_agent,record_terms,record_tool_step,'
-          'rename_model,replace_credential,retire_agent,revoke_grant,save_agent_version,start_turn,start_worker,stop_turn,unfinished_turn,'
-          'usable_agents,use_agent_admission,use_grant_admission,withdraw_price')
+          'export_usage,grant_agent,grants,mark_read,model_directory,open_test,open_turn_call,pin_turn,provider_directory,publish_agent,'
+          'record_terms,record_tool_step,rename_model,replace_credential,retire_agent,revoke_grant,save_agent_version,start_turn,start_worker,'
+          'stop_turn,unfinished_turn,usable_agents,usage_directory,usage_report,use_agent_admission,use_grant_admission,withdraw_price')
     for table in ('providers', 'credentials', 'administration_audit'):
         contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
         check(f'the runtime reads {table} only through administration operations')
@@ -79,8 +81,8 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
         contexts.runtime('admin', refused(f'PERFORM assistant.credential_slot({arguments});', 'model_admin_input'))
     check('the database itself refuses an empty operation, a negative version or a malformed digest')
 
-    admin, again, viewer = PreviewClient(url), PreviewClient(url), PreviewClient(url)
-    for client, profile in ((admin, 'admin'), (again, 'admin'), (viewer, 'viewer')):
+    again, viewer = PreviewClient(url), PreviewClient(url)
+    for client, profile in ((again, 'admin'), (viewer, 'viewer')):
         client.bootstrap(); client.call('profile', {'profile': profile})
     denied = [viewer.call('settings/ai/providers', expected=403),
               viewer.call(REPLACE, {'operationId': str(uuid4()), 'vendor': 'anthropic', 'expectedVersion': 0,
@@ -283,3 +285,4 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet):
         query(expect(statement, '55000'))
     check('credentials and audit are immutable and a provider changes only by advancing its version, even for the owner')
     print(f'{passed} model provider checks passed.', flush=True)
+    return viewer, again

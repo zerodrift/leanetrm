@@ -12,7 +12,6 @@ type Model={id:string;version:number;vendor:string;identifier:string;displayName
 type Choices={vendors:{code:string;name:string}[];roles:{code:string;name:string;permissions:string[]}[];tools:{code:string;permissions:string[]}[];models:Model[];
   bounds:{instructions:number;grantDays:number}};
 type Directory=Choices&{agents:Agent[];audit:{operationId:string;at:string;actor:string;action:string;agent:string}[]};
-export type AiTab='models'|'providers'|'agents';
 export type AgentEntry={description:string;instructions:string;modelId:string;reasoning:string;caching:string;tools:string[];allowedRoles:string[];
   limits:Record<keyof Limits,string>;grantDays:string};
 // A model as it was chosen: the exact capability version the choice named.
@@ -35,10 +34,12 @@ const paths=['create','save','publish','retire'].map(path=>'settings/ai/agents/'
 const roleAdvice='Allow only roles that use agents and hold every permission its tools need.';
 function toolName(code:string){if(!Object.hasOwn(toolNames,code))throw inconsistent();return toolNames[code];}
 
-// Models & prices and Providers need ManageModelProviders; Agents needs ManageAgents (§9).
-export function aiTabs(permissions:string[]):AiTab[]{
-  return [...permissions.includes('ManageModelProviders')?['models','providers'] as const:[],...permissions.includes('ManageAgents')?['agents'] as const:[]];
-}
+// The Settings › AI tabs in their order (D152), each offered by its own permission (§9): Usage needs ReadModelUsage,
+// Models & prices and Providers need ManageModelProviders, and Agents needs ManageAgents.
+const tabPermissions={usage:'ReadModelUsage',models:'ManageModelProviders',providers:'ManageModelProviders',agents:'ManageAgents'} as const;
+export type AiTab=keyof typeof tabPermissions;
+export const aiTabNames=Object.keys(tabPermissions) as AiTab[];
+export function aiTabs(permissions:string[]):AiTab[]{return aiTabNames.filter(tab=>permissions.includes(tabPermissions[tab]));}
 export function agentChange(action:string){if(!Object.hasOwn(changes,action))throw inconsistent();return changes[action];}
 export function agentState(agent:{state:string}){if(!Object.hasOwn(states,agent.state))throw inconsistent();return states[agent.state];}
 // Marked while the published version's model version is no longer the model's current one.
@@ -46,7 +47,7 @@ export function modelChanged(agent:Agent){
   if(!agent.published)return false;if(typeof agent.published.model.current!=='boolean')throw inconsistent();return !agent.published.model.current;
 }
 function vendorName(choices:Pick<Choices,'vendors'>,code:string){const vendor=choices.vendors.find(v=>v.code===code);if(!vendor)throw inconsistent();return vendor.name;}
-const modelLabel=(choices:Pick<Choices,'vendors'>,m:{displayName:string;identifier:string;vendor:string})=>`${m.displayName} · ${m.identifier} (${vendorName(choices,m.vendor)})`;
+export const modelLabel=(choices:Pick<Choices,'vendors'>,m:{displayName:string;identifier:string;vendor:string})=>`${m.displayName} · ${m.identifier} (${vendorName(choices,m.vendor)})`;
 export function agentRow(agent:Agent,choices:Choices,instant:(at:string)=>string){
   const newest=agent.newest?.version??0,published=agent.publishedVersion??0;
   if(published>newest||(agent.publishedVersion===null)!==(agent.published===null))throw inconsistent();

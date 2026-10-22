@@ -55,7 +55,7 @@ public sealed partial class ModelCatalog
     public async Task<JsonObject> Directory(NpgsqlConnection connection,CancellationToken ct)
     {
         var directory=JsonNode.Parse((await ModelProviders.Read(connection,"SELECT assistant.model_directory()::text",[],ct)).GetRawText())!.AsObject();
-        var currencies=JsonNode.Parse((await ModelProviders.Read(connection,CurrencyChoices,[],ct)).GetRawText())!.AsArray();
+        var currencies=await Currencies(connection,ct);
         var labels=currencies.ToDictionary(c=>Key(c!),c=>c!["displayCode"]!.GetValue<string>());
         // A withdrawal names no currency.
         foreach(var currency in directory["models"]!.AsArray().SelectMany(m=>m!["prices"]!.AsArray()).Select(p=>p!["currency"]).OfType<JsonObject>())
@@ -124,7 +124,11 @@ public sealed partial class ModelCatalog
             ?ModelProviders.Read(connection,sql,[operation,model,expected],ct)
             :throw Input();
 
-    static (Guid,Guid,string) Key(JsonNode currency)=>(currency["catalogId"]!.GetValue<Guid>(),currency["revisionId"]!.GetValue<Guid>(),currency["code"]!.GetValue<string>());
+    // The sealed currencies the reader may currently see, which choices and Usage labels both use (D124).
+    internal static async Task<JsonArray> Currencies(NpgsqlConnection connection,CancellationToken ct)=>
+        JsonNode.Parse((await ModelProviders.Read(connection,CurrencyChoices,[],ct)).GetRawText())!.AsArray();
+    // A currency's exact reference: catalog, revision and code.
+    internal static (Guid,Guid,string) Key(JsonNode currency)=>(currency["catalogId"]!.GetValue<Guid>(),currency["revisionId"]!.GetValue<Guid>(),currency["code"]!.GetValue<string>());
     // PostgreSQL text cannot carry NUL, so it is malformed here rather than an unknown outcome there.
     static string Text(string text,string code="model_admin_input")=>text.Contains('\0')?throw Refused(code):text;
     // Null rates are "not offered"; each rate is plain decimal text, as ExactDecimal transports it.

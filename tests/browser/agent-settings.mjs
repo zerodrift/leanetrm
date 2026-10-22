@@ -11,7 +11,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const stamp=Date.now(),manager='browser_agents_admin_'+stamp,pricer='browser_agents_pricing_'+stamp,agentsOnly='browser_agents_only_'+stamp,modelsOnly='browser_models_only_'+stamp;
   const identifier='browser-agent-model-'+stamp,name='Browser page guide '+stamp,other='Browser second guide '+stamp;
   // A session can sign in only as the accounts it created: the page creates its administrators, the side session its pricer.
-  // The preview adds a role for each of Settings › AI's two permissions alone.
+  // The preview adds a role for each of Settings › AI's three permissions alone.
   await persona('admin');
   for(const [login,display,roles] of [[manager,'Browser agents administrator',['access_administrator']],[agentsOnly,'Browser agents-only administrator',['synthetic_agents_admin']],
     [modelsOnly,'Browser models-only administrator',['synthetic_models_admin']]]){
@@ -47,7 +47,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const sent=path=>`window.__requests.filter(r=>r.path==='/api/settings/ai/agents/${path}')`;
   const shown="!document.querySelector('#error').hidden&&document.querySelector('#error').textContent";
   const retained="Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.ai.agents.request.'))";
-  const tabs="['models','providers','agents'].filter(t=>!document.querySelector('#ai-tab-'+t).hidden).join()";
+  const tabs="['usage','models','providers','agents'].filter(t=>!document.querySelector('#ai-tab-'+t).hidden).join()";
   const open=(agent=name)=>evaluate(`[...document.querySelectorAll('#ai-agent-table tbody tr')].find(r=>r.cells[0].textContent===${JSON.stringify(agent)}).cells[0].querySelector('button').click()`).then(()=>wait(idle));
   const tick=(group,values)=>evaluate(`(()=>{for(const box of document.querySelectorAll('#${group} input[type=checkbox]'))box.checked=${JSON.stringify(values)}.includes(box.value);})()`);
   const agentsTab=async()=>{await click('#nav-ai');await click('#ai-tab-agents');};
@@ -72,8 +72,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('an identity holding only ManageModelProviders is offered Models & prices and Providers alone',
     `${tabs}==='models,providers'&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-agents').hidden&&document.querySelector('#error').hidden`);
   await persona(manager);await click('#nav-ai');
-  await check('an administrator of models and agents is offered all three tabs, opening on Models & prices',
-    `${tabs}==='models,providers,agents'&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-agents').hidden`);
+  await check('an access administrator is offered all four tabs, opening on Models & prices',
+    `${tabs}==='usage,models,providers,agents'&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-agents').hidden`);
   await click('#ai-tab-agents');
   await check('the Agents tab states what a save, Publish and Retire do',
     "!document.querySelector('#ai-agents').hidden&&document.querySelector('#ai-models').hidden&&/draft/.test(document.querySelector('#ai-agents').textContent)&&/Retire is permanent/.test(document.querySelector('#ai-agents').textContent)");
@@ -262,8 +262,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +"&&['ai-agent-title','ai-agent-facts','ai-agent-output-help','ai-agent-roles-note'].every(id=>document.getElementById(id).textContent==='')"
     +"&&['ai-agent-name','ai-agent-description','ai-agent-instructions','ai-agent-tool-steps','ai-agent-grant-days'].every(id=>document.getElementById(id).value==='')"
     +"&&!document.querySelector('#ai-agent-retire-confirm').checked";
-  const authority=await sideSession(url);
-  const revoke=async login=>authority.replaceRoles((await authority.call('admin')).members.find(m=>m.login===login),['viewer']);
+  // The pricing session administers access too, so the run opens no third session: a preview holds at most 64.
+  const revoke=async login=>side.replaceRoles((await side.call('admin')).members.find(m=>m.login===login),['viewer']);
   await persona(agentsOnly);await agentsTab();await open(other);await fill({description:'Entered before a change was refused.'});
   await revoke(agentsOnly);
   const attempted=await evaluate(`${sent('save')}.length`);

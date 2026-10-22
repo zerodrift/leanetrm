@@ -698,3 +698,22 @@ local preview the API asks, stops and reads them and an in-process worker runs t
   database decides the ending. A session's end is recorded before the turn ends, so the
   turn ends cancelled `session_ended`; a write the database does not take, that end's
   included, fails the turn `agent_runtime_unavailable`.
+
+Usage (migration 0075, step 5) needs `ReadModelUsage`, held by the access administrator,
+and never runs under a delegated context, so an agent never reads usage
+([ai-assistant.md](ai-assistant.md) §5.4, §9):
+
+- **Reads:** a report covers every call of the reader's workspace through definer
+  operations. It names models, users and agents and shows counts, tokens and cost, never a
+  question, answer or page report. A reader in another workspace sees none of them.
+- **Labels:** a currency is labelled by the reader's own scoped read of sealed currencies,
+  the read Models & prices offers as choices (D124), so a reader without market data sees
+  each currency by its exact reference alone.
+- **Export:** an export records the report it carries, with its request, in the model
+  administration audit, which the Usage tab lists. A repeat answers with the recorded
+  report; a request identity used for any other change in Settings › AI or Users & access
+  is refused, as is one sent by another reader. The tab's CSV prefixes text a spreadsheet
+  could read as a formula with an apostrophe.
+- **Records:** row triggers refuse any update or delete of an export record, even from
+  the owner; the runtime holds no privilege on the audit and executes none of the
+  report's internal helpers. None of these routes exists under `--hosted-pilot`.

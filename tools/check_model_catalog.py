@@ -78,7 +78,8 @@ def check_name_rule_upgrade(query, migration):
     print('PASS migration 0059 stops on stored display names that break the rule and names each of their models', flush=True)
 
 
-def run_checks(url, query, psql, manifest, environment):
+def run_checks(url, query, psql, manifest, environment, admin, viewer, again):
+    """`admin` and `again` are two sessions of the preview administrator, `viewer` one of the viewer, shared with the other modules."""
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -114,9 +115,8 @@ def run_checks(url, query, psql, manifest, environment):
         contexts.runtime('admin', refused(add_price('gen_random_uuid()', 0, terms), 'model_admin_input'))
     check('the database itself refuses a rate of 10^12 or more, beyond 12 places or negative in either set, and a rate set without uncached input or output')
 
-    admin, pricing, viewer = PreviewClient(url), PreviewClient(url), PreviewClient(url)
-    for client, profile in ((admin, 'admin'), (pricing, 'admin'), (viewer, 'viewer')):
-        client.bootstrap(); client.call('profile', {'profile': profile})
+    pricing = PreviewClient(url)
+    pricing.bootstrap(); pricing.call('profile', {'profile': 'admin'})
     # Pricing needs an operator-assigned role with ReadMarketData beside access administration (D152).
     pricing.call('admin/create', {'operationId': str(uuid4()), 'login': 'pricing_admin', 'name': 'Synthetic pricing administrator',
                                   'kind': 'human', 'roles': ['access_administrator', 'viewer']})
@@ -375,7 +375,6 @@ def run_checks(url, query, psql, manifest, environment):
     # first and replays its outcome. Pricing needs market-data access, so the administrator gains a viewer grant.
     query(f"INSERT INTO security.role_grants VALUES('{uuid4()}','{contexts.administrator}',(SELECT id FROM security.roles WHERE code='viewer'),"
           f"'{contexts.tenant}','{contexts.workspace}',CURRENT_TIMESTAMP-INTERVAL '1 day',CURRENT_TIMESTAMP+INTERVAL '1 day',false);")
-    again = PreviewClient(url); again.bootstrap(); again.call('profile', {'profile': 'admin'})
     commands = [(MODELS + '/add', model_request('anthropic', 'model-synthetic-overlap'), 'assistant.add_model'),
                 (MODELS + '/rename', {**rename, 'operationId': str(uuid4()), 'expectedVersion': 2, 'displayName': 'Synthetic model A overlap'},
                  'assistant.rename_model'),

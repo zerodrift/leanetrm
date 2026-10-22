@@ -3,7 +3,6 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from assistant_context import Contexts, check_guard, expect, holding, refused, refused_at, state, waiting
-from preview_client import PreviewClient
 
 PROVIDERS = 'settings/ai/providers'
 COMMANDS = ('attest', 'enable', 'disable')
@@ -39,7 +38,8 @@ def command(vendor, expected):
     return {'operationId': str(uuid4()), 'vendor': vendor, 'expectedVersion': expected}
 
 
-def run_checks(url, query, psql, manifest, environment):
+def run_checks(query, psql, manifest, environment, admin, viewer, again):
+    """`admin` and `again` are two sessions of the preview administrator, `viewer` one of the viewer, shared with the other modules."""
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -75,9 +75,6 @@ def run_checks(url, query, psql, manifest, environment):
                 "(1,'2026-10-21','2026-10-20 10:00:00+00'),(2,'2026-10-21','2026-10-20 09:59:59.999999+00'),"
                 "(3,'2026-10-20','2026-10-20 00:00:00+00'),(4,'-infinity','2026-10-20 10:00:00+00'))v(n,d,at);") == 'true,false,true,false')
 
-    admin, viewer = PreviewClient(url), PreviewClient(url)
-    for client, profile in ((admin, 'admin'), (viewer, 'viewer')):
-        client.bootstrap(); client.call('profile', {'profile': profile})
     before = providers()
     anthropic, openai = before['anthropic'], before['openai']
     check("a provider starts disabled and unqualified, without terms or attestation, and only a vendor whose adapter applies a confirmed mapping names it, with the efforts it states",
@@ -166,12 +163,12 @@ def run_checks(url, query, psql, manifest, environment):
     reattested = admin.call(f'{PROVIDERS}/attest', command('anthropic', version))
     check('a new attestation binds to the new key', reattested['qualified'] and reattested['attestation']['credentialVersion'] == replaced['credential']['version']
           and not reattested['enabled'])
-    again = admin.call(f'{PROVIDERS}/enable', command('anthropic', reattested['version']))
+    reenabled = admin.call(f'{PROVIDERS}/enable', command('anthropic', reattested['version']))
     long_text = 'Synthetic: inputs are deleted within 7 days; données, Daten, 日本語.'.ljust(1000, '.')
     long_source = 'https://example.invalid/' + 'r' * 2024
-    revised = admin.call(f'{PROVIDERS}/terms', terms('anthropic', again['version'], retention=long_text, retentionSource=long_source))
+    revised = admin.call(f'{PROVIDERS}/terms', terms('anthropic', reenabled['version'], retention=long_text, retentionSource=long_source))
     check('new terms disable the provider and leave no current attestation, since the attestation also binds to the terms',
-          again['enabled'] and not revised['enabled'] and revised['attestation'] is None and not revised['qualified'] and revised['terms']['version'] == 2)
+          reenabled['enabled'] and not revised['enabled'] and revised['attestation'] is None and not revised['qualified'] and revised['terms']['version'] == 2)
     check('terms text of 1000 characters in any script and a source of 2048 are kept exactly',
           revised['terms']['retention'] == long_text and revised['terms']['retentionSource'] == long_source)
     version = revised['version']
@@ -253,13 +250,12 @@ def run_checks(url, query, psql, manifest, environment):
 
     # Two sessions of one administrator send each command at once, each held at its first write:
     # the second waits for the first and replays its outcome.
-    duplicate = PreviewClient(url); duplicate.bootstrap(); duplicate.call('profile', {'profile': 'admin'})
     with ThreadPoolExecutor(2) as pool:
         def overlapping(path, body, operation, table):
             def overlap():
                 original = pool.submit(admin.call, f'{PROVIDERS}/{path}', body)
                 waiting(query, 1, operation)
-                retry = pool.submit(duplicate.call, f'{PROVIDERS}/{path}', body)
+                retry = pool.submit(again.call, f'{PROVIDERS}/{path}', body)
                 waiting(query, 2, operation)
                 return original, retry
             original, retry = holding(psql, environment, f'LOCK TABLE assistant.{table} IN EXCLUSIVE MODE', overlap)

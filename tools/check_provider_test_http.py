@@ -28,7 +28,8 @@ UNKNOWN = {'count': None, 'source': 'unknown'}
 DIMENSIONS = ('uncachedInput', 'cacheRead', 'cacheWrite', 'output', 'reasoning')
 
 
-def run_checks(url, query, psql, manifest, environment, log, fake, trap):
+def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, viewer, again):
+    """`admin` and `again` are two sessions of the preview administrator, `viewer` one of the viewer, shared with the other modules."""
     passed = 0
     responses = []
 
@@ -37,14 +38,6 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
         assert condition, name
         passed += 1
         print('PASS ' + name, flush=True)
-
-    def session(profile='admin'):
-        client = PreviewClient(url)
-        client.bootstrap()
-        client.call('profile', {'profile': profile})
-        return client
-
-    admin = session()
 
     def provider():
         return next(p for p in admin.call('settings/ai/providers')['providers'] if p['vendor'] == 'anthropic')
@@ -186,7 +179,6 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
               result['outcome'] == 'succeeded' and json.loads(fake.received[-1]['body'])['output_config'] == {'effort': effort})
 
     requests = sent()
-    viewer = session('viewer')
     refusals = [test(reasoning='medium', target=low_only, expected=422), test(target=unpriced, expected=409), test(target=str(uuid4()), expected=409),
                 test(reasoning=None, expected=422), viewer.call(TEST, {'operationId': str(uuid4()), 'modelId': model, 'reasoning': 'low'}, expected=403),
                 admin.call(TEST, {'operationId': str(uuid4()), 'modelId': model, 'reasoning': 'low', 'temperature': 1}, expected=400),
@@ -210,10 +202,10 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
 
     def finished(operation, limit=15):
         """The outcome a retry returns once the test is closed."""
-        client, deadline = session(), time.monotonic() + limit
+        deadline = time.monotonic() + limit
         while True:
             try:
-                return client.call(TEST, {'operationId': operation, 'modelId': model, 'reasoning': 'low'})
+                return again.call(TEST, {'operationId': operation, 'modelId': model, 'reasoning': 'low'})
             except AssertionError as error:
                 assert 'test_in_progress' in str(error) and time.monotonic() < deadline, error
                 time.sleep(.2)
@@ -241,8 +233,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
         running = pool.submit(test, operation=operation)
         started()
         queued = pool.submit(test, operation=queued_operation, expected=503)
-        retry = session()
-        in_progress = retry.call(TEST, {'operationId': operation, 'modelId': model, 'reasoning': 'low'}, expected=409)
+        in_progress = again.call(TEST, {'operationId': operation, 'modelId': model, 'reasoning': 'low'}, expected=409)
         stalled = running.result(timeout=30)
         took = time.monotonic() - began
         cut = queued.result(timeout=30)
@@ -254,7 +245,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     check("a test the request deadline cuts short records its elapsed limit, not an abort, and its answer is unknown until a retry",
           cut['code'] == 'model_admin_outcome_unknown' and finished(queued_operation)['outcome'] == 'limit_elapsed')
     check('a retry of the stalled test returns its outcome and never sends a second request',
-          retry.call(TEST, {'operationId': operation, 'modelId': model, 'reasoning': 'low'}) == stalled and sent() == requests + 2)
+          again.call(TEST, {'operationId': operation, 'modelId': model, 'reasoning': 'low'}) == stalled and sent() == requests + 2)
 
     # A close the database cannot take at once is retried until it lands: the answer is in progress meanwhile, and a
     # retry then returns the outcome with the usage the handler read.
@@ -292,13 +283,14 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
         assert time.monotonic() < deadline, 'The aborted test was not closed'
         time.sleep(.1)
     release.set()
-    answer = session().call(TEST, {'operationId': operation, 'modelId': model, 'reasoning': 'low'})
+    answer = again.call(TEST, {'operationId': operation, 'modelId': model, 'reasoning': 'low'})
     check('a test whose request is aborted closes as cancelled with unknown usage, and its retry returns that',
           answer['outcome'] == 'request_cancelled' and all(answer['usage'][d] == UNKNOWN for d in DIMENSIONS) and sent() == requests + 1)
 
     # An administrator who loses the permission while the test runs: its usage is still recorded, and the answer,
     # which is read under the administrator's current authority, is refused.
-    tester = session()
+    tester = PreviewClient(url)
+    tester.bootstrap(); tester.call('profile', {'profile': 'admin'})
     tester.call('admin/create', {'operationId': str(uuid4()), 'login': 'provider_http_tester', 'name': 'Synthetic HTTP tester', 'kind': 'human',
                                  'roles': ['access_administrator']})
     tester.call('profile', {'profile': 'provider_http_tester'})

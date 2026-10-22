@@ -7,7 +7,6 @@ from assistant_context import ISSUER, Contexts, check_guard, expect, holding, mi
 from check_model_qualification import command as provider_command, terms
 from check_model_versions import SECOND_MAPPING, capabilities, command as model_command
 from check_provider_tests import KEY
-from preview_client import PreviewClient
 
 AGENTS, MODELS, PROVIDERS = 'settings/ai/agents', 'settings/ai/models', 'settings/ai/providers'
 READER = 'a0000000-0000-0000-0000-000000000007'
@@ -57,7 +56,8 @@ def check_upgrade(query, migration):
         ("ALTER FUNCTION assistant.is_plain_text(text) SET work_mem='64kB';", 'assistant.is_plain_text(text)')))
 
 
-def run_checks(url, query, psql, manifest, environment):
+def run_checks(query, psql, manifest, environment, admin, viewer, again):
+    """`admin` and `again` are two sessions of the preview administrator, `viewer` one of the viewer, shared with the other modules."""
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -100,11 +100,6 @@ def run_checks(url, query, psql, manifest, environment):
           f"ALTER TABLE security.role_grants ENABLE TRIGGER agent_roles;UPDATE security.role_grants SET revoked=true WHERE principal_id='{agent}';ROLLBACK;")
     check('even for the owner, only an agent principal holds the agent reader role, and an agent principal holds no other role; '
           'an earlier grant breaking the rule can still be revoked')
-
-    admin = PreviewClient(url)
-    admin.bootstrap(); admin.call('profile', {'profile': 'admin'})
-    viewer = PreviewClient(url)
-    viewer.bootstrap(); viewer.call('profile', {'profile': 'viewer'})
 
     def refusal(path, body, status, code):
         answer = admin.call(path, body, expected=status)
@@ -254,9 +249,8 @@ def run_checks(url, query, psql, manifest, environment):
         return holding(psql, environment, 'SELECT 1 FROM security.epoch WHERE id=true FOR SHARE', work)
 
     def blocked_create():
-        answers, racer = {}, PreviewClient(url)
-        racer.bootstrap(); racer.call('profile', {'profile': 'admin'})
-        thread = threading.Thread(target=lambda: answers.update(created=racer.call(
+        answers = {}
+        thread = threading.Thread(target=lambda: answers.update(created=again.call(
             f'{AGENTS}/create', {'operationId': str(uuid4()), 'name': f'Synthetic waiting agent {stamp}'})))
         thread.start()
         waiting(query, 1, 'use_agent_admission')
@@ -318,13 +312,11 @@ def run_checks(url, query, psql, manifest, environment):
     def overlapping(body):
         answers = {}
 
-        def send(key):
-            client = PreviewClient(url)
-            client.bootstrap(); client.call('profile', {'profile': 'admin'})
+        def send(key, client):
             answers[key] = client.call(f'{AGENTS}/save', body)
 
         def race():
-            threads = [threading.Thread(target=send, args=(key,)) for key in ('original', 'repeat')]
+            threads = [threading.Thread(target=send, args=pair) for pair in (('original', admin), ('repeat', again))]
             for count, thread in enumerate(threads, 1):
                 thread.start()
                 waiting(query, count, 'save_agent_version')
@@ -541,9 +533,8 @@ def run_checks(url, query, psql, manifest, environment):
     second = create(f'Synthetic second retired agent {stamp}')
 
     def waiting_retire():
-        answers, racer = {}, PreviewClient(url)
-        racer.bootstrap(); racer.call('profile', {'profile': 'admin'})
-        thread = threading.Thread(target=lambda: answers.update(retired=racer.call(
+        answers = {}
+        thread = threading.Thread(target=lambda: answers.update(retired=again.call(
             f'{AGENTS}/retire', {'operationId': str(uuid4()), 'agentId': second['id'], 'expectedVersion': second['version']})))
         thread.start()
         waiting(query, 1, 'use_agent_admission')

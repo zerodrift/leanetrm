@@ -53,8 +53,13 @@ the tool loop's next call, each read's sources joining the turn's source set, th
 source-access check in the agent's authority before every call and publication, the
 replay recheck on the owner's reads, earlier turns included only while their sources
 pass, and the tool-step, retry and input limits across the loop, all checked in SQL.
-The worker offers no tools yet, so a turn still makes one call. The stream, the panel
-and the Usage tab are not implemented, so no page asks yet.
+The worker offers no tools yet, so a turn still makes one call. `ReadModelUsage` reads
+usage through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and
+the exact cost of priced calls by model, user or agent over a half-open range of local
+dates in a zone prefilled from Profile, a call falling on the day whose bounds hold its
+start, per exact currency reference with provider tests as their own row and a daily
+chart, and an audited export of that report as a formula-guarded CSV. The stream and
+the panel are not implemented, so no page asks yet.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -808,17 +813,32 @@ Tabs appear by permission (§5.4), use the existing table component and pending-
 pattern (except Replace key, §5.2), and end with that tab's latest 100 audit entries;
 credential entries read only "key replaced".
 
-- **Usage** (`ReadModelUsage`): a half-open range of local dates (D25) in a reporting
-  zone prefilled from Profile (`report_zone_invalid`), by model, user or agent. Calls
-  fall on days by start instant; the response states the zone and UTC bounds. It shows
-  per-currency cost and tokens; answers and cost per answer, with other turns' cost on
-  its own line; a daily cost chart; turns by terminal state, tokens by dimension, cost
-  and share (a row's cost over its same-currency total); unpriced, unknown,
-  unrecognized and superseded-price amounts apart; and provider tests as their own row
-  so views reconcile. CSV export is audited and listed; it carries exact costs, sums,
-  counts, tokens, the exact currency reference, zone and range, ratios only as
-  `token_cost_report_v1` strings, and uses the formula-guarded writer (today
-  `blotterCsv` in `web/src/blotter-layout.ts`) moved to a shared export module.
+- **Usage** (`ReadModelUsage`): a half-open range of at most 366 local dates (D25,
+  `report_range_invalid`) in a reporting zone prefilled from Profile
+  (`report_zone_invalid`; never `localtime`, `posixrules`, `Factory` or a `posix/` or
+  `right/` name, host or tzcode artifacts a database may list), by model, user or agent.
+  Each day is the half-open interval from its start to the next day's start, and a call
+  falls on the day that holds its start instant. A day starts at the earlier of its
+  midnight and the instant after the previous date's last microsecond, each read in the
+  zone as PostgreSQL resolves local times: a skipped time takes the offset before the
+  transition, a repeated one the offset after it. This is the first instant the zone's
+  clocks show the date, except where a transition's skipped or repeated time strictly
+  contains midnight in the tzdata release the database uses; release 2026c has such
+  dates only before 2011. Where the clock moves back across midnight, no single interval
+  holds a date's instants, so such a day ends where the next one starts. The response
+  names its format, `usage_report_v1`, which the tab refuses unless it reads it; a later
+  format keeps a reader for every earlier one, since an export replays the report it
+  stored. The response states the zone, the UTC bounds and each day's bounds. It shows
+  per currency the cost of priced calls beside the number of calls without a cost, and
+  tokens; answers and cost per answer, with the other turns and their cost of priced
+  calls on their own line; a daily chart of the cost of priced calls; turns by terminal
+  state, tokens by dimension and the share of priced cost (a row's cost of priced calls
+  over its same-currency total's); unpriced, unknown, unrecognized and superseded-price
+  amounts apart; and provider tests as their own row so views reconcile. CSV export is
+  audited and listed; it names its export and the report's format, carries exact costs,
+  sums, counts, tokens, the exact currency reference, zone and range, ratios only as
+  `token_cost_report_v1` strings, and uses the formula-guarded writer the Blotter export
+  uses, `guardedCsv` in the shared export module `web/src/csv-export.ts`.
 - **Models & prices** (`ManageModelProviders`): models per provider with status,
   rates, tier and the revision in force or scheduled; Add, Edit, Enable, Disable, Add
   price, Withdraw price. Every field is entered and none inferred: a request names each
@@ -982,7 +1002,7 @@ Every structured error code in this document has a check that produces it where 
 specified, and every rule stated as "never" has a check that attempts it. Checks use
 synthetic data and the fake provider. The cases that coverage does not imply:
 
-- **Numbers** (`token_cost_v1` in SQL, the rest in C#): tier thresholds with cache tokens; unknown prompt dimensions with
+- **Numbers** (`token_cost_v1` and Usage's days, sums and report methods in SQL, the rest in C#): tier thresholds with cache tokens; unknown prompt dimensions with
   and without a tier; a revision appended during an open call; totals over two
   revisions of one currency code; input-limit accounting for the crossing attempt,
   pre-send failures, not-billed overloads and a reset after send; Usage days across a

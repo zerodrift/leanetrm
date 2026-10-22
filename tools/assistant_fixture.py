@@ -44,12 +44,13 @@ class Fixture:
     def display_name(self, identifier):
         return f'Synthetic {self.label} model {identifier[-12:]}'
 
-    def model(self, identifier):
-        """A model identity with recorded capabilities, a rate set in force and switched on."""
+    def model(self, identifier, rates=RATES):
+        """A model identity with recorded capabilities, a rate set in force and switched on; `rates` lists its uncached input,
+        cache read, cache write and output rates as SQL, NULL where a dimension is not offered."""
         added = self.admin.call(f'{MODELS}/add', {'operationId': str(uuid4()), 'vendor': 'anthropic', 'identifier': identifier,
                                                   'displayName': self.display_name(identifier)})
         self.edit(added['id'])
-        self.query(f"INSERT INTO assistant.price_revisions VALUES('{added['id']}',1,'rates',{self.usd},{RATES},NULL,NULL,NULL,NULL,NULL,'2020-01-01',NULL,"
+        self.query(f"INSERT INTO assistant.price_revisions VALUES('{added['id']}',1,'rates',{self.usd},{rates},NULL,NULL,NULL,NULL,NULL,'2020-01-01',NULL,"
                    f"'{self.administrator}',clock_timestamp());")
         self.admin.call(f'{MODELS}/enable', model_command(added['id'], self.row_version(added['id'])))
         return added['id']
