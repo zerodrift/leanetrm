@@ -1,10 +1,12 @@
 # Risk scenarios and durable runs
 
-The hosted paths described here retain their existing live-quote conventions.
-A separate managed [connected calculation prototype](connected-calculation.md)
-adds computed-output, parallel, bucket and dated-contract scenarios over linked
-curves. It is not yet wired into these routes or retained jobs. Its graph-kernel
-capacity measurements are recorded [separately](connected-graph-benchmark.md).
+The API and retained job paths use live-quote conventions. The managed
+[connected calculation engine](connected-calculation.md) now supplies saved
+custom projections to the same monthly swap and portfolio valuation path. Its
+typed API also supports computed-output, parallel, bucket and dated-contract
+scenarios; these additional target forms are not HTTP request options. Its
+integer graph-kernel capacity measurements are recorded
+[separately](connected-graph-benchmark.md) and do not qualify financial throughput.
 
 The risk operation uses the same resolved financial environment as the header
 date selectors. Effective and knowledge coordinates select retained business
@@ -35,9 +37,9 @@ values in input receipts remain the original observations. The receipt includes
 the stress layers separately. Returning to a parent or clearing a stress does
 not mutate market data or booked trades.
 
-Current factor families are live commodity quotes. Frozen fixings, relative
-shifts, direct output-curve shocks, rate/volatility shocks and arbitrary contract
-attribute changes are unsupported. A future valuation regime must have a typed,
+The HTTP factor family is live commodity quotes. Frozen fixings, relative
+shifts, direct output-curve targets, rate/volatility shocks and arbitrary contract
+attribute changes are unsupported in these requests. A future valuation regime must have a typed,
 versioned contract and a consuming model. Date rolls require explicit lifecycle
 semantics; they cannot be implemented as an arbitrary date property override.
 
@@ -101,7 +103,13 @@ Submission retains the exact context, market revision, selected book scope,
 observation pins and frozen-input uses, market frames, stress/bump conventions and managed engine
 fingerprint. Empty interactive scope selectors resolve to explicit books before
 queueing. An identical request identity and payload return the original run;
-different inputs conflict. Changing the UI afterward does not change the job.
+different inputs conflict. Saved managed projections additionally retain their
+published version/output descriptors, compiled graph manifest and exact dated
+sample observations (0076–0077). Those samples are separate from the primary
+snapshot: multiple dates may retain different observations of the same series.
+Historical samples are frozen; current quote factors remain explicit. Workers
+read the captured IDs and reject a different reconstructed manifest. Changing
+the UI afterward does not change the job.
 The browser discards results when its context or input generation changes.
 
 Supplemental swap market revisions carry explicit frames under the same retained

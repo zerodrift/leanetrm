@@ -91,4 +91,43 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('schedule tables have one bounded scroll container',"(()=>{const t=document.querySelector('#swap-schedules .regular-table-scroll');return getComputedStyle(t).overflowY==='auto'&&getComputedStyle(t.parentElement).overflowY==='visible';})()");
  await click('#swap-date-lookup>summary');await set('#swap-date-lookup-target','swap-fixed-from');await set('#swap-date-lookup-expression','oe.editor_anchors[1]');await evaluate('window.__denyDate=true');await click('#swap-date-lookup-resolve');
  await check('denied date resolution clears trading rows and helper metadata',"!document.querySelector('#swap-editor').open&&document.querySelector('#swap-date-lookup-symbols').options.length===0&&document.querySelector('#futures-holdings').children.length===0");
+
+ // A real published recipe and booked monthly swap exercise the editor's
+ // opaque descriptor transport; the HTTP checks supply the numerical oracle.
+ await persona('editor');
+ await evaluate(`(async()=>{
+  window.__customCall=async(path,body)=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};
+  const catalog=await(await fetch('/api/custom-curves')).json(),definition=structuredClone(catalog.templates.find(t=>t.code==='ng_average').definition);
+  definition.code='synthetic_editor_'+crypto.randomUUID().replaceAll('-','').slice(0,8);definition.name='Synthetic editor mean';
+  for(const node of definition.nodes){if(node.kind==='source')node.parameters.curve='base_forward';if(node.kind==='select')node.parameters.count='1';if(node.kind==='dates'){node.parameters.count='2';node.parameters.includeContext='true';}}
+  const saved=await window.__customCall('custom-curves/save',{requestId:crypto.randomUUID(),snapshotId:${JSON.stringify(frame)},definition,layout:{}});
+  window.__customVersion={id:saved.id,version:saved.version,generation:saved.generation};
+  window.__customProjection={catalogId:catalog.sources.find(s=>s.code==='base_forward').catalogId,curveId:saved.id,version:saved.version,outputNode:definition.output,position:1,selection:'single_output_position_v1',implementation:'published_custom_curve_projection_v1'};
+ })()`);
+ await persona('approver');await evaluate("window.__customCall('custom-curves/publish',{requestId:crypto.randomUUID(),...window.__customVersion})");
+ await persona('trader');
+ await evaluate(`(async()=>{
+  const context={snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'},catalog=await window.__customCall('swaps/catalog',context),index=catalog.indices.find(i=>i.curve==='base_forward');
+  const prior=window.__swaps.filter(r=>r.path==='/api/swaps/book').at(-1).body;
+  window.__customTrade=await window.__customCall('swaps/book',{...prior,...context,operationId:crypto.randomUUID(),definitionRevisionId:index.definitionRevisionId,commodity:index.commodity,quantity:'10',discounting:false,
+   fixed:{...prior.fixed,price:'0',currency:index.currencyCode},floating:{curve:index.curve,index:index.index,currency:index.currencyCode,deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',paymentSchedule:prior.floating.paymentSchedule,resetFrequency:'monthly',averagingMethod:'none',customProjection:window.__customProjection}});
+ })()`);
+ await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
+ await check('the current Blotter includes the newly booked custom projection',"window.__tradingReports(window.__swaps).at(-1).data.holdings.some(h=>h.tradeId===window.__customTrade.tradeId)");
+ const customReference=await evaluate("window.__tradingReports(window.__swaps).at(-1).data.holdings.find(h=>h.tradeId===window.__customTrade.tradeId).tradeReference");
+ await set('#futures-holdings .table-search',customReference);await click('#futures-holdings .tabulator-row');await wait("document.querySelector('#swap-editor').open");
+ await set('#swap-quantity','20');await click('#swaps-draft-price');
+ await check('custom quantity edits preserve the exact published projection in draft Price',"JSON.stringify(window.__swaps.filter(r=>r.path==='/api/swaps/price').at(-1).body.floating.customProjection)===JSON.stringify(window.__customProjection)");
+ await check('the saved custom projection is identified as retained read-only evidence',"document.querySelector('#swap-coverage').textContent.includes('Saved custom projection')&&document.querySelector('#swap-coverage').textContent.includes('version 1')&&document.querySelector('#swap-coverage').textContent.includes('supplies projected prices')&&document.querySelector('label[for=swap-projection]').textContent==='Contractual index curve'");
+ await click('#swaps-draft-risk');
+ await check('draft Risk retains the same custom projection descriptor',"JSON.stringify(window.__swaps.filter(r=>r.path==='/api/swaps/draft-risk').at(-1).body.draft.floating.customProjection)===JSON.stringify(window.__customProjection)");
+ await set('#swap-reason','Synthetic custom quantity correction');await submit('#swap-form');
+ await check('amendment preview retains custom projection without copying legacy fixing fields',"(()=>{const f=window.__swaps.filter(r=>r.path==='/api/swaps/preview').at(-1).body.floating;return JSON.stringify(f.customProjection)===JSON.stringify(window.__customProjection)&&!('firstFixingAt' in f);})()");
+ await click('#swap-confirm');await click('#swap-submit');
+ await check('the submitted quantity amendment keeps the exact custom projection',"JSON.stringify(window.__swaps.filter(r=>r.path==='/api/swaps/amend').at(-1).body.floating.customProjection)===JSON.stringify(window.__customProjection)");
+ await set('#futures-holdings .table-search',customReference);await click('#futures-holdings .tabulator-row');await wait("document.querySelector('#swap-editor').open");
+ await check('the retained amended trade still names its custom projection',"(()=>{const s=window.__swaps.filter(r=>r.path==='/api/swaps/editor').at(-1).data.state;return s.revision===2&&s.quantity==='20'&&JSON.stringify(s.terms.floating.customProjection)===JSON.stringify(window.__customProjection);})()");
+ await click('#swap-close');await start('daily_gas');await fill('3');await click('#swaps-draft-price');
+ await check('opening a new ordinary swap clears the retained custom descriptor',"!('customProjection' in window.__swaps.filter(r=>r.path==='/api/swaps/price').at(-1).body.floating)&&!document.querySelector('#swap-coverage').textContent.includes('Saved custom projection')&&document.querySelector('label[for=swap-projection]').textContent==='Projection curve'");
+ await click('#swap-close');
 }

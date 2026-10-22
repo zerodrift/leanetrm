@@ -18,9 +18,11 @@ flowchart LR
 
 Sources may already have the supported multi-level basis dependencies. The
 recipe retrieves only its selected contracts and declares their live primitive
-factors. It does not infer dependencies from quoted price levels. This workspace
-does not yet make saved custom recipes bookable indices, add theoretical options,
-or implement historical VaR/covariance.
+factors. It does not infer dependencies from quoted price levels. Published
+managed outputs can now supply explicitly pinned projections to existing monthly
+indexed swaps through the API and shared portfolio/risk path (D183). The trade
+editor has no custom-curve picker. The implementation does not add theoretical
+options or historical VaR/covariance.
 
 The three starting recipes are:
 
@@ -81,7 +83,8 @@ forms the exact rational output. It reads no market tables, so it cannot bypass
 the supplied scenario. The catalog exposes the query, implementation version and
 SHA-256. Arbitrary SQL bodies and runtime registration are not exposed. Further
 transformations require a versioned input/output contract and independent
-numerical, authorization and scenario checks.
+numerical, authorization and scenario checks. SQL transformations remain panel-only
+and reject as booked connected pricing inputs.
 
 Save requires current authoring permission, an exact session snapshot and an
 optimistic generation. Publish requires separate publishing permission. Published
@@ -101,6 +104,43 @@ corrected snapshot versions on one displayed day require an explicit choice.
 The calendar does not choose a substitute date or alter the separate effective
 date and knowledge-cutoff controls.
 
+
+## Published outputs in booked projections
+
+`SwapFloatingInput.CustomProjection` is optional and has no inferred value. It
+names `catalogId`, `curveId`, `version`, `outputNode`, `position`,
+`selection=single_output_position_v1` and
+`implementation=published_custom_curve_projection_v1`. The output position must
+resolve exactly once and have the contractual index's exact quote unit. The
+baseline supports one monthly indexed projection and managed recipe operators
+within the same source catalog and exact market revision. Daily mapping and
+cross-revision histories reject.
+
+The published recipe supplies only the unresolved projected price. The existing
+index/fixing qualification, frozen actuals, independent payments, direction and
+external quantity rules still govern the swap. Exact rational projected prices
+reach scheduled cash and PV without an intermediate decimal rounding step.
+Legacy floating-side identities retain their prior canonical encoding; the
+custom-bound variant names its complete descriptor in version 5.
+
+The trade editor displays an existing saved projection as read-only evidence and
+passes its descriptor unchanged through draft Price/Risk and amendments. Opening
+a new ordinary swap clears that retained descriptor. Selecting a custom projection
+for a new trade remains an explicit API operation; the editor has no picker yet.
+
+The saved graph connects to the shared valuation provider. Historical sample
+observations remain frozen, and current primitive quote shocks propagate through
+the graph into each affected swap and book. A durable job retains exact version,
+output and sample-observation relationships under its certified context; a worker
+reconstructs those pins and verifies the admitted manifest. Changing the working
+UI context cannot change a queued calculation. Current authorization still
+controls reading, execution and publication.
+
+Interactive preparation currently reads visible observation history for the
+selected source revision before sampling. Source builds can repeat across
+recipes before compiled nodes are shared; preparation work is reported separately
+from graph evaluation. This path has no million-edge financial throughput claim.
+
 Use an isolated synthetic preview with the additional monthly/daily panels:
 
 ```sh
@@ -111,3 +151,8 @@ The additional panel is original synthetic data, without exchange-listing claims
 The normal preview remains unchanged unless this flag is selected. Verification
 uses `--custom-curves-check --browser-check --browser /path/to/chrome`; the same
 check is included in `tools/check_all.py`.
+
+The booked projection and retained worker check uses `--connected-portfolio-check`.
+Managed targeted checks include `--connected-recipes`, `--custom-projection` and
+`--connected-portfolios` in MarketData.Checks, plus the Rates swap checks. These
+commands describe executable verification gates; they are not deployment claims.

@@ -70,6 +70,32 @@ public sealed record FixedSide : Side
     public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 }
 
+public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, int Version,
+    string OutputNode, int Position, string Selection, string Implementation)
+{
+    public const string SupportedSelection = "single_output_position_v1";
+    public const string SupportedImplementation = "published_custom_curve_projection_v1";
+    internal void Validate()
+    {
+        if (CatalogId == Guid.Empty || CurveId == Guid.Empty || Version is < 1 or > 64 || Position < 0 ||
+            string.IsNullOrEmpty(OutputNode) || OutputNode.Length > 32 || OutputNode[0] is < 'a' or > 'z' ||
+            OutputNode.Any(c => !(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_')) ||
+            Selection != SupportedSelection || Implementation != SupportedImplementation)
+            throw new MarketDataException("custom_projection", "Supply an exact published curve version, output coordinate and supported projection policies.");
+    }
+    // An in-memory input alias, never a database name lookup. The contractual
+    // curve remains separate for index and actual-fixing validation.
+    public CurveRequest Request(CurveRequest original)
+    {
+        Validate();
+        if (original.Curve.Revision.CatalogId != CatalogId || original.Contract.Revision != original.Curve.Revision)
+            throw new MarketDataException("custom_projection", "This projection contract requires the same exact market catalog and contract revision.");
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new object[]
+            { "custom_projection_request_v1", CatalogId, CurveId, Version, OutputNode, Position, Selection, Implementation, original.Curve.Code });
+        return new(new(original.Curve.Revision, "custom_" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))), original.Contract);
+    }
+}
+
 [EconomicDefinition("FloatingSide_v3")]
 public sealed record FloatingSide : Side
 {
@@ -90,6 +116,14 @@ public sealed record FloatingSide : Side
     [IdentityField]
     public DateTimeOffset FirstFixingAt { get; }
     public ImmutableArray<IndexFixing> Fixings { get; } = [];
+    public CustomCurveProjectionBinding? CustomProjection { get; private init; }
+    public FloatingSide WithCustomProjection(CustomCurveProjectionBinding binding)
+    {
+        if (binding is null || Fixings.IsDefaultOrEmpty || Averaging != FloatingAveraging.MonthlyIndexPrice || Projections.Length != 1)
+            throw new MarketDataException("custom_projection", "A custom projection currently requires one monthly indexed reset with explicit actual fixing rules.");
+        _ = binding.Request(Projections[0].Market);
+        return this with { CustomProjection = binding };
+    }
     [IdentityField]
     public DateTimeOffset PaymentAt { get; }
     [IdentityField]
@@ -107,7 +141,7 @@ public sealed record FloatingSide : Side
     [IdentityField]
     public SwapObservationCalendar? Calendar { get; }
     private readonly ImmutableArray<ExactDecimal> weights;
-    public override ImmutableArray<CurveRequest> Dependencies => Projections.Select(p => p.Market).ToImmutableArray();
+    public override ImmutableArray<CurveRequest> Dependencies => Projections.Select(p => CustomProjection?.Request(p.Market) ?? p.Market).ToImmutableArray();
     public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) =>
         GenerateSchedule().DependenciesAt(snapshot);
 
@@ -258,7 +292,7 @@ public sealed record FloatingSide : Side
     public override SidePaymentSchedule GenerateSchedule() => new(new(Id, DeliveryFrom, DeliveryTo, PaymentAt,
         Quote.Currency, UnitQuantity, Fixings.IsEmpty ? FirstFixingAt : null, Averaging, Calendar,
         Projections.Select((p, n) => new SchedulePriceTerm(weights[n], null,
-            new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity, Fixings.IsEmpty ? null : Fixings[n]))).ToImmutableArray(),
+            new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity, Fixings.IsEmpty ? null : Fixings[n], CustomProjection))).ToImmutableArray(),
         Fixings.IsEmpty ? Implementation : IndexedImplementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
     public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 

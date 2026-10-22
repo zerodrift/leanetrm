@@ -9,10 +9,13 @@ separate save/publish operations (D161). Prompt, inclusive daily-forward BALMO
 and per-tenor historical-average templates have executable synthetic consumers.
 A registered panel-only SQL mean shares the exact units/lineage contract.
 [Custom curves](custom-curves.md) records the supported policies and limits.
-Integration into booked instruments, cross-revision rolling histories and
-historical VaR/covariance remain later work.
+Published managed recipes now supply explicit monthly indexed swap projections
+through the existing booking, portfolio and retained-risk operations (D183).
+A trade request pins the published version and output position. The editor retains
+that binding through amendments and displays it read-only. A trade-editor picker,
+cross-revision rolling histories and historical VaR/covariance remain work.
 
-The managed [connected calculation prototype](connected-calculation.md) (D182)
+The managed [connected calculation engine](connected-calculation.md) (D182–183)
 adds compact dependency plans, nested sparse scenarios, bitemporal logical-to-exact
 bindings, rational means/baskets, rolling selections and resolved schedule
 connections. Parallel, explicit point, whole-delivery bucket and dated-contract
@@ -20,10 +23,16 @@ targets distinguish primitive quote shocks from computed-output offsets. A
 synthetic consumer prices through the common instrument PV contract. The
 [kernel benchmark](connected-graph-benchmark.md) exercises up to five million
 connections; rich financial compilation, database context loading and production
-throughput are not qualified by that integer workload. Integrating these typed
-definitions with the saved custom editor, booked indexes and retained portfolio
-workers remains the next integration step. Volatility and correlation scenarios
-remain explicit later work. All calculation behavior stays in the backend.
+throughput are not qualified by that integer workload. The saved managed recipe
+adapter now retains its exact graph, calendars/schedules and multi-date source
+pins through monthly swap PV, shared portfolio risk and the retained worker.
+Historical samples are frozen; current inputs retain explicit live quote exposure.
+SQL transformations remain panel-only, and HTTP requests still select live quote
+bumps. Direct computed-output targets remain a managed API capability.
+Interactive preparation currently reads visible source-revision history and can
+repeat source builds across recipes; query pushdown and preparation reuse remain
+work. Volatility and correlation scenarios remain later work. All calculation
+behavior stays in the backend.
 
 The header's As of calendar qualifies available exact snapshots through the
 managed backend (D162), including all inputs of a custom graph's history window.

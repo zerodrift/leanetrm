@@ -37,6 +37,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
     // Legacy floating definitions retain their exact v3 encoding. The new
     // indexed variant additionally names its complete immutable fixing rules.
     private static string ContractVersion(object definition, EconomicDefinitionAttribute contract) =>
+        definition is FloatingSide { CustomProjection: not null } ? "FloatingSide_v5" :
         definition is FloatingSide { Fixings.IsEmpty: false } ? "FloatingSide_v4" : contract.Version;
 
     private static void Write(Utf8JsonWriter writer, object? value)
@@ -52,6 +53,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             foreach (var field in fields) { writer.WritePropertyName(field.Name); Write(writer, field.GetValue(value)); }
             if (value is FloatingSide { Fixings.IsEmpty: false } indexed)
             { writer.WritePropertyName("IndexFixings"); Write(writer, indexed.Fixings); }
+            if (value is FloatingSide { CustomProjection: { } projection })
+            { writer.WritePropertyName("CustomProjection"); Write(writer, projection); }
             writer.WriteEndObject();
         }
         else if (value is SideMembership member)
@@ -95,6 +98,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             PriceUnit u => ["price_unit", u.Currency, u.Quantity, u.Multiplier],
             FloatingObservation o => ["observation",o.From,o.To,o.AveragingQuantity],
             SwapProjection p => ["projection", p.Market, p.Contract, p.AveragingQuantity],
+            CustomCurveProjectionBinding p => ["custom_projection", p.CatalogId, p.CurveId, p.Version,
+                p.OutputNode, p.Position, p.Selection, p.Implementation],
             SwapObservationCalendar c => ["observation_calendar", c.Key, c.BusinessDays],
             PaymentCalendar c => ["payment_calendar", c.Key, c.BusinessDays],
             DateSet d => ["date_set", d.From, d.To, d.Dates],

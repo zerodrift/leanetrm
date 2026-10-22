@@ -38,6 +38,7 @@ def main():
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
     parser.add_argument('--swap-risk-holdings-check',action='store_true',help='Qualify stored swap risk materialization in an owned fixture')
+    parser.add_argument('--connected-portfolio-check',action='store_true',help='Qualify published custom curves in booked portfolio risk and jobs')
     parser.add_argument('--risk-jobs-check',action='store_true',help='Qualify nested risk and durable worker execution in a disposable database')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
@@ -64,7 +65,7 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -208,7 +209,7 @@ def main():
         if args.interval_curves_check:
             from interval_curve_fixture import prepare as prepare_interval_curves
             reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
-        if args.custom_curves_check or args.with_custom_curves or args.market_dates_check:
+        if args.connected_portfolio_check or args.custom_curves_check or args.with_custom_curves or args.market_dates_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest)
         if args.hosted_check:
@@ -353,7 +354,15 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.risk_jobs_check:
+            if args.connected_portfolio_check:
+                from check_custom_projection_db import run_checks as check_custom_projection_db
+                check_custom_projection_db(query,manifest)
+                from check_connected_portfolio import run_checks as check_connected_portfolio
+                worker_env=prepare_risk_worker()
+                def run_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                check_connected_portfolio(url,manifest,query,run_worker)
+            elif args.risk_jobs_check:
                 from preview_client import PreviewClient
                 from check_risk_preview import run_checks as check_risk
                 from check_risk_jobs import run_checks as check_risk_jobs

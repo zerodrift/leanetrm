@@ -1,9 +1,11 @@
-# Connected calculation prototype
+# Connected curve calculation
 
-Status: managed backend prototype. The public portfolio API, retained risk jobs
-and custom-curve editor continue to use their existing paths. This prototype
-does not admit custom curves into booked instruments, migrate saved recipes or
-certify database knowledge cutoffs. No frontend calculation code is added.
+Status: managed graph execution with a bounded saved-recipe, booked-swap and
+retained portfolio integration (D182–183). Saved managed recipes can supply an
+explicit monthly indexed projection through the existing API and worker. The
+backend uses the database's existing certified financial context; it does not
+create a new knowledge clock. The trade editor has no custom-curve picker, and
+all pricing/scenario behavior stays in the backend.
 
 ## Calculation contract
 
@@ -19,8 +21,8 @@ and knowledge intervals. Missing or overlapping assertions, unavailable
 publication history and unsupported context modes fail. Every transitive
 reference resolves under the same context. A date change prepares a new graph;
 it cannot rewrite an existing session. The resolver consumes retained assertions
-supplied by a trusted caller; SQL activation and certification integration remain
-work.
+supplied by a trusted caller; persistence and certification of those logical
+activation assertions remain work.
 
 Supported calculated relationships are explicit uniform means, weighted means,
 signed weighted baskets/spreads, rolling contract selections and resolved
@@ -37,7 +39,7 @@ their dependencies; they never turn a derived result into a detached source
 price. Exact rational arithmetic preserves nonterminating averages through PV.
 Working-decimal consumers explicitly reject an unrepresentable rational value.
 Registered SQL transforms require a separately qualified executor and are
-rejected by this prototype.
+rejected by connected booked pricing.
 
 ## Scenarios
 
@@ -81,15 +83,35 @@ declaration, fences curve-price access to its exact bindings and calls
 scenario on demand. The returned valuation must belong to that exact instrument
 and context.
 
-An executable synthetic instrument proves underlying quote → computed mean →
-weighted spread → common instrument PV. Existing stored swap schedule pricing
-still requires its qualified market-model adapter; this prototype does not
-replace its input checks. The existing snapshot bridge admits one retained
-observation per exact input key. A historical average using multiple frozen
-observations of the same series can be evaluated in the curve graph, but cannot
-yet pass through this instrument bridge; it fails validation. Persisted book
-bindings, portfolio aggregation through this path, API/worker receipts and
-custom-editor integration remain work.
+The shared provider connects underlying quote → computed mean/basket → common
+instrument PV. Its stored monthly swap adapter preserves the original index and
+actual-fixing checks while resolving the projected request through a distinct
+exact custom-binding alias. Rational prices flow through the scheduled payment,
+instrument and external holding quantity. Fully fixed swaps use their retained
+actuals without a projected graph dependency.
+
+A prepared valuation accepts the primary snapshot plus explicit source sample
+snapshots. Each individual snapshot retains one observation per exact input;
+different historical snapshots can retain different frozen observations of the
+same series. Complete observations, use roles, sample cutoffs, recipe versions,
+calendar/schedule evidence and graph manifests participate in reconstruction.
+Historical sampling does not turn old marks into current risk factors.
+
+Migration 0076 pins the published version/output descriptor to the floating side;
+0077 separately retains a job's graph manifests, custom versions and dated sample
+observations with exact foreign keys. Explicit booked version references remain
+fixed. Effective/knowledge context selects retained trade relationships and
+visible publications, while current authority gates every business read. The
+managed logical-binding resolver is not a database activation table or a latest
+version-by-name lookup.
+
+The portfolio API and durable worker use this materialization. Their HTTP shock
+contract remains live primitive quote bumps and nested quote stresses. Direct
+computed-output, parallel and bucket targets remain available through the managed
+typed scenario API. SQL recipe transformations remain panel-only. The integration
+supports the existing monthly indexed projection within one source catalog and
+revision; daily custom mappings, cross-revision histories and a trade-editor
+picker remain work.
 
 ## Execution and qualification
 
@@ -105,10 +127,23 @@ The graph kernel is separate from the rich curve-definition compiler. Large
 integer graph benchmarks do not qualify million-point financial compilation,
 exact rational pricing, database loading, hosted throughput or distributed risk.
 Broad shocks still perform work proportional to their affected closure.
+Completed risk factors retain immutable scenario receipts and work counts.
+Results do not retain execution caches after each up/down pair has priced all
+valuation groups.
+Interactive preparation reads visible source-revision history before bounded
+sampling and may repeat source builds across recipes. `ConnectedPreparationWork`
+reports source builds/evaluated/reused source nodes separately from `GraphWork`.
+Workers reload admitted sample IDs. Query pushdown, shared preparation and
+end-to-end large financial workload qualification remain work. Worker replicas
+process separate whole runs; this integration does not distribute one graph or
+reduce one run across machines.
 
 Run the registered managed checks through `tools/check_all.py`, or use the
 MarketData.Checks switches `--dependency-plan`, `--temporal-bindings`,
-`--connected-curves`, `--connected-scenarios` and `--exact-curve-prices`.
+`--connected-curves`, `--connected-scenarios`, `--exact-curve-prices`,
+`--connected-recipes`, `--custom-projection` and `--connected-portfolios`.
+`tools/run_preview.py --connected-portfolio-check` exercises the saved projection,
+booking, shared portfolio and durable worker path in a disposable database.
 The Release benchmark switch is `--connected-graph-benchmark <output.json>`;
 keep its generated report outside the repository. The workload records node and
 edge counts, scenarios, evaluated work, allocation/retained memory, environment

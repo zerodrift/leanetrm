@@ -786,7 +786,7 @@ async Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession ses
 }
 // Trading pages without a read operation of their own run their store's read on the shared trading read path.
 Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false)=>
-    TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,data=>read(connection,data,view.Frame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk);
+    TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk);
 // The page keeps request policy: conventions, risk and amendment permissions, and the booking and amendment flags.
 Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,TradingView,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,bool combinedWorkspace=false)=>
     Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
@@ -904,7 +904,7 @@ var futuresRisk=new FuturesRiskPreview(futuresStore);
 var portfolioRisk=new PortfolioRiskPreview(database);
 Task<IResult> PortfolioRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read)=>
     TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,
-        data=>read(connection,data,view.Frame with {ContextId=view.Context.ContextId},ct),ct,
+        data=>read(connection,data,view.CalculationFrame,ct),ct,
         referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),
         scenario:true,expectedConvention:TradingBlotter.Convention);
 api.MapPost("/portfolio/risk/catalog",(HttpContext c,FuturesRiskCatalogRequest body)=>PortfolioRead(c,

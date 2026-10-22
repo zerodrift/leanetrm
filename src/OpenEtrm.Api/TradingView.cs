@@ -15,6 +15,7 @@ public sealed record TradingView
         Frame=frame??throw PinnedContext.Missing();Context=PinnedContext.Exact(context);Working=working;
     }
     public InputFrame Frame {get;}
+    public InputFrame CalculationFrame=>Frame with{ContextId=Context.ContextId};
     public ScheduleContext Context {get;}
     // The context was captured from current knowledge for this read over a working frame.
     public bool Working {get;}
