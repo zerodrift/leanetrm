@@ -1,17 +1,17 @@
 """Grants (docs/ai-assistant.md §5.1, §5.4, §7.1, §8): a user's grant to an agent version, derived from the stored
-version; one current grant per user and agent; coverage; Revoke; Retire revoking open grants; the grant audit; through
-the API; owned synthetic preview only."""
+version; one current grant per user and agent; coverage; Revoke; Retire revoking open grants; the grant audit; a
+workspace's grants for those who administer its access; through the API; owned synthetic preview only."""
 import json
 import re
 import subprocess
 import threading
 from datetime import datetime, timedelta
 from uuid import uuid4
-from assistant_context import ISSUER, WINDOW, Contexts, check_guard, expect, holding, migration_body, refused, waiting
+from assistant_context import ADMINISTRATOR_ROLE, ISSUER, WINDOW, Contexts, check_guard, expect, holding, migration_body, refused, waiting
 from assistant_fixture import AGENTS, Fixture
 from preview_client import PreviewClient
 
-USABLE, GRANTS = 'assistant/agents', 'assistant/grants'
+USABLE, GRANTS, WORKSPACE = 'assistant/agents', 'assistant/grants', 'assistant/grants/workspace'
 EMPTY = '00000000-0000-0000-0000-000000000000'
 # Every row a grant command writes, and the generation every admitted request pins.
 RECORDS = ("SELECT md5(string_agg(value,E'\\n' ORDER BY value)) FROM("
@@ -52,6 +52,12 @@ def check_upgrade(query, migration):
             'assistant.agent_for_change(security.request_contexts,uuid,integer)', 'assistant.agent_state(uuid)',
             'assistant.agent_version_state(uuid,integer)', 'assistant.current_model_version(uuid)',
             'assistant.retire_agent(uuid,uuid,integer)')))
+
+
+def check_workspace_upgrade(query, migration):
+    """Before 0079 applies: it refuses a changed definition or privilege of the authority helper its read relies on."""
+    check_guard(query, migration, '0079', 'workspace_grants',
+                (("ALTER FUNCTION security.has_permission(text) SET work_mem='64kB';", 'security.has_permission(text)'),))
 
 
 def run_checks(url, query, psql, manifest, environment, admin, viewer):
@@ -204,6 +210,58 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
                     'displayName': model_name}])
     check("another user's grants never list it", all(g['id'] != granted['id'] for g in risk.call(GRANTS)['grants']))
 
+    # A workspace's grants (§7.1): those who administer its access see every grant in force and the latest grant audit
+    # records, each naming its person, agent, version, model and reads, and nothing a turn holds. Nothing here revokes.
+    def workspace():
+        return admin.call(WORKSPACE)
+
+    def names():
+        return {m['login']: m['name'] for m in admin.call('admin')['members']}
+
+    def granting(grant_id):
+        return query(f"SELECT operation_id FROM assistant.grant_audit WHERE delegation_id='{grant_id}' AND outcome='granted';")
+    named, vendors = names(), admin.call(AGENTS)['vendors']
+    check("a user's grants and a workspace's name each vendor as the Agents directory does",
+          trader.call(GRANTS)['vendors'] == vendors and workspace()['vendors'] == vendors)
+    facts = {'agentName': f'Synthetic grant guide {stamp}', 'version': 1, 'vendor': 'anthropic', 'identifier': identifier, 'displayName': model_name,
+             'permissions': ['ReadMarketData', 'ReadTrades'], 'expiresAt': granted['expiresAt']}
+    view = workspace()
+    check("the workspace lists the grant in force and its granted record, naming the person, agent, version, model and reads, and "
+          "nothing else",
+          [g for g in view['current'] if g['operationId'] == operation]
+          == [{'operationId': operation, 'delegator': named['trader'], **facts, 'grantedAt': granted['grantedAt']}]
+          and [r for r in view['history'] if r['operationId'] == operation]
+          == [{'operationId': operation, 'at': granted['grantedAt'], 'outcome': 'granted', 'delegator': named['trader'], 'actor': named['trader'], **facts}],
+          view)
+    records, generation = query(RECORDS), query(EPOCH)
+    workspace()
+    check("reading a workspace's grants writes nothing", query(RECORDS) == records and query(EPOCH) == generation)
+    read = 'PERFORM assistant.workspace_grants();'
+    for session in (trader, viewer):
+        refusal(session, WORKSPACE, None, 403, 'access_denied')
+    for profile in ('trader', 'risk', 'editor', 'viewer'):
+        contexts.runtime(profile, expect(read, '42501'))
+    for permission in ('ManageIdentities', 'ManageAccess'):
+        contexts.rolled_back(f"DELETE FROM security.role_permissions WHERE permission='{permission}' AND role_id={ADMINISTRATOR_ROLE};",
+                             'admin', 'human_interactive', contexts.workspace, 'NULL', expect(read, '42501'))
+    contexts.delegated_agent(expect(read, '42501'), 'ManageIdentities', also=('ManageAccess',))
+    borrower, borrowed = uuid4(), uuid4()
+    contexts.rolled_back(f"INSERT INTO security.principals VALUES('{borrower}','agent',true);"
+                         f"INSERT INTO security.agent_delegations VALUES('{borrowed}','{borrower}','{contexts.administrator}','{contexts.tenant}',"
+                         f"'{contexts.workspace}',{WINDOW},false);",
+                         'admin', 'human_interactive', contexts.workspace, f"'{borrowed}'", expect(read, '42501'))
+    check("only an undelegated holder of ManageIdentities with ManageAccess reads a workspace's grants: the database refuses a person "
+          "lacking either, an agent delegated both and an administrator acting under a delegation")
+    isolated = json.loads(contexts.second_workspace('SELECT assistant.workspace_grants()::text;').splitlines()[-1])
+    check("an administrator of another workspace sees none of this workspace's grants", isolated == {'current': [], 'history': []}, isolated)
+    token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
+                  f"'{ISSUER}','admin','human_interactive','{contexts.tenant}','{contexts.workspace}',NULL,'preview_runtime',2);")
+    query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT pg_sleep(2.5);{expect(read, '42501')}ROLLBACK;")
+    lapsed_read = contexts.expiring(psql, environment, 'grant', 'LOCK TABLE assistant.grant_audit IN ACCESS EXCLUSIVE MODE',
+                                    'SELECT assistant.workspace_grants();')
+    check("an expired request context reads no workspace grants, and a read whose authority lapses while it waits is refused at its recheck",
+          bool(lapsed_read) and '42501' in lapsed_read and 'Workspace grants access expired' in lapsed_read, lapsed_read)
+
     records = query(RECORDS)
     check('repeating the identical grant answers as it did and writes nothing',
           grant(trader, operation=operation) == granted and query(RECORDS) == records)
@@ -225,6 +283,11 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
               f"'{contexts.workspace}',clock_timestamp(),clock_timestamp()+interval '1 day',false);")
     query(f"BEGIN;{expect(second, '23505')}ROLLBACK;")
     check('even for the owner, one user holds at most one unrevoked delegation to one agent')
+    pair = [r for r in workspace()['history'] if r['operationId'] == replacing]
+    check("a replacement's two records share their instant, in one order every read, and only the new grant is in force",
+          sorted(r['outcome'] for r in pair) == ['granted', 'replaced'] and len({r['at'] for r in pair}) == 1
+          and pair == [r for r in workspace()['history'] if r['operationId'] == replacing]
+          and [g['operationId'] for g in workspace()['current'] if g['agentName'] == facts['agentName']] == [replacing], pair)
 
     # Coverage: the same model identity and permissions are covered whatever the version; anything else asks again.
     current_cover = {'id': current['id'], 'expiresAt': current['expiresAt']}
@@ -390,6 +453,10 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
     check('revoking a grant that its replacement ended answers when it ended, and writes nothing',
           revoke(trader, granted['id']) == {**granted, 'revokedAt': current['grantedAt']}
           and query(RECORDS) == records and query(EPOCH) == generation)
+    check("a Revoke is recorded once, by its delegator, however often it is repeated, and its grant is no longer in force",
+          [(r['outcome'], r['delegator'], r['actor'], r['at']) for r in workspace()['history'] if r['operationId'] == revoking]
+          == [('revoked', named['trader'], named['trader'], revoked['revokedAt'])]
+          and all(g['operationId'] != replacing for g in workspace()['current']))
     refusal(trader, f'{GRANTS}/grant', body(version=6, operation=revoking), 409, 'grant_conflict')
     refusal(trader, f'{GRANTS}/revoke', {'operationId': replacing, 'grantId': current['id']}, 409, 'grant_conflict')
     check("a grant under a Revoke's request identity, or a Revoke under a grant's, is refused", query(RECORDS) == records)
@@ -411,6 +478,8 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
     refusal(suspended, GRANTS, None, 403, 'access_denied')
     refusal(suspended, f'{GRANTS}/revoke', {'operationId': str(uuid4()), 'grantId': suspended_grant['id']}, 403, 'access_denied')
     check('a person whose membership is disabled lists and revokes nothing, even holding their roles', query(RECORDS) == records)
+    check("their grant, neither revoked nor expired, is still listed in force to those who administer the workspace's access",
+          granting(suspended_grant['id']) in [g['operationId'] for g in workspace()['current']])
 
     # An outcome the API cannot confirm is unknown; repeating the identical request then grants exactly once.
     pending = str(uuid4())
@@ -419,6 +488,22 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
     check("a grant held past the API's command timeout reports an unknown outcome, and repeating it grants exactly once",
           unknown['code'] == 'grant_outcome_unknown'
           and query(f"SELECT count(*) FROM assistant.grant_audit WHERE operation_id='{pending}' AND outcome='granted';") == '1')
+
+    # The history keeps the latest 100 records; a grant older than them, here behind 101 later synthetic ones, is still listed
+    # in force.
+    later = [(str(uuid4()), str(uuid4())) for _ in range(101)]  # Each record's delegation and request identity, oldest first.
+    window = json.loads(contexts.rolled_back(
+        'INSERT INTO security.agent_delegations VALUES' + ','.join(
+            f"('{d}','{agent_principal}','{trader_principal}','{contexts.tenant}','{contexts.workspace}',"
+            "clock_timestamp()-interval '2 days',clock_timestamp()-interval '1 day',true)" for d, _ in later) + ';'
+        "INSERT INTO assistant.grant_audit SELECT g.tenant_id,g.workspace_id,s.operation,s.delegation,'granted',g.delegator_id,g.agent_id,"
+        "g.agent_version,g.model_id,g.model_version,g.permissions,g.expires_at,g.actor_id,clock_timestamp()+s.n*interval '1 second' "
+        'FROM assistant.grant_audit g,(VALUES' + ','.join(f"('{o}'::uuid,'{d}'::uuid,{n})" for n, (d, o) in enumerate(later, 1))
+        + f")s(operation,delegation,n) WHERE g.delegation_id='{kept_guide['id']}' AND g.outcome='granted';",
+        'admin', 'human_interactive', contexts.workspace, 'NULL', 'SELECT assistant.workspace_grants()::text;').splitlines()[-1])
+    check('the history is the latest 100 grant audit records, newest first, and a grant older than all of them is still listed in force',
+          [r['operationId'] for r in window['history']] == [o for _, o in reversed(later)][:100]
+          and pending in [g['operationId'] for g in window['current']])
 
     def unrevoked(*delegations):
         return query("SELECT count(*) FROM security.agent_delegations WHERE NOT revoked AND id IN("
@@ -443,6 +528,10 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
                     f"WHERE operation_id='{retire}';")
           == ','.join(f'retired:{delegation}:{contexts.administrator}' for delegation in open_grants)
           and unrevoked(kept_guide['id'], fenced['id']))
+    check("the workspace records Retire's ends against the administrator, and lists none of the retired agent's grants in force",
+          sorted((r['outcome'], r['delegator'], r['actor']) for r in workspace()['history'] if r['operationId'] == retire)
+          == sorted([('retired', named['trader'], named['admin']), ('retired', named['risk'], named['admin'])])
+          and all(g['agentName'] != f'Synthetic retiring guide {stamp}' for g in workspace()['current']))
     records, generation = query(RECORDS), query(EPOCH)
     ended = revoke(trader, trader_retiring['id'])
     check('revoking a grant that Retire ended answers when it ended, and writes nothing',
@@ -453,6 +542,25 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
     refusal(trader, f'{GRANTS}/grant', body(agent_id=retiring['id']), 409, 'agent_retired')
     check("a retired agent is neither offered nor granted, and its grants are no longer listed",
           offers(trader, retiring['id']) == [] and all(g['agentId'] != retiring['id'] for g in trader.call(GRANTS)['grants']))
+
+    # The grants in force are exactly those their people list: the suspended person's too, once restored.
+    member = next(m for m in admin.call('admin')['members'] if m['login'] == f'synthetic_grant_suspended_{stamp}')
+    admin.call('admin/update', {'operationId': str(uuid4()), 'id': member['id'], 'expectedVersion': member['version'], 'name': member['name'],
+                                'enabled': True, 'roles': member['roles']})
+    named = names()
+    people = [(trader, 'trader'), (risk, 'risk'), (editor, 'editor'), (viewer, 'viewer')] + [
+        (session, f'synthetic_grant_{name}_{stamp}') for session, name in
+        ((manager, 'manager'), (curator, 'curator'), (lapsing, 'lapsing'), (fading, 'fading'), (suspended, 'suspended'))]
+    listed = [{'operationId': granting(g['id']), 'delegator': named[login],
+               **{key: g[key] for key in ('agentName', 'version', 'vendor', 'identifier', 'displayName', 'permissions', 'grantedAt', 'expiresAt')}}
+              for session, login in people for g in session.call(GRANTS)['grants']]
+    in_force = workspace()['current']
+    holders = {named[login] for login in ('trader', 'risk', f'synthetic_grant_manager_{stamp}', f'synthetic_grant_suspended_{stamp}')}
+    check('the grants in force are exactly the union of the grants each person lists, ordered by person and then agent',
+          sorted(json.dumps(g, sort_keys=True) for g in in_force) == sorted(json.dumps(g, sort_keys=True) for g in listed)
+          and {g['delegator'] for g in in_force} == holders
+          and [(g['delegator'].lower(), g['agentName'].lower()) for g in in_force]
+          == sorted((g['delegator'].lower(), g['agentName'].lower()) for g in in_force), (in_force, listed))
 
     # The grant audit keeps history for good.
     for statement in ("UPDATE assistant.grant_audit SET expires_at=expires_at+interval '1 day';", 'DELETE FROM assistant.grant_audit;'):

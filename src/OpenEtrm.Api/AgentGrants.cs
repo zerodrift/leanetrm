@@ -11,16 +11,29 @@ public sealed record GrantRequest(Guid OperationId,Guid AgentId,int? Version);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RevokeRequest(Guid OperationId,Guid GrantId);
 
-// Grants (docs/ai-assistant.md §7.1, §8): the agents a user may use, the user's grants, grant and Revoke. The database
-// owns every rule; this boundary passes it the runtime set's bound on a grant's duration. Grant and Revoke write control
-// tables, so the database refuses them with admission_required once every check has passed under the shared admission.
+// Grants (docs/ai-assistant.md §7.1, §8): the agents a user may use, the user's grants, grant and Revoke, and a
+// workspace's grants for those who administer its access. The database owns every rule; this boundary passes it the
+// runtime set's bound on a grant's duration. Grant and Revoke write control tables, so the database refuses them with
+// admission_required once every check has passed under the shared admission.
 public static class AgentGrants
 {
     public static Task<JsonElement> Usable(NpgsqlConnection connection,CancellationToken ct)=>
         ModelProviders.Read(connection,"SELECT assistant.usable_agents()::text",[],ct);
 
-    public static Task<JsonElement> Grants(NpgsqlConnection connection,CancellationToken ct)=>
-        ModelProviders.Read(connection,"SELECT assistant.grants()::text",[],ct);
+    public static async Task<JsonElement> Grants(NpgsqlConnection connection,CancellationToken ct)=>
+        WithVendors(await ModelProviders.Read(connection,"SELECT assistant.grants()::text",[],ct));
+
+    // Every grant in force in the workspace and its latest grant audit records; read-only.
+    public static async Task<JsonElement> Workspace(NpgsqlConnection connection,CancellationToken ct)=>
+        WithVendors(await ModelProviders.Read(connection,"SELECT assistant.workspace_grants()::text",[],ct));
+
+    // Grants name each model's vendor by code; the page looks its name up here.
+    static JsonElement WithVendors(JsonElement read)
+    {
+        var named=read.Deserialize<Dictionary<string,JsonElement>>()!;
+        named["vendors"]=ModelProviders.VendorNames;
+        return JsonSerializer.SerializeToElement(named);
+    }
 
     public static Task<JsonElement> Grant(NpgsqlConnection connection,GrantRequest body,CancellationToken ct)=>
         body is {OperationId:var operation,AgentId:var agent,Version:{} version}&&operation!=Guid.Empty&&agent!=Guid.Empty

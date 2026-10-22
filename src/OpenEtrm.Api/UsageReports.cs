@@ -37,7 +37,7 @@ public static class UsageReports
         var readable=(await ModelCatalog.Currencies(connection,ct)).ToDictionary(c=>ModelCatalog.Key(c!));
         foreach(var section in report["currencies"]!.AsArray().Select(s=>s!.AsObject()))
             section["label"]=readable.TryGetValue(ModelCatalog.Key(section["currency"]!),out var label)?label!.DeepClone():null;
-        report["vendors"]=JsonSerializer.SerializeToNode(ModelProviders.Vendors.Select(v=>new{code=v.Code,name=v.Name}));
+        report["vendors"]=JsonSerializer.SerializeToNode(ModelProviders.VendorNames);
         return report;
     }
 

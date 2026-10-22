@@ -39,11 +39,14 @@ own permission, and its Agents tab creates agents, saves drafts, publishes, mark
 whose published model version is no longer current, and retires. Users grant an agent
 version its reads and revoke their grants through the API (§7.1): one current grant per
 user and agent, covering later versions with the same model identity and permissions,
-with a grant audit, and Retire revokes an agent's open grants. Turns are recorded in the
-database (§5.1, §7.2, §7.4, §7.5): an ask in the person's own context with admission,
-the pinned-context record and its reserve, a turn's one call with its checks, retries
-and input limit, cancellation and its sources, recovery at a worker start and the
-owner's reads, all checked in SQL. Through the API a person asks, stops and reads their
+with a grant audit, and Retire revokes an agent's open grants. In the profile dialog a
+person reads their grants in force when they ask and revokes them, and Users & access
+shows those who administer a workspace's access every grant in force there and the
+latest grant audit records, read-only. Turns are recorded in the database (§5.1, §7.2,
+§7.4, §7.5): an ask in the person's own context with admission, the pinned-context
+record and its reserve, a turn's one call with its checks, retries and input limit,
+cancellation and its sources, recovery at a worker start and the owner's reads, all
+checked in SQL. Through the API a person asks, stops and reads their
 turns, and the in-process worker runs each turn its process admitted: one call without
 tools, retried as §7.5 allows, streamed within the turn's elapsed limit, its text
 published in batches the database rechecks, then its usage closed and its ending
@@ -502,7 +505,8 @@ audit as history.
   turns, except one whose publication was refused, which fails `access_changed`. Each
   grant and revocation appends a grant audit record in the same transaction; the profile
   dialog lists the user's grants with Revoke, and `ManageIdentities` with `ManageAccess`
-  holders see all of them in Users & access.
+  holders see all of them in Users & access, read-only: every grant in force in the
+  workspace, by person and then agent, and the latest 100 grant audit records.
 - **Grant and Revoke requests** carry an operation identity. A request without it, or
   naming no positive version or no grant, is `grant_input`; one under an identity that
   another grant, Revoke or Retire recorded is `grant_conflict`; an outcome the API

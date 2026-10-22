@@ -589,6 +589,12 @@ are refused:
   appends an immutable record in the same transaction, naming the version, model
   identity and permissions the grant was given for. A grant is a delegation with such a
   record; the user's grants list only those.
+- **A workspace's grants** (migration 0079) are read, never changed, by those who
+  administer its access: `ManageIdentities` and `ManageAccess` held in an undelegated,
+  unexpired request context of the workspace, rechecked after the read. They see every
+  grant in force there, whatever its person's state, and the latest 100 grant audit
+  records, each naming its person, agent and version, model and permissions and nothing
+  a turn holds. Revoke stays the delegator's. Hosted mode maps no route to it.
 - **Repeats and admission:** request identities are scoped by the audit a command
   writes. A repeat answers only the identical request from the same user, whose
   principal row serializes their commands, and grant, Revoke and Retire each refuse an

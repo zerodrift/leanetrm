@@ -1,6 +1,7 @@
 import {renderRegularTable} from './regular-table.js';
 import {displayInstant,publicText,friendly} from './market-view.js';
 import {PendingCommand as PendingAdministration} from './pending-command.js';
+import {inForceRow,historyRow,type WorkspaceGrants} from './agent-grants.js';
 import type {RequestCommand as AdministrativeCommand} from './pending-command.js';
 export {PendingCommand as PendingAdministration} from './pending-command.js';
 export type {RequestCommand as AdministrativeCommand} from './pending-command.js';
@@ -23,19 +24,22 @@ export function accessChange(before:Member|null,after:Member):string{
   if(JSON.stringify(before.roles)!==JSON.stringify(after.roles))changes.push('Roles changed');
   return changes.join(' · ')||'Details saved';
 }
-export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,api:Api,busy:()=>boolean,zone:()=>string,profile:()=>string,updated:()=>Promise<void>){
+// `assistant` says whether this mode has the page assistant, whose grants the page shows (docs/ai-assistant.md §7.1).
+export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,api:Api,busy:()=>boolean,zone:()=>string,profile:()=>string,updated:()=>Promise<void>,
+  assistant:()=>boolean){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=publicText(text);return node;};
-  let directory:Directory|undefined,selected:Member|undefined;
+  let directory:Directory|undefined,selected:Member|undefined,grants:WorkspaceGrants|undefined;
   const pending=new PendingAdministration(knownAdministrationRejection);
   const storageKey=()=>`openetrm.admin.request.${profile()}`;
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* In-memory retry identity is still retained for this visit. */}}
   function pendingNote(){get('admin-pending').hidden=!pending.command;}
   function clearDirectory(){
-    directory=undefined;selected=undefined;get<HTMLFormElement>('admin-form').reset();get('admin-form').hidden=true;
+    directory=undefined;selected=undefined;grants=undefined;get<HTMLFormElement>('admin-form').reset();get('admin-form').hidden=true;
     get('admin-new').hidden=true;
-    for(const id of ['admin-members','admin-audit','admin-roles'])get(id).replaceChildren();
+    for(const id of ['admin-members','admin-audit','admin-roles','admin-grants','admin-grant-history'])get(id).replaceChildren();
+    for(const id of ['admin-grants-card','admin-grant-history-card'])get(id).hidden=true;
   }
   function fill(member?:Member){
     selected=member;get<HTMLFormElement>('admin-form').reset();
@@ -63,7 +67,16 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
     }));
     renderRegularTable(get('admin-members'),'admin-members',profile(),['Name','Kind','Workspace access','Roles',''],directory.members.map(m=>[m.name,kindName(m.kind),m.enabled?'Active':'Suspended',m.roles.map(roleName).join(', ')||'No roles',m.kind==='agent'?'Managed as an agent':button('Edit',()=>fill(m))]),[],busy);
     renderRegularTable(get('admin-audit'),'admin-audit',profile(),['Saved','By','Account','Change'],directory.audit.map(a=>[displayInstant(a.at,zone()),a.actor,a.after.name,accessChange(a.before,a.after)]),[],busy);
+    renderGrants();
     fill(selected&&directory.members.find(m=>m.id===selected?.id));pendingNote();
+  }
+  // Read-only: each person grants and revokes their own.
+  function renderGrants(){
+    if(!grants)return;const shown=grants,instant=(at:string)=>displayInstant(at,zone());
+    renderRegularTable(get('admin-grants'),'admin-grants',profile(),['Person','Agent','Model','Reads','Allowed','Until'],shown.current.map(g=>inForceRow(g,shown.vendors,instant)),[],busy);
+    renderRegularTable(get('admin-grant-history'),'admin-grant-history',profile(),['Recorded','Person','Agent','Model','Reads','Until','Change','By'],
+      shown.history.map(r=>historyRow(r,shown.vendors,instant)),[],busy);
+    for(const id of ['admin-grants-card','admin-grant-history-card'])get(id).hidden=false;
   }
   async function load(){
     // A denied reload must not leave a cached directory visible.
@@ -72,6 +85,11 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
     selected=directory.members.find(m=>m.id===selectedId);get('admin-form').hidden=false;
     try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}
     render();
+    if(!assistant())return;
+    // The workspace's agent grants follow the directory; a refusal means access ended, so nothing read stays.
+    try{grants=await api<WorkspaceGrants>('assistant/grants/workspace');}
+    catch(error){if((error as {code?:string}).code==='access_denied')clearDirectory();throw error;}
+    renderGrants();
   }
   async function send(command:AdministrativeCommand){
     const owner=profile(),previouslyUncertain=pending.sending();store();let member:Member;

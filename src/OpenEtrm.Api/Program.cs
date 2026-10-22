@@ -1058,6 +1058,10 @@ if(hosted is null)
         database.WithIdentity(Profile(session),"UseAgents",async(connection,ct)=>Results.Ok(await AgentGrants.Usable(connection,ct)),c.RequestAborted))));
     api.MapGet("/assistant/grants",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await AgentGrants.Grants(connection,ct)),c.RequestAborted))));
+    // A workspace's grants, read-only, for those who administer its access: the database also requires ManageIdentities
+    // and refuses a delegated context. Revoke stays the delegator's.
+    api.MapGet("/assistant/grants/workspace",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+        database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>Results.Ok(await AgentGrants.Workspace(connection,ct)),c.RequestAborted))));
     api.MapPost("/assistant/grants/grant",(HttpContext c,GrantRequest body)=>GrantCommand(c,"UseAgents",(connection,ct)=>AgentGrants.Grant(connection,body,ct)));
     api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>GrantCommand(c,null,(connection,ct)=>AgentGrants.Revoke(connection,body,ct)));
     // Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
