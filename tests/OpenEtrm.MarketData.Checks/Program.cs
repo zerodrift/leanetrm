@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 
+if(args is ["--ppa-normalization-reuse"]){PpaNormalizationReuseChecks.Run();return;}
 if(args is ["--series-index-acceptance"]){SeriesIndexAcceptanceChecks.Run();return;}
 if(args is ["--ppa-summary"]){PpaSummaryChecks.Run();return;}
 if(args is ["--ppa-break-even"]){PpaBreakEvenChecks.Run();return;}
@@ -433,6 +434,7 @@ passed += PpaAcceptanceChecks.Run();
 passed += PpaSummaryChecks.Run();
 passed += PpaPreparationChecks.Run();
 SeriesIndexWorkChecks.Run();passed++;
+PpaNormalizationReuseChecks.Run();passed++;
 SeriesIndexAcceptanceChecks.Run();passed++;
 passed += IntervalResolverReuseChecks.Run();
 passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();

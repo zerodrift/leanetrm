@@ -10,7 +10,12 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
     private readonly record struct RawScope(VolumeSourceKey Source,QuantityStage Stage,ReferenceKey Energy,DateOnly Month);
     private readonly Dictionary<RawScope,Dictionary<DateTimeOffset,AssetVolume>> raw=[];
     private readonly QuantitySeriesIndexes seriesIndexes=new(inputs.Context);
+    private sealed record NormalizedVolume(PpaDelivery Delivery,QuantityStage Stage,ImmutableArray<VolumeSourceKey> Sources,
+        ImmutableArray<AssetKey> Assets,Quantity Unit,ReferenceKey Energy,ImmutableArray<DeliveryCoverage> Coverage,
+        ImmutableArray<PreparedQuantityRow> Rows);
+    private readonly List<NormalizedVolume> normalizedVolumes=[];
     internal int VolumeComputations { get; private set; }
+    internal int VolumeNormalizations { get; private set; }
     internal int SeriesValidations=>seriesIndexes.Validations;
     internal int SeriesSelections=>seriesIndexes.Selections;
 
@@ -56,7 +61,14 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
             throw Cadence();
         var energies=sources.Select(s=>Series(s.MeteredSeries).Quantity).Distinct().ToArray();
         if(energies.Length!=1 || energies[0] is not {} energyKey)throw Invalid("Every source must explicitly declare the same exact metered energy specification.");
-        var energy=Quantity(energyKey);var rows=ImmutableArray.CreateBuilder<PreparedQuantityRow>();
+        var energy=Quantity(energyKey);var coverage=inputs.PreparedCoverage(instrument);
+        // The owner fixes all source revisions, asset versions, valuation/knowledge instants
+        // and policies. Only identical quantity scopes share pre-certificate MWh rows.
+        var retained=normalizedVolumes.FirstOrDefault(v=>v.Delivery==delivery && v.Stage==volume.Stage &&
+            v.Unit==instrument.UnitQuantity && v.Energy==energy.Key && v.Sources.SequenceEqual(volume.Sources) &&
+            v.Assets.SequenceEqual(instrument.NormalizationAssets) && v.Coverage.SequenceEqual(coverage));
+        if(retained is not null)return retained.Rows;
+        var rows=ImmutableArray.CreateBuilder<PreparedQuantityRow>();
         foreach(var month in Months(delivery))
         {
             var periods=Periods(delivery,month).Where(p=>inputs.Includes(instrument,p.Delivery)).ToArray();
@@ -65,13 +77,16 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
                 .GroupBy(v=>v.Interval.Start).ToDictionary(g=>g.Key,g=>g.ToImmutableArray());
             foreach(var period in periods)
             {
+                VolumeNormalizations++;
                 var normalized=CapacityNormalization.PerUnit(assets,contributions[period.Start],period.Delivery,volume.Stage,inputs.Context);
                 rows.Add(new(period.Delivery,normalized.PerUnit,normalized.State,volume.Stage,
                     [..normalized.Contributions.Select(c=>new QuantityComponent(assets.Single(a=>a.Key==c.Volume.Asset).Location,c.PerUnit,c.Volume.Asset))],
                     [..normalized.Contributions.Select(c=>c.Volume)],[]));
             }
         }
-        return rows.ToImmutable();
+        var result=rows.ToImmutable();
+        normalizedVolumes.Add(new(delivery,volume.Stage,volume.Sources,instrument.NormalizationAssets,instrument.UnitQuantity,energy.Key,coverage,result));
+        return result;
     }
 
     private ImmutableArray<AssetVolume> Raw(VolumeSourceDefinition source,GenerationAsset asset,QuantityStage stage,

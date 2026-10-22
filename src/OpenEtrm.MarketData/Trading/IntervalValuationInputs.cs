@@ -41,6 +41,7 @@ public sealed class IntervalValuationInputs
     public ImmutableHashSet<DateOnly> DetailMonths { get; }
     public ValuationReceipt Receipt { get; private set; }=null!;
     public int VolumeComputations=>quantities.VolumeComputations;
+    public int VolumeNormalizations=>quantities.VolumeNormalizations;
     public int SeriesValidations=>quantities.SeriesValidations;
     public int SeriesSelections=>quantities.SeriesSelections;
     internal CurveBuild BaseMarket { get; }
@@ -112,6 +113,7 @@ public sealed class IntervalValuationInputs
             else spans.Add(span);
         return [..spans];
     }
+    internal ImmutableArray<DeliveryCoverage> PreparedCoverage(PpaInstrument instrument)=>preparedCoverage[instrument.Id];
     internal bool Includes(PpaInstrument instrument,DeliveryInterval interval)=>
         preparedCoverage[instrument.Id].Any(c=>c.Contains(interval.Start,interval.End));
     public IntervalValuationSession Session(CurveBuild scenario,IntervalValuationSession? basis=null)=>new(this,scenario,basis);

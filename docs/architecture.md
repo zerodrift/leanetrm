@@ -1085,6 +1085,11 @@ Immutable selected quantity-series indexes are owned by the request and retain e
 series content, captured clock rules and the fixed knowledge context. Complete
 supplied-cell validation precedes cutoff selection; consumer headers validate on
 reuse. The index never caches deadline outcomes, normalized quantities or authority.
+Within that same immutable request, completed volume normalization is shared only
+when delivery, stage, ordered sources and assets, unit, energy specification and
+prepared coverage match. This shares pre-certificate energy rows across sides and
+instruments; certificate conversion and side-specific validation still run for each
+consumer. A new request revalidates and recalculates its own temporal inputs.
 Input and scope receipts retain pins,
 policies, source revisions, dates, scenario and numerical versions. Migration 0092
 retains typed side terms, explicit memberships and immutable trade-revision bindings.
