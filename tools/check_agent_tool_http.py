@@ -19,7 +19,7 @@ from fake_model_provider import recording, stream, tool_use
 from preview_client import initial_frame
 from preview_fixture import REV, trade_booking
 
-ASK, STOP, GRANTS = 'assistant/turns/ask', 'assistant/turns/stop', 'assistant/grants'
+ASK, STOP, GRANTS, RETAINED = 'assistant/turns/ask', 'assistant/turns/stop', 'assistant/grants', 'market/context/retained'
 ENDED = ('completed', 'failed', 'cancelled', 'interrupted')
 TOOLS = ('read_current_page', 'read_market_data', 'read_trades', 'read_trade_parties', 'read_schedules', 'read_reference_data', 'navigate')
 CURVE = {'page': 'curves', 'selection': {'view': 'curve', 'curve': 'future'}}
@@ -571,6 +571,23 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           == [{'ordinal': 7, 'target': {'page': 'curves', 'selection': None, 'context': {'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None},
                                         'kind': 'page', 'label': 'Curves & prices'}}]
           and [c['context'] for c in issued(grant_id)[before:]] == [selected['contextId'], None], (looked, directory, events))
+    # The panel's Go and Back (§10.1) select a target's retained context again by its id: exactly that context, never a capture.
+    contexts = query('SELECT count(*) FROM market_data.temporal_contexts;')
+    again = trader.call(RETAINED, {'contextId': selected['contextId'], 'selection': 'latest_correction'})
+    fake.respond(stream(recording(model_name, text='Pinned again.')))
+    pinned, _ = settled(ask(report={'page': 'jobs', 'selection': {}}, knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None})['turn'])
+    check('a retained context selected by its id is exactly that context, which the session then shows and an ask pins, and selecting it '
+          'captures nothing',
+          again['context'] == selected and trader.call('workspace/navigation')['context'] == selected
+          and (pinned['state'], pinned['context']['contextId']) == ('completed', selected['contextId'])
+          and query('SELECT count(*) FROM market_data.temporal_contexts;') == contexts, (again, pinned))
+    trader.call('market/current', {})
+    refused = [trader.call(RETAINED, {'contextId': selected['contextId'], 'selection': None}, expected=422)['code'],
+               trader.call(RETAINED, {'contextId': str(uuid4()), 'selection': 'latest_correction'}, expected=422)['code'],
+               trader.call(RETAINED, {'contextId': selected['contextId'], 'selection': 'latest_correction', 'mode': 'at'}, expected=400)['code']]
+    check('selecting a retained context by its id names the correction policy and a context that exists, in exactly that form, '
+          'and a refusal leaves working data selected',
+          refused == ['selection_policy', 'temporal_context', 'request_format'] and trader.call('workspace/navigation')['context'] is None, refused)
 
     # The step limit (§7.5): a call whose requests would pass it has none of them run.
     fake.respond(stream(tool_use(model_name, [('toolu_synthetic_51', 'read_market_data', CURVES),

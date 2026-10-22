@@ -303,7 +303,7 @@ export function setupUsageSettings(options:{api:Api;act:(work:()=>Promise<void>)
   });
   get('ai-usage-retry').onclick=()=>void options.act(send);
   get('ai-usage-discard').onclick=()=>{if(options.busy())return;pending.clear();store();sync();};
-  return {load,sync,
+  return {load,sync,unconfirmed:()=>!!pending.command,
     refresh(){if(directory)fillZones();render();sync();},
     reset(){
       generation++;wipe();

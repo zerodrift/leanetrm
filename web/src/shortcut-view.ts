@@ -1,6 +1,7 @@
 import {displayDate,displayInstant,publicText} from './market-view.js';
 import {renderRegularTable} from './regular-table.js';
 import {zonedInput} from './user-time.js';
+import {trackEdits} from './edit-tracking.js';
 
 type DateRole='delivery_start'|'delivery_end'|'last_trading';
 type Shortcut={name:string;symbol:string;curve:string;position:number;dateRole:DateRole};
@@ -66,7 +67,8 @@ export function scheduleErrorMessage(code:string):string|undefined{
 
 export function setupShortcutEditor(run:(work:()=>Promise<void>)=>Promise<void>,operations:Operations,isBusy:()=>boolean,zone:()=>string){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
-  const form=get<HTMLFormElement>('schedule-form');
+  // The time a shortcut is tried at, with the offset a repeated local time asks for, is not part of it.
+  const form=get<HTMLFormElement>('schedule-form'),edits=trackEdits(form,[get('schedule-at').parentElement!]);
   const value=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id).value;
   const set=(id:string,text:string)=>{get<HTMLInputElement|HTMLSelectElement>(id).value=text;};
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
@@ -86,7 +88,7 @@ export function setupShortcutEditor(run:(work:()=>Promise<void>)=>Promise<void>,
   }
   function fill(shortcut:Shortcut){
     set('schedule-name',shortcut.name);set('schedule-symbol',shortcut.symbol);set('schedule-source',shortcut.curve);
-    set('schedule-position',String(shortcut.position));set('schedule-date-role',shortcut.dateRole);clear();renderSource();
+    set('schedule-position',String(shortcut.position));set('schedule-date-role',shortcut.dateRole);clear();renderSource();edits.clear();
   }
   function renderSaved(){
     get('schedule-saved-empty').hidden=library.shortcuts.length>0;
@@ -121,7 +123,7 @@ export function setupShortcutEditor(run:(work:()=>Promise<void>)=>Promise<void>,
   });};
   get('schedule-keep').onclick=()=>{
     if(isBusy()||!form.reportValidity())return;
-    void run(async()=>{clear();const input=await draft();await operations.keep(input);await load();render(await operations.resolve({symbol:input.symbol,at:input.at}));});
+    void run(async()=>{clear();const input=await draft();await operations.keep(input);edits.clear();await load();render(await operations.resolve({symbol:input.symbol,at:input.at}));});
   };
   get('schedule-example').onclick=()=>void run(async()=>{
     if(!library.sources.length)await load();
@@ -137,8 +139,10 @@ export function setupShortcutEditor(run:(work:()=>Promise<void>)=>Promise<void>,
     timeInput.set(id==='schedule-before'?entry.beforeExpiryAt:entry.rollAt);
     get('schedule-context-note').textContent=id==='schedule-before'?'Immediately before the recorded expiry instant.':'Using the exact recorded expiry instant.';clear();form.requestSubmit();
   };
-  return {load,refresh(){timeInput.refresh();renderSource();if(displayed)render(displayed);},reset(){
-    library={sources:[],shortcuts:[],dateRoles:[]};timeInput.clear();form.reset();clear();get('schedule-context-note').textContent='';get('schedule-source-panel').hidden=true;
+  return {load,refresh(){timeInput.refresh();renderSource();if(displayed)render(displayed);},
+  // Shortcut edits not yet kept.
+  unsaved:edits.edited,reset(){
+    library={sources:[],shortcuts:[],dateRoles:[]};timeInput.clear();form.reset();clear();edits.clear();get('schedule-context-note').textContent='';get('schedule-source-panel').hidden=true;
     const placeholder=el('option','Choose a source schedule…');placeholder.value='';get('schedule-source').replaceChildren(placeholder);
     get('schedule-saved').replaceChildren();get('schedule-contracts').replaceChildren();get('schedule-saved-empty').hidden=false;
   }};

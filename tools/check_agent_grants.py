@@ -221,8 +221,8 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
     def granting(grant_id):
         return query(f"SELECT operation_id FROM assistant.grant_audit WHERE delegation_id='{grant_id}' AND outcome='granted';")
     named, vendors = names(), admin.call(AGENTS)['vendors']
-    check("a user's grants and a workspace's name each vendor as the Agents directory does",
-          trader.call(GRANTS)['vendors'] == vendors and workspace()['vendors'] == vendors)
+    check("the agents a user may use, a user's grants and a workspace's name each vendor as the Agents directory does",
+          trader.call(USABLE)['vendors'] == vendors and trader.call(GRANTS)['vendors'] == vendors and workspace()['vendors'] == vendors)
     facts = {'agentName': f'Synthetic grant guide {stamp}', 'version': 1, 'vendor': 'anthropic', 'identifier': identifier, 'displayName': model_name,
              'permissions': ['ReadMarketData', 'ReadTrades'], 'expiresAt': granted['expiresAt']}
     view = workspace()

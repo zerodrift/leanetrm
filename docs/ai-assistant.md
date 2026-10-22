@@ -75,8 +75,20 @@ through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
 per exact currency reference with provider tests as their own row and a daily chart, and
-an audited export of that report as a formula-guarded CSV. Show card and the panel are
-not implemented, so no page asks yet and no target moves anyone.
+an audited export of that report as a formula-guarded CSV. From step 6 the panel asks
+and answers in the local preview (§10.1, D191): a header launcher, shown to a person who
+uses agents and may use one, opens a panel docked beside the narrowed page, resized by
+pointer or keyboard, and a full-width sheet below 760 px. Its picker lists the usable
+versions with provider, model and a Draft label and preselects the last explicit choice
+only while it is listed; Looking at shows the page report and context an ask sends;
+consent grants the version and sends the question again; answers stream with collapsible
+step lines, a usage line and incomplete answers marked, drawn from text nodes. A live
+target that keeps the page's context and leaves nothing unsaved moves the page, with a
+notice and Back, and any other offers Go, which first selects its context, a retained
+view again by its id. A tab keeps an unfinished turn's stream while the panel is closed
+and lights the launcher when it ends, which History marks unread; Stop, Retry, Resume
+after a newer stream and a reload offer once the session ends follow §8. Show card is
+not implemented.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -1055,8 +1067,8 @@ credential entries read only "key replaced".
 
 ## 11. Hosted mode and later phases
 
-Under `--hosted-pilot` phase 1 is inert: assistant, stream and Settings › AI routes
-are not mapped; no worker, model-provider client, agent pool or worker connection
+Under `--hosted-pilot` phase 1 is inert: assistant, stream and Settings › AI routes,
+and the panel's selection of a retained context by its id, are not mapped; no worker, model-provider client, agent pool or worker connection
 exists; the API reports the assistant unavailable, so the launcher and Settings › AI
 are hidden; `tools/check_hosted_http.py` asserts it. Its migrations still ship, so the
 first hosted release after phase 1 waits for operator baseline qualification (D135).
@@ -1202,7 +1214,7 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 Owner decisions become D rows when recorded. Every other rule in this document is a
 design call, recorded as P rows by section and open to correction until the owner
 approves it. Phase 3's four hosted gates are undecided. [decisions.md](decisions.md)
-records this section as D149–D156, D177, D184, D185, D190 and P24–P38, with the
+records this section as D149–D156, D177, D184, D185, D190, D191 and P24–P38, with the
 open-item updates below.
 
 **AGENTS.md exception:** model-provider vendor names (Anthropic, OpenAI, Google, xAI,
@@ -1279,6 +1291,25 @@ assistant reads, each checked by its reads' accesses and permissions under the t
 grant, a page that does not open adding nothing to the source set; there is no
 separate context target; and a `navigation` event follows its step under the
 publication recheck and is hidden as text is (§7.3, §8).
+
+**Panel decisions** (D191, decided by the owner): Looking at reports the curve directory,
+a curve or its observations by Curves & prices' curve and tab, power hours on Power TOUs
+once a frame is chosen and TOU products before, and Blotter rows without their grouping,
+totals with it, an open trade at its revision, though its modal dialog leaves nothing
+asked until it closes, and risk results as `blotter_risk`; only a navigation event
+arriving live on the stream the tab's own ask opened moves the page, while the panel is
+open on an idle page without a dialog, keeping the page's knowledge and frame and leaving
+nothing unsaved, and any other target waits for Go, which selects its context first, a
+retained view again by its id and never a new capture; Back restores page, report and
+context from the tab's memory, also after a move that failed once it had changed the page,
+and both first say so on a page with unsaved edits or an unconfirmed request; a tab keeps its
+unfinished turn's stream with the panel closed, re-reading after a gap in its sequences,
+its ending lighting the launcher and staying unread in History until the open panel shows
+it, and nothing polls; an unconfirmed ask stays, through reloads, until Retry or Discard;
+consent dates the grant's end in the person's zone and Allow resends under a new request
+identity; the usage line shows exact recorded costs by currency code, `unknown` and
+`unpriced`; answers use a Markdown subset drawn from text nodes, and step lines name tools
+and reasons in plain words (§8, §10.1).
 
 The agent reader role amends D42 (seven role templates).
 

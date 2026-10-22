@@ -315,7 +315,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
   });
   get('ai-agents-retry').onclick=()=>void options.act(send);
   get('ai-agents-discard').onclick=()=>{if(options.busy())return;pending.clear();store();sync();};
-  return {load,sync,
+  return {load,sync,unconfirmed:()=>!!pending.command,
     refresh(){render();sync();},
     reset(){
       generation++;wipe();

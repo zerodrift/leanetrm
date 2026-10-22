@@ -5,6 +5,9 @@ using OpenEtrm.MarketData;
 namespace OpenEtrm.Api;
 
 public sealed record MarketContextRequest(string? EffectiveOn,string? KnownAt,string? Mode,string? Selection);
+// A retained context selected again by its id, as captured, with the same explicit correction policy.
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record RetainedContextRequest(Guid ContextId,string? Selection);
 
 // Selection is deliberately separate from certification. A certified timestamp
 // does not authorize choosing a source, filling a gap or rolling a contract.

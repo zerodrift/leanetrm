@@ -17,8 +17,9 @@ public sealed record RevokeRequest(Guid OperationId,Guid GrantId);
 // admission_required once every check has passed under the shared admission.
 public static class AgentGrants
 {
-    public static Task<JsonElement> Usable(NpgsqlConnection connection,CancellationToken ct)=>
-        ModelProviders.Read(connection,"SELECT assistant.usable_agents()::text",[],ct);
+    // The panel's picker and consent name each version's vendor.
+    public static async Task<JsonElement> Usable(NpgsqlConnection connection,CancellationToken ct)=>
+        WithVendors(await ModelProviders.Read(connection,"SELECT assistant.usable_agents()::text",[],ct));
 
     public static async Task<JsonElement> Grants(NpgsqlConnection connection,CancellationToken ct)=>
         WithVendors(await ModelProviders.Read(connection,"SELECT assistant.grants()::text",[],ct));
@@ -27,7 +28,7 @@ public static class AgentGrants
     public static async Task<JsonElement> Workspace(NpgsqlConnection connection,CancellationToken ct)=>
         WithVendors(await ModelProviders.Read(connection,"SELECT assistant.workspace_grants()::text",[],ct));
 
-    // Grants name each model's vendor by code; the page looks its name up here.
+    // Agents and grants name each model's vendor by code; the page looks its name up here.
     static JsonElement WithVendors(JsonElement read)
     {
         var named=read.Deserialize<Dictionary<string,JsonElement>>()!;
