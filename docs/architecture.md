@@ -13,6 +13,12 @@ current authority as their consumers. Scenario evaluation retains the complete
 ancestor declarations and native sample pins. Source execution eligibility is
 an explicit retained input distinct from the risk repricing convention.
 
+Live corrections advance the same certified header context consumed by market,
+instrument, side-schedule and portfolio operations (D188). Existing read paths
+recompute displayed results; risk requests and jobs retain one admitted
+generation. The bounded push/update and numerical-reuse contracts are documented
+in [live calculation](live-calculation.md).
+
 ## 1. Product purpose
 
 Build an ETRM that an AI can use as a complete application. People, internal

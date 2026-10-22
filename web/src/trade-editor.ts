@@ -19,9 +19,10 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
  const display=dealFormatEditor(get('trade-amount-format'),{api:options.api,act:options.act,busy:options.busy,changed:async()=>{if(detail)await display.prepare(detail,'trade',detail.catalog.contracts.find(c=>c.id===detail!.state.contractId)?.clearingIncrement);terms();}});
  let detail:Detail|undefined,prepared:RequestCommand|undefined,selection:{tradeId:string;revision:number|null}|undefined;
  let generation=0,previewGeneration=0;
+ let failedLiveSelection:{tradeId:string;revision:number|null}|undefined;
  const contextKey=()=>JSON.stringify(options.context());
  function invalidate(){previewGeneration++;prepared=undefined;get('trade-preview-result').hidden=true;get<HTMLInputElement>('trade-confirm').checked=false;sync();}
- function reset(){display.reset();annotations.reset();generation++;if(dialog.open)dialog.close();detail=undefined;selection=undefined;invalidate();get('trade-history').replaceChildren();for(const id of ['trade-revision','trade-book','trade-contract'])field(id).replaceChildren();for(const id of ['trade-preview-values','trade-effective'])text(id,'');get<HTMLFormElement>('trade-amend-form').reset();text('trade-editor-reference','');text('trade-editor-terms','');get('trade-side-fields').replaceChildren();text('trade-editor-mode','');text('trade-error','');get('trade-error').hidden=true;}
+ function reset(){failedLiveSelection=undefined;display.reset();annotations.reset();generation++;if(dialog.open)dialog.close();detail=undefined;selection=undefined;invalidate();get('trade-history').replaceChildren();for(const id of ['trade-revision','trade-book','trade-contract'])field(id).replaceChildren();for(const id of ['trade-preview-values','trade-effective'])text(id,'');get<HTMLFormElement>('trade-amend-form').reset();text('trade-editor-reference','');text('trade-editor-terms','');get('trade-side-fields').replaceChildren();text('trade-editor-mode','');text('trade-error','');get('trade-error').hidden=true;}
  async function safe(work:()=>Promise<void>){const started=generation;try{get('trade-error').hidden=true;await work();}catch(error){if(started!==generation)return;text('trade-error',error instanceof Error?error.message:'The trade operation failed.');get('trade-error').hidden=false;if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}throw error;}}
  function sync(){display.sync();
   const waiting=options.pending()?.path==='futures/amend';
@@ -53,6 +54,7 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   terms();invalidate();
  }
  async function open(tradeId:string,revision:number|null){
+  failedLiveSelection=undefined;
   const started=++generation,key=contextKey();
   invalidate();detail=undefined;selection={tradeId,revision};
   try{
@@ -80,5 +82,5 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
  get<HTMLInputElement>('trade-confirm').onchange=sync;
  get('trade-submit').onclick=()=>void options.act(()=>safe(async()=>{if(!prepared||!get<HTMLInputElement>('trade-confirm').checked)throw Error('Preview and confirm the exact amendment first.');await options.queue(prepared);}));
  get('trade-editor-retry').onclick=options.retry;get('trade-editor-reconcile').onclick=options.reconcile;
- return{open,reset,sync,refresh(){annotations.refresh();if(detail){terms();invalidate();}}};
+ return{open,reset,sync,async liveRefresh(){const requested=failedLiveSelection??(dialog.open?selection:undefined);if(!requested)return;try{await open(requested.tradeId,requested.revision);}catch(error){if((error as {code?:string}).code!=='access_denied')failedLiveSelection=requested;throw error;}},refresh(){annotations.refresh();if(detail){terms();invalidate();}}};
 }

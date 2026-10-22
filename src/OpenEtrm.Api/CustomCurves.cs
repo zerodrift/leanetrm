@@ -178,7 +178,7 @@ public static partial class CustomCurves
         var graph=await preparation.Definition(definition,identity,sources,calendars,schedules,ct);
         var plan=ConnectedCurves.Compile(graph.Definitions,graph.Outputs.Select(o=>o.Point).ToImmutableArray(),resolved,
             new PreparedBindings(graph.Definitions.Select(d=>d.Key).ToHashSet(),resolved),ct);
-        return graph.Result(ConnectedScenario.Base(plan),ct);
+        return graph.Result(ConnectedScenario.Base(plan,database.Calculations,ct),ct);
     }
     private static Guid StablePreviewId(RecipeDefinition definition)=>new(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(definition,RiskJobs.Json)).AsSpan(0,16));
     private static ResolvedCalculationContext CalculationContext(InputFrame frame,DefinitionRevision revision,ScheduleContext context)

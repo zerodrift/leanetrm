@@ -76,9 +76,9 @@ app.Use(async (context,next)=>
     if (apiPath.StartsWithSegments("/api")) context.Response.Headers.CacheControl="no-store";
     // A route that must tell the client leaving apart from the request deadline reads the client's own token here.
     context.Items["client_aborted"]=context.RequestAborted;
-    // The page assistant's live event stream lasts as long as its turn, so it alone has no request deadline (§8).
+    // Authorized event streams have their own session, heartbeat and write bounds.
     using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-    if(hosted is not null||!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(15));
+    if(!LiveContexts.Matches(context.Request.Method,apiPath)&&(hosted is not null||!TurnStream.Matches(context.Request.Method,apiPath)))deadline.CancelAfter(TimeSpan.FromSeconds(15));
     context.RequestAborted=deadline.Token;
     const string malformed="The request is incomplete or malformed.";
     try
@@ -93,6 +93,7 @@ app.Use(async (context,next)=>
             PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
             PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
             AutomationException a => (422,a.Code,a.Message),
+            OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
             PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
             PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
             PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
@@ -253,16 +254,19 @@ app.Use(async(c,next)=>
 app.UseWhen(c=>c.Request.Method=="POST"&&c.Request.Path.Equals("/api/trading/workspace",StringComparison.Ordinal),branch=>branch.UseResponseCompression());
 
 await using var exchangeDatabase=hosted is null&&File.Exists(Path.Combine(root,"exchange-manifest.json"))?new PreviewDatabase(root,"exchange-manifest.json"):null;
-MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,hosted is null?"openetrm_preview":"__Host-openetrm_workspace","api");
-if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api").WithMetadata(new PreviewScope("exchange")),exchangeDatabase,"openetrm_exchange_preview","exchange");
+await using var calculationChanges=new CalculationChanges(database);
+await using var exchangeCalculationChanges=exchangeDatabase is null?null:new CalculationChanges(exchangeDatabase);
+MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,hosted is null?"openetrm_preview":"__Host-openetrm_workspace","api",calculationChanges);
+if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api").WithMetadata(new PreviewScope("exchange")),exchangeDatabase,"openetrm_exchange_preview","exchange",exchangeCalculationChanges!);
 app.MapGet("/api/examples",()=>new[]{new {id="baseline",name=hosted is null?"Original synthetic example":"Private pilot workspace",url="/"},new {id="exchange",name="CME & ICE futures · synthetic prices",url="/?example=exchange"}}.Where(e=>e.id=="baseline"||exchangeDatabase is not null));
-void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName,string turnScope)
+void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName,string turnScope,CalculationChanges changes)
 {
 var sessions=new ConcurrentDictionary<string,PreviewSession>();
 var marketReads=new MarketReads(database);
 var scheduleReads=new ScheduleReads(database);
 var partyReads=new PartyReads(database);
 var tradeReads=new TradeReads(database);
+var liveContexts=new LiveContexts(database,changes,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
 async Task<string[]> CurrentPermissions(NpgsqlConnection connection,CancellationToken ct)
 {
     await using var command=ScheduleStore.Command(connection,"SELECT security.current_permissions()");
@@ -316,12 +320,14 @@ api.MapPost("/time/inspect",(HttpContext c,LocalTimeRequest body)=>Locked(c,sess
 // Pages pin the session's selected context, or current working data when none is selected.
 PinnedContext Pin(PreviewSession session,Guid? frame=null)
 {
+    if(frame is {} live&&session.LivePin(live) is {} retained)return retained;
     var selected=frame is {} id?Frame(session,id):null;
     return session.MarketContext is {} context?PinnedContext.Retained(context,selected):PinnedContext.Current(selected);
 }
 InputFrame Frame(PreviewSession session,Guid id)=>Pin(session).Require(session.Frames.GetValueOrDefault(id));
 async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewSession session,CancellationToken ct)
 {
+    if(session.Live is not null)return new([],session.FrameCatalog);
     var aliases=session.ContextAliases(session.MarketContext);
     var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,database.Manifest.RevisionId,session.MarketContext?.ContextId,ct,session.DurableLimit(aliases));
     return session.PlanFrames(stored,session.MarketContext,aliases);
@@ -376,7 +382,7 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
     if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
     var left=session.Profile;
-    session.ForgetDiscoveredFrames(resetAliasIdentities:true);session.Profile=body.Profile; session.MarketContext=null;
+    session.StopLive();session.ForgetDiscoveredFrames(resetAliasIdentities:true);session.Profile=body.Profile; session.MarketContext=null;
     // Then the switch ends the streams the session opened under the profile it left, before it cancels the turns the session
     // asked, so no stream carries that cancel instead; a stream still being admitted finds the new profile
     // (docs/ai-assistant.md §7.2, §8).
@@ -611,20 +617,41 @@ api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(
         var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,database.Manifest.RevisionId,captured.Context.ContextId,ct,session.DurableLimit(aliases));
         return (captured,plan:session.PlanFrames(stored,captured.Context,aliases));
     },c.RequestAborted);
-    session.ApplyFrames(snapshot.plan);
+    session.StopLive();session.ApplyFrames(snapshot.plan);
     session.MarketContext=snapshot.captured.Context;
     return Results.Ok(snapshot.captured);
 }));
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
 {
     await database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>Task.FromResult(true),c.RequestAborted);
-    session.ForgetDiscoveredFrames();session.MarketContext=null;return Results.Ok(new {mode="explicit_input_pins"});
+    session.StopLive();session.ForgetDiscoveredFrames();session.MarketContext=null;return Results.Ok(new {mode="explicit_input_pins"});
 })));
-object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalogOnly)
+api.MapPost("/market/live",(HttpContext c,LiveSelectRequest body)=>Locked(c,async session=>
+{
+    var seed=Frame(session,body.SnapshotId);
+    var resolved=await liveContexts.Resolve(Profile(session),LiveSelection.Start(seed,body.Policy),c.RequestAborted);
+    session.SelectLive(resolved);
+    return Results.Ok(new{live=resolved.Summary(),context=resolved.Context,frame=new NavigationFrame(resolved.Frame!.Id,resolved.Frame.Name,resolved.Frame.At)});
+}));
+api.MapGet("/market/live/events",(HttpContext c,Guid selection)=>liveContexts.Serve(c,()=>Session(c),selection,app.Lifetime.ApplicationStopping));
+api.MapPost("/market/live/pause",(HttpContext c,LivePauseRequest body)=>Locked(c,async session=>
+{
+    if(session.Live?.Id!=body.Selection)throw PinnedContext.Missing();
+    var pin=session.LivePin(body.SnapshotId)??throw PinnedContext.Missing();
+    await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+    {
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        await MarketBundle.RequireObservationPins(connection,database.Manifest,pin.RequireFrame().ObservationIds,ct);return true;
+    },c.RequestAborted);
+    session.PauseLive(pin);return Results.Ok(new{context=pin.Context,frame=new NavigationFrame(pin.RequireFrame().Id,pin.RequireFrame().Name,pin.RequireFrame().At)});
+}));
+object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalogOnly,PinnedContext? exact=null)
 {
     var data=read.Data;
-    return new {unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context=session.MarketContext,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
-        frames=session.VisibleFrames,frameCatalog=session.FrameCatalog,initialFrameIds=session.MarketContext is null?session.InitialFrames:session.ContextAliases(session.MarketContext).Select(f=>f.Id).ToArray()};
+    var context=exact is null?session.MarketContext:exact.Context;
+    var prior=exact?.Frame is {} selected&&selected.ContextId!=session.MarketContext?.ContextId?selected:null;
+    return new {unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
+        frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:context is null?session.InitialFrames:session.ContextAliases(context).Select(f=>f.Id).ToArray()};
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
 {
@@ -649,7 +676,7 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
     return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
         database.Manifest.FuturesConvention,database.Manifest.Example,
         session.MarketContext is null?[..session.InitialFrames]:[..session.ContextAliases(session.MarketContext).Select(f=>f.Id)],
-        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog});
+        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary()});
 })));
 api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
@@ -692,7 +719,7 @@ api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async sessio
             json["observations"]=JsonSerializer.SerializeToNode(read.Observations);
             json["observationScope"]="selected_frame";
         }
-        if(body.IncludeWorkspace)json["workspace"]=JsonSerializer.SerializeToNode(WorkspaceProjection(session,read.Workspace??throw new InvalidOperationException("The requested workspace projection is missing."),true),new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
+        if(body.IncludeWorkspace)json["workspace"]=JsonSerializer.SerializeToNode(WorkspaceProjection(session,read.Workspace??throw new InvalidOperationException("The requested workspace projection is missing."),true,pin),new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
         return Results.Ok(json);
     }
     return Results.Ok(result);
@@ -704,7 +731,8 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     // Current history includes initial inputs and every offered stored close;
     // unselected manual edits remain separate explicit input choices.
     var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
-    var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,ct),c.RequestAborted);
+    var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,ct,
+        session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
     return Results.Ok(new {mode="exact_visible_close_history_with_selected_instant_v1",points});
 }));
 api.MapPost("/corrections",(HttpContext c,CorrectionRequest body)=>Locked(c,async session=>
@@ -792,6 +820,7 @@ async Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession ses
     if(body is not {KnowledgeMode:"retained",ContextId:{} id})throw new MarketDataException("futures_context","Choose current knowledge explicitly or supply the exact retained context.");
     var context=(await knowledgeStore.Read(connection,id,ct)).Context;
     if(session.MarketContext is null)return TradingView.Reread(frame,context);
+    if(session.Live is not null&&frame.ContextId==context.ContextId)return TradingView.Retained(frame,context);
     return session.MarketContext.ContextId==context.ContextId?TradingView.Retained(frame,context)
         :throw new MarketDataException("futures_context","Trading must use the shared selected historical context.");
 }
@@ -805,7 +834,7 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
         if(expectedConvention is SwapStore.Convention or TradingBlotter.Convention){if(body.Convention!=expectedConvention)throw new MarketDataException("swap_context","Select the explicit supported swap valuation convention.");}
         else FuturesStore.Convention(body.Convention);
         if(scenario && !await PreviewDatabase.HasPermission(connection,"RunScenario",ct)||dealRisk && !await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
-        var frame=Frame(session,body.SnapshotId);
+        var frame=session.LivePin(body.SnapshotId)?.RequireFrame()??Frame(session,body.SnapshotId);
         var working=Working(session,body);
         if(amendmentPreview&&!working)
             throw new MarketDataException("historical_read_only","Amendments require working data.");
@@ -1064,6 +1093,7 @@ if(hosted is null)
             _=>throw new MarketDataException("context_required","Ask over the knowledge the page shows: current knowledge, or the selected historical view.")
         };
         var frame=knowledge.FrameId is {} chosen?Frame(session,chosen):null;
+        if(frame is not null&&frame.ContextId!=retained)throw PinnedContext.Missing();
         return mode=="current"&&frame is null?throw PinnedContext.Missing():(mode,retained,frame);
     }
     api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,session=>

@@ -1,3 +1,4 @@
+using OpenEtrm.Shared.Calculation;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -338,7 +339,9 @@ public static class ConnectedCurves
         }
         var nodes=nodeOperations.Select(op=>new ConnectedNode(op.Source,op.Dependencies.Select(p=>indexes[p]).ToImmutableArray(),op.Weights,op.Divisor,op.Built)).ToImmutableArray();
         var edges=nodes.SelectMany((node,index)=>node.Dependencies.Distinct().Select(dependency=>new DependencyEdge(index,dependency)));
-        var plan=DependencyPlan.Compile(nodes.Length,edges,cancellation);
+        DependencyPlan plan;
+        try{plan=DependencyPlan.Compile(nodes.Length,edges,cancellation);}
+        catch(CalculationException error){throw new MarketDataException(error.Code,error.Message);}
         return new(context,points.ToImmutableDictionary(p=>p.Key),indexes.ToImmutableDictionary(),primitives.ToImmutable(),nodes,plan,roots);
     }
 
@@ -409,7 +412,7 @@ public static class ConnectedCurves
 public sealed record ConnectedPrimitive(int Node,ConnectedSource Source,PriceUnit Unit);
 internal sealed record ConnectedNode(ConnectedSource? Source,ImmutableArray<int> Dependencies,ImmutableArray<ExactDecimal> Weights,ExactDecimal Divisor,ConnectedBuiltCurve? Built);
 
-public sealed class ConnectedCurvePlan
+public sealed partial class ConnectedCurvePlan
 {
     private readonly ImmutableDictionary<CurvePointKey,int> indexes;
     private readonly ImmutableArray<ConnectedNode> nodes;

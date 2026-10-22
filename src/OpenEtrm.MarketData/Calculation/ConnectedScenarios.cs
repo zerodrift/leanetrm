@@ -1,3 +1,4 @@
+using OpenEtrm.Shared.Calculation;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
@@ -40,15 +41,21 @@ public sealed class ConnectedScenario
         string id,string? parent,ImmutableArray<ResolvedCurveShift> shifts)
     {Plan=plan;this.session=session;this.targets=targets;Id=id;ParentId=parent;Shifts=shifts;}
 
-    public static ConnectedScenario Base(ConnectedCurvePlan plan)
+    public static ConnectedScenario Base(ConnectedCurvePlan plan,ConnectedCalculationCache? cache=null,CancellationToken cancellation=default)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        cancellation.ThrowIfCancellationRequested();
         var id=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
         {version=IdentityVersion,plan=plan.ManifestId,context=plan.Context,policy=ConnectedCurves.NumericalPolicy})));
-        return new(plan,plan.CreateSession(),new(plan),id,null,[]);
+        try{return new(plan,cache?.Bind(plan,cancellation)??plan.CreateSession(),new(plan),id,null,[]);}
+        catch(CalculationException error){throw new MarketDataException(error.Code,error.Message);}
     }
 
-    public ExactUnitPrice Price(CurvePointKey point,CancellationToken cancellation=default)=>session.Get(Plan.IndexOf(point),cancellation);
+    public ExactUnitPrice Price(CurvePointKey point,CancellationToken cancellation=default)
+    {
+        try{return session.Get(Plan.IndexOf(point),cancellation);}
+        catch(CalculationException error){throw new MarketDataException(error.Code,error.Message);}
+    }
 
     public ImmutableArray<ConnectedCurvePoint> ResolveTarget(CurveShockCoordinate coordinate,CurveShockTarget target,CancellationToken cancellation=default)
     {
@@ -94,7 +101,9 @@ public sealed class ConnectedScenario
         }
         var ordered=resolved.Values.OrderBy(s=>s.Node).ToImmutableArray();
         var offsets=ordered.ToDictionary(s=>s.Node,s=>ExactUnitPrice.FromPrice(new(s.Size,s.Unit)));
-        var child=session.WithOffsets(offsets,cancellation);
+        GraphSession<ExactUnitPrice> child;
+        try{child=session.WithOffsets(offsets,cancellation);}
+        catch(CalculationException error){throw new MarketDataException(error.Code,error.Message);}
         using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData(Encoding.UTF8.GetBytes(IdentityVersion+":"+Id+":"+CurveShift.ParentAdditive));
         foreach(var shift in ordered)

@@ -119,7 +119,7 @@ public static partial class CustomCurves
                         .Select(o=>new ConnectedSampleObservation(o.Observation.Key.Id,o.Input.Series.Id,o.Input.Use.ToString())).ToImmutableArray())).ToImmutableArray());
         if(retained is not null&&JsonSerializer.Serialize(evidence,RiskJobs.Json)!=JsonSerializer.Serialize(retained,RiskJobs.Json))
             throw new MarketDataException("risk_graph_manifest","The rebuilt graph differs from its admitted recipe, sample or topology manifest.");
-        var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan),snapshot,samples.Select(s=>s.Snapshot).Distinct().ToImmutableArray(),ct);
+        var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan,database.Calculations,ct),snapshot,samples.Select(s=>s.Snapshot).Distinct().ToImmutableArray(),ct);
         return new(valuation,authority,bindings.ToImmutable(),evidence,new(sourceCompilations,declaredSourceNodes));
     }
 }

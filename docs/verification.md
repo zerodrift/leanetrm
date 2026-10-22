@@ -40,6 +40,34 @@ lease recovery, cancellation and browser history/retry behavior. The standalone
 `tools/check_risk_jobs_db.py` exercises SQL authority and concurrent claims.
 Neither check qualifies a real Swarm cluster or single-run distributed reduction.
 
+The [integrated Live correction path](live-calculation.md) adds an owned gate:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin \
+  --dotnet /path/to/dotnet --live-calculation-check \
+  --browser-check --browser /path/to/browser
+```
+
+It checks committed correction propagation through native/custom pricing,
+booked PV and independent side schedules, quiet unrelated wakeups, exact older
+contexts, shared projections, session admission and displayed-context pause.
+Eight browser checks include failed-update visibility and Retry before Live.
+Managed checks cover memo-page isolation, semantic slot reuse, nested scenarios,
+more than 64 successive base frames and cancellation while evaluation owns a session.
+Financial parity across immediate and worker executions compares exact inputs,
+PV, sensitivities, graph manifests and instrument-pricer counts. Physical curve
+work can differ with cache history; rereading a stored job result stays exact.
+
+Every `tools/check_all.py` gate passed across owned local runs on 2026-10-22 with
+macOS arm64, .NET 10.0.402, Node 24.22.0, Python 3.14.2, stock PostgreSQL 16.14
+and Chrome 156.0.8078.47. Results include 420 managed core checks plus registered
+connected/shared checks, 76 rate checks, 237 frontend checks, 46 Python checks,
+406 standard browser checks, 52 custom-curve browser checks and 41 retained-risk
+browser checks. Final focused Live, hosted and worker runs passed after review
+corrections. Independent numerical, temporal/authorization and UI reviews found
+no remaining blocker; disposable resources completed teardown. These synthetic
+results do not qualify large financial throughput or a deployed cluster.
+
 The saved managed projection integration has a separate disposable gate:
 
 ```sh

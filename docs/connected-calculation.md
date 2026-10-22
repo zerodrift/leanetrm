@@ -18,9 +18,12 @@ Shocking the basket's computed output adds an offset at that node and propagates
 it downstream while preserving its upstream links. Cached answers remain scoped
 to the graph and scenario; they do not replace those links with source prices.
 
-The graph is prepared for one pinned financial context. It does not subscribe to
-database changes during evaluation. A new snapshot or date selection requires
-new preparation; a price shock creates a child scenario over the existing graph.
+Each graph is prepared for one pinned financial context.
+[Live corrections](live-calculation.md) create successive admitted frames through
+the same read path. Qualified completed numerical work may be reused; each frame
+keeps its own evidence and existing scenarios keep their original inputs. A new
+snapshot or date selection requires fresh admission/preparation; a price shock
+creates a child scenario over the existing graph.
 Rolling contract and schedule selections stay pinned during price shocks.
 Publishing a new recipe version does not rebind an existing booked projection.
 Historical samples deliberately remain frozen when current quotes are shocked.

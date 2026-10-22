@@ -100,3 +100,15 @@ incremental retained payload memory. The platform did not expose process peak
 working set, so the report records that field as unavailable. No portfolio,
 database, concurrent-throughput or production performance claim follows from
 these measurements.
+
+## Dependency calculation
+
+`Calculation.DependencyPlan` owns immutable compressed forward/reverse adjacency
+and cycle validation. `GraphSession<T>` evaluates declared dependencies once,
+with immutable values and nested sparse additive scenarios. `Advance` shares
+completed memo pages copy-on-write across separately admitted base frames;
+`Rebind` transfers qualified completed work between integer slot layouts. Neither
+retains a chain of previous frames. Owners must explicitly qualify semantic
+correspondence and supply changed bound operators. Context resolution, financial
+units, lineage, source admission and authorization remain in their owning modules.
+Native/basis/custom curves, instrument pricing and risk use this kernel.

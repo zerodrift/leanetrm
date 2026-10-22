@@ -80,11 +80,11 @@ public sealed class MarketReads(PreviewDatabase database)
 
     // Rebuilds the given frames of the pinned view; the pinned frame replaces the frame at its instant.
     public async Task<ImmutableArray<HistorySample>> History(NpgsqlConnection connection,PinnedContext pin,ImmutableArray<InputFrame> frames,
-        string curve,Guid? contractId,Guid? seriesId,CancellationToken ct)
+        string curve,Guid? contractId,Guid? seriesId,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null)
     {
         var current=pin.RequireFrame();
-        var selected=frames.Select(pin.Require).Where(frame=>frame.At!=current.At).Append(current).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id).ToArray();
         var data=await Data(connection,pin,ct);
+        var selected=(resolveFrames?.Invoke(data)??frames).Select(pin.Require).Where(frame=>frame.At!=current.At).Append(current).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id).ToArray();
         return [..selected.Select(f=>
         {
             try {

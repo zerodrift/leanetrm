@@ -56,6 +56,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
 {
     private readonly NpgsqlDataSource? authenticator;
     private readonly NpgsqlDataSource runtime;
+    private readonly NpgsqlDataSource? calculationRuntime;
     // The page assistant's reads have pools of their own on the same logins, never the pages' (docs/ai-assistant.md §7.4).
     private readonly NpgsqlDataSource? agentAuthenticator,agentRuntime;
     private const string AgentReads="openetrm-agent-reads";
@@ -63,6 +64,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
     private readonly string runtimeLogin;
     private readonly Func<string>? hostedSession;
     public PreviewManifest Manifest { get; }
+    public OpenEtrm.MarketData.Calculation.ConnectedCalculationCache Calculations {get;}=new(16,250_000);
+    internal NpgsqlConnection CalculationListener()=>calculationRuntime?.CreateConnection()
+        ??throw new InvalidOperationException("This database adapter has no calculation listener.");
     public const int ReferenceMaximumOffset=100000;
     // Each reference and definition table with its primary key within a revision. Every read returns
     // rows in key order, so identical pins give identical rows in the same order whatever plan the database uses.
@@ -103,6 +107,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         {
             authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", 8);
             runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8);
+            calculationRuntime=PreviewSource(root,"OPENETRM_PREVIEW_RUNTIME","preview_runtime",null,"openetrm-calculation-listener");
             agentAuthenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", RuntimeSet.AgentPool, AgentReads);
             agentRuntime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", RuntimeSet.AgentPool, AgentReads);
             runtimeLogin = "preview_runtime";
@@ -115,6 +120,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
             if(auth.Username==app.Username || auth.Database!=app.Database || auth.Host!=app.Host || auth.Port!=app.Port)
                 throw new InvalidOperationException("Hosted runtime and authenticator require separate logins to the same dedicated database.");
             authenticator=NpgsqlDataSource.Create(auth.ConnectionString); runtime=NpgsqlDataSource.Create(app.ConnectionString);
+            calculationRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){Pooling=false,ApplicationName="openetrm-calculation-listener"}.ConnectionString);
             runtimeLogin=app.Username!;
         }
     }
@@ -268,7 +274,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             _ => throw new ArgumentOutOfRangeException(nameof(observationScope))
         });
         await RequireSharedReferenceAccess();
-        return new PreviewData(selectedManifest, definitions, references, observations){CalendarDaysRead=includeCalendarDays};
+        return new PreviewData(selectedManifest, definitions, references, observations,Calculations){CalendarDaysRead=includeCalendarDays};
     }
 
     private static async Task<IReadOnlyDictionary<string,ImmutableArray<JsonElement>>> ReadReferences(NpgsqlConnection connection,
@@ -516,7 +522,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
     public async ValueTask DisposeAsync()
     {
         if(!ownsSources)return;
-        foreach(var source in new[]{runtime,authenticator,agentRuntime,agentAuthenticator})if(source is not null)await source.DisposeAsync();
+        foreach(var source in new[]{runtime,authenticator,agentRuntime,agentAuthenticator,calculationRuntime})if(source is not null)await source.DisposeAsync();
     }
 }
 
@@ -548,7 +554,8 @@ public sealed class PreviewData
     private ContractKey K(Guid id) => new(revision, id);
     private SeriesKey S(Guid id) => new(revision, id);
     public PreviewData(PreviewManifest manifest, IReadOnlyDictionary<string, ImmutableArray<JsonElement>> definitions,
-        IReadOnlyDictionary<string, ImmutableArray<JsonElement>> references, ImmutableArray<JsonElement> observations)
+        IReadOnlyDictionary<string, ImmutableArray<JsonElement>> references, ImmutableArray<JsonElement> observations,
+        OpenEtrm.MarketData.Calculation.ConnectedCalculationCache? calculations=null)
     {
         RequireBundlePin(manifest,Single(definitions["revisions"]));
         this.manifest=manifest; Definitions=definitions.ToImmutableDictionary(); References=references.ToImmutableDictionary(); ExecutionPolicies=new(References); Observations=observations;
@@ -624,7 +631,7 @@ public sealed class PreviewData
         }).ToImmutableArray();
         var valueSpecs=references["value_specifications"].Select(v=>new ValueSpecification(R(v.Text("code")),v.Text("kind") switch {"quantity_ratio"=>NumericKind.QuantityRatio,"dimensionless"=>NumericKind.Dimensionless,_=>throw Unsupported()},v.OptionalText("numerator_quantity_code") is {} a?R(a):null,v.OptionalText("denominator_quantity_code") is {} b?R(b):null,v.Number("minimum"),v.Number("maximum"))).ToImmutableArray();
         var seriesDefinitions=definitions["series"].Select(s=>new MarketSeries(S(s.Id("id")),s.OptionalId("contract_id") is {} id?K(id):null,s.OptionalText("quote_code") is {} q?R(q):null,s.OptionalText("value_specification_code") is {} v?R(v):null)).ToImmutableArray();
-        Model=new(revision,reference,quantities,quotes,contracts,curves,futures,valueSpecs,seriesDefinitions);
+        Model=new(revision,reference,quantities,quotes,contracts,curves,futures,valueSpecs,seriesDefinitions,calculations);
     }
     private static Dictionary<(string Table,string Field),ILookup<string,JsonElement>> IndexRows(
         ImmutableDictionary<string,ImmutableArray<JsonElement>> tables,(string Table,string Field)[] keys)
@@ -741,7 +748,9 @@ public sealed class PreviewData
                 multiplier=e.Multiplier is {} factor?new {value=factor.Value.ToString(),observationId=(Guid?)e.MultiplierObservation?.Id,valueSpecification=multiplier.ValueKind==JsonValueKind.Undefined?null:multiplier.OptionalText("value_specification_code")}:null,
                 lineage=v.Lineage.Select(k=>k.Id).Order().ToArray()};
         }).ToArray();
-        return new { snapshotId=frame.Id, frame.Name, at=frame.At, curve=code, evaluated=build.EvaluatedConstituents, numericalPolicy=build.NumericalPolicy,
+        // The display count describes the complete resolved trace, including
+        // memoized results. Physical work remains in the graph's work counters.
+        return new { snapshotId=frame.Id, frame.Name, at=frame.At, curve=code, evaluated=build.Evaluations.Length, numericalPolicy=build.NumericalPolicy,
             trace, points=build.Values.Select(v=>
             {
                 var c=Single(contractDefinitions[v.Request.Contract.Id]);

@@ -40,7 +40,8 @@ def run_checks(c, check, query, manifest):
 
     check('navigation explicitly contains only its directory and frame-summary contract',
           set(navigation) == {'kind', 'profile', 'context', 'definitionRevision', 'referenceRevision',
-                              'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay','frameCatalog'}
+                              'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay','frameCatalog','live'}
+          and navigation['live'] is None
           and navigation['kind'] == 'market_navigation'
           and all(set(frame) == {'id', 'name', 'at','originCloseId'} and frame['originCloseId'] is None for frame in navigation['frames']))
     check('ordinary navigation declares its bounded exact stored-close discovery policy',

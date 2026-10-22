@@ -1040,3 +1040,10 @@ have read-only source-binding access and retain the source execution convention
 separately from the risk convention. No saved graph or retained financial result
 is rewritten. As a schema change, installation requires a separately qualified
 baseline; applying it does not qualify deployment or production throughput.
+
+Migration [0083_calculation_changes.sql](migrations/0083_calculation_changes.sql)
+adds transactional, identifier-free calculation wakeups and an authorized
+publication/authority head for Live correction contexts (D188). Existing
+publication streams remain the durable record. Context certification does not
+notify itself; market-only readers cannot observe private trading heads. This is
+a schema release requiring the normal separately qualified deployment baseline.

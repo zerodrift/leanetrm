@@ -1,5 +1,4 @@
-using OpenEtrm.MarketData;
-using OpenEtrm.MarketData.Calculation;
+using OpenEtrm.Shared.Calculation;
 
 internal static class DependencyPlanChecks
 {
@@ -10,7 +9,7 @@ internal static class DependencyPlanChecks
         void Equal<T>(T actual,T expected) where T:notnull
         {if(!actual.Equals(expected))throw new Exception($"Expected {expected}; got {actual}.");}
         void Reject(string code,Action action)
-        {try{action();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected "+code);}
+        {try{action();}catch(CalculationException e)when(e.Code==code){return;}throw new Exception("Expected "+code);}
         void Cancel(Action action)
         {try{action();}catch(OperationCanceledException){return;}throw new Exception("Expected cancellation.");}
         Check("cycles, duplicate edges and invalid node identities reject before execution",()=>
@@ -105,7 +104,67 @@ internal static class DependencyPlanChecks
             Equal(child.Depth,64);Equal(child.Get(0),66L);
             Reject("graph_depth",()=>child.WithOffsets(new Dictionary<int,long>{{0,1}}));Equal(root.Get(0),1L);
         });
+        Check("new admitted frames invalidate a diamond once without changing pinned scenarios",()=>
+        {
+            var plan=DependencyPlan.Compile(5,[new(2,0),new(2,1),new(3,2),new(4,2),new(4,3)]);
+            GraphEvaluator<long> Bind(long price,long multiplier)=>(node,read,_)=>node switch
+            {0=>price,1=>multiplier,2=>read.Get(0)*read.Get(1),3=>read.Get(2)*read.Get(2),4=>read.Get(2)+read.Get(3),_=>throw new Exception()};
+            var first=new GraphSession<long>(plan,Bind(2,3),checkedAdd);
+            Equal(first.Get(4),42L);
+            var pinned=first.WithOffsets(new Dictionary<int,long>{{0,1}});
+            var next=first.Advance(Bind(4,3),[0]);
+            Equal(next.Get(4),156L);Equal(next.Work.EvaluatedNodes,4L);
+            Equal(first.Get(4),42L);Equal(pinned.Get(4),90L);
+            var multiplier=next.Advance(Bind(4,2),[1]);
+            Equal(multiplier.Get(4),72L);Equal(multiplier.Work.EvaluatedNodes,4L);
+            // Advancement has no scenario ancestry and never accumulates old frames.
+            for(var i=0;i<200;i++)multiplier=multiplier.Advance(Bind(4,2),[]);
+            Equal(multiplier.Depth,0);Equal(multiplier.Get(4),72L);Equal(multiplier.Work.EvaluatedNodes,0L);
+            Reject("graph_frame",()=>pinned.Advance(Bind(4,3),[0]));
+        });
+        Check("advancement retains only completed values and isolates subsequent cold writes",()=>
+        {
+            var plan=DependencyPlan.Compile(4,[new(2,0),new(3,1)]);
+            var first=new GraphSession<long>(plan,(n,r,_)=>n<2?n+1:r.Get(n-2)*10,checkedAdd);
+            Equal(first.Get(2),10L);
+            var next=first.Advance((n,r,_)=>n<2?(n==0?3:2):r.Get(n-2)*10,[0]);
+            Parallel.Invoke(()=>Equal(first.Get(3),20L),()=>Equal(next.Get(3),20L));
+            Equal(first.Get(2),10L);Equal(next.Get(2),30L);
+            Equal(next.Work.EvaluatedNodes,4L);
+            using var cancelled=new CancellationTokenSource();cancelled.Cancel();
+            Cancel(()=>first.Advance((_,_,_)=>0,[0],cancelled.Token));
+        });
+        Check("frame memoization follows qualified slots when an independently compiled layout changes",()=>
+        {
+            var first=new GraphSession<long>(DependencyPlan.Compile(3,[new(2,0),new(2,1)]),(n,r,_)=>n<2?n+2:r.Get(0)*r.Get(1),checkedAdd);
+            Equal(first.Get(2),6L);
+            var reordered=DependencyPlan.Compile(3,[new(0,1),new(0,2)]);
+            var next=first.Rebind(reordered,(n,r,_)=>n==0?r.Get(1)*r.Get(2):n==1?3:4,[2,1,0],[2]);
+            Equal(next.Get(0),12L);Equal(next.Work.EvaluatedNodes,2L);Equal(first.Get(2),6L);
+        });
+        Check("frame advancement cancels while a prior evaluation owns the session",()=>
+        {
+            using var entered=new ManualResetEventSlim();using var waiting=new ManualResetEventSlim();using var release=new ManualResetEventSlim();using var cancellation=new CancellationTokenSource();
+            var first=new GraphSession<long>(DependencyPlan.Compile(1,[]),(_,_,_)=>{entered.Set();release.Wait();return 2;},checkedAdd);
+            var pricing=Task.Run(()=>first.Get(0));
+            if(!entered.Wait(TimeSpan.FromSeconds(2)))throw new Exception("The synthetic evaluation did not enter.");
+            try
+            {
+                var advancing=Task.Run(()=>first.Advance((_,_,_)=>3,new AnnouncedChanges(waiting.Set),cancellation.Token));
+                if(!waiting.Wait(TimeSpan.FromSeconds(2)))throw new Exception("Frame advancement did not reach the occupied session.");
+                cancellation.Cancel();
+                try{advancing.WaitAsync(TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();throw new Exception("Expected cancellation.");}catch(OperationCanceledException){}
+            }
+            finally{release.Set();pricing.GetAwaiter().GetResult();}
+            Equal(first.Get(0),2L);
+        });
         return count;
     }
     private static long checkedAdd(long left,long right)=>checked(left+right);
+    private sealed class AnnouncedChanges(Action ready):IReadOnlyCollection<int>
+    {
+        public int Count=>1;
+        public IEnumerator<int> GetEnumerator(){yield return 0;ready();}
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()=>GetEnumerator();
+    }
 }

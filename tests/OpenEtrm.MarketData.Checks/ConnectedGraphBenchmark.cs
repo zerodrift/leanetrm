@@ -1,3 +1,4 @@
+using OpenEtrm.Shared.Calculation;
 using System.Diagnostics;
 using System.Runtime;
 using System.Runtime.InteropServices;

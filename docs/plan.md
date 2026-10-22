@@ -50,10 +50,13 @@ schema cutovers, not silent conversions of retained history.
 Interactive preparation reads visible source-revision history and compiles source
 topology without evaluation. `SourceCompilations` and `DeclaredSourceNodes` report
 that work; the futures materialization build is still separately counted.
-Historical query pushdown, database activation of logical bindings, continuous
-live-feed updates, financial workload qualification, volatility and correlation
-scenarios remain work. Graph propagation within a pinned scenario is implemented;
-it does not subscribe an existing run to changing database state. See the
+Historical query pushdown, database activation of logical bindings, broader
+live-feed selection policies, financial workload qualification, volatility and correlation
+scenarios remain work. Graph propagation within a pinned scenario is implemented. Explicit
+[live corrections](live-calculation.md) advance successive certified header
+contexts through committed notifications, with existing backend screen reads and
+bounded numerical memoization. An existing scenario/job remains pinned; live
+clock advancement and observation/contract rolling policies remain work. See the
 [cutover prerequisites](connected-calculation.md#adopting-the-schema-cutover).
 All calculation behavior stays in the backend.
 

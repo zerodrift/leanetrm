@@ -16,7 +16,6 @@ if(args is ["--interval-pricing"]){IntervalPricingChecks.Run();return;}
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
 if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();return;}
-if(args is ["--dependency-plan"]){DependencyPlanChecks.Run();return;}
 if(args is ["--curve-engine-cutover"]){CurveEngineCutoverChecks.Run();return;}
 if(args is ["--connected-curves"]){ConnectedCurveChecks.Run();return;}
 if(args is ["--connected-scenarios"]){ConnectedScenarioChecks.Run();return;}
@@ -114,6 +113,18 @@ Check("revised base observation propagates and old snapshot is unchanged", () =>
             Key = new(fixture.Revision.CatalogId, Guid.NewGuid()), Value = ExactDecimal.Parse("3.05") } } : s).ToImmutableArray() };
     Equal(model.Build(corrected, request).Values[0].Price.Value.ToString(), "29.45");
     Equal(model.Build(original, request).Values[0].Price.Value.ToString(), "29.1");
+});
+Check("a new native snapshot reuses unaffected calculation slots without reusing old evidence",()=>
+{
+    var cache=new OpenEtrm.MarketData.Calculation.ConnectedCalculationCache(4,1000);
+    var cached=fixture.Model(calculations:cache);
+    var first=cached.Build(original,request);
+    var next=original with{Id=Guid.NewGuid(),Selections=original.Selections.Select(s=>s.Observation.Series==fixture.S(1)?s with{
+        Observation=s.Observation with{Key=new(fixture.Revision.CatalogId,Guid.NewGuid()),Value=ExactDecimal.Parse("3.05")}}:s).ToImmutableArray()};
+    var corrected=cached.Build(next,request);
+    Equal(corrected.Values[0].Price.Value.ToString(),"29.45");
+    if(corrected.EvaluatedConstituents>=first.EvaluatedConstituents)throw new Exception("An independent native branch was recalculated.");
+    Equal(corrected.Snapshot.Id,next.Id);Equal(first.Values[0].Price.Value.ToString(),"29.1");
 });
 Check("shared dependencies evaluate once across requested outputs", () =>
 {
@@ -412,7 +423,6 @@ passed += NestedScenarioChecks.Run();
 passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
 passed += InstrumentRiskChecks.Run();
-passed += DependencyPlanChecks.Run();
 CurveEngineCutoverChecks.Run();
 ConnectedCurveChecks.Run();
 passed += ConnectedScenarioChecks.Run();
@@ -476,7 +486,8 @@ sealed class Fixture
             settlement == SettlementKind.IndexDifference ? R("index_b") : null), CurveRule.Direct, [member], [],
             settlement == SettlementKind.FutureSeries ? ObservationRole.DailySettlement : ObservationRole.TraderMark, R("source"), null);
     public CurveModel Model(ImmutableArray<Curve>? curves = null, ImmutableArray<QuoteSpecification>? quotes = null,
-        ImmutableArray<MarketContract>? contracts = null, ImmutableArray<ValueSpecification>? valueSpecs = null) =>
+        ImmutableArray<MarketContract>? contracts = null, ImmutableArray<ValueSpecification>? valueSpecs = null,
+        OpenEtrm.MarketData.Calculation.ConnectedCalculationCache? calculations=null) =>
         new(Revision, Reference, Quantities, quotes ?? Quotes, contracts ?? Contracts, curves ?? Curves,
             [new(R("future_jan"), R("gas_quantity"), R("currency"), ExactDecimal.Parse("1"), ExactDecimal.Parse("0.025"),
                 R("location"), R("uniform"), new(2041, 1, 1), new(2041, 2, 1), Utc("2040-12-28T00:00:00Z"),
@@ -485,7 +496,7 @@ sealed class Fixture
             [new(S(1), K(1), R("gas_out"), null), new(S(2), K(2), R("gas_basis"), null),
              new(S(3), K(3), R("gas_basis"), null), new(S(4), K(4), R("power_basis"), null),
              new(S(5), K(5), R("power_basis"), null), new(S(6), null, null, R("conversion_ratio")),
-             new(S(7), K(5), R("power_out"), null), new(S(8), K(2), R("gas_out"), null)]);
+             new(S(7), K(5), R("power_out"), null), new(S(8), K(2), R("gas_out"), null)],calculations);
     public SelectedObservation Select(int contract, QuoteKind measure, string quote, string value)
     {
         var id = contract == 5 && measure == QuoteKind.Outright ? 7 : contract;

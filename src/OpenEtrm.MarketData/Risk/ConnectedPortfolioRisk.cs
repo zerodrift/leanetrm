@@ -1,3 +1,4 @@
+using OpenEtrm.Shared.Calculation;
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Trading;

@@ -1,4 +1,4 @@
-namespace OpenEtrm.MarketData.Calculation;
+namespace OpenEtrm.Shared.Calculation;
 
 public readonly record struct DependencyEdge(int Node,int Dependency);
 
@@ -17,7 +17,7 @@ public sealed class DependencyPlan
     {
         cancellation.ThrowIfCancellationRequested();
         if(nodeCount<0||nodeCount==int.MaxValue||edges is null)
-            throw new MarketDataException("graph_plan","Supply a bounded node count and explicit dependency edges.");
+            throw new CalculationException("graph_plan","Supply a bounded node count and explicit dependency edges.");
         // Capture a possibly single-use enumerable exactly once; no object per edge.
         var captured=new List<DependencyEdge>();
         var offsets=new int[nodeCount+1];var reverseOffsets=new int[nodeCount+1];
@@ -25,8 +25,8 @@ public sealed class DependencyPlan
         {
             cancellation.ThrowIfCancellationRequested();
             if((uint)edge.Node>=(uint)nodeCount||(uint)edge.Dependency>=(uint)nodeCount)
-                throw new MarketDataException("graph_edge","Every edge must name two nodes in this plan.");
-            if(captured.Count==int.MaxValue)throw new MarketDataException("graph_plan","The plan has too many edges.");
+                throw new CalculationException("graph_edge","Every edge must name two nodes in this plan.");
+            if(captured.Count==int.MaxValue)throw new CalculationException("graph_plan","The plan has too many edges.");
             captured.Add(edge);offsets[edge.Node+1]++;reverseOffsets[edge.Dependency+1]++;
         }
         for(var node=0;node<nodeCount;node++)
@@ -50,7 +50,7 @@ public sealed class DependencyPlan
             {
                 cancellation.ThrowIfCancellationRequested();
                 if(dependencies[index]==dependencies[index-1])
-                    throw new MarketDataException("graph_edge","Declare each dependency edge exactly once.");
+                    throw new CalculationException("graph_edge","Declare each dependency edge exactly once.");
             }
         }
         // Kahn ordering validates cycles without recursion even on very deep plans.
@@ -71,7 +71,7 @@ public sealed class DependencyPlan
             }
         }
         cancellation.ThrowIfCancellationRequested();
-        if(tail!=nodeCount)throw new MarketDataException("graph_cycle","Calculation dependencies must be acyclic.");
+        if(tail!=nodeCount)throw new CalculationException("graph_cycle","Calculation dependencies must be acyclic.");
         return new(offsets,dependencies,reverseOffsets,dependents,order);
     }
     public ReadOnlySpan<int> Dependencies(int node)
@@ -81,6 +81,6 @@ public sealed class DependencyPlan
     internal bool Declares(int node,int dependency)=>Dependencies(node).BinarySearch(dependency)>=0;
     internal void RequireNode(int node)
     {
-        if((uint)node>=(uint)NodeCount)throw new MarketDataException("graph_node","The node does not belong to this resolved plan.");
+        if((uint)node>=(uint)NodeCount)throw new CalculationException("graph_node","The node does not belong to this resolved plan.");
     }
 }
