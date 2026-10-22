@@ -16,7 +16,8 @@ namespace OpenEtrm.Api;
 // generation stops the call or read in flight, which is closed with the usage it has, and nothing more is read,
 // published or sent; the database then decides the ending, except that a stopping process or a lost generation leaves
 // the turn to the next start, which interrupts it. A write the database does not take fails the turn
-// agent_runtime_unavailable, unless the database ended it otherwise.
+// agent_runtime_unavailable, unless the database ended it otherwise. The turn's streams hear each piece of text and
+// each step once it commits, and the end of each run (§8).
 public sealed class TurnWorker:IAsyncDisposable
 {
     // The fixed preamble before every version's instructions (§7.6); instructions cannot replace it.
@@ -25,6 +26,7 @@ public sealed class TurnWorker:IAsyncDisposable
     readonly AgentWorker worker;
     readonly CredentialCustody custody;
     readonly MessagesAdapter adapter;
+    readonly TurnStreams streams;
     readonly ILogger logger;
     readonly ConcurrentDictionary<Guid,Running> running=new();
     readonly CancellationTokenSource stopping=new();
@@ -57,9 +59,9 @@ public sealed class TurnWorker:IAsyncDisposable
     // text was published.
     sealed record Streamed(ModelEvent End,string? Stopped,bool Published);
 
-    public TurnWorker(AgentWorker worker,CredentialCustody custody,MessagesAdapter adapter,ILogger logger)
+    public TurnWorker(AgentWorker worker,CredentialCustody custody,MessagesAdapter adapter,TurnStreams streams,ILogger logger)
     {
-        (this.worker,this.custody,this.adapter,this.logger)=(worker,custody,adapter,logger);
+        (this.worker,this.custody,this.adapter,this.streams,this.logger)=(worker,custody,adapter,streams,logger);
         worker.Cancelled=turn=>{if(running.TryGetValue(turn,out var r))Stop(r);};
         // A lost generation's turns can write nothing more, so their calls stop now; the next start interrupts them.
         worker.Lost=()=>
@@ -82,7 +84,7 @@ public sealed class TurnWorker:IAsyncDisposable
         {
             try{await Execute(turn,r);}
             catch(Exception e){logger.LogError("A turn stopped before its end: {ErrorType}",e.GetType().Name);}
-            finally{running.TryRemove(turn,out _);r.Ended.Cancel();}
+            finally{running.TryRemove(turn,out _);r.Ended.Cancel();streams.Ended(turn);}
         });
         _=EndAt(turn,r,sessionEnds);
     }
@@ -260,6 +262,8 @@ public sealed class TurnWorker:IAsyncDisposable
             await End(turn,r,"failed",recorded.TryGetProperty("refused",out var refused)?refused.GetString():"request_cancelled");
             return null;
         }
+        // The step's event has committed; the turn's streams read it (§8).
+        streams.Published(turn,recorded.GetProperty("sequence").GetInt64(),null);
         if(step.End==ToolStepEnd.Failure)
         {
             await End(turn,r,"failed",step.Code);
@@ -375,21 +379,21 @@ public sealed class TurnWorker:IAsyncDisposable
             foreach(var chunk in chunks)
             {
                 if(stopped is not null||r.Cancel.IsCancellationRequested)break;
-                try
-                {
-                    if(!(await Write("SELECT assistant.append_turn_text($1,$2,$3)::text",turn,r.Token,chunk)).TryGetProperty("sequence",out _))
-                    {
-                        stopped="access_changed";
-                        break;
-                    }
-                }
+                JsonElement appended;
+                try{appended=await Write("SELECT assistant.append_turn_text($1,$2,$3)::text",turn,r.Token,chunk);}
                 catch(Exception e) when(e is NpgsqlException or OperationCanceledException)
                 {
                     logger.LogError("A turn's text could not be published: {ErrorType}",e.GetType().Name);
                     stopped="agent_runtime_unavailable";
                     break;
                 }
+                if(!appended.TryGetProperty("sequence",out var sequence))
+                {
+                    stopped="access_changed";
+                    break;
+                }
                 published=true;
+                streams.Published(turn,sequence.GetInt64(),chunk);
             }
             if(stopped is not null)halt.Cancel();
         }

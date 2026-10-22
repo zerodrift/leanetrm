@@ -27,7 +27,7 @@ public static class AgentAdministration
     public static async Task<object> Directory(NpgsqlConnection connection,CancellationToken ct)
     {
         var directory=(await ModelProviders.Read(connection,"SELECT assistant.agent_directory()::text",[],ct)).Deserialize<Dictionary<string,JsonElement>>()!;
-        directory["vendors"]=JsonSerializer.SerializeToElement(ModelProviders.Vendors.Select(v=>new {code=v.Code,name=v.Name}));
+        directory["vendors"]=ModelProviders.VendorNames;
         directory["bounds"]=JsonSerializer.SerializeToElement(new {instructions=RuntimeSet.AgentInstructions,grantDays=RuntimeSet.MaxGrantDays});
         return directory;
     }

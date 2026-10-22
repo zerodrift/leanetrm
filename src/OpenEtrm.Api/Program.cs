@@ -54,7 +54,9 @@ var checkEndpoint=hosted is null?ModelTransport.CheckEndpoint(Environment.GetEnv
 await using var agentWorker=hosted is null?new AgentWorker(PreviewDatabase.AgentSource(root),PreviewDatabase.AgentWrites(root),app.Logger):null;
 var (custody,adapter)=agentWorker is null?(null,null):(CredentialCustody.FromEnvironment(),new MessagesAdapter(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider));
 var providerTests=agentWorker is null?null:new ProviderTests(custody!,agentWorker,adapter!,app.Logger);
-await using var turnWorker=agentWorker is null?null:new TurnWorker(agentWorker,custody!,adapter!,app.Logger);
+// The live event stream's subscriptions, which the worker tells of what it publishes (§8).
+var turnStreams=agentWorker is null?null:new TurnStreams();
+await using var turnWorker=agentWorker is null?null:new TurnWorker(agentWorker,custody!,adapter!,turnStreams!,app.Logger);
 if(agentWorker is not null)await agentWorker.Generation(CancellationToken.None);
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
@@ -74,7 +76,9 @@ app.Use(async (context,next)=>
     if (apiPath.StartsWithSegments("/api")) context.Response.Headers.CacheControl="no-store";
     // A route that must tell the client leaving apart from the request deadline reads the client's own token here.
     context.Items["client_aborted"]=context.RequestAborted;
-    using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted); deadline.CancelAfter(TimeSpan.FromSeconds(15));
+    // The page assistant's live event stream lasts as long as its turn, so it alone has no request deadline (§8).
+    using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+    if(hosted is not null||!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(15));
     context.RequestAborted=deadline.Token;
     const string malformed="The request is incomplete or malformed.";
     try
@@ -85,7 +89,9 @@ app.Use(async (context,next)=>
     {
         var (status,code,message)=e switch
         {
-            PreviewDeniedException => (403,"access_denied","The selected test identity cannot perform this operation."),
+            // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
+            PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
+            PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
             AutomationException a => (422,a.Code,a.Message),
             PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
             PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
@@ -295,7 +301,7 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
 });
 PreviewSession Session(HttpContext context)
 {
-    if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow>session.Ends) throw new PreviewDeniedException();
+    if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow>session.Ends) throw new PreviewSessionEnded();
     if(hosted is not null&&session.Profile!=HostedAuthentication.Current(context).Subject)throw new PreviewDeniedException();
     return session;
 }
@@ -369,8 +375,9 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
 {
     if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
-    // A profile switch cancels the turns the session asked (docs/ai-assistant.md §7.2).
+    // A profile switch cancels the turns the session asked and ends the streams it opened (docs/ai-assistant.md §7.2, §8).
     turnWorker?.EndSession(session.Digest);
+    turnStreams?.EndSession(session.Digest);
     session.ForgetDiscoveredFrames(resetAliasIdentities:true);session.Profile=body.Profile; session.MarketContext=null; return Task.FromResult(Results.Ok(new {profile=session.Profile}));
 }));
 PreviewSequenceCoverage ScheduleSource(string? code) => (database.Manifest.Schedules ?? []).SingleOrDefault(s=>s.Curve==code)
@@ -1051,6 +1058,10 @@ if(hosted is null)
         database.WithIdentity(Profile(session),"UseAgents",async(connection,ct)=>Results.Ok(await AgentGrants.Usable(connection,ct)),c.RequestAborted))));
     api.MapGet("/assistant/grants",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await AgentGrants.Grants(connection,ct)),c.RequestAborted))));
+    // A workspace's grants, read-only, for those who administer its access: the database also requires ManageIdentities
+    // and refuses a delegated context. Revoke stays the delegator's.
+    api.MapGet("/assistant/grants/workspace",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+        database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>Results.Ok(await AgentGrants.Workspace(connection,ct)),c.RequestAborted))));
     api.MapPost("/assistant/grants/grant",(HttpContext c,GrantRequest body)=>GrantCommand(c,"UseAgents",(connection,ct)=>AgentGrants.Grant(connection,body,ct)));
     api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>GrantCommand(c,null,(connection,ct)=>AgentGrants.Revoke(connection,body,ct)));
     // Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
@@ -1081,6 +1092,11 @@ if(hosted is null)
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversations(connection,ct)),c.RequestAborted))));
     api.MapGet("/assistant/conversations/{id:guid}",(HttpContext c,Guid id,long after)=>Locked(c,session=>
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversation(connection,id,after,ct)),c.RequestAborted)));
+    // The live event stream (§8) takes no session semaphore, so the session's commands, Stop among them, never wait for it.
+    var turnStream=new TurnStream(database,turnScope,agentWorker!,turnStreams!,
+        app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions,
+        TimeProvider.System,app.Lifetime.ApplicationStopping,app.Logger);
+    api.MapGet("/assistant/conversations/{id:guid}/events",(HttpContext c,Guid id,long after)=>turnStream.Serve(c,()=>Session(c),id,after));
     api.MapGet("/assistant/turns/unfinished",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
         database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Unfinished(connection,ct)),c.RequestAborted))));
     api.MapPost("/assistant/conversations/read",(HttpContext c,MarkReadRequest body)=>Locked(c,session=>
@@ -1114,6 +1130,8 @@ public sealed record AdminCreate(Guid OperationId,string? Login,string? Name,str
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record AdminUpdate(Guid OperationId,Guid Id,int ExpectedVersion,string? Name,bool? Enabled,string[]? Roles);
 public sealed record ProfileRequest(string Profile);
+// A request whose session is missing, unknown or past its end.
+public sealed class PreviewSessionEnded : Exception;
 public sealed record LocalTimeRequest(string? LocalTime,string? TimeZone);
 public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false);
 public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null);

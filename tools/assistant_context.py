@@ -100,11 +100,11 @@ class Contexts:
                           "'preview_runtime',60) AS token \\gset\n"
                           f"SET SESSION AUTHORIZATION preview_runtime;\nSELECT security.use_context(:'token');\n{statement}\nROLLBACK;")
 
-    def delegated_agent(self, statement, permission='ManageModelProviders'):
-        """An agent with access_administrator and a current delegation of `permission` runs `statement`. Agent
-        principals hold only the agent reader role (migration 0066); the setup lifts that guard inside its own
-        rolled-back transaction, so an operation's refusal of a delegated context shows on its own."""
-        agent, delegation = uuid4(), uuid4()
+    def delegated_agent(self, statement, permission='ManageModelProviders', also=()):
+        """An agent with access_administrator and a current delegation of `permission`, and of those `also` names, runs
+        `statement`. Agent principals hold only the agent reader role (migration 0066); the setup lifts that guard inside
+        its own rolled-back transaction, so an operation's refusal of a delegated context shows on its own."""
+        agent, delegation, permissions = uuid4(), uuid4(), (permission, *also)
         return self.rolled_back(
             f"INSERT INTO security.principals VALUES('{agent}','agent',true);"
             f"INSERT INTO security.identity_bindings VALUES('{ISSUER}','provider_agent','{agent}','agent_credential');"
@@ -113,10 +113,10 @@ class Contexts:
             f"INSERT INTO security.role_grants VALUES('{uuid4()}','{agent}',{ADMINISTRATOR_ROLE},'{self.tenant}','{self.workspace}',{WINDOW},false);"
             "ALTER TABLE security.role_grants ENABLE TRIGGER agent_roles;"
             f"INSERT INTO security.agent_delegations VALUES('{delegation}','{agent}','{self.administrator}','{self.tenant}','{self.workspace}',{WINDOW},false);"
-            f"INSERT INTO security.delegation_permissions VALUES('{delegation}','{permission}');",
+            'INSERT INTO security.delegation_permissions VALUES' + ','.join(f"('{delegation}','{p}')" for p in permissions) + ';',
             'provider_agent', 'agent_credential', self.workspace, f"'{delegation}'",
-            f"DO $$ BEGIN IF NOT security.has_permission('{permission}') THEN RAISE EXCEPTION 'Delegation is not current'; END IF; END $$;\n"
-            + statement)
+            ''.join(f"DO $$ BEGIN IF NOT security.has_permission('{p}') THEN RAISE EXCEPTION 'Delegation is not current'; END IF; END $$;\n"
+                    for p in permissions) + statement)
 
     def second_workspace(self, statement):
         """The preview administrator runs `statement` in a new workspace of the same tenant."""

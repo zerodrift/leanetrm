@@ -392,7 +392,10 @@ Humans, services and agents retain distinct immutable kinds. An agent role alone
 still cannot act without the existing delegation intersection. Administrators
 have no implicit market-data read permission; their screen loads without fetching
 the market workspace. Identity switching clears old market and administration
-content, and a denied administration reload clears both tables and edit forms.
+content, and a denied administration reload clears its tables, the agent grant cards
+included, and edit forms. In the local preview, Users & access also shows every agent
+grant in force in the workspace and the latest grant changes, read-only
+(ai-assistant.md §7.1).
 Security administration always operates on current authority, irrespective of the
 historical business view.
 

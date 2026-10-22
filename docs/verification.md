@@ -568,6 +568,24 @@ Grants (`tools/check_agent_grants.py`, in the same run, through the API and in S
   even from the owner. Before 0068 applies, it refuses to start while any delegation
   is unrevoked, even an expired one, revoking nothing, and refuses a change to each
   pinned helper.
+- **A workspace's grants:**
+  - a user's grants and a workspace's name each vendor as the Agents directory does;
+  - the workspace lists a grant in force and its granted record with exactly their
+    person, agent, version, model, permissions and times, and reading them writes
+    nothing;
+  - a replacement's two records share their instant in one order every read, a Revoke
+    is recorded once by its delegator however often it repeats, Retire's ends are
+    recorded against the administrator, and an ended grant is no longer in force;
+  - a grant whose person is suspended is still in force there; the history is the
+    latest 100 records, newest first, while a grant older than all of them stays
+    listed in force; and the grants in force are exactly those their people list,
+    ordered by person and then agent;
+  - only an undelegated holder of `ManageIdentities` with `ManageAccess` reads them: the
+    API refuses a trader and a viewer, and the database a person lacking either, an
+    agent delegated both, an administrator acting under a delegation and an expired
+    request context, and refuses at its recheck a read whose roles expire while it
+    waits; an administrator of another workspace sees none of them;
+  - before 0079 applies, it refuses a change to the helper it pins.
 
 Turns (`tools/check_agent_turns.py`, in the same run, in SQL, playing the asking request
 and the worker with a session of its own holding the agent-worker lock):
@@ -708,6 +726,21 @@ and the worker with a session of its own holding the agent-worker lock):
   holds, never backward, and it is unread while later events exist; each scope keeps its
   own unfinished turn; another person reads and marks none of them, and a read naming no
   known scope is refused.
+- **Stream read:** one turn of a person's conversation, the latest unless named, as the
+  conversation read shows it: its state, start, incompleteness and hidden marker, the
+  instant its elapsed limit passes, the conversation's latest sequence and the turn's
+  events after a sequence, those the conversation read answers, writing nothing. A
+  sequence beyond the latest, before the event preceding the turn's first, or with more
+  of the turn's events after it than the window is refused `replay_unavailable`, and
+  one after an ended turn's last `turn_not_running`; a named turn reads alone though a
+  later one began, and a turn ending without completing after text is incomplete. The
+  read is its owner's alone, in their scope (`conversation_not_found`), names a turn
+  only of its conversation and refuses malformed input (`turn_input`), and needs
+  `UseAgents` and a request context; the runtime executes it but not the helper that
+  shows an event. Once a source of a turn is unreadable it hides the text as the
+  conversation read does and leaves the other events, steps included, as they are, and
+  with the grant revoked it shows the text again. The conversation read answers byte for
+  byte as 0072's did, with an answer hidden and without.
 - **Records and guard:** triggers and constraints refuse, even from the owner, any
   update or delete of an event, a step or what its read ran under; deleting a
   conversation or a turn; moving a conversation's read mark back or changing anything
@@ -718,7 +751,9 @@ and the worker with a session of its own holding the agent-worker lock):
   change to each pinned helper or to the privileges of one; before 0071 applies, it
   refuses a change to the ask it replaces or a helper the ask relies on, or to the
   privileges of one; before 0072 applies, it refuses a change to each definition it
-  replaces or helper it relies on, or to the privileges of one.
+  replaces or helper it relies on, or to the privileges of one; before 0078 applies, it
+  refuses a change to the definition it replaces or a helper the stream's read relies
+  on, or to the privileges of one, the risk worker's on the access functions included.
 
 Turns over HTTP (`tools/check_agent_turn_http.py`, in the same run after the SQL turn
 checks, through the API against the loopback fake provider):
@@ -780,7 +815,7 @@ for the browser and later suites):
   text is kept exactly as streamed. A step records its tool, operation, the request's
   input, the instant it read, after its call's close and before the next call, and
   every access its read ran under, and its event carries only its number and tool; the
-  turn records `turns_v2`.
+  turn records `turns_v3`.
 - **Identity:** each read runs in one request context of its own, issued to the agent's
   principal under the turn's grant on the `openetrm-agent-reads` backends; page views
   and trades bind the context the ask captured, even after the session selects a
@@ -847,6 +882,47 @@ amounts as the page does, each amount once, by the last walk that reaches it. A 
 stop continues the loop with the reply and the results in order, and a request for a
 tool the request did not offer is unreadable, keeping its final usage.
 
+The live stream over HTTP (`tools/check_turn_stream_http.py`, in the same run after the
+turn checks over HTTP, through the API against the loopback fake provider). It opens no
+session: it streams in the administrator and trader sessions those checks hand it, acts
+as other people by switching the administrator's profile, and sends the rest without a
+cookie.
+
+- **Replay:** a finished turn's stream opens with a comment, replays its stored events
+  after the sequence through its terminal event, which says whether the turn is
+  incomplete, and ends; `Last-Event-ID` overrides `after`; a sequence beyond the
+  latest, or before a follow-up's first event, is refused `replay_unavailable` and one
+  at a finished turn's end `turn_not_running`, each by an event without an id.
+- **Admission:** a stream without `Sec-Fetch-Site: same-origin` and `Sec-Fetch-Mode:
+  cors` (none, same-site, a typed address, no-cors, a navigation) is refused
+  `access_denied`, without a session or with an unknown one `session_ended`, and with
+  a foreign Origin 403, none with CORS headers or a new cookie; a sequence or
+  `Last-Event-ID` that does not parse is `request_format` and a negative one
+  `turn_input`; another person's conversation is `conversation_not_found` and a person
+  without `UseAgents` `access_denied`. Without a session every assistant route answers
+  `session_ended`, a command carrying the page's request token included, and pages
+  `access_denied`.
+- **Live:** a stream of a stalled turn holds no database transaction while it waits and
+  sends each piece of text once it commits, in order without a gap or repeat, through
+  the terminal event, its text the stored answer; a step reaches a stream already live
+  once it commits, while the call after it is still open; an answer holding CR, LF,
+  CRLF, `event:`, `data:` and `id:` lines and a blank line arrives only inside text
+  events, byte for byte the stored answer; a stream dropped while its turn runs resumes
+  through `Last-Event-ID`, and one opened once the turn has ended through `after`, each
+  with exactly the events that followed.
+- **Endings:** a newer stream of an unfinished turn, in the same session or another of
+  its owner's, sends the older `replaced`; after Stop the stream sends the usage and the
+  cancelled ending, incomplete; a profile switch ends the session's streams
+  `session_ended` while a turn asked in another session completes; a stream whose owner
+  loses `UseAgents` is refused `access_denied` once the turn failed `access_changed`; a
+  lost generation refuses its streams `agent_runtime_unavailable`, a stream is refused
+  with a 503 while another session holds the lock, and once it is free a stream starts
+  the next generation and replays to the interrupted ending; an idle stream pings 13 to
+  20 seconds apart, and one whose turn stays unfinished past its elapsed limit and the
+  admission deadline, its row held, is refused `stream_expired`.
+- **Sessions:** the cookies of both sessions are as they were handed, no response is
+  left scripted and no request goes through a proxy.
+
 The managed checks split answer text into appends of at most 2,048 bytes, never inside
 a character and filling each to the bound where a character ends there, and send each
 earlier turn's ending, pinned context and answer, marked when incomplete or noted as
@@ -857,6 +933,16 @@ a transport failure or overload whose input is known and that published nothing,
 retries remain. A read that returns once its turn is to stop is no step, whatever it
 returned, and one its bound stopped fails the turn `limit_elapsed` at the deadline,
 else `tool_failed`.
+
+The stream's managed checks write each frame: one data line of escaped JSON under a fixed
+name, no id on `refused` or `replaced`, and a pushed piece of text byte for byte as the
+event read back, hidden as the replay recheck hides it. They match the stream's path
+alone, parse resume points, and drive one stream's delivery with a manual clock: from
+where it resumes, pushed text in order once, a gap, a step and the run's end read,
+heartbeats and the re-read before the turn starts, the session's end and profile,
+expiry, a newer stream, a cut, shutdown, refused and failed reads, and a hidden answer.
+The subscriptions replace a turn's older stream unless the newer one stopped first, end
+a session's streams, and cut a full buffer without the writer waiting.
 
 Usage (`tools/check_model_usage.py`, in the same run, through the API and in SQL, over
 calls and turns it writes as the database owner at chosen instants of 2019, since a call
@@ -947,8 +1033,8 @@ role, and an agent update with and without roles, which leaves the agent unchang
 browser scenario creates its own agent and finds it listed as an agent reader without
 Edit. The temporal storage checks create an agent through `ManageAgents` and show it
 reads market data only under a current delegation. The reference-policy agent holds the
-agent reader role. The hosted checks find every agent, grant, turn and usage route
-unmapped and the provisioned owner with exactly the six human roles.
+agent reader role. The hosted checks find every agent, grant, turn, stream and usage
+route unmapped and the provisioned owner with exactly the six human roles.
 
 The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is
@@ -1032,6 +1118,22 @@ confirmation that it is permanent, after which the agent offers no change. At 39
 tab and card fit the page, and no internal identifier shows. A change refused on its
 first attempt because access ended keeps no request, and the administrator keeps no
 agent, version, audit or form data, whether the next change or the next read is refused.
+
+A grants scenario follows in the Agents scenario's browser and with its pricing session,
+so the run opens no session for it. The page creates a trader and publishes an agent for
+them. Profile reads the trader's grants only once Agent access is asked for, reading
+nothing else, and lists each with its agent and version, model, what it reads and its
+term, and a Revoke named for the agent. After a lost answer to a committed Revoke the
+page keeps the request for that identity only, shows the grants in force and moves focus
+to Retry, which resends the identical request and keeps nothing. A trader demoted to
+viewer, who no longer uses agents, still lists and revokes a grant, sending only its
+request identity and grant; a read refused while the membership is suspended shows no
+grant and keeps no request, and restored the person lists the grant again. Users &
+access then lists a grant in force by person, offering no Revoke, and the agent's changes
+newest first, the retried Revoke recorded once. Agent access and both cards fit 390 px
+and show no internal identifier. In the standard run Users & access shows both cards,
+and a refused reload or retry clears them with the accounts; in hosted mode Agent access
+and the cards are hidden and no assistant route is read.
 
 A Usage scenario ends the run. Through an independent session it prices a model and
 tests it once, so the report holds a priced provider test of this run in a currency

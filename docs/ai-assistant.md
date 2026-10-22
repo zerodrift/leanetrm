@@ -39,11 +39,14 @@ own permission, and its Agents tab creates agents, saves drafts, publishes, mark
 whose published model version is no longer current, and retires. Users grant an agent
 version its reads and revoke their grants through the API (§7.1): one current grant per
 user and agent, covering later versions with the same model identity and permissions,
-with a grant audit, and Retire revokes an agent's open grants. Turns are recorded in the
-database (§5.1, §7.2, §7.4, §7.5): an ask in the person's own context with admission,
-the pinned-context record and its reserve, a turn's one call with its checks, retries
-and input limit, cancellation and its sources, recovery at a worker start and the
-owner's reads, all checked in SQL. Through the API a person asks, stops and reads their
+with a grant audit, and Retire revokes an agent's open grants. In the profile dialog a
+person reads their grants in force when they ask and revokes them, and Users & access
+shows those who administer a workspace's access every grant in force there and the
+latest grant audit records, read-only. Turns are recorded in the database (§5.1, §7.2,
+§7.4, §7.5): an ask in the person's own context with admission, the pinned-context
+record and its reserve, a turn's one call with its checks, retries and input limit,
+cancellation and its sources, recovery at a worker start and the owner's reads, all
+checked in SQL. Through the API a person asks, stops and reads their
 turns, and the in-process worker runs each turn its process admitted: one call without
 tools, retried as §7.5 allows, streamed within the turn's elapsed limit, its text
 published in batches the database rechecks, then its usage closed and its ending
@@ -57,13 +60,18 @@ The worker runs the tool loop with the six read tools (§7.3): a version's switc
 read tools are offered, and each request is answered by a step whose read runs in a
 request context issued to the turn's agent under its grant, on agent pools of its own,
 at the turn's pin; Read current page dispatches the page report checked at ask (§8),
-and results carry the page's values and display within the runtime set `turns_v2`.
-`ReadModelUsage` reads usage through the API and the Usage tab of Settings › AI (§5.3,
-§9): calls, tokens and the exact cost of priced calls by model, user or agent over a
-half-open range of local dates in a zone prefilled from Profile, a call falling on the
-day whose bounds hold its start, per exact currency reference with provider tests as
-their own row and a daily chart, and an audited export of that report as a
-formula-guarded CSV. Navigate, Show card, the stream and the panel are not
+and results carry the page's values and display. Through the API a person streams
+their conversation's latest turn (§8): its stored events after a sequence, read in
+their own request context with the replay recheck, then each piece of answer text the
+worker publishes once its publication recheck has committed, with every other event,
+steps included, read the same way, through to the turn's terminal event, with resume,
+heartbeats, one stream per turn and the refusals §8 lists; the runtime set is
+`turns_v3`. `ReadModelUsage` reads usage through the API and the Usage tab of Settings ›
+AI (§5.3, §9): calls, tokens and the exact cost of priced calls by model, user or agent
+over a half-open range of local dates in a zone prefilled from Profile, a call falling
+on the day whose bounds hold its start, per exact currency reference with provider
+tests as their own row and a daily chart, and an audited export of that report as a
+formula-guarded CSV. Navigate, Show card and the panel are not
 implemented, so no page asks yet.
 
 The page assistant ships in three phases, each with its own design:
@@ -497,7 +505,8 @@ audit as history.
   turns, except one whose publication was refused, which fails `access_changed`. Each
   grant and revocation appends a grant audit record in the same transaction; the profile
   dialog lists the user's grants with Revoke, and `ManageIdentities` with `ManageAccess`
-  holders see all of them in Users & access.
+  holders see all of them in Users & access, read-only: every grant in force in the
+  workspace, by person and then agent, and the latest 100 grant audit records.
 - **Grant and Revoke requests** carry an operation identity. A request without it, or
   naming no positive version or no grant, is `grant_input`; one under an identity that
   another grant, Revoke or Retire recorded is `grant_conflict`; an outcome the API
@@ -625,7 +634,7 @@ The tool set is fixed; each tool is switched on per agent version.
   Refusals count as steps. Read current page's read refusing the page's selection
   itself is `page_selection_unavailable`: each operation declares which of its refusals
   mean that (`missing_curve`, `blotter_view`, `futures_trade`, `swap_trade`).
-- **Operations** (runtime set `turns_v2`): `market_data.curves_v1`, `curve_v1`,
+- **Operations** (from runtime set `turns_v2`): `market_data.curves_v1`, `curve_v1`,
   `observations_v1` and `contract_definitions_v1`; `trades.blotter_v1` and
   `trades.trade_v1`; `trade_parties.versions_v1`; `schedules.library_v1`,
   `tou_products_v1` and `power_hours_v1`; and `reference_data.table_v1`. Contract
@@ -742,15 +751,15 @@ The tool set is fixed; each tool is switched on per agent version.
   before any byte was sent or a not-billed error status before any stream event.
 - **Runtime set**: versioned, shipped with the application, recorded on each turn,
   never host configuration. Workspace concurrency; agent pool sizes; retry backoff;
-  replay window; heartbeat interval (under 20 seconds); text coalescing interval; card
-  data and event sizes; question and instruction lengths (set so a body stays under 32
-  KB: `question_too_long`, `instructions_too_long`); a worker write's bound and retry
-  interval; tool-result row and byte bounds;
-  maximum grant duration; test output limit and deadline (below 15 seconds); admission
-  deadline (above 15 seconds); retained-context reserve; provider timeouts and
-  response byte bound; subscriber buffer. Oversize cards are `card_too_large`; text is
-  split into events; any other oversize event is `event_too_large`. Nothing is
-  truncated.
+  replay window (256 of the streamed turn's events); heartbeat interval (15 seconds,
+  under 20); text coalescing interval; card data and event sizes; question and
+  instruction lengths (set so a body stays under 32 KB: `question_too_long`,
+  `instructions_too_long`); a worker write's bound and retry interval; tool-result row
+  and byte bounds; maximum grant duration; test output limit and deadline (below 15
+  seconds); admission deadline (above 15 seconds); retained-context reserve; provider
+  timeouts and response byte bound; subscriber buffer (64 signals). Oversize cards are
+  `card_too_large`; text is split into events; any other oversize event is
+  `event_too_large`. Nothing is truncated.
 - Provider errors classify as authentication, rate limit, overloaded, invalid request,
   context window exceeded or transport. For Messages, 401, 402 and 403 are
   authentication; 429 is rate limit; 500, 504, 529 and any other server status are
@@ -803,10 +812,12 @@ The tool set is fixed; each tool is switched on per agent version.
 ## 8. Live event stream
 
 - **Commands** (ask, cancel, grant, revoke, mark read) are POSTs through the existing
-  middleware, Origin and anti-forgery checks, each with an operation identity; ask
-  identities are scoped to the user, and a repeat must name the same conversation (none
-  for a first ask) and payload. Ask, grant and the stream require current `UseAgents`;
-  the rest require only ownership.
+  middleware, Origin and anti-forgery checks. Ask, grant and revoke carry an operation
+  identity; ask identities are scoped to the user, and a repeat must name the same
+  conversation (none for a first ask) and payload. Cancel (Stop) and mark read carry
+  none, because both are idempotent: a repeated Stop requests nothing more and answers
+  the turn as it stands, and a read mark never moves back. Ask, grant and the stream
+  require current `UseAgents`; the rest require only ownership.
 - **Ask** carries the agent version, an existing conversation or none, the question,
   the knowledge mode or retained context, the frame id when selected, and the page
   report, exactly `{"page","selection"}` as Looking at shows: one page identifier per
@@ -826,44 +837,73 @@ The tool set is fixed; each tool is switched on per agent version.
 - **Reads** (conversations with unread markers, one conversation's turns and events,
   the unfinished turn) pass the replay recheck.
 - **Stream:** `GET …/assistant/conversations/{id}/events?after={sequence}`, read by
-  native `EventSource`, for an owned conversation. With a non-terminal turn it streams
-  live; otherwise it replays stored events after `after` to the terminal event, or
-  sends `refused` with `turn_not_running`. Idle panels hold no connection.
+  native `EventSource`, for an owned conversation. It serves the conversation's latest
+  turn only. With that turn non-terminal it streams live; otherwise it replays the
+  turn's stored events after `after` to its terminal event, or sends `refused` with
+  `turn_not_running` when none follows `after`. Idle panels hold no connection.
 - **Events:** accepted, step, text delta, card, navigation target, usage and cost;
   terminal completed, failed, cancelled, interrupted; and `replaced` and `refused`. A
-  200 stream ends only after a terminal, `replaced` or `refused` event, on which the
-  panel calls `close()`, so the browser reconnects only after a network drop or a
-  slow-subscriber cut.
+  stored event's data is its turn's id, `hidden` (null, or the code that hides the
+  turn's answer, `access_changed`) and its payload as the owner's reads show it; a
+  terminal event's also says whether the turn's answer is `incomplete`, as those reads
+  state it, so the panel derives neither. `replaced` carries an empty object and
+  `refused` a code with its fixed message, neither with an id. A 200 stream ends only
+  after a terminal, `replaced` or `refused` event, on which the panel calls `close()`,
+  so the browser reconnects only after a network drop or a cut (below).
 - **Resume.** Event ids are per-conversation sequences. Reconnects send
-  `Last-Event-ID`, which overrides `after`; a new stream passes `after`. A sequence
-  beyond the latest or older than the replay window gets `refused` with
-  `replay_unavailable`, and the panel re-reads and opens one new stream; the server
-  never silently restarts.
+  `Last-Event-ID`, which overrides `after`; a new stream passes `after`. A value that is
+  not a decimal sequence is refused `request_format`, a negative one `turn_input`. A
+  sequence beyond the conversation's latest, before the event preceding the turn's
+  first, or leaving more of the turn's events than the replay window (256) gets
+  `refused` with `replay_unavailable`, and the panel re-reads and opens one new stream;
+  the server never silently restarts.
 - **Wire format:** `id:` with the sequence, `event:` with a fixed name, one `data:`
-  line of single-line JSON from the API serializer, a blank line. Model, read and user
-  text appears only inside JSON strings with CR and LF escaped. The panel accepts only
-  the fixed names and validates each payload; a failure closes the stream and re-reads
+  line of single-line JSON from the API serializer, a blank line; the comments `: open`
+  and `: ping` are one line each. Model, read and user text appears only inside JSON
+  strings, with CR, LF, U+2028 and U+2029 escaped, and a piece of text the worker
+  pushed writes byte for byte as the same event read back. The panel accepts only the
+  fixed names and validates each payload; a failure closes the stream and re-reads
   once.
 - **One stream per unfinished turn**, because browsers cap connections per origin: a
-  new one sends the older `replaced`, whose tab offers Resume.
+  new one, from any of the owner's sessions, sends the older `replaced`, whose tab
+  offers Resume. A stream stopped before it begins replaces none.
 - The route is matched in the first middleware, exempt from the 15-second deadline and
   the session semaphore, and sends `refused` with `stream_expired` if the turn's
-  elapsed limit passes without a terminal event.
-- **Admission.** The loopback and GET Origin checks apply. `EventSource` cannot send
-  the anti-forgery header, so the stream relies on the scope's SameSite=Strict,
-  HttpOnly session cookie plus `Sec-Fetch-Site: same-origin` and `Sec-Fetch-Mode:
-  cors`; cookies are not port-scoped, so Sec-Fetch is what refuses a page on another
-  loopback port. No CORS headers; the only side effect is replacing the requester's
-  older stream. Failures are non-2xx, which stops `EventSource`, and the panel
-  re-reads once. A missing or expired session is `session_ended` on assistant routes
-  (pages keep `access_denied`), with a reload offer and no retry loop.
-- The server flushes headers and a comment on open and heartbeats while idle, checking
-  before each write that the session exists with an unchanged profile (else `refused`,
-  `session_ended`). A waiting stream holds no database connection: it subscribes in
-  memory, replays committed events after `after` in one short read with the replay
-  recheck, and drops duplicates by sequence. Live events arrive from the worker after
-  commit, already rechecked. A subscriber overflowing its bounded buffer is cut
-  without a final event, the one deliberate case, and resumes through `Last-Event-ID`.
+  elapsed limit plus the admission deadline passes without a terminal event; the
+  worker's own `limit_elapsed` ending comes first.
+- **Admission.** The loopback and GET Origin checks apply: a same-origin `EventSource`
+  GET sends no Origin, so a request without one passes and a foreign one is refused.
+  `EventSource` cannot send the anti-forgery header, so the stream relies on the
+  scope's SameSite=Strict, HttpOnly session cookie plus `Sec-Fetch-Site: same-origin`
+  and `Sec-Fetch-Mode: cors` (`access_denied` otherwise); cookies are not port-scoped,
+  so Sec-Fetch is what refuses a page on another loopback port. A first read refuses a
+  person without `UseAgents` (`access_denied`) and answers another person's
+  conversation like an unknown one (`conversation_not_found`). For a non-terminal turn
+  the stream then subscribes, takes the worker's generation as an ask does, starting
+  one if it can (`agent_runtime_unavailable`, 503, while another process holds it),
+  reads again what committed before it subscribed, and replaces the older stream. No
+  CORS headers; the only side effects are that replacement and the worker's start.
+  Failures are non-2xx, which stops `EventSource`, and the panel re-reads once. A
+  missing or expired session is `session_ended` on assistant routes (pages keep
+  `access_denied`), with a reload offer and no retry loop.
+- **Delivery.** The server flushes headers and a comment on open and heartbeats every
+  15 seconds while idle, checking before each write that the session is unexpired with
+  an unchanged profile (else `refused`, `session_ended`); a profile switch ends its
+  session's streams at once. A waiting stream holds no database connection. The worker
+  pushes each piece of answer text in memory once its publication recheck has
+  committed, and the stream sends the piece that follows the last event it sent. Every
+  other event, a gap and the turn's ending come from a short read in the owner's own
+  request context with the replay recheck: when a published event is not the next
+  piece of text, when the worker's run of the turn ends, and at each heartbeat until
+  the turn starts, so an ending its worker never wrote still arrives. Duplicates are
+  dropped by sequence. Once a read hides the turn's answer, every later text is hidden
+  too.
+  - A run that ends with its turn unfinished, as a lost generation's does, and the
+    server's shutdown send `refused` with `agent_runtime_unavailable`; a read refused
+    for lost `UseAgents` sends `refused` with `access_denied`.
+  - A subscriber overflowing its bounded buffer (64 signals) is cut without a final
+    event, and so is a stream whose read fails otherwise; both resume through
+    `Last-Event-ID`.
 - Each scope maps its own stream and commands inside `MapPreview`; no new dependency.
 
 ## 9. Settings › AI
@@ -1106,7 +1146,8 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 - **Stream:** resume through `Last-Event-ID` and `after`; an answer containing CR, LF
   and CRLF followed by `event: navigation`, `data: {…}`, `id: 999` and a blank line
   arrives only inside text deltas, byte-identical to the stored answer; admission
-  without the cookie, Origin or Sec-Fetch headers gets 403 and no CORS headers.
+  without the cookie or the Sec-Fetch headers, or with a foreign Origin, gets 403 and
+  no CORS headers.
 - **Browser:** Replace key's uncertain outcome leaves the key in no storage or URL;
   card strings trace to stored reads and clicks send no request; a page on another
   loopback port is refused; the context-change button and `page_not_supported`;
@@ -1137,8 +1178,8 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 Owner decisions become D rows when recorded. Every other rule in this document is a
 design call, recorded as P rows by section and open to correction until the owner
 approves it. Phase 3's four hosted gates are undecided. [decisions.md](decisions.md)
-records this section as D149–D156, D177, D184 and P24–P38, with the open-item updates
-below.
+records this section as D149–D156, D177, D184, D185 and P24–P38, with the open-item
+updates below.
 
 **AGENTS.md exception:** model-provider vendor names (Anthropic, OpenAI, Google, xAI,
 Meta) and their public API identifiers may appear in source, documentation, fixtures
@@ -1187,6 +1228,21 @@ the input limit run, and the next open ends the turn, the worker checking only t
 limit before reading; a denied read's step publication decides whether the turn
 continues; each read is bounded by the runtime set's `ToolRead` and runs on agent pools
 named `openetrm-agent-reads`, and one that returns once its turn is to stop is no step.
+
+**Stream decisions** (D185): a stream serves its conversation's latest turn, with a
+replay window of 256 of that turn's events; answer text arrives pushed once its
+publication recheck commits and every other event, steps included, by a read with the
+replay recheck, so text committed before an access loss may still reach a stream
+admitted before it, once (security.md states the guarantee); every event says whether
+the answer is hidden, and the terminal event whether it is incomplete; `stream_expired`
+follows the elapsed limit plus the admission deadline; admission accepts a GET without
+Origin and refuses a foreign one; any of the owner's sessions may stream, replacing the
+older stream, with no per-session cap, and a stream may start the worker for an
+unfinished turn; a lost generation or shutdown ends a stream `agent_runtime_unavailable`
+and any failed read but a refused one cuts it; `session_ended` answers a missing session
+on every assistant route; the runtime set's version changes; the conversation read
+shares the stream's event helper; and Stop and mark read stay idempotent without an
+operation identity (§8).
 
 The agent reader role amends D42 (seven role templates).
 

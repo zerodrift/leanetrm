@@ -68,7 +68,8 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin
           'create_agent,credential_slot,disable_model,disable_provider,edit_model,enable_model,enable_provider,end_turn,end_turn_session,'
           'export_usage,grant_agent,grants,mark_read,model_directory,open_test,open_turn_call,pin_turn,provider_directory,publish_agent,'
           'record_terms,record_tool_step,rename_model,replace_credential,retire_agent,revoke_grant,save_agent_version,start_turn,start_worker,'
-          'stop_turn,unfinished_turn,usable_agents,usage_directory,usage_report,use_agent_admission,use_grant_admission,withdraw_price')
+          'stop_turn,turn_stream,unfinished_turn,usable_agents,usage_directory,usage_report,use_agent_admission,use_grant_admission,withdraw_price,'
+          'workspace_grants')
     for table in ('providers', 'credentials', 'administration_audit'):
         contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
         check(f'the runtime reads {table} only through administration operations')
