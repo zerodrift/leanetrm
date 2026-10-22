@@ -56,23 +56,27 @@ the tool loop's next call, each read's sources joining the turn's source set, th
 source-access check in the agent's authority before every call and publication, the
 replay recheck on the owner's reads, earlier turns included only while their sources
 pass, and the tool-step, retry and input limits across the loop, all checked in SQL.
-The worker runs the tool loop with the six read tools (§7.3): a version's switched-on
-read tools are offered, and each request is answered by a step whose read runs in a
-request context issued to the turn's agent under its grant, on agent pools of its own,
+The worker runs the tool loop with the six read tools and Navigate (§7.3): a version's
+switched-on tools are offered, and each request is answered by a step whose read runs in
+a request context issued to the turn's agent under its grant, on agent pools of its own,
 at the turn's pin; Read current page dispatches the page report checked at ask (§8),
-and results carry the page's values and display. Through the API a person streams
-their conversation's latest turn (§8): its stored events after a sequence, read in
-their own request context with the replay recheck, then each piece of answer text the
-worker publishes once its publication recheck has committed, with every other event,
-steps included, read the same way, through to the turn's terminal event, with resume,
-heartbeats, one stream per turn and the refusals §8 lists; the runtime set is
-`turns_v3`. `ReadModelUsage` reads usage through the API and the Usage tab of Settings ›
-AI (§5.3, §9): calls, tokens and the exact cost of priced calls by model, user or agent
-over a half-open range of local dates in a zone prefilled from Profile, a call falling
-on the day whose bounds hold its start, per exact currency reference with provider
-tests as their own row and a daily chart, and an audited export of that report as a
-formula-guarded CSV. Navigate, Show card and the panel are not
-implemented, so no page asks yet.
+and results carry the page's values and display. Each result names the navigation
+targets it issues by handles numbered across the turn, and Navigate opens a page the
+assistant reads or an issued target once a request context issued to the agent opens
+its page: the target, which keeps the turn's pinned context, is published as a
+navigation event right after its step, and the owner's reads hide it as they hide
+text (D190). Through the API a person streams their conversation's latest turn (§8):
+its stored events after a sequence, read in their own request context with the replay
+recheck, then each piece of answer text the worker publishes once its publication
+recheck has committed, with every other event, steps included, read the same way,
+through to the turn's terminal event, with resume, heartbeats, one stream per turn and
+the refusals §8 lists; the runtime set is `turns_v4`. `ReadModelUsage` reads usage
+through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
+exact cost of priced calls by model, user or agent over a half-open range of local dates
+in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
+per exact currency reference with provider tests as their own row and a daily chart, and
+an audited export of that report as a formula-guarded CSV. Show card and the panel are
+not implemented, so no page asks yet and no target moves anyone.
 
 The page assistant ships in three phases, each with its own design:
 
@@ -637,15 +641,16 @@ The tool set is fixed; each tool is switched on per agent version.
 - **Operations** (from runtime set `turns_v2`): `market_data.curves_v1`, `curve_v1`,
   `observations_v1` and `contract_definitions_v1`; `trades.blotter_v1` and
   `trades.trade_v1`; `trade_parties.versions_v1`; `schedules.library_v1`,
-  `tou_products_v1` and `power_hours_v1`; and `reference_data.table_v1`. Contract
-  definitions are read with the schedule library, under the one bind a request makes,
-  so the page and the tool share that read. A result names its operation, the
-  knowledge it was read at (the pinned context and cutoff, or for current-only
-  definitions the read instant) and the frame it consumed, and returns the page read's
-  own fields, without what only the page uses: booking catalogs, rights, workspace
-  payloads, the pricing trace and the frame the result already names. A reference
-  table returns one whole page of at most 200 rows, and more matching rows are
-  `result_too_large`. Bounds are 500 records and 64 KiB.
+  `tou_products_v1` and `power_hours_v1`; and `reference_data.table_v1`; from `turns_v4`
+  each result also carries the handles of the targets it issues, and Navigate's
+  operation is `navigation.target_v1`. Contract definitions are read with the schedule
+  library, under the one bind a request makes, so the page and the tool share that read.
+  A result names its operation, the knowledge it was read at (the pinned context and
+  cutoff, or for current-only definitions the read instant) and the frame it consumed,
+  and returns the page read's own fields, without what only the page uses: booking
+  catalogs, rights, workspace payloads, the pricing trace and the frame the result
+  already names. A reference table returns one whole page of at most 200 rows, and more
+  matching rows are `result_too_large`. Bounds are 500 records and 64 KiB.
 - Steps answer a call's tool requests in order, numbered across the turn, and the tool
   loop's next call opens only once each request has one. A step records its tool, the
   operation and the instant it read, the request's input (an object of at most 8 KiB,
@@ -674,11 +679,28 @@ The tool set is fixed; each tool is switched on per agent version.
   and the page's checks. The preamble requires quoting only returned values and
   deriving none. Prose is model output; cards are the exact channel.
 - **Navigation targets** are issued by the server; the model never composes one. A
-  page target names a page the user can currently open, checked under the agent
-  context against the delegator's permissions, and keeps the pinned context. Record,
-  filter and context targets come only from this turn's reads. Targets open read views
-  only. A handle the server did not issue in this turn, or a page the delegator cannot
-  open, is `tool_arguments_invalid`.
+  target is a page report plus the pinned context: one of the pages the assistant reads,
+  a selection in that page's report form or none for the page as it opens, the turn's
+  knowledge mode, the context its reads bind and its As of frame, whether it is the
+  page, a record (a curve or a trade) or a filter, and a label the server composes from
+  the page's name and what the selection shows. A page target names a page the user can
+  currently open, checked under the agent context against the delegator's permissions,
+  so only a page whose reads the turn's grant lists, and keeps the pinned context; it
+  opens the page as it opens there, whatever the page's reads hold at that context: a
+  page needing an As of frame asks for one, and current definitions show as they are
+  when the target is followed. Record and filter targets come only from this turn's
+  reads: each read issues its own selection as a target, a curve read its curve and a
+  trade read the trade at the revision it read, and the curve directory and Blotter rows
+  each curve or trade they list, under handles numbered across the turn (`n1`, `n2`, …)
+  that the result carries. A handle names its target once the step that issued it is
+  published, so a later request of the same call can name one. There is no separate
+  context target: every target keeps the pinned context, so following one from another
+  context changes it (§10.1). Targets open read views only. Navigate names `page` or
+  `target`, the other null. A handle the server did not issue in this turn, or a page
+  the delegator cannot open, is `tool_arguments_invalid`. A target's page is checked by
+  the access functions and permissions its reads run under: one that opens joins the
+  source set with those accesses, one that does not adds nothing to it, and a check
+  stopped or failing once bound ends the turn as a read does (§7.5).
 
 ### 7.4 Execution
 
@@ -841,7 +863,8 @@ The tool set is fixed; each tool is switched on per agent version.
   turn only. With that turn non-terminal it streams live; otherwise it replays the
   turn's stored events after `after` to its terminal event, or sends `refused` with
   `turn_not_running` when none follows `after`. Idle panels hold no connection.
-- **Events:** accepted, step, text delta, card, navigation target, usage and cost;
+- **Events:** accepted, step, text delta, card, navigation target (`navigation`, right
+  after its step's event, carrying the step's number and the target), usage and cost;
   terminal completed, failed, cancelled, interrupted; and `replaced` and `refused`. A
   stored event's data is its turn's id, `hidden` (null, or the code that hides the
   turn's answer, `access_changed`) and its payload as the owner's reads show it; a
@@ -1179,8 +1202,8 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 Owner decisions become D rows when recorded. Every other rule in this document is a
 design call, recorded as P rows by section and open to correction until the owner
 approves it. Phase 3's four hosted gates are undecided. [decisions.md](decisions.md)
-records this section as D149–D156, D177, D184, D185 and P24–P38, with the open-item
-updates below.
+records this section as D149–D156, D177, D184, D185, D190 and P24–P38, with the
+open-item updates below.
 
 **AGENTS.md exception:** model-provider vendor names (Anthropic, OpenAI, Google, xAI,
 Meta) and their public API identifiers may appear in source, documentation, fixtures
@@ -1244,6 +1267,18 @@ and any failed read but a refused one cuts it; `session_ended` answers a missing
 on every assistant route; the runtime set's version changes; the conversation read
 shares the stream's event helper; and Stop and mark read stay idempotent without an
 operation identity (§8).
+
+**Navigate decisions** (D190, decided by the owner): a target is a page report plus the
+pinned context, labeled by the server; every read issues its own selection, a curve read
+its curve and a trade read the trade at the revision it read, and the curve directory and
+Blotter rows each curve or trade they list, as handles numbered across the turn within
+the result bounds, so the runtime set changes; the worker holds a turn's issued targets
+in memory and stores only the target a Navigate step issues, in its event; Navigate's
+input names `page` or `target`, the other null; page targets are the seven pages the
+assistant reads, each checked by its reads' accesses and permissions under the turn's
+grant, a page that does not open adding nothing to the source set; there is no
+separate context target; and a `navigation` event follows its step under the
+publication recheck and is hidden as text is (§7.3, §8).
 
 The agent reader role amends D42 (seven role templates).
 

@@ -676,22 +676,34 @@ runs them ([ai-assistant.md](ai-assistant.md) §7.2, §7.4, §8):
   report is refused too, the one repeat this change does not answer as its original
   did. Read current page dispatches only the report stored at ask, so navigation during
   a turn changes nothing it reads.
-- **Publication recheck:** each answer append and tool step takes the epoch row `FOR
-  SHARE` before the turn and then rechecks that authority and the turn's sources, so it
-  waits for a revocation in progress and publishes nothing once it commits. The turn
-  records the refusal: every later append is refused too, a cancel request no longer
-  applies, and whatever the worker asks the turn fails `access_changed` unless recovery
-  interrupts it. Usage, cost and the terminal event carry no business data and skip the
-  recheck; a step's event carries only its number, tool and code.
+- **Navigation targets:** the model never composes a target. A read's result names the
+  targets it issues by handles the worker holds for the turn, each naming its target
+  only once that read's step is published; Navigate opens only a page the assistant
+  reads or a handle issued in this turn, so text a read returns cannot make a target,
+  and an unissued handle is refused `tool_arguments_invalid`. A target's page is checked
+  in a request context issued to the agent by the access functions and permissions its
+  reads run under: a page that passes joins the source set with those accesses, and one
+  that fails is refused `tool_arguments_invalid` and adds nothing to it. The database
+  takes a target only from a Navigate step that names its check, on a page the
+  assistant reads, keeping the turn's pinned context, and publishes it with its step.
+- **Publication recheck:** each answer append and tool step, a Navigate step's target
+  included, takes the epoch row `FOR SHARE` before the turn and then rechecks that
+  authority and the turn's sources, so it waits for a revocation in progress and
+  publishes nothing once it commits. The turn records the refusal: every later append is
+  refused too, a cancel request no longer applies, and whatever the worker asks the turn
+  fails `access_changed` unless recovery interrupts it. Usage, cost and the terminal
+  event carry no business data and skip the recheck; a step's event carries only its
+  number, tool and code.
 - **Replay recheck:** the owner's reads, Stop's answer and an ask's answer show a turn's
-  answer and text only while the owner, in their own request context, can read every
-  source in its set, and hide them as `access_changed` otherwise; this needs no grant, so
-  a revoked grant or a retired agent hides nothing. An ask whose record failed answers
-  its turn's ending as the worker wrote it, which says nothing of the recheck: that turn
-  never started, so it has neither answer nor text. An ask includes an earlier turn only
-  when it passes, and when the covering grant lists every permission its sources used;
-  each withheld turn is named by a step, and the included turns' sources must pass in the
-  agent's authority before admission (`access_changed`).
+  answer, text and navigation targets only while the owner, in their own request
+  context, can read every source in its set, and hide them as `access_changed`
+  otherwise; this needs no grant, so a revoked grant or a retired agent hides nothing.
+  An ask whose record failed answers its turn's ending as the worker wrote it, which
+  says nothing of the recheck: that turn never started, so it has neither answer nor
+  text. An ask includes an earlier turn only when it passes, and when the covering grant
+  lists every permission its sources used; each withheld turn is named by a step, and
+  the included turns' sources must pass in the agent's authority before admission
+  (`access_changed`).
 - **Cancellation:** Stop is the owner's alone, in its scope; another person's turn is
   answered like an unknown one (`turn_not_found`). Provider and model Disable, Replace
   key, Record terms, Retire and grant revocation request the cancel of each turn they

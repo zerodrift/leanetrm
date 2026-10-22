@@ -63,10 +63,19 @@ static class TurnStreamChecks
         var refused=Text(TurnWire.Refused("replay_unavailable",Json));
         Require(refused.StartsWith("event: refused\ndata: {\"code\":\"replay_unavailable\",\"message\":",StringComparison.Ordinal)&&refused.EndsWith("}\n\n",StringComparison.Ordinal)
             &&!refused.Contains("id:",StringComparison.Ordinal)&&Text(TurnWire.Replaced)=="event: replaced\ndata: {}\n\n","refused and replaced carry no id");
+        using(var target=JsonDocument.Parse(@"{""ordinal"": 2, ""target"": {""page"": ""blotter"", ""label"": ""Blotter: trade TR-000001 revision 2""}}"))
+        {
+            var shown=Text(TurnWire.Event(5,"navigation",TurnId,null,null,target.RootElement,Json));
+            var hidden=Text(TurnWire.Event(5,"navigation",TurnId,"access_changed",null,target.RootElement,Json));
+            Require(shown.StartsWith("id: 5\nevent: navigation\ndata: ",StringComparison.Ordinal)
+                &&shown.Contains(@"""payload"":{""ordinal"":2,""target"":{""page"":""blotter"",""label"":""Blotter: trade TR-000001 revision 2""}}",StringComparison.Ordinal)
+                &&hidden.Contains(@"""payload"":{""hidden"":""access_changed""}",StringComparison.Ordinal)&&!hidden.Contains("blotter",StringComparison.Ordinal),
+                "a navigation target is a stored event, sent as its hidden marker once the replay recheck hides the turn's answer");
+        }
         using(var unknown=JsonDocument.Parse("{}"))
-            Require(Throws<InvalidOperationException>(()=>TurnWire.Event(1,"navigation",TurnId,null,null,unknown.RootElement,Json)),"only the fixed event names are written");
+            Require(Throws<InvalidOperationException>(()=>TurnWire.Event(1,"card",TurnId,null,null,unknown.RootElement,Json)),"only the fixed event names are written");
         Console.WriteLine("PASS the stream's wire format: one data line of escaped JSON per event, fixed names, no id on refused or replaced, and "+
-            "a pushed piece of text byte for byte the event read back, hidden as the replay recheck hides it");
+            "a pushed piece of text byte for byte the event read back, text and navigation targets hidden as the replay recheck hides them");
     }
 
     static void Requests()

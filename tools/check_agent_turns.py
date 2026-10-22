@@ -23,7 +23,7 @@ GRANTS = 'assistant/grants'
 EFFECTIVE = '2020-12-18'
 REPORT = {'page': 'curves', 'selection': {'curve': 'test_curve'}}
 # A step refusing a request before any read, as record_tool_step's arguments after the token.
-DECLINED = ("'read_current_page'", 'NULL', "'{}'::jsonb", "'page_not_supported'", 'NULL', 'NULL')
+DECLINED = ("'read_current_page'", 'NULL', "'{}'::jsonb", "'page_not_supported'", 'NULL', 'NULL', 'NULL')
 # Usage by dimension for close_turn_call: nothing sent bills nothing; unknown once anything was sent.
 NOTHING, UNKNOWN = ('nb',) * 5, (None,) * 5
 # Every row an ask or a worker write touches.
@@ -109,6 +109,24 @@ def check_stream_upgrade(query, migration):
         ('REVOKE EXECUTE ON FUNCTION security.market_access(uuid,text) FROM openetrm_risk_worker;', 'security.market_access(uuid,text)'),
         ('GRANT EXECUTE ON FUNCTION assistant.owner_turn(assistant.turns) TO openetrm_runtime;', 'assistant.owner_turn(assistant.turns)'),
         (f'REVOKE EXECUTE ON FUNCTION {CONVERSATION} FROM openetrm_runtime;', CONVERSATION)))
+
+
+NAVIGATION_HELPERS = ('assistant.is_plain_text(text)', 'assistant.are_agent_tools(text[])', 'assistant.turn_state(assistant.turns)',
+                      'assistant.turn_event(assistant.turns,text,jsonb)', 'assistant.unclosed_call(uuid)', 'assistant.turn_authorized(assistant.turns)',
+                      'assistant.fenced_turn(uuid,bytea)', 'assistant.is_read_access(jsonb)', 'assistant.sources_accessible(assistant.turns)',
+                      'assistant.record_tool_step(uuid,bytea,text,text,jsonb,text,timestamp with time zone,jsonb)',
+                      'assistant.owner_event(assistant.turn_events,text)')
+
+
+def check_navigation_upgrade(query, migration):
+    """Before 0086 applies: it refuses a changed helper a Navigate step relies on or definition it replaces, or one whose
+    privileges differ."""
+    check_guard(query, migration, '0086', 'navigation_targets', (
+        *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in NAVIGATION_HELPERS),
+        ('GRANT EXECUTE ON FUNCTION assistant.owner_event(assistant.turn_events,text) TO openetrm_runtime;',
+         'assistant.owner_event(assistant.turn_events,text)'),
+        ('REVOKE EXECUTE ON FUNCTION assistant.record_tool_step(uuid,bytea,text,text,jsonb,text,timestamp with time zone,jsonb) FROM openetrm_runtime;',
+         'assistant.record_tool_step(uuid,bytea,text,text,jsonb,text,timestamp with time zone,jsonb)')))
 
 
 def conversation_0072():
@@ -272,13 +290,14 @@ def run_checks(url, query, psql, manifest, environment):
         stop = stop or ('end_turn' if outcome in ('succeeded', 'usage_unrecognized') else None)
         return query(f'SET SESSION AUTHORIZATION preview_runtime;SELECT {close_sql(turn, opened, outcome, counts, status, stop, requests, token)};') == 't'
 
-    def step_sql(turn, tool='read_market_data', operation=None, arguments='{}', code=None, at=None, access=None, token=None):
+    def step_sql(turn, tool='read_market_data', operation=None, arguments='{}', code=None, at=None, access=None, target=None, token=None):
         """A step answering `turn`'s next tool request; `access` lists what a read ran under, as (function, catalog,
-        permission) or as JSON."""
+        permission) or as JSON, and `target` is the JSON of the navigation target a Navigate step issued."""
         accesses = access if isinstance(access, str) or access is None else json.dumps(
             [{'access': function, 'catalogId': catalog_id, 'permission': permission} for function, catalog_id, permission in access])
         return worker_sql('record_tool_step', turn, literal(tool), literal(operation), 'NULL' if arguments is None else literal(arguments) + '::jsonb',
-                          literal(code), at or 'NULL', 'NULL' if accesses is None else literal(accesses) + '::jsonb', token=token)
+                          literal(code), at or 'NULL', 'NULL' if accesses is None else literal(accesses) + '::jsonb',
+                          'NULL' if target is None else literal(target) + '::jsonb', token=token)
 
     def read(turn, tool='read_market_data', access=None, code=None, arguments='{"curve":"test_curve"}'):
         """The step of a read that ran under `access`, by default the catalog's market data."""
@@ -1063,6 +1082,92 @@ def run_checks(url, query, psql, manifest, environment):
     ended = end(looping)['turn']
     check("the tool loop's next call opens once a step answered each request, and the turn completes once its last call ended the turn",
           looped['attempt'] == 2 and ended['state'] == 'completed' and kinds(looping) == 'accepted,step,step,text,usage,completed', ended)
+
+    # Navigation targets (§7.3, §8): a Navigate step that issued a target names Navigate's operation, the instant its page
+    # was checked and the accesses it was checked under, and is published as its step event and then a navigation event
+    # carrying the target, which keeps the turn's pinned context; a refusal carries none, and so does every read.
+    navigator = agent('navigator', tools=('read_current_page', 'read_market_data', 'read_trades', 'navigate'), toolSteps=6)
+    grant(trader, navigator)
+    navigating = Turn()
+    ran(navigating, agent_id=navigator['id'])
+    pinned = json.loads(query("SELECT json_build_object('mode',knowledge_mode,'contextId',context_id,'frameId',frame_id)::text "
+                              f"FROM assistant.turns WHERE id='{navigating.id}';"))
+    curve_target = {'page': 'curves', 'selection': {'view': 'curve', 'curve': 'test_curve'}, 'context': pinned, 'kind': 'record',
+                    'label': 'Curves & prices: curve test_curve'}
+    page_target = {'page': 'blotter', 'selection': None, 'context': pinned, 'kind': 'page', 'label': 'Blotter'}
+    curves_access = [*market, ('reference_access', reference, 'ReadMarketData')]
+    moving = {'tool': 'navigate', 'operation': 'navigation.target_v1', 'arguments': '{"page":null,"target":"n1"}', 'at': 'clock_timestamp()',
+              'access': curves_access, 'target': json.dumps(curve_target)}
+
+    def aimed(**changes):
+        return {**moving, 'target': json.dumps({**curve_target, **changes})}
+    close_call(navigating, open_call(navigating)['opened'], stop='tool_use', requests=3)
+    records = query(RECORDS)
+    for wrong in ({**reading, 'target': json.dumps(curve_target)}, {**declining, 'target': json.dumps(curve_target)}, {**moving, 'target': None},
+                  {**moving, 'code': 'tool_arguments_invalid', 'operation': None, 'at': None, 'access': None},
+                  {**moving, 'operation': None, 'at': None, 'access': None}, {**moving, 'operation': 'market_data.curves_v1'},
+                  {**moving, 'target': '[]'}, {**moving, 'target': '"curves"'},
+                  {**moving, 'target': json.dumps({k: v for k, v in curve_target.items() if k != 'label'})},
+                  {**moving, 'target': json.dumps({**curve_target, 'handle': 'n1'})}, aimed(kind='elsewhere'), aimed(kind=None),
+                  aimed(page='jobs'), aimed(page='settings_ai'), aimed(page='Curves'), aimed(page=None), aimed(page='schedules'),
+                  aimed(kind='page'), aimed(selection=None),
+                  aimed(selection=[]), aimed(selection='curve'), aimed(selection={'curve': 'x' * 8200}),
+                  aimed(context={**pinned, 'contextId': str(uuid4())}), aimed(context={**pinned, 'contextId': None}),
+                  aimed(context={**pinned, 'frameId': str(uuid4())}), aimed(context={**pinned, 'mode': 'retained'}),
+                  aimed(context={k: v for k, v in pinned.items() if k != 'frameId'}), aimed(context={**pinned, 'cutoff': None}), aimed(context=None),
+                  aimed(label=''), aimed(label=' Curves & prices'), aimed(label='Curves\nprices'), aimed(label='Curves\u202eprices'), aimed(label='x' * 201),
+                  aimed(label=None), aimed(label=3)):
+        step_refused('turn_input', navigating, **wrong)
+    check("a Navigate step that issued a target names Navigate's operation, the instant its page was checked and what it was checked under, "
+          "and a target on a page the assistant reads, the page itself, a curve or trade, or a filter, keeping the turn's pinned context and "
+          'labeled in plain text; a refusal and a read carry none', query(RECORDS) == records)
+    unlisted_market = ("DELETE FROM security.delegation_permissions WHERE permission='ReadMarketData' "
+                       f"AND delegation_id=(SELECT delegation_id FROM assistant.turns WHERE id='{navigating.id}');")
+    refused_target = after(unlisted_market, step_sql(navigating, **moving))
+    to_curve = as_worker(f'SELECT {step_sql(navigating, **moving)}::text;')
+    to_nothing = declined(navigating, 'tool_arguments_invalid', 'navigate', '{"page":null,"target":"n9"}')
+    to_blotter = {**moving, 'arguments': '{"page":"blotter","target":null}', 'target': json.dumps(page_target),
+                  'access': [('trading_access', catalog, 'ReadTrades'), *curves_access]}
+    opened_page = as_worker(f'SELECT {step_sql(navigating, **to_blotter)}::text;')
+    events = [(int(sequence), kind, json.loads(payload)) for sequence, kind, payload in (line.split(' ', 2) for line in query(
+        f"SELECT string_agg(sequence||' '||kind||' '||payload::text,E'\\n' ORDER BY sequence) FROM assistant.turn_events "
+        f"WHERE turn_id='{navigating.id}';").splitlines())]
+    stored = query(f"SELECT string_agg(concat_ws(' ',ordinal,tool,coalesce(operation,'-'),input::text,coalesce(code,'-'),read_at IS NOT NULL,"
+                   f"(SELECT count(*) FROM assistant.tool_read_access a WHERE (a.turn_id,a.step)=(s.turn_id,s.ordinal))),E'\\n' ORDER BY ordinal) "
+                   f"FROM assistant.tool_steps s WHERE turn_id='{navigating.id}';")
+    check("a Navigate step's target is published as a navigation event right after its step's own event, carrying the step's number and the "
+          'target and no more; its publication is rechecked as a step\'s is, and a refusal publishes its step alone',
+          refused_target.get('refused') == 'access_changed' and 'sequence' not in refused_target
+          and (to_curve['step'], to_nothing['step'], opened_page['step']) == (1, 2, 3)
+          and [kind for _, kind, _ in events] == ['accepted', 'step', 'navigation', 'step', 'step', 'navigation']
+          and [sequence for sequence, _, _ in events] == list(range(events[0][0], events[0][0] + 6))
+          and (to_curve['sequence'], to_nothing['sequence'], opened_page['sequence']) == (events[2][0], events[3][0], events[5][0])
+          and [payload for _, kind, payload in events if kind == 'navigation'] == [{'ordinal': 1, 'target': curve_target}, {'ordinal': 3, 'target': page_target}]
+          and [payload for _, kind, payload in events if kind == 'step'] == [{'ordinal': 1, 'tool': 'navigate'},
+                                                                        {'ordinal': 2, 'tool': 'navigate', 'code': 'tool_arguments_invalid'},
+                                                                        {'ordinal': 3, 'tool': 'navigate'}]
+          and stored.splitlines() == ['1 navigate navigation.target_v1 {"page": null, "target": "n1"} - t 2',
+                                      '2 navigate - {"page": null, "target": "n9"} tool_arguments_invalid f 0',
+                                      '3 navigate navigation.target_v1 {"page": "blotter", "target": null} - t 3'],
+          (refused_target, to_curve, to_nothing, opened_page, events, stored))
+    close_call(navigating, open_call(navigating)['opened'])
+    end(navigating)
+    navigated_in = query(f"SELECT conversation_id FROM assistant.turns WHERE id='{navigating.id}';")
+    out_of_scope = f"DELETE FROM security.market_catalog_scopes WHERE catalog_id='{catalog}';"
+    readable = as_person('trader', f"SELECT assistant.conversation('api','{navigated_in}',0)::text;")
+    unreadable = [json.loads(line) for line in contexts.rolled_back(
+        out_of_scope, 'trader', 'human_interactive', contexts.workspace, 'NULL',
+        f"SELECT assistant.conversation('api','{navigated_in}',0)::text;"
+        f"SELECT assistant.turn_stream('api','{navigated_in}',NULL,0,256)::text;").splitlines() if line.strip()]
+
+    def payloads(read, kind):
+        return [e['payload'] for e in read['events'] if e['kind'] == kind]
+    check("the owner's reads show each navigation target, and once the replay recheck hides the turn's answer, the conversation and the "
+          "stream's reads show the target's hidden marker instead, leaving its steps as they are",
+          payloads(readable, 'navigation') == [{'ordinal': 1, 'target': curve_target}, {'ordinal': 3, 'target': page_target}]
+          and len(unreadable) == 2 and all(payloads(read, 'navigation') == [{'hidden': 'access_changed'}] * 2
+                                          and payloads(read, 'step') == payloads(readable, 'step') for read in unreadable)
+          and state(navigating) == 'completed:-', (readable, unreadable))
 
     # A close names how a call that completed stopped, and only such a call (§7.4); one stopped at its output limit
     # neither completes its turn nor is followed.

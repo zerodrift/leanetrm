@@ -7,10 +7,11 @@ using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.Shared.Temporal;
 
-// What the page assistant's read tools decide without a database (docs/ai-assistant.md §7.2, §7.3, §8): the frame and
+// What the page assistant's tools decide without a database (docs/ai-assistant.md §7.2, §7.3, §8): the frame and
 // knowledge a turn's reads rebuild from its record, the tools a version offers and the inputs they take, the page
 // reports ask accepts and Read current page dispatches, how a read's refusal or failure is named, a result's bounds,
-// envelope and projection, and the amounts a result shows as the page does.
+// envelope and projection, the amounts a result shows as the page does, and the navigation targets reads issue and
+// Navigate requests.
 static class AgentToolChecks
 {
     public static void Run()
@@ -22,6 +23,7 @@ static class AgentToolChecks
         Refusals();
         Results();
         Display();
+        Navigation();
     }
 
     static readonly Guid Catalog=Guid.Parse("c1000000-0000-0000-0000-000000000001");
@@ -82,13 +84,14 @@ static class AgentToolChecks
     static void Definitions()
     {
         Require(AgentTools.Offered(["read_trades","navigate","read_current_page","read_market_data","show_card"]).Select(t=>t.Name)
-                .SequenceEqual(["read_current_page","read_market_data","read_trades"])&&AgentTools.Offered([]).IsEmpty,
-            "a version's switched-on read tools are offered in the fixed order, a version without tools offers none, and Navigate is not offered");
+                .SequenceEqual(["read_current_page","read_market_data","read_trades","navigate"])&&AgentTools.Offered([]).IsEmpty,
+            "a version's switched-on tools are offered in the fixed order, Navigate after the read tools, a version without tools offers none, "+
+            "and Show card is not offered");
         var permissions=AgentTools.Tools.ToDictionary(t=>t.Name,t=>string.Join(",",t.Permissions));
-        Require(permissions.Count==6&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
+        Require(permissions.Count==7&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
             &&permissions["read_trades"]=="ReadMarketData,ReadTrades"&&permissions["read_trade_parties"]=="ReadMarketData,ReadTradeParties"
-            &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData",
-            "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools)");
+            &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData"&&permissions["navigate"]=="",
+            "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools), and Navigate needs none of its own");
         foreach(var tool in AgentTools.Tools)
         {
             Require(tool.InputSchema.GetProperty("type").GetString()=="object"&&tool.InputSchema.GetProperty("additionalProperties").ValueKind==JsonValueKind.False
@@ -100,10 +103,10 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v3"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
-            &&RuntimeSet.ToolRead==TimeSpan.FromSeconds(5),"turns_v3 bounds tool results and keeps a workspace's turns below its agent pools");
-        Console.WriteLine("PASS a version's switched-on read tools are offered in the fixed order with closed schemas that require every member they "+
-            "state, and their permissions; Navigate is not offered; turns_v3 bounds results and keeps workspace turns below the agent pools");
+        Require(RuntimeSet.Turns=="turns_v4"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
+            &&RuntimeSet.ToolRead==TimeSpan.FromSeconds(5),"turns_v4 bounds tool results and keeps a workspace's turns below its agent pools");
+        Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
+            "require every member they state, and their permissions; turns_v4 bounds results and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
@@ -128,8 +131,14 @@ static class AgentToolChecks
             ("read_schedules","""{"view":"tou_products"}""","schedules.tou_products_v1"),
             ("read_schedules","""{"view":"power_hours"}""","schedules.power_hours_v1"),
             ("read_reference_data","""{"table":"units","search":""}""","reference_data.table_v1"),
-            ("read_reference_data",$$"""{"table":"units","search":"{{new string('€',160)}}"}""","reference_data.table_v1")})
+            ("read_reference_data",$$"""{"table":"units","search":"{{new string('€',160)}}"}""","reference_data.table_v1"),
+            ("navigate","""{"page":"blotter","target":null}""","navigation.target_v1"),("navigate","""{"page":null,"target":"n1"}""","navigation.target_v1"),
+            ("navigate","""{"target":"n999999999","page":null}""","navigation.target_v1")})
             Require(AgentTools.Parse(tool,Json(input)).Operation.Id==operation,$"{tool} accepts {input}");
+        foreach(var page in PageReports.Supported)
+            Require(AgentTools.Parse("navigate",Json($$"""{"page":"{{page}}","target":null}""")).Arguments==new NavigateArguments(page,null),$"Navigate names the page {page}");
+        Require(AgentTools.Parse("navigate",Json("""{"page":null,"target":"n42"}""")).Arguments==new NavigateArguments(null,"n42"),
+            "Navigate names a handle a read issued, with its page null");
         var pivot=AgentTools.Parse("read_trades",Json($$"""{"view":"blotter","mode":"pivot","bookIds":["{{Book}}"],"portfolioIds":[],"groupBy":["contract"],"measures":["lots"],{{NoTrade}}}"""));
         var latest=AgentTools.Parse("read_trades",Json($$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":null}"""));
         Require(pivot.Arguments is BlotterArguments{View:{Mode:"pivot",PivotConvention:TradingBlotter.PivotConvention}} totals&&totals.View.BookIds.Single()==Guid.Parse(Book)
@@ -181,10 +190,17 @@ static class AgentToolChecks
             ("read_reference_data",$$"""{"table":"units","search":"{{new string('a',161)}}"}"""),("read_reference_data","""{"table":"units","search":"a\nb"}"""),
             ("read_reference_data","""{"table":"units","search":"\ud800"}"""),("read_reference_data","""{"table":"units","search":"\udc00\ud800"}"""),
             ("read_reference_data","""{"table":"units","search":null}"""),("read_market_data","""{"view":"curve","curve":"\ud800"}"""),
-            ("read_current_page","{}"),("navigate","{}")})
+            ("read_current_page","{}"),("navigate","{}"),("navigate","""{"page":"blotter"}"""),("navigate","""{"target":"n1"}"""),
+            ("navigate","""{"page":null,"target":null}"""),("navigate","""{"page":"blotter","target":"n1"}"""),("navigate","""{"page":"jobs","target":null}"""),
+            ("navigate","""{"page":"settings_ai","target":null}"""),("navigate","""{"page":"Blotter","target":null}"""),("navigate","""{"page":1,"target":null}"""),
+            ("navigate","""{"page":null,"target":"n0"}"""),("navigate","""{"page":null,"target":"n01"}"""),("navigate","""{"page":null,"target":"N1"}"""),
+            ("navigate","""{"page":null,"target":"1"}"""),("navigate","""{"page":null,"target":"n"}"""),("navigate","""{"page":null,"target":"n1234567890"}"""),
+            ("navigate","""{"page":null,"target":" n1"}"""),("navigate","""{"page":null,"target":1}"""),("navigate","""{"page":null,"target":"n1","extra":null}"""),
+            ("navigate","""{"page":null,"target":"n1","target":"n2"}"""),("navigate","[]")})
             Require(Code(()=>AgentTools.Parse(tool,Json(input)))=="tool_arguments_invalid",$"{tool} refuses {input}");
         Console.WriteLine("PASS each tool refuses missing, unknown or repeated members, wrong types, values outside its schema, control characters, "+
-            "unpaired surrogates, a view's member as null and another view's member named as tool_arguments_invalid");
+            "unpaired surrogates, a view's member as null and another view's member named as tool_arguments_invalid; Navigate names exactly one of a "+
+            "page the assistant reads and a handle");
 
         // Reading a string refuses an escaped unpaired surrogate, so text only ever holds whole characters, and a pair, which
         // holds no control character, is accepted.
@@ -270,6 +286,9 @@ static class AgentToolChecks
             &&Code(()=>AgentTools.Requested(Turn(curve,"read_market_data"),Current()))=="tool_not_enabled"
             &&Code(()=>AgentTools.Requested(Turn(curve,"read_market_data"),new("toolu_synthetic_04","navigate",Json("{}"))))=="tool_not_enabled",
             "a request for a tool the version has not switched on is tool_not_enabled before its input is read");
+        Require(AgentTools.Requested(Turn(curve,"navigate"),new("toolu_synthetic_05","navigate",Json("""{"page":"curves","target":null}"""))) is
+                ({Operation.Id:"navigation.target_v1",Arguments:NavigateArguments{Page:"curves",Handle:null}},false),
+            "Navigate, switched on, requests its own operation and reads no page report");
         Console.WriteLine("PASS a request for a tool the version has not switched on is refused tool_not_enabled before any read");
     }
 
@@ -323,9 +342,10 @@ static class AgentToolChecks
         var retained=Pin("retained",context,Working with{ContextId=context});
         JsonNode Context(TurnPin pin,string operation,bool displayed=false)
         {
-            var envelope=AgentTools.Envelope(pin,AgentTools.Operation(operation),Cutoff.AddDays(1),new(new JsonObject{["rows"]=new JsonArray()},0,displayed));
-            Require(envelope["operation"]!.GetValue<string>()==operation&&envelope["result"]!["rows"] is JsonArray&&(envelope["amountDisplay"]?.GetValue<string>()==(displayed?"tool_amount_display_v1":null)),
-                "a result names its operation, the display its amounts carry, if any, and the result");
+            var envelope=AgentTools.Envelope(pin,AgentTools.Operation(operation),Cutoff.AddDays(1),new(new JsonObject{["rows"]=new JsonArray()},0,displayed),"n3");
+            Require(envelope["operation"]!.GetValue<string>()==operation&&envelope["result"]!["rows"] is JsonArray&&(envelope["amountDisplay"]?.GetValue<string>()==(displayed?"tool_amount_display_v1":null))
+                &&envelope["target"]!.GetValue<string>()=="n3"&&envelope.Select(m=>m.Key).SequenceEqual(displayed?["operation","context","amountDisplay","target","result"]:["operation","context","target","result"]),
+                "a result names its operation, its context, the display its amounts carry, if any, the handle of its own target, and the result");
             return envelope["context"]!;
         }
         var frame=new JsonObject{["id"]=Working.Id.ToString(),["name"]=Working.Name,["at"]=JsonSerializer.SerializeToNode(Working.At)};
@@ -446,6 +466,154 @@ static class AgentToolChecks
                  "sides":[{"kind":"fixed","presentValue":{"value":"1234.5678","display":"1,234.57"}}]}}
                 """)),"each amount shows by the last walk that reaches it, and once");
         Console.WriteLine("PASS walks of one payload show each amount once, by the last walk that reaches it");
+    }
+
+    // Navigation targets (§7.3): a read issues its own selection as a target, then each record row's, as handles numbered
+    // across the turn; Navigate names a page the assistant reads, or a handle a published step issued in this turn.
+    static void Navigation()
+    {
+        bool Is(IssuedTarget issued,string handle,string page,string selection,string kind,string label)=>issued.Handle==handle&&issued.Target.Page==page
+            &&JsonNode.DeepEquals(issued.Target.Selection,JsonNode.Parse(selection))&&issued.Target.Kind==kind&&issued.Target.Label==label;
+        (ImmutableArray<IssuedTarget> Issued,JsonObject Result) Issue(string tool,string input,string result,int next=1)
+        {
+            var value=JsonNode.Parse(result)!.AsObject();
+            return(NavigationTargets.Issue(AgentTools.Parse(tool,Json(input)),value,next),value);
+        }
+        string TradeView(Guid id,string type,int revision)=>$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{id}}","instrumentType":"{{type}}","revision":{{revision}}}""";
+
+        var directory=Issue("read_market_data","""{"view":"curves","curve":null}""",
+            """{"curves":[{"code":"future","name":"Synthetic future","marketType":"futures","category":null},{"code":"power.de-base_1","name":"Synthetic power","marketType":"forward","category":null}]}""",5);
+        Require(directory.Issued.Length==3&&Is(directory.Issued[0],"n5","curves","""{"view":"curves","curve":null}""","filter","Curves & prices")
+            &&Is(directory.Issued[1],"n6","curves","""{"view":"curve","curve":"future"}""","record","Curves & prices: curve future")
+            &&Is(directory.Issued[2],"n7","curves","""{"view":"curve","curve":"power.de-base_1"}""","record","Curves & prices: curve power.de-base_1")
+            &&directory.Result["curves"]!.AsArray().Select(c=>c!["target"]!.GetValue<string>()).SequenceEqual(["n6","n7"]),
+            "the curve directory issues its own view as a filter target, then each curve as a record target, numbered from the turn's next handle, "+
+            "and each curve carries its handle");
+        var (first,second)=(Guid.NewGuid(),Guid.NewGuid());
+        var rows=Issue("read_trades",Blotter,$$"""
+            {"view":{"mode":"trades"},"holdings":[{"tradeId":"{{first}}","tradeReference":"TR-000001","instrumentType":"future","revision":"2","book":"Synthetic book"},
+             {"tradeId":"{{second}}","tradeReference":"TR-000002","instrumentType":"financial_swap","revision":"1"}],"convention":"trading_workspace_v1"}
+            """);
+        Require(rows.Issued.Length==3&&Is(rows.Issued[0],"n1","blotter",Blotter,"filter","Blotter: trades")
+            &&Is(rows.Issued[1],"n2","blotter",TradeView(first,"future",2),"record","Blotter: trade TR-000001 revision 2")
+            &&Is(rows.Issued[2],"n3","blotter",TradeView(second,"financial_swap",1),"record","Blotter: trade TR-000002 revision 1")
+            &&rows.Result["holdings"]!.AsArray().Select(h=>h!["target"]!.GetValue<string>()).SequenceEqual(["n2","n3"]),
+            "Blotter rows issue the read's own view as a filter target, then each trade at its row's revision as a record target, each row carrying "+
+            "its handle");
+        var pivot=$$"""{"view":"blotter","mode":"pivot","bookIds":["{{Book}}"],"portfolioIds":[],"groupBy":["contract"],"measures":["lots"],{{NoTrade}}}""";
+        var totals=Issue("read_trades",pivot,"""{"view":{"mode":"pivot"},"groups":[{"contractId":"k","lots":"2"}]}""");
+        Require(totals.Issued.Length==1&&Is(totals.Issued[0],"n1","blotter",pivot,"filter","Blotter: totals")&&!totals.Result["groups"]![0]!.AsObject().ContainsKey("target"),
+            "a pivot issues only its own view, its totals being no records");
+        var trade=Issue("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":null}""",
+            $$"""{"instrumentType":"future","state":{"tradeId":"{{Trade}}","tradeReference":"TR-000009","revision":3},"history":[{"revision":1},{"revision":3}]}""",8);
+        Require(trade.Issued.Length==1&&Is(trade.Issued[0],"n8","blotter",TradeView(Guid.Parse(Trade),"future",3),"record","Blotter: trade TR-000009 revision 3")
+            &&trade.Result["history"]!.AsArray().All(h=>!h!.AsObject().ContainsKey("target")),
+            "a trade read issues the trade at the exact revision it read, its latest under the pinned knowledge included, as a record target");
+        var issued=directory.Issued.Concat(rows.Issued).Concat(totals.Issued).Concat(trade.Issued).ToList();
+        foreach(var (tool,input,page,kind,label) in new[]{
+            ("read_market_data","""{"view":"curve","curve":"future"}""","curves","record","Curves & prices: curve future"),
+            ("read_market_data","""{"view":"observations","curve":"future"}""","curves","filter","Curves & prices: inputs of curve future"),
+            ("read_market_data","""{"view":"contract_definitions","curve":null}""","contract_definitions","filter","Contract definitions"),
+            ("read_schedules","""{"view":"library"}""","schedules","filter","Schedules"),
+            ("read_schedules","""{"view":"tou_products"}""","power_tous","filter","Power TOUs: TOU products"),
+            ("read_schedules","""{"view":"power_hours"}""","power_tous","filter","Power TOUs: power hours"),
+            ("read_reference_data","""{"table":"units","search":"mega"}""","reference_data","filter","Reference data: units"),
+            ("read_trade_parties","""{"kind":"legal_entity"}""","parties","filter","Entities & counterparties: legal entities"),
+            ("read_trade_parties","""{"kind":"counterparty"}""","parties","filter","Entities & counterparties: counterparties")})
+        {
+            var own=Issue(tool,input,"""{"rows":[{"code":"x"}]}""",2);
+            Require(own.Issued.Length==1&&Is(own.Issued[0],"n2",page,input,kind,label)&&!own.Result["rows"]![0]!.AsObject().ContainsKey("target"),
+                $"{tool} {input} issues its own selection as its one target");
+            issued.AddRange(own.Issued);
+        }
+        foreach(var target in issued.Select(i=>i.Target))
+        {
+            var report=Json(new JsonObject{["page"]=target.Page,["selection"]=target.Selection?.DeepClone()}.ToJsonString());
+            PageReports.Require(report);
+            Require(PageReports.Dispatch(report) is {Call:not null} read&&read.Page==target.Page,$"the target {target.Label} is a page report its page reads");
+        }
+        Console.WriteLine("PASS each read issues its own selection as a target, then each curve or trade it lists as a record target, as handles "+
+            "numbered across the turn, each a page report its page reads, labeled with the page and what it shows");
+
+        var names=new Dictionary<string,string>{["curves"]="Curves & prices",["contract_definitions"]="Contract definitions",["schedules"]="Schedules",
+            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter"};
+        Require(PageReports.Supported.Order().SequenceEqual(names.Keys.Order())
+            &&names.All(n=>NavigationTargets.Page(n.Key) is {Kind:"page",Selection:null} target&&target.Page==n.Key&&target.Label==n.Value),
+            "a page target names one of the seven pages the assistant reads with no selection, the page as it opens, labeled with the page's name");
+        foreach(var (page,operation,tool) in new[]{("curves","market_data.curve_v1","read_market_data"),
+            ("contract_definitions","market_data.contract_definitions_v1","read_market_data"),("schedules","schedules.library_v1","read_schedules"),
+            ("power_tous","schedules.tou_products_v1","read_schedules"),("reference_data","reference_data.table_v1","read_reference_data"),
+            ("parties","trade_parties.versions_v1","read_trade_parties"),("blotter","trades.trade_v1","read_trades")})
+            Require(NavigationTargets.Access(page,Manifest).SequenceEqual(AgentTools.Operation(operation).Access(Manifest))
+                &&NavigationTargets.Permissions(page).SequenceEqual(AgentTools.Tools.Single(t=>t.Name==tool).Permissions),
+                $"a target on {page} is checked by the accesses and permissions that page's reads run under");
+        Require(NavigationTargets.Access("blotter",Manifest).Select(a=>(a.Access,a.Permission))
+                .SequenceEqual([("trading_access","ReadTrades"),("market_access","ReadMarketData"),("reference_access","ReadMarketData")]),
+            "the Blotter opens under trading, market and reference access");
+        foreach(var page in PageReports.Supported)
+            Require(PageReports.Operations(page).All(o=>AgentTools.Operation(o).Access(Manifest).SequenceEqual(NavigationTargets.Access(page,Manifest))),
+                $"every read of {page} runs under the accesses its targets are checked by");
+        var schema=AgentTools.Tools.Single(t=>t.Name=="navigate").InputSchema.GetProperty("properties");
+        Require(schema.GetProperty("page").GetProperty("enum").EnumerateArray().Select(p=>p.ValueKind==JsonValueKind.Null?null:p.GetString())
+                .SequenceEqual([..PageReports.Supported.Order(StringComparer.Ordinal),null])
+            &&schema.GetProperty("target").GetProperty("pattern").GetString()=="^n[1-9][0-9]{0,8}$",
+            "Navigate's schema offers exactly the pages the assistant reads, in a fixed order, and the handles reads issue");
+
+        var opened=rows.Issued[1].Target;
+        var (captured,retained)=(Guid.NewGuid(),Guid.NewGuid());
+        JsonNode Expected(string mode,Guid context,Guid? frame)=>JsonNode.Parse($$"""
+            {"page":"blotter","selection":{{TradeView(first,"future",2)}},"context":{"mode":"{{mode}}","contextId":"{{context}}","frameId":{{(frame is {} id?$"\"{id}\"":"null")}}},
+             "kind":"record","label":"Blotter: trade TR-000001 revision 2"}
+            """)!;
+        var opening=NavigationTargets.Json(NavigationTargets.Page("blotter"),Pin("current",captured,Working));
+        Require(JsonNode.DeepEquals(NavigationTargets.Json(opened,Pin("current",captured,Working)),Expected("current",captured,Working.Id))
+            &&JsonNode.DeepEquals(NavigationTargets.Json(opened,Pin("retained",retained,Working with{ContextId=retained})),Expected("retained",retained,Working.Id))
+            &&JsonNode.DeepEquals(NavigationTargets.Json(opened,Pin("retained",retained,null)),Expected("retained",retained,null))
+            &&opening.Select(m=>m.Key).SequenceEqual(["page","selection","context","kind","label"])&&opening["selection"] is null,
+            "a target keeps the turn's pinned context: its knowledge mode, the context its reads bind and its As of frame, or none");
+        Require(JsonNode.DeepEquals(JsonNode.Parse(NavigationTargets.Echo(opened)),
+                JsonNode.Parse("""{"operation":"navigation.target_v1","target":{"page":"blotter","kind":"record","label":"Blotter: trade TR-000001 revision 2"}}""")),
+            "Navigate answers the model with its operation and the target's page, kind and label, so it can say where");
+        Console.WriteLine("PASS a page target names a page the assistant reads, checked by its reads' accesses and permissions; a target keeps the "+
+            "turn's pinned context, and Navigate answers with the target's page, kind and label");
+
+        var turn=new TurnTargets();
+        Require(turn.Next==1&&turn.Find("n1") is null,"a turn starts with no targets issued");
+        var listed=Issue("read_market_data","""{"view":"curves","curve":null}""","""{"curves":[{"code":"future"},{"code":"spot"}]}""",turn.Next).Issued;
+        Require(turn.Find("n1") is null,"a read's handles name nothing until its step is published");
+        turn.Issue(listed);
+        Require(turn.Next==4&&turn.Find("n2")==listed[1].Target&&turn.Find("n4") is null&&turn.Find("n02") is null
+            &&Refuses<InvalidOperationException>(()=>turn.Issue(listed))
+            &&Refuses<InvalidOperationException>(()=>turn.Issue(Issue("read_schedules","""{"view":"library"}""","{}",5).Issued)),
+            "a published step's handles name its targets for the rest of the turn, numbered on without a gap or a repeat");
+        Require(AgentTools.Target(turn,new(null,"n3"))==listed[2].Target&&AgentTools.Target(turn,new(null,"n9")) is null
+            &&AgentTools.Target(turn,new("schedules",null))==NavigationTargets.Page("schedules"),
+            "Navigate resolves a page to its page target and an issued handle to its target; a handle this turn did not issue resolves to none");
+        Console.WriteLine("PASS a turn's handles name targets once their step is published, numbered on without a gap or a repeat; Navigate resolves "+
+            "a page or an issued handle, and a handle the turn did not issue to none");
+
+        // A read's step once it returned: a result past a bound issues no target, so the turn's next read issues from the same
+        // handle; rows are counted before any target is issued, and bytes after.
+        var curves=AgentTools.Parse("read_market_data",Json("""{"view":"curves","curve":null}"""));
+        var pinned=Pin("current",Guid.NewGuid(),Working);
+        ToolResult Directory(int count,int name=4)=>new(new JsonObject{["curves"]=new JsonArray([..Enumerable.Range(0,count)
+            .Select(n=>(JsonNode?)new JsonObject{["code"]=$"c{n}",["name"]=new string('x',name)})])},count,false);
+        ToolStep Returned(ToolResult result,int next)=>AgentTools.Returned("read_market_data",Json("""{"view":"curves","curve":null}"""),curves,pinned,Cutoff,[],result,next);
+        var overRows=Directory(501);
+        var (rowsPast,bytesPast,whole)=(Returned(overRows,1),Returned(Directory(10,7000),1),Returned(Directory(500),1));
+        var unissued=new TurnTargets();
+        unissued.Issue(rowsPast.Issued);
+        unissued.Issue(bytesPast.Issued);
+        var following=Returned(Directory(1),unissued.Next);
+        Require(rowsPast is {Code:"result_too_large",End:ToolStepEnd.Refusal,Issued.IsEmpty:true}&&overRows.Value["curves"]!.AsArray().All(c=>!c!.AsObject().ContainsKey("target"))
+            &&bytesPast is {Code:"result_too_large",End:ToolStepEnd.Refusal,Issued.IsEmpty:true}
+            &&whole is {Code:null,End:ToolStepEnd.Result}&&whole.Issued.Length==501&&whole.Issued[^1].Handle=="n501"
+            &&unissued.Next==1&&AgentTools.Target(unissued,new(null,"n1")) is null&&following.Issued[0].Handle=="n1"
+            &&JsonNode.Parse(following.Content!)!["target"]!.GetValue<string>()=="n1",
+            "a result past the row bound issues no target and leaves its rows as read, one past the byte bound issues none either, a result of 500 "+
+            "records issues its own target and one per record, and after a result that issued none the turn's next read issues from the same handle");
+        Console.WriteLine("PASS a result past the row or byte bound issues no target, so no handle names one and the turn's next read issues from "+
+            "the same handle; rows are counted before targets are issued");
     }
 
     static JsonElement Record(string mode,Guid context,DateTimeOffset cutoff,Guid? frame)=>JsonSerializer.SerializeToElement(new{mode,requestedContextId=mode=="retained"?context:(Guid?)null,

@@ -1066,3 +1066,28 @@ coordinates. Existing trades, jobs, publication receipts and source relationship
 are preserved; neither migration requires record deletion or rebooking. These are
 schema releases requiring a separately qualified deployment baseline. A local
 synthetic test run does not qualify installation into an existing deployment.
+
+## Page-assistant navigation targets
+
+[0086_navigation_targets.sql](migrations/0086_navigation_targets.sql) records the
+targets Navigate issues ([ai-assistant.md](../docs/ai-assistant.md) §7.1, §7.3, §8;
+D190). `record_tool_step` is recreated with one more argument, the target, and granted
+to the runtime again. Only a Navigate step without a code carries one, and it names
+Navigate's check as a read names its read: its operation, `navigation.target_v1`, the
+instant and the accesses it ran under, which join the turn's source set.
+`assistant.is_navigation_target` accepts exactly a page, selection, context, kind and
+label: the page one of the seven the assistant reads, a page target without a
+selection, a record target on Curves & prices or the Blotter and a filter target on
+any of them with an object of at most 8 KiB, the context the turn's pinned knowledge
+mode, context and frame, and the label 1 to 200 characters of plain text; any other
+target is `turn_input` and nothing is written. Once the step's publication recheck passes, its
+target is published as a `navigation` event, a new event kind, right after the step's
+own event and in the same transaction, carrying the step's number and the target; the
+answer names the last event's sequence. `assistant.owner_event` is replaced in place,
+keeping its owner and grants, so the owner's reads show a navigation event's target as
+the hidden marker once the replay recheck hides its turn's answer, as they show its
+text. No table is added: a turn's issued handles live in the worker that runs it, and
+only a target a Navigate step issues is stored, in its event. The migration first
+verifies the helpers it relies on and the definitions it replaces, each with exactly
+the privileges it was written against. As a new migration it stops automatic hosted
+updates until the operator qualifies a new baseline (D135).

@@ -241,7 +241,8 @@ internal sealed class TurnDelivery(Stream output,Func<long,CancellationToken,Tas
 // strings, so no text adds a line or a field, and a pushed piece of text writes exactly as the same event read back.
 internal static class TurnWire
 {
-    static readonly FrozenSet<string> Stored=FrozenSet.Create(StringComparer.Ordinal,"accepted","step","text","usage","completed","failed","cancelled","interrupted");
+    static readonly FrozenSet<string> Stored=FrozenSet.Create(StringComparer.Ordinal,"accepted","step","navigation","text","usage","completed","failed","cancelled",
+        "interrupted");
 
     internal static bool Terminal(string kind)=>kind is "completed" or "failed" or "cancelled" or "interrupted";
 
@@ -256,9 +257,9 @@ internal static class TurnWire
     });
 
     // A stored event: its turn, whether the replay recheck hides its answer, for a terminal event whether the turn is
-    // incomplete, and its payload, a text's hidden once the answer is.
+    // incomplete, and its payload, a text's or a navigation target's hidden once the answer is.
     internal static byte[] Event(long sequence,string kind,Guid turn,string? hidden,bool? incomplete,JsonElement payload,JsonSerializerOptions json)=>
-        Stored.Contains(kind)?Frame(sequence,kind,json,w=>Data(w,turn,hidden,incomplete,kind=="text"&&hidden is not null?p=>Masked(p,hidden):payload.WriteTo))
+        Stored.Contains(kind)?Frame(sequence,kind,json,w=>Data(w,turn,hidden,incomplete,kind is "text" or "navigation"&&hidden is not null?p=>Masked(p,hidden):payload.WriteTo))
             :throw new InvalidOperationException($"No stored event is named {kind}.");
 
     // A piece of text the worker pushed, as the event that stores it reads back.
