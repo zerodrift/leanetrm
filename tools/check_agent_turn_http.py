@@ -2,8 +2,8 @@
 running it against the loopback fake provider: the request it sends, its text, usage and ending, a repeat, the
 knowledge an ask may name, Stop and the sources that cancel a turn mid-stream, its limits, a worker that loses its
 generation, and the owner's reads; owned synthetic preview only. Its agents have no tools, which the tool checks that
-follow give theirs, in the administrator and trader sessions this check hands them. Runs after the SQL turn checks,
-which leave the agent-worker lock free for the API to take again."""
+follow give theirs. Runs after the SQL turn checks, which leave the agent-worker lock free for the API to take again,
+and hands its administrator and trader sessions to the tool and stream checks that follow, so they open none."""
 import json
 import subprocess
 import threading

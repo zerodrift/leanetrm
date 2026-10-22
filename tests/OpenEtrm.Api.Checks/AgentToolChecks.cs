@@ -100,10 +100,10 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v2"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
-            &&RuntimeSet.ToolRead==TimeSpan.FromSeconds(5),"turns_v2 bounds tool results and keeps a workspace's turns below its agent pools");
+        Require(RuntimeSet.Turns=="turns_v3"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
+            &&RuntimeSet.ToolRead==TimeSpan.FromSeconds(5),"turns_v3 bounds tool results and keeps a workspace's turns below its agent pools");
         Console.WriteLine("PASS a version's switched-on read tools are offered in the fixed order with closed schemas that require every member they "+
-            "state, and their permissions; Navigate is not offered; turns_v2 bounds results and keeps workspace turns below the agent pools");
+            "state, and their permissions; Navigate is not offered; turns_v3 bounds results and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";

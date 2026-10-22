@@ -13,7 +13,7 @@ static class RuntimeSet
     public const int AgentInstructions=6000;
     // The longest grant a version may ask for (§7.1).
     public const int MaxGrantDays=90;
-    public const string Turns="turns_v2";
+    public const string Turns="turns_v3";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.
@@ -35,4 +35,9 @@ static class RuntimeSet
     public static readonly TimeSpan RetryBackoff=TimeSpan.FromSeconds(1);
     // The longest one worker write may take, and the wait before a write that must land is tried again.
     public static readonly TimeSpan WorkerWrite=TimeSpan.FromSeconds(5),WorkerRetry=TimeSpan.FromSeconds(2);
+    // The live event stream (§8): the longest an open stream stays silent before a comment, below the hosted gateway's
+    // read timeout of 20 seconds (§11); the most of its turn's events one read sends, its replay window, above a cut
+    // subscriber's buffer and the events a reconnect's wait adds; and the signals one subscriber buffers before it is cut.
+    public static readonly TimeSpan StreamHeartbeat=TimeSpan.FromSeconds(15);
+    public const int ReplayEvents=256,SubscriberEvents=64;
 }

@@ -964,3 +964,24 @@ recheck it and refuse delegated agent contexts:
 zeros, rounding nothing. An index serves a report's range of call starts. The migration
 first verifies the helper it relies on. As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).
+
+## Page-assistant event stream
+
+[0078_turn_stream.sql](migrations/0078_turn_stream.sql) adds the live event stream's
+read ([ai-assistant.md](../docs/ai-assistant.md) §8). `assistant.turn_stream` answers,
+in the owner's own request context under `UseAgents`, one turn of a conversation the
+person owns in the scope, its latest or one named in it, as their reads show it: its
+state, whether its answer is incomplete or hidden, the instant its elapsed limit
+passes, the conversation's latest sequence and the turn's events after a sequence,
+the replay recheck hiding a text event's payload. It refuses a sequence beyond the
+latest, before the event preceding the turn's first or leaving more of the turn's
+events than the read's replay window (`replay_unavailable`), and, for an ended turn, a
+sequence after which it has no event (`turn_not_running`). It writes nothing. Text the
+worker publishes reaches a stream in the process that appended it, so nothing is
+stored or notified for streams. `assistant.owner_event` shows one event as its owner
+reads it, and the conversation read is recreated to share it, answering byte for byte
+as before and keeping its owner and grants; only `turn_stream` is newly granted to the
+runtime. The migration first verifies the helpers it relies on and the definition it
+replaces, each with exactly the privileges it was written against, the risk worker's
+on the market and reference access functions since 0073 included. As a new migration
+it stops automatic hosted updates until the operator qualifies a new baseline (D135).
