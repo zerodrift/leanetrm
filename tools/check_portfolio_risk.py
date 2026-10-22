@@ -103,7 +103,7 @@ def run_checks(Client, check, run_worker):
     request = {'context': retained, 'bookIds': [], 'portfolioIds': [], 'detail': 'holdings',
                'convention': catalog['convention'], 'numericalPolicy': catalog['numericalPolicy'],
                'pricingPolicy': catalog['pricingPolicy'], 'stress': [],
-               'bumps': [{'seriesId': factor['seriesId'], 'quote': factor['quote'], 'size': '0.1',
+               'bumps': [{'factor': factor['factor'], 'size': '0.1',
                           'convention': catalog['bumpConvention']}]}
     result = risk.call('portfolio/risk', request)
     reconcile(result, holdings, check, 'Mixed portfolio risk')
@@ -120,7 +120,7 @@ def run_checks(Client, check, run_worker):
     check('unchanged risk bases reconcile normal futures P&L and swap PV without an alternate pricing formula')
     declared = {f['seriesId'] for f in catalog['factors']}
     unheld = next(f for f in catalog['availableFactors'] if f['seriesId'] not in declared)
-    unheld_request = {**request, 'bumps': [{**request['bumps'][0], 'seriesId': unheld['seriesId'], 'quote': unheld['quote']}]}
+    unheld_request = {**request, 'bumps': [{**request['bumps'][0], 'factor': unheld['factor']}]}
     untouched = risk.call('portfolio/risk', unheld_request)
     check('an available unheld factor returns explicit zero risk for every holding without extra unit valuations',
           untouched['work']['unitPricerCalls'] == untouched['work']['uniqueValuations']
@@ -128,7 +128,7 @@ def run_checks(Client, check, run_worker):
           and all(row['values']['base'] == row['values']['up'] == row['values']['down']
                   and all(Fraction(row['values'][field]) == 0 for field in ('upPnl', 'downPnl', 'delta', 'gamma'))
                   for row in untouched['factors'][0]['positions']))
-    irrelevant_stress = {'seriesId': unheld['seriesId'], 'quote': unheld['quote'], 'size': '0.2',
+    irrelevant_stress = {'factor': unheld['factor'], 'size': '0.2',
                          'convention': catalog['stressConvention']}
     unheld_stress = risk.call('portfolio/risk', {**request, 'stress': [irrelevant_stress]})
     check('a temporary unheld-factor stress preserves the explicit scenario while leaving held financial values unchanged',
@@ -136,7 +136,7 @@ def run_checks(Client, check, run_worker):
           and unheld_stress['factors'][0]['positions'] == result['factors'][0]['positions']
           and unheld_stress['factors'][0]['totals'] == result['factors'][0]['totals'])
     daily = risk.call('portfolio/risk', {**request, 'bumps': [{**request['bumps'][0],
-                      'seriesId': daily_factor['seriesId'], 'quote': daily_factor['quote']}]})
+                      'factor': daily_factor['factor']}]})
     reconcile(daily, holdings, check, 'Daily supplemental quote risk')
     affected = []
     for position in daily['factors'][0]['positions']:
@@ -156,7 +156,7 @@ def run_checks(Client, check, run_worker):
     check('mixed book-only results reconcile the complete holding report',
           summary['detail'] == 'Books' and summary['factors'][0]['positions'] == []
           and summary['factors'][0]['totals'] == result['factors'][0]['totals'])
-    shift = {'seriesId': factor['seriesId'], 'quote': factor['quote'], 'size': '0.2', 'convention': catalog['stressConvention']}
+    shift = {'factor': factor['factor'], 'size': '0.2', 'convention': catalog['stressConvention']}
     parent_request = {**request, 'stress': [shift]}
     parent = risk.call('portfolio/risk', parent_request)
     child = risk.call('portfolio/risk', {**request, 'stress': [shift, {**shift, 'size': '-0.05'}]})
@@ -204,17 +204,79 @@ def run_checks(Client, check, run_worker):
     trader.call('portfolio/risk/jobs', expected=403)
     check('mixed risk receipts and history require the same current scenario authority')
     risk.call('market/current', {})
-    legacy_context = {**retained, 'convention': 'fixed_total_cash_execution_pnl_v1'}
-    legacy_catalog = risk.call('futures/risk/catalog', {'context': legacy_context, 'bookIds': [], 'portfolioIds': []})
-    legacy_request = {key: value for key, value in request.items() if key != 'pricingPolicy'}
-    legacy_request.update(context=legacy_context, convention=legacy_catalog['convention'], numericalPolicy=legacy_catalog['numericalPolicy'])
-    legacy = risk.call('futures/risk/jobs', {'requestId': str(uuid4()), 'request': legacy_request})
-    check('generic job history excludes legacy futures report contracts',
-          all(item['id'] != legacy['id'] and item['convention'] == catalog['convention']
-              for item in risk.call('portfolio/risk/jobs')))
-    risk.call('portfolio/risk/jobs/' + legacy['id'], expected=422)
-    risk.call('portfolio/risk/jobs/' + legacy['id'] + '/cancel', {}, expected=422)
-    check('a mismatched generic read or cancellation leaves a legacy job untouched',
-          risk.call('futures/risk/jobs/' + legacy['id'])['state'] == 'queued')
-    cancelled = risk.call('futures/risk/jobs/' + legacy['id'] + '/cancel', {})
-    check('legacy jobs remain inspectable and cancellable through their original operation', cancelled['state'] == 'cancelled')
+    invalid = deepcopy(request)
+    invalid['convention'] = 'shared_input_repricing_v1'
+    failure = risk.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': invalid}, expected=422)
+    check('retired futures-only report conventions cannot enter the portfolio queue', failure['code'] == 'risk_convention')
+    check('job history exposes only the current portfolio operation contract',
+          all(item['convention'] == catalog['convention'] for item in risk.call('portfolio/risk/jobs')))
+
+
+def run_supplemental_scope(Client, check, query, manifest, run_worker):
+    """One held supplemental partition must not require an unheld primary graph."""
+    from preview_fixture import trade_booking
+
+    book_id = str(uuid4())
+    catalog_id = manifest['catalogId']
+    query(f"""BEGIN;
+        SELECT 1 FROM security.epoch FOR UPDATE;
+        WITH publication AS (
+          INSERT INTO trading.publications
+          SELECT '{catalog_id}',coalesce(max(publication_order),0)+1,pg_current_xact_id()
+          FROM trading.publications WHERE catalog_id='{catalog_id}'
+          RETURNING publication_order
+        )
+        INSERT INTO trading.books
+          SELECT '{catalog_id}','{book_id}','d0000000-0000-0000-0000-000000000001',
+            'Supplemental scope',publication_order,'2020-01-01T00:00:00Z' FROM publication;
+        COMMIT;""")
+    client = Client(); client.bootstrap(); client.call('profile', {'profile': 'trader'})
+    frame = initial_frame(client.call('workspace'), '2020-12-18')
+    swap_context = {'snapshotId': frame['id'], 'convention': 'independent_side_financial_swap_v2',
+                    'knowledgeMode': 'current'}
+    swap_catalog = client.call('swaps/catalog', swap_context)
+    index = next(i for i in swap_catalog['indices'] if i['curve'] == 'daily_gas')
+    assert index['definitionRevisionId'] != manifest['revisionId']
+    assert any(b['id'] == book_id for b in swap_catalog['books'])
+    payment = {'frequency': 'monthly', 'rule': 'days_after_period_end', 'days': 0,
+               'dayOfMonth': None, 'dayBasis': 'calendar_days', 'shortMonth': None,
+               'adjustment': 'unadjusted', 'calendar': None, 'implementation': 'monthly_payment_date_rules_v1'}
+    delivery = {'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01'}
+    terms = {**swap_context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': book_id,
+             'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
+             'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
+             'fixed': {'price': '3', 'currency': index['currencyCode'], **delivery, 'paymentSchedule': payment},
+             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
+                          **delivery, 'paymentSchedule': payment, 'resetFrequency': 'daily', 'averagingMethod': 'arithmetic'}}
+    booked = client.call('swaps/book', terms)
+    client.call('profile', {'profile': 'risk'})
+    context = {**swap_context, 'convention': 'trading_workspace_v1'}
+    holdings = client.call('trading/blotter', {'context': context, 'view': {**VIEW, 'bookIds': [book_id]}})
+    assert len(holdings['holdings']) == 1 and holdings['holdings'][0]['tradeId'] == booked['tradeId']
+    retained = {**context, 'knowledgeMode': 'retained', 'contextId': holdings['context']['contextId']}
+    catalog = client.call('portfolio/risk/catalog', {'context': retained, 'bookIds': [book_id], 'portfolioIds': []})
+    factor = next(f for f in catalog['factors'] if 'daily_gas' in f['curves'] and f['deliveryFrom'] == '2021-01-01')
+    request = {'context': retained, 'bookIds': [book_id], 'portfolioIds': [], 'detail': 'holdings', 'stress': [],
+               'convention': catalog['convention'], 'numericalPolicy': catalog['numericalPolicy'],
+               'pricingPolicy': catalog['pricingPolicy'],
+               'bumps': [{'factor': factor['factor'], 'size': '0.1', 'convention': catalog['bumpConvention']}]}
+    report = client.call('portfolio/risk', request)
+    check('supplemental-only book retains its held graph without inventing a primary valuation partition',
+          report['snapshotId'] == frame['id'] and report['context'] == holdings['context']
+          and report['work']['positionCount'] == 1
+          and {m['definitions']['revisionId'] for m in report['inputs']['markets']} == {index['definitionRevisionId']}
+          and {m['revisionId'] for m in report['inputs']['connectedMarkets']} == {index['definitionRevisionId']})
+    position = report['factors'][0]['positions'][0]
+    values = position['values']
+    check('supplemental-only daily risk uses normal PV and an independent quantity/31 sensitivity',
+          position['tradeId'] == booked['tradeId'] and position['measure'] == 'swap_present_value'
+          and Fraction(values['base']) == Fraction(holdings['holdings'][0]['presentValue'])
+          and Fraction(values['delta']) == Fraction(100, 31) and Fraction(values['gamma']) == 0
+          and Fraction(values['upPnl']) == Fraction(10, 31) and Fraction(values['downPnl']) == -Fraction(10, 31))
+    operation = {'requestId': str(uuid4()), 'request': request}
+    job = client.call('portfolio/risk/jobs', operation)
+    assert client.call('portfolio/risk/jobs', operation)['id'] == job['id']
+    run_worker()
+    completed = client.call('portfolio/risk/jobs/' + job['id'])
+    check('supplemental-only immediate and queued results preserve the same complete financial manifest',
+          completed['state'] == 'completed' and financial(completed['result']) == financial(report))

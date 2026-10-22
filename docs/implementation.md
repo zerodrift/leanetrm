@@ -241,8 +241,9 @@ remains future work.
 
 Each side applies its own quote multiplier and payment factors to exact rational
 cash amounts. Exact side PVs survive signed instrument aggregation and later
-trade quantity scaling. A repeating intermediate average can
-produce an exact final amount; an unrepresentable final amount raises an error.
+trade quantity scaling. Repeating averages and final amounts remain exact
+rationals. A consumer explicitly requesting working-decimal Money rejects an
+unrepresentable amount; rational PV and risk outputs do not round to satisfy it.
 The currency-default discount consumer builds rates from the same full snapshot,
 retains exact mapping/curve and bracketing observation identities, and uses the
 existing explicit simple Actual/365 Fixed rate policy. Log-linear interpolation of
@@ -263,8 +264,12 @@ The financial-swap trade-valuing operation applies positive typed trade quantity
 once after that sum. The current instrument implementation is
 `independent_side_financial_swap_v2`.
 
-Each side currently has one payment. Delivery/payment dates, calendars, lookup
-rules and quote multipliers belong to that side. SideValuationContext carries no
+Each constituent FixedSide or FloatingSide has one payment. The managed
+`MonthlySwapSide` composes these into a multi-payment strip with explicit rational
+quantity allocations; `MonthlyFinancialSwap` supports one to 1,200 contiguous
+complete months. Booking and the trade editor still persist one month.
+Delivery/payment dates, calendars, lookup rules and quote multipliers belong to
+each constituent side. SideValuationContext carries no
 instrument, membership sign or trade quantity. A standalone fixed side can value
 with only the selected snapshot and rate inputs; a floating side additionally
 requires its declared model-owned market projections. Returned side schedules
@@ -276,9 +281,10 @@ Rate-based rows retain exact currency/default mapping, curve definition and used
 pillar maturities, annual rates, factors, observations and interpolation policy.
 Side payments/side PVs use `independent_side_rational_pv_v1`; instrument aggregation
 uses `signed_exact_side_pv_sum_v1`; final financial-swap trade scaling uses
-`financial_swap_trade_scale_exact_18_v1`. ExactMoney retains rational or large
-side amounts through all those stages; only final Money conversion applies the
-working precision/range. No rounded unit or gross-side PV is substituted.
+`financial_swap_trade_scale_exact_rational_v1`. ExactMoney retains rational or
+large side amounts through all those stages. Working-decimal Money conversion is
+an explicit projection that applies its precision/range; exact trade PV and risk
+remain rational. No rounded unit or gross-side PV is substituted.
 
 FuturesContract explicitly rejects full PV without required variation-margin and
 settlement state. Its existing execution-P&L/open-sensitivity operations remain

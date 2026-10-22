@@ -15,3 +15,14 @@ test('layout is presentation state and never changes node configuration',()=>{co
 test('table preserves server strings including missing values without calculating',()=>assert.deepEqual(previewTable({columns:['Contract','Price','Unit'],rows:[['NG1','3.012345678901234567','USD/MMBtu'],['NG2',null,'USD/MMBtu']]}),{headers:['Contract','Price','Unit'],rows:[['NG1','3.012345678901234567','USD/MMBtu'],['NG2','Unavailable','USD/MMBtu']]}));
 test('only explicit custom-curve rejections release a mutation identity',async()=>{const {knownCurveRejection}=await import('../dist/custom-curve-model.js');for(const code of ['custom_curve_conflict','custom_curve_definition','recipe_definition','recipe_transform','access_denied','historical_read_only','request_format','request_too_large'])assert.equal(knownCurveRejection(code),true,code);for(const code of ['response_unknown','request_cancelled',undefined,'new_server_failure'])assert.equal(knownCurveRejection(code),false);});
 test('operator metadata governs conditional controls and removes only incompatible fields',async()=>{const {curveFieldVisible,editCurveParameters}=await import('../dist/custom-curve-model.js');const fields=[{key:'mode'},{key:'count',when:{key:'mode',values:['prior_calendar','prior_business']}},{key:'calendar',when:{key:'mode',values:['prior_business']}}];const old={mode:'prior_business',count:'5',calendar:'retained_calendar',sampling:'context_utc_time'};assert.equal(curveFieldVisible(fields[2],old),true);assert.deepEqual(editCurveParameters(old,'mode','context',fields),{mode:'context',sampling:'context_utc_time'});assert.deepEqual(old,{mode:'prior_business',count:'5',calendar:'retained_calendar',sampling:'context_utc_time'});});
+test('weighted mapping edits preserve exact supplied contracts and decimal text without normalizing',async()=>{
+ const {changeContractWeights}=await import('../dist/custom-curve-model.js');
+ assert.equal(typeof changeContractWeights,'function','The weighted mapping editor must preserve typed transport rows');
+ const before=definition();before.nodes.push({id:'basket',kind:'weighted_contracts',parameters:{aggregation:'signed_sum_v1'},inputs:{source_a:'source'},contractWeights:[]});
+ const rows=[{outputPosition:2,sourcePort:'source_a',contractId:'exact-contract-a',weight:'-0.700000000000000001'},{outputPosition:2,sourcePort:'source_a',contractId:'exact-contract-b',weight:'1.25'}];
+ const edited=changeContractWeights(before,'basket',rows);
+ assert.deepEqual(edited.nodes.at(-1).contractWeights,rows);assert.deepEqual(before.nodes.at(-1).contractWeights,[]);
+ assert.deepEqual(edited.nodes.at(-1).inputs,{source_a:'source'});assert.deepEqual(edited.nodes.at(-1).parameters,{aggregation:'signed_sum_v1'});
+ rows[0].weight='9';assert.equal(edited.nodes.at(-1).contractWeights[0].weight,'-0.700000000000000001');
+ assert.deepEqual(changeContractWeights(edited,'basket',[]).nodes.at(-1).contractWeights,[]);
+});

@@ -35,7 +35,6 @@ public sealed record ResolvedCurveSchedule(Guid CatalogId,Guid ScheduleId,int Ve
 public sealed record ConnectedScheduledPoint(DateOnly Date,CurvePointReference Point);
 public sealed record ConnectedScheduledMean(ResolvedCurveSchedule Schedule,ImmutableArray<ConnectedScheduledPoint> Points,
     string Convention) : ConnectedCurveExpression;
-public sealed record ConnectedSqlTransform(string Code) : ConnectedCurveExpression;
 
 public sealed record ConnectedCurvePoint(CurvePointKey Key,DateOnly DeliveryFrom,DateOnly DeliveryTo,
     PriceUnit Unit,ConnectedCurveExpression Expression,MarketContract? Contract=null);
@@ -52,7 +51,7 @@ public static class ConnectedCurves
         CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
-        if(definitions is null||context is null||resolver is null||roots.IsDefaultOrEmpty||roots.Distinct().Count()!=roots.Length)
+        if(definitions is null||context is null||resolver is null||roots.IsDefault||roots.Distinct().Count()!=roots.Length)
             throw Invalid("Supply explicit definitions, unique roots, one resolved context and a binding resolver.");
         var directory=new Dictionary<CurvePointKey,ConnectedCurvePoint>();var curveKeys=new HashSet<CurveKey>();
         foreach(var definition in definitions)
@@ -144,7 +143,7 @@ public static class ConnectedCurves
                     }
                     operation=new(null,[ResolvePoint(built.Base),ResolvePoint(built.Spread)],[one,one],one,built);break;
                 case ConnectedRecipeProjection projection:
-                    if(projection.Declaration is null)throw Invalid("A saved-recipe output requires its retained declaration.");
+                    if(projection.Declaration is null||projection.Position<0)throw Invalid("A saved-recipe output requires its retained declaration and nonnegative output position.");
                     projection.Declaration.Validate(context);
                     if(point.Key.Curve!=projection.Declaration.Curve)
                         throw Invalid("A saved-recipe output must retain its exact adapter identity.");
@@ -209,8 +208,6 @@ public static class ConnectedCurves
                     }
                     var datedPoints=scheduled.Points.ToDictionary(p=>p.Date);
                     operation=Uniform(schedule.Dates.Dates.Select(date=>ResolvePoint(datedPoints[date].Point)).ToImmutableArray());break;
-                case ConnectedSqlTransform:
-                    throw new MarketDataException("connected_curve_sql","SQL transformations are not supported by the connected-curve compiler.");
                 default:throw Invalid("The connected-curve expression is unsupported.");
             }
             // Different dated occurrences may deliberately consume the same
@@ -439,7 +436,7 @@ public sealed class ConnectedCurvePlan
         {
             ConnectedSource source=>Source(source),
             ConnectedBuiltCurve built=>ConnectedIdentity.Evidence(built),
-            ConnectedRecipeProjection projection=>new{Value=PointReference(projection.Value),projection.Declaration.ManifestId,projection.Declaration.Identity,
+            ConnectedRecipeProjection projection=>new{Value=PointReference(projection.Value),projection.Position,projection.Declaration.ManifestId,projection.Declaration.Identity,
                 Declaration=projection.Declaration.Canonical},
             ConnectedWeightedSum sum=>new{Terms=Terms(sum.Terms)},
             ConnectedWeightedMean mean=>new{Terms=Terms(mean.Terms)},

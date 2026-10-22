@@ -156,9 +156,8 @@ public sealed record DiscountedSideValuation
 }
 public sealed record FinancialSwapValue
 {
-    public const string Policy = "financial_swap_trade_scale_exact_18_v1";
     public const string ExactPolicy = "financial_swap_trade_scale_exact_rational_v1";
-    public string NumericalPolicy => Instrument.CurveNumericalPolicy==ConnectedCurves.NumericalPolicy?ExactPolicy:Policy;
+    public string NumericalPolicy => ExactPolicy;
     public InstrumentValuation Instrument { get; }
     public Quantity Quantity { get; }
     public ImmutableArray<DiscountedSideValuation> Sides { get; }

@@ -239,11 +239,13 @@ for the first slice. A measured bottleneck can justify moving an implementation
 behind the existing calculation contract later.
 
 Custom curve authoring uses a typed graph shared by visual and formula editors
-(D161). Exact source and date-reference bindings are persisted as normalized
-foreign keys; calculation uses immutable multi-date typed inputs and returns
-exact rational prices with observation and factor lineage. A qualified SQL
-transformation may aggregate only its supplied panel. The initial workspace and
-its explicit limits are described in [custom curves](custom-curves.md).
+(D161, D186). Exact source, weighted contract member and date-reference bindings
+are persisted as normalized foreign keys. Ordinary curves, basis relationships
+and saved recipes use one connected evaluator with immutable multi-date inputs,
+exact rational combinations and observation/factor lineage. The backend compiles
+formulas and resolves all selections; the browser only edits and displays the
+contract. D186 removes the SQL panel alternative. The workspace and its explicit
+limits are described in [custom curves](custom-curves.md).
 
 Add a table, configuration value or dependency only with a named current consumer
 or a concrete executable baseline use case. A seed row or a viewer alone is not
@@ -642,8 +644,9 @@ policy. Unit-level valuation and external trade quantities are mandatory for
 every instrument (D146).
 
 FixedSide and FloatingSide now implement independent GenerateSchedule and PV
-operations. Each currently generates one payment; their delivery/payment dates
-and quote multipliers can differ. Side valuation receives no instrument,
+operations. Each constituent fixed/floating definition generates one payment;
+`MonthlySwapSide` composes them into a managed multi-payment strip. Constituent
+delivery/payment dates and quote multipliers can differ. Side valuation receives no instrument,
 membership direction or trade quantity. The context supplies exact declared
 market inputs and side-specific discount factors. FixedSide can value without a
 built commodity market; FloatingSide requires its own exact projection lookups.
@@ -914,7 +917,7 @@ a direct shock to an already-built output curve. These are different scenario
 definitions. Do not shock a derived value and its primitive source accidentally
 or count inherited risk twice.
 
-The connected calculation engine (D182–183) uses the managed backend for graph
+The connected calculation engine (D182–183, D186) uses the managed backend for graph
 preparation, historical binding resolution, curve operators and scenarios.
 References retain exact versions, or explicitly resolve a logical identity under
 both effective and knowledge coordinates before becoming pinned. A different
@@ -927,8 +930,13 @@ points of a curve, explicit point buckets or supported delivery buckets. Input
 and computed-output coordinates are distinct. An additive output offset keeps
 its upstream connections and flows into every affected downstream calculation.
 Means, weighted baskets, rolling selections and schedule references are graph
-relationships with explicit numerical and date policies. Volatility and
-correlation conventions require separate supported contracts.
+relationships with explicit numerical and date policies. A saved
+`weighted_contracts` node joins multiple named source ports through exact contract
+members and dimensionless weights. It explicitly selects `signed_sum_v1` or
+`normalized_weighted_mean_v1`; no weights or denominator policy are inferred.
+The UI and HTTP portfolio operation expose these coordinate/target forms using
+backend catalog descriptors. Volatility and correlation conventions require
+separate supported contracts.
 
 The saved managed recipe adapter supplies an explicit projected price to the
 existing monthly indexed floating side. A booking pins a published custom curve
@@ -936,7 +944,10 @@ version, its output node and position, and its selection/implementation policy.
 Its contractual index, actual-fixing rules, payment terms and quote unit remain
 independent. Distinct custom bindings have distinct economic identities and
 runtime pricing aliases. Actual fixings retain the existing qualified selection
-path; a custom forecast cannot replace a due actual.
+path; a custom forecast cannot replace a due actual. The trade editor offers only
+authorized, unit-compatible published outputs with explicit supported sampling
+terms, and transports the selected exact descriptor through Price/Risk and booking.
+Unavailable retained selections do not fall back to ordinary index pricing.
 
 Migrations 0076–0077 retain the exact projection relationship and durable recipe,
 source-member and observation pins. Each historical sample carries its own
@@ -946,6 +957,24 @@ the retained effective/knowledge context and compare its manifest. Current
 actor/delegation and worker service authority remain mandatory. Explicit booked
 versions do not implement database activation of logical curve aliases; the
 bitemporal logical-binding resolver remains a managed contract.
+
+D186 makes `custom_curve_recipe_v2` and the connected evaluator the sole recipe
+execution path. Migration 0080 adds exact member-weight relationships and refuses
+existing saved recipes pending explicit reset/rebooking. It does not rewrite
+immutable history. Migration 0081 refuses any retained old risk jobs, including
+completed ones, pending an explicit operator archive/reset, then retains every
+prepared portfolio graph manifest and typed scenario axes with their resolved points. Runtime recipe coordinates bind
+to the graph manifest; persisted contract coordinates retain exact-version foreign
+keys. Only `/api/portfolio/risk` and its catalog/job operations remain; the legacy
+futures-risk HTTP path is removed.
+
+Source compilation declares topology without pricing it. Preparation counters
+`SourceCompilations` and `DeclaredSourceNodes` are separate from graph evaluation;
+the existing futures materialization build still counts as evaluated preparation.
+Typed source operations retain their 18-decimal-place representability contract,
+while connected combinations and instrument PV retain exact rational values.
+Database logical activation, cross-revision histories, daily custom projection
+mapping and within-run distributed reduction remain work.
 
 See [connected calculation](connected-calculation.md) for the implemented
 integration and its boundaries. The compact graph kernel has a separate
@@ -1059,7 +1088,7 @@ Holding detail and book summaries retain rational base/up/down cash and central
 differences; formatting does not change retained results. The shared authorized
 portfolio adapter loads futures and swaps from exact retained trade revisions.
 Futures execution P&L and swap present value remain separate measures, while their groups share the
-same immutable quote scenarios and affected curve work within each exact market
+same immutable connected scenarios and affected curve work within each exact market
 revision. Supplemental revisions use their own retained frames under the common
 effective/knowledge context. Every holding remains in a factor's report, including
 unchanged values and zero sensitivities in unaffected partitions. Each swap
@@ -1090,8 +1119,8 @@ That interaction and its administrative permissions remain future implementation
 
 ### 5.1 Factor application versus valuation reuse
 
-The first managed implementation supports live quote-input absolute overlays,
-affected base-plan reuse, restricted black-box unit pricers and exact central
+The connected implementation supports primitive quote and computed-output absolute
+overlays, affected-plan reuse, restricted black-box unit pricers and exact central
 differences. Its current trading consumer measures unprocessed futures execution
 P&L/open sensitivity, rather than full futures PV. See the qualified boundaries in
 [implemented scope](implementation.md#shared-quote-input-scenarios-and-open-futures-sensitivity).
@@ -2041,10 +2070,10 @@ Swap drafts report PV; futures drafts report execution P&L and open exposure.
 Variation-margin processing and full futures settlement PV remain unimplemented.
 
 
-## Nested risk and retained execution (D178–181)
+## Nested risk and retained execution (D178–183, D186)
 
 [Risk scenarios and jobs](risk-engine.md) specifies the implemented immutable
-parent-relative live-quote overlays. Children share the resolved header/job
+parent-relative quote and computed-output overlays. Children share the resolved header/job
 financial context and preserve their parents. The shared valuation engine also
 accepts stressed parents in its decimal and exact-rational portfolio paths.
 Dependencies determine affected work; returned values determine risk.

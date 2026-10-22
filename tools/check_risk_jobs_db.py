@@ -50,9 +50,24 @@ def run_checks(query, manifest, psql=None, environment=None):
     frame['contextId'] = context
     books = json.loads(user(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}');SELECT coalesce(jsonb_agg(id),'[]'::jsonb) FROM trading.books WHERE catalog_id='{catalog}'"))
     assert books, 'Fixture must contain an explicit book scope'
-    request = {'context': {'snapshotId': frame['id'], 'contextId': context, 'knowledgeMode': 'retained', 'convention': 'fixed_total_cash_execution_pnl_v1'},
-               'bookIds': books, 'portfolioIds': [], 'bumps': [{'seriesId': '90000000-0000-0000-0000-000000000001', 'quote': 'test_gas_outright', 'size': '0.01', 'convention': 'absolute_quote_v1'}],
-               'convention': 'synthetic_risk_check_v1', 'numericalPolicy': 'synthetic_exact_v1', 'detail': 'books', 'stress': [], 'engineVersion': 'synthetic_engine_v1'}
+    curve = {'revision': {'catalogId': catalog, 'revisionId': revision}, 'code': next(iter(frame['curveContracts']))}
+    factor = {'coordinate': 'market_quote', 'target': {'kind': 'parallel', 'curve': curve}}
+    axis = {'id': 'a' * 64, 'marketRevisionId': revision, 'factor': factor,
+            'points': [{'curve': curve, 'pointId': str(uuid4())}]}
+    frame.update(supplementalMarkets={}, swapMarketSelections={}, scenarioAxes=[axis],
+                 connectedMarkets=[{'revisionId': revision, 'manifestId': 'b' * 64, 'recipes': [], 'samples': []}])
+    request = {'context': {'snapshotId': frame['id'], 'contextId': context, 'knowledgeMode': 'retained', 'convention': 'trading_workspace_v1'},
+               'bookIds': books, 'portfolioIds': [],
+               'bumps': [{'factor': factor, 'size': '0.01', 'convention': 'absolute_curve_coordinate_symmetric_v1'}],
+               'convention': 'portfolio_instrument_repricing_v1', 'numericalPolicy': 'exact_rational_portfolio_repricing_v1',
+               'detail': 'books', 'stress': [], 'engineVersion': 'synthetic_engine_v1',
+               'pricingPolicy': {'curveNumericalPolicy': 'exact_18_fractional_abs_lt_1e24_v1',
+                                 'riskNumericalPolicy': 'exact_rational_portfolio_repricing_v1',
+                                 'futuresConvention': 'fixed_total_cash_execution_pnl_v1',
+                                 'swapConvention': 'independent_side_financial_swap_v2',
+                                 'rateNumericalPolicy': 'simple_actual365fixed_rational_to_even_18_v1',
+                                 'discountInterpolationPolicy': 'log_discount_geometric_root_to_even_18_v1',
+                                 'bumpConvention': 'absolute_quote_v1', 'bumpBasis': 'trading_tick', 'bumpTicks': 1}}
     def literal(value):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
 
@@ -90,21 +105,24 @@ def run_checks(query, manifest, psql=None, environment=None):
     supplemental_revision = supplemental['revisionId']
     supplemental_seed = next(f for f in supplemental['frames'] if f['at'] == at)
     member = json.loads(query(f"SELECT jsonb_build_object('curve',curve_code,'contract',contract_id) FROM market_data.curve_members WHERE catalog_id='{catalog}' AND revision_id='{supplemental_revision}' ORDER BY curve_code,ordinal LIMIT 1;"))
-    supplemental_frame = {**frame, 'name': 'Synthetic supplemental market',
-                          'observationIds': supplemental_seed['observationIds'],
-                          'frozenObservationIds': supplemental_seed['observationIds'][:1],
-                          'curveContracts': {member['curve']: [member['contract']]}}
+    supplemental_frame = {key: value for key, value in frame.items()
+                          if key not in ('supplementalMarkets', 'swapMarketSelections', 'scenarioAxes', 'connectedMarkets')}
+    supplemental_frame.update(name='Synthetic supplemental market', observationIds=supplemental_seed['observationIds'],
+                              frozenObservationIds=supplemental_seed['observationIds'][:1],
+                              curveContracts={member['curve']: [member['contract']]})
     generic_frame = {**frame, 'supplementalMarkets': {supplemental_revision: supplemental_frame},
-                     'swapMarketSelections': {supplemental_revision: supplemental_frame['observationIds']}}
-    generic_request = {**request, 'convention': 'portfolio_instrument_repricing_v1',
-                       'numericalPolicy': 'exact_rational_portfolio_repricing_v1', 'engineVersion': 'synthetic_portfolio_engine_v1',
-                       'pricingPolicy': {'curveNumericalPolicy': 'exact_18_fractional_abs_lt_1e24_v1',
-                                         'riskNumericalPolicy': 'exact_rational_portfolio_repricing_v1',
-                                         'futuresConvention': 'fixed_total_cash_execution_pnl_v1',
-                                         'swapConvention': 'independent_side_financial_swap_v2',
-                                         'rateNumericalPolicy': 'simple_actual365fixed_rational_to_even_18_v1',
-                                         'discountInterpolationPolicy': 'log_discount_geometric_root_to_even_18_v1',
-                                         'bumpConvention': 'absolute_quote_v1', 'bumpBasis': 'trading_tick', 'bumpTicks': 1}}
+                     'swapMarketSelections': {supplemental_revision: supplemental_frame['observationIds']},
+                     'connectedMarkets': [*frame['connectedMarkets'],
+                         {'revisionId': supplemental_revision, 'manifestId': 'c' * 64, 'recipes': [], 'samples': []}]}
+    generic_request = {**request, 'engineVersion': 'synthetic_portfolio_engine_v1'}
+    # The cutover refuses old financial operations and missing graph/axis pins;
+    # each rejection is exercised against the same otherwise valid fixture.
+    reject(lambda: submit(payload={**request, 'convention': 'synthetic_legacy_futures_v1'}), 'risk_job_input')
+    reject(lambda: submit(selected_frame={key: value for key, value in frame.items() if key != 'connectedMarkets'}), 'risk_graph_input')
+    reject(lambda: submit(selected_frame={**frame, 'connectedMarkets': []}), 'risk_graph_input')
+    reject(lambda: submit(selected_frame={key: value for key, value in frame.items() if key != 'scenarioAxes'}), 'risk_axis_input')
+    reject(lambda: submit(selected_frame={**frame, 'scenarioAxes': []}), 'risk_axis_input')
+    reject(lambda: submit(payload={**request, 'bumps': [{'seriesId': str(uuid4()), 'quote': 'synthetic_old_quote', 'size': '0.01', 'convention': 'absolute_quote_v1'}]}), 'risk_axis_input')
     generic_operation = str(uuid4())
     generic_job = submit(generic_operation, generic_request, generic_frame)
     assert generic_job.get('convention') == generic_request['convention'], 'Job history omits its report convention'
@@ -113,6 +131,50 @@ def run_checks(query, manifest, psql=None, environment=None):
     assert query(f"SELECT count(*) FROM risk.job_market_observations WHERE job_id='{generic_job['jobId']}';") == str(len(supplemental_frame['observationIds']))
     assert query(f"SELECT count(*) FROM risk.job_market_contracts WHERE job_id='{generic_job['jobId']}';") == '1'
     assert query(f"SELECT count(*) FROM risk.job_market_observations WHERE job_id='{generic_job['jobId']}' AND frozen;") == '1'
+    assert query(f"SELECT count(*) FROM risk.job_scenario_axes WHERE job_id='{generic_job['jobId']}';") == '1'
+    assert query(f"SELECT count(*) FROM risk.job_scenario_points WHERE job_id='{generic_job['jobId']}';") == '1'
+    for mutate in (
+        lambda value: value['connectedMarkets'].pop(),
+        lambda value: value['scenarioAxes'][0].update(marketRevisionId=str(uuid4())),
+        lambda value: value['scenarioAxes'][0].update(points=[]),
+        lambda value: value['scenarioAxes'][0]['points'][0]['curve'].update(code='different_runtime_curve'),
+        lambda value: value['scenarioAxes'][0]['factor'].update(coordinate='inferred'),
+        lambda value: value['scenarioAxes'][0]['factor']['target'].update(kind='delivery_bucket', **{'from': '2020-12-15', 'to': '2020-12-14', 'convention': 'whole_point_delivery_contained_half_open_v1'}),
+    ):
+        invalid = deepcopy(generic_frame); mutate(invalid)
+        expected = 'risk_graph_input' if len(invalid['connectedMarkets']) < len(generic_frame['connectedMarkets']) else 'risk_axis_input'
+        reject(lambda: submit(payload=generic_request, selected_frame=invalid), expected)
+    for malformed in (
+        {**request['bumps'][0], 'size': '0'}, {**request['bumps'][0], 'size': 'NaN'},
+        {**request['bumps'][0], 'size': '0.0000000000000000001'},
+        {**request['bumps'][0], 'convention': 'absolute_quote_v1'},
+    ):
+        reject(lambda: submit(payload={**request, 'bumps': [malformed]}), 'risk_axis_input')
+    # A compiled curve has an explicit synthetic identity; its authority is the
+    # exact retained graph, not an invented foreign key to market definitions.
+    computed_frame = deepcopy(frame)
+    computed = computed_frame['scenarioAxes'][0]
+    computed['factor']['coordinate'] = 'computed_output'
+    computed['factor']['target']['curve']['revision']['revisionId'] = str(uuid4())
+    computed['points'][0]['curve'] = deepcopy(computed['factor']['target']['curve'])
+    computed_request = deepcopy(request)
+    computed_request['bumps'][0]['factor'] = deepcopy(computed['factor'])
+    computed_job = submit(payload=computed_request, selected_frame=computed_frame)
+    user(f"SELECT risk.cancel('{computed_job['jobId']}')")
+    supplemental_only = deepcopy(generic_frame)
+    supplemental_only['connectedMarkets'] = supplemental_only['connectedMarkets'][1:]
+    selected_axis = supplemental_only['scenarioAxes'][0]
+    selected_axis['marketRevisionId'] = supplemental_revision
+    selected_axis['factor']['target']['curve'] = {'revision': {'catalogId': catalog, 'revisionId': supplemental_revision}, 'code': member['curve']}
+    selected_axis['points'][0]['curve'] = deepcopy(selected_axis['factor']['target']['curve'])
+    supplemental_request = deepcopy(generic_request)
+    supplemental_request['bumps'][0]['factor'] = deepcopy(selected_axis['factor'])
+    supplemental_job = submit(payload=supplemental_request, selected_frame=supplemental_only)
+    user(f"SELECT risk.cancel('{supplemental_job['jobId']}')")
+    for table in ('job_scenario_axes', 'job_scenario_points'):
+        reject(lambda: query(f"UPDATE risk.{table} SET job_id=job_id WHERE job_id='{generic_job['jobId']}';"), 'immutable')
+        assert query(f"SELECT NOT has_table_privilege('openetrm_runtime','risk.{table}','SELECT') AND NOT has_table_privilege('openetrm_risk_worker','risk.{table}','INSERT');") == 't'
+    print('PASS connected risk axes: mandatory graph coverage, typed coordinates, resolved point custody, numeric bounds and immutable private pins', flush=True)
     empty_markets = submit(payload=generic_request, selected_frame={**frame, 'supplementalMarkets': {}, 'swapMarketSelections': {}})
     user(f"SELECT risk.cancel('{empty_markets['jobId']}')")
     reject(lambda: submit(payload={key: value for key, value in generic_request.items() if key != 'pricingPolicy'}, selected_frame=generic_frame), 'risk_job_input')
@@ -337,9 +399,9 @@ def run_checks(query, manifest, psql=None, environment=None):
     recent = json.loads(user(f"SELECT risk.list('{catalog}')"))
     generic_history = json.loads(user(f"SELECT risk.list('{catalog}','portfolio_instrument_repricing_v1')"))
     assert len(recent) == 50 and all(row['convention'] == request['convention'] for row in recent)
-    assert generic_job['jobId'] in {row['jobId'] for row in generic_history}
+    assert recent == generic_history
     assert all(row['convention'] == generic_request['convention'] for row in generic_history)
-    print('PASS risk history: explicit report conventions and filtering before the bounded recent-job limit', flush=True)
+    print('PASS risk history: the single connected operation retains a bounded recent-job list', flush=True)
 
 
 def main():

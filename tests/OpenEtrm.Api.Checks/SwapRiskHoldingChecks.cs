@@ -181,7 +181,7 @@ internal static class SwapRiskHoldingChecks
                 DealRisk.BumpPolicy,DealRisk.NumericalPolicy,ct)).ToArray();
             Check("grouped swap risk equals the sum of independent standalone deal repricings",result.Risk.Where(r=>r.Measure==PortfolioValuation.SwapMeasure).All(r=>
             {
-                var deals=dealRuns.SelectMany(run=>run.Factors).Where(f=>f.Factor.Input==r.Factor).ToArray();
+                var deals=dealRuns.SelectMany(run=>run.Factors).Where(f=>f.Factor.Input==result.Factors.Single(axis=>axis.Axis.Id==r.Factor).Axis.Quote!.Input).ToArray();
                 return deals.Length==3&&r.Delta.Value==deals.Select(f=>f.Values.Delta.Value).Aggregate((a,b)=>a.Add(b))&&
                     r.Gamma.Value==deals.Select(f=>f.Values.Gamma.Value).Aggregate((a,b)=>a.Add(b))&&
                     r.UpPnl==deals.Select(f=>f.Values.UpPnl).Aggregate((a,b)=>a.Add(b))&&
@@ -210,7 +210,7 @@ internal static class SwapRiskHoldingChecks
                     result.Risk.All(r=>r.Delta.Value.Numerator=="100"&&r.Delta.Value.Denominator=="31"&&r.Gamma.Value.Numerator=="0"));
                 var actualIds=actual.GetProperty("actualIds").EnumerateArray().Select(id=>id.GetGuid()).ToHashSet();
                 Check("actual source pins remain frozen and outside commodity shocks",actualIds.Count==count&&snapshot.Selections.Where(s=>actualIds.Contains(s.Observation.Key.Id)).All(s=>s.Input.Use==InputUse.FrozenFact)&&
-                    !result.Factors.Any(f=>actualIds.Contains(f.Factor.Observation.Id)));
+                    !result.Factors.Any(f=>f.Axis.Quote is {} quote&&actualIds.Contains(quote.Observation.Id)));
                 var missing=snapshot with{Selections=snapshot.Selections.Where(s=>s.Observation.Key.Id!=actualIds.First()).ToImmutableArray()};
                 try
                 {

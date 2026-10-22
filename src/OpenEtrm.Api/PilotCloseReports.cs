@@ -36,7 +36,7 @@ public static class PilotCloseReports
             if(position.DefinitionRevisionId!=definition||
                 position.Measure is not(PortfolioValuation.FuturesMeasure or PortfolioValuation.SwapMeasure))throw Invalid();
         }
-        var indices=result.Factors.Select((factor,n)=>(factor.Factor.Input,n)).ToDictionary(p=>p.Input,p=>p.n);
+        var indices=result.Factors.Select((factor,n)=>(factor.Axis.Id,n)).ToDictionary(p=>p.Id,p=>p.n);
         var holdingsByValuation=result.Positions.ToLookup(p=>p.ValuationId);
         var swapSides=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT catalog_id,instrument_id,fixed_side_id,floating_side_id FROM trading.swap_instruments WHERE instrument_id=ANY($1))t",
             [result.DiscountInputs.Select(d=>d.InstrumentId).Distinct().ToArray()],ct);
@@ -48,7 +48,7 @@ public static class PilotCloseReports
         var risk=result.Risk.Select(r=>
         {
             Reference(r.Currency);Exact(r.Up);Exact(r.Down);Exact(r.UpPnl);Exact(r.DownPnl);Exact(r.Delta.Value);Exact(r.Gamma.Value);
-            var factor=result.Factors[indices[r.Factor]].Factor;
+            var factor=result.Factors[indices[r.Factor]].Axis;
             if(r.Up.Currency!=r.Currency||r.Down.Currency!=r.Currency||r.UpPnl.Currency!=r.Currency||r.DownPnl.Currency!=r.Currency||r.Delta.Value.Currency!=r.Currency||r.Gamma.Value.Currency!=r.Currency||
                 r.Delta.Unit.Currency!=r.Currency||r.Gamma.Unit.Currency!=r.Currency||r.Delta.Unit.Order!=1||r.Gamma.Unit.Order!=2||
                 r.Delta.Unit.Factor!=factor.Unit||r.Gamma.Unit.Factor!=factor.Unit)throw Invalid();
@@ -57,7 +57,7 @@ public static class PilotCloseReports
         }).ToArray();
         var factors=result.Factors.Select((f,ordinal)=>
         {
-            var value=f.Factor;Reference(value.Quote);Reference(value.Source);Reference(value.Unit.Currency);Reference(value.Unit.Quantity);
+            var value=f.Axis.Quote??throw Invalid();Reference(value.Quote);Reference(value.Source);Reference(value.Unit.Currency);Reference(value.Unit.Quantity);
             if(value.Input.Use!=InputUse.Variable||value.Input.Series.Revision.RevisionId!=definition||value.Contract.Revision!=value.Input.Series.Revision||value.Role is not(ObservationRole.TraderMark or ObservationRole.DailySettlement))throw Invalid();
             return new{ordinal,series=value.Input.Series.Id,observation=value.Observation.Id,contract=value.Contract.Id,quote=value.Quote.Code,currency=value.Unit.Currency.Code,quantity=value.Unit.Quantity.Code,
                 source=value.Source.Code,role=value.Role==ObservationRole.TraderMark?"trader_mark":"daily_settlement",@base=value.BaseValue.ToString(),bump=f.BumpSize.ToString(),tick=value.TradingTick.ToString()};

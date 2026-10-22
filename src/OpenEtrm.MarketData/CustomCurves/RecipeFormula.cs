@@ -16,19 +16,21 @@ public static class RecipeFormula
             if(nodes.Count>=64)throw Invalid("A formula can contain at most 64 nodes.");
             var id=parser.Identifier();parser.Take('=');var kind=parser.Identifier();parser.Take('(');
             var parameters=ImmutableDictionary.CreateBuilder<string,string>();var inputs=ImmutableDictionary.CreateBuilder<string,string>();
+            var weights=default(ImmutableArray<RecipeContractWeight>);
             if(!parser.Peek(')'))
             {
                 do
                 {
                     var key=parser.Identifier();parser.Take('=');
-                    if(parameters.ContainsKey(key)||inputs.ContainsKey(key))throw Invalid("Each argument may appear once.");
-                    if(parser.Peek('@')){parser.Take('@');inputs.Add(key,parser.Identifier());}
+                    if(parameters.ContainsKey(key)||inputs.ContainsKey(key)||key=="contractWeights"&&!weights.IsDefault)throw Invalid("Each argument may appear once.");
+                    if(key=="contractWeights")weights=parser.Weights();
+                    else if(parser.Peek('@')){parser.Take('@');inputs.Add(key,parser.Identifier());}
                     else parameters.Add(key,parser.String());
                     if(!parser.Peek(','))break;parser.Take(',');
                 }while(true);
             }
             parser.Take(')');
-            nodes.Add(new(id,kind,parameters.ToImmutable(),inputs.ToImmutable()));
+            nodes.Add(new(id,kind,parameters.ToImmutable(),inputs.ToImmutable(),weights));
         }
         var outputs=nodes.Where(n=>n.Kind=="output").ToArray();
         if(outputs.Length!=1)throw Invalid("A formula requires exactly one output node.");
@@ -43,7 +45,8 @@ public static class RecipeFormula
                 throw Invalid("Formula identities must be identifiers beginning with a letter.");
         return string.Join("\n",definition.Nodes.Select(node=>node.Id+" = "+node.Kind+"("+
             string.Join(", ",node.Parameters.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>p.Key+"="+JsonSerializer.Serialize(p.Value))
-                .Concat(node.Inputs.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>p.Key+"=@"+p.Value)))+")"));
+                .Concat(node.Inputs.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>p.Key+"=@"+p.Value))
+                .Concat(node.ContractWeights.IsDefaultOrEmpty?[]:new[]{"contractWeights="+JsonSerializer.Serialize(node.ContractWeights,new JsonSerializerOptions(JsonSerializerDefaults.Web))}))+")"));
     }
     static bool IdentifierValid(string text)=>text.Length is >0 and <=80&&char.IsAsciiLetter(text[0])&&text.All(c=>char.IsAsciiLetterOrDigit(c)||c=='_');
     static MarketDataException Invalid(string message)=>new("recipe_formula",message);
@@ -59,6 +62,19 @@ public static class RecipeFormula
             Space();var start=index;
             while(index<text.Length&&(char.IsAsciiLetterOrDigit(text[index])||text[index]=='_'))index++;
             var value=text[start..index];if(!IdentifierValid(value))throw Invalid($"Expected an identifier at character {start+1}.");return value;
+        }
+        public ImmutableArray<RecipeContractWeight> Weights()
+        {
+            Space();var start=index;Take('[');var depth=1;var quoted=false;var escaped=false;
+            while(index<text.Length&&depth>0)
+            {
+                var token=text[index++];
+                if(quoted){if(!escaped&&token=='"')quoted=false;escaped=!escaped&&token=='\\';continue;}
+                if(token=='"')quoted=true;else if(token=='[')depth++;else if(token==']')depth--;
+            }
+            if(depth!=0)throw Invalid("A contract weight array is incomplete.");
+            try{return JsonSerializer.Deserialize<ImmutableArray<RecipeContractWeight>>(text[start..index],new JsonSerializerOptions(JsonSerializerDefaults.Web));}
+            catch(JsonException){throw Invalid("Contract weights require typed output positions, source ports, exact contract IDs and decimal strings.");}
         }
         public string String()
         {

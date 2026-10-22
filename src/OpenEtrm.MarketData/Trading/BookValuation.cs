@@ -178,7 +178,7 @@ public sealed class ValuationPortfolio
         return RiskFactors(market,declarations,cancellation);
     }
     internal ImmutableArray<BookRiskFactors> RiskFactors(CurveBuild market,ImmutableArray<UnitPricingContract> declarations,CancellationToken cancellation)
-        =>RiskFactors(new BuiltValuationMarket(market),declarations,cancellation);
+        =>RiskFactors(market.Pricing,declarations,cancellation);
     internal ImmutableArray<BookRiskFactors> RiskFactors(PreparedValuationMarket market,ImmutableArray<UnitPricingContract> declarations,CancellationToken cancellation)
     {
         var context=new UnitValuationContext(market.Snapshot,Setup,market,cancellation:cancellation);
@@ -218,7 +218,7 @@ public sealed class ValuationPortfolio
     }
     internal PortfolioValue PV(CurveBuild market,ImmutableArray<UnitPricingContract> declarations,CurveBuild? baseMarket=null,
         PortfolioValue? baseValue=null,CancellationToken ct=default,RiskDetail detail=RiskDetail.Holdings)
-        =>PV(new BuiltValuationMarket(market),declarations,baseMarket is null?null:new BuiltValuationMarket(baseMarket),baseValue,ct,detail);
+        =>PV(market.Pricing,declarations,baseMarket is null?null:baseMarket.Pricing,baseValue,ct,detail);
     internal PortfolioValue PV(PreparedValuationMarket market,ImmutableArray<UnitPricingContract> declarations,PreparedValuationMarket? baseMarket=null,
         PortfolioValue? baseValue=null,CancellationToken ct=default,RiskDetail detail=RiskDetail.Holdings)
     {

@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 
@@ -14,8 +15,8 @@ namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PortfolioRiskRequest(FuturesReadRequest Context,ImmutableArray<Guid> BookIds,ImmutableArray<Guid> PortfolioIds,
-    ImmutableArray<QuoteBumpRequest> Bumps,string? Convention,string? NumericalPolicy,PortfolioValuationPolicy PricingPolicy,
-    string? Detail=null,ImmutableArray<QuoteShiftRequest> Stress=default);
+    ImmutableArray<CurveBumpRequest> Bumps,string? Convention,string? NumericalPolicy,PortfolioValuationPolicy PricingPolicy,
+    string? Detail=null,ImmutableArray<CurveShiftRequest> Stress=default);
 
 // Transport and presentation over the shared instrument valuation operation.
 // Instrument materialization and pricing remain outside this report adapter.
@@ -27,18 +28,26 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         FuturesRisk.Implementation,SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
     internal sealed record Prepared(PortfolioRiskRequest Request,RiskDetail Detail,
         ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books,PortfolioValuation.Prepared Portfolio,
-        ImmutableArray<QuoteBump> Bumps,ImmutableArray<QuoteShift> Stress,
+        ImmutableArray<PortfolioCurveBump> Bumps,ImmutableArray<PortfolioCurveShift> Stress,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> SupplementalMarkets);
 
-    public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesRiskCatalogRequest body,CancellationToken ct)
+    public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioRiskCatalogRequest body,CancellationToken ct)
     {
         var (portfolio,_,_)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,PricingPolicy,ct);
         var markets=portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
         var available=portfolio.Markets.SelectMany(m=>m.Data.Model.QuoteFactors(m.Snapshot)).ToImmutableArray();
-        return new{factors=portfolio.Factors.Select(f=>Factor(markets,f)),availableFactors=available.Select(f=>Factor(markets,f)),
+        var axes=CurveRiskAxes.Catalog(portfolio,ct);
+        var targets=axes.Select(a=>Target(markets,a)).Concat(axes.Where(a=>a.Target is ParallelCurveTarget).Select(a=>
+            (object)new{id=a.Id+":bucket",label=a.Label.Replace("all retained contracts","delivery bucket",StringComparison.Ordinal)
+                    .Replace("all retained outputs","delivery bucket",StringComparison.Ordinal),
+                coordinate=CurveRiskAxes.Coordinate(a.Coordinate),kind="delivery_bucket",unit=Unit(markets,a.Unit),
+                factor=new CurveRiskAxisRequest(CurveRiskAxes.Coordinate(a.Coordinate),new("delivery_bucket",a.Target.Curve,
+                    Convention:DeliveryBucketCurveTarget.WholeDelivery))})).ToArray();
+        return new{factors=portfolio.Factors.Select(f=>Factor(markets,CurveRiskAxes.Quote(portfolio,f,ct))),
+            availableFactors=available.Select(f=>Factor(markets,CurveRiskAxes.Quote(portfolio,f,ct))),scenarioTargets=targets,
             books=portfolio.Positions.GroupBy(p=>p.BookId).Select(g=>new{bookId=g.Key}),
             measures=portfolio.Positions.Select(p=>p.Measure).Distinct().Order().Select(m=>new{measure=m,measureLabel=MeasureLabel(m)}),
-            bumpConvention=QuoteBump.Convention,stressConvention=QuoteShift.Convention,convention=Convention,
+            bumpConvention=ConnectedRiskBump.Convention,stressConvention=CurveShift.ParentAdditive,convention=Convention,
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy};
     }
 
@@ -69,33 +78,30 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             _=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
         if(body.Convention!=Convention||body.NumericalPolicy!=RiskEngine.ExactNumericalPolicy||body.Bumps.IsDefaultOrEmpty||
             body.Bumps.Length>(detail==RiskDetail.Books?4096:16)||body.Bumps.Any(b=>b is null))
-            throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit quote bumps.");
+            throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit curve-coordinate bumps.");
         if(!body.Stress.IsDefault&&(body.Stress.Length>16||body.Stress.Any(s=>s is null)))
-            throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative quote shifts.");
+            throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
         var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retainedGraphs);
-        var available=portfolio.Markets.SelectMany(m=>m.Data.Model.QuoteFactors(m.Snapshot)).ToImmutableArray();
-        QuoteFactor Selected(Guid series,string? quote)
-        {
-            var found=available.Where(f=>f.Input.Series.Id==series&&f.Quote.Code==quote).ToArray();
-            return found.Length==1?found[0]:throw new MarketDataException("risk_factor","Choose one exact available live quote input in this market context.");
-        }
         var bumps=body.Bumps.Select(b=>
         {
-            var factor=Selected(b.SeriesId,b.Quote);var size=ExactDecimal.Parse(b.Size??"");
-            if(b.Convention!=QuoteBump.Convention||size.CompareTo(default)<=0)
+            var axis=CurveRiskAxes.Resolve(portfolio,b.Factor,ct);var size=ExactDecimal.Parse(b.Size??"");
+            if(b.Convention!=ConnectedRiskBump.Convention||size.CompareTo(default)<=0)
                 throw new MarketDataException("risk_bump","Choose the explicit symmetric convention and a positive absolute bump.");
-            return new QuoteBump(factor.Input,factor.Quote,factor.Unit,size,b.Convention);
+            return new PortfolioCurveBump(axis,size);
         }).ToImmutableArray();
-        if(bumps.Select(b=>b.Input).Distinct().Count()!=bumps.Length)
+        if(bumps.Select(b=>b.Axis.Id).Distinct().Count()!=bumps.Length)
             throw new MarketDataException("risk_bump","Select each exact factor once per risk run.");
-        var stress=(body.Stress.IsDefault?ImmutableArray<QuoteShiftRequest>.Empty:body.Stress).Select(s=>
+        var stress=(body.Stress.IsDefault?ImmutableArray<CurveShiftRequest>.Empty:body.Stress).Select(s=>
         {
-            var factor=Selected(s.SeriesId,s.Quote);var size=ExactDecimal.Parse(s.Size??"");
-            if(s.Convention!=QuoteShift.Convention||size==default)
+            var axis=CurveRiskAxes.Resolve(portfolio,s.Factor,ct);var size=ExactDecimal.Parse(s.Size??"");
+            if(s.Convention!=CurveShift.ParentAdditive||size==default)
                 throw new MarketDataException("risk_stress","Choose the explicit additive convention and a nonzero signed shift.");
-            return new QuoteShift(factor.Input,factor.Quote,factor.Unit,size,s.Convention);
+            return new PortfolioCurveShift(axis,size);
         }).ToImmutableArray();
-        return new(body,detail,bookIds,books,portfolio,bumps,stress,
+        var canonical=body with{
+            Bumps=bumps.Select(b=>new CurveBumpRequest(b.Axis.Request,b.Size.ToString(),ConnectedRiskBump.Convention)).ToImmutableArray(),
+            Stress=stress.Select(s=>new CurveShiftRequest(s.Axis.Request,s.Size.ToString(),CurveShift.ParentAdditive)).ToImmutableArray()};
+        return new(canonical,detail,bookIds,books,portfolio,bumps,stress,
             portfolio.Markets.Where(m=>m.Data.DefinitionRevision!=data.DefinitionRevision).Select(m=>(m.Data,m.Frame)).ToImmutableArray());
     }
 
@@ -124,12 +130,12 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
                     s.Observation.ObservedAt,value=s.Observation.Value.ToString()})}),positions=run.Positions,run.DiscountInputs,connectedMarkets=prepared.Portfolio.ConnectedMarkets},
             modelContracts=run.ModelContracts.Select(c=>new{c.Id,c.ModelVersion,c.Dependencies,c.Quantity,c.Currency}),
             factors=prepared.Bumps.Select(b=>new{
-                factor=Factor(markets,run.Factors.Single(f=>f.Factor.Input==b.Input).Factor),
-                bump=b.Size.ToString(),bumpConvention=b.ConventionId,
-                totals=run.Risk.Where(r=>r.Factor==b.Input).Select(r=>new{r.Measure,measureLabel=MeasureLabel(r.Measure),r.BookId,book=Book(r.BookId),
+                factor=Factor(markets,run.Factors.Single(f=>f.Axis.Id==b.Axis.Id).Axis),
+                bump=b.Size.ToString(),bumpConvention=ConnectedRiskBump.Convention,
+                totals=run.Risk.Where(r=>r.Factor==b.Axis.Id).Select(r=>new{r.Measure,measureLabel=MeasureLabel(r.Measure),r.BookId,book=Book(r.BookId),
                     values=Values(new(run.Totals.Single(t=>t.Measure==r.Measure&&t.BookId==r.BookId&&t.Value.Currency==r.Currency).Value,
                         r.Up,r.Down,r.UpPnl,r.DownPnl,r.Delta,r.Gamma))}),
-                positions=run.HoldingRisk.Where(r=>r.Factor==b.Input).Select(r=>
+                positions=run.HoldingRisk.Where(r=>r.Factor==b.Axis.Id).Select(r=>
                 {
                     var p=r.Position;var evidence=positions[(p.TradeId,p.BindingId)];
                     return new{p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,evidence.InstrumentReference,
@@ -155,22 +161,27 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         var symbol=markets.First(m=>m.ReferenceRevision==unit.Quantity.Revision).References["units"].Single(u=>u.Text("code")==quantity.Text("unit_code")).Text("symbol");
         return Presentation.PriceUnitLabel.Format(unit,Currency(markets,unit.Currency),symbol);
     }
-    private static object Factor(ImmutableArray<PreviewData> markets,QuoteFactor factor)
+    private static object Target(ImmutableArray<PreviewData> markets,PortfolioRiskAxis axis)=>new{
+        axis.Id,axis.Label,coordinate=CurveRiskAxes.Coordinate(axis.Coordinate),kind=axis.Request.Target.Kind,
+        unit=Unit(markets,axis.Unit),factor=axis.Request};
+    private static object Factor(ImmutableArray<PreviewData> markets,PortfolioRiskAxis axis)
     {
-        var contract=markets.SelectMany(m=>m.Contracts).Single(c=>c.Key==factor.Contract);
-        return new{seriesId=factor.Input.Series.Id,quote=factor.Quote.Code,unit=Unit(markets,factor.Unit),
-            priceUnit=new{factor.Unit.Currency,factor.Unit.Quantity,multiplier=factor.Unit.Multiplier.ToString()},curves=factor.Curves.Select(c=>c.Code),
-            contractId=contract.Key.Id,deliveryFrom=contract.DeliveryFrom.ToString("yyyy-MM-dd"),deliveryTo=contract.DeliveryTo.ToString("yyyy-MM-dd"),
-            value=factor.BaseValue.ToString(),observation=factor.Observation,source=factor.Source,role=factor.Role.ToString()};
+        var quote=axis.Quote;
+        var contract=quote is null?null:markets.SelectMany(m=>m.Contracts).Single(c=>c.Key==quote.Contract);
+        return new{axis.Id,axis.Label,coordinate=CurveRiskAxes.Coordinate(axis.Coordinate),kind=axis.Request.Target.Kind,
+            factor=axis.Request,seriesId=quote?.Input.Series.Id,quote=quote?.Quote.Code,unit=Unit(markets,axis.Unit),
+            priceUnit=new{axis.Unit.Currency,axis.Unit.Quantity,multiplier=axis.Unit.Multiplier.ToString()},curves=new[]{axis.Target.Curve.Code},
+            contractId=contract?.Key.Id,deliveryFrom=contract?.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),deliveryTo=contract?.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
+            value=quote?.BaseValue.ToString(),observation=quote?.Observation,source=quote?.Source,role=quote?.Role.ToString()};
     }
     private static object Scenario(Prepared prepared)
     {
         string Digest(object value)=>Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value,RiskJobs.Json)));
-        var id=Digest(new{version="portfolio_quote_scenario_v1",markets=prepared.Portfolio.Markets.OrderBy(m=>m.Data.DefinitionRevision.RevisionId)
+        var id=Digest(new{version="portfolio_curve_scenario_v1",markets=prepared.Portfolio.Markets.OrderBy(m=>m.Data.DefinitionRevision.RevisionId)
             .Select(m=>new{m.Data.DefinitionRevision,Id=m.ScenarioId})});
         string? parent=null;
-        foreach(var shift in prepared.Stress){parent=id;id=Digest(new{version="portfolio_quote_scenario_v1",parent,shift});}
+        foreach(var shift in prepared.Stress){parent=id;id=Digest(new{version="portfolio_curve_scenario_v1",parent,shift});}
         return new{id,parentId=parent,depth=prepared.Stress.Length,isBase=prepared.Stress.IsEmpty,
-            convention=QuoteShift.Convention,stress=prepared.Request.Stress.IsDefault?ImmutableArray<QuoteShiftRequest>.Empty:prepared.Request.Stress};
+            convention=CurveShift.ParentAdditive,stress=prepared.Request.Stress.IsDefault?ImmutableArray<CurveShiftRequest>.Empty:prepared.Request.Stress};
     }
 }

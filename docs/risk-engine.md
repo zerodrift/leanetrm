@@ -1,12 +1,12 @@
 # Risk scenarios and durable runs
 
-The API and retained job paths use live-quote conventions. The managed
-[connected calculation engine](connected-calculation.md) now supplies saved
-custom projections to the same monthly swap and portfolio valuation path. Its
-typed API also supports computed-output, parallel, bucket and dated-contract
-scenarios; these additional target forms are not HTTP request options. Its
-integer graph-kernel capacity measurements are recorded
-[separately](connected-graph-benchmark.md) and do not qualify financial throughput.
+The API, UI and retained jobs use the same
+[connected calculation engine](connected-calculation.md) for ordinary curves,
+basis relationships and saved custom projections (D186). Scenarios explicitly
+select primitive quote or computed-output coordinates, with contract, point,
+parallel and whole-delivery-bucket targets. Integer graph-kernel capacity
+measurements are recorded [separately](connected-graph-benchmark.md); they do not
+qualify financial compilation, database loading or end-to-end throughput.
 
 The risk operation uses the same resolved financial environment as the header
 date selectors. Effective and knowledge coordinates select retained business
@@ -17,17 +17,19 @@ separately. A historical context never restores a historical permission.
 
 ## Nested scenarios
 
-The first composition convention is
-`absolute_quote_input_parent_additive_rebuild_v1`. Each layer adds a signed,
-nonzero amount in the selected live quote's exact price unit to its parent's
+The composition convention is
+`absolute_curve_coordinate_parent_additive_v1`. Each layer adds a signed,
+nonzero amount in the selected coordinate's exact price unit to its parent's
 effective value. A later layer may select the same factor. For example, +0.20
 followed by -0.05 produces a cumulative +0.15 shift. Both the original market
 and the +0.20 parent remain independently usable.
 
-`CurveModel.WithShifts(parent, shifts)` produces an immutable child. It validates
-factor identity, units, domains, live-input eligibility and the explicit
-convention before rebuilding affected nodes. The parent retains its snapshot,
-observed facts and computation results. Scenario identities include the base
+`ConnectedScenario.WithShifts(shifts)` produces an immutable child. It validates
+exact coordinate identity, units, domains, eligibility and the explicit convention.
+A `market_quote` shift moves a live primitive; a `computed_output` shift offsets a
+calculated value while preserving its upstream dependencies. Both propagate to
+affected downstream consumers. The parent retains its snapshot, observed facts
+and computation results. Scenario identities include the base
 pins and ordered ancestry; a snapshot ID alone cannot identify a stressed value.
 The managed core permits up to 64 layers; the first HTTP/UI consumer permits 16.
 
@@ -37,11 +39,22 @@ values in input receipts remain the original observations. The receipt includes
 the stress layers separately. Returning to a parent or clearing a stress does
 not mutate market data or booked trades.
 
-The HTTP factor family is live commodity quotes. Frozen fixings, relative
-shifts, direct output-curve targets, rate/volatility shocks and arbitrary contract
-attribute changes are unsupported in these requests. A future valuation regime must have a typed,
-versioned contract and a consuming model. Date rolls require explicit lifecycle
-semantics; they cannot be implemented as an arbitrary date property override.
+The backend catalog supplies exact scenario descriptors and units. Targets can
+name an exact contract, an explicit set of points, all retained points of a
+curve that satisfy the selected coordinate contract, or a delivery interval.
+Bucket policy
+`whole_point_delivery_contained_half_open_v1` requires whole-point containment and
+rejects a boundary that splits a point. Results retain the target descriptor and
+graph manifest; jobs additionally retain the exact resolved points for worker
+reconstruction checks. Parallel/bucket selection does not invent unprepared maturities.
+The UI filters offered descriptors, collects explicit amounts and bucket dates,
+and displays backend results. It performs no selection or shock arithmetic.
+
+Frozen observations cannot receive primitive quote shifts. Relative shifts,
+rate/volatility/correlation shocks and arbitrary contract attribute changes are
+unsupported. A future valuation regime needs a typed, versioned contract and a
+consuming model. Date rolls need explicit lifecycle semantics; they cannot be
+implemented as an arbitrary date property override.
 
 ## Instrument valuation
 
@@ -80,16 +93,20 @@ The portfolio risk API supports immediate calculations and durable runs:
 | `GET /api/portfolio/risk/jobs/{id}` | Read the owned job and any completed result under current authority |
 | `POST /api/portfolio/risk/jobs/{id}/cancel` | Request cancellation without publishing partial totals |
 
-The earlier `/api/futures/risk` operations and their retained artifacts remain
-available under their original contracts. Portfolio job history filters by its
-operation convention. New requests select `portfolio_instrument_repricing_v1`,
-`exact_rational_portfolio_repricing_v1` and an explicit pricing policy covering
-curve, futures, swap, rate, interpolation and bump conventions.
+These are the sole portfolio risk HTTP operations. Draft-risk routes for unbooked
+futures and swaps remain available. D186 removes the earlier `/api/futures/risk`
+routes and fallback execution. Requests select
+`portfolio_instrument_repricing_v1`, `exact_rational_portfolio_repricing_v1` and
+the explicit pricing policy supplied by the catalog, covering curve, futures,
+swap, rate, interpolation and bump conventions. Each bump or stress transports
+an exact catalog `factor` descriptor, an explicit `size` and its convention;
+series/quote identifiers alone no longer define a request.
 
 The shared pricing policy's `bumpBasis` and `bumpTicks` select the generated-close
 operation's automatically constructed bumps. Interactive requests supply each
-`QuoteBump` size and convention explicitly; these values govern their up/down
-evaluations and are not rescaled by `bumpTicks`.
+coordinate bump size and `absolute_curve_coordinate_symmetric_v1` convention
+explicitly; these govern their up/down evaluations and are not rescaled by
+`bumpTicks`.
 
 Both holding detail and book summaries retain rational base/up/down values,
 shock P&L, delta and gamma. Exact wire values use decimal strings when
@@ -104,8 +121,14 @@ observation pins and frozen-input uses, market frames, stress/bump conventions a
 fingerprint. Empty interactive scope selectors resolve to explicit books before
 queueing. An identical request identity and payload return the original run;
 different inputs conflict. Saved managed projections additionally retain their
-published version/output descriptors, compiled graph manifest and exact dated
-sample observations (0076–0077). Those samples are separate from the primary
+published version/output descriptors and exact dated sample observations
+(0076–0077). Migration 0081 retains a compiled graph manifest for every prepared
+portfolio market and typed scenario axes with their resolved points. Persisted
+contracts have exact foreign keys; compiled recipe coordinates are anchored to
+the retained graph manifest rather than masquerading as persisted definitions.
+The migration refuses any retained risk jobs, including completed ones, pending an
+explicit operator archive/reset. It does not delete or rewrite retained history.
+Those samples are separate from the primary
 snapshot: multiple dates may retain different observations of the same series.
 Historical samples are frozen; current quote factors remain explicit. Workers
 read the captured IDs and reject a different reconstructed manifest. Changing
@@ -172,10 +195,12 @@ settings secret names the connection-secret path `/run/secrets/risk-worker-conne
 Each claim covers one complete run across its selected books. The managed
 valuation path shares eligible unit prices across holdings and books, rebuilds
 only affected dependencies, and aggregates exact quantities/cash. Scenario pairs
-are streamed rather than retaining every market graph. Curve work counters include
-instrument materialization builds, initial market construction and every applied
-stress layer. Preparation builds are reported separately from the global valuation
-scenario count. Unit candidates use all unique values times that global count;
+are streamed rather than retaining every market graph. Graph work counts actual
+node evaluation and reuse under the base and stress scenarios. Preparation reports
+`SourceCompilations` and `DeclaredSourceNodes`; compiling source topology does not
+evaluate prices. The existing futures materialization build remains included in
+evaluated preparation work, separately from the global valuation scenario count.
+Unit candidates use all unique values times that global count;
 unit calls and curve work count actual local evaluations, including reuse across
 unaffected partitions.
 

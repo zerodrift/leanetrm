@@ -338,28 +338,20 @@ public sealed partial class CurveModel
         return spec;
     }
 
-    public CurveBuild Build(MarketSnapshot snapshot, ImmutableArray<CurveRequest> requests,CancellationToken cancellation=default)
-        => Build(snapshot,requests,null,[],cancellation);
-    private CurveBuild Build(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,Risk.QuoteShock? shock,
-        ImmutableArray<CurveEvaluation> reusable,CancellationToken cancellation,Risk.QuoteScenario? scenario=null)
+    private ImmutableDictionary<InputKey,SelectedObservation> ValidateSnapshot(MarketSnapshot snapshot,CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
+        if(snapshot is null)Fail("snapshot_pin","Supply an exact selected snapshot.");
         EnumValue(snapshot.SelectionPolicy);
         if (snapshot.Id == Guid.Empty || snapshot.Definitions != revision)
             Fail("snapshot_pin", "Snapshot must name this exact definition revision.");
         if (snapshot.ValuationAt.Offset != TimeSpan.Zero || snapshot.MarketCutoff.Offset != TimeSpan.Zero ||
             snapshot.MarketCutoff > snapshot.ValuationAt || snapshot.ValuationAt >= End || snapshot.Selections.IsDefault)
             Fail("snapshot_context", "Explicit UTC valuation/cutoff context and selected inputs are required.");
-        if (requests.IsDefault || requests.Distinct().Count() != requests.Length)
-            Fail("request", "Supply distinct explicit output requests.");
         var inputs = Unique(snapshot.Selections, s => s.Input);
         foreach (var group in inputs.Values.GroupBy(s => s.Observation.Key))
             if (group.Select(s => s.Observation).Distinct().Count() != 1)
                 Fail("observation_conflict", "An observation identity cannot name different contents.");
-        var memo = new Dictionary<(CurveRequest, InputUse), BuiltValue>();
-        var evaluations = ImmutableArray.CreateBuilder<CurveEvaluation>();
-        foreach(var evaluation in reusable)
-        {memo.Add((evaluation.Result.Request,evaluation.Use),evaluation.Result);evaluations.Add(evaluation);}
         foreach (var selected in inputs.Values)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -391,77 +383,70 @@ public sealed partial class CurveModel
                 (obs.Role is not (ObservationRole.FinalContractSettlement or ObservationRole.IndexFixing) || obs.State != PublicationState.Final))
                 Fail("frozen_fact", "Frozen inputs require final contract settlement or an explicit final index fixing.");
         }
-        var result = requests.Select(r => Evaluate(r, InputUse.Variable)).ToImmutableArray();
-        return new CurveBuild(this, snapshot, NumericalPolicy, result, inputs, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock,scenario);
+        return inputs;
+    }
 
-        BuiltValue Evaluate(CurveRequest request, InputUse use)
+    public CurveBuild Build(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,CancellationToken cancellation=default)
+    {
+        var inputs=ValidateSnapshot(snapshot,cancellation);
+        var receipt=Risk.QuoteScenario.Base(snapshot);
+        var context=new Calculation.ResolvedCalculationContext(snapshot.Id,receipt.Id,snapshot.ValuationAt,
+            snapshot.MarketCutoff,snapshot.ValuationAt,snapshot.MarketCutoff);
+        var compiled=CompileValidated(snapshot,requests,false,context,inputs,cancellation);
+        var plan=Calculation.ConnectedCurves.Compile(compiled.Definitions,requests.Select(r=>compiled.Points[(r,InputUse.Variable)]).ToImmutableArray(),
+            context,new DefinitionBindings(this),cancellation);
+        return Materialize(snapshot,requests,compiled,Calculation.ConnectedScenario.Base(plan),receipt,null,null,cancellation);
+    }
+
+    private CurveBuild Materialize(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,Calculation.ConnectedCurveExport compiled,
+        Calculation.ConnectedScenario graph,Risk.QuoteScenario receipt,CurveBuild? parent,Risk.QuoteShock? shock,CancellationToken cancellation)
+    {
+        var previous=parent?.Evaluations.ToDictionary(e=>(e.Result.Request,e.Use));
+        var values=new Dictionary<(CurveRequest,InputUse),BuiltValue>();
+        var evaluations=ImmutableArray.CreateBuilder<CurveEvaluation>();
+        var aliases=compiled.Points.GroupBy(p=>graph.Plan.IndexOf(p.Value)).ToDictionary(g=>g.Key,g=>g.ToArray());
+        var reverse=compiled.Points.ToDictionary(p=>p.Value,p=>p.Key);
+        var reused=0;
+        foreach(var node in graph.Plan.DependencyPlan.TopologicalOrder)
         {
             cancellation.ThrowIfCancellationRequested();
-            if (memo.TryGetValue((request, use), out var cached)) return cached;
-            if (!curves.TryGetValue(request.Curve, out var curve) || !curveMembers[curve.Key].Contains(request.Contract))
-                throw new MarketDataException("request_member", "Requested curve constituent is absent.");
-            var contract = contracts[request.Contract];
-            if (use == InputUse.Variable && snapshot.ValuationAt >= contract.Expiry)
-                throw new MarketDataException("source_expired", "A live constituent expired; an explicit supported transition is required.");
-            var quote = Quote(curve);
-            BuiltValue value;
-            var dependencies = ImmutableArray.CreateBuilder<CurveEvaluationInput>();
-            NumericValue? appliedMultiplier = null;
-            ObservationKey? multiplierObservation = null;
-            if (curve.Rule == CurveRule.Direct)
+            foreach(var item in aliases[node])
             {
-                var key = new InputKey(priceSeries[(request.Contract, curve.Quote)], use);
-                if (!inputs.TryGetValue(key, out var selection))
-                    throw new MarketDataException("missing_observation", "Exact required variable/frozen input is absent.");
-                var obs = selection.Observation;
-                var expectedRole = use == InputUse.FrozenFact ? ObservationRole.FinalContractSettlement : curve.DirectRole;
-                if (obs.Source != curve.DirectSource || obs.Role != expectedRole || obs.State != PublicationState.Final)
-                    throw new MarketDataException("selection_mismatch", "Selected quote, source, role or finality is incompatible.");
-                if (use == InputUse.FrozenFact && (contract.Kind != ContractKind.Future || obs.ObservedAt < contract.Expiry))
-                    throw new MarketDataException("frozen_fact", "Final future settlement must be observed at or after its explicit expiry.");
-                var scenarioValue=obs.Value+(scenario?.Offset(key)??default);
-                value = new BuiltValue(request, quote, new UnitPrice(scenarioValue, quote), ImmutableHashSet.Create(obs.Key));
-            }
-            else
-            {
-                if (use != InputUse.Variable) throw new MarketDataException("unsupported_expiry", "Composite final settlements are not implemented.");
-                BuiltValue Read(InputSlot slot)
+                var (request,use)=item.Key;var point=graph.Plan.GetPoint(item.Value);
+                var price=graph.Price(item.Value,cancellation);
+                CurveEvaluation evaluation;
+                if(previous is not null&&previous.TryGetValue(item.Key,out var old)&&ReferenceEquals(price,parent!.Graph.Price(item.Value,cancellation)))
+                {evaluation=old;reused++;}
+                else
                 {
-                    var input = curve.Inputs.Single(x => x.Slot == slot);
-                    var sourceKey = mappingSources[(request.Curve, slot, request.Contract)];
-                    var source = contracts[sourceKey];
-                    var sourceUse = snapshot.ValuationAt < source.Expiry ? InputUse.Variable :
-                        input.ExpiryRule == SourceExpiryRule.FreezeFinalFuture ? InputUse.FrozenFact :
-                        throw new MarketDataException("source_expired", "Source expired and its policy requires a live value.");
-                    var sourceRequest = new CurveRequest(input.Source, sourceKey);
-                    dependencies.Add(new(slot, sourceRequest, sourceUse));
-                    return Evaluate(sourceRequest, sourceUse);
-                }
-                var baseValue = Read(InputSlot.Base); var spread = Read(InputSlot.Spread);
-                var price = baseValue.Price;
-                var lineage = baseValue.Lineage.Union(spread.Lineage);
-                if (curve.Rule == CurveRule.ScaleAdd)
-                {
-                    var binding = curve.Multiplier!;
-                    ExactDecimal factor;
-                    if (binding.Series is { } numericSeries)
+                    var dependencies=ImmutableArray<CurveEvaluationInput>.Empty;
+                    var lineage=ImmutableHashSet<ObservationKey>.Empty;
+                    NumericValue? multiplier=null;ObservationKey? multiplierObservation=null;
+                    if(point.Expression is Calculation.ConnectedSource source)lineage=lineage.Add(source.Observation.Key);
+                    else if(point.Expression is Calculation.ConnectedBuiltCurve built)
                     {
-                        if (!inputs.TryGetValue(new(numericSeries, InputUse.Variable), out var selected))
-                            throw new MarketDataException("missing_observation", "Explicit multiplier series observation is absent.");
-                        var observation = selected.Observation;
-                        if (observation.Source != binding.Source || observation.Role != binding.Role || observation.State != PublicationState.Final)
-                            throw new MarketDataException("selection_mismatch", "Multiplier source, role or finality does not match.");
-                        factor = observation.Value; lineage = lineage.Add(observation.Key); multiplierObservation = observation.Key;
+                        var b=reverse[new(((Calculation.ExactCurveReference)built.Base.Curve).Curve,built.Base.PointId)];
+                        var d=reverse[new(((Calculation.ExactCurveReference)built.Spread.Curve).Curve,built.Spread.PointId)];
+                        dependencies=[new(InputSlot.Base,b.Request,b.Use),new(InputSlot.Spread,d.Request,d.Use)];
+                        lineage=values[b].Lineage.Union(values[d].Lineage);multiplier=built.Multiplier;
+                        if(built.MultiplierInput is {} numeric){multiplierObservation=numeric.Observation.Key;lineage=lineage.Add(numeric.Observation.Key);}
                     }
-                    else factor = binding.Constant!.Value;
-                    appliedMultiplier = new NumericValue(factor, NumericSpecification(binding));
-                    price = price.Times(appliedMultiplier);
+                    var value=new BuiltValue(request,Quote(curves[request.Curve]),price.ToUnitPriceExact(),lineage);
+                    evaluation=new(value,use,dependencies,multiplier,multiplierObservation);
                 }
-                value = new BuiltValue(request, quote, price.Add(spread.Price), lineage);
+                values.Add(item.Key,evaluation.Result);evaluations.Add(evaluation);
             }
-            memo.Add((request, use), value);
-            evaluations.Add(new(value, use, dependencies.ToImmutable(), appliedMultiplier, multiplierObservation));
-            return value;
         }
+        return new(this,snapshot,NumericalPolicy,requests.Select(r=>values[(r,InputUse.Variable)]).ToImmutableArray(),
+            snapshot.Selections.ToImmutableDictionary(s=>s.Input),checked((int)(parent is not null&&ReferenceEquals(graph,parent.Graph)?0:graph.Work.EvaluatedNodes)),evaluations.ToImmutable(),
+            graph,compiled,requests,parent,reused,shock,receipt);
+    }
+
+    private sealed class DefinitionBindings(CurveModel model):Calculation.ICurveBindingResolver
+    {
+        public CurveKey Resolve(Calculation.LogicalCurveKey key,Calculation.ResolvedCalculationContext context)
+            =>throw new MarketDataException("curve_binding","A compiled market definition requires exact curve references.");
+        public void RequireVisible(CurveKey key,Calculation.ResolvedCalculationContext context)
+        {if(!model.curves.ContainsKey(key))throw new MarketDataException("definition_pin","The curve is outside the exact admitted model.");}
     }
 }

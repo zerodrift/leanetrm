@@ -50,7 +50,7 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             // exactly the same black-box adapter as the eventual report.
             var preflight=await new PortfolioValuation(database).Calculate(connection,data,snapshot,context,definition.BookIds,definition.ValuationPolicy,cancellation);
             var covered=factors.Select(f=>f.Input).ToHashSet();
-            if(preflight.Factors.Any(f=>!covered.Contains(f.Factor.Input)))throw Invalid("Selected root curves must cover every market factor used by every selected book.");
+            if(preflight.Factors.Any(f=>f.Axis.Quote is null||!covered.Contains(f.Axis.Quote.Input)))throw Invalid("Selected root curves must cover every market factor used by every selected book.");
             var moves=definition.LeafMoves.ToDictionary(m=>m.Curve,m=>m.MaxTicks,StringComparer.Ordinal);
             var usedLeaves=build.Evaluations.Where(e=>e.Inputs.IsEmpty).Select(e=>e.Result.Request.Curve.Code).ToHashSet(StringComparer.Ordinal);
             if(moves.Keys.Any(code=>!usedLeaves.Contains(code)))throw Invalid("Native tick policies must name only direct leaves of the selected roots.");

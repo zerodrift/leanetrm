@@ -132,15 +132,10 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var terms=Resolve(data,body,instrumentId,fixedId,floatingId);var snapshot=data.Snapshot(frame);
   var mapping=body.Discounting==true?await Discount(connection,data,frame,terms.Instrument.Currency,ct):null;
   var dependencies=terms.Instrument.DependenciesAt(snapshot);
-  if(terms.Instrument.Floating.CustomProjection is not null&&!dependencies.IsEmpty)
-  {
-   if(frame.ContextId is not {} contextId)throw Error("swap_context","Connected projections require a retained financial context.");
-   var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
-   var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[terms.Instrument],dependencies,ct);
-   return FinancialSwapValuation.Evaluate(terms.Instrument,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct);
-  }
-  var market=data.Model.Build(snapshot,dependencies);
-  return FinancialSwapValuation.Evaluate(terms.Instrument,market,body.Discounting!.Value,mapping);
+  if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the retained financial context.");
+  var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
+  var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[terms.Instrument],dependencies,ct);
+  return FinancialSwapValuation.Evaluate(terms.Instrument,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct);
  }
  private static FinancialSwapValue Scale(FinancialSwapEvaluation value,SwapWriteRequest terms)=>
   value.Scale(new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),value.Instrument.UnitQuantity.Specification));
@@ -176,6 +171,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   foreach(var market in markets)
   {
    data=market.Data;frame=market.Frame;
+   var customProjections=await CustomCurves.ProjectionChoices(connection,database,data,frame,ct);
    foreach(var curve in data.Definitions["curves"])
    {
    var target=One(data.References["settlement_targets"].Where(t=>t.Text("code")==curve.Text("settlement_target_code")));
@@ -190,7 +186,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    var currency=One(data.References["currencies"].Where(c=>c.Text("code")==quote.Currency.Code));
    var unit=One(data.References["units"].Where(u=>u.Text("code")==quantity.Text("unit_code")));
    var mapping=await Discount(connection,data,frame,quote.Currency,ct);
-   indices.Add(new{definitionRevisionId=data.DefinitionRevision.RevisionId,curve=curve.Text("code"),index=target.Text("index_a_code"),commodity=curve.Text("commodity_code"),currencyCode=quote.Currency.Code,currency=currency.Text("display_code"),
+   indices.Add(new{customProjections=contracts.Length==0?[]:customProjections.Where(p=>p.Unit==PriceUnit.FromQuote(quote)).Select(p=>new{p.Label,p.Reference,samplings=new[]{new{resetFrequency="monthly",averagingMethod="none"}}}).ToArray(),definitionRevisionId=data.DefinitionRevision.RevisionId,curve=curve.Text("code"),index=target.Text("index_a_code"),commodity=curve.Text("commodity_code"),currencyCode=quote.Currency.Code,currency=currency.Text("display_code"),
     fixingConvention=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?IndexFixing.SupportedImplementation:null,
     fixingUnavailableReason=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?null:"This index has no qualified fixing schedule for the selected observations.",
     quantityCode=quote.Quantity.Code,quantityChoices=DraftQuantities(data,quote.Quantity),unit=unit.Text("symbol"),quoteMultiplier=quote.Multiplier.ToString(),minimumPrice=quote.Minimum.ToString(),maximumPrice=quote.Maximum.ToString(),
@@ -371,7 +367,6 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  private async Task ValidateBookingPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {
-  if(body.Floating?.CustomProjection is null){await Price(connection,data,frame,body,null,null,null,ct);return;}
   // Current-knowledge booking explicitly resolves a certified pricing view.
   // Its temporary read binding must not turn the ensuing write into a historical write.
   var context=(await new KnowledgeStore(manifest.CatalogId).Capture(connection,
@@ -380,6 +375,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
   try
   {
    await PinnedContext.BindExact(connection,manifest.CatalogId,context,ct);
+   await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",manifest.CatalogId,frame.At))
+    await trading.ExecuteNonQueryAsync(ct);
    var pinned=frame with{ContextId=context.ContextId};
    var selected=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
    await Price(connection,selected,pinned,body,null,null,null,ct);

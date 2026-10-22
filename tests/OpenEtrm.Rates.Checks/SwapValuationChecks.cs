@@ -125,7 +125,7 @@ internal static class SwapValuationChecks
                 throw new Exception("Floating side lost its actual schedule or exact lookup evidence");
             if (value.Sides[0].Contribution.Value.Schedule.Implementation != FixedSide.Implementation ||
                 value.Sides[1].Contribution.Value.Schedule.Implementation != FloatingSide.Implementation ||
-                value.Sides[0].Contribution.Value.NumericalPolicy != SideValuation.Policy || value.NumericalPolicy != FinancialSwapValue.Policy)
+                value.Sides[0].Contribution.Value.NumericalPolicy != SideValuation.Policy || value.NumericalPolicy != FinancialSwapValue.ExactPolicy)
                 throw new Exception("Missing side model or numerical policy");
         });
         Check("each payment retains currency default curve definition and actual pillar inputs", () =>
