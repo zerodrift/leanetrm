@@ -22,6 +22,14 @@ Instrument PVs and side schedules use the same bound context and normal pricing
 operations. Numerical curve memoization does not cache permissions or reuse
 instrument PVs across frames.
 
+Custom effective-version selection (D189) resolves before ordinary graph pricing.
+An admitted instrument/job keeps its exact recipe version even when a later
+timeline activates a successor. Daily custom projections match unresolved resets
+to exact delivery intervals; original actuals and full averaging weights remain
+contractual. Shared ancestor demands coalesce before loading historical samples,
+then only consumed forecasts compile. Primitive and computed-output scenarios use
+the same remaining graph; an expired unused forecast cannot block an actual.
+
 ## Nested scenarios
 
 The composition convention is

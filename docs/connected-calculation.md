@@ -45,9 +45,11 @@ policies; see [custom recipes](custom-curves.md).
 | New snapshot or financial dates | Prepare a new graph with the selected observations and references |
 | Published recipe edit | Create a new version; existing exact booked references keep their version |
 
-Automatic persisted activation of logical curve versions and continuous live-feed
-updates are separate implementation work. The managed bitemporal resolver and
-its tests do not imply those operations exist in the application.
+Custom logical curve activation uses persisted complete effective timelines
+(D189); the workbench explicitly previews the effective exact version under its
+certified context. Exact published-source, booked and job references stay pinned.
+Native logical-curve activation and broader continuous-feed selection policies
+remain separate work.
 
 ## Calculation contract
 
@@ -63,8 +65,10 @@ and knowledge intervals. Missing or overlapping assertions, unavailable
 publication history and unsupported context modes fail. Every transitive
 reference resolves under the same context. A date change prepares a new graph;
 it cannot rewrite an existing session. The resolver consumes retained assertions
-supplied by a trusted caller; persistence and certification of those logical
-activation assertions remain work.
+supplied by a trusted caller. The custom-curve application consumer persists and
+certifies complete version/output timelines separately, resolving its choice to
+an exact published graph before evaluation. Native logical binding persistence
+remains work.
 
 Supported calculated relationships are explicit uniform means, weighted means,
 signed weighted baskets/spreads, rolling contract selections and resolved
@@ -147,8 +151,9 @@ Migration 0076 pins the published version/output descriptor to the floating side
 observations with exact foreign keys. Explicit booked version references remain
 fixed. Effective/knowledge context selects retained trade relationships and
 visible publications, while current authority gates every business read. The
-managed logical-binding resolver is not a database activation table or a latest
-version-by-name lookup.
+managed logical-binding resolver remains a separate contract. D189 adds persisted
+custom effective timelines for explicit effective previews, without changing
+booked exact pins or introducing version-by-name lookup.
 
 The portfolio API, trade editor and durable worker use this materialization.
 The HTTP/UI scenario catalog supplies exact quote/output coordinates and contract,
@@ -168,9 +173,11 @@ retained risk jobs, including completed ones. An operator must explicitly archiv
 and reset them before adopting this baseline; the migration deletes nothing. The portfolio risk
 routes are the sole portfolio-risk HTTP operations; no legacy futures-risk fallback remains.
 
-The persisted custom projection supports monthly sampling within one source
-catalog and revision. Database logical activation, daily custom mappings and
-cross-revision histories remain work.
+Persisted custom projections support monthly scalar outputs and daily exact
+delivery-interval mappings within one source catalog and revision. A daily panel
+must supply exactly one output per unresolved reset interval; output ordinals
+and sample dates do not define that mapping. Missing and duplicate matches fail.
+Resampling, inferred interpolation and cross-revision histories remain work.
 
 ## Adopting the schema cutover
 
@@ -239,10 +246,11 @@ process separate whole runs; this integration does not distribute one graph or
 reduce one run across machines.
 
 Run the registered managed checks through `tools/check_all.py`, or use the
-MarketData.Checks switches `--dependency-plan`, `--curve-engine-cutover`,
+MarketData.Checks switches `--curve-engine-cutover`,
 `--temporal-bindings`, `--connected-curves`, `--connected-scenarios`,
 `--exact-curve-prices`,
 `--connected-recipes`, `--custom-projection` and `--connected-portfolios`.
+Generic dependency-plan and frame-memo checks run in `OpenEtrm.Shared.Checks`.
 `tools/run_preview.py --connected-portfolio-check` exercises the saved projection,
 weighted multi-source recipes, published-source chains, booking, shared portfolio and durable worker path
 in a disposable database. Before applying 0080/0081, that gate also verifies

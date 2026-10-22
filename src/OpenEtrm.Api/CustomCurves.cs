@@ -20,6 +20,24 @@ public static partial class CustomCurves
     public static void MapCustomCurves(this RouteGroupBuilder api,PreviewDatabase database,CustomCurveOperation operation)
     {
         var store=new CustomCurvesStore(database);
+        var activations=new CurveActivations(database.Manifest.CatalogId);
+        api.MapGet("/custom-curves/activation",(HttpContext c,Guid curveId)=>operation(c,"ReadMarketData",null,async(connection,pin,ct)=>
+            Results.Ok(new{plan=await activations.Read(connection,curveId,ct)})));
+        api.MapPost("/custom-curves/activation",(HttpContext c,CurveActivationRequest body)=>operation(c,"SealMarketDefinitions",null,async(connection,pin,ct)=>
+            Results.Ok(await activations.Publish(connection,body,ct))));
+        api.MapPost("/custom-curves/effective-preview",(HttpContext c,EffectiveCurveRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
+        {
+            pin=await PreviewPin(connection,database,pin,ct);
+            var frame=pin.RequireFrame();var context=pin.Context!;
+            var plan=await activations.Read(connection,body.CurveId,ct);
+            var segment=CurveActivations.Resolve(plan,DateWorkspace.Date(context.EffectiveOn),body.Policy);
+            var saved=(await store.Read(connection,ct)).SingleOrDefault(v=>v.Id==body.CurveId&&v.Version==segment.Version&&v.Definition.Output==segment.OutputNode)
+                ??throw Invalid("The activated exact published output is unavailable in this context.");
+            var data=await database.Read(connection,ct,includeCalendarDays:false);
+            await store.RequirePublishedSource(connection,new(data.DefinitionRevision.CatalogId,saved.Id,saved.Version,saved.Definition.Output),data.DefinitionRevision.RevisionId,ct);
+            var calculated=await EvaluateDefinition(connection,database,saved.Definition,data,frame,saved.Sources,saved.Calendars,saved.Schedules,context,ct);
+            return Results.Ok(new{activation=plan,interval=segment,recipe=saved,preview=Result(calculated,data,pin,saved.Definition,saved.Id,saved.Version)});
+        }));
         api.MapGet("/custom-curves",(Func<HttpContext,Task<IResult>>)((HttpContext c)=>operation(c,"ReadMarketData",null,async(connection,pin,ct)=>
         {
             var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
@@ -67,14 +85,8 @@ public static partial class CustomCurves
             Results.Ok(await store.Publish(connection,body,ct))));
         api.MapPost("/custom-curves/preview",(HttpContext c,CustomCurvePreviewRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
+            pin=await PreviewPin(connection,database,pin,ct);
             var frame=pin.RequireFrame();
-            if(pin.Context is null)
-            {
-                var captured=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new(frame.At.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
-                frame=frame with{ContextId=captured.ContextId};pin=PinnedContext.Retained(captured,frame);
-                await pin.Bind(connection,database.Manifest.CatalogId,ct);
-            }
-            if(pin.Context is {} context&&DateOnly.FromDateTime(frame.At.UtcDateTime)!=DateWorkspace.Date(context.EffectiveOn))throw Invalid("Choose a snapshot on the selected effective date.");
             var data=await database.Read(connection,ct,includeCalendarDays:false);
             Validate(body.Definition);
             var references=await store.References(connection,body.Definition,data,ct);
@@ -89,6 +101,18 @@ public static partial class CustomCurves
                 pin.Context??throw Invalid("Recipe pricing requires its resolved financial context."),ct);
             return Results.Ok(Result(result,data,pin,body.Definition,body.Id,body.Version));
         }));
+    }
+    static async Task<PinnedContext> PreviewPin(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CancellationToken ct)
+    {
+        var frame=pin.RequireFrame();
+        if(pin.Context is null)
+        {
+            var captured=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new(frame.At.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+            pin=PinnedContext.Retained(captured,frame with{ContextId=captured.ContextId});
+            await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        }
+        if(DateOnly.FromDateTime(frame.At.UtcDateTime)!=DateWorkspace.Date(pin.Context!.EffectiveOn))throw Invalid("Choose a snapshot on the selected effective date.");
+        return pin;
     }
     static bool Equivalent(RecipeDefinition left,RecipeDefinition right)
     {
@@ -176,6 +200,10 @@ public static partial class CustomCurves
         var resolved=CalculationContext(frame,data.DefinitionRevision,exact);
         var preparation=new RecipePreparation(connection,database,data,frame,exact,resolved,await new CustomCurvesStore(database).Read(connection,ct));
         var graph=await preparation.Definition(definition,identity,sources,calendars,schedules,ct);
+        return EvaluateGraph(graph,resolved,database,ct);
+    }
+    static RecipeResult EvaluateGraph(ConnectedRecipeGraph graph,ResolvedCalculationContext resolved,PreviewDatabase database,CancellationToken ct)
+    {
         var plan=ConnectedCurves.Compile(graph.Definitions,graph.Outputs.Select(o=>o.Point).ToImmutableArray(),resolved,
             new PreparedBindings(graph.Definitions.Select(d=>d.Key).ToHashSet(),resolved),ct);
         return graph.Result(ConnectedScenario.Base(plan,database.Calculations,ct),ct);
@@ -186,12 +214,15 @@ public static partial class CustomCurves
         var manifest=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{revision,frame.Id,frame.At,context,frame.ObservationIds,FrozenObservationIds=frame.FrozenObservationIds.IsDefault?ImmutableArray<Guid>.Empty:frame.FrozenObservationIds,policy=ConnectedCurves.NumericalPolicy,engine=RecipeEngine.Version},RiskJobs.Json)));
         return new(context.ContextId!.Value,manifest,frame.At,SchedulePreview.ParseAt(context.KnownAt),frame.At,frame.At);
     }
-    private sealed record RecipeMaterialization(RecipeInputs Values,ImmutableArray<ConnectedRecipeSample> Samples,ConnectedRecipeReferencePins References);
+    private sealed record RecipeMaterialization(RecipeInputs Values,ImmutableArray<ConnectedRecipeSample> Samples,ConnectedRecipeReferencePins References,
+        RecipeOutputDemand? Demand);
     static async Task<RecipeMaterialization> Inputs(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
         PreviewData data,InputFrame frame,ImmutableDictionary<string,CurveSourceReference> sourceReferences,
         ImmutableDictionary<string,CalendarReference> calendarReferences,ImmutableDictionary<string,CurveScheduleReference> scheduleReferences,
-        ScheduleContext? context,CancellationToken ct)
+        ScheduleContext? context,CancellationToken ct,ImmutableHashSet<RecipeDelivery>? deliveries=null)
     {
+        if(sourceReferences.Values.Any(source=>source.CatalogId!=data.DefinitionRevision.CatalogId||source.RevisionId!=data.DefinitionRevision.RevisionId))
+            throw Invalid("Every native source must use the selected exact market revision.");
         var day=DateOnly.FromDateTime(frame.At.UtcDateTime);
         var dates=ImmutableDictionary.CreateBuilder<string,ImmutableArray<DateOnly>>();
         var calendarPins=ImmutableArray.CreateBuilder<ConnectedRecipeCalendarPin>();
@@ -293,7 +324,8 @@ public static partial class CustomCurves
                     var count=mode=="positions"?int.Parse(selector.Parameters["count"],CultureInfo.InvariantCulture):1;
                     var selected=weighted?selector.ContractWeights.Where(w=>selector.Inputs[w.SourcePort]==sourceNode.Id).Select(w=>
                         contracts.SingleOrDefault(k=>k.Contract.Key.Id==w.ContractId)??throw Invalid("A weighted contract must be a member of its exact source curve.")).Distinct().ToImmutableArray():
-                        RecipeEngine.ResolveContracts(contracts,mode,first,count,resolutionAt,sampleDate);
+                        RecipeEngine.ResolveContracts(contracts,mode,first,count,resolutionAt,sampleDate,requireLive:deliveries is null);
+                    if(deliveries is not null)selected=selected.Where(k=>deliveries.Contains(new(k.Contract.DeliveryFrom,k.Contract.DeliveryTo))).ToImmutableArray();
                     if(selected.Any(k=>k.EligibleFrom>resolutionAt||k.Contract.Expiry<=resolutionAt))throw Invalid("Every mapped contract must be live at its exact sampling instant.");
                     if(!required.TryGetValue(observationDate,out var selectedContracts))required.Add(observationDate,selectedContracts=[]);
                     selectedContracts.UnionWith(selected.Select(c=>c.Contract.Key));
@@ -312,7 +344,8 @@ public static partial class CustomCurves
             }
             sources.Add(sourceNode.Id,new(new(data.DefinitionRevision,reference.Code),PriceUnit.FromQuote(quote),contracts));
         }
-        return new(new(day,frame.At,sources.ToImmutable(),dates.ToImmutable()),connected.ToImmutable(),new(calendarPins.ToImmutable(),schedulePins.ToImmutable()));
+        return new(new(day,frame.At,sources.ToImmutable(),dates.ToImmutable()),connected.ToImmutable(),new(calendarPins.ToImmutable(),schedulePins.ToImmutable()),
+            deliveries is null?null:new(deliveries,frames.ToImmutableDictionary(f=>f.Key,f=>f.Value.At)));
     }
     private sealed record SourceLeaf(SeriesKey Series,ReferenceKey Source,ObservationRole Role,InputUse Use,DateTimeOffset? FinalFrom);
     // Select the exact leaves of requested members, rather than every maturity

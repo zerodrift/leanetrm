@@ -21,7 +21,8 @@ without a seven-figure implementation.
   contract's price. The custom-curve workbench supports visual/formula recipes and
   explicit weighted contract baskets and reusable published curve outputs that
   keep their upstream graph links; the swap editor selects compatible published
-  outputs for monthly projections
+  outputs for monthly or exact daily projections. Effective-version timelines
+  resolve under the selected business date and knowledge cutoff
 - **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
   and remaining projections. Connected quote and computed-output scenarios produce
   exact delta and gamma; generated-close jobs retain mixed futures-and-swaps reports

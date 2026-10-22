@@ -15,7 +15,8 @@ public sealed record SwapPaymentInput(string? Frequency,string? Rule,int? Days,i
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapFixedInput(string? Price,string? Currency,string? DeliveryFrom,string? DeliveryTo,string? PaymentAt=null,SwapPaymentInput? PaymentSchedule=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record CustomCurveProjectionInput(Guid CatalogId,Guid CurveId,int Version,string OutputNode,int Position,string Selection,string Implementation);
+public sealed record CustomCurveProjectionInput(Guid CatalogId,Guid CurveId,int Version,string OutputNode,
+ [property:System.Text.Json.Serialization.JsonRequired]int? Position,string Selection,string Implementation);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapFloatingInput(string? Curve,string? Index,string? Currency,string? DeliveryFrom,string? DeliveryTo,string? FirstFixingAt=null,string? PaymentAt=null,string? Averaging=null,SwapPaymentInput? PaymentSchedule=null,string? ResetFrequency=null,string? AveragingMethod=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]CustomCurveProjectionInput? CustomProjection=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
@@ -186,7 +187,11 @@ public sealed partial class SwapStore(PreviewDatabase database)
    var currency=One(data.References["currencies"].Where(c=>c.Text("code")==quote.Currency.Code));
    var unit=One(data.References["units"].Where(u=>u.Text("code")==quantity.Text("unit_code")));
    var mapping=await Discount(connection,data,frame,quote.Currency,ct);
-   indices.Add(new{customProjections=contracts.Length==0?[]:customProjections.Where(p=>p.Unit==PriceUnit.FromQuote(quote)).Select(p=>new{p.Label,p.Reference,samplings=new[]{new{resetFrequency="monthly",averagingMethod="none"}}}).ToArray(),definitionRevisionId=data.DefinitionRevision.RevisionId,curve=curve.Text("code"),index=target.Text("index_a_code"),commodity=curve.Text("commodity_code"),currencyCode=quote.Currency.Code,currency=currency.Text("display_code"),
+   indices.Add(new{customProjections=customProjections.Where(p=>p.Unit==PriceUnit.FromQuote(quote)&&
+    (p.Reference.Selection==CustomCurveProjectionBinding.SupportedSelection?contracts.Length>0:
+     daily.Any(g=>g.All(c=>p.Deliveries.Contains(new(c.DeliveryFrom,c.DeliveryTo))))))
+    .Select(p=>new{p.Label,p.Reference,samplings=p.Reference.Selection==CustomCurveProjectionBinding.SupportedSelection?
+     new[]{new{resetFrequency="monthly",averagingMethod="none"}}:new[]{new{resetFrequency="daily",averagingMethod="arithmetic"}}}).ToArray(),definitionRevisionId=data.DefinitionRevision.RevisionId,curve=curve.Text("code"),index=target.Text("index_a_code"),commodity=curve.Text("commodity_code"),currencyCode=quote.Currency.Code,currency=currency.Text("display_code"),
     fixingConvention=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?IndexFixing.SupportedImplementation:null,
     fixingUnavailableReason=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?null:"This index has no qualified fixing schedule for the selected observations.",
     quantityCode=quote.Quantity.Code,quantityChoices=DraftQuantities(data,quote.Quantity),unit=unit.Text("symbol"),quoteMultiplier=quote.Multiplier.ToString(),minimumPrice=quote.Minimum.ToString(),maximumPrice=quote.Maximum.ToString(),

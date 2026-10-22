@@ -104,10 +104,11 @@ public static partial class RecipeEngine
     private static bool Identity(string? value)=>value is {Length:>0 and <=32}&&value[0] is >= 'a' and <= 'z'&&value.All(c=>c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_');
     internal sealed record SampleKey(CurveKey Source,DateOnly Date,ContractKey Contract);
     internal sealed record CellFormula(string Node,int Index,SampleKey? Sample,ImmutableArray<CellFormula> Inputs,ImmutableArray<ExactDecimal> Weights,string Aggregation,CurvePointKey? PublishedPoint=null);
-    internal sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,PriceUnit Unit,ImmutableArray<SampleKey> Inputs,CellFormula Formula);
+    internal sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,PriceUnit Unit,ImmutableArray<SampleKey> Inputs,CellFormula Formula,
+        DateOnly DeliveryFrom,DateOnly DeliveryTo);
     internal sealed record Panel(ImmutableArray<Cell> Cells);
     private static Panel Prepare(RecipeDefinition definition,RecipeInputs inputs,ImmutableArray<ConnectedRecipeSample> samples,CancellationToken cancellation,
-        IReadOnlyDictionary<string,ConnectedRecipeGraph> publishedSources)
+        IReadOnlyDictionary<string,ConnectedRecipeGraph> publishedSources,RecipeOutputDemand? demand)
     {
         cancellation.ThrowIfCancellationRequested();Validate(definition);
         if(inputs.ValuationAt.Offset!=TimeSpan.Zero||inputs.ContextDate!=DateOnly.FromDateTime(inputs.ValuationAt.UtcDateTime)||
@@ -121,12 +122,14 @@ public static partial class RecipeEngine
         {
             cancellation.ThrowIfCancellationRequested();if(++work>50000)throw Missing("The recipe exceeds its 50,000-sample preparation limit.");
             var source=inputs.Sources[sourceNode];var key=new SampleKey(source.Key,date,contract.Contract.Key);
-            if(!available.TryGetValue(key,out var sample)||sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at)
+            if(demand is null&&(!available.TryGetValue(key,out var sample)||sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at))
                 throw Missing("A required exact live contract sample is absent or ineligible at its sampling instant.");
-            return new(position,[displayDate],date,source.Unit,[key],new(node,index,key,[],[],SignedSum));
+            return new(position,[displayDate],date,source.Unit,[key],new(node,index,key,[],[],SignedSum),contract.Contract.DeliveryFrom,contract.Contract.DeliveryTo);
         }
         DateTimeOffset At(CurveKey source,DateOnly date)
         {
+            if(demand is not null)return demand.SamplingInstants.TryGetValue(date,out var instant)?instant:
+                throw Missing("Supply every explicit sampling instant for an output-demand preparation.");
             var times=samples.Where(s=>s.Source==source&&s.Date==date).Select(s=>s.Snapshot.ValuationAt).Distinct().ToArray();
             if(times.Length!=1)throw Missing($"A unique sampling instant is required for {date:yyyy-MM-dd}.");return times[0];
         }
@@ -139,7 +142,7 @@ public static partial class RecipeEngine
                 case "published_source":
                     var published=publishedSources[id];
                     result=new Panel(published.PreparedPanel.Cells.Select((cell,i)=>cell with{
-                        Formula=new(id,i,null,[],[],SignedSum,published.Outputs[i].Point)}).ToImmutableArray());break;
+                        Formula=new(id,i,null,[],[],SignedSum,published.OutputPoint(i))}).ToImmutableArray());break;
                 case "select":case "weighted_contracts":result=node;break;
                 case "dates":
                     var dates=inputs.Dates[id];if(dates.IsDefaultOrEmpty||dates.Length>366||dates.Distinct().Count()!=dates.Length||!dates.SequenceEqual(dates.Order()))throw Missing("A date binding requires one to 366 distinct ascending dates.");result=dates;break;
@@ -159,7 +162,8 @@ public static partial class RecipeEngine
                                 }).ToArray();
                                 if(parts.Select(p=>p.Cell.Unit).Distinct().Count()!=1)throw Missing("Weighted sources must retain identical exact price units.");
                                 cells.Add(new(group.Key,[date],date,parts[0].Cell.Unit,parts.SelectMany(p=>p.Cell.Inputs).ToImmutableArray(),
-                                    new(id,cells.Count,null,parts.Select(p=>p.Cell.Formula).ToImmutableArray(),parts.Select(p=>p.Weight).ToImmutableArray(),selector.Parameters["aggregation"])));
+                                    new(id,cells.Count,null,parts.Select(p=>p.Cell.Formula).ToImmutableArray(),parts.Select(p=>p.Weight).ToImmutableArray(),selector.Parameters["aggregation"]),
+                                    parts.Min(p=>p.Cell.DeliveryFrom),parts.Max(p=>p.Cell.DeliveryTo)));
                             }
                         }
                         else
@@ -170,7 +174,7 @@ public static partial class RecipeEngine
                                 throw Missing("Daily delivery prices require the exact valuation snapshot instant.");
                             var at=mode=="daily_delivery"||selector.Parameters["binding"]=="context"?inputs.ValuationAt:sampleAt;
                             var first=mode=="positions"?Number(selector,"first",1,120):1;var count=mode=="positions"?Number(selector,"count",1,120):1;
-                            var selected=ResolveContracts(source.Contracts,mode,first,count,at,date);
+                            var selected=ResolveContracts(source.Contracts,mode,first,count,at,date,requireLive:demand is null);
                             for(var i=0;i<selected.Length;i++)cells.Add(Leaf(id,cells.Count,sourceNode,sampleDate,selected[i],mode=="daily_delivery"?cells.Count+1:first+i,date,sampleAt));
                         }
                     }
@@ -182,7 +186,8 @@ public static partial class RecipeEngine
                     {
                         var values=group.ToArray();if(values.Select(c=>c.Unit).Distinct().Count()!=1)throw Missing("An average requires identical exact price units.");
                         return new Cell(axis=="dates"?values[0].Position:1,values.SelectMany(c=>c.Dates).Distinct().Order().ToImmutableArray(),values[0].ObservationDate,
-                            values[0].Unit,values.SelectMany(c=>c.Inputs).ToImmutableArray(),new(id,index,null,values.Select(c=>c.Formula).ToImmutableArray(),Enumerable.Repeat(ExactDecimal.Parse("1"),values.Length).ToImmutableArray(),WeightedMean));
+                            values[0].Unit,values.SelectMany(c=>c.Inputs).ToImmutableArray(),new(id,index,null,values.Select(c=>c.Formula).ToImmutableArray(),Enumerable.Repeat(ExactDecimal.Parse("1"),values.Length).ToImmutableArray(),WeightedMean),
+                            values.Min(c=>c.DeliveryFrom),values.Max(c=>c.DeliveryTo));
                     }).ToImmutableArray());break;
                 case "output":result=Node(node.Inputs["values"]);break;
                 default:throw Invalid("Unsupported node.");
@@ -191,7 +196,7 @@ public static partial class RecipeEngine
         }
         return(Panel)Node(definition.Output);
     }
-    public static ImmutableArray<RecipeContract> ResolveContracts(ImmutableArray<RecipeContract> contracts,string mode,int first,int count,DateTimeOffset at,DateOnly date)
+    public static ImmutableArray<RecipeContract> ResolveContracts(ImmutableArray<RecipeContract> contracts,string mode,int first,int count,DateTimeOffset at,DateOnly date,bool requireLive=true)
     {
         if(at.Offset!=TimeSpan.Zero||contracts.IsDefaultOrEmpty)throw Missing("Contract resolution requires a retained universe and UTC instant.");
         RecipeContract[] selected;
@@ -207,7 +212,7 @@ public static partial class RecipeEngine
             selected=prefix.Skip(first-1).ToArray();if(selected.Length!=count)throw Missing("The source does not cover every requested contract position.");
         }
         else throw Invalid("Choose a supported contract selection and bounded positions.");
-        if(selected.Any(c=>c.EligibleFrom>at||c.Contract.Expiry<=at))throw Missing("The selected contract is not live and eligible at the resolution instant.");return selected.ToImmutableArray();
+        if(requireLive&&selected.Any(c=>c.EligibleFrom>at||c.Contract.Expiry<=at))throw Missing("The selected contract is not live and eligible at the resolution instant.");return selected.ToImmutableArray();
     }
     private static void ValidateSource(RecipeNode node,RecipeSource source)
     {

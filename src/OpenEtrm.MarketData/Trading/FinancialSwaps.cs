@@ -71,16 +71,17 @@ public sealed record FixedSide : Side
 }
 
 public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, int Version,
-    string OutputNode, int Position, string Selection, string Implementation)
+    string OutputNode, int? Position, string Selection, string Implementation)
 {
     public const string SupportedSelection = "single_output_position_v1";
+    public const string DeliverySelection = "exact_delivery_interval_v1";
     public const string SupportedImplementation = "published_custom_curve_projection_v1";
     internal void Validate()
     {
         if (CatalogId == Guid.Empty || CurveId == Guid.Empty || Version is < 1 or > 64 || Position < 0 ||
             string.IsNullOrEmpty(OutputNode) || OutputNode.Length > 32 || OutputNode[0] is < 'a' or > 'z' ||
             OutputNode.Any(c => !(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_')) ||
-            Selection != SupportedSelection || Implementation != SupportedImplementation)
+            (Selection switch{SupportedSelection=>Position is null or <0,DeliverySelection=>Position is not null,_=>true}) || Implementation != SupportedImplementation)
             throw new MarketDataException("custom_projection", "Supply an exact published curve version, output coordinate and supported projection policies.");
     }
     // An in-memory input alias, never a database name lookup. The contractual
@@ -90,7 +91,7 @@ public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, 
         Validate();
         if (original.Curve.Revision.CatalogId != CatalogId || original.Contract.Revision != original.Curve.Revision)
             throw new MarketDataException("custom_projection", "This projection contract requires the same exact market catalog and contract revision.");
-        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new object[]
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new object?[]
             { "custom_projection_request_v1", CatalogId, CurveId, Version, OutputNode, Position, Selection, Implementation, original.Curve.Code });
         return new(new(original.Curve.Revision, "custom_" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))), original.Contract);
     }
@@ -119,9 +120,11 @@ public sealed record FloatingSide : Side
     public CustomCurveProjectionBinding? CustomProjection { get; private init; }
     public FloatingSide WithCustomProjection(CustomCurveProjectionBinding binding)
     {
-        if (binding is null || Fixings.IsDefaultOrEmpty || Averaging != FloatingAveraging.MonthlyIndexPrice || Projections.Length != 1)
-            throw new MarketDataException("custom_projection", "A custom projection currently requires one monthly indexed reset with explicit actual fixing rules.");
-        _ = binding.Request(Projections[0].Market);
+        if (binding is null || Fixings.IsDefaultOrEmpty || (Averaging switch
+            {FloatingAveraging.MonthlyIndexPrice=>Projections.Length!=1||binding.Selection!=CustomCurveProjectionBinding.SupportedSelection,
+             FloatingAveraging.CalendarDayArithmetic=>binding.Selection!=CustomCurveProjectionBinding.DeliverySelection,_=>true}))
+            throw new MarketDataException("custom_projection", "Select one exact output for a monthly reset, or exact delivery-interval mapping for daily indexed resets with explicit fixing rules.");
+        foreach(var projection in Projections)_ = binding.Request(projection.Market);
         return this with { CustomProjection = binding };
     }
     [IdentityField]

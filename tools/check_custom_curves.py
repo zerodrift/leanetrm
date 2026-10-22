@@ -143,7 +143,7 @@ def run_checks(url, query=None, manifest=None):
             SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token('viewer')}');
             DO $$BEGIN IF EXISTS(SELECT 1 FROM market_data.custom_curve_versions WHERE catalog_id='{cat}') THEN
               RAISE EXCEPTION 'Saved graph leaked after current source scope revocation';END IF;END$$;ROLLBACK;""")
-        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='11'
+        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='14'
     # A later correction can restate a working historical window, but never a retained earlier knowledge view.
     client.call('profile',{'profile':'editor'})
     observed=next(row for row in average['inputs'] if row['date']=='2020-12-01' and row['contract']['id']=='e0000000-0000-0000-0000-000000000102')

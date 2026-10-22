@@ -19,7 +19,7 @@ flowchart LR
 Sources may already have the supported multi-level basis dependencies. The
 recipe retrieves only its selected contracts and declares their live primitive
 factors. It does not infer dependencies from quoted price levels. Published
-outputs supply explicitly pinned projections to existing monthly indexed swaps
+outputs supply explicitly pinned projections to existing monthly and daily indexed swaps
 through the trade editor, API and shared portfolio/risk path (D183, D186). Ordinary
 curves, basis relationships and custom recipes use the same connected evaluator.
 The implementation does not add theoretical options or historical VaR/covariance.
@@ -143,17 +143,26 @@ date and knowledge-cutoff controls.
 
 `SwapFloatingInput.CustomProjection` is optional and has no inferred value. It
 names `catalogId`, `curveId`, `version`, `outputNode`, `position`,
-`selection=single_output_position_v1` and
-`implementation=published_custom_curve_projection_v1`. The output position must
-resolve exactly once and have the contractual index's exact quote unit. The
-baseline supports one monthly indexed projection and managed recipe operators
-within the same source catalog and exact market revision. Daily mapping and
-cross-revision histories reject.
+`implementation=published_custom_curve_projection_v1`. Monthly reset selection
+uses `selection=single_output_position_v1` with an explicit nonnegative position.
+Daily reset selection uses `selection=exact_delivery_interval_v1` with an explicit
+null position. It maps each unresolved reset to exactly one computed output with
+the same half-open delivery interval, independently of output order or sample
+date. Missing or ambiguous matches reject. Both modes require the contractual
+index's exact quote unit and the same source catalog and market revision;
+cross-revision histories and inferred interpolation remain unsupported.
+The position field is required in both modes; omission does not mean null.
 
 The published recipe supplies only the unresolved projected price. The existing
 index/fixing qualification, frozen actuals, independent payments, direction and
 external quantity rules still govern the swap. Exact rational projected prices
 reach scheduled cash and PV without an intermediate decimal rounding step.
+Daily consumers select graph roots by delivery interval before loading forecasts.
+The full symbolic recipe retains its delivery metadata and original output
+indices; only demanded eligible samples compile. Demands for shared exact
+ancestors coalesce before historical loading, so overlapping consumers share one
+sample identity. Already-fixed resets keep their actuals and the period's full
+averaging denominator, without preparing their expired forecasts.
 Legacy floating-side identities retain their prior canonical encoding; the
 custom-bound variant names its complete descriptor in version 5.
 
@@ -172,6 +181,39 @@ output and sample-observation relationships under its certified context; a worke
 reconstructs those pins and verifies the admitted manifest. Changing the working
 UI context cannot change a queued calculation. Current authorization still
 controls reading, execution and publication.
+
+Overlapping versions may require different exact historical sample frames.
+Retention preserves the existing source/date/contract evidence and adds a
+representative only for an otherwise missing frame, carrying all its exact
+selections. It does not merge observation sets or change snapshot/graph identities;
+previously covered receipts retain their original form.
+
+## Effective version timelines
+
+**Effective versions** loads the selected logical curve's retained activation
+timeline. An authorized publisher supplies up to 64 disjoint half-open effective
+date intervals, each naming an exact published version/output, and a reason.
+**Publish complete timeline** uses `complete_effective_timeline_v1`, an expected
+revision and a stable request ID. Each revision replaces the complete timeline
+for later committed knowledge. Omitted dates are inactive; an empty timeline
+deactivates all dates. Saved versions remain independently available.
+Every request and interval field is required, including the explicit zero
+expected revision for a first publication; omitted dates never become minimum dates.
+
+**Preview effective version** first selects the latest plan committed by the
+header's certified knowledge cutoff, then the interval covering its effective
+date. Missing coverage or unavailable targets fail without falling back to an
+older plan. The existing evaluator checks exact source revisions and all normal
+pricing inputs. This operation selects a definition; activation alone does not
+certify that every date in its interval has price coverage.
+
+The response retains the plan revision, certified publication time, selected
+interval and exact recipe. Ordinary **Preview** explicitly returns to the exact
+version. Entering Live with an effective preview follows activation corrections;
+entering with an exact preview preserves its selected version. Booked trades and
+queued jobs always keep their exact admitted references. Timeline edits clear
+calculated output and must be published or reloaded before effective preview.
+Uncertain writes retain their original request for reconciliation.
 
 Interactive preparation reads visible observation history for the selected source
 revision before sampling. Source topology is compiled without pricing it; shared

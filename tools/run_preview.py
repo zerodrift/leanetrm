@@ -224,7 +224,7 @@ def main():
             reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
         if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.with_custom_curves or args.market_dates_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
-            reference,market,manifest=prepare_custom_curves(reference,market,manifest)
+            reference,market,manifest=prepare_custom_curves(reference,market,manifest,daily_lifecycle=args.connected_portfolio_check)
         if args.hosted_check:
             from provision_hosted import prepare as prepare_hosted
             prepared=temporary/'fresh-pilot-check'
@@ -253,6 +253,12 @@ def main():
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
             swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames);query(swap_market)
+            if args.connected_portfolio_check:
+                # The primary daily-consumer fixture also visits January. Its
+                # unrelated secondary bundle explicitly supplies no inputs there.
+                times={f['at'] for f in swap_manifest['frames']}
+                swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'curveContracts':{}}
+                    for f in manifest['frames'] if f['at'] not in times)
             manifest['swapMarkets']=[swap_manifest]
         query(security)
         if args.hosted_check:
@@ -385,6 +391,10 @@ def main():
                 check_connected_portfolio(url,manifest,query,run_worker)
                 from check_published_curve_sources import run_checks as check_published_curve_sources
                 check_published_curve_sources(url,manifest,query,run_worker)
+                from check_curve_activation import run_checks as check_curve_activation
+                check_curve_activation(url,manifest,query)
+                from check_daily_custom_projection import run_checks as check_daily_custom_projection
+                check_daily_custom_projection(url,manifest,query,run_worker)
             elif args.risk_jobs_check:
                 from preview_client import PreviewClient
                 from check_risk_preview import run_checks as check_risk

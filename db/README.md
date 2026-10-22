@@ -1047,3 +1047,22 @@ publication/authority head for Live correction contexts (D188). Existing
 publication streams remain the durable record. Context certification does not
 notify itself; market-only readers cannot observe private trading heads. This is
 a schema release requiring the normal separately qualified deployment baseline.
+
+Migration [0084_custom_curve_activation.sql](migrations/0084_custom_curve_activation.sql)
+adds complete custom effective timelines (D189). Normalized immutable segment FKs
+name exact published outputs. New committed knowledge replaces the whole timeline;
+disjoint half-open intervals select its effective version, gaps are inactive and
+an empty plan deactivates every date. Certification uses the existing publication
+gate, checked commit timestamps and knowledge clock. Current Read/Seal authority
+is checked after response assembly, including retries. Runtime callers use the
+authorized functions; activation tables are private. Existing Live heads include
+these publications; retained financial artifacts do not resolve activation again.
+
+Migration [0085_daily_custom_projections.sql](migrations/0085_daily_custom_projections.sql)
+adds explicit daily delivery mapping with null position. Monthly scalar bindings
+retain their nonnegative positions, exact identities and policy. Null-safe reuse
+and `UNIQUE NULLS NOT DISTINCT` protect normalized bindings and retained job
+coordinates. Existing trades, jobs, publication receipts and source relationships
+are preserved; neither migration requires record deletion or rebooking. These are
+schema releases requiring a separately qualified deployment baseline. A local
+synthetic test run does not qualify installation into an existing deployment.

@@ -75,8 +75,44 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin \
   --dotnet /path/to/dotnet --check --connected-portfolio-check
 ```
 
+The D189 additions run in that same gate. `tools/check_curve_activation.py`
+checks certified effective/knowledge selection, inactive gaps, unchanged exact
+pins, replay/conflict behavior, concurrent expected revisions and half-open date
+boundaries. Rollback-only SQL probes verify bound-catalog isolation and current
+authority after receipt/head assembly, including permission expiry during normal
+publication and exact retry. A separately sealed synthetic revision reuses a
+native curve code with different prices to prove exact source-revision isolation.
+Managed API input checks (`--curve-activation-inputs`, also registered with
+`--schedules`) preserve explicit zero revisions, minimum dates and null daily
+coordinates while rejecting omitted fields. The owned HTTP checks verify the
+same refusals before any activation or booking is written.
+
+`tools/check_daily_custom_projection.py` checks every reset's delivery and exact
+price against a deliberately reversed output layout, complete weighted PV and
+31 primitive sensitivities. It covers missing/duplicate delivery refusals,
+binding reuse through booking/amendment, nested primitive/output stresses and
+worker parity after successor activation. A partially fixed January period keeps
+three actuals, 28 remaining forecasts, the original denominator and exact worker
+results. A separate book consumes one historical ancestor as a full scalar panel
+and through a daily child subset, exercising coalesced overlapping demands.
+It also consumes a second version with a smaller historical set in the same
+book, verifying independent sample-frame admission and worker reconstruction.
+Managed API `--connected-samples` checks preserve already-covered receipt rows
+while retaining otherwise missing frames; these also run with `--schedules`.
+The curve browser gate adds eleven activation checks: publication after Live starts,
+both exact-version controls, explicit versus effective intent, inactive/stale
+display, pending-request recovery, draft preservation, account reset and access.
+
+The D189 full synthetic runner passed locally on 2026-10-22 in the environment
+listed above, including 63 curve browser checks. Final managed API and connected
+integration reruns passed after required-input and independent historical-frame
+retention corrections. The frontend checks and read-only Compose/Swarm render
+checks passed. Independent numerical, temporal/authorization and UI reviews found
+no remaining blocker. These results do not qualify financial throughput, an
+existing hosted schema upgrade or a deployed cluster.
+
 Its named consumers publish synthetic recipes, explicitly bind outputs to monthly
-indexed swaps, and compare scheduled PV, portfolio risk and retained worker results.
+or daily indexed swaps, and compare scheduled PV, portfolio risk and retained worker results.
 `tools/check_weighted_portfolio.py` adds multiple source ports with signed and
 normalized weights, exact member relationships, picker eligibility and nested
 computed-output risk with an independent numerical oracle.
@@ -1312,7 +1348,10 @@ no event, and nothing is written to the console. No check calls a real provider.
 pushes, pull requests and manual dispatch. Checkout and tool-setup actions are
 pinned to exact commits. The checks job has read-only repository access, does not
 persist checkout credentials and requires no repository secrets. It runs the same
-`check_all.py` command as local verification. It does not publish packages or
+`check_all.py` command as local verification, with a 45-minute job deadline for
+the complete suite; individual command and owned-resource deadlines remain in
+force. The previous 30-minute limit interrupted the final mixed-period suite
+after the preceding checks passed. It does not publish packages or
 deploy the application. A separate, gated `publish` job runs only after successful
 checks on a push to `master` when release publication is explicitly enabled. It
 uses the hosted-release environment and scoped write/attestation permissions to
@@ -2448,10 +2487,16 @@ an ended hour before its due time is unresolved, live hours take their marks eve
 after their actuals arrive, and a correction appears only at a later cutoff. They
 also cover aggregates, delivered, uncovered, window, cutoff, historical, missing-member
 and anonymous refusals. Reintroducing the dropped holidays or the hindsight actual
-each failed its HTTP check. 20 browser checks drive the screen: an unavailable curve
+each failed its HTTP check. 21 browser checks drive the screen: an unavailable curve
 with its reason, shaped November with the repeated hour's offsets, lineage on choosing
 a row, the delivered-interval message, actual, unresolved and projected states, day
 and hour aggregates, the largest synthetic window (1,465 hours), 390 px width and the
 historical refusal. The market read authority check pins sixteen read policies, and
 `--power-actual-check` still passes over the shared collector and alignment.
+Both interval screens compare Known at with the observed catalog cutoff in the
+profile zone using the control's numeric wall time. Chrome may omit zero seconds
+from `datetime-local` text. A deterministic browser regression covers whole-minute
+and nonzero-second displays, exact fractional-cutoff retention, and rejection of
+an empty value, a wrong zone or missing nonzero seconds. Both owned interval
+suites pass with these assertions (21 curve and 38 series browser checks).
 `tools/check_all.py` runs all five layers.

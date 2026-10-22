@@ -19,6 +19,13 @@ recompute displayed results; risk requests and jobs retain one admitted
 generation. The bounded push/update and numerical-reuse contracts are documented
 in [live calculation](live-calculation.md).
 
+Custom curve activation publishes complete immutable effective-date timelines of
+exact version/output references (D189). Certified knowledge selects one timeline
+before its effective interval; gaps are inactive. Effective previews resolve to
+the ordinary exact graph, while booked references and retained jobs stay pinned.
+Daily indexed projections use exact delivery intervals independently of output
+positions, preserving actual fixings and schedule weights.
+
 ## 1. Product purpose
 
 Build an ETRM that an AI can use as a complete application. People, internal
@@ -968,8 +975,8 @@ snapshot/time/use evidence outside the primary snapshot's one-input selection
 map. Shared portfolio materialization and workers rebuild the same graph under
 the retained effective/knowledge context and compare its manifest. Current
 actor/delegation and worker service authority remain mandatory. Explicit booked
-versions do not implement database activation of logical curve aliases; the
-bitemporal logical-binding resolver remains a managed contract.
+versions remain exact pins. D189 adds persisted custom-curve effective timelines
+for explicit effective preview selection; native logical activation remains work.
 
 D186 makes `custom_curve_recipe_v2` and the connected evaluator the sole recipe
 execution path. Migration 0080 adds exact member-weight relationships and refuses
@@ -986,8 +993,9 @@ Source compilation declares topology without pricing it. Preparation counters
 the existing futures materialization build still counts as evaluated preparation.
 Typed source operations retain their 18-decimal-place representability contract,
 while connected combinations and instrument PV retain exact rational values.
-Database logical activation, cross-revision histories, daily custom projection
-mapping and within-run distributed reduction remain work.
+Custom activation and exact daily projection mapping are implemented in D189.
+Native logical activation, cross-revision histories and within-run distributed
+reduction remain work.
 
 See [connected calculation](connected-calculation.md) for the implemented
 integration and its boundaries. The compact graph kernel has a separate
