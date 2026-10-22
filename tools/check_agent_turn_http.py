@@ -1,8 +1,9 @@
 """Turns over HTTP (docs/ai-assistant.md §7.2, §7.4, §7.5, §7.6, §8): an ask in the person's session and the worker
 running it against the loopback fake provider: the request it sends, its text, usage and ending, a repeat, the
 knowledge an ask may name, Stop and the sources that cancel a turn mid-stream, its limits, a worker that loses its
-generation, and the owner's reads; owned synthetic preview only. Runs after the SQL turn checks, which leave the
-agent-worker lock free for the API to take again."""
+generation, and the owner's reads; owned synthetic preview only. Its agents have no tools, which the tool checks that
+follow give theirs, in the administrator and trader sessions this check hands them. Runs after the SQL turn checks,
+which leave the agent-worker lock free for the API to take again."""
 import json
 import subprocess
 import threading
@@ -15,7 +16,7 @@ from fake_model_provider import USAGE, event, recording, status, stream
 from preview_client import PreviewClient, initial_frame
 
 ASK, STOP, GRANTS = 'assistant/turns/ask', 'assistant/turns/stop', 'assistant/grants'
-REPORT = {'page': 'curves', 'selection': {'curve': 'test_curve'}}
+REPORT = {'page': 'curves', 'selection': {'view': 'curve', 'curve': 'future'}}
 QUESTION = 'What does this page show?'
 INSTRUCTIONS = 'Quote only values you read.'
 PREAMBLE = ('You are a page assistant in OpenETRM. Quote only values returned to you in this turn and derive none. Say when '
@@ -79,7 +80,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     model = fixture.model(model_name)
 
     def agent(name, **limits):
-        return fixture.publish(fixture.save(fixture.create(f'http turn {name}'), model, **limits))
+        return fixture.publish(fixture.save(fixture.create(f'http turn {name}'), model, tools=(), **limits))
 
     def grant(session, agent_state):
         return session.call(f'{GRANTS}/grant', {'operationId': str(uuid4()), 'agentId': agent_state['id'], 'version': 1})
@@ -195,7 +196,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     request = fake.received[-1]
     body = json.loads(request['body'])
     check("the turn's one request goes to the check endpoint with the key in its own header: the fixed preamble and the version's "
-          'instructions, the question, its output limit and effort, and no tools',
+          'instructions, the question, its output limit and effort, and, for a version without tools, none',
           sent() == requests + 1 and (request['method'], request['path']) == ('POST', '/v1/messages')
           and dict(request['headers'])['x-api-key'] == KEY and KEY[-4:].encode() not in request['body']
           and body == {'model': model_name, 'max_tokens': 2048, 'stream': True, 'system': [{'type': 'text', 'text': PREAMBLE + '\n\n' + INSTRUCTIONS}],
@@ -378,4 +379,4 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     check('no log line or request body carries the key, and no request goes through a proxy',
           KEY not in log.read_text(errors='replace') and all(KEY.encode() not in r['body'] for r in fake.received) and trap.connections == 0)
     print(f'{passed} HTTP turn checks passed.', flush=True)
-    return passed
+    return admin, trader

@@ -91,7 +91,7 @@ internal static class DirectReadChecks
             Same($"{view.Name} history matches its page",await Direct(view,"history",(c,ct)=>reads.History(c,view.Pin(view.Selected),view.Initial,history["curve"]!.GetValue<string>(),history["contractId"]!.GetValue<Guid>(),null,ct)),
                 history["response"]!["points"]);
             Same($"{view.Name} schedule library matches its page",await Direct(view,"schedule library",(c,ct)=>schedules.Library(c,view.Pin(),ct)),view.Page("schedules"),
-                "knownThrough","versions","canEdit","canPublish","calendars");
+                "knownThrough","versions","canEdit","canPublish","calendars","contractDefinitions");
             await Matches($"{view.Name} TOU products match their page",()=>Direct(view,"TOU products",(c,ct)=>schedules.TouProducts(c,view.Pin(),ct)),view.Page("touProducts"));
             await Matches($"{view.Name} power hours match their page",()=>Direct(view,"power hours",(c,ct)=>schedules.PowerCatalog(c,view.Pin(view.Selected),ct)),view.Page("powerCatalog"));
             // A working party page captures a cutoff at its frame's date; a direct read under that same view binds it.

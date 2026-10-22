@@ -1,4 +1,4 @@
-"""A loopback fake of the Messages API for the provider Test checks: synthetic recordings only, never a real provider.
+"""A loopback fake of the Messages API for the page-assistant checks: synthetic recordings only, never a real provider.
 It answers each request with the next scripted response and records every request it receives. A trap listener
 stands for anything a request must never reach, such as a proxy named in the environment or a redirect target."""
 import json
@@ -16,11 +16,32 @@ def event(name, data):
 
 def recording(model, stop='end_turn', usage=None, text='ready'):
     """A synthetic Messages stream in the documented event flow, ending at message_stop."""
+    return _message(model, '' if text is None else _text(0, text), stop, usage)
+
+
+def tool_use(model, requests, text=None, usage=None):
+    """A synthetic stream that stops to use tools: optional text, then a tool_use block for each (id, name, input)
+    request, its input arriving as partial JSON split in two."""
+    blocks = '' if text is None else _text(0, text)
+    for index, (identifier, name, arguments) in enumerate(requests, start=0 if text is None else 1):
+        spelled = json.dumps(arguments)
+        blocks += (event('content_block_start', {'type': 'content_block_start', 'index': index,
+                                                 'content_block': {'type': 'tool_use', 'id': identifier, 'name': name, 'input': {}}})
+                   + ''.join(event('content_block_delta', {'type': 'content_block_delta', 'index': index, 'delta': {'type': 'input_json_delta', 'partial_json': part}})
+                             for part in (spelled[:len(spelled) // 2], spelled[len(spelled) // 2:]))
+                   + event('content_block_stop', {'type': 'content_block_stop', 'index': index}))
+    return _message(model, blocks, 'tool_use', usage)
+
+
+def _text(index, text):
+    return (event('content_block_start', {'type': 'content_block_start', 'index': index, 'content_block': {'type': 'text', 'text': ''}})
+            + event('content_block_delta', {'type': 'content_block_delta', 'index': index, 'delta': {'type': 'text_delta', 'text': text}})
+            + event('content_block_stop', {'type': 'content_block_stop', 'index': index}))
+
+
+def _message(model, blocks, stop, usage):
     final = USAGE if usage is None else usage
     start = {k: v for k, v in final.items() if k != 'output_tokens_details'} | {'output_tokens': 1, 'service_tier': 'standard', 'inference_geo': 'global'}
-    blocks = '' if text is None else (event('content_block_start', {'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text', 'text': ''}})
-                                      + event('content_block_delta', {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': text}})
-                                      + event('content_block_stop', {'type': 'content_block_stop', 'index': 0}))
     return (event('message_start', {'type': 'message_start', 'message': {'id': 'msg_synthetic_test', 'type': 'message', 'role': 'assistant', 'model': model,
                                                                          'content': [], 'stop_reason': None, 'stop_sequence': None, 'usage': start}})
             + blocks + event('message_delta', {'type': 'message_delta', 'delta': {'stop_reason': stop, 'stop_sequence': None}, 'usage': final})

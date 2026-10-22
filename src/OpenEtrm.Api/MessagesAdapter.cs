@@ -263,10 +263,12 @@ public sealed class MessagesAdapter(HttpMessageHandler handler,ModelTransportLim
 
         // A tool stop returns every tool request with the reply to replay; an output or context limit drops
         // a tool request it may have cut off. A stop this mapping does not expect, a tool stop without a
-        // tool request and an ended turn holding one are unreadable, but keep their final usage.
+        // tool request, an ended turn holding one and a request for a tool the request did not offer are
+        // unreadable, but keep their final usage.
         ModelEvent Ending()
         {
             var final=usage.Final(refusedBeforeOutput:stop=="refusal"&&!output);
+            if(blocks.Any(b=>b.Type=="tool_use"&&!request.Tools.Any(t=>t.Name==Text(b.Start,"name"))))return new ModelFailed(ModelFailure.Transport,final,served);
             var tools=blocks.Count(b=>b.Type=="tool_use");
             ModelStop? reason=stop switch
             {

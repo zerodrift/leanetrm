@@ -1,19 +1,22 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using Npgsql;
 
 namespace OpenEtrm.Api;
 
-// The turn worker (docs/ai-assistant.md §7.4–§7.6): runs each turn its process admitted, from its start to its end,
-// holding the turn's token only in memory. Until tools come, a turn makes one call, retried after a failure that sent
-// nothing. Each call opens with the database's checks, the decrypted key and the adapter's own checks in one
-// transaction, so nothing is sent unless the open commits; it streams within the turn's elapsed limit and publishes
-// its text in batches the database rechecks. A cancel request, a publication refused or not taken, the end of the
-// session that asked or of this process's generation stops the call in flight, which is closed with the usage it
-// has, and nothing more is published or sent; the database then decides the ending, except that a stopping process or
-// a lost generation leaves the turn to the next start, which interrupts it. A write the database does not take fails
-// the turn agent_runtime_unavailable, unless the database ended it otherwise.
+// The turn worker (docs/ai-assistant.md §7.3–§7.6): runs each turn its process admitted, from its start to its end,
+// holding the turn's token only in memory. A turn's calls form the tool loop: a call that stops for tools is answered
+// by one step per request, in order, each a read in the agent's request context, and the next call replays the reply
+// with the results; a failure that sent nothing is retried while the version's retries allow. Each call opens with the
+// database's checks, the decrypted key and the adapter's own checks in one transaction, so nothing is sent unless the
+// open commits; it streams within the turn's elapsed limit and publishes its text in batches the database rechecks. A
+// cancel request, a publication refused or not taken, the end of the session that asked or of this process's
+// generation stops the call or read in flight, which is closed with the usage it has, and nothing more is read,
+// published or sent; the database then decides the ending, except that a stopping process or a lost generation leaves
+// the turn to the next start, which interrupts it. A write the database does not take fails the turn
+// agent_runtime_unavailable, unless the database ended it otherwise.
 public sealed class TurnWorker:IAsyncDisposable
 {
     // The fixed preamble before every version's instructions (§7.6); instructions cannot replace it.
@@ -26,13 +29,16 @@ public sealed class TurnWorker:IAsyncDisposable
     readonly ConcurrentDictionary<Guid,Running> running=new();
     readonly CancellationTokenSource stopping=new();
 
-    // A turn this process runs: its token, the session that asked it, what stops its call, what ends its session timer,
-    // whether its generation was lost and, once its session has ended, whether that end was recorded, which the turn's
-    // own end waits for (§7.2). Each cause is set before the stop it causes.
-    sealed class Running(byte[] token,string session)
+    // A turn this process runs: its token, the session that asked it and when that session ends, its scope's read tools,
+    // what stops its call or read, what ends its session timer, whether its generation was lost and, once its session has
+    // ended, whether that end was recorded, which the turn's own end waits for (§7.2). Each cause is set before the stop
+    // it causes.
+    sealed class Running(byte[] token,string session,DateTimeOffset sessionEnds,AgentTools tools)
     {
         public byte[] Token {get;}=token;
         public string Session {get;}=session;
+        public DateTimeOffset SessionEnds {get;}=sessionEnds;
+        public AgentTools Tools {get;}=tools;
         public CancellationTokenSource Cancel {get;}=new();
         public CancellationTokenSource Ended {get;}=new();
         public volatile bool Lost;
@@ -66,10 +72,11 @@ public sealed class TurnWorker:IAsyncDisposable
         };
     }
 
-    // Runs a turn this process admitted and pinned, until it ends; the end of the session that asked it cancels it.
-    public void Run(Guid turn,byte[] token,string session,DateTimeOffset sessionEnds)
+    // Runs a turn this process admitted and pinned, with its scope's read tools, until it ends; the end of the session
+    // that asked it cancels it.
+    public void Run(Guid turn,byte[] token,string session,DateTimeOffset sessionEnds,AgentTools tools)
     {
-        var r=new Running(token,session);
+        var r=new Running(token,session,sessionEnds,tools);
         running[turn]=r;
         r.Work=Task.Run(async()=>
         {
@@ -137,20 +144,23 @@ public sealed class TurnWorker:IAsyncDisposable
         var limits=version.GetProperty("limits");
         var deadline=state.GetProperty("askedAt").GetDateTimeOffset()+TimeSpan.FromSeconds(limits.GetProperty("elapsedSeconds").GetInt32());
         var system=Preamble+"\n\n"+version.GetProperty("instructions").GetString();
-        var message=Message(version.GetProperty("earlier"),state.GetProperty("question").GetString()!);
-        string? failed=null;
-        for(var retry=0;;retry++)
+        TurnReads reads;
+        try{reads=r.Tools.Reads(state,version);}
+        // A record its reads cannot use is a defect, never a reason to read another context.
+        catch(Exception e) when(e is InvalidOperationException or KeyNotFoundException or FormatException)
         {
-            // Nothing opens once the call is to stop: the database ends a turn whose cancel was requested cancelled.
-            if(r.Cancel.IsCancellationRequested)
-            {
-                if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
-                return;
-            }
-            if(Abandoned(r))return;
-            if(Remaining(deadline)==TimeSpan.Zero){await End(turn,r,"failed","limit_elapsed");return;}
+            await End(turn,r,"failed","tool_failed");
+            return;
+        }
+        var offered=AgentTools.Offered(reads.Tools);
+        ImmutableArray<ModelMessage> messages=[new ModelUserText(Message(version.GetProperty("earlier"),state.GetProperty("question").GetString()!))];
+        var (steps,failures)=(0,0);
+        string? failed=null;
+        while(true)
+        {
+            if(await Halted(turn,r,deadline))return;
             Call? call;
-            try{call=await Open(turn,r,system,message);}
+            try{call=await Open(turn,r,system,messages,offered);}
             catch(PostgresException p) when(failed is not null&&p.SqlState=="P0001"&&p.MessageText=="retry_not_allowed")
             {
                 await End(turn,r,"failed",failed);
@@ -168,17 +178,101 @@ public sealed class TurnWorker:IAsyncDisposable
             // The database ends a turn whose cancel was requested cancelled, and one whose publication it refused
             // access_changed, whatever the code.
             if(stopped is not null){await End(turn,r,"failed",stopped);return;}
-            if(Ending(streamed.End,streamed.Published,retry<limits.GetProperty("retries").GetInt32()) is {} ending)
+            if(streamed.End is ModelCompleted{Stop:ModelStop.ToolUse,Reply:{} reply,ToolRequests:var requests})
+            {
+                // A call whose requests would take the turn past its steps has none of them run (§7.5).
+                if(steps+requests.Length>limits.GetProperty("toolSteps").GetInt32()){await End(turn,r,"failed","limit_tool_steps");return;}
+                var results=ImmutableArray.CreateBuilder<ModelToolResult>(requests.Length);
+                foreach(var request in requests)
+                {
+                    if(await Answer(turn,r,reads,request,deadline) is not {} result)return;
+                    results.Add(result);
+                }
+                steps+=requests.Length;
+                messages=Continued(messages,reply,results.MoveToImmutable());
+                failed=null;
+                continue;
+            }
+            if(Ending(streamed.End,streamed.Published,failures<limits.GetProperty("retries").GetInt32()) is {} ending)
             {
                 await End(turn,r,ending.State,ending.Code);
                 return;
             }
             failed=outcome;
-            try{await Task.Delay(Min(RuntimeSet.RetryBackoff*(1<<retry),Remaining(deadline)),r.Cancel.Token);}
+            try{await Task.Delay(Min(RuntimeSet.RetryBackoff*(1<<failures),Remaining(deadline)),r.Cancel.Token);}
             // A stop during the backoff ends the turn before another call opens.
             catch(OperationCanceledException){}
+            failures++;
         }
     }
+
+    // Whether the turn stops before its next call or read (§7.2, §7.5): its cancel was requested, which its session's
+    // end, once past, requests too, even before the timer that records it fires; this process stopped or its
+    // generation was lost; or the turn's deadline passed. The turn has ended, or is left to the next start.
+    async Task<bool> Halted(Guid turn,Running r,DateTimeOffset deadline)
+    {
+        if(DateTimeOffset.UtcNow>=r.SessionEnds)
+        {
+            Stop(r);
+            await EndSession(turn,r);
+        }
+        // The database ends a turn whose cancel was requested cancelled.
+        if(r.Cancel.IsCancellationRequested)
+        {
+            if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
+            return true;
+        }
+        if(Abandoned(r))return true;
+        if(Remaining(deadline)!=TimeSpan.Zero)return false;
+        await End(turn,r,"failed","limit_elapsed");
+        return true;
+    }
+
+    // Answers one tool request with its step (§7.3, §7.5): a read bounded by the runtime set and the turn's deadline,
+    // recorded once and never retried, since a step that may have landed cannot be told from a new one. A read that
+    // returns once the turn is to stop is no step, whatever it returned (Settled); a step the database recorded and
+    // published reaches the model, and any other answer ends the turn. The result the model receives, or none once the
+    // turn has ended or is left to the next start.
+    async Task<ModelToolResult?> Answer(Guid turn,Running r,TurnReads reads,ModelToolRequest request,DateTimeOffset deadline)
+    {
+        if(await Halted(turn,r,deadline))return null;
+        var remaining=Remaining(deadline);
+        var byDeadline=remaining<=RuntimeSet.ToolRead;
+        ToolStep read;
+        using(var bound=CancellationTokenSource.CreateLinkedTokenSource(r.Cancel.Token))
+        {
+            bound.CancelAfter(byDeadline?remaining:RuntimeSet.ToolRead);
+            read=await r.Tools.Run(reads,request,bound.Token);
+        }
+        // The database ends a turn whose cancel was requested cancelled.
+        if(Settled(read,r.Cancel.IsCancellationRequested||Abandoned(r),byDeadline) is not {} step)
+        {
+            if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
+            return null;
+        }
+        var recorded=await Write("SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb)::text",turn,r.Token,step.Tool,
+            (object?)step.Operation??DBNull.Value,step.Input is {} input?input.GetRawText():DBNull.Value,(object?)step.Code??DBNull.Value,(object?)step.ReadAt??DBNull.Value,
+            step.ReadAt is null?DBNull.Value:JsonSerializer.Serialize(step.Access,JsonSerializerOptions.Web));
+        // The database refused the step's publication, which ends the turn access_changed, or the turn's cancel was
+        // requested, which ends it cancelled, whatever the code.
+        if(!recorded.TryGetProperty("step",out _))
+        {
+            await End(turn,r,"failed",recorded.TryGetProperty("refused",out var refused)?refused.GetString():"request_cancelled");
+            return null;
+        }
+        if(step.End==ToolStepEnd.Failure)
+        {
+            await End(turn,r,"failed",step.Code);
+            return null;
+        }
+        return new(request.Id,step.Content!,step.End==ToolStepEnd.Refusal);
+    }
+
+    // What a read that returned becomes (§7.5): no step once its turn is to stop, whatever it returned, so a stop this
+    // process alone knows of publishes nothing; a read its bound stopped fails the turn limit_elapsed when the turn's
+    // deadline was that bound, else tool_failed; any other step as it is.
+    internal static ToolStep? Settled(ToolStep read,bool stopping,bool byDeadline)=>
+        stopping?null:read.End==ToolStepEnd.Interrupted?read with{Code=byDeadline?"limit_elapsed":"tool_failed",End=ToolStepEnd.Failure}:read;
 
     // What a call's ending makes of its turn when this program did not stop the call (§7.5): the turn's ending and code,
     // or none to retry, after a failure whose input is known and that published nothing, while retries remain.
@@ -186,6 +280,7 @@ public sealed class TurnWorker:IAsyncDisposable
     {
         ModelCompleted{Stop:ModelStop.EndTurn}=>("completed",null),
         ModelCompleted{Stop:ModelStop.OutputLimit}=>("failed","limit_output_tokens"),
+        ModelCompleted{Stop:ModelStop.ToolUse}=>throw new ArgumentException("A tool stop is answered by the tool loop.",nameof(end)),
         // Only the deadline is left to have cancelled the stream, whatever it published.
         ModelFailed{Failure:ModelFailure.Cancelled}=>("failed","limit_elapsed"),
         ModelFailed{Failure:ModelFailure.Overloaded or ModelFailure.Transport,Usage.Status:UsageStatus.Recognized} when!published&&retriesLeft=>null,
@@ -196,7 +291,7 @@ public sealed class TurnWorker:IAsyncDisposable
 
     // Opens the turn's next call in one transaction with the decrypted key and the adapter's checks, so a failure records
     // nothing; null when the open ended the turn instead, or when the key or request cannot be used, which fails it.
-    async Task<Call?> Open(Guid turn,Running r,string system,string message)
+    async Task<Call?> Open(Guid turn,Running r,string system,ImmutableArray<ModelMessage> messages,ImmutableArray<ModelTool> offered)
     {
         var (call,refused)=await worker.Write<(Call?,string?)>(async(connection,ct)=>
         {
@@ -211,7 +306,7 @@ public sealed class TurnWorker:IAsyncDisposable
             try
             {
                 var key=ModelCalls.Key(custody,opened);
-                var request=new ModelRequest(ModelCalls.Target(opened),system,[new ModelUserText(message)],[],
+                var request=new ModelRequest(ModelCalls.Target(opened),system,messages,offered,
                     new(opened.GetProperty("maxOutputTokens").GetInt32(),opened.GetProperty("reasoning").GetString(),opened.GetProperty("caching").GetBoolean()));
                 MessagesAdapter.Validate(request,key);
                 await transaction.CommitAsync(ct);
@@ -299,6 +394,11 @@ public sealed class TurnWorker:IAsyncDisposable
             if(stopped is not null)halt.Cancel();
         }
     }
+
+    // The tool loop's next call (§6.1, §7.3): the messages so far, the reply that stopped for tools, replayed unchanged,
+    // and each of its requests' results, in the order the requests came.
+    internal static ImmutableArray<ModelMessage> Continued(ImmutableArray<ModelMessage> messages,ModelReply reply,ImmutableArray<ModelToolResult> results)=>
+        [..messages,reply,new ModelToolResults(results)];
 
     // Splits text into pieces of at most `bytes` UTF-8 bytes, never inside a character.
     internal static IEnumerable<string> Chunks(string text,int bytes)

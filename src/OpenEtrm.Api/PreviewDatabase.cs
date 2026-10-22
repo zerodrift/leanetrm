@@ -56,6 +56,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
 {
     private readonly NpgsqlDataSource? authenticator;
     private readonly NpgsqlDataSource runtime;
+    // The page assistant's reads have pools of their own on the same logins, never the pages' (docs/ai-assistant.md §7.4).
+    private readonly NpgsqlDataSource? agentAuthenticator,agentRuntime;
+    private const string AgentReads="openetrm-agent-reads";
     private readonly bool ownsSources=true;
     private readonly string runtimeLogin;
     private readonly Func<string>? hostedSession;
@@ -98,8 +101,10 @@ public sealed class PreviewDatabase : IAsyncDisposable
         if (hosted is not null && Manifest.IdentityIssuer != hosted.IdentityIssuer) throw new InvalidOperationException("The exact hosted identity issuer must match the manifest.");
         if (hosted is null)
         {
-            authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", true);
-            runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", true);
+            authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", 8);
+            runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8);
+            agentAuthenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", RuntimeSet.AgentPool, AgentReads);
+            agentRuntime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", RuntimeSet.AgentPool, AgentReads);
             runtimeLogin = "preview_runtime";
         }
         else
@@ -114,7 +119,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
         }
     }
 
-    private static NpgsqlDataSource PreviewSource(string root, string variable, string login, bool pooled)
+    // A pool of the given size, or unpooled connections without one, named for the server when an application is given.
+    private static NpgsqlDataSource PreviewSource(string root, string variable, string login, int? pool, string? application=null)
     {
         var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable(variable)
             ?? throw new InvalidOperationException($"Missing {variable}."));
@@ -124,7 +130,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
         // of the database host, process environment or display preference.
         config.Timezone = "UTC";
         config.CommandTimeout = 5; config.Timeout = 5;
-        if (pooled) config.MaxPoolSize = 8; else config.Pooling = false;
+        if (pool is {} size) config.MaxPoolSize = size; else config.Pooling = false;
+        if (application is not null) config.ApplicationName = application;
         return NpgsqlDataSource.Create(config.ConnectionString);
     }
 
@@ -132,8 +139,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
     // (docs/ai-assistant.md §7.4). The connection that holds its lock is not pooled, so closing it
     // ends its session and releases the lock; its writes, which hold no session state, have a pool
     // of their own.
-    public static NpgsqlDataSource AgentSource(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", false);
-    public static NpgsqlDataSource AgentWrites(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", true);
+    public static NpgsqlDataSource AgentSource(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", null);
+    public static NpgsqlDataSource AgentWrites(string root) => PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8);
 
     public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared)
     {
@@ -143,19 +150,65 @@ public sealed class PreviewDatabase : IAsyncDisposable
         foreach (var value in hostedSession is null?new object[] { Manifest.IdentityIssuer, profile, "human_interactive", Manifest.TenantId, Manifest.WorkspaceId, runtimeLogin }:new object[]{hostedSession(),runtimeLogin})
             issue.Parameters.Add(new NpgsqlParameter { Value = value });
         var token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException());
-        await using var connection = await runtime.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        await using (var bind = new NpgsqlCommand(admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
+        return await Bound(runtime, token, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
             Admission.Agents=>"SELECT assistant.use_agent_admission($1)",Admission.Grants=>"SELECT assistant.use_grant_admission($1)",
-            _=>"SELECT security.use_context($1)"}, connection, transaction))
-        { bind.Parameters.AddWithValue(token); await bind.ExecuteNonQueryAsync(ct); }
-        if(hostedSession is not null)await using(var sessionCheck=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction))await sessionCheck.ExecuteNonQueryAsync(ct);
-        if(permission is not null && !await HasPermission(connection,permission,ct)) throw new PreviewDeniedException();
+            _=>"SELECT security.use_context($1)"}, async(connection,ct)=>
+        {
+            await Hold(connection,permission,ct);
+            var result = await operation(connection, ct);
+            await Hold(connection,permission,ct);
+            return result;
+        }, ct);
+    }
+
+    // A read in a request context issued to a turn's agent under the turn's grant (docs/ai-assistant.md §7.1, §7.4), on the
+    // agent pools: `boundAt` receives the instant on the database clock once the context is bound, then each permission the
+    // tool needs is checked before and after the read. The check after it is defense in depth: the bind holds the epoch
+    // row FOR SHARE until the read's transaction ends, so no revocation can commit during the read, and a grant or role
+    // grant whose term ends during it, the one change it can see, also fails the step's publication recheck.
+    public async Task<T> WithAgent<T>(AgentIdentity agent, ImmutableArray<string> permissions, Action<DateTimeOffset> boundAt,
+        Func<NpgsqlConnection, CancellationToken, Task<T>> read, CancellationToken ct)
+    {
+        if(agentAuthenticator is null||agentRuntime is null)throw new InvalidOperationException("Agent reads run only in the local preview.");
+        await using var issue = agentAuthenticator.CreateCommand("SELECT security.issue_context($1,$2,'agent_credential',$3,$4,$5,$6::name,60)");
+        foreach (var value in new object[] { Manifest.IdentityIssuer, agent.Principal, Manifest.TenantId, Manifest.WorkspaceId, agent.Delegation, runtimeLogin })
+            issue.Parameters.Add(new NpgsqlParameter { Value = value });
+        var token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException());
+        return await Bound(agentRuntime, token, "SELECT security.use_context($1)", async(connection,ct)=>
+        {
+            await using(var now = new NpgsqlCommand("SELECT clock_timestamp()", connection))
+            await using(var reader = await now.ExecuteReaderAsync(ct))
+            {
+                await reader.ReadAsync(ct);
+                boundAt(reader.GetFieldValue<DateTimeOffset>(0));
+            }
+            foreach(var permission in permissions)await Hold(connection,permission,ct);
+            var result = await read(connection, ct);
+            foreach(var permission in permissions)await Hold(connection,permission,ct);
+            return result;
+        }, ct);
+    }
+
+    // Runs an operation in one READ COMMITTED transaction bound to an issued request context, which a hosted request
+    // also holds to its verified session before and after the operation.
+    private async Task<T> Bound<T>(NpgsqlDataSource source, Guid token, string bind, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct)
+    {
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        await using (var command = new NpgsqlCommand(bind, connection, transaction))
+        { command.Parameters.AddWithValue(token); await command.ExecuteNonQueryAsync(ct); }
+        async Task Session(){if(hostedSession is not null)await using(var check=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction))await check.ExecuteNonQueryAsync(ct);}
+        await Session();
         var result = await operation(connection, ct);
-        if(hostedSession is not null)await using(var sessionCheck=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction))await sessionCheck.ExecuteNonQueryAsync(ct);
-        if(permission is not null && !await HasPermission(connection,permission,ct)) throw new PreviewDeniedException();
+        await Session();
         await transaction.CommitAsync(ct);
         return result;
+    }
+
+    // The bound request context holds a permission, or the operation is denied.
+    private static async Task Hold(NpgsqlConnection connection, string? permission, CancellationToken ct)
+    {
+        if(permission is not null && !await HasPermission(connection,permission,ct)) throw new PreviewDeniedException();
     }
 
     // Whether the request context bound to this connection currently holds a permission.
@@ -460,7 +513,11 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         while (await reader.ReadAsync(ct))rows.Add(ReferenceJson.PreserveNumericLexemes(reader.GetString(0)));
         return rows.ToImmutable();
     }
-    public async ValueTask DisposeAsync() { if(ownsSources){await runtime.DisposeAsync();if(authenticator is not null)await authenticator.DisposeAsync();} }
+    public async ValueTask DisposeAsync()
+    {
+        if(!ownsSources)return;
+        foreach(var source in new[]{runtime,authenticator,agentRuntime,agentAuthenticator})if(source is not null)await source.DisposeAsync();
+    }
 }
 
 public sealed class PreviewData

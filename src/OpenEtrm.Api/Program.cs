@@ -533,7 +533,7 @@ api.MapGet("/date-schedules",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,sessi
 {
     var library=await scheduleReads.Library(connection,Pin(session),ct);
     return Results.Ok(new {library.KnownThrough,library.Versions,library.CanEdit,library.CanPublish,choices=DateWorkspace.Choices,
-        contractDefinitions=await contractDateStore.Read(connection,ct),library.Calendars,examples=ScheduleExamples.Catalog});
+        library.ContractDefinitions,library.Calendars,examples=ScheduleExamples.Catalog});
 },c.RequestAborted))));
 api.MapPost("/date-schedules/preview",(HttpContext c,DateSchedulePreviewRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(DateWorkspace.Compile(body.Definition??throw new TemporalException("schedule_definition","Supply an explicit schedule definition."),
@@ -1056,7 +1056,7 @@ if(hosted is null)
     // Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
     // is selected, a retained context only when it is the selected one, and a frame only of the session's current market
     // context. Working data is captured at its frame's date, so it needs one. Nothing else is pinned, and nothing falls back.
-    var agentTurns=new AgentTurns(database,turnScope,agentWorker!,turnWorker!,app.Logger);
+    var agentTurns=new AgentTurns(database,turnScope,agentWorker!,turnWorker!,new AgentTools(database,marketReads,scheduleReads,partyReads,tradeReads,app.Logger),app.Logger);
     (string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge)
     {
         var selected=session.MarketContext?.ContextId;

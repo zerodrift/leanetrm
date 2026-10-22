@@ -18,19 +18,21 @@ public sealed record StopRequest(Guid TurnId);
 public sealed record MarkReadRequest(Guid ConversationId,long? Through);
 
 // Turns over HTTP (docs/ai-assistant.md §7.2, §7.4, §8), in one scope: an ask admits the turn in the person's own
-// context, pins its context in a short transaction of its own and hands the turn's token to the worker; Stop and the
-// owner's reads. The database owns every rule; this boundary passes it the runtime set and the session's binding.
-public sealed partial class AgentTurns(PreviewDatabase database,string scope,AgentWorker worker,TurnWorker turns,ILogger logger)
+// context, pins its context in a short transaction of its own and hands the turn's token to the worker with the
+// scope's read tools; Stop and the owner's reads. The database owns every rule; this boundary passes it the runtime set
+// and the session's binding, and refuses a page report the tools could not read before anything is written.
+public sealed partial class AgentTurns(PreviewDatabase database,string scope,AgentWorker worker,TurnWorker turns,AgentTools tools,ILogger logger)
 {
     // A repeat answers with its turn as it stands: only the request that admitted a turn holds its token. However the
     // record write fails, the turn fails in a scope of its own (§7.2), and its ending is the answer once that lands.
     public async Task<IResult> Ask(PreviewSession session,string profile,AskRequest body,string mode,Guid? retained,InputFrame? frame,CancellationToken aborted)
     {
+        PageReports.Require(body.PageReport);
         var token=RandomNumberGenerator.GetBytes(32);
         var asked=await database.WithIdentity(profile,"UseAgents",async(connection,ct)=>await ModelProviders.Read(connection,
             "SELECT assistant.ask_turn($1,$2,$3::uuid,$4,$5,$6::text,$7::jsonb,$8,$9,$10::uuid,$11::uuid,$12,$13,$14,$15,$16::bigint,$17,$18,$19,$20)::text",
             [body.OperationId,scope,(object?)body.ConversationId??DBNull.Value,body.AgentId,body.Version,(object?)body.Question??DBNull.Value,
-                body.PageReport.ValueKind==JsonValueKind.Undefined?DBNull.Value:body.PageReport.GetRawText(),database.Manifest.CatalogId,mode,
+                body.PageReport.GetRawText(),database.Manifest.CatalogId,mode,
                 (object?)retained??DBNull.Value,(object?)frame?.Id??DBNull.Value,session.Digest,profile,session.Ends,
                 Convert.ToHexStringLower(SHA256.HashData(token)),(object?)await worker.Generation(ct)??DBNull.Value,RuntimeSet.Turns,RuntimeSet.QuestionLength,
                 RuntimeSet.WorkspaceTurns,RuntimeSet.AdmissionSeconds],ct),aborted);
@@ -46,7 +48,7 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
         {
             turn=(await database.WithIdentity(profile,"UseAgents",(connection,ct)=>ModelProviders.Read(connection,
                 "SELECT assistant.pin_turn($1,$2,$3::date,$4::jsonb,$5)::text",
-                [id,token,mode=="current"?TradingView.WorkingDate(frame!):DBNull.Value,frame is null?DBNull.Value:Pins(frame),RuntimeSet.RetainedContextReserve],
+                [id,token,mode=="current"?TradingView.WorkingDate(frame!):DBNull.Value,frame is null?DBNull.Value:TurnPin.Record(frame),RuntimeSet.RetainedContextReserve],
                 ct),aborted)).GetProperty("turn");
         }
         catch(Exception e)
@@ -55,7 +57,7 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
             throw;
         }
         // A turn whose cancel was requested before its record has ended cancelled.
-        if(turn.GetProperty("state").GetString()=="queued")turns.Run(id,token,session.Digest,session.Ends);
+        if(turn.GetProperty("state").GetString()=="queued")turns.Run(id,token,session.Digest,session.Ends,tools);
         return Results.Ok(new{turn});
     }
 
@@ -73,11 +75,6 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
 
     public Task<JsonElement> MarkRead(NpgsqlConnection connection,MarkReadRequest body,CancellationToken ct)=>
         ModelProviders.Read(connection,"SELECT assistant.mark_read($1,$2,$3::bigint)::text",[scope,body.ConversationId,(object?)body.Through??DBNull.Value],ct);
-
-    // An As of frame's exact pins, which the record keeps so that tool reads rebuild the page's frame (§7.2).
-    static string Pins(InputFrame frame)=>JsonSerializer.Serialize(new{at=frame.At,curveContracts=frame.CurveContracts,frameId=frame.Id,
-        frozenObservationIds=frame.FrozenObservationIds.IsDefault?[]:frame.FrozenObservationIds,name=frame.Name,observationIds=frame.ObservationIds,
-        resolvesLatestCorrection=frame.ResolvesLatestCorrection,swapMarketSelections=frame.SwapMarketSelections});
 
     // The code a failed record write fails its turn with (§7.2): the database's refusal, access_denied for a permission
     // refused, request_cancelled after an abort or the deadline, and agent_runtime_unavailable for any other failure.

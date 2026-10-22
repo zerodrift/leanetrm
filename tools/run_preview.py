@@ -18,6 +18,9 @@ from preview_fixture import fixture
 from owned_process import stop_owned_group
 
 ROOT = Path(__file__).resolve().parents[1]
+# The sessions of the 64 a scope keeps that this process leaves free once the page-assistant checks have run: the
+# browser checks' own and later suites'.
+SESSION_MARGIN = 10
 
 
 def main():
@@ -535,9 +538,18 @@ def main():
                 from check_agent_turns import run_checks as check_agent_turns
                 check_agent_turns(url,query,psql,manifest,app_env)
                 from check_agent_turn_http import run_checks as check_agent_turn_http
-                check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                sessions=check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                from check_agent_tool_http import run_checks as check_agent_tool_http
+                check_agent_tool_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap,*sessions)
                 from check_model_usage import run_checks as check_model_usage
                 check_model_usage(url,query,psql,manifest,app_env)
+                # A scope keeps at most 64 sessions for their 30 minutes (Program.cs). The browser checks below open their
+                # own, as will later page-assistant suites, so the sessions this process has opened so far, in every suite
+                # before this point, leave a stated margin for them.
+                from preview_client import PreviewClient
+                opened,cap,margin=PreviewClient.sessions['baseline'],64,SESSION_MARGIN
+                if opened+margin>cap:raise RuntimeError(f'This process opened {opened} of the {cap} sessions a scope keeps by the end of the page-assistant checks, leaving fewer than {margin}.')
+                print(f'PASS this process opened {opened} of the {cap} sessions a scope keeps by the end of the page-assistant checks, leaving {cap-opened}, at least {margin} for the browser and later suites',flush=True)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

@@ -3,8 +3,9 @@ using System.Text.Json;
 using Npgsql;
 using OpenEtrm.Api;
 
-// What a turn sends and publishes that needs no database (docs/ai-assistant.md §7.4, §7.6): answer text split into
-// appends of at most 2,048 bytes, never inside a character, and the user's message, with each earlier turn as history.
+// What a turn sends and publishes that needs no database (docs/ai-assistant.md §7.4–§7.6): answer text split into
+// appends of at most 2,048 bytes, never inside a character, the user's message, with each earlier turn as history, how
+// a call's ending ends its turn and what a read that returned becomes.
 static class TurnWorkerChecks
 {
     public static void Run()
@@ -50,7 +51,6 @@ static class TurnWorkerChecks
             (Completed(ModelStop.OutputLimit,known),true,true,("failed","limit_output_tokens")),
             (Completed(ModelStop.Refusal,known),false,true,("failed","model_refused")),
             (Completed(ModelStop.ContextWindow,known),false,true,("failed","context_window_exceeded")),
-            (Completed(ModelStop.ToolUse,known),true,true,("failed","model_provider_transport")),
             (Failed(ModelFailure.Cancelled,unknown),true,true,("failed","limit_elapsed")),
             (Failed(ModelFailure.Overloaded,known),false,true,null),
             (Failed(ModelFailure.Transport,known),false,true,null),
@@ -64,6 +64,37 @@ static class TurnWorkerChecks
             Require(Equals(TurnWorker.Ending(end,published,retriesLeft),expected),$"a call ending {end} {(published?"after":"before")} text ends its turn {expected}");
         Console.WriteLine("PASS a call's ending ends its turn as its stop or failure requires, after text as interrupted unless too large, and only a "+
             "transport failure or overload whose input is known and that published nothing is retried, while retries remain");
+
+        // A tool stop is no ending: the tool loop answers it (§7.3). Its call completed, with the usage it reported.
+        var unrecognized=known with{Status=UsageStatus.Unrecognized};
+        Require(Refuses(()=>TurnWorker.Ending(Completed(ModelStop.ToolUse,known),false,true)),"a tool stop is answered by the tool loop, not ended");
+        Require(ModelCalls.Outcome(Completed(ModelStop.ToolUse,known),"limit_elapsed")=="succeeded"
+            &&ModelCalls.Outcome(Completed(ModelStop.ToolUse,unrecognized),"limit_elapsed")=="usage_unrecognized",
+            "a completed tool stop succeeds, or is usage_unrecognized, and is never a transport failure");
+        Console.WriteLine("PASS a tool stop is a completed call the tool loop answers, never an ending or a transport failure");
+
+        // A read that returned (§7.5): no step once the turn is to stop, whatever it returned, and a read its bound stopped
+        // names the bound.
+        ToolStep Step(ToolStepEnd end,string? code)=>new("read_market_data","market_data.curves_v1",null,code,DateTimeOffset.UnixEpoch,[],end is ToolStepEnd.Result or ToolStepEnd.Refusal?"{}":null,end);
+        var (read,refused,failed,interrupted)=(Step(ToolStepEnd.Result,null),Step(ToolStepEnd.Refusal,"missing_curve"),Step(ToolStepEnd.Failure,"tool_failed"),Step(ToolStepEnd.Interrupted,null));
+        Require(new[]{read,refused,failed,interrupted}.All(s=>TurnWorker.Settled(s,true,false) is null&&TurnWorker.Settled(s,true,true) is null),
+            "once its turn is to stop, a read that returned is no step, whatever it returned");
+        Require(TurnWorker.Settled(read,false,true)==read&&TurnWorker.Settled(refused,false,true)==refused&&TurnWorker.Settled(failed,false,false)==failed
+            &&TurnWorker.Settled(interrupted,false,true) is {End:ToolStepEnd.Failure,Code:"limit_elapsed"}
+            &&TurnWorker.Settled(interrupted,false,false) is {End:ToolStepEnd.Failure,Code:"tool_failed"},
+            "a read its bound stopped fails its turn limit_elapsed when the turn's deadline was the bound, else tool_failed; any other step stands");
+        Console.WriteLine("PASS a read that returned once its turn is to stop is no step; one its bound stopped fails the turn limit_elapsed at the "+
+            "deadline, else tool_failed");
+
+        // The tool loop's next call replays the model's reply, then answers each of its requests in order (§6.1, §7.3).
+        var question=new ModelUserText("Q?");
+        using var replied=JsonDocument.Parse("""[{"type":"tool_use","id":"toolu_1","name":"read_market_data","input":{}}]""");
+        var reply=new ModelReply(MessagesAdapter.Protocol,"model-synthetic",replied.RootElement.Clone());
+        ModelToolResult[] answers=[new("toolu_1","{}",false),new("toolu_2","{\"code\":\"missing_curve\"}",true)];
+        var continued=TurnWorker.Continued([question],reply,[..answers]);
+        Require(continued.Length==3&&continued[0]==question&&continued[1]==reply&&continued[2] is ModelToolResults{Results:var results}&&results.SequenceEqual(answers),
+            "the tool loop's next call sends the earlier messages, the model's reply and each request's result in order");
+        Console.WriteLine("PASS the tool loop's next call replays the model's reply and appends each request's result in order");
 
         // A worker write that must land is retried only after a failure a later attempt may not repeat.
         PostgresException State(string state)=>new("Synthetic","ERROR","ERROR",state);
@@ -80,4 +111,11 @@ static class TurnWorkerChecks
     }
 
     static void Require(bool condition,string message){if(!condition)throw new Exception(message);}
+
+    static bool Refuses(Action action)
+    {
+        try{action();}
+        catch(ArgumentException){return true;}
+        return false;
+    }
 }
