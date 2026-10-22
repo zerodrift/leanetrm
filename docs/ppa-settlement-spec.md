@@ -1,7 +1,7 @@
 # Monthly gross PPA settlement contract
 
 Status: **ACCEPTED for the explicitly opted-in bounded fixed-strike contract**,
-2026-10-22 (D200). SP1–SP9, including rounding, approval and original adjustment
+2026-10-22 (D201). SP1–SP9, including rounding, approval and original adjustment
 due-date conventions, are accepted in this scope. The proposal wording below is
 retained as the exact accepted specification; its “propose” labels record the
 wording's origin, not an outstanding approval gate for this bounded contract.
@@ -83,8 +83,8 @@ Future support would require explicit successor-lineage/supersession policy.
 Changing MW/strike is supported only through retained Phase C coverage; no
 backdated rewrite of already originated or accepted terms is proposed.
 
-Lineage assignment is now implemented by shared migration 0094; accepted
-contribution ownership remains a **missing shared settlement contract**. Migration 0089 preserves an old
+Lineage assignment is now implemented by shared migration 0095; accepted
+contribution ownership remains a **missing shared settlement contract**. Migration 0090 preserves an old
 `binding_id` while copying/truncating its coverage, and creates a new binding for
 an amendment suffix. This is why neither summing revision history nor using a
 binding UUID as the monthly obligation identity is correct. Exact lookup keys
@@ -310,8 +310,8 @@ unchanged. No accepted-obligation totals are advertised through current APIs.
 
 | Shared operation and status | Required input and atomic outcome |
 | --- | --- |
-| Resolve payment lineage/plan occurrence (bounded power consumer implemented in 0094) | Explicit lineage mapping, exact selected trade head, month, native grid and retained coverage → canonical occurrence plus original component manifest; refuse incompatible terms/gaps/overlaps. No cash acceptance. |
-| Publish meter-finality head (bounded S1 prerequisite implemented in 0093) | Exact raw cell revision, previous finality head, explicit final/suspend/withdraw assertion, verifier/context → certified append-only head. No cash. |
+| Resolve payment lineage/plan occurrence (bounded power consumer implemented in 0095) | Explicit lineage mapping, exact selected trade head, month, native grid and retained coverage → canonical occurrence plus original component manifest; refuse incompatible terms/gaps/overlaps. No cash acceptance. |
+| Publish meter-finality head (bounded S1 prerequisite implemented in 0094) | Exact raw cell revision, previous finality head, explicit final/suspend/withdraw assertion, verifier/context → certified append-only head. No cash. |
 | Preview complete gross determination (bounded power consumer implemented) | Occurrence, exact trade/source heads, explicit policies and context → exact components, rounded proposal, due terms and full fingerprint; incomplete evidence produces no complete cash proposal. |
 | Approve exact action (S3) | Maker proposal, resolved independent checker, expiry and expected version → single-use exact approval; no obligation yet. |
 | Accept original/adjustment (S3) | Original request ID, exact approved proposal, expected accepted revision and source/trade heads → immutable event/obligation, claims, consumed approval and receipt atomically. |
@@ -326,7 +326,7 @@ shared finality evidence (S1 prerequisite) → occurrence planner/preview (S2) �
 approval, atomic acceptance, corrections and valuation partition (S3) → shared
 payments (S4). S5 automatic reconciliation requires its own profiles, discovery,
 limits, current-authority/fencing and recovery qualification. No current risk job
-profile is repurposed to settle. Migration 0093 is the meter-finality prerequisite; 0094 is immutable payment
+profile is repurposed to settle. Migration 0094 is the meter-finality prerequisite; 0095 is immutable payment
 continuity only. No cash-acceptance migration number is reserved.
 
 ## Code-aware reuse map
@@ -338,8 +338,8 @@ continuity only. No cash-acceptance migration number is reserved.
 | [PowerSettlement](../src/OpenEtrm.MarketData/Power/PowerSettlement.cs), ExactQuantity/ExactUnitPrice/ExactMoney, AmountFormat | Exact quantity×price primitives and independent arithmetic comparison. Its preview precision is not the proposed payable rounding rule; its average price is not this fixed strike. |
 | [PowerActualSettlement](../src/OpenEtrm.Api/PowerActualSettlement.cs), power_data collection/history | Native coverage and certified actual-price lineage patterns. Current response is unsaved/collected, not final or accepted. Fixed-strike cash needs no floating-price publication; physical market value remains separate. |
 | [IndexFixings](../src/OpenEtrm.MarketData/Trading/IndexFixings.cs), migration 0050 | Exact dated observation/index/source references and frozen actuals. Preserve `IndexFixing_v1`/`published_index_observations_v1`; neither provides publication-driven gas or meter finality. |
-| [0089](../db/migrations/0089_ppa_bookings.sql), PpaStore | Immutable economic terms, selected revision partition, original binding coverage, idempotent command/current-authority patterns. 0094 adds explicit lineage mapping; the shared planner derives canonical occurrence identity. Claims/approvals/obligations remain absent. |
-| Knowledge certification and [0091](../db/migrations/0091_close_book_risk.sql)/[0092](../db/migrations/0092_close_risk_renewal.sql) | Temporal pins, authority, atomic receipt and worker recovery patterns. A report receipt is not a financial ledger; 0094 adds authorized lineage/preview operations and proposal permission, without default grants or a job profile. |
+| [0090](../db/migrations/0090_ppa_bookings.sql), PpaStore | Immutable economic terms, selected revision partition, original binding coverage, idempotent command/current-authority patterns. 0095 adds explicit lineage mapping; the shared planner derives canonical occurrence identity. Claims/approvals/obligations remain absent. |
+| Knowledge certification and [0092](../db/migrations/0092_close_book_risk.sql)/[0093](../db/migrations/0093_close_risk_renewal.sql) | Temporal pins, authority, atomic receipt and worker recovery patterns. A report receipt is not a financial ledger; 0095 adds authorized lineage/preview operations and proposal permission, without default grants or a job profile. |
 
 The independent Python specification imports none of these implementations. It
 uses rational arithmetic and civil-time grids with literal expected values. It is

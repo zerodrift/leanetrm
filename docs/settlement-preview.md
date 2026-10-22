@@ -1,10 +1,10 @@
 # Bounded monthly gross fixed-strike preview
 
-D201 implements shared payment-lineage planning and one completed operating
+D202 implements shared payment-lineage planning and one completed operating
 month's gross fixed-strike preview for the explicitly opted-in fixed physical
-contract accepted in [SP1–SP9](ppa-settlement-spec.md). Migration 0094 adds
+contract accepted in [SP1–SP9](ppa-settlement-spec.md). Migration 0095 adds
 administrative continuity records; the managed backend calculates cash from
-[0093 certified meter-finality evidence](meter-finality.md).
+[0094 certified meter-finality evidence](meter-finality.md).
 
 This implements the authorized narrower power-only sequence. Global S1/S2 and
 their shared gas dependencies remain open. There is no approval, persisted cash
@@ -212,7 +212,7 @@ open. This historical qualification did not deploy the application.
 
 ## Indexed physical payment extension
 
-Migration 0095 adds the explicit `ppa_monthly_gross_indexed_v1` opt-in. The same
+Migration 0096 adds the explicit `ppa_monthly_gross_indexed_v1` opt-in. The same
 lineage, complete-coverage, temporal, final-meter, normalization and rounding
 contracts apply. The payment side's bound index supplies native prices; the
 physical location's valuation curve is never substituted. Each cell computes

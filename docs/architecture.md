@@ -1002,7 +1002,7 @@ integration and its boundaries. The compact graph kernel has a separate
 [large-graph benchmark](connected-graph-benchmark.md); that measurement does not
 qualify million-point financial compilation or hosted portfolio throughput.
 
-The slice 1 interval-price consumer extends this boundary under D192. A request prepares
+The slice 1 interval-price consumer extends this boundary under D193. A request prepares
 exact shape revisions, actual batches, coverage and knowledge time once; scenario-local
 resolvers share only those same prepared inputs and immutable market snapshot. Marked
 intervals, whole-block shapes and qualified period fixings retain distinct source states.
@@ -1017,7 +1017,7 @@ final is a structured error; expiry never invents a published final. Published p
 fixings share the existing swap eligibility predicate. This price consumer does not
 implement PPA bookings, settlement or physical/cash realisation.
 
-Slice 2 (D193) adds sealed asset capacity versions, volume sources and location
+Slice 2 (D194) adds sealed asset capacity versions, volume sources and location
 assignments within one explicitly pinned definition/reference bundle. Whole-asset
 forecast energy uses the selected capacity basis, native interval duration and
 declared adjustments; metered energy receives only the requested stage conversion.
@@ -1033,7 +1033,7 @@ normalized contribution and capacity version remain available for location valua
 Daily accreditation similarly divides summed accredited MW by summed capacity MW.
 Contract MW scales the unit result once. Contract profiles already express energy
 per contract MW. Anniversary escalation and degradation retain exact rational powers.
-D194 defines the managed valuation consumer of these quantities. Instruments retain
+D195 defines the managed valuation consumer of these quantities. Instruments retain
 full delivery terms; bindings select half-open UTC coverage on native row boundaries.
 Original delivery membership retains later payment dates, delivered quantities,
 original normalization and certificate vintages. Forward changes retain the earlier
@@ -1041,7 +1041,7 @@ coverage. Capacity delivery and linked payments require complete operating month
 daily accredited-MW/basis ratios sum into one MW-day row. Each asset/location
 component needs one price assignment covering the whole capacity month. No partial
 entitlement or intra-month capacity pricing split is inferred. Cross-binding
-definition-revision compatibility follows D195 (R3) in the durable booking and
+definition-revision compatibility follows D196 (R3) in the durable booking and
 bounded base-valuation API. Every retained binding of one trade must keep the original
 exact definition/reference bundle. An incompatible amendment is refused atomically.
 Different trades may retain different historical bundles in a book, but the bounded
@@ -1073,14 +1073,14 @@ series content, captured clock rules and the fixed knowledge context. Complete
 supplied-cell validation precedes cutoff selection; consumer headers validate on
 reuse. The index never caches deadline outcomes, normalized quantities or authority.
 Input and scope receipts retain pins,
-policies, source revisions, dates, scenario and numerical versions. Migration 0089
+policies, source revisions, dates, scenario and numerical versions. Migration 0090
 retains typed side terms, explicit memberships and immutable trade-revision bindings.
 Booking, forward amendment and termination are atomic, with current authority
 rechecked at the serialized operation boundary. Operation identities are idempotent;
 changed commands and stale revisions refuse. PPA base previews expose gross side and
 period results under one explicitly selected bundle. Existing whole-book close/risk
 consumers without a PPA adapter refuse books containing PPA positions before
-producing partial evidence. D197 implements the guided PPA UI. D198 adds the
+producing partial evidence. D198 implements the guided PPA UI. D199 adds the
 read-only existing-close durable risk consumer; settlement remains later work.
 
 PPA readers carry one certified effective/knowledge context through trading heads,
@@ -1089,7 +1089,7 @@ interval inputs. Exact TOU versions require proof through an eligible sealed bun
 that references them; an unproven standalone TOU version is refused. Separate PPA
 frame discovery never adds alternative bundles to ordinary market frame inventories.
 Request bounds distinguish evaluated schedule rows, preparation contributions and
-returned detail rows; responses use bounded UTF-8 serialization (D196).
+returned detail rows; responses use bounded UTF-8 serialization (D197).
 
 The existing-close operation pins its certified admission context, trading head,
 existing close, valuation-instant PPA cutoff, explicit policies and resolved bumps.
@@ -1843,7 +1843,7 @@ publishing. Persist results and terminal status atomically; expose a committed
 terminal result only after its transaction succeeds.
 
 The existing-close consumer implements renewable ownership and atomic terminal
-publication (D199). Its scheduler renews through a separate connection; preparation
+publication (D200). Its scheduler renews through a separate connection; preparation
 checks live ownership without locking job/run rows, then closes its transaction
 before deterministic CPU evaluation. Publication binds a fresh current context,
 waits for the publication queue before locking ownership rows, and commits the
@@ -2231,7 +2231,7 @@ single-run distributed aggregation remains unimplemented. This consumer suppleme
 the existing automation controller and generated-close mixed-product reports.
 
 PPA authoring is a catalog-driven presentation of the authorized durable operations
-(D197). Exact terms, quantities, prices, schedules, financial classifications and
+(D198). Exact terms, quantities, prices, schedules, financial classifications and
 revision admission remain managed backend responsibilities. The PPA directory
 admits complete selected books before pagination; explicit single-trade valuation
 is labelled as a subset. A bounded read-only inspector returns one binding, side
@@ -2244,8 +2244,8 @@ reconciliation within the same actor/workspace session.
 
 
 The shared [meter-finality prerequisite](meter-finality.md) is an evidence layer
-separate from Phase C meter availability and valuation. Accepted SP1–SP9 (D200)
-apply only to explicitly opted-in bounded fixed-strike contracts. Migration 0093
+separate from Phase C meter availability and valuation. Accepted SP1–SP9 (D201)
+apply only to explicitly opted-in bounded fixed-strike contracts. Migration 0094
 retains exact immutable source/raw-reading/operating-day pins and verifier evidence,
 certifies publication knowledge separately from raw knowledge, and selects the
 latest visible finality head before inspecting availability. It provides no cash
@@ -2253,7 +2253,7 @@ acceptance, obligation, payment, API, worker or global S1 completion.
 
 
 The bounded [payment-lineage planner and gross preview](settlement-preview.md)
-(D201) now consume that finality evidence. Immutable explicit original/successor
+(D202) now consume that finality evidence. Immutable explicit original/successor
 mappings preserve canonical monthly occurrence identity across retained amendment
 segments. The server builds the complete manifest from one certified trade head,
 keeps original MW/strikes/due terms and rounds exact aggregate cash once. Current
@@ -2262,7 +2262,7 @@ Preview pins are nonbinding evidence, not accepted cash or an approval token.
 Global S1/S2, settlement-aware valuation ownership and gas remain open.
 
 
-D202 resets the current PPA MVP to settlement calculations, exact draft break-even
+D203 resets the current PPA MVP to settlement calculations, exact draft break-even
 pricing and an extension of the existing graphical editor. The
 [pricing and graphical workbench record](ppa-break-even.md) records its implemented scope
 and independent evidence. Approvals, accepted-cash accounting, payments, reversals

@@ -1611,7 +1611,7 @@ existed at the time.
 
 ### Durable PPA bookings and bounded HTTP base previews
 
-Slice 4 implements migration 0089, exact typed term storage, immutable binding
+Slice 4 implements migration 0090, exact typed term storage, immutable binding
 revisions and authorized catalog, validation, booking, amendment, termination,
 status, editor, binding-page and base-preview operations. Concurrent identical
 operation IDs produce one durable result; conflicting reuse refuses. Forward
@@ -1663,7 +1663,7 @@ history and are not OS high-water marks. The platform returned no usable .NET pe
 working-set measurement. Neither wire byte counts nor repeated latency percentiles
 were measured.
 
-D196 bounds requests independently of the timings: 32 KiB bodies, 8 memberships,
+D197 bounds requests independently of the timings: 32 KiB bodies, 8 memberships,
 100 assets, 256 bindings, 360 hourly or 120 quarter-hour months, two million
 evaluated rows, four million preparation contributions, 35,136 returned native rows
 over at most twelve detail months and 8 MiB UTF-8 responses. Capacity preparation
@@ -1836,7 +1836,7 @@ listed with its reason and cannot be read.
 
 ### Shared price resolution and balance blocks
 
-Phase C slice 1 (D192) adds `PreparedCurve` and `IntervalPriceResolver`. Each
+Phase C slice 1 (D193) adds `PreparedCurve` and `IntervalPriceResolver`. Each
 request prepares exact sources, shape revisions, actuals, coverage, valuation and
 knowledge inputs once, partitioned by operating month. Resolvers retain those same
 immutable inputs per scenario. Unaffected months reuse their base arrays; a changed
@@ -1844,7 +1844,7 @@ month reuses unchanged block calibrations. New requests cannot borrow a prior
 request's cache, even when their curve codes match. `ExactQuantity.Times(ExactUnitPrice)`
 produces exact money with the quote multiplier applied once.
 
-[Migration 0087](../db/migrations/0087_interval_price_sources.sql) adds shaped actual
+[Migration 0088](../db/migrations/0088_interval_price_sources.sql) adds shaped actual
 rules, explicit period/balance membership and opt-in `freeze_final_settlement_v1`.
 The collected-source predicate is shared without changing its accepted inputs.
 Sealed balance definitions retain exact quote, commodity, location, profile, product
@@ -1881,8 +1881,8 @@ and portfolios; it does not qualify production throughput.
 
 ### Asset quantities and exact contract factors
 
-Phase C slice 2 (D193) implements the quantity foundation, using migration
-[0088](../db/migrations/0088_ppa_reference.sql). Generation assets, effective
+Phase C slice 2 (D194) implements the quantity foundation, using migration
+[0089](../db/migrations/0089_ppa_reference.sql). Generation assets, effective
 capacity/accreditation versions, volume sources and location/attribute assignments
 are sealed market definitions with exact reference foreign keys and current
 authorization checks. There is no runtime definition-write API. Reads retain one
@@ -1927,7 +1927,7 @@ ordering and multi-year holiday calendars. All 411 managed PASS groups and 208 w
 tests pass, including the preserved slice 1 checks. Another 76 native PostgreSQL
 storage checks and 32 HTTP checks exercise seals, authority, certified reads and
 endpoint contracts. The slice 1 interval/storage/browser/oracle and collected-source
-suites also pass against migration 0088.
+suites also pass against migration 0089.
 
 ### Managed covered side valuation
 
@@ -1968,7 +1968,7 @@ identity; commodity scenarios reject a changed factor context. The managed consu
 admits at most two million evaluated rows per scenario session and 35,136 detailed
 rows per unit request before row valuation. Selected-coverage quantity/input preparation
 remains eager; native grid compilation may still visit unselected months.
-D196 adds HTTP work and response limits; D198 adds durable admission limits.
+D197 adds HTTP work and response limits; D199 adds durable admission limits.
 These bound admitted work, not every preparation allocation or completion time.
 
 Checkpoint B correctness verification passes 474 managed PASS groups (490 internal
@@ -1999,7 +1999,7 @@ is 84,478,248,384/117,711,909,032 bytes. The complete benchmark process peaks at
 1,320,943,616 resident bytes, measured by the OS; that is not a separate workload
 peak. Preparation is included, synthetic fixture creation excluded, and there is
 no explicit warm-up. Preparation variability and substantial allocation traffic
-limit performance conclusions. This completes Checkpoint B. At that checkpoint service work remained deferred; D195 subsequently
+limit performance conclusions. This completes Checkpoint B. At that checkpoint service work remained deferred; D196 subsequently
 accepts R3 policy without implementing its booking or whole-book operations.
 
 The subsequent bounded optimization prepares immutable quantity-series indexes
@@ -2039,7 +2039,7 @@ or preparation-memory guarantee. No secondary optimization is implemented.
 
 - Synchronous PPA HTTP previews provide base valuation. Read-only existing-close
   book risk has authorized HTTP admission, worker execution and persisted typed
-  reports (D198/D199). Legacy generated-close operations still refuse PPA
+  reports (D199/D200). Legacy generated-close operations still refuse PPA
   positions; generated-close cutover is unimplemented. No operation publishes a
   supported subset as a complete incompatible-book total. Settlement acceptance
   and payment recording remain unimplemented; realised valuation is not payment.
@@ -2138,7 +2138,7 @@ authority rechecks apply. Neither route introduces cross-request valuation reuse
 or changes the bounded consumer's economic policies. The guided browser suite is
 part of `tools/check_all.py` and uses only the launcher's owned synthetic database.
 
-Migration 0090 supplies the narrowly authorized authoring directory and historical
+Migration 0091 supplies the narrowly authorized authoring directory and historical
 binding projection. Authoring choices are current-known and eligible at the selected
 frame's effective instant, matching the existing booking execution contract. The
 migration preserves private visibility helpers, actor-owned operation recovery and
@@ -2184,7 +2184,7 @@ Report mode distinguishes an existing close from a generated close. Typed receip
 rows retain interval input revisions, shape and collected actual sources, asset
 versions and payment discount provenance.
 
-Migration 0091 adds the admission and report relationships. The new claim overload
+Migration 0092 adds the admission and report relationships. The new claim overload
 accepts an explicit supported-operation list. Old signatures keep their historical
 operation set, and a generated-v1 occurrence containing PPA positions is blocked
 before a legacy worker can omit them. Existing jobs, runs and reports are not
@@ -2214,7 +2214,7 @@ evaluation or creation of a claimable job.
 At the initial slice-6 qualification, the worker used a maximum 120-second lease
 without renewal during a portfolio transaction. The full 480-factor measurements
 below therefore qualified the managed engine and reuse counters, not durable-job
-completion, HTTP latency or production throughput. D199 subsequently qualifies
+completion, HTTP latency or production throughput. D200 subsequently qualifies
 renewable existing-close completion for the separately identified workload below.
 The resource ceiling still does not promise that every admitted workload finishes
 within its explicit overall deadline. Generated-close cutover, settlement and
@@ -2265,7 +2265,7 @@ work counters in all 15 samples. These measurements support the declared work
 accounting. At that qualification, each of the three risk cases exceeded the
 nonrenewing 120-second worker lease; the admission ceiling and overall timeout
 were not raised. These original engine samples were not rerun as durable jobs by
-the bounded D199 completion fix.
+the bounded D200 completion fix.
 
 The complete local synthetic gate passed on 2026-10-22 with stock PostgreSQL 16,
 the pinned .NET SDK and Node versions, and Chrome. It includes 497 managed core
@@ -2277,13 +2277,13 @@ refusals without certification writes, restrictive metadata policies, helper-rol
 isolation, cancellation and natural lease expiry during blocked reads. The
 pre-upgrade comparison preserves historical jobs, runs, reports and financial
 rows. No unresolved correctness finding remains in this bounded local scope;
-the original long-running completion gap is addressed only by the specific D199
+the original long-running completion gap is addressed only by the specific D200
 qualification below; broader workload and deployment limits remain open.
 
 
 ### Renewable existing-close completion qualification
 
-D199 separates preparation, immutable CPU valuation and atomic publication.
+D200 separates preparation, immutable CPU valuation and atomic publication.
 The first failing actual-worker regression observed no renewal of a 15-second
 lease during real ten-year hourly risk work. A second failing HTTP regression
 observed a version conflict when cancellation followed committed success; the
@@ -2373,10 +2373,10 @@ Independent whole-branch review is closed with no open material finding; all
 remaining limits in the qualification record still apply.
 
 
-### Shared meter-finality prerequisite (D200)
+### Shared meter-finality prerequisite (D201)
 
 [Meter-finality operations and boundaries](meter-finality.md) describe migration
-0093. Immutable final/suspended/withdrawn heads, exact source/raw/calendar foreign
+0094. Immutable final/suspended/withdrawn heads, exact source/raw/calendar foreign
 keys, current scoped verification authority, complete-payload idempotency and
 commit-certified temporal selection are implemented as authenticated runtime
 database operations. A retained source definition covers the original operating
@@ -2386,9 +2386,9 @@ acceptance, obligation, payment, settlement worker or gas implementation is adde
 Existing Phase C quantity and valuation consumers do not consume this evidence yet.
 
 
-### Bounded payment planning and gross preview (D201)
+### Bounded payment planning and gross preview (D202)
 
-[Implementation and qualification](settlement-preview.md) cover migration 0094,
+[Implementation and qualification](settlement-preview.md) cover migration 0095,
 `MonthlyGrossPreview`, `SettlementPreview` and two authorized HTTP operations.
 They add immutable explicit lineage mappings and read-only complete-month cash
 previews with exact evidence and once-per-occurrence rounding. The capability
@@ -2399,7 +2399,7 @@ No approved/persisted cash proposal, acceptance, obligation, payment or worker i
 implemented. Global S1/S2 and gas remain open.
 
 
-D202 resets the current PPA MVP to settlement calculations, exact draft break-even
+D203 resets the current PPA MVP to settlement calculations, exact draft break-even
 pricing and an extension of the existing graphical editor. The
 [pricing and graphical workbench record](ppa-break-even.md) records its implemented scope
 and independent evidence. Approvals, accepted-cash accounting, payments, reversals
