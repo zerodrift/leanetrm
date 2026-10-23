@@ -39,8 +39,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('mismatched combined contexts clear catalog and rows without stale fallback',"!document.querySelector('#error').hidden&&document.querySelector('#futures-holdings').children.length===0&&document.querySelector('#futures-form').hidden");
   await click('#futures-refresh');
   await wait("document.querySelector('#futures-holdings .tabulator-row')&&!document.querySelector('#blotter-export').disabled");
-  await click('#futures-holdings [role=columnheader][tabulator-field=c5]');
-  await check('grid sorts lots while retaining exact display strings',"(()=>{const values=[...document.querySelectorAll('#futures-holdings .tabulator-row [tabulator-field=c5]')].map(n=>n.textContent.trim());const expected=window.__tradingReports(window.__futuresResponses).at(-1).data.holdings.map(h=>h.lots).sort((a,b)=>Number(a)-Number(b));return document.querySelector('#futures-holdings [role=columnheader][tabulator-field=c5]').getAttribute('aria-sort')==='ascending'&&JSON.stringify(values)===JSON.stringify(expected.slice(0,values.length))&&values.length>0&&document.querySelector('#error').hidden;})()");
+  await click('#futures-holdings [role=columnheader][tabulator-field=c6]');
+  await check('grid sorts lots while retaining exact display strings',"(()=>{const values=[...document.querySelectorAll('#futures-holdings .tabulator-row [tabulator-field=c6]')].map(n=>n.textContent.trim());const expected=window.__tradingReports(window.__futuresResponses).at(-1).data.holdings.map(h=>h.lots).sort((a,b)=>Number(a)-Number(b));return document.querySelector('#futures-holdings [role=columnheader][tabulator-field=c6]').getAttribute('aria-sort')==='ascending'&&JSON.stringify(values)===JSON.stringify(expected.slice(0,values.length))&&values.length>0&&document.querySelector('#error').hidden;})()");
   await check('active preview user is visible in the profile header',"document.querySelector('#profile-label').textContent==='Trader'");
   const accessReads=await evaluate("window.__futuresResponses.filter(r=>r.path==='/api/access').length");
   await click('#profile-open');
@@ -196,4 +196,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#blotter-column-choices input[value="executed"]');
   await check('row search matches the same text once its column is displayed',"!document.querySelector('#futures-holdings .table-row-count').textContent.startsWith('0 of ')");
   await check('the blotter renders the server persistence instant in the selected user clock',"(()=>{const row=window.__tradingReports(window.__futuresResponses).at(-1).data.holdings.at(-1);const clock=new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'}).format(new Date(row.executedAt));return document.querySelector('#futures-holdings').textContent.includes(clock);})()");
+  // Commodity is a pivot dimension: the backend names each group from its reference, and the grid shows that name.
+  await menu('blotter-pivot');await set('#blotter-mode','pivot');await click('#blotter-dimensions input[value="commodity"]');await click('#blotter-measures input[value="tradeCount"]');await click('#blotter-apply');
+  await wait("document.querySelector('#futures-holdings .tabulator-row')&&!document.querySelector('#blotter-export').disabled");
+  await check('a pivot by commodity names each group from its reference',"(()=>{const text=document.querySelector('#futures-holdings').textContent;return document.querySelectorAll('#futures-holdings .tabulator-row').length===1&&text.includes('Synthetic gas')&&!text.includes('[object')&&document.querySelector('#error').hidden;})()");
 }

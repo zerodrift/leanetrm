@@ -63,6 +63,7 @@ def main():
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
     parser.add_argument('--valuation-status-check',action='store_true',help='Qualify Blotter reads and risk runs at closes that cannot value every seeded position')
+    parser.add_argument('--desk-fields-check',action='store_true',help='Qualify the commodity, swap direction and mark minus price of Blotter rows, and commodity pivots, in the seeded standard example')
     parser.add_argument('--with-custom-curves',action='store_true',help='Load synthetic monthly and daily NG panels for the custom curve editor')
     parser.add_argument('--exchange-check',action='store_true',help='Qualify the independent exchange futures dataset')
     parser.add_argument('--with-exchange',action='store_true',help='Publish the independent exchange futures dataset in this newly owned database')
@@ -87,12 +88,14 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.valuation_status_check:
+    if args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
         if args.market_read_check and args.browser_check:
             parser.error('--market-read-check has no browser scenarios; omit --browser-check')
+        if args.desk_fields_check and args.browser_check:
+            parser.error('--desk-fields-check has no browser scenarios; omit --browser-check')
     if not 0 <= args.port <= 65535:
         parser.error('Port must be between 0 and 65535')
     if args.browser_check and (not args.check or args.example!='standard' or args.browser is None or not args.browser.is_file()):
@@ -416,7 +419,7 @@ def main():
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
-        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check) and args.example=='standard' and not args.with_ppa:
+        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard' and not args.with_ppa:
             from seed_preview_positions import seed_positions
             seed_positions(url,run_id,temporary)
             from seed_preview_swaps import seed_swaps
@@ -675,6 +678,9 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--valuation-status'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned valuation status browser checks failed')
+            elif args.desk_fields_check:
+                from check_blotter_desk_fields import run_checks as check_desk_fields
+                check_desk_fields(url)
             elif args.provider_adapters_check:
                 from preview_client import PreviewClient
                 from check_additional_providers import run_checks as check_additional_providers

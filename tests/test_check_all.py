@@ -70,6 +70,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--connected-portfolio-check' in c for c in commands))
         self.assertTrue(any('--market-dates-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--valuation-status-check' in c and '--browser-check' in c for c in commands))
+        self.assertTrue(any('--desk-fields-check' in c for c in commands))
         self.assertTrue(any('--jobs-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('tools/check_reference_editing.py' in c for c in commands))
         self.assertTrue(any('tools/check_power_integrity.py' in c for c in commands))

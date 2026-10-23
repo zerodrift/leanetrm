@@ -118,6 +118,18 @@ internal static class PreviewDataChecks
                 Reject("ambiguous_reference",()=>Data(references:new(fixture.References){[table]=[..rows,rows[0]]}));
             }
         });
+        Check("a curve's commodity is the code and name of its reference, and a curve without one fails the read",()=>
+        {
+            ImmutableArray<JsonElement> Commodities(params string[] codes)=>[..codes.Select(code=>Row(new{code,name="Synthetic "+code}))];
+            ImmutableArray<JsonElement> Curve(string? commodity)=>[Change(fixture.Definitions["curves"].Single(),"commodity_code",commodity)];
+            PreviewData Held(ImmutableArray<JsonElement> commodities,ImmutableArray<JsonElement> curves)=>
+                Data(references:new(fixture.References){["commodities"]=commodities},definitions:new(fixture.Definitions){["curves"]=curves});
+            if(Held(Commodities("gas","power"),Curve("gas")).Commodity("future") is not {Code:"gas",Name:"Synthetic gas"})throw new Exception("A curve lost the commodity its reference names.");
+            Reject("ambiguous_reference",()=>Held(Commodities("gas"),Curve("gas")).Commodity("unlisted"));
+            Reject("ambiguous_reference",()=>Held(Commodities("power"),Curve("gas")).Commodity("future"));
+            Reject("ambiguous_reference",()=>Held(Commodities("gas","gas"),Curve("gas")).Commodity("future"));
+            Reject("ambiguous_reference",()=>Held(Commodities("gas"),Curve(null)).Commodity("future"));
+        });
         Check("duplicate typed definitions retain their domain error",()=>
         {
             Reject("duplicate_definition",()=>Data(definitions:new(fixture.Definitions){["contracts"]=[..fixture.Definitions["contracts"],fixture.Definitions["contracts"][0]]}));

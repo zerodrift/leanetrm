@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 using OpenEtrm.MarketData.Risk;
@@ -185,7 +186,19 @@ public sealed partial class SwapStore(PreviewDatabase database)
      to=reset.Price.Term.Lookup is {} e?Date(e.Contract.DeliveryTo):Date(p.Cashflow.Plan.DeliveryTo),weight=reset.Price.Term.Weight.ToString(),price=ExactPrice(reset.Price.ExactPrice),
      exactPrice=new{reset.Price.ExactPrice.Numerator,reset.Price.ExactPrice.Denominator},spread=reset.Price.Term.Spread?.Value.ToString(),
      currency=reset.Price.ExactPrice.Unit.Currency,quantity=reset.Price.ExactPrice.Unit.Quantity,multiplier=reset.Price.ExactPrice.Unit.Multiplier.ToString(),lookup=reset.Price.Term.Lookup,lineage=reset.Price.Lineage})})})};
- private static string ExactPrice(OpenEtrm.MarketData.CustomCurves.ExactUnitPrice price)=>price.ToExactString();
+ private static string ExactPrice(ExactUnitPrice price)=>price.ToExactString();
+ // Pay or receive fixed, from the stored membership coefficient of the fixed side. A swap of two floating sides has no
+ // fixed side to pay or receive.
+ private static string Direction(FinancialSwapInstrument instrument)
+ {
+  if(instrument.First is not FixedSide)return "multi_side";
+  var coefficient=instrument.Sides[0].Coefficient;
+  return coefficient==ExactDecimal.Parse("-1")?"pay_fixed":coefficient==ExactDecimal.Parse("1")?"receive_fixed":
+   throw Error("swap_instrument","The fixed side's coefficient is neither pay (-1) nor receive (1).");
+ }
+ // The mark less the fixed price, exactly. A swap without a fixed side or without one mark states none.
+ private static string? MarkMinusPrice(FinancialSwapInstrument instrument,ExactUnitPrice? mark)=>
+  mark is not null&&instrument.First is FixedSide fixedSide?ExactPrice(mark.Subtract(ExactUnitPrice.FromPrice(fixedSide.Price))):null;
  public Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)=>Catalog(connection,data,frame,ct,null);
  private async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct,SwapWriteRequest? retained)
  {
@@ -511,9 +524,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
   foreach(var row in rows)
   {
    var terms=Terms(data,row,frame.Id);var id=row.Id("instrument_id");
+   var source=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?data:One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId)).Data;
    if(!identities.TryGetValue(id,out var identity))
    {
-    var source=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?data:One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId)).Data;
     var resolved=Resolve(source,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id")).Instrument;
     identity=((resolved.EconomicIdentity,resolved.PricingBindingIdentity,id),resolved);identities.Add(id,identity);
    }
@@ -531,14 +544,16 @@ public sealed partial class SwapStore(PreviewDatabase database)
    }
    else unvaluedRows.Add((row,unvalued[key]));
    var instrument=identity.Instrument;var quantity=new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),instrument.UnitQuantity.Specification);
+   // A mark is the floating side's one reset price; an averaged side has several and so no mark.
+   var mark=value?.Sides[1].Payments[0].Cashflow.Prices is {Length:1} resets?resets[0].ExactPrice:null;
    var currency=One(data.References["currencies"].Where(c=>c.Text("code")==instrument.Currency.Code));
    var specification=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quantity.Specification.Code));
    var unit=One(data.References["units"].Where(u=>u.Text("code")==specification.Text("unit_code")));var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
    result.Add(Json(new{booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),traderId=row.Id("booker_id"),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentId=row.Id("instrument_id"),instrumentReference=TradingReference.Instrument(row),bindingId=row.Id("binding_id"),
     revision=row.Text("revision"),bookId=row.Id("book_id"),book=book.Text("name"),portfolioId=book.Id("portfolio_id"),portfolio=book.Text("portfolio"),instrumentType="financial_swap",definitionRevisionId=row.Id("definition_revision_id"),
-    contractId=row.Id("instrument_id"),contractIdentityKind="swap_instrument",curve=row.Text("curve_code"),deliveryFrom=row.Text("floating_from"),deliveryTo=row.Text("floating_to"),
+    contractId=row.Id("instrument_id"),contractIdentityKind="swap_instrument",curve=row.Text("curve_code"),commodity=source.Commodity(row.Text("curve_code")),direction=Direction(instrument),deliveryFrom=row.Text("floating_from"),deliveryTo=row.Text("floating_to"),
     quoteMultiplier=instrument.Floating.Quote.Multiplier.ToString(),lots=(string?)null,quantity=quantity.Amount.ToString(),unit=unit.Text("symbol"),quantitySpecification=quantity.Specification,currencyReference=instrument.Currency,
-    executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=row.OptionalText("fixed_price"),mark=value?.Sides[1].Payments[0].Cashflow.Prices.Length==1?ExactPrice(value.Sides[1].Payments[0].Cashflow.Prices[0].ExactPrice):null,executionPnl=(string?)null,
+    executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=row.OptionalText("fixed_price"),mark=mark is null?null:ExactPrice(mark),markMinusPrice=MarkMinusPrice(instrument,mark),executionPnl=(string?)null,
     presentValue=value is null?null:Exact(value.ExactPresentValue),currency=currency.Text("display_code"),settlement="Projection",unavailableReason=unvalued.GetValueOrDefault(key)}));
   }
   // Request-local work: each unique unit valuation attempted, whether or not the close could value it.

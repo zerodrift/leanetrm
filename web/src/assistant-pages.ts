@@ -53,7 +53,7 @@ const pageNames:Record<string,string>={curves:'Curves & prices',contract_definit
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Custom curves',interval_series:'Interval series',interval_curves:'Interval curves',jobs:'Jobs & Infrastructure',users_access:'Users & access',
   settings_ai:'AI',ppa:'PPA bookings'};
-const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type'};
+const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
 const counted=(n:number,noun:string)=>`${n} ${noun}${n===1?'':'s'}`;
 const joined=(names:string[])=>names.length>1?`${names.slice(0,-1).join(', ')} and ${names.at(-1)}`:names[0];
 export type Names={curve:(code:string)=>string;table:(code:string)=>string};

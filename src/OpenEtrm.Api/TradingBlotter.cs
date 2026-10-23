@@ -22,7 +22,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
  {
   if(view is null||view.Mode is not("trades" or "pivot")||view.GroupBy.IsDefault||view.Measures.IsDefault||
    view.GroupBy.Distinct().Count()!=view.GroupBy.Length||view.Measures.Distinct().Count()!=view.Measures.Length||
-   view.GroupBy.Any(d=>d is not("portfolio" or "book" or "market" or "contract" or "instrumentType"))||
+   view.GroupBy.Any(d=>d is not("portfolio" or "book" or "market" or "contract" or "instrumentType" or "commodity"))||
    view.Measures.Any(m=>m is not("tradeCount" or "lots" or "quantity" or "executionPnl" or "presentValue")&&!PriceMeasures.ContainsKey(m))||
    (view.Measures.Any(m=>PriceMeasures.TryGetValue(m,out var price)&&price.Statistic==PriceStatistic.ArithmeticMean)?view.PriceNumericalPolicy!=PriceStatistics.MeanPolicy:view.PriceNumericalPolicy is not null)||
    (view.Mode=="trades"?(view.GroupBy.Length!=0||view.Measures.Length!=0||view.PivotConvention is not null):
@@ -57,7 +57,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
    var curve=data.Definitions["curves"].Single(c=>c.Text("code")==row["curve"]!.GetValue<string>());
    var quote=data.Quotes.Single(q=>q.Key.Code==curve.Text("quote_code"));
    row["quantitySpecification"]=JsonSerializer.SerializeToNode(quote.Quantity,Json);row["currencyReference"]=JsonSerializer.SerializeToNode(quote.Currency,Json);
-   row["definitionRevisionId"]=manifest.RevisionId.ToString();row["instrumentType"]="future";row["presentValue"]=null;row["fixedPrice"]=null;
+   row["definitionRevisionId"]=manifest.RevisionId.ToString();row["instrumentType"]="future";row["presentValue"]=null;row["fixedPrice"]=null;row["direction"]=null;
   }
   var swapRows=await swaps.Holdings(connection,data,frame,view.BookIds,view.PortfolioIds,ct);
   rows.AddRange(swapRows.Rows.Select(r=>JsonNode.Parse(r.GetRawText())!.AsObject()));
@@ -85,9 +85,11 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
   int Unvalued(IEnumerable<JsonObject> selected)=>selected.Where(r=>!Valued(r)).Select(r=>Text(r,"tradeId")).Distinct().Count();
   var groups=new List<JsonObject>();
   var hasPrices=view.Measures.Any(PriceMeasures.ContainsKey);
-  var dimensions=new Dictionary<string,string>{{"portfolio","portfolioId"},{"book","bookId"},{"market","curve"},{"contract","contractId"},{"instrumentType","instrumentType"}};
+  var dimensions=new Dictionary<string,string>{{"portfolio","portfolioId"},{"book","bookId"},{"market","curve"},{"contract","contractId"},{"instrumentType","instrumentType"},{"commodity","commodity"}};
+  // What identifies a row's group in a dimension: the field's text, or the code of the reference the field names.
+  string? Identity(JsonObject row,string field)=>row[field] is JsonObject reference?Text(reference,"code"):Text(row,field);
   var partitions=rows.OrderBy(r=>Text(r,"tradeId"),StringComparer.Ordinal).ThenBy(r=>Text(r,"bindingId"),StringComparer.Ordinal).GroupBy(r=>JsonSerializer.Serialize(new{
-   dimensions=view.GroupBy.Select(d=>Text(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=Key(r,"quantitySpecification"),currency=Key(r,"currencyReference"),
+   dimensions=view.GroupBy.Select(d=>Identity(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=Key(r,"quantitySpecification"),currency=Key(r,"currencyReference"),
    priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=view.GroupBy.Any(d=>d is "market" or "contract")?Text(r,"definitionRevisionId"):null}));
   foreach(var partition in partitions)
   {

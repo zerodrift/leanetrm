@@ -161,10 +161,10 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
                     bookId=p.Trade.BookId,book=Name(p.Trade.BookId),portfolioId=Portfolio(p.Trade.BookId),portfolio=books.Single(b=>b.Id("id")==p.Trade.BookId).Text("portfolio"),
                     bindingId=p.Position.Id,instrumentId=p.Position.RetainedInstrumentId,pricingBindingId=side.Id,canonicalInstrumentId=side.Instrument.Id,
                     priceTick=side.Quote.TradingTick.ToString(),markTick=side.Quote.ClearingIncrement.ToString(),quoteMultiplier=side.Quote.Multiplier.ToString(),contractId=side.Contract.Key.Id,
-                    curve=side.Market.Curve.Code,deliveryFrom=Date(side.Contract.DeliveryFrom),deliveryTo=Date(side.Contract.DeliveryTo),
+                    curve=side.Market.Curve.Code,commodity=data.Commodity(side.Market.Curve.Code),deliveryFrom=Date(side.Contract.DeliveryFrom),deliveryTo=Date(side.Contract.DeliveryTo),
                     lots=row.Text("lots"),quantity=p.Position.Quantity.Amount.ToString(),unit=Unit(p.Position.Quantity.Specification),
                     executedAt=row.Text("booked_at"),economicEffectiveAt=row.Text("effective_at"),
-                    executionPrice=p.Position.ExecutionPrice.Value.ToString(),mark=p.Holding?.Mark.Value.ToString(),executionPnl=p.Holding?.ExecutionPnl.Amount.ToString(),
+                    executionPrice=p.Position.ExecutionPrice.Value.ToString(),mark=p.Holding?.Mark.Value.ToString(),markMinusPrice=p.Holding is {} held?held.Mark.Subtract(held.ExecutionPrice).Value.ToString():null,executionPnl=p.Holding?.ExecutionPnl.Amount.ToString(),
                     currency=Currency(p.Position.Instrument.Currency),settlement="unprocessed",unavailableReason=p.Reason};
             }).ToArray(),
             totals=positions.GroupBy(p=>(p.Trade.BookId,p.Position.Instrument.Currency)).Select(g=>new {book=Name(g.Key.BookId),currency=Currency(g.Key.Currency),

@@ -10,6 +10,7 @@ from collections import defaultdict
 from fractions import Fraction
 import json
 from uuid import UUID, uuid4, uuid5
+from check_blotter_desk_fields import SEEDED_DIRECTION
 from check_portfolio_risk import financial, reconcile
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
@@ -90,6 +91,10 @@ def run_checks(url, session=None):
           all(r['unavailableReason'] in (None, *REASONS) for r in rows))
     check('positions the close cannot value have blank mark, P&L and PV, never zero',
           all(r['mark'] is None and r['executionPnl'] is None and r['presentValue'] is None for r in rows if r['unavailableReason']))
+    left_out = [r for r in rows if r['unavailableReason']]
+    check('positions the close cannot value still state their commodity and swap direction, and no mark minus price',
+          len(left_out) == 16 and all(r['markMinusPrice'] is None and r['commodity']['code'] in ('test_gas', 'test_power')
+                                      and r['direction'] == (None if r['instrumentType'] == 'future' else SEEDED_DIRECTION) for r in left_out))
     expired = [r for r in rows if r['curve'] == 'future']
     check('the January future, expired on Dec 28, 2020, is reported expired rather than failing the read',
           len(expired) == 8 and all(r['unavailableReason'] == 'source_expired' for r in expired))
@@ -103,6 +108,8 @@ def run_checks(url, session=None):
     point = next(p for p in c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_monthly'})['points'] if p['deliveryFrom'] == '2021-02-01')
     check('a valued future keeps the price its curve builds without the expired neighbour',
           held['unavailableReason'] is None and Fraction(held['mark']) == Fraction(point['value']))
+    check('its mark minus price is exact against its executed price',
+          Fraction(held['markMinusPrice']) == Fraction(held['mark'])-Fraction('3.05'))
     check('its execution P&L is exact against that price',
           Fraction(held['executionPnl']) == (Fraction(held['mark'])-Fraction('3.05'))*Fraction(held['quoteMultiplier'])*Fraction(held['quantity']))
     check('only the valued futures market counts as an evaluated price', late['evaluatedContracts'] == 1)

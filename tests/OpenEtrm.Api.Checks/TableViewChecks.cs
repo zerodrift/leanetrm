@@ -24,6 +24,10 @@ static class TableViewChecks
             catch(MarketDataException e) when(e.Code=="table_view"){Console.WriteLine("PASS chart layouts reject unsupported plot styles and measures");}
         }
         Console.WriteLine("PASS versioned layouts retain explicit pivot chart measures and styles");
+        var commodityPivot=new Dictionary<string,object>(visual){["mode"]="pivot",["groupBy"]=new[]{"commodity"},["measures"]=new[]{"tradeCount"},
+            ["columns"]=new[]{"commodity","tradeCount","unit","currency"},["chart"]=new {visible=true,measure="tradeCount",kind="bar"}};
+        TableViews.Validate(JsonSerializer.SerializeToElement(commodityPivot));
+        Console.WriteLine("PASS a pivot layout may group by commodity");
         modern["splitBy"]=new[]{"contract"};
         try{TableViews.Validate(JsonSerializer.SerializeToElement(modern));throw new Exception("Accepted unbound split dimension");}
         catch(MarketDataException e) when(e.Code=="table_view"){Console.WriteLine("PASS cross-tab columns must belong to explicit pivot grouping");}

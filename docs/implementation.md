@@ -252,6 +252,23 @@ close cannot value one of their contracts. `tools/run_preview.py --check
 --valuation-status-check` qualifies the reads and risk runs on the seeded example with
 the custom-curve closes through Dec 31, 2020.
 
+Blotter rows also state the commodity, swap direction and mark minus price the desk groups
+and compares (blotter-desk.md, Backend changes). `commodity` is `{code, name}`, the reference
+commodity of the position's curve, the pair the curve directory gives as the curve's category
+before any reviewed display label, which the Blotter, like its unit symbols, does not apply; a
+curve whose commodity reference is missing or ambiguous fails the read with
+`ambiguous_reference`, and nothing is read from a curve or trade name. `direction` is
+`pay_fixed` or `receive_fixed` from the stored coefficient of a swap's fixed side (-1 or 1),
+`multi_side` for a swap of two floating sides, and null for a future; it follows the trade's
+latest revision. `markMinusPrice` is the exact mark less a future's executed price or a swap's
+fixed price, kept as an exact rational where the mark is one. It is null for a multi-side swap,
+for a position the close cannot value and for a swap whose floating side has no single mark.
+Commodity is also a pivot dimension, a column choice, a saved-view dimension and a grouping the
+assistant's Blotter read accepts; the Blotter table shows it as a column and in pivots, and does
+not yet show direction or mark minus price. `tools/run_preview.py --check --desk-fields-check`
+qualifies the fields on the seeded example, adding a receive-fixed swap, a floating/floating swap
+and an amendment that changes a direction.
+
 The editor opens from trade rows. Amendments append immutable latest-head booking
 states with expected revision, explicit reason/effective instant, current authority
 and idempotent operation identity. Previous states remain read-only. Book moves

@@ -90,6 +90,8 @@ test('Looking at says what each read page shows in words, never with an identifi
   assert.equal(shows({page:'futures',risk:false,trade:null,view:{...blotter,bookIds:[]}}),'Trade rows · every book you can read');
   assert.equal(shows({page:'futures',risk:false,trade:null,view:{...blotter,mode:'pivot',bookIds:[],portfolioIds:[portfolio,book],groupBy:['contract','instrumentType']}}),
     'Totals by contract and instrument type · 2 portfolios');
+  assert.equal(shows({page:'futures',risk:false,trade:null,view:{...blotter,mode:'pivot',bookIds:[],groupBy:['commodity','instrumentType'],measures:['tradeCount']}}),
+    'Totals by commodity and instrument type · every book you can read');
   assert.deepEqual(lookingAt(pageReport({page:'futures',risk:true,trade:null,view:blotter}),working,names),
     {page:'Blotter',shows:'The assistant does not read risk results.',context:'Working data · As of 18 Dec 2020 16:00',supported:false,askable:true});
   // A historical selection that is not yet applied pins nothing the page shows, so nothing can be asked.

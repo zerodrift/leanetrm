@@ -673,6 +673,15 @@ public sealed class PreviewData
     public IEnumerable<MarketContract> ContractRows(Guid id)=>contractRows[id];
     public IEnumerable<QuoteSpecification> QuoteRows(string code)=>quoteRows[code];
     public bool HasCurveMember(string curve,Guid contract)=>curveMembers.Contains((curve,contract));
+    // The commodity a curve belongs to: the code and name its commodity reference has, as the curve directory's category
+    // for the curve has them before any reviewed display label. A curve whose commodity reference is missing or ambiguous
+    // fails the read; a position's commodity is never defaulted or read from a name.
+    public NavigationCategory Commodity(string curve)
+    {
+        var code=Single(DefinitionRows("curves","code",curve)).Text("commodity_code");
+        var commodity=Single(ReferenceRows("commodities","code",code));
+        return new(commodity.Text("code"),commodity.Text("name"));
+    }
     public static void RequireBundlePin(PreviewManifest manifest, JsonElement row)
     {
         if (row.Id("catalog_id") != manifest.CatalogId || row.Id("id") != manifest.RevisionId ||

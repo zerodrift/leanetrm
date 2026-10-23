@@ -29,6 +29,13 @@ test('price pivot layouts retain explicit statistics, units and exact arithmetic
  assert.throws(()=>parseBlotterViews(JSON.stringify([{...newBlotterView(),columns:['fixedPriceMean']}])));
 });
 
+test('a saved view may group by commodity and show it beside trade rows',()=>{
+ const pivot={...newBlotterView(),mode:'pivot',groupBy:['commodity'],measures:['tradeCount'],columns:['commodity','tradeCount','instrumentType','unit','currency']};
+ assert.deepEqual(parseBlotterViews(JSON.stringify([pivot]))[0],pivot);
+ const rows={...newBlotterView(),columns:['commodity','market','mark']};
+ assert.deepEqual(parseBlotterViews(JSON.stringify([rows]))[0].columns,['commodity','market','mark']);
+});
+
 test('chart layouts retain plot style and measures while older views upgrade presentation only',()=>{
  const view={...newBlotterView(),version:3,chart:{visible:true,measure:'presentValue',kind:'heatmap'}};
  assert.deepEqual(parseBlotterViews(JSON.stringify([view]))[0],view);

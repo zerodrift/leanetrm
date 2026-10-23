@@ -141,6 +141,7 @@ static class AgentToolChecks
             ("read_market_data","""{"view":"contract_definitions","curve":null}""","market_data.contract_definitions_v1"),
             ("read_trades",blotter,"trades.blotter_v1"),
             ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":["{{Book}}"],"portfolioIds":[],"groupBy":["contract"],"measures":["lots","presentValue"],{{NoTrade}}}""","trades.blotter_v1"),
+            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":["commodity","instrumentType"],"measures":["tradeCount","quantity"],{{NoTrade}}}""","trades.blotter_v1"),
             ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":null}""","trades.trade_v1"),
             ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"financial_swap","revision":2}""","trades.trade_v1"),
             ("read_trade_parties","""{"kind":"legal_entity"}""","trade_parties.versions_v1"),
@@ -229,7 +230,7 @@ static class AgentToolChecks
         // The largest inputs the schemas accept, which a step stores as jsonb: its text adds a space after each separator.
         string Ids()=>string.Join(",",Enumerable.Range(0,64).Select(_=>$"\"{Guid.NewGuid()}\""));
         foreach(var (tool,input) in new[]{
-            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[{{Ids()}}],"portfolioIds":[{{Ids()}}],"groupBy":["portfolio","book","market","contract","instrumentType"],"measures":["tradeCount","lots","quantity","executionPnl","presentValue"],{{NoTrade}}}"""),
+            ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[{{Ids()}}],"portfolioIds":[{{Ids()}}],"groupBy":["portfolio","book","market","contract","instrumentType","commodity"],"measures":["tradeCount","lots","quantity","executionPnl","presentValue"],{{NoTrade}}}"""),
             ("read_reference_data",$$"""{"table":"{{PreviewDatabase.ReferenceTables.MaxBy(t=>t.Length)}}","search":"{{new string('€',160)}}"}""")})
         {
             var parsed=Json(input);

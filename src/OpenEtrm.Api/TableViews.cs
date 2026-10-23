@@ -13,8 +13,8 @@ public sealed record DeleteTableView(string Name, Guid ExpectedVersion);
 
 public static class TableViews
 {
-    private static readonly string[] Columns=["tradeDate","legalEntity","counterparty","traderCode","trader","memo","instrumentType","fixedPrice","presentValue","portfolio","book","market","contract","executed","tradeCount","lots","quantity","unit","priceUnit","executionPrice","mark","executionPnl","currency","settlement","tradeReference","instrumentReference","revision",..TradingBlotter.PriceMeasures.Keys];
-    private static readonly string[] Dimensions=["instrumentType","portfolio","book","market","contract"];
+    private static readonly string[] Columns=["tradeDate","legalEntity","counterparty","traderCode","trader","memo","instrumentType","fixedPrice","presentValue","portfolio","book","market","contract","commodity","executed","tradeCount","lots","quantity","unit","priceUnit","executionPrice","mark","executionPnl","currency","settlement","tradeReference","instrumentReference","revision",..TradingBlotter.PriceMeasures.Keys];
+    private static readonly string[] Dimensions=["instrumentType","portfolio","book","market","contract","commodity"];
     private static readonly string[] Measures=["presentValue","tradeCount","lots","quantity","executionPnl",..TradingBlotter.PriceMeasures.Keys];
     private static MarketDataException Invalid()=>new("table_view","Supply a valid named table layout. Dates, authority and market inputs cannot be saved in a layout.");
     private static bool Field(string key)
