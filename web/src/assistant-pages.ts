@@ -11,7 +11,7 @@ export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap';
 export type PageState=
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}|{page:'futures';risk:boolean;trade:TradeShown|null;view:BlotterSelection}
-  |{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'jobs'|'admin'|'ai'};
+  |{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'jobs'|'admin'|'ai'|'ppa'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
@@ -19,7 +19,7 @@ export type PageContext={mode:'current';frameId:string|null;frameLabel:string|nu
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
 const unsupported:Record<string,string>={delivery:'delivery_prices','interval-series':'interval_series',
-  'interval-curves':'interval_curves',jobs:'jobs',admin:'users_access',ai:'settings_ai'};
+  'interval-curves':'interval_curves',jobs:'jobs',admin:'users_access',ai:'settings_ai',ppa:'ppa'};
 
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
 // page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again.
@@ -52,7 +52,7 @@ export function askKnowledge(context:PageContext){
 const pageNames:Record<string,string>={curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Custom curves',interval_series:'Interval series',interval_curves:'Interval curves',jobs:'Jobs & Infrastructure',users_access:'Users & access',
-  settings_ai:'AI'};
+  settings_ai:'AI',ppa:'PPA bookings'};
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type'};
 const counted=(n:number,noun:string)=>`${n} ${noun}${n===1?'':'s'}`;
 const joined=(names:string[])=>names.length>1?`${names.slice(0,-1).join(', ')} and ${names.at(-1)}`:names[0];

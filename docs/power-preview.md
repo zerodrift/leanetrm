@@ -227,3 +227,84 @@ python3 tools/run_preview.py --pg-bin /path/to/stock-postgresql/bin \
 
 All observations used by those checks are original synthetic values; no external
 market dataset or service credential is included.
+
+## Resolved interval and period prices
+
+`POST /api/interval-curves/values` resolves marked and shaped curves through the
+shared managed interval-price resolver when `resolve` is true. The request keeps
+its explicit `snapshotId`, `curve`, UTC `from`/`to`, `knownAt`, and nullable
+`aggregate` (`hour` or `day`). A shaped curve requires its exact collected-source
+binding and actual-due rule. Its immutable period and balance blocks determine
+coverage; eligible actuals replace their own cells without recalibrating neighbors.
+
+Resolved rows distinguish `actual`, `projected`, `modeled`, and `unresolved`.
+They retain publication provenance, anchor identity, due time, any estimate and
+unavailability reason, and live market-risk coverage. Frozen final-settlement
+anchors produce modeled values and report `frozen_anchor_only`; they do not
+establish an hourly actual or economic absence of risk. Frozen facts require
+certified publication receipts eligible under the requested knowledge cutoff,
+and live intervals additionally exclude facts learned after valuation. Raw shaped
+reads refuse frozen anchors because their response omits these state distinctions.
+
+An optional `shock` supplies exact `seriesId`, `quote`, positive decimal-string
+`size`, `convention: "absolute_quote_input_symmetric_v1"`, and boolean `up`.
+It applies to a resolved request's immutable quote scenario. Absent `shock` reads
+the pinned base inputs. Actuals and eligible frozen anchors remain unchanged.
+
+`POST /api/period-curves/values` requires `snapshotId`, `curve`, and complete UTC
+`from`/`to` period boundaries. This bounded adapter accepts date-only curves with
+an explicit single-index settlement target. It reads only the selected frame's
+pinned observations, so there is no additional unpinned-input `knownAt` field.
+Before its qualified fixing instant a period takes its live projected mark;
+afterward it requires the exact D165 published fixing and returns
+`publishedfixing` with `publication: "published_fixing"`. A missing due fixing
+is a structured refusal. A period with no qualified fixing schedule requires a
+live mark throughout; expired marks never become fixings. Other settlement-target
+kinds remain outside this API adapter.
+
+Both routes use the existing current-authority market read boundary and reject
+historical-view mode; period and interval pricing are completed before returning
+the authorized result. These are unsaved price reads, not PPA booking, payment,
+settlement lifecycle or durable risk operations.
+
+The PPA quantity preview has three read-only backend operations. Each uses the
+selected session snapshot's exact sealed definition/reference revisions and
+valuation instant. Unknown request members are refused. Historical sessions
+return `interval_curve_historical`; current market/reference permissions are
+rechecked for every operation, including reads using an earlier `knownAt`. A revoked
+market scope returns `403 access_denied`; a revoked required reference scope
+returns the existing `422 ambiguous_reference` refusal before calculation.
+
+- `POST /api/ppa/quantities` takes `snapshotId`, distinct `assets`, exactly one
+  `sources` code per asset, an `energy` quantity code, `stage` (`generated` or
+  `delivered`), UTC `from`/`to`, `knownAt`, `pendingActuals`
+  (`require_actuals_v1` or `estimate_until_actual_v1`), positive decimal
+  `contractMw`, and `attribute` (`energy` or `certificate`). It returns each
+  native interval's whole-asset aggregate, shared capacity denominator, exact
+  per-MW quantity, scaled quantity, contribution lineage and location
+  assignments. `normalization` names `contract_mw_of_capacity_in_force_v1`.
+  Each selected cell retains its series, revision, certified knowledge time
+  and context ID. Live rows use forecasts; delivered meters are accepted only
+  when known by the requested cutoff. Absent delivered meters can be estimated
+  only before their explicit deadline under `estimate_until_actual_v1`.
+- `POST /api/ppa/capacity` takes `snapshotId`, distinct `assets`, an ISO
+  `operatingDay`, `knownAt` and positive decimal `contractMw`. It returns daily
+  accredited MW divided by the same assets' effective capacity basis, then
+  scaled once, with exact asset versions and capacity assignments. It does not
+  aggregate a period entitlement or infer partial-period treatment.
+- `POST /api/ppa/profile` takes `snapshotId`, an exact reference `clock`,
+  `intervalMinutes` (15 or 60), `capacity` and `energy` quantity codes, UTC
+  `from`/`to`, `membership` (`all`, `peak` or `off`), nullable `touProduct`
+  and `touVersion`, a `calendar` code and positive decimal `contractMw`.
+  Peak/off-peak require a published TOU version on that exact clock; all-hours
+  requires both TOU fields to be null. The result retains native DST intervals
+  and exact duration-based energy per contract MW.
+
+Windows span at most 365 elapsed days and must follow the selected native grid
+within operating years 2000–2099. UTC inputs support microsecond precision;
+extra precision is rejected before database conversion. Quantities remain
+rational numerator/denominator pairs. Location adjustments retain their quote
+units and effective coverage; these operations do not calculate price, PV,
+settlement, certificate issuance or a booking. The synthetic fixture consumes
+energy, certificate-vintage and published capacity references without adding
+PPA sides or instruments.

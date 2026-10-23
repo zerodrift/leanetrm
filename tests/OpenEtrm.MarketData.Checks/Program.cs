@@ -4,6 +4,19 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 
+if(args is ["--ppa-normalization-reuse"]){PpaNormalizationReuseChecks.Run();return;}
+if(args is ["--series-index-acceptance"]){SeriesIndexAcceptanceChecks.Run();return;}
+if(args is ["--ppa-summary"]){PpaSummaryChecks.Run();return;}
+if(args is ["--ppa-break-even"]){PpaBreakEvenChecks.Run();return;}
+if(args is ["--settlement-preview"]){SettlementPreviewChecks.Run();return;}
+if(args is ["--ppa-sides"]){PpaBreakEvenChecks.Run();SettlementPreviewChecks.Run();PpaContractChecks.Run();PpaAcceptanceChecks.Run();PpaPreparationChecks.Run();return;}
+if(args is ["--ppa-preparation"]){PpaPreparationChecks.Run();SeriesIndexWorkChecks.Run();return;}
+if(args is ["--ppa-benchmark-acceptance"]){PpaBenchmark.CheckWorkloads();return;}
+if(args is ["--ppa-benchmark-sample",var ppaCase,var sampleOutput]){PpaBenchmark.RunSample(ppaCase,sampleOutput);return;}
+if(args is ["--ppa-benchmark",var ppaOutput]){PpaBenchmark.Run(ppaOutput);return;}
+if(args is ["--book-valuation"]){BookValuationChecks.Run();return;}
+if(args is ["--independent-sides"]){IndependentSideChecks.Run();return;}
+if(args is ["--asset-volumes"]){Slice2AcceptanceChecks.Run();return;}
 if(args is ["--monthly-swaps"]){MonthlySwapChecks.Run();return;}
 if(args is ["--commodity-lookups"]){CommodityLookupChecks.Run();return;}
 if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();return;}
@@ -13,6 +26,9 @@ if(args is ["--interval-series"]){IntervalSeriesChecks.Run();return;}
 if(args is ["--interval-curves"]){IntervalCurveChecks.Run();return;}
 if(args is ["--block-shaping"]){BlockShapingChecks.Run();return;}
 if(args is ["--interval-pricing"]){IntervalPricingChecks.Run();return;}
+if(args is ["--interval-price-resolver"]){IntervalPriceResolverChecks.Run();IntervalAnchorChecks.Run();IntervalResolverReuseChecks.Run();return;}
+if(args is ["--interval-resolver-reuse"]){IntervalResolverReuseChecks.Run();return;}
+if(args is ["--interval-resolver-benchmark",var resolverOutput]){IntervalResolverBenchmark.Run(resolverOutput);return;}
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
 if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();return;}
@@ -49,7 +65,7 @@ if (args.Length > 0)
 PowerHoursChecks.Run();
 CustomCurveChecks.Run();
 ExactCurvePriceChecks.Run();
-var passed = 0;
+var passed = PpaBenchmark.CheckWorkloads();
 void Check(string label, Action run) { run(); passed++; Console.WriteLine($"PASS {label}"); }
 void Equal<T>(T actual, T expected) where T : notnull
 {
@@ -408,6 +424,19 @@ passed += IntervalSeriesChecks.Run();
 passed += IntervalCurveChecks.Run();
 passed += BlockShapingChecks.Run();
 passed += IntervalPricingChecks.Run();
+passed += IntervalPriceResolverChecks.Run();
+passed += IntervalAnchorChecks.Run();
+passed += Slice2AcceptanceChecks.Run();
+PpaBreakEvenChecks.Run();
+SettlementPreviewChecks.Run();
+passed += PpaContractChecks.Run();
+passed += PpaAcceptanceChecks.Run();
+passed += PpaSummaryChecks.Run();
+passed += PpaPreparationChecks.Run();
+SeriesIndexWorkChecks.Run();passed++;
+PpaNormalizationReuseChecks.Run();passed++;
+SeriesIndexAcceptanceChecks.Run();passed++;
+passed += IntervalResolverReuseChecks.Run();
 passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();
 passed += FuturesChecks.Run();
 passed += ExchangeFuturesChecks.Run();

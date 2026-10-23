@@ -1,9 +1,11 @@
 """Behavior checks for the local/CI verification entry point."""
 from contextlib import redirect_stdout
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
+import re
 import sys
 import unittest
 from unittest.mock import patch
@@ -11,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from check_all import run_checks
+from check_all import GROUPS, run_checks
 
 
 class CheckAllTests(unittest.TestCase):
@@ -52,6 +54,12 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--power-actual-check' in c for c in commands))
         self.assertTrue(any('--interval-series-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--interval-curves-check' in c and '--browser-check' in c for c in commands))
+        self.assertTrue(any('--ppa-check' in c for c in commands))
+        self.assertTrue(any('--settlement-quarter-check' in c for c in commands))
+        self.assertTrue(any('specs/settlement' in c for c in commands))
+        self.assertTrue(any('--close-risk-check' in c for c in commands))
+        self.assertTrue(any('--close-risk-lease-check' in c for c in commands))
+        self.assertTrue(any('--ppa-bookings-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--contract-dates-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--swap-risk-holdings-check' in c for c in commands))
         self.assertTrue(any('--pilot-close-check' in c and '--browser-check' in c for c in commands))
@@ -94,6 +102,62 @@ class CheckAllTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'assertions'):
                 run_checks(Path('/postgres/bin'), Path('/sdk/dotnet'), Path('/browser'),
                            run=lambda *args, **kwargs: self.fail('Started an unchecked run'))
+
+    def test_ci_groups_cover_the_full_gate_and_prepare_each_fresh_checkout(self):
+        def commands(group):
+            result = []
+            run_checks(Path('/pg'), Path('/dotnet'), Path('/browser'), group=group,
+                       run=lambda command, **options: result.append(tuple(command)))
+            return result
+
+        complete = commands('all')
+        groups = {name: commands(name) for name in ('workspace', 'ppa', 'recovery')}
+        self.assertEqual(set().union(*(set(value) for value in groups.values())), set(complete))
+        for name, selected in groups.items():
+            with self.subTest(group=name):
+                # Each group starts from a clean checkout, including restores,
+                # managed/frontend builds and all shared verification contracts.
+                self.assertEqual([c for c in selected if 'tools/run_preview.py' not in c],
+                                 [c for c in complete if 'tools/run_preview.py' not in c])
+                self.assertEqual(selected, [c for c in complete if c in selected])
+        previews = [c for value in groups.values() for c in value if 'tools/run_preview.py' in c]
+        self.assertEqual(len(previews), len(set(previews)))
+        self.assertEqual(len([c for c in groups['recovery'] if 'tools/run_preview.py' in c]), 1)
+        self.assertIn('--close-risk-lease-check', groups['recovery'][-1])
+        self.assertTrue(any('--close-risk-check' in c for c in groups['ppa']))
+
+    def test_failed_or_interrupted_group_never_claims_completion(self):
+        for group in ('workspace', 'ppa', 'recovery'):
+            for failure in (subprocess.CalledProcessError(17, ['required']), KeyboardInterrupt()):
+                with self.subTest(group=group, failure=type(failure).__name__):
+                    output = io.StringIO()
+                    def run(command, **options):
+                        if 'tools/run_preview.py' in command:
+                            raise failure
+                    with redirect_stdout(output), self.assertRaises(type(failure)):
+                        run_checks(Path('/pg'), Path('/dotnet'), Path('/browser'), group=group, run=run)
+                    self.assertNotIn('verification suites passed', output.getvalue())
+                    self.assertNotIn(f'verification group {group} passed', output.getvalue())
+
+    def test_unknown_group_is_rejected_before_running_anything(self):
+        with self.assertRaisesRegex(ValueError, 'group'):
+            run_checks(Path('/pg'), Path('/dotnet'), Path('/browser'), group='typo',
+                       run=lambda *args, **kwargs: self.fail('Started an incomplete gate'))
+
+    def test_hosted_gate_requires_every_group_and_rejects_non_success(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        matrix = re.search(r'^        group: (\[.*\])$', workflow, re.MULTILINE)
+        self.assertEqual(tuple(json.loads(matrix.group(1))), GROUPS)
+        aggregate = workflow.split('  checks:\n', 1)[1].split('  publish:\n', 1)[0]
+        self.assertIn('    needs: verification\n', aggregate)
+        self.assertIn('    if: always()\n', aggregate)
+        self.assertIn('VERIFICATION_RESULT: ${{ needs.verification.result }}', aggregate)
+        command = re.search(r'^        run: (.*)$', aggregate, re.MULTILINE).group(1)
+        for state in ('success', 'failure', 'cancelled', 'skipped', ''):
+            result = subprocess.run(['bash', '-c', command],
+                                    env={**os.environ, 'VERIFICATION_RESULT': state})
+            self.assertEqual(result.returncode == 0, state == 'success')
+        self.assertIn('    needs: checks\n', workflow.split('  publish:\n', 1)[1])
 
 
 if __name__ == '__main__':

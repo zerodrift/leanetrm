@@ -50,3 +50,14 @@ test('the chart plots each native interval by its exact start and server display
   assert.equal(option.series[0].sampling,'lttb');
   assert.equal(chartOptions({...spec,dense:false}).series[0].showSymbol,true);
 });
+
+test('frozen anchors are labelled modeled and explicitly lack live market-risk coverage',()=>{
+ const values={curve:'synthetic',kind:'shaped',resolved:true,points:[{interval:{start:'2031-11-02T05:00:00Z',end:'2031-11-02T06:00:00Z'},price:{display:'40.000000'},state:'modeled',dueAt:'2031-11-02T07:00:00Z',block:{curve:'test_power_peak_monthly'},shapeRevision:1,publication:'final_settlement_anchor',liveMarketRiskCoverage:'frozen_anchor_only'}]};
+ assert.match(describePoint(values,0,'Start',zone),/frozen final settlement/);
+ assert.match(describePoint(values,0,'Start',zone),/live market-risk coverage is missing/);
+});
+
+test('resolved shaped actuals need no invented block or shape revision',()=>{
+ const values={curve:'synthetic',kind:'shaped',resolved:true,points:[resolved.points[0]]};
+ assert.deepEqual(intervalTable(values,zone).rows[0].slice(3,5),['—','—']);
+});

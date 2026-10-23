@@ -76,8 +76,8 @@ internal static class BlockShapingChecks
         var power=f.Quotes.Single(q=>q.Key.Code=="power_out");
         UnitPrice Price(string value)=>new(ExactDecimal.Parse(value),power);
         string Text(ExactUnitPrice p)=>p.Denominator=="1"?p.Numerator:p.Numerator+"/"+p.Denominator;
-        ShapeCell Cell(DateTimeOffset start,int minutes,string value,int revision=1)=>new(start,start.AddMinutes(minutes),ExactDecimal.Parse(value),revision);
-        ImmutableArray<ShapeCell> Hours(params string[] values)=>[..values.Select((v,i)=>Cell(Fixture.Utc("2031-11-03T05:00:00Z").AddHours(i),60,v))];
+        SeriesCell Cell(DateTimeOffset start,int minutes,string value,int revision=1)=>new(start,start.AddMinutes(minutes),ExactDecimal.Parse(value),revision);
+        ImmutableArray<SeriesCell> Hours(params string[] values)=>[..values.Select((v,i)=>Cell(Fixture.Utc("2031-11-03T05:00:00Z").AddHours(i),60,v))];
 
         Check("oracles 1-3: additive and multiplicative shapes calibrate to the mark; all-zero factors are refused",()=>{
             Equal(string.Join(",",BlockShaping.Calibrate(ShapeMethod.Additive,Price("50"),Hours("-10","0","10","20")).Select(Text)),"35,45,55,65");
@@ -109,7 +109,7 @@ internal static class BlockShapingChecks
         var snapshot=Snapshot(marks);
         var built=model.Build(snapshot,requests);
         // Offsets (local hour - 12)/4 and factors 1 + local hour/32 on every hour of the three months.
-        ImmutableArray<ShapeCell> Shape(Func<int,string> value,int revision=1)=>
+        ImmutableArray<SeriesCell> Shape(Func<int,string> value,int revision=1)=>
             [..new[]{("2031-03-01T05:00:00Z","2031-04-01T04:00:00Z"),("2031-11-01T04:00:00Z","2032-01-01T05:00:00Z")}.SelectMany(range=>
                 Enumerable.Range(0,(int)(Fixture.Utc(range.Item2)-Fixture.Utc(range.Item1)).TotalHours).Select(i=>Fixture.Utc(range.Item1).AddHours(i)))
                 .Select(start=>Cell(start,60,value(TimeZoneInfo.ConvertTime(start,zone).Hour),revision))];
@@ -120,7 +120,7 @@ internal static class BlockShapingChecks
             new("hub_shaped",method,"duration_weighted_block_mean_v1","block_shape_v1",shapeSeries,grid,[..blocks]);
         var additive=Shaped(ShapeMethod.Additive,peak,off);
         // One window prepared and evaluated against one market.
-        ShapedCurveBuild Evaluate(ShapedCurveDefinition definition,CurveBuild marks,IReadOnlyList<ShapeCell> shape,DateTimeOffset from,DateTimeOffset to,
+        ShapedCurveBuild Evaluate(ShapedCurveDefinition definition,CurveBuild marks,IReadOnlyList<SeriesCell> shape,DateTimeOffset from,DateTimeOffset to,
             ShapedCurveBuild? @base=null)=>BlockShaping.Evaluate(BlockShaping.Prepare(definition,shape,from,to),marks,@base);
         DateTimeOffset november=Fixture.Utc("2031-11-01T04:00:00Z"),december=Fixture.Utc("2031-12-01T05:00:00Z"),january=Fixture.Utc("2032-01-01T05:00:00Z");
         Fraction Mean(IEnumerable<ShapedIntervalPrice> prices)

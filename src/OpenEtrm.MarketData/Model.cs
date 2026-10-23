@@ -15,6 +15,7 @@ public enum QuoteKind { Outright = 1, Basis }
 public enum CurveRule { Direct = 1, Add, ScaleAdd }
 public enum InputSlot { Base = 1, Spread }
 public enum SourceExpiryRule { RequireLive = 1, FreezeFinalFuture }
+public enum ConstituentExpiryRule { RequireLive = 1, FreezeFinalSettlement }
 public enum ObservationRole { TraderMark = 1, DailySettlement, FinalContractSettlement, Parameter, IndexFixing }
 public enum PublicationState { Preliminary = 1, Final }
 public enum InputUse { Variable = 1, FrozenFact }
@@ -94,7 +95,11 @@ public sealed record Curve(
     ReferenceKey DeliveryProfile, SettlementTarget Settlement,
     CurveRule Rule, ImmutableArray<ContractKey> Constituents,
     ImmutableArray<CurveInput> Inputs, ObservationRole? DirectRole,
-    ReferenceKey? DirectSource, NumericInput? Multiplier);
+    ReferenceKey? DirectSource, NumericInput? Multiplier)
+{
+    // Existing curve definitions retain their live-only contract; freezing is opt-in.
+    public ConstituentExpiryRule ConstituentExpiry { get; init; } = ConstituentExpiryRule.RequireLive;
+}
 
 public sealed record MarketObservation(
     ObservationKey Key, SeriesKey Series,
@@ -169,7 +174,7 @@ public sealed record CurveBuild
         ReusedConstituents=reusedConstituents; Shock=shock; Scenario=scenario??Risk.QuoteScenario.Base(snapshot);
         Graph=graph;Compiled=compiled;Requests=requests;
         valuation=new(()=>parent is null?Calculation.ConnectedValuation.Prepare(Graph,Snapshot):parent.valuation.Value.WithScenario(Graph));
-        pricing=new(()=>parent is null?valuation.Value.Market(requests.ToImmutableDictionary(r=>r,r=>compiled.Points[(r,InputUse.Variable)]),this,default):
-            Calculation.ConnectedValuation.WithScenario(parent.Pricing,valuation.Value));
+        pricing=new(()=>parent is null?valuation.Value.Market(requests.ToImmutableDictionary(r=>r,r=>compiled.Points[(r,InputUse.Variable)]),this,default,this):
+            Calculation.ConnectedValuation.WithScenario(parent.Pricing,valuation.Value,this));
     }
 }

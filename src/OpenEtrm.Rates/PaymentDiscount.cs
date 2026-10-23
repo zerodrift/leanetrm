@@ -101,29 +101,45 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
     public MarketSnapshot Snapshot { get; }
     public ImmutableDictionary<SidePaymentKey, PaymentDiscount> Inputs { get; }
     private readonly ImmutableDictionary<Guid, ImmutableArray<SidePaymentFactor>> factorsBySide;
-    public CurrencyDefaultDiscounting(IEnumerable<SidePaymentSchedule> schedules, MarketSnapshot snapshot,
-        bool discounting, CurrencyDiscountCurve? currencyDefault)
+    public CurrencyDefaultDiscounting(IEnumerable<SideSchedule> schedules,MarketSnapshot snapshot,
+        bool discounting,CurrencyDiscountCurve? currencyDefault)
+        : this(PaymentKeys(schedules,snapshot),snapshot,discounting,currencyDefault) { }
+
+    // A physical value can use the same exact date/currency rate lookup without manufacturing a cash plan.
+    // Empty keys explicitly request no rate factors, as for an all-held or all-overdue PPA scope.
+    public CurrencyDefaultDiscounting(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot,
+        bool discounting,CurrencyDiscountCurve? currencyDefault)
     {
-        if (schedules is null || snapshot is null)
-            throw new MarketDataException("discount_context", "Explicit side schedules and a selected market snapshot are required.");
-        var plans = schedules.ToImmutableArray();
-        if (plans.IsDefaultOrEmpty || plans.Any(p => p is null))
-            throw new MarketDataException("discount_context", "At least one valid side schedule is required.");
-        Snapshot = snapshot;
-        var selected = ImmutableDictionary.CreateBuilder<SidePaymentKey, PaymentDiscount>();
-        // Lifecycle state precedes discounting: a due payment on any side is never a discount input.
-        foreach (var schedule in plans) schedule.RequireUndue(snapshot);
-        var resolver = new PaymentDiscount.Resolver(discounting, snapshot, currencyDefault);
-        foreach (var schedule in plans)
-        foreach (var payment in schedule.Payments)
-        {
-            if (!selected.TryAdd(payment.Key, resolver.Resolve(payment.Currency, payment.PaymentDate)))
-                throw new MarketDataException("side_payment_factors", "Side payment identities must be distinct in this discount context.");
-        }
-        Inputs = selected.ToImmutable();
-        factorsBySide = Inputs.GroupBy(p => p.Key.SideId).ToImmutableDictionary(g => g.Key,
-            g => g.Select(p => new SidePaymentFactor(p.Key, p.Value.Factor, Snapshot,
-                p.Value.Enabled ? DiscountFactorSource.CurrencyDefault : DiscountFactorSource.Undiscounted)).ToImmutableArray());
+        if(payments.IsDefault || snapshot is null)
+            throw new MarketDataException("discount_context","Explicit side value keys and a selected market snapshot are required.");
+        if(payments.Distinct().Count()!=payments.Length)
+            throw new MarketDataException("side_payment_factors","Side value identities must be distinct in this discount context.");
+        Snapshot=snapshot;
+        foreach(var payment in payments)payment.RequireUndue(snapshot);
+        var resolver=new PaymentDiscount.Resolver(discounting,snapshot,currencyDefault);
+        Inputs=payments.ToImmutableDictionary(p=>p,p=>resolver.Resolve(p.Currency,DateOnly.FromDateTime(p.PaymentAt.UtcDateTime)));
+        factorsBySide=Inputs.GroupBy(p=>p.Key.SideId).ToImmutableDictionary(g=>g.Key,
+            g=>g.Select(p=>Factor(p.Key,p.Value)).ToImmutableArray());
+    }
+    private static ImmutableArray<SidePaymentKey> PaymentKeys(IEnumerable<SideSchedule> schedules,MarketSnapshot snapshot)
+    {
+        if(schedules is null || snapshot is null)
+            throw new MarketDataException("discount_context","Explicit side schedules and a selected market snapshot are required.");
+        var plans=schedules.ToImmutableArray();
+        if(plans.IsDefaultOrEmpty || plans.Any(p=>p is not SidePaymentSchedule))
+            throw new MarketDataException("discount_context","Legacy cash discounting requires at least one exact payment schedule.");
+        foreach(var schedule in plans.Cast<SidePaymentSchedule>())schedule.RequireUndue(snapshot);
+        return plans.Cast<SidePaymentSchedule>().SelectMany(p=>p.Payments).Select(p=>p.Key).ToImmutableArray();
+    }
+    private SidePaymentFactor Factor(SidePaymentKey key,PaymentDiscount input)=>new(key,input.Factor,Snapshot,
+        input.Enabled?DiscountFactorSource.CurrencyDefault:DiscountFactorSource.Undiscounted);
+    public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot)
+    {
+        if(!Snapshot.HasSameInputs(snapshot))
+            throw new MarketDataException("discount_context","Discount inputs must retain the complete selected side valuation context.");
+        if(payments.IsDefault || payments.Distinct().Count()!=payments.Length || payments.Any(p=>!Inputs.ContainsKey(p)))
+            throw new MarketDataException("side_payment_factors","Request distinct exact value keys prepared in this discount context.");
+        return payments.Select(p=>Factor(p,Inputs[p])).ToImmutableArray();
     }
     public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot)
     {
@@ -212,7 +228,7 @@ public static class FinancialSwapValuation
         return Result(value,inputs);
     }
     private static FinancialSwapEvaluation Result(InstrumentValuation value,CurrencyDefaultDiscounting inputs)=>
-        new(value,value.Sides.Select(s=>new DiscountedSideValuation(s,s.Value.Payments.Select(p=>new DiscountedSidePayment(p,inputs.Inputs[p.Plan.Key],value.Snapshot)).ToImmutableArray())).ToImmutableArray());
+        new(value,value.Sides.Select(s=>new DiscountedSideValuation(s,((PaymentSideValuation)s.Value).Payments.Select(p=>new DiscountedSidePayment(p,inputs.Inputs[p.Plan.Key],value.Snapshot)).ToImmutableArray())).ToImmutableArray());
     public static FinancialSwapValue Price(FinancialSwapInstrument instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
         Price(instrument,market,quantity,discounting,currencyDefault,instrument?.Discounting);
     public static FinancialSwapValue Price(MonthlyFinancialSwap instrument,CurveBuild market,Quantity quantity,bool discounting,CurrencyDiscountCurve? currencyDefault) =>

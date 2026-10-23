@@ -3,7 +3,21 @@
 Status: draft design for review, 2026-10-20. No settlement feature, migration or
 production data activation is implemented by this document. Proposed choices are
 recorded as P39, not as agreed financial conventions. The implementation inventory
-below was checked against source revision `557ffd8`.
+below originated at source revision `557ffd8`; the current Phase C supplement
+is [the next-task proposal](ppa-settlement-next.md). That proposal does not accept
+P39 policies or authorize settlement implementation. The bounded
+[monthly gross policy/specification](ppa-settlement-spec.md) now supplies exact
+proposed wording and an independent executable reference model for review.
+D202 accepts SP1–SP9, including rounding and approval, only for explicitly
+opted-in bounded fixed-strike contracts. The [meter-finality prerequisite](meter-finality.md)
+and [power payment planning/gross preview](settlement-preview.md) are separate
+bounded implementations (D202–D203); no global settlement phase is complete.
+
+D204 subsequently narrows the current MVP to settlement calculations, draft
+break-even pricing and a graphical workbench. Approval, accepted-cash accounting,
+payments, reversals and automated correction adjustments below remain deferred
+future design. They are not prerequisites for pricing and do not introduce a
+separate approval workflow. See [the current scope](ppa-break-even.md).
 
 ## 1. Outcome and scope
 
@@ -33,14 +47,16 @@ that agreement; never reinterpret it as gross settlement or full payment.
 | `Trading/IndexFixings.cs`, `Trading/PaymentSchedules.cs` | Exact dated actuals, partial fixing, original averaging weights, frozen commodity risk | Publication-driven eligibility version and trade-owned accepted-fixing state |
 | Migration 0050 | Exact schedule/index/series/source foreign keys and restrictive visibility | Bind qualified producer rules and distinguish expected polling from eligibility |
 | `power_data.prices`, `PowerCollection`, `PowerImportProtocol` | Immutable native intervals, revisions, certified collection batches, scoped collection | Contractual finality/publication evidence and source-to-index publication |
-| `PowerHours`, `TimeOfUse`, `PowerQuantitySchedule`, `PowerSettlement` | Clock/DST/coverage checks and exact quantity/cash arithmetic | Feed-backed contracted index aggregation; the current preview repeats a curve mark |
+| `PowerHours`, `TimeOfUse`, `PowerQuantitySchedule`, `PowerSettlement` | Clock/DST/coverage checks and exact quantity/cash arithmetic | Qualified contracted index aggregation and accepted obligations; the D171 preview already consumes collected native interval prices |
 | Market observations/corrections and certified knowledge contexts | Exact input pins, immutable correction chains and historical reads | Typed evidence linking published fixings to raw source revisions |
 | Trade amendment journal and book authorization | Current scope, immutable history, expected-version/idempotency patterns | Reset occurrences, determined obligations, approvals and payment evidence |
 | .NET worker, automation jobs and claim fencing | Discovery, bounded execution, ownership and retry controls | Narrow fixing-publication and settlement-reconciliation operations |
 
 Current indexed pricing already uses supplied final actuals and removes only their
 live commodity factors. It does not ingest real publications or establish that
-cash was paid. A due payment currently raises `side_payment_due`.
+cash was paid. Legacy swap sides still raise `side_payment_due` for a due payment.
+Phase C PPA sides instead separate known and estimated overdue balances from
+`ValueExcludingOverdue`; they do not create accepted obligations or paid state.
 
 The narrower [collected interval delivery-value consumer](power-preview.md#collected-interval-delivery-value)
 (D171) now connects an explicit power curve/source association, one operating day
@@ -565,3 +581,10 @@ browser, provider or agent defaults.
 
 Research informs qualification; these links do not select an installation's
 contract, grant data rights or establish a production implementation.
+
+
+The narrower power-only D203 consumer is implemented as [shared payment-lineage
+planning and monthly gross preview](settlement-preview.md), following the accepted
+SP1–SP9 specification and 0096 meter-finality prerequisite. It does not complete
+global S1/S2 or their gas dependencies. Approvals, accepted cash, financial claims,
+obligations, payments and settlement workers remain unimplemented.

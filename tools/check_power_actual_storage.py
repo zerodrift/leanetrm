@@ -1,5 +1,8 @@
 """Exact curve/source storage checks in the launcher's owned synthetic database."""
 import json
+from datetime import datetime, timezone
+
+from power_collection_fixture import Collector
 from uuid import UUID, uuid4
 
 
@@ -72,10 +75,27 @@ def run_checks(query, manifest):
         =ARRAY['source_id','starts_at']
       FROM pg_index i WHERE i.indexrelid='power_data.prices_source_interval'::regclass;
     """) == 't')
-    check('the authorized history reader bounds both interval endpoints', query("""
+    # This predicate is lossless but required for the actual reader's bounded
+    # index path; endpoint result checks alone cannot detect its omission.
+    check('the authorized history reader retains its explicit upper index bound', query("""
       SELECT position('p.starts_at<last_at' IN pg_get_functiondef(
         'power_data.read_prices(uuid,timestamptz,timestamptz,timestamptz)'::regprocedure))>0;
     """) == 't')
+    collector = Collector(query, manifest, {'pjm': {**selected, 'provider': 'PJM'}})
+    receipt = collector.publish('pjm', '2021-03-01', datetime(2021, 3, 1, 5, tzinfo=timezone.utc),
+                                24, 60, [str(n) for n in range(24)], 1)
+    # Cut through two native intervals: their starts/ends each violate one bound.
+    # Read through the public entry point with an actual authorized runtime token.
+    history = json.loads(query('BEGIN;' + runtime(issue(), f"""
+      SELECT power_data.read_prices('{source}','2021-03-01T06:30:00Z',
+        '2021-03-01T08:30:00Z','{receipt['knownAt']}')::text;
+    """) + 'ROLLBACK;'))
+    check('the authorized history reader bounds both interval endpoints',
+          history['source']['id'] == source and len(history['rows']) == 1 and
+          history['rows'][0]['price'] == '2' and
+          history['rows'][0]['batch_id'] == receipt['batchId'] and
+          datetime.fromisoformat(history['rows'][0]['starts_at']) == datetime(2021, 3, 1, 7, tzinfo=timezone.utc) and
+          datetime.fromisoformat(history['rows'][0]['ends_at']) == datetime(2021, 3, 1, 8, tzinfo=timezone.utc))
     # The tiny correctness fixture need not make the planner prefer an index.
     # Disable sequential scans only to prove the available bounded access path.
     plan = json.loads(query(f"""BEGIN;SET LOCAL enable_seqscan=off;

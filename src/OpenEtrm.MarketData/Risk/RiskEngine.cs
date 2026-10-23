@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.MarketData.Risk;
 
@@ -26,7 +27,10 @@ public sealed record UnitMoney(ExactMoney Money,ReferenceKey Quantity)
 {
     public UnitMoney(Money money,ReferenceKey quantity):this(ExactMoney.FromMoney(money),quantity){}
 }
-public sealed record RiskPosition(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,Quantity Quantity,UnitMoney UnitBasis,Money FixedBasis);
+public sealed record RiskPosition(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,Quantity Quantity,UnitMoney UnitBasis,Money FixedBasis)
+{
+    public DeliveryCoverage? Coverage{get;init;}
+}
 public sealed record DerivativeUnit(ReferenceKey Currency,PriceUnit Factor,int Order);
 public sealed record RiskDerivative(ExactDecimal Value,DerivativeUnit Unit);
 public sealed record RiskValues(Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma);
@@ -38,11 +42,20 @@ public sealed record RiskFactorResult(QuoteBump Bump,ImmutableArray<RiskPosition
     ImmutableArray<RiskBookTotal> Totals,ScenarioWork UpWork,ScenarioWork DownWork);
 public sealed record RiskWork(int PositionCount,int UniqueValuations,int UniqueMarketContracts,int ScenarioCount,int UnitPricerCalls,int RebuiltCurveNodes,int ReusedCurveNodes)
 {
-    public int RepeatedInstrumentReferences=>PositionCount-UniqueValuations;
+    public int UniqueInstruments{get;init;}=UniqueValuations;
+    public int RepeatedInstrumentReferences=>PositionCount-UniqueInstruments;
+    public int RepeatedScopeReferences=>PositionCount-UniqueValuations;
     public long UnitScenarioCandidates=>(long)UniqueValuations*ScenarioCount;
     public long ReusedUnitScenarioValues=>UnitScenarioCandidates-UnitPricerCalls;
     public int QuantityApplications{get;init;}
     public int PreparationScenarioCount{get;init;}
+    public int VolumeComputations{get;init;}
+    public int UniqueSideCalculations{get;init;}
+    public long RowEvaluations{get;init;}
+    public int ResolvedCurveMonths{get;init;}
+    public int ReusedCurveMonths{get;init;}
+    public int CalibratedBlocks{get;init;}
+    public int ReusedBlocks{get;init;}
 }
 public enum RiskDetail { Holdings=1, Books }
 public sealed record RiskRun(Guid SnapshotId,string NumericalPolicy,ImmutableArray<UnitPricingContract> Contracts,
@@ -50,6 +63,7 @@ public sealed record RiskRun(Guid SnapshotId,string NumericalPolicy,ImmutableArr
 {
     public RiskDetail Detail{get;init;}=RiskDetail.Holdings;
     public ImmutableArray<BookCurrencyValue> BaseValues{get;init;}=[];
+    public ImmutableArray<BookValueMeasures> BaseMeasures{get;init;}=[];
 }
 
 // A single immutable base and declared factor set can serve several explicitly
@@ -82,6 +96,7 @@ public sealed record ExactBookRiskRun(Guid SnapshotId,string NumericalPolicy,Imm
 {
     public RiskDetail Detail{get;init;}=RiskDetail.Books;
     public ImmutableArray<ExactRiskPositionValue> BasePositions{get;init;}=[];
+    public ImmutableArray<BookValueMeasures> BaseMeasures{get;init;}=[];
 }
 public sealed record ExactGroupedRiskRun(Guid SnapshotId,ImmutableArray<ExactBookRiskRun> Groups,RiskWork Work);
 
@@ -137,6 +152,37 @@ public static partial class RiskEngine
         return new(market,child.Portfolios,child.Contracts,child.Factors,
             parent.PriorRebuilt+parent.Market.EvaluatedConstituents,parent.PriorReused+parent.Market.ReusedConstituents,parent.PreparationScenarioCount+1);
     }
+    // Count only scenarios reaching a unit's declared dependency closure. This
+    // performs no unit valuation and is independent of held quantity/exposure.
+    public static (long Rows,long RowScenarios) IntervalWork(PreparedPortfolioRisk prepared)=>
+        IntervalWork(prepared,prepared.Factors.Select(f=>f.Input).ToImmutableHashSet());
+    public static (long Rows,long RowScenarios) IntervalWork(PreparedPortfolioRisk prepared,ImmutableArray<QuoteBump> bumps)
+    {
+        if(bumps.IsDefault||bumps.Any(b=>b is null)||bumps.Select(b=>b.Input).Distinct().Count()!=bumps.Length||
+            bumps.Any(b=>!prepared.Factors.Any(f=>f.Input==b.Input)))
+            throw Error("risk_bump","Admission requires an explicit distinct set of the prepared native factor scenarios.");
+        return IntervalWork(prepared,bumps.Select(b=>b.Input).ToImmutableHashSet());
+    }
+    private static (long Rows,long RowScenarios) IntervalWork(PreparedPortfolioRisk prepared,ImmutableHashSet<InputKey> selected)
+    {
+        long rows=0,work=0;
+        var values=prepared.Market.Values.ToDictionary(v=>v.Request);
+        for(var n=0;n<prepared.Portfolios.Length;n++)
+        {
+            var portfolio=prepared.Portfolios[n];
+            if(portfolio.Setup.Interval is not {} inputs)continue;
+            for(var index=0;index<portfolio.Scopes.Length;index++)
+            {
+                var scope=portfolio.Scopes[index];
+                if(scope.Instrument is not PpaInstrument instrument||scope.Coverage is not {} coverage)continue;
+                var count=instrument.Memberships.Sum(m=>(long)inputs.Rows(instrument,m.Side,coverage).Length);
+                var lineage=prepared.Contracts[n][index].Dependencies.SelectMany(d=>values[d].Lineage).ToHashSet();
+                var factors=prepared.Factors.Count(f=>selected.Contains(f.Input)&&lineage.Contains(f.Observation));
+                rows=checked(rows+count);work=checked(work+count*(1L+2L*factors));
+            }
+        }
+        return(rows,work);
+    }
     public static GroupedRiskRun Calculate(PreparedPortfolioRisk prepared,ImmutableArray<QuoteBump> bumps,
         string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings)
     {
@@ -185,15 +231,26 @@ public static partial class RiskEngine
             rebuilt+=factor.Up.EvaluatedConstituents+factor.Down.EvaluatedConstituents;
             reused+=factor.Up.ReusedConstituents+factor.Down.ReusedConstituents;count+=2;
         }
-        RiskWork Work(int positions,ImmutableArray<UnitPricingContract> contracts,int calls,int applications)=>
-            new(positions,contracts.Length,contracts.SelectMany(c=>c.Dependencies).Select(r=>r.Contract).Distinct().Count(),count,calls,rebuilt,reused)
-            {QuantityApplications=applications,PreparationScenarioCount=prepared.PreparationScenarioCount};
+        RiskWork Work(IEnumerable<int> indices)
+        {
+            var selected=indices.ToArray();var contracts=selected.SelectMany(n=>prepared.Contracts[n]).ToImmutableArray();
+            var intervals=selected.Select(n=>calculation.IntervalWork[n]).ToArray();
+            return new(selected.Sum(n=>prepared.Portfolios[n].Positions.Length),contracts.Length,
+                contracts.SelectMany(c=>c.Dependencies).Select(r=>r.Contract).Distinct().Count(),count,selected.Sum(n=>calculation.Calls[n]),rebuilt,reused)
+            {
+                QuantityApplications=selected.Sum(n=>calculation.Applications[n]),PreparationScenarioCount=prepared.PreparationScenarioCount,
+                UniqueInstruments=selected.Sum(n=>prepared.Portfolios[n].Instruments.Length),
+                VolumeComputations=selected.Select(n=>prepared.Portfolios[n].Setup.Interval).OfType<IntervalValuationInputs>().Distinct(ReferenceEqualityComparer.Instance).Cast<IntervalValuationInputs>().Sum(i=>i.VolumeComputations),
+                UniqueSideCalculations=intervals.Sum(w=>w.Sides),RowEvaluations=intervals.Sum(w=>w.Rows),
+                ResolvedCurveMonths=intervals.Sum(w=>w.Resolved),ReusedCurveMonths=intervals.Sum(w=>w.Reused),
+                CalibratedBlocks=intervals.Sum(w=>w.Calibrated),ReusedBlocks=intervals.Sum(w=>w.ReusedBlocks)
+            };
+        }
         var groups=prepared.Portfolios.Select((portfolio,n)=>new ExactBookRiskRun(prepared.Market.SnapshotId,ExactNumericalPolicy,prepared.Contracts[n],
-            calculation.Bases[n].Totals,factors[n].ToImmutable(),Work(portfolio.Positions.Length,prepared.Contracts[n],calculation.Calls[n],calculation.Applications[n]),prepared.Scenario)
-            {Detail=detail,BasePositions=workingDecimal?[]:BasePositions(portfolio,calculation.Bases[n],detail)}).ToImmutableArray();
+            calculation.Bases[n].Totals,factors[n].ToImmutable(),Work([n]),prepared.Scenario)
+            {BaseMeasures=calculation.Bases[n].BaseMeasures,Detail=detail,BasePositions=workingDecimal?[]:BasePositions(portfolio,calculation.Bases[n],detail)}).ToImmutableArray();
         cancellation.ThrowIfCancellationRequested();
-        return new(prepared.Market.SnapshotId,groups,Work(prepared.Portfolios.Sum(p=>p.Positions.Length),prepared.Contracts.SelectMany(c=>c).ToImmutableArray(),
-            calculation.Calls.Sum(),calculation.Applications.Sum()));
+        return new(prepared.Market.SnapshotId,groups,Work(Enumerable.Range(0,prepared.Portfolios.Length)));
     }
     public static RiskRun Calculate(CurveModel model,MarketSnapshot snapshot,ValuationPortfolio portfolio,
         ImmutableArray<QuoteBump> bumps,string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings)
@@ -247,7 +304,7 @@ public static partial class RiskEngine
                 var value=WorkingValues(total.Values);
                 return new RiskBookTotal(total.BookId,value.Base.Currency,value.Base,value.Up,value.Down,value.UpPnl,value.DownPnl,value.Delta,value.Gamma);
             }).ToImmutableArray(),factor.UpWork,factor.DownWork)).ToImmutableArray();
-        return new(run.SnapshotId,NumericalPolicy,run.Contracts,factors,run.Work,run.Scenario){Detail=run.Detail,BaseValues=run.BaseValues};
+        return new(run.SnapshotId,NumericalPolicy,run.Contracts,factors,run.Work,run.Scenario){Detail=run.Detail,BaseValues=run.BaseValues,BaseMeasures=run.BaseMeasures};
     }
     private static RiskValues WorkingValues(ExactDealRiskValues value)=>new(value.Base.ToMoney(),value.Up.ToMoney(),value.Down.ToMoney(),
         value.UpPnl.ToMoney(),value.DownPnl.ToMoney(),new(value.Delta.Value.ToMoney().Amount,value.Delta.Unit),new(value.Gamma.Value.ToMoney().Amount,value.Gamma.Unit));

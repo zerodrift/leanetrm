@@ -57,6 +57,6 @@ def run_checks(url, run_worker=None):
         queued = client.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': child})
         run_worker()
         completed = client.call('portfolio/risk/jobs/' + queued['id'])
-        assert completed['state'] == 'completed'
+        assert completed['state'] == 'completed', completed.get('error')
         assert completed['result']['factors'] == child_result['factors']
     print('PASS connected curve scenarios: contract/parallel/bucket output targets, nested isolation and retained worker parity', flush=True)

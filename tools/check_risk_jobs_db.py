@@ -266,6 +266,30 @@ def run_checks(query, manifest, psql=None, environment=None):
     reject(lambda: worker(f"SELECT risk.finish('{job['jobId']}','{claim['leaseToken']}','{{\"value\":\"9\"}}',NULL)", 'synthetic_other_worker'), 'risk_job_fence')
     bound = worker(f"BEGIN;SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');SELECT count(*) FROM market_data.revisions WHERE catalog_id='{catalog}' AND id='{revision}';COMMIT")
     assert bound.splitlines()[-1] == '1'
+    # Shared expiry metadata remains readable only in a bound current worker
+    # context. The complete-PPA-scope guard returns a boolean, never head rows.
+    ppa_guard = f"security.ppa_scope_has_positions('{catalog}',ARRAY[{','.join(repr(b)+'::uuid' for b in books)}])"
+    assert worker(f"BEGIN;SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');SELECT {ppa_guard};COMMIT").splitlines()[-1] == 'f'
+    reject(lambda: worker(f"SELECT {ppa_guard}"), 'No current risk worker authority')
+    for table in ('generation_assets','generation_asset_versions','volume_sources','location_valuation_assignments'):
+        assert query(f"SELECT has_table_privilege('synthetic_risk_worker','market_data.{table}','SELECT');") == 'f'
+    assert query("SELECT has_function_privilege('synthetic_risk_worker','security.ppa_scope_heads(uuid,text,uuid[])','EXECUTE');") == 'f'
+    assert query("SELECT has_table_privilege('synthetic_risk_worker','trading.ppa_trade_revisions','SELECT');") == 'f'
+    # Roll back a deliberately injected row: this tests nonempty RLS visibility,
+    # not eligibility of this legacy fixture curve as an executable frozen anchor.
+    expiry_setup = f"""BEGIN;ALTER TABLE market_data.curve_expiry_rules DISABLE TRIGGER guard_definition;
+    INSERT INTO market_data.curve_expiry_rules VALUES('{catalog}','{revision}','{curve['code']}','freeze_final_settlement_v1');
+    SET SESSION AUTHORIZATION synthetic_risk_worker;SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');"""
+    expiry_read = f"SELECT count(*) FROM market_data.curve_expiry_rules WHERE catalog_id='{catalog}' AND revision_id='{revision}'"
+    assert query(expiry_setup+expiry_read+';ROLLBACK;').splitlines()[-1] == '1'
+    assert worker(expiry_read).splitlines()[-1] == '0'
+    expiry_loss = """RESET SESSION AUTHORIZATION;
+    UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.03 seconds'
+     WHERE principal_id=(SELECT principal_id FROM risk.workers WHERE login='synthetic_risk_worker');
+    SET SESSION AUTHORIZATION synthetic_risk_worker;SELECT pg_sleep(0.06);"""
+    assert query(expiry_setup+expiry_loss+expiry_read+';ROLLBACK;').splitlines()[-1] == '0'
+    reject(lambda: query(expiry_setup+expiry_loss+f'SELECT {ppa_guard};ROLLBACK;'), 'No current risk worker authority')
+    print('PASS legacy risk PPA boundary: nonempty expiry metadata, scoped boolean refusal, service loss and no direct PPA reads',flush=True)
     assert worker(f"SELECT count(*) FROM market_data.revisions WHERE catalog_id='{catalog}'") == '0'
     expired_service = query(f"""BEGIN;SET SESSION AUTHORIZATION synthetic_risk_worker;
     SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');RESET SESSION AUTHORIZATION;

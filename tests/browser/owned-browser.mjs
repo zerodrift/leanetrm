@@ -157,7 +157,7 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
     async function shot(name){if(!/^[a-z-]+$/.test(name))throw Error('Invalid screenshot name');const result=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(root,name+'.png'),Buffer.from(result.data,'base64'));}
     await command('Emulation.setTimezoneOverride',{timezoneId:'UTC'});
     try{
-      await run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url:url.origin,provider:target.provider,tab});
+      await run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url:url.origin,provider:target.provider,tab,fixture:target.ppa});
       if(errors.length)throw Error('Uncaught browser exceptions: '+JSON.stringify(errors));
       return passed;
     }finally{abandon();for(const {other,driver} of tabs){driver.abandon();other.close();}}

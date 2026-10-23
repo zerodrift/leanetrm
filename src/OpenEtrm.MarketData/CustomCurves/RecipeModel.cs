@@ -50,6 +50,13 @@ public sealed record ExactUnitPrice
     }
     public static ExactUnitPrice FromPrice(UnitPrice price)=>new(price.Value.ScaledValue,ExactDecimal.WorkingScale,price.Unit);
     internal static ExactUnitPrice FromFraction(BigInteger numerator,BigInteger denominator,PriceUnit unit)=>new(numerator,denominator,unit);
+    internal ExactUnitPrice ScaleFraction(BigInteger factor,BigInteger divisor)
+    {
+        var result=new ExactUnitPrice(numerator*factor,denominator*divisor,Unit);
+        if(result.numerator.GetBitLength()>4096 || result.denominator.GetBitLength()>4096)
+            throw new MarketDataException("numeric_range","The compounded exact price exceeds the supported 4096-bit bound.");
+        return result;
+    }
     public ExactUnitPrice Add(ExactUnitPrice other)
     {
         if(Unit!=other.Unit)throw new MarketDataException("unit_mismatch","Curve aggregation requires identical price units.");

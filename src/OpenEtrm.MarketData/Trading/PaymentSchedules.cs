@@ -4,7 +4,17 @@ using OpenEtrm.MarketData.Calculation;
 
 namespace OpenEtrm.MarketData.Trading;
 
-public readonly record struct SidePaymentKey(Guid SideId, int Ordinal, DateTimeOffset PaymentAt, ReferenceKey Currency);
+public readonly record struct SidePaymentKey(Guid SideId, int Ordinal, DateTimeOffset PaymentAt, ReferenceKey Currency)
+{
+    public void RequireUndue(MarketSnapshot snapshot)
+    {
+        if(snapshot is null)throw new MarketDataException("side_context","An explicit valuation snapshot is required.");
+        if(SideId==Guid.Empty || Ordinal<0 || !TradingInstant.IsSupported(PaymentAt) || Currency.Revision.CatalogId==Guid.Empty ||
+            Currency.Revision.RevisionId==Guid.Empty || string.IsNullOrWhiteSpace(Currency.Code))
+            throw new MarketDataException("side_payment_factors","Supply an exact side, ordinal, UTC value instant and currency reference.");
+        if(snapshot.ValuationAt>=PaymentAt)throw new MarketDataException("side_payment_due","A due side value requires explicit lifecycle treatment, not a discount factor.");
+    }
+}
 public sealed record IndexPriceLookup(ReferenceKey Index, QuoteSpecification Quote, CurveRequest Market,
     MarketContract Contract, Quantity? AveragingQuantity, IndexFixing? Fixing = null,
     CustomCurveProjectionBinding? CustomProjection = null)
@@ -18,7 +28,12 @@ public sealed record SidePaymentFactor(SidePaymentKey Payment, ExactDecimal Disc
 
 public interface ISideDiscounting
 {
-    ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot);
+    ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot) =>
+        Resolve(schedule.Payments.Select(p=>p.Key).ToImmutableArray(),snapshot);
+    // Legacy providers may implement only cash schedules. A non-cash consumer must have an explicitly
+    // supported exact-key provider; no synthetic payment schedule is invented to obtain its factors.
+    ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot) =>
+        throw new MarketDataException("side_payment_factors","This discount provider does not support explicit side value keys.");
 }
 
 // Explicit scalar discounting is an arithmetic input, not currency-default
@@ -35,7 +50,15 @@ public sealed class ExplicitDiscounting : ISideDiscounting
         this.factor = factor; this.source = source;
     }
     public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot) =>
-        schedule.Payments.Select(p => new SidePaymentFactor(p.Key, factor, snapshot, source)).ToImmutableArray();
+        Resolve(schedule.Payments.Select(p=>p.Key).ToImmutableArray(),snapshot);
+    public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot)
+    {
+        SideValuationContext.Validate(snapshot,this);
+        if(payments.IsDefault || payments.Distinct().Count()!=payments.Length)
+            throw new MarketDataException("side_payment_factors","Supply distinct exact side value keys.");
+        foreach(var payment in payments)payment.RequireUndue(snapshot);
+        return payments.Select(p=>new SidePaymentFactor(p,factor,snapshot,source)).ToImmutableArray();
+    }
 }
 
 public sealed record SchedulePriceTerm
@@ -108,7 +131,7 @@ public sealed record ResolvedSchedulePrice
 
 // No instrument, direction or trade quantity is available to a side valuation.
 // It consumes only its own schedule, declared prices and explicit discount inputs.
-public sealed class SideValuationContext
+public sealed partial class SideValuationContext
 {
     private readonly CurveBuild? market;
     private readonly ImmutableHashSet<CurveRequest>? permitted;
@@ -235,16 +258,24 @@ public sealed record SidePaymentValue
     }
 }
 
-public sealed record SidePaymentSchedule
+public abstract record SideSchedule
 {
     public Guid SideId { get; }
     public ReferenceKey Currency { get; }
     public Quantity UnitQuantity { get; }
     public string Implementation { get; }
+    public abstract ImmutableArray<CurveRequest> Dependencies { get; }
+    public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>Dependencies;
+    protected SideSchedule(Guid sideId,ReferenceKey currency,Quantity unitQuantity,string implementation)
+    {SideId=sideId;Currency=currency;UnitQuantity=unitQuantity;Implementation=implementation;}
+}
+
+public sealed record SidePaymentSchedule : SideSchedule
+{
     public ImmutableArray<SidePaymentPlan> Payments { get; }
-    public ImmutableArray<CurveRequest> Dependencies => Payments.SelectMany(p => p.Prices)
+    public override ImmutableArray<CurveRequest> Dependencies => Payments.SelectMany(p => p.Prices)
         .Where(p => p.Lookup is not null).Select(p => p.Lookup!.ProjectionRequest).Distinct().ToImmutableArray();
-    public ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)
+    public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)
     {
         if (snapshot is null || !TradingInstant.IsSupported(snapshot.ValuationAt))
             throw new MarketDataException("side_context", "An explicit supported valuation instant is required.");
@@ -255,13 +286,12 @@ public sealed record SidePaymentSchedule
     internal SidePaymentSchedule(SidePaymentPlan payment)
         : this(payment.SideId, payment.Currency, payment.UnitQuantity, payment.Implementation, [payment]) { }
     internal SidePaymentSchedule(Guid sideId, ReferenceKey currency, Quantity unitQuantity, string implementation,
-        ImmutableArray<SidePaymentPlan> payments)
+        ImmutableArray<SidePaymentPlan> payments) : base(sideId,currency,unitQuantity,implementation)
     {
         if (payments.IsDefaultOrEmpty || payments.Where((p, n) => p is null || p.Key.SideId != sideId ||
                 p.Key.Ordinal != n || p.Currency != currency || p.UnitQuantity != unitQuantity).Any())
             throw new MarketDataException("side_payment_schedule", "Every payment must retain its leg, ordinal, currency and normalized quantity unit.");
-        SideId = sideId; Currency = currency; UnitQuantity = unitQuantity;
-        Implementation = implementation; Payments = payments;
+        Payments = payments;
     }
     // A due payment needs explicit lifecycle state: it is never priced or discounted.
     public void RequireUndue(MarketSnapshot snapshot)
@@ -274,7 +304,7 @@ public sealed record SidePaymentSchedule
         if (snapshot.ValuationAt >= payment.PaymentAt)
             throw new MarketDataException("side_payment_due", "A due side payment requires explicit lifecycle state before valuation.");
     }
-    internal SideValuation Evaluate(SideValuationContext context)
+    internal PaymentSideValuation Evaluate(SideValuationContext context)
     {
         if (context is null) throw new MarketDataException("side_context", "A side valuation context is required.");
         var resolved = Payments.Select(payment =>
@@ -296,23 +326,28 @@ public sealed record SidePaymentSchedule
     }
 }
 
-public sealed record SideValuation
+public abstract record SideValuation
 {
     public const string Policy = "independent_side_rational_pv_v1";
-    public string NumericalPolicy => Policy;
+    public virtual string NumericalPolicy => Policy;
     public Guid SideId => Schedule.SideId;
     public ReferenceKey Currency => Schedule.Currency;
     public Quantity UnitQuantity => Schedule.UnitQuantity;
-    public SidePaymentSchedule Schedule { get; }
+    public SideSchedule Schedule { get; }
     internal SideValuationContext Context { get; }
     public MarketSnapshot Snapshot => Context.Snapshot;
-    public ImmutableArray<SidePaymentValue> Payments { get; }
     public ExactMoney PresentValue { get; }
-    internal SideValuation(SidePaymentSchedule schedule, SideValuationContext context, ImmutableArray<SidePaymentValue> payments)
-    {
-        Schedule = schedule; Context = context; Payments = payments;
-        PresentValue = payments.Select(p => p.PresentValue).Aggregate((a, b) => a.Add(b));
-    }
+    protected SideValuation(SideSchedule schedule,SideValuationContext context,ExactMoney presentValue)
+    {Schedule=schedule;Context=context;PresentValue=presentValue;}
+}
+
+public sealed record PaymentSideValuation : SideValuation
+{
+    public new SidePaymentSchedule Schedule => (SidePaymentSchedule)base.Schedule;
+    public ImmutableArray<SidePaymentValue> Payments { get; }
+    internal PaymentSideValuation(SidePaymentSchedule schedule,SideValuationContext context,ImmutableArray<SidePaymentValue> payments)
+        : base(schedule,context,payments.Select(p=>p.PresentValue).Aggregate((a,b)=>a.Add(b)))
+    {Payments=payments;}
 }
 
 public sealed record SideContribution

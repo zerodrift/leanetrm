@@ -22,13 +22,18 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     internal static async Task<ImmutableArray<NavigationCurve>> ReadCurves(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)
     {
         var curves=ImmutableArray.CreateBuilder<NavigationCurve>();
+        // Read each exact-bundle source through RLS once. Otherwise a nested-loop
+        // plan can repeat revision-wide visibility checks for every membership.
         await using(var command=ScheduleStore.Command(connection,"""
-            WITH members AS(
+            WITH visible_contracts AS MATERIALIZED(
+                SELECT id,kind FROM market_data.contracts WHERE catalog_id=$1 AND revision_id=$2),
+            visible_intervals AS MATERIALIZED(
+                SELECT contract_id FROM market_data.contract_intervals WHERE catalog_id=$1 AND revision_id=$2),
+            members AS(
                 SELECT m.curve_code,count(*) total,count(k.id) matched,
                     count(*) FILTER(WHERE k.kind='future') futures,count(*) FILTER(WHERE k.kind='forward') forwards,count(i.contract_id) intervals
-                FROM market_data.curve_members m LEFT JOIN market_data.contracts k
-                    ON(k.catalog_id,k.revision_id,k.id)=(m.catalog_id,m.revision_id,m.contract_id)
-                LEFT JOIN market_data.contract_intervals i ON(i.catalog_id,i.revision_id,i.contract_id)=(m.catalog_id,m.revision_id,m.contract_id)
+                FROM market_data.curve_members m LEFT JOIN visible_contracts k ON k.id=m.contract_id
+                LEFT JOIN visible_intervals i ON i.contract_id=m.contract_id
                 WHERE m.catalog_id=$1 AND m.revision_id=$2 GROUP BY m.curve_code)
             SELECT c.code,c.name,c.commodity_code,r.name,coalesce(m.total,0),coalesce(m.matched,0),
                 coalesce(m.futures,0),coalesce(m.forwards,0)

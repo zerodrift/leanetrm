@@ -128,6 +128,21 @@ public sealed partial class CurveModel
             contract.Kind != ContractKind.Forward || contract.DeliveryFrom != fixing.From || contract.DeliveryTo != fixing.To)
             Fail("index_fixing_definition", "The actual series must retain the exact model-owned quote and observation period.");
     }
+    internal void RequireIntervalPriceSource(CurveRequest request,MarketContract contract,PriceUnit unit)
+    {
+        if(!contracts.TryGetValue(contract.Key,out var retained) || retained!=contract ||
+            !curves.TryGetValue(request.Curve,out var curve) || request.Contract!=contract.Key ||
+            !curveMembers[curve.Key].Contains(contract.Key) || PriceUnit.FromQuote(Quote(curve))!=unit)
+            Fail("interval_price_source","Prepared sources must match the scenario's exact definitions and price unit.");
+    }
+    internal IndexPriceLookup PeriodLookup(CurveRequest request,MarketContract contract,IndexFixing fixing)
+    {
+        if(!curves.TryGetValue(request.Curve,out var curve))throw new MarketDataException("interval_price_source","The period curve is absent.");
+        var quote=Quote(curve);
+        RequireIndexProjection(request,contract,fixing.Index,quote);
+        return new(fixing.Index,quote,request,contract,null,fixing);
+    }
+
     private QuantitySpecification Quantity(QuoteSpecification q) => quantities.TryGetValue(q.Quantity, out var x)
         ? x : throw new MarketDataException("missing_reference", "Quantity definition is absent.");
     private static bool SamePriceUnit(QuoteSpecification a, QuoteSpecification b) =>
@@ -207,6 +222,10 @@ public sealed partial class CurveModel
                 Fail("definition_pin", "Curve must belong to the selected definition revision.");
             foreach (var key in new[] { curve.Quote, curve.Location, curve.DeliveryProfile }) Ref(key);
             EnumValue(curve.Rule); EnumValue(curve.Settlement.Kind);
+            EnumValue(curve.ConstituentExpiry);
+            if(curve.ConstituentExpiry==ConstituentExpiryRule.FreezeFinalSettlement &&
+                (curve.Rule!=CurveRule.Direct || curve.Constituents.Any(k=>contracts.TryGetValue(k,out var c) && c.Interval is not null)))
+                Fail("unsupported_expiry","Frozen settlement anchors require a direct date-only block curve.");
             var output = Quote(curve);
             if (curve.Constituents.IsDefaultOrEmpty || curve.Inputs.IsDefault)
                 Fail("missing_members", "Explicit constituents and input collection are required.");
@@ -406,8 +425,8 @@ public sealed partial class CurveModel
         var previous=parent?.Evaluations.ToDictionary(e=>(e.Result.Request,e.Use));
         var values=new Dictionary<(CurveRequest,InputUse),BuiltValue>();
         var evaluations=ImmutableArray.CreateBuilder<CurveEvaluation>();
-        var aliases=compiled.Points.GroupBy(p=>graph.Plan.IndexOf(p.Value)).ToDictionary(g=>g.Key,g=>g.ToArray());
-        var reverse=compiled.Points.ToDictionary(p=>p.Value,p=>p.Key);
+        var aliases=compiled.Points.GroupBy(p=>graph.Plan.IndexOf(p.Value)).ToDictionary(g=>g.Key,g=>g.GroupBy(p=>p.Key.Request).Select(r=>r.OrderByDescending(p=>p.Key.Use).First()).ToArray());
+        var reverse=compiled.Points.GroupBy(p=>p.Value).ToDictionary(g=>g.Key,g=>g.OrderByDescending(p=>p.Key.Use).First().Key);
         var reused=0;
         foreach(var node in graph.Plan.DependencyPlan.TopologicalOrder)
         {
@@ -436,7 +455,9 @@ public sealed partial class CurveModel
                     var value=new BuiltValue(request,Quote(curves[request.Curve]),price.ToUnitPriceExact(),lineage);
                     evaluation=new(value,use,dependencies,multiplier,multiplierObservation);
                 }
-                values.Add(item.Key,evaluation.Result);evaluations.Add(evaluation);
+                values.Add(item.Key,evaluation.Result);
+                if(use==InputUse.FrozenFact && compiled.Points.TryGetValue((request,InputUse.Variable),out var alias) && alias==item.Value)values.Add((request,InputUse.Variable),evaluation.Result);
+                evaluations.Add(evaluation);
             }
         }
         return new(this,snapshot,NumericalPolicy,requests.Select(r=>values[(r,InputUse.Variable)]).ToImmutableArray(),

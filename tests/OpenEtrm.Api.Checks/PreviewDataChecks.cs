@@ -263,7 +263,7 @@ internal static class PreviewDataChecks
             ["curves"]=[Row(new{code="future",quote_code="price",location_code="hub",profile_code="uniform",settlement_target_code="target",rule="direct",direct_role="daily_settlement",direct_source_code="synthetic"})],
             ["curve_members"]=[..contract.Select((id,i)=>Row(new{curve_code="future",contract_id=id,ordinal=i}))],
             ["series"]=[..series.Select((id,i)=>Row(new{id,contract_id=contract[i],quote_code="price",value_specification_code=(string?)null}))],
-            ["curve_inputs"]=[],["constituent_mappings"]=[],["rate_curves"]=[],["rate_curve_points"]=[],["revision_periods"]=[],["contract_intervals"]=[]
+            ["curve_inputs"]=[],["constituent_mappings"]=[],["rate_curves"]=[],["rate_curve_points"]=[],["revision_periods"]=[],["contract_intervals"]=[],["curve_expiry_rules"]=[]
         };
         Dictionary<string,ImmutableArray<JsonElement>> references=new()
         {
