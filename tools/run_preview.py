@@ -67,6 +67,7 @@ def main():
     parser.add_argument('--with-exchange',action='store_true',help='Publish the independent exchange futures dataset in this newly owned database')
     parser.add_argument('--party-check', action='store_true', help='Run party-editor integration checks in an owned fixture')
     parser.add_argument('--identity-check', action='store_true', help='Run economic-key integration checks in the owned standard fixture, then clean up')
+    parser.add_argument('--provider-adapters-check',action='store_true',help='Qualify additional provider routing and billing through HTTP Test in an owned fixture')
     parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
     parser.add_argument('--browser-check',action='store_true',help='Run checked-in browser scenarios in the newly owned standard fixture')
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
@@ -85,7 +86,7 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -380,7 +381,7 @@ def main():
         frozen_dll=temporary/'api'/dll.name
         log=(temporary/'app.log').open('w')
         api_env=app_env
-        if args.assistant_check:
+        if args.assistant_check or args.provider_adapters_check:
             # Provider tests reach a loopback fake provider through the check endpoint, and every proxy
             # setting names a trap that no request may reach (docs/ai-assistant.md §5.2, §13).
             from fake_model_provider import FakeProvider,Trap
@@ -660,6 +661,14 @@ def main():
             elif args.market_read_check:
                 from check_market_read_authority import run_checks as check_market_authority
                 check_market_authority(query,manifest)
+            elif args.provider_adapters_check:
+                from preview_client import PreviewClient
+                from check_additional_providers import run_checks as check_additional_providers
+                admin=PreviewClient(url);admin.bootstrap();admin.call('profile',{'profile':'admin'})
+                admin.call('admin/create',{'operationId':str(uuid4()),'login':'provider_adapters_admin','name':'Synthetic provider administrator',
+                                          'kind':'human','roles':['access_administrator','viewer']})
+                admin.call('profile',{'profile':'provider_adapters_admin'})
+                check_additional_providers(query,manifest,fake_provider,proxy_trap,admin)
             elif args.assistant_check:
                 # First, while nothing else can be writing to the application log.
                 from check_request_refusals import run_checks as check_request_refusals
@@ -692,6 +701,8 @@ def main():
                 check_turn_stream_http(url,query,psql,manifest,app_env,fake_provider,proxy_trap,*sessions)
                 from check_model_usage import run_checks as check_model_usage
                 check_model_usage(url,query,psql,manifest,app_env)
+                from check_additional_providers import run_checks as check_additional_providers
+                check_additional_providers(query,manifest,fake_provider,proxy_trap,admin)
                 # A scope keeps at most 64 sessions for their 30 minutes (Program.cs). The browser checks below open their
                 # own, as will later page-assistant suites, so the sessions this process has opened so far, in every suite
                 # before this point, leave a stated margin for them.

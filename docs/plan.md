@@ -932,6 +932,12 @@ authorization and retained-version boundaries.
 
 ## Milestone 5 — AI-operated application
 
+D211 adds the other four [provider adapters](provider-adapters.md), retaining
+per-vendor usage mappings, explicit continuation handling and the existing
+administration/worker gates. Real-provider task outcomes and hosted rollout
+remain unqualified; the broader acceptance criteria below remain open.
+
+
 Design the operation schemas from milestone 3 for agent use; this milestone adds
 the model runtime and client adapters rather than a separate business-rule path.
 

@@ -8,12 +8,11 @@ namespace OpenEtrm.Api;
 // context: the outcome, the served identifier and the usage by dimension.
 static class ModelCalls
 {
-    // The attested key an opened call carries, sealed until here. Only the Messages adapter ships, so only a model under
-    // its mapping is qualified, and any other is refused as one this release has no confirmed mapping for.
+    // The attested key is opened only for the admitted vendor and the mapping this release implements.
     public static string Key(CredentialCustody custody,JsonElement opened)
     {
         var vendor=opened.GetProperty("vendor").GetString()!;
-        if(vendor!="anthropic"||opened.GetProperty("mapping").GetString()!=MessagesAdapter.Mapping)
+        if(ModelAdapters.Mapping(vendor) is not {} mapping||opened.GetProperty("mapping").GetString()!=mapping)
             throw new ModelAdministrationException("model_mapping_unconfirmed",ModelCatalog.Refusal("model_mapping_unconfirmed"));
         return custody.Open(opened.GetProperty("provider").GetGuid(),vendor,opened.GetProperty("credentialVersion").GetInt32(),
             new(Bytes(opened,"nonce"),Bytes(opened,"ciphertext"),Bytes(opened,"tag")));
@@ -21,7 +20,7 @@ static class ModelCalls
 
     // The identifier an opened call sends, and the other served identifiers its model version accepts.
     public static ModelTarget Target(JsonElement opened)=>
-        new(opened.GetProperty("identifier").GetString()!,[..opened.GetProperty("acceptedServed").EnumerateArray().Select(i=>i.GetString()!)]);
+        new(opened.GetProperty("vendor").GetString()!,opened.GetProperty("identifier").GetString()!,[..opened.GetProperty("acceptedServed").EnumerateArray().Select(i=>i.GetString()!)]);
 
     static byte[] Bytes(JsonElement opened,string name)=>Convert.FromHexString(opened.GetProperty(name).GetString()!);
 

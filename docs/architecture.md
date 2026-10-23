@@ -1860,6 +1860,12 @@ replace enforcement: knowing a tool name does not authorize using it. External
 agents authenticate independently and receive scoped grants. They receive no
 database credentials or unrestricted SQL tool.
 
+The bounded [provider adapters](provider-adapters.md) implement Messages, Responses
+and streamGenerateContent for five vendors (D211), with separately versioned usage
+mappings. Their synthetic qualification does not establish real-account/model
+availability. Credentials, account attestations and model enablement remain
+installation administration.
+
 The model-provider boundary normalizes messages, structured tool requests,
 streaming, cancellation, usage and error categories. Provider-specific SDK types
 and response IDs remain outside domain contracts. Capability negotiation handles

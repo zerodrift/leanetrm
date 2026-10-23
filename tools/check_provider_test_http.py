@@ -115,7 +115,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     check("the Providers tab lists each shipped adapter's endpoint, here the check endpoint marked as one, and each provider's last test",
           (listed['anthropic']['endpoint'], listed['anthropic']['lastTest']) == ({'url': f'{fake.url}/v1/messages', 'check': True},
                                                                                  first | {'underCurrentAttestation': True})
-          and all((p['endpoint'], p['lastTest']) == (None, None) for vendor, p in listed.items() if vendor != 'anthropic'))
+          and all(p['endpoint'] is not None and p['endpoint']['check'] and p['lastTest'] is None for vendor, p in listed.items() if vendor != 'anthropic'))
 
     def outcome(response, **expected):
         fake.respond(response)

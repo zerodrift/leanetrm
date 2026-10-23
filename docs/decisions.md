@@ -448,3 +448,15 @@ independent filters do not implement cross-commodity valuation.
 
 New Trade also offers PPA and routes to the existing authorized PPA workflow,
 where the user explicitly selects market inputs before entering a booking.
+
+## D211 — Additional model-provider mappings
+
+The page assistant adds OpenAI, xAI and Meta Responses mappings and Google's
+streamGenerateContent mapping through the existing provider-neutral boundary.
+[Provider adapters](provider-adapters.md) specifies fixed destinations, explicit
+parameters, immutable per-vendor usage normalization and source confirmations.
+Migration 0104 adds no prices, credentials, account attestation, model capability
+versions or enablement. Meta's documented Responses usage now permits its own
+confirmed mapping, replacing the earlier unconfirmed status under D150. Synthetic
+conformance does not close real-provider qualification O09 or authorize a hosted
+schema/application deployment.

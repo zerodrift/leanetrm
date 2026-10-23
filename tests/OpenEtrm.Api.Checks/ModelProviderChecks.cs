@@ -19,6 +19,7 @@ static class ModelProviderChecks
 
     public static async Task Run()
     {
+        await AdditionalProviderChecks.Run();
         await TextCall();
         await CachedToolLoop();
         await ReasoningStaysInTheReply();
@@ -387,7 +388,7 @@ static class ModelProviderChecks
         var replied=Require<ModelCompleted>((await Call(new FakeProvider(Sse(ToolRecording)),Request(tools:[ReadTrades]))).End,"a reply for replay").Reply!;
         foreach(var (name,request) in new[]{("a reply replayed to another model",Request(model:"synthetic-other-model",messages:[new ModelUserText("q"),replied,new ModelToolResults([new("toolu_synthetic_01","r",false)])])),
             ("a conversation ending with a reply",Request(messages:[new ModelUserText("q"),replied])),("no output tokens",Request(maxTokens:0)),
-            ("an unset list of accepted identifiers",Request() with{Model=new(Model,default)}),("an unset tool list",Request() with{Tools=default}),
+            ("an unset list of accepted identifiers",Request() with{Model=new("anthropic",Model,default)}),("an unset tool list",Request() with{Tools=default}),
             ("an empty system instruction",Request() with{System=""}),("empty user text",Request(messages:[new ModelUserText("")])),
             ("no tool results",Request(caching:true,messages:[new ModelUserText("q"),replied,new ModelToolResults([])]))})
         {
@@ -477,7 +478,7 @@ static class ModelProviderChecks
 
     static ModelRequest Request(bool caching=false,ImmutableArray<ModelTool> tools=default,ImmutableArray<ModelMessage> messages=default,string? reasoning="medium",
         string model=Model,ImmutableArray<string> accepted=default,int maxTokens=512)=>
-        new(new(model,accepted.IsDefault?[]:accepted),"Synthetic preamble.",messages.IsDefault?[new ModelUserText("Synthetic question?")]:messages,tools.IsDefault?[]:tools,
+        new(new("anthropic",model,accepted.IsDefault?[]:accepted),"Synthetic preamble.",messages.IsDefault?[new ModelUserText("Synthetic question?")]:messages,tools.IsDefault?[]:tools,
             new(maxTokens,reasoning,caching));
 
     static readonly ModelTool ReadTrades=new("read_trades","Reads the synthetic trades of one book.",

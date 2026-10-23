@@ -10,8 +10,8 @@ namespace OpenEtrm.Api;
 // Vendor types, message identifiers and continuation data stay inside the adapter.
 public sealed record ModelRequest(ModelTarget Model,string System,ImmutableArray<ModelMessage> Messages,ImmutableArray<ModelTool> Tools,ModelParameters Parameters);
 
-// The identifier sent, and the other served identifiers its model version accepts.
-public sealed partial record ModelTarget(string Identifier,ImmutableArray<string> AcceptedServed)
+// The admitted vendor, the identifier sent and the other served identifiers its model version accepts.
+public sealed partial record ModelTarget(string Vendor,string Identifier,ImmutableArray<string> AcceptedServed)
 {
     // The rule the database applies when a model is added (assistant.is_model_identifier).
     internal static bool Valid(string identifier)=>Format().IsMatch(identifier);

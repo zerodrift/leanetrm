@@ -26,7 +26,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('AI settings open on Models & prices with the date controls hidden',"!document.querySelector('#ai-page').hidden&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-providers').hidden&&document.querySelector('#page-title').textContent==='AI'&&document.querySelector('#snapshot').closest('.date-control').hidden&&document.querySelector('#error').hidden");
   await click('#ai-tab-providers');
   // The HTTP checks before this scenario may have qualified a provider, so the tab must show what the directory reports.
-  await check('Providers lists every supported vendor with its protocol, the state and the usage mapping its directory reports',`(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/providers')).json(),r=${rows('ai-provider-table')};const state=p=>p.enabled?(p.qualified?'Enabled':'Enabled · no longer qualified'):(p.qualified?'Disabled · qualified':'Disabled · not qualified');return r.length===5&&['Anthropic','OpenAI','Google','xAI','Meta'].every(n=>d.providers.some(p=>p.name===n))&&d.providers.every(p=>r.some(c=>c[0]===p.name&&c[1]===p.protocol&&c[2]===state(p)&&c[3]===(p.mapping?p.mapping.mapping+' · confirmed '+p.mapping.confirmedOn:'None confirmed')))&&r.some(c=>c[0]==='Google'&&c[1]==='generateContent'&&c[3]==='None confirmed')&&document.querySelector('#ai-providers').textContent.includes('only cumulative cap');})()`);
+  await check('Providers lists every supported vendor with its protocol, the state and the usage mapping its directory reports',`(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/providers')).json(),r=${rows('ai-provider-table')};const state=p=>p.enabled?(p.qualified?'Enabled':'Enabled · no longer qualified'):(p.qualified?'Disabled · qualified':'Disabled · not qualified');return r.length===5&&['Anthropic','OpenAI','Google','xAI','Meta'].every(n=>d.providers.some(p=>p.name===n))&&d.providers.every(p=>r.some(c=>c[0]===p.name&&c[1]===p.protocol&&c[2]===state(p)&&c[3]===(p.mapping?p.mapping.mapping+' · confirmed '+p.mapping.confirmedOn:'None confirmed')))&&r.some(c=>c[0]==='Google'&&c[1]==='generateContent'&&c[3].startsWith('generate_content_v1 · confirmed '))&&document.querySelector('#ai-providers').textContent.includes('only cumulative cap');})()`);
   await click('#ai-tab-models');
   await set('#ai-model-vendor','anthropic');await set('#ai-model-identifier',anthropic);await set('#ai-model-name','Browser model');await submit('#ai-model-form');
   await check('Add model lists the model without a price, and the audit records it',`(()=>{const r=${row('ai-model-table',anthropic)};return r&&r[0]==='Anthropic'&&r[1]==='Browser model'&&r[3]==='Disabled · not qualified'&&r[4]==='No price';})()&&${row('ai-model-audit',anthropic)}?.[3]==='Model added'&&document.querySelector('#error').hidden`);
@@ -182,7 +182,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#ai-model-disable');
   await check('Disable turns the model off, keeps its capabilities and moves focus to Enable',`${row('ai-model-table',anthropic)}[3]==='Disabled · qualified'&&${row('ai-model-audit',anthropic)}[3]==='Disabled'&&${rows('ai-capability-table')}.length===6&&document.activeElement===document.querySelector('#ai-model-enable')`);
   await manage(openai);
-  await check('a model whose vendor has no confirmed usage mapping offers no efforts and says why',"document.querySelectorAll('#ai-capability-efforts input').length===0&&!document.querySelector('#ai-capability-note').hidden&&document.querySelector('#ai-capability-form').getAttribute('aria-describedby')==='ai-capability-note'&&document.querySelector('#ai-capability-form button[type=submit]').disabled");
+  await check('the OpenAI model offers the efforts of its confirmed Responses mapping',"Array.from(document.querySelectorAll('#ai-capability-efforts input')).map(n=>n.value).join(',')==='low,medium,high,xhigh,max'&&document.querySelector('#ai-capability-note').hidden");
   await click('#ai-tab-providers');await openProvider('Anthropic');await click('#ai-provider-disable');
   await check('Disable turns the provider off, keeps it qualified and moves focus to Enable',`${row('ai-provider-table','Anthropic')}[2]==='Disabled · qualified'&&${rows('ai-provider-audit')}[0][3]==='Disabled'&&!document.querySelector('#ai-provider-enable').hidden&&document.activeElement===document.querySelector('#ai-provider-enable')&&document.querySelector('#error').hidden`);
 
@@ -192,8 +192,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const anthropicDirectory="(async()=>(await(await window.__originalFetch('/api/settings/ai/providers')).json()).providers.find(p=>p.vendor==='anthropic'))()";
   const retainedTest="JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.ai.test.request.'))))";
   const testOffered="document.querySelector('#ai-test-pending').checkVisibility()";
-  await check('the provider card and table name the check endpoint its requests reach, and a vendor without an adapter has none',
-    `document.querySelector('#ai-provider-facts').textContent.includes('/v1/messages (check endpoint)')&&${row('ai-provider-table','Anthropic')}[9].endsWith('/v1/messages (check endpoint)')&&${row('ai-provider-table','Google')}[9]==='No adapter in this release'`);
+  await check('the provider card and table name the check endpoint its requests reach, and the other vendors have their own endpoints',
+    `document.querySelector('#ai-provider-facts').textContent.includes('/v1/messages (check endpoint)')&&${row('ai-provider-table','Anthropic')}[9].endsWith('/v1/messages (check endpoint)')&&${row('ai-provider-table','Meta')}[9].endsWith('/v1/responses (check endpoint)')`);
   const testChoices=await evaluate(`(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/models')).json();return {model:d.models.find(m=>m.identifier===${JSON.stringify(anthropic)}).id,
     excluded:d.models.filter(m=>m.vendor!=='anthropic'||!m.capability).map(m=>m.id),unrecorded:d.models.some(m=>m.vendor==='anthropic'&&!m.capability)};})()`);
   const modelId=testChoices.model;
@@ -250,8 +250,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#ai-test-model',modelId);await set('#ai-test-effort','low');await submit('#ai-test-form');
   await check('a refusal the server can send after a test ran keeps its request',`${testOffered}&&${retainedTest}?.body.reasoning==='low'`);
   await click('#ai-test-discard');await click('#ai-providers-refresh');await openProvider('OpenAI');
-  await check('a vendor without an adapter offers no model to test, and its card says why',
-    "document.querySelector('#ai-test-model').options.length===1&&!document.querySelector('#ai-test-note').hidden&&document.querySelector('#ai-test-note').textContent.includes('No adapter for OpenAI')");
+  await check('OpenAI offers exactly its models with recorded capabilities for testing through its adapter',
+    `(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/models')).json(),expected=d.models.filter(m=>m.vendor==='openai'&&m.capability).map(m=>m.id).sort(),actual=[...document.querySelector('#ai-test-model').options].map(o=>o.value).filter(Boolean).sort();return expected.length>0&&JSON.stringify(actual)===JSON.stringify(expected)&&document.querySelector('#ai-test-note').hidden&&!document.querySelector('#ai-provider-facts').textContent.includes('no adapter');})()`);
   await openProvider('Anthropic');
   // A new key ends the attestation the last test ran under, and the page says so.
   await click('#ai-provider-key');await set('#ai-key-value','sk-browser-synthetic-key-0004');await submit('#ai-key-form');
