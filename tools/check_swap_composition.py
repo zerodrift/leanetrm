@@ -11,6 +11,8 @@ def run_checks(url, query=None, manifest=None):
     w=c.call('workspace');f=next(f for f in w['frames'] if f['at'].startswith('2020-12-18'))
     context={'snapshotId':f['id'],'knowledgeMode':'current','convention':'independent_side_financial_swap_v2'}
     catalog=c.call('swaps/catalog',context)
+    assert catalog['entryTemplate']['version']=='monthly_18_calendar_days_v1' and catalog['entryTemplate']['firstCoefficient']=='-1' and catalog['entryTemplate']['spread']=='0'
+    assert catalog['entryTemplate']['payment']==dict(frequency='monthly',rule='days_after_period_end',days=18,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1')
     daily=next(i for i in catalog['indices'] if i['curve']=='daily_gas')
     monthly=daily
     def side(i,spread,frequency):
