@@ -21,3 +21,20 @@ test('design tokens carry the specified commodity, polarity and radius values',(
 test('the commodity colors in CSS are the chart palette entries for power and gas',()=>{
  assert.equal(token('--power'),palette[1]);assert.equal(token('--gas'),palette[2]);
 });
+// The shared `th` rule's declarations as a property map.
+const sharedHeader=Object.fromEntries((css.match(/^th\{([^}]*)\}/m)?.[1]??'').split(';').filter(Boolean).map(d=>[d.slice(0,d.indexOf(':')).trim(),d.slice(d.indexOf(':')+1).trim()]));
+const resolved=value=>value.startsWith('var(')?token(value.slice(4,-1)):value;
+// WCAG 2.x contrast ratio of two hex colors.
+const channels=hex=>(hex.length===4?[...hex.slice(1)].map(c=>c+c):hex.slice(1).match(/../g)).map(c=>parseInt(c,16)/255);
+const luminance=hex=>{const [r,g,b]=channels(hex).map(c=>c<=0.03928?c/12.92:((c+0.055)/1.055)**2.4);return 0.2126*r+0.7152*g+0.0722*b;};
+const contrast=(a,b)=>{const [light,dark]=[luminance(a),luminance(b)].sort((x,y)=>y-x);return (light+0.05)/(dark+0.05);};
+// Headers name units such as MMBtu or kWh; they must read as the backend names them.
+test('shared table headers leave the case of unit symbols alone',()=>{
+ assert.ok(Object.keys(sharedHeader).length,'the shared th rule is missing');
+ assert.ok([undefined,'none'].includes(sharedHeader['text-transform']),`th sets text-transform:${sharedHeader['text-transform']}`);
+});
+test('shared table header text meets AA contrast on its own background',()=>{
+ assert.ok(Object.keys(sharedHeader).length,'the shared th rule is missing');
+ const ratio=contrast(resolved(sharedHeader.color),resolved(sharedHeader.background));
+ assert.ok(ratio>=4.5,`th text contrast is ${ratio.toFixed(2)}:1`);
+});
