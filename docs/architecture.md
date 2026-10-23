@@ -6,6 +6,13 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+The interval-data foundation (D212) shares exact UTC grids and masks between TOUs,
+schedules and compact value columns. Shaping and PPA quantity preparation retain
+exact arithmetic, revision lineage and explicit missing-data behavior. Hourly
+pricing is a Curves & prices view; the reusable interval-data widget separates
+presentation and optional refresh from financial-context selection. See
+[interval data](interval-data.md) for implemented consumers and measured limits.
+
 Published custom recipes compose through normalized exact-version/output
 relationships (D187, migration 0082). Their output panels retain direct graph
 dependencies, resolved under the same effective date, knowledge cutoff and

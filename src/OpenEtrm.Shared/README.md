@@ -26,8 +26,8 @@ and cover 300-digit half ties and unsupported inputs.
 | `MonthlyDates` | Bounded monthly anchors with explicit short-month policy and retained original/adjusted dates |
 | `BitemporalRange` | Half-open effective dates and UTC knowledge intervals with a finite reserved open end |
 | `DateReference` | Bounded names, occurrence indexes and signed business-day offsets; no scripting |
-| `UtcGrid` | Immutable strictly increasing UTC interval boundaries; explicit uniform-grid size limit or supplied nonuniform boundaries |
-| `UtcSelection` | Immutable slot bitmask bound to the exact grid, with exact selected duration in ticks |
+| `UtcGrid` | Immutable exact UTC intervals; compact uniform axes, sparse equal-duration axes or supplied nonuniform boundaries |
+| `UtcSelection` | Immutable slot bitmask bound to the exact grid, with union/intersection/overlap, selected-slot iteration and exact duration |
 | `ImmutablePool<T>` | Bounded, explicitly scoped, concurrency-safe canonicalization using full equality, including hash-collision checks |
 
 Separate named definitions can share a canonical payload. A pool is owned by its

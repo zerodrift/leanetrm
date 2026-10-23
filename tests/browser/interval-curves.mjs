@@ -27,9 +27,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#profile-open');await set('#zone','America/New_York');await submit('#preferences-form');
  // Interval curves read the first market date's pinned marks; it values at 11:00 AM New York time on 15 December 2020.
  await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));await wait(idle);
+ await check('interval pricing is a view under Curves & prices, not a separate sidebar object',
+  "document.querySelector('#curve-price-navigation').contains(document.querySelector('#nav-interval-curves'))&&!document.querySelector('#market-menu').contains(document.querySelector('#nav-interval-curves'))&&!document.querySelector('#curve-price-navigation').hidden");
  await click('#nav-interval-curves');
  await check('the page lists interval curves beside the market date, with Known at from the database clock',
-  "!document.querySelector('#interval-curves-page').hidden&&document.querySelector('#page-title').textContent==='Interval curves'&&!document.querySelector('#snapshot').closest('.date-control').hidden"+
+  "!document.querySelector('#interval-curves-page').hidden&&document.querySelector('#page-title').textContent==='Curves & prices'&&!document.querySelector('#snapshot').closest('.date-control').hidden"+
   "&&[...document.querySelectorAll('#interval-curves-select option')].map(o=>o.value).filter(Boolean).join()==='test_power_hourly_marked,test_power_hourly_scaled,test_power_hourly_shaped,test_power_hourly_uncovered'"+
   `&&${knownAtAssertion("document.querySelector('#interval-curves-known')",'window.catalogKnownAt','America/New_York')}&&document.querySelector('#interval-curves-window').disabled&&document.querySelector('#error').hidden`,
   "({page:document.querySelector('#interval-curves-page').hidden,title:document.querySelector('#page-title').textContent,date:document.querySelector('#snapshot').closest('.date-control').hidden,options:[...document.querySelectorAll('#interval-curves-select option')].map(o=>o.value),known:document.querySelector('#interval-curves-known').value,window:document.querySelector('#interval-curves-window').disabled,error:document.querySelector('#error').textContent})");
@@ -115,5 +117,24 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));await wait(idle);
  await check('returning to working data and a market date lists the curves again',"document.querySelectorAll('#interval-curves-select option').length===5&&document.querySelector('#error').hidden",
   "({options:document.querySelectorAll('#interval-curves-select option').length,error:document.querySelector('#error').textContent})");
+ await evaluate(`(async()=>{
+  const {mountIntervalDataWidget}=await import('/interval-data-widget.js');
+  const host=document.createElement('section');host.id='synthetic-interval-widget';
+  const chart=document.createElement('div');chart.className='chart';const table=document.createElement('div');host.append(chart,table);document.body.append(host);
+  window.widgetCalls=0;
+  window.widgetData=()=>({scope:'synthetic-dashboard',title:'Synthetic meter readings',caption:'Explicit synthetic source',headers:['Interval','Value'],rows:[['First',String(window.widgetCalls)]],numeric:[1],
+   chart:{title:'Synthetic meter readings',axis:'delivery',unit:'MWh',series:[{name:'Meter',points:[{x:'2031-01-01T00:00:00Z',y:String(window.widgetCalls)}]}]}});
+  window.intervalWidget=mountIntervalDataWidget({table,chart,key:'synthetic-dashboard',busy:()=>false,load:async()=>{window.widgetCalls++;return window.widgetData();}});
+  window.intervalWidget.show(window.widgetData());window.widgetCanvas=chart.querySelector('canvas');
+ })()`);
+ await click('#synthetic-interval-widget .interval-widget-controls button');
+ await wait('window.widgetCalls===1&&document.querySelector("#synthetic-interval-widget tbody td:last-child").textContent==="1"');
+ await check('reusable widget refreshes a supplied source while retaining its chart canvas',
+  'document.querySelector("#synthetic-interval-widget canvas")===window.widgetCanvas');
+ await set('#synthetic-interval-widget select','5000');
+ await wait('window.widgetCalls===2');
+ await evaluate('document.querySelector("#synthetic-interval-widget").hidden=true');
+ await check('hidden widget suppresses manual refresh too',`(async()=>{await new Promise(r=>setTimeout(r,0));document.querySelector('#synthetic-interval-widget .interval-widget-controls button').click();await new Promise(r=>setTimeout(r,0));return window.widgetCalls===2;})()`);
+ await evaluate('window.intervalWidget.dispose();document.querySelector("#synthetic-interval-widget").remove()');
  await check('no uncaught JavaScript exceptions',JSON.stringify(errors.length===0));
 }

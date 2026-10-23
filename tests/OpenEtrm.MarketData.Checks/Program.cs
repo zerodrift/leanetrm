@@ -23,6 +23,8 @@ if(args is ["--commodity-lookups"]){CommodityLookupChecks.Run();return;}
 if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();return;}
 if(args is ["--snapshot-inputs"]){SnapshotInputChecks.Run();return;}
 if(args is ["--power-interval-quantities"]){PowerIntervalQuantityChecks.Run();return;}
+if(args is ["--interval-data-benchmark",var intervalOutput]){IntervalDataBenchmark.Run(intervalOutput);return;}
+if(args is ["--interval-data"]){IntervalDataChecks.Run();return;}
 if(args is ["--interval-series"]){IntervalSeriesChecks.Run();return;}
 if(args is ["--interval-curves"]){IntervalCurveChecks.Run();return;}
 if(args is ["--block-shaping"]){BlockShapingChecks.Run();return;}
@@ -63,6 +65,7 @@ if (args.Length > 0)
     return;
 }
 
+IntervalDataChecks.Run();
 PowerHoursChecks.Run();
 CustomCurveChecks.Run();
 ExactCurvePriceChecks.Run();

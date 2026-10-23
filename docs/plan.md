@@ -4,6 +4,13 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+The interval-data foundation (D212) shares exact UTC grids and masks between TOUs,
+schedules and compact value columns. Shaping and PPA quantity preparation retain
+exact arithmetic, revision lineage and explicit missing-data behavior. Hourly
+pricing is a Curves & prices view; the reusable interval-data widget separates
+presentation and optional refresh from financial-context selection. See
+[interval data](interval-data.md) for implemented consumers and measured limits.
+
 The local custom-curve workspace implements typed visual graphs, formula
 roundtrips, exact multi-date sampling, explicit date/schedule references and
 separate save/publish operations (D161). Prompt, inclusive daily-forward BALMO
