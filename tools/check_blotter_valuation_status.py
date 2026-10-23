@@ -5,6 +5,7 @@ seeded January future has expired, and the closes after Dec 18 pin neither the s
 discount rates the monthly swaps need. The daily swap bundle publishes its prices and due fixings at Dec 31
 only, so the daily swaps share their book totals with monthly swaps the close cannot value. One synthetic
 future on the custom monthly NG curve, observed at every close, is booked here to do the same for futures.
+Curve shapes state per contract what a curve at that close cannot price, where reading the curve fails.
 """
 from collections import defaultdict
 from fractions import Fraction
@@ -113,6 +114,17 @@ def run_checks(url, session=None):
     check('its execution P&L is exact against that price',
           Fraction(held['executionPnl']) == (Fraction(held['mark'])-Fraction('3.05'))*Fraction(held['quoteMultiplier'])*Fraction(held['quantity']))
     check('only the valued futures market counts as an evaluated price', late['evaluatedContracts'] == 1)
+    # The curves behind those positions, read for the desk's sparklines, state what the close cannot price per contract.
+    priced, unpriced = c.call('market/curve-shapes', {'snapshotId': dec31['id'], 'curves': ['ng_monthly', 'ng_fixed_bridge']})['curves']
+    check('a curve the close prices is shaped exactly as /evaluate prices it',
+          priced['curve'] == 'ng_monthly' and priced['points'] and [(p['contractId'], p['price'], p['unavailableReason']) for p in priced['points']]
+          == [(p['contractId'], p['value'], None) for p in c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_monthly'})['points']])
+    check('a curve whose one contract the close cannot price states that reason for the contract, where /evaluate fails the curve',
+          unpriced['curve'] == 'ng_fixed_bridge' and [(p['price'], p['unavailableReason']) for p in unpriced['points']] == [(None, 'missing_observation')]
+          and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_fixed_bridge'}, expected=422)['code'] == 'missing_observation')
+    check('a curve the close selects no contracts for fails the whole read, as /evaluate fails it',
+          c.call('market/curve-shapes', {'snapshotId': dec31['id'], 'curves': ['ng_monthly', 'future']}, expected=422)['code']
+          == c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'future'}, expected=422)['code'] == 'missing_curve_view')
     early = {(r['tradeId'], r['bindingId']): r for r in report(dec18, TRADES)['holdings']}
     check('positions keep their booked facts when the close cannot value them',
           early.keys() == {(r['tradeId'], r['bindingId']) for r in rows} and all(

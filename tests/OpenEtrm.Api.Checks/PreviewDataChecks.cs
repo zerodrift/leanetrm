@@ -130,6 +130,61 @@ internal static class PreviewDataChecks
             Reject("ambiguous_reference",()=>Held(Commodities("gas","gas"),Curve("gas")).Commodity("future"));
             Reject("ambiguous_reference",()=>Held(Commodities("gas"),Curve(null)).Commodity("future"));
         });
+        // The reference rows that name a quote's currency and unit, which the fixture leaves out, and a quote multiplier its futures keep.
+        Dictionary<string,ImmutableArray<JsonElement>> Quoting(string multiplier="1")=>new(fixture.References)
+        {
+            ["currencies"]=[Row(new{code="usd",display_code="USD"})],["units"]=[Row(new{code="mwh",symbol="MWh"})],
+            ["quote_specifications"]=[Change(fixture.References["quote_specifications"].Single(),"multiplier",multiplier)],
+            ["futures_products"]=[Change(fixture.References["futures_products"].Single(),"quote_multiplier",multiplier)]
+        };
+        Check("a curve's price unit names its quote's currency and unit, then a multiplier other than one",()=>
+        {
+            if(Data(references:Quoting()).PriceUnit("future")!="USD/MWh"||Data(references:Quoting("100")).PriceUnit("future")!="USD/MWh × 100")
+                throw new Exception("A curve's price unit changed.");
+            Reject("ambiguous_reference",()=>Data(references:Quoting()).PriceUnit("unlisted"));
+        });
+        Check("a curve shape prices every contract its view selects exactly as the curve itself does",()=>
+        {
+            var priced=Data(references:Quoting());
+            var shape=MarketReads.Shape(priced,fixture.Frame,"future");
+            var own=Row(priced.Result(fixture.Frame,"future")).GetProperty("points").EnumerateArray().ToArray();
+            if(shape.Curve!="future"||shape.Unit!="USD/MWh"||shape.Points.Length!=405||!shape.Points.SequenceEqual(own.Select(p=>
+                new CurveShapePoint(p.Id("contractId"),p.Text("deliveryFrom"),p.Text("deliveryTo"),p.Text("value"),null))))
+                throw new Exception("A curve shape differs from the prices and delivery periods of its curve.");
+        });
+        Check("a curve shape states each contract its inputs cannot price, and prices the others as the curve prices them alone",()=>
+        {
+            // The first three contracts expire before the frame's instant, and the fourth has no pinned price.
+            var expiring=new[]{"synthetic_0","synthetic_1","synthetic_2"};
+            var priced=Data(references:new(Quoting()){["futures_milestones"]=[..fixture.References["futures_milestones"].Select(row=>
+                    row.Text("milestone")=="last_trading"&&expiring.Contains(row.Text("series_code"))?Change(row,"event_at","2040-01-05T00:00:00Z"):row)]},
+                definitions:new(fixture.Definitions){["contracts"]=[..fixture.Definitions["contracts"].Select((row,i)=>i<3?Change(row,"expiry_at","2040-01-05T00:00:00Z"):row)]});
+            var gap=fixture.Frame with{ObservationIds=fixture.Frame.ObservationIds.RemoveAt(3)};
+            Reject("source_expired",()=>priced.Build(gap,"future"));
+            var shape=MarketReads.Shape(priced,gap,"future");
+            var whole=data.Build(fixture.Frame,"future").Values;
+            if(shape.Points.Length!=405||shape.Points.Take(3).Any(p=>p is not {Price:null,UnavailableReason:"source_expired"})||
+                shape.Points[3] is not {Price:null,UnavailableReason:"missing_observation"}||
+                !shape.Points.Skip(4).SequenceEqual(whole.Skip(4).Select(v=>new CurveShapePoint(v.Request.Contract.Id,
+                    priced.ContractRows(v.Request.Contract.Id).Single().DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
+                    priced.ContractRows(v.Request.Contract.Id).Single().DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),v.Price.Value.ToString(),null))))
+                throw new Exception("A curve shape hid a contract it could not price, or priced another differently.");
+        });
+        Check("a curve shape fails for any other reason, and for a curve it cannot select",()=>
+        {
+            var priced=Data(references:Quoting());
+            Reject("ambiguous_reference",()=>MarketReads.Shape(Data(fixture.Observations.RemoveAt(0),Quoting()),fixture.Frame,"future"));
+            Reject("missing_curve",()=>MarketReads.Shape(priced,fixture.Frame,"unlisted"));
+            var definitions=new Dictionary<string,ImmutableArray<JsonElement>>(fixture.Definitions)
+            {
+                ["curves"]=[..fixture.Definitions["curves"],Change(fixture.Definitions["curves"].Single(),"code","completed_future")],
+                ["curve_members"]=[..fixture.Definitions["curve_members"],..fixture.Definitions["curve_members"].Select(row=>Change(row,"curve_code","completed_future"))]
+            };
+            var both=Data(references:Quoting(),definitions:definitions);
+            Reject("missing_curve_view",()=>MarketReads.Shape(both,fixture.Frame,"completed_future"));
+            var completed=MarketReads.Shape(both,fixture.Frame with{CurveContracts=fixture.Frame.CurveContracts.Add("completed_future",[])},"completed_future");
+            if(completed is not {Curve:"completed_future",Unit:"USD/MWh",Points.IsEmpty:true})throw new Exception("A curve whose view selects nothing has no points.");
+        });
         Check("duplicate typed definitions retain their domain error",()=>
         {
             Reject("duplicate_definition",()=>Data(definitions:new(fixture.Definitions){["contracts"]=[..fixture.Definitions["contracts"],fixture.Definitions["contracts"][0]]}));

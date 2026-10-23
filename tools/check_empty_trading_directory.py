@@ -25,6 +25,17 @@ def run_checks(c,check,query,manifest):
         check('empty directory retains exact typed '+selected_view['mode']+' projection',light['blotter']==c.call('trading/blotter',{'context':retained,'view':selected_view})
               and light['blotter']['holdings']==[] and light['blotter']['groups']==[] and light['blotter']['evaluatedContracts']==0)
 
+    # A requested summary over no positions is the empty projection of its own view, and is validated like any other.
+    grouped={**view,'mode':'pivot','groupBy':['book'],'measures':['presentValue','tradeCount'],'pivotConvention':'trading_blotter_totals_v1'}
+    own=c.call('trading/blotter',{'context':retained,'view':grouped})
+    summarized=c.call('trading/workspace',{**request,'summaries':[grouped,grouped]})
+    check('empty directory states each requested summary as the empty projection of its view',
+          summarized['summaries']==[{'view':own['view'],'groups':[]}]*2 and own['groups']==[] and initial['summaries']==[]
+          and {k:v for k,v in summarized.items()if k!='summaries'}=={k:v for k,v in initial.items()if k!='summaries'})
+    for invalid in [[view],[grouped]*5,[{**grouped,'groupBy':['unknown']}]]:
+        error=c.call('trading/workspace',{**request,'summaries':invalid},expected=422)
+        check('empty directory rejects an invalid summary list',error['code']=='blotter_view')
+
     # No economic contract is consumed by this explicitly unpriced projection.
     # Withdrawing table access proves it does not secretly materialize the model.
     query('REVOKE SELECT ON market_data.contracts FROM openetrm_runtime;')

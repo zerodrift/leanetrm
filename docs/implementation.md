@@ -269,6 +269,28 @@ not yet show direction or mark minus price. `tools/run_preview.py --check --desk
 qualifies the fields on the seeded example, adding a receive-fixed swap, a floating/floating swap
 and an amendment that changes a direction.
 
+The desk's groupings and curve shapes each come from one read (blotter-desk.md, Backend
+changes). `trading/workspace` takes up to four `summaries`, each a pivot view of exactly the
+books and portfolios of the request's own view, and states `summaries` beside `catalog` and
+`blotter`: one `{view, groups}` per summary in request order, grouped from the rows the
+report was built from. Nothing is valued again, so the report's `work` is that of the read
+without them. A fifth summary, a view that is not a pivot, and a view of other books or
+portfolios are refused with `blotter_view`, over an empty book too.
+
+`POST /api/market/curve-shapes` (`snapshotId` and 1 to 64 distinct `curves`, otherwise
+`curve_shapes`) reads the contract prices of several curves from one load of the data
+`/evaluate` would load, under the same pin, identity and permission, including a selected
+historical context. Each curve states its price `unit`, named as the Blotter names the price
+units of its pivots, and the delivery period and exact price `/evaluate` gives for each
+contract its view selects, in the same order. One build prices a whole curve. Only if it
+fails with `source_expired` or `missing_observation` is each contract priced alone, and one
+that cannot be priced has no price and states that code (D213). A curve whose view selects
+no contract has no points. Every other failure fails the request: a curve the pinned data
+does not define (a rate curve, or a swap market of another definition revision), a curve the
+frame selects no view for, and any other code. `tools/run_preview.py --check
+--desk-fields-check` qualifies both against the reads they replace, and
+`--valuation-status-check` the contracts a close cannot price.
+
 The editor opens from trade rows. Amendments append immutable latest-head booking
 states with expected revision, explicit reason/effective instant, current authority
 and idempotent operation identity. Previous states remain read-only. Book moves

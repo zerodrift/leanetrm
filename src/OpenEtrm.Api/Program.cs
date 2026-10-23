@@ -810,6 +810,13 @@ api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async sessio
     }
     return Results.Ok(result);
 }));
+// The same pin, identity and permission as /evaluate, for the contract prices of several curves in one read.
+api.MapPost("/market/curve-shapes",(HttpContext c,CurveShapesRequest body)=>Locked(c,async session=>
+{
+    var pin=Pin(session,body.SnapshotId);
+    var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.CurveShapes(connection,pin,body.Curves,ct),c.RequestAborted);
+    return Results.Ok(new {curves});
+}));
 api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async session=>
 {
     await RefreshFrames(session,c.RequestAborted);
@@ -1002,7 +1009,8 @@ api.MapPost("/trading/workspace",(HttpContext c,TradingWorkspaceRequest body)=>
 {
  if(body.BookingCatalog is not(null or "directory" or "priced_contracts"))throw new MarketDataException("blotter_view","Choose an available booking catalog projection.");
  return TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
-  (connection,view,ct)=>tradeReads.Workspace(connection,view,body.View,body.BookingCatalog=="directory",ct),expectedConvention:TradingBlotter.Convention,combinedWorkspace:true);
+  (connection,view,ct)=>tradeReads.Workspace(connection,view,body.View,body.Summaries.IsDefault?[]:body.Summaries,body.BookingCatalog=="directory",ct),
+  expectedConvention:TradingBlotter.Convention,combinedWorkspace:true);
 });
 api.MapPost("/trading/blotter",(HttpContext c,FuturesBlotterRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Blotter(connection,view,body.View,ct),expectedConvention:TradingBlotter.Convention));
@@ -1243,6 +1251,8 @@ public sealed class PreviewSessionEnded : Exception;
 public sealed record LocalTimeRequest(string? LocalTime,string? TimeZone);
 public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false);
 public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record CurveShapesRequest(Guid SnapshotId,ImmutableArray<string> Curves);
 public sealed record CorrectionRequest(Guid SnapshotId,Guid ObservationId,string Value);
 public sealed record SelectionRequest(Guid SnapshotId,Guid ObservationId);
 public sealed partial class PreviewSession

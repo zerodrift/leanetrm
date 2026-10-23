@@ -682,6 +682,15 @@ public sealed class PreviewData
         var commodity=Single(ReferenceRows("commodities","code",code));
         return new(commodity.Text("code"),commodity.Text("name"));
     }
+    // The unit a curve's prices are quoted in, named as the Blotter names the price units of its pivots.
+    public string PriceUnit(string curve)
+    {
+        var quote=Single(QuoteRows(Single(DefinitionRows("curves","code",curve)).Text("quote_code")));
+        var unit=Single(ReferenceRows("units","code",Single(ReferenceRows("quantity_specifications","code",quote.Quantity.Code)).Text("unit_code")));
+        return PriceUnitLabel(Single(ReferenceRows("currencies","code",quote.Currency.Code)).Text("display_code"),unit.Text("symbol"),quote.Multiplier.ToString());
+    }
+    // Currency, then unit, then a price multiplier other than one.
+    public static string PriceUnitLabel(string currency,string unit,string? multiplier)=>currency+"/"+unit+(multiplier is not (null or "1")?" × "+multiplier:"");
     public static void RequireBundlePin(PreviewManifest manifest, JsonElement row)
     {
         if (row.Id("catalog_id") != manifest.CatalogId || row.Id("id") != manifest.RevisionId ||

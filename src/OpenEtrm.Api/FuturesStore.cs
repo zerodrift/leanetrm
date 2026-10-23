@@ -22,7 +22,7 @@ public sealed record FuturesBlotterView(string? Mode,ImmutableArray<Guid> BookId
 public sealed record FuturesBlotterRequest(FuturesReadRequest Context,FuturesBlotterView View);
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record TradingWorkspaceRequest(FuturesReadRequest Context,FuturesBlotterView View,string? BookingCatalog=null);
+public sealed record TradingWorkspaceRequest(FuturesReadRequest Context,FuturesBlotterView View,string? BookingCatalog=null,ImmutableArray<FuturesBlotterView> Summaries=default);
 
 public sealed partial class FuturesStore(PreviewManifest manifest)
 {
