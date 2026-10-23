@@ -290,16 +290,22 @@ units of its pivots, and a point for each contract its view selects, in the orde
 `unavailableReason` is null. One build prices a whole curve. Only if it fails with
 `source_expired` or `missing_observation` are the contracts that fail alone isolated, and
 each states that code as its point's `unavailableReason` with no price (D213). A curve whose
-view selects no contract has no points. A curve the pinned data cannot read has null `unit`
-and `points` and states the code its own `/evaluate` read raises, such as `missing_curve`
-for a curve the data does not define (a rate curve, or a swap market of another definition
-revision) and `missing_curve_view` for one the frame selects no view for, without failing
-the curves beside it. Authorization, the pin and its context, the request's form and the
-pinned inputs still fail the whole request. The isolation passes contracts that build in
-blocks that double in size and halves a block that fails, so its builds follow the contracts
-that fail and never exceed three for each contract; on a 405-contract curve with four
-unpriceable contracts it takes about 15 builds, not 406. Each build still validates the
-whole snapshot, which is what bounds the saving when every contract fails.
+view selects no contract has no points. A curve that cannot be read has null `unit` and
+`points` and states the code its own `/evaluate` read raises, which is the failure of its
+one build of every contract, whatever isolating its contracts then met: `missing_curve` for
+a curve the pinned data does not define, `missing_curve_view` for one the frame selects no
+view for, and the code of the build for any other failure, including a snapshot the model
+refuses (the same for every curve). Its neighbours are still shaped. The one code
+`/evaluate` does not raise is `missing_curve` for a rate curve: `/evaluate` answers a rate
+curve with its rates, which are not contract prices, so the shapes state that the pinned
+data defines no price curve of that code. What fails the whole request is what is not one
+curve's: authorization, the pin and its context, the request's form, a pinned observation
+that cannot be found when the snapshot is assembled, and a catalog inconsistency in the
+references of the price unit of a curve that can be read. The isolation passes contracts
+that build in blocks that double in size and halves a block that fails, so its builds follow
+the contracts that fail and never exceed three for each contract; on a 405-contract curve
+with four unpriceable contracts it takes about 15 builds, not 406. Each build still
+validates the whole snapshot, which is what bounds the saving when every contract fails.
 `tools/run_preview.py --check --desk-fields-check` qualifies both against the reads they
 replace, and `--valuation-status-check` the contracts and curves a close cannot price.
 

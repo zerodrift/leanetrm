@@ -93,8 +93,10 @@ public sealed class MarketReads(PreviewDatabase database)
     public const int MaximumShapedCurves=64;
 
     // Every named curve's contract prices, from one read of the pinned data and one snapshot of its inputs, in request order.
-    // A curve the pinned data cannot read is stated unavailable and does not fail the others; the request itself fails only
-    // for what fails every curve: its own form, authorization, the pin and its context, and the pinned inputs.
+    // A curve the pinned data cannot read states the code its own Evaluate read raises, and does not fail the others. The request
+    // fails for what is not one curve's: its own form, authorization, the pin and its context, a pinned observation that cannot
+    // be found when the snapshot is assembled, and a catalog inconsistency in a readable curve's price unit. A snapshot the model
+    // then refuses fails each curve the same way, with the code its own Evaluate read raises.
     public async Task<ImmutableArray<CurveShape>> CurveShapes(NpgsqlConnection connection,PinnedContext pin,ImmutableArray<string> curves,CancellationToken ct)
     {
         if(curves.IsDefault||curves.IsEmpty||curves.Length>MaximumShapedCurves||curves.Any(string.IsNullOrWhiteSpace)||curves.Distinct().Count()!=curves.Length)
@@ -104,24 +106,31 @@ public sealed class MarketReads(PreviewDatabase database)
         return [..curves.Select(curve=>Shape(data,snapshot,frame,curve))];
     }
 
-    // The contracts the frame selects for a curve, each priced as Evaluate prices it: one build of the whole curve. Only when
-    // that build fails for a position-specific reason (D213) are the contracts that fail alone isolated against the same
-    // snapshot, and each says why it has no price. A curve whose view selects nothing has no points, as Evaluate states. A curve
-    // that cannot be read at all states the code its own Evaluate read raises.
+    // The contracts the frame selects for a curve, each priced as Evaluate prices it: one build of the whole curve. Only when that
+    // build fails for a position-specific reason (D213) are the contracts that fail alone isolated against the same snapshot, and
+    // each says why it has no price. A curve whose view selects nothing has no points, as Evaluate states. A curve that cannot be
+    // read, or whose contracts cannot be isolated, has no unit or points and states what its own Evaluate read raises: the failure
+    // of its one build of every contract, whatever isolating them met. A catalog inconsistency in the price unit of a curve that
+    // can be read is not the curve's own failure, and fails the read.
     internal static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve)
     {
-        try
-        {
-            var requests=data.Requests(frame,curve);
-            var (build,unvalued)=ValuationStatus.BuildValued(set=>data.Model.Build(snapshot,set),requests);
-            var prices=(build?.Values??ImmutableArray<BuiltValue>.Empty).ToDictionary(v=>v.Request,v=>v.Price.Value.ToString());
-            return new(curve,data.PriceUnit(curve),[..requests.Select(request=>
-            {
-                var delivery=data.ContractRows(request.Contract.Id).Single();
-                return new CurveShapePoint(request.Contract.Id,Date(delivery.DeliveryFrom),Date(delivery.DeliveryTo),prices.GetValueOrDefault(request),unvalued.GetValueOrDefault(request));
-            })],null);
-        }
+        ImmutableArray<CurveRequest> requests;
+        try{requests=data.Requests(frame,curve);}
         catch(MarketDataException error){return new(curve,null,null,error.Code);}
+        CurveBuild? build;ImmutableDictionary<CurveRequest,string> unvalued;
+        try{(build,unvalued)=ValuationStatus.BuildValued(set=>data.Model.Build(snapshot,set),requests);}
+        catch(MarketDataException)
+        {
+            try{data.Model.Build(snapshot,requests);}
+            catch(MarketDataException whole){return new(curve,null,null,whole.Code);}
+            throw;
+        }
+        var prices=(build?.Values??ImmutableArray<BuiltValue>.Empty).ToDictionary(v=>v.Request,v=>v.Price.Value.ToString());
+        return new(curve,data.PriceUnit(curve),[..requests.Select(request=>
+        {
+            var delivery=data.ContractRows(request.Contract.Id).Single();
+            return new CurveShapePoint(request.Contract.Id,Date(delivery.DeliveryFrom),Date(delivery.DeliveryTo),prices.GetValueOrDefault(request),unvalued.GetValueOrDefault(request));
+        })],null);
     }
     static string Date(DateOnly date)=>date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
 

@@ -153,10 +153,10 @@ internal static class PreviewDataChecks
                 throw new Exception("A curve shape differs from the prices and delivery periods of its curve.");
         });
         // The first contracts expire before the frame's instant, and the one after them, if asked, has no pinned price.
-        (PreviewData Priced,InputFrame Frame) Unpriceable(int expired,bool unpinned)
+        (PreviewData Priced,InputFrame Frame) Unpriceable(int expired,bool unpinned,ImmutableArray<JsonElement>? observations=null)
         {
             var expiring=Enumerable.Range(0,expired).Select(i=>"synthetic_"+i).ToHashSet();
-            var priced=Data(references:new(Quoting()){["futures_milestones"]=[..fixture.References["futures_milestones"].Select(row=>
+            var priced=Data(observations,references:new(Quoting()){["futures_milestones"]=[..fixture.References["futures_milestones"].Select(row=>
                     row.Text("milestone")=="last_trading"&&expiring.Contains(row.Text("series_code"))?Change(row,"event_at","2040-01-05T00:00:00Z"):row)]},
                 definitions:new(fixture.Definitions){["contracts"]=[..fixture.Definitions["contracts"].Select((row,i)=>i<expired?Change(row,"expiry_at","2040-01-05T00:00:00Z"):row)]});
             return(priced,unpinned?fixture.Frame with{ObservationIds=fixture.Frame.ObservationIds.RemoveAt(expired)}:fixture.Frame);
@@ -261,6 +261,26 @@ internal static class PreviewDataChecks
             if(Of(mismatched,fixture.Frame,"future") is not {Unit:null,Points:null,UnavailableReason:"selection_mismatch"})throw new Exception("A curve failing for another reason states that reason.");
             Reject("selection_mismatch",()=>mismatched.Result(fixture.Frame,"future"));
             if(Of(both,fixture.Frame,"future") is not {UnavailableReason:null,Points:{Length:405}})throw new Exception("A curve beside an unreadable one is shaped.");
+        });
+        Check("a catalog inconsistency in the references of a readable curve's price unit fails the read, and does not reach a curve that cannot be read",()=>
+        {
+            // Two currency rows for the quote's currency: the curve prices without them, but its unit cannot be named.
+            var inconsistent=Data(references:new(Quoting()){["currencies"]=[Row(new{code="usd",display_code="USD"}),Row(new{code="usd",display_code="Dollars"})]});
+            inconsistent.Result(fixture.Frame,"future");
+            var snapshot=inconsistent.Snapshot(fixture.Frame);
+            Reject("ambiguous_reference",()=>MarketReads.Shape(inconsistent,snapshot,fixture.Frame,"future"));
+            if(MarketReads.Shape(inconsistent,snapshot,fixture.Frame,"unlisted") is not {Unit:null,Points:null,UnavailableReason:"missing_curve"})
+                throw new Exception("A curve that cannot be read states its own failure, whatever its unit's references are.");
+        });
+        Check("a curve whose whole build fails for a position-specific reason states that failure, though isolating it meets another that the Blotter's isolation still raises",()=>
+        {
+            // The first contract expires, and the sixth has an observation the curve cannot take.
+            var (both,frame)=Unpriceable(1,false,fixture.Observations.SetItem(5,Change(fixture.Observations[5],"role","final_contract_settlement")));
+            Reject("source_expired",()=>both.Result(frame,"future"));
+            var snapshot=both.Snapshot(frame);
+            if(MarketReads.Shape(both,snapshot,frame,"future") is not {Curve:"future",Unit:null,Points:null,UnavailableReason:"source_expired"})
+                throw new Exception("A curve states the failure of its own read, not one met while its contracts were isolated.");
+            Reject("selection_mismatch",()=>ValuationStatus.BuildValued(set=>both.Model.Build(snapshot,set),both.Requests(frame,"future")));
         });
         Check("duplicate typed definitions retain their domain error",()=>
         {
