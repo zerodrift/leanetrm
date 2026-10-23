@@ -32,6 +32,14 @@ def run_checks(query, manifest, observed, weighted):
                       f"'https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
         return f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statement}COMMIT;"
 
+    def composed(first, second):
+        parties = {key: weighted[key] for key in ('legalEntityId', 'legalEntityRevision', 'counterpartyId', 'counterpartyRevision')}
+        arguments = [catalog, str(uuid4()), None, None, weighted['bookId'], weighted['definitionRevisionId'], reference, revision,
+                     weighted['commodity'], None, json.dumps(first), json.dumps(second), '100', '1', False,
+                     '2020-12-18T16:00:00Z', '2020-12-18T16:00:00Z', 'Initial booking', weighted['convention'], None,
+                     json.dumps(parties), '{}']
+        return 'PERFORM security.save_composed_swap(' + ','.join('NULL' if value is None else 'false' if value is False else literal(value) for value in arguments) + ');'
+
     before = query('SELECT count(*) FROM trading.publications;')
     bad = deepcopy(observed); bad['floating']['observationSchedule']['calendar'] = None
     query(runtime(reject(command(bad), 'P0001', 'swap_averaging')))
@@ -39,10 +47,17 @@ def run_checks(query, manifest, observed, weighted):
     query(runtime(reject(command(bad), 'P0001', 'swap_averaging')))
     bad = deepcopy(observed); bad['floating']['curve'] = 'base_forward'; bad['definitionRevisionId'] = manifest['revisionId']
     query(runtime(reject(command(bad), 'P0001', 'swap_projection')))
+    first = {**weighted['floating'], 'spread': '0'}
+    second = {**observed['floating'], 'spread': '0'}
+    bad = deepcopy(first); bad['observationSchedule']['quantities'][0]['quantity']['value'] = '0'
+    query(runtime(reject(composed(bad, second), 'P0001', 'swap_averaging')))
+    bad = deepcopy(second); bad['observationSchedule']['calendar'] = None
+    query(runtime(reject(composed(first, bad), 'P0001', 'swap_averaging')))
     assert query('SELECT count(*) FROM trading.publications;') == before
     assert query(runtime("SELECT NOT has_function_privilege(current_user,(SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security' AND p.proname='save_projected_swap_core'),'EXECUTE');")) == 't'
+    assert query(runtime("SELECT count(*)=4 AND bool_and(NOT has_function_privilege(current_user,p.oid,'EXECUTE')) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security' AND p.proname IN('swap_observation_rows','swap_observation_sampling','retain_floating_swap_side','retained_swap_fixing_evidence');")) == 't'
     query(runtime(reject("PERFORM security.swap_observation_rows(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text,NULL::date,NULL::date,NULL::text,NULL::jsonb);", '42501')))
-    print('PASS observation storage: raw runtime cannot bypass positive quantities, exact source cadence, required calendar or private common writer', flush=True)
+    print('PASS observation storage: both composed slots and legacy writes enforce positive quantities, exact source cadence, required calendars and private helpers', flush=True)
 
     def clone(table, overrides, predicate):
         replacement = json.dumps(overrides).replace("'", "''")

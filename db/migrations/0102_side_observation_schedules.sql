@@ -50,7 +50,7 @@ ALTER TABLE trading.swap_floating_sides ADD CONSTRAINT swap_observation_schedule
 ALTER TABLE trading.swap_floating_sides DROP CONSTRAINT swap_floating_economic_key;
 ALTER TABLE trading.swap_floating_sides ADD CONSTRAINT swap_floating_economic_key UNIQUE NULLS NOT DISTINCT
  (catalog_id,definition_revision_id,curve_code,reference_catalog_id,reference_revision_id,index_code,quote_code,
- delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id,custom_projection_id,observation_schedule_id);
+ delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id,custom_projection_id,spread,observation_schedule_id);
 ALTER TABLE trading.swap_reset_projections DROP CONSTRAINT swap_reset_projections_weight_check;
 ALTER TABLE trading.swap_reset_projections ADD CONSTRAINT swap_reset_projections_weight_check CHECK(weight>0);
 
@@ -272,10 +272,11 @@ BEGIN
  IF observation_schedule IS NOT NULL THEN PERFORM security.swap_observation_rows(catalog,definition,ref_catalog,ref_revision,curve,index_name,float_from,float_to,averaging,observation_schedule);END IF;
  RETURN security.swap_operation_status(catalog,operation);
  END IF;
- IF EXISTS(SELECT 1 FROM trading.trades WHERE catalog_id=catalog AND operation_id=operation) OR EXISTS(SELECT 1 FROM trading.trade_revisions WHERE catalog_id=catalog AND operation_id=operation)
+ IF EXISTS(SELECT 1 FROM trading.trades WHERE catalog_id=catalog AND operation_id=operation) OR EXISTS(SELECT 1 FROM trading.trade_revisions WHERE catalog_id=catalog AND operation_id=operation) OR EXISTS(SELECT 1 FROM trading.ppa_trade_revisions WHERE catalog_id=catalog AND operation_id=operation)
  THEN RAISE EXCEPTION 'swap_conflict' USING ERRCODE='P0001'; END IF;
  IF NOT security.reference_access(ref_catalog,'ReadMarketData') THEN RAISE EXCEPTION 'No current reference access' USING ERRCODE='42501'; END IF;
  IF trade IS NOT NULL THEN
+  IF EXISTS(SELECT 1 FROM trading.swap_trade_revisions r JOIN trading.swap_instruments i ON(i.catalog_id,i.instrument_id)=(r.catalog_id,r.instrument_id) WHERE r.catalog_id=catalog AND r.trade_id=trade AND i.first_floating_side_id IS NOT NULL) THEN RAISE EXCEPTION 'swap_amendment';END IF;
   SELECT * INTO head FROM trading.swap_trade_revisions r WHERE r.catalog_id=catalog AND r.trade_id=trade ORDER BY r.revision DESC LIMIT 1;
   IF NOT FOUND THEN RAISE EXCEPTION 'swap_trade' USING ERRCODE='P0001';END IF;
   executed=head.execution_at;trader=head.trader_id;trader_revision=head.trader_revision;
@@ -355,7 +356,7 @@ BEGIN
  IF observation_schedule IS NOT NULL THEN
   observation_binding=security.retain_swap_observation_schedule(catalog,definition,ref_catalog,ref_revision,curve,index_name,q,float_from,float_to,averaging,observation_schedule,observation_rows,publication_number,from_at);
  END IF;
- SELECT id INTO floating_side FROM trading.swap_floating_sides s WHERE s.catalog_id=catalog AND s.definition_revision_id=definition AND s.curve_code=curve AND s.reference_catalog_id=ref_catalog AND s.reference_revision_id=ref_revision AND s.quote_code=q.code AND s.delivery_from=float_from AND s.delivery_to=float_to AND s.index_code=index_name AND s.first_fixing_at=fixing AND s.implementation='index_observation_fixings_v1' AND s.payment_at=float_payment AND s.averaging=save_projected_swap_core.averaging AND s.payment_rule_id=float_rule AND s.custom_projection_id IS NOT DISTINCT FROM custom_binding AND s.observation_schedule_id IS NOT DISTINCT FROM observation_binding;
+ SELECT id INTO floating_side FROM trading.swap_floating_sides s WHERE s.catalog_id=catalog AND s.definition_revision_id=definition AND s.curve_code=curve AND s.reference_catalog_id=ref_catalog AND s.reference_revision_id=ref_revision AND s.quote_code=q.code AND s.delivery_from=float_from AND s.delivery_to=float_to AND s.index_code=index_name AND s.first_fixing_at=fixing AND s.implementation='index_observation_fixings_v1' AND s.payment_at=float_payment AND s.averaging=save_projected_swap_core.averaging AND s.payment_rule_id=float_rule AND s.custom_projection_id IS NOT DISTINCT FROM custom_binding AND s.spread=0 AND s.observation_schedule_id IS NOT DISTINCT FROM observation_binding;
  IF floating_side IS NOT NULL AND EXISTS(
   SELECT 1 FROM(SELECT ordinal,definition_revision_id,curve_code,contract_id,weight FROM trading.swap_reset_projections p WHERE(p.catalog_id,p.side_id)=(catalog,floating_side)) old
   FULL JOIN(SELECT x.ordinal,definition AS definition_revision_id,curve AS curve_code,x."contractId" AS contract_id,x.weight
@@ -364,7 +365,7 @@ BEGIN
  ) THEN RAISE EXCEPTION 'swap_projection';END IF;
  IF floating_side IS NULL THEN
   floating_side=gen_random_uuid();
-  INSERT INTO trading.swap_floating_sides VALUES(catalog,floating_side,definition,curve,k.id,ref_catalog,ref_revision,index_name,q.code,float_from,float_to,fixing,float_payment,averaging,'index_observation_fixings_v1',publication_number,from_at,float_rule,custom_binding,observation_binding);
+  INSERT INTO trading.swap_floating_sides(catalog_id,id,definition_revision_id,curve_code,contract_id,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,publication_order,effective_at,payment_rule_id,custom_projection_id,spread,observation_schedule_id) VALUES(catalog,floating_side,definition,curve,k.id,ref_catalog,ref_revision,index_name,q.code,float_from,float_to,fixing,float_payment,averaging,'index_observation_fixings_v1',publication_number,from_at,float_rule,custom_binding,0,observation_binding);
   INSERT INTO trading.swap_reset_projections
    SELECT catalog,floating_side,x.ordinal,definition,curve,x."contractId",x.weight,publication_number,from_at
    FROM jsonb_to_recordset(observation_rows) x(ordinal integer,"contractId" uuid,weight numeric);
@@ -406,9 +407,127 @@ CREATE FUNCTION security.save_observation_swap_with_parties(catalog uuid,operati
  SELECT security.save_projected_swap_core(catalog,operation,trade,expected,book,definition,ref_catalog,ref_revision,curve,index_name,fixed_currency,float_currency,fixed_from,fixed_to,fixed_payment,float_from,float_to,float_payment,averaging,price,quantity,coefficient,discounting,valuation,executed,effective,reason,implementation,fixed_schedule,float_schedule,commodity,trader,trader_revision,memo,booking,input_pins,custom_projection,observation_schedule);
 $$;
 
+-- Both floating memberships use this exact six-mode storage admission.
+CREATE FUNCTION security.swap_observation_sampling(frequency text,method text) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT CASE WHEN frequency='monthly' AND method='none' THEN 'monthly_index_price'
+  WHEN frequency='daily' AND method='arithmetic' THEN 'calendar_day_arithmetic'
+  WHEN frequency='daily' AND method IN('observation_arithmetic','calendar_days_previous','calendar_days_next','quantity_weighted') THEN method END;
+$$;
+
+CREATE OR REPLACE FUNCTION security.retain_floating_swap_side(catalog uuid,definition uuid,ref_catalog uuid,ref_revision uuid,commodity text,body jsonb,valuation timestamptz,publication_number integer,from_at timestamptz,input_pins uuid[])
+ RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE cv market_data.curves;q ref_data.quote_specifications;target ref_data.settlement_targets;k market_data.contracts;
+ side uuid;rule uuid;starts date;ends date;fixing timestamptz;payment timestamptz;sampling text;spread_value numeric;fixing_evidence jsonb;custom_projection jsonb;custom_binding uuid;observation_schedule jsonb;observation_rows jsonb;observation_binding uuid;
+BEGIN
+ IF body IS NULL OR jsonb_typeof(body)<>'object' OR body->>'paymentAt' IS NOT NULL OR body->>'averaging' IS NOT NULL OR body->'paymentSchedule' IS NULL OR body->>'spread' IS NULL OR body->>'firstFixingAt' IS NOT NULL
+  OR EXISTS(SELECT 1 FROM jsonb_object_keys(body) key WHERE key NOT IN('curve','index','currency','deliveryFrom','deliveryTo','firstFixingAt','paymentAt','averaging','paymentSchedule','resetFrequency','averagingMethod','spread','customProjection','observationSchedule')) THEN RAISE EXCEPTION 'swap_input';END IF;
+ starts=(body->>'deliveryFrom')::date;ends=(body->>'deliveryTo')::date;spread_value=(body->>'spread')::numeric;
+ sampling=security.swap_observation_sampling(body->>'resetFrequency',body->>'averagingMethod');
+ observation_schedule=NULLIF(body->'observationSchedule','null'::jsonb);
+ IF(sampling IN('observation_arithmetic','calendar_days_previous','calendar_days_next','quantity_weighted')) IS DISTINCT FROM(observation_schedule IS NOT NULL) THEN RAISE EXCEPTION 'swap_averaging';END IF;
+ payment=security.swap_payment_date(ref_catalog,ref_revision,starts,ends,body->'paymentSchedule')::timestamp AT TIME ZONE 'UTC';
+ IF starts IS NULL OR ends IS NULL OR NOT isfinite(starts) OR NOT isfinite(ends) OR extract(day FROM starts)<>1 OR ends IS DISTINCT FROM(starts+INTERVAL '1 month')::date OR sampling IS NULL OR
+  payment IS NULL OR valuation>=payment OR
+  spread_value IS NULL OR abs(spread_value)>=1e24 OR scale(spread_value)>18 THEN RAISE EXCEPTION 'swap_input';END IF;
+ SELECT * INTO cv FROM market_data.curves WHERE catalog_id=catalog AND revision_id=definition AND code=body->>'curve' AND reference_catalog_id=ref_catalog AND reference_revision_id=ref_revision;
+ SELECT * INTO q FROM ref_data.quote_specifications WHERE(catalog_id,revision_id,code)=(ref_catalog,ref_revision,cv.quote_code);
+ SELECT * INTO target FROM ref_data.settlement_targets WHERE(catalog_id,revision_id,code)=(ref_catalog,ref_revision,cv.settlement_target_code);
+ IF cv.commodity_code IS DISTINCT FROM commodity OR q.kind IS DISTINCT FROM 'outright' OR target.kind IS DISTINCT FROM 'index' OR target.index_a_code IS DISTINCT FROM body->>'index' OR q.currency_code IS DISTINCT FROM body->>'currency' OR
+  NOT EXISTS(SELECT 1 FROM ref_data.price_index_definitions i JOIN ref_data.quantity_specifications u ON(u.catalog_id,u.revision_id,u.code)=(q.catalog_id,q.revision_id,q.quantity_code)
+   WHERE(i.catalog_id,i.revision_id,i.code)=(ref_catalog,ref_revision,body->>'index') AND(i.currency_code,i.commodity_code,i.location_code,i.quote_unit_code,i.quote_multiplier)=(q.currency_code,cv.commodity_code,cv.location_code,u.unit_code,q.multiplier)) THEN RAISE EXCEPTION 'swap_definition';END IF;
+ IF observation_schedule IS NULL THEN
+  fixing_evidence=security.swap_fixing_evidence(catalog,definition,ref_catalog,ref_revision,cv.code,body->>'index',starts,ends,sampling,valuation,payment,input_pins);
+ ELSE
+  observation_rows=security.swap_observation_rows(catalog,definition,ref_catalog,ref_revision,cv.code,body->>'index',starts,ends,sampling,observation_schedule);
+  fixing_evidence=security.swap_observation_fixing_evidence(catalog,definition,ref_catalog,ref_revision,cv.code,body->>'index',valuation,payment,input_pins,observation_rows);
+ END IF;
+ fixing=(fixing_evidence->>'firstFixing')::timestamp AT TIME ZONE 'UTC';
+ custom_projection=security.validate_custom_projection(catalog,body->'customProjection');
+ IF observation_schedule IS NOT NULL AND custom_projection IS NOT NULL THEN RAISE EXCEPTION 'swap_custom_projection_averaging';END IF;
+ IF custom_projection IS NOT NULL AND((sampling='monthly_index_price' AND custom_projection->>'selection'<>'single_output_position_v1') OR(sampling='calendar_day_arithmetic' AND custom_projection->>'selection'<>'exact_delivery_interval_v1') OR EXISTS(
+  SELECT 1 FROM security.custom_curve_native_sources(catalog,(custom_projection->>'curveId')::uuid,(custom_projection->>'version')::integer) p WHERE(p.source_catalog_id,p.source_revision_id) IS DISTINCT FROM(catalog,definition))) THEN RAISE EXCEPTION 'custom_projection';END IF;
+ custom_binding=security.retain_custom_projection(catalog,custom_projection,publication_number,from_at);
+ IF observation_schedule IS NULL THEN
+ IF(SELECT count(*) FROM market_data.contracts c JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(c.catalog_id,c.revision_id,c.id)
+  WHERE m.catalog_id=catalog AND m.revision_id=definition AND m.curve_code=cv.code AND c.kind='forward' AND
+   (sampling='monthly_index_price' AND(c.delivery_from,c.delivery_to)=(starts,ends) OR sampling='calendar_day_arithmetic' AND c.delivery_to=c.delivery_from+1 AND starts<=c.delivery_from AND c.delivery_from<ends))<>(CASE WHEN sampling='monthly_index_price' THEN 1 ELSE ends-starts END) OR
+  sampling='calendar_day_arithmetic' AND(SELECT count(DISTINCT c.delivery_from) FROM market_data.contracts c JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(c.catalog_id,c.revision_id,c.id)
+   WHERE m.catalog_id=catalog AND m.revision_id=definition AND m.curve_code=cv.code AND c.kind='forward' AND c.delivery_to=c.delivery_from+1 AND starts<=c.delivery_from AND c.delivery_from<ends)<>ends-starts THEN RAISE EXCEPTION 'swap_projection';END IF;
+ IF sampling='monthly_index_price' THEN
+  SELECT c.* INTO STRICT k FROM market_data.contracts c JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(c.catalog_id,c.revision_id,c.id)
+   WHERE m.catalog_id=catalog AND m.revision_id=definition AND m.curve_code=cv.code AND c.kind='forward' AND(c.delivery_from,c.delivery_to)=(starts,ends);
+ END IF;
+ SELECT jsonb_agg(jsonb_build_object('ordinal',r.ordinal,'contractId',r.id,'weight',1) ORDER BY r.ordinal) INTO observation_rows FROM(
+  SELECT(row_number() OVER(ORDER BY c.delivery_from,c.id)-1)::integer AS ordinal,c.id FROM market_data.contracts c
+  JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(c.catalog_id,c.revision_id,c.id)
+  WHERE m.catalog_id=catalog AND m.revision_id=definition AND m.curve_code=cv.code AND c.kind='forward' AND
+   (sampling='monthly_index_price' AND c.id=k.id OR sampling='calendar_day_arithmetic' AND c.delivery_to=c.delivery_from+1 AND starts<=c.delivery_from AND c.delivery_from<ends)
+ )r;
+ ELSE
+  observation_binding=security.retain_swap_observation_schedule(catalog,definition,ref_catalog,ref_revision,cv.code,body->>'index',q,starts,ends,sampling,observation_schedule,observation_rows,publication_number,from_at);
+ END IF;
+ rule=security.retain_swap_payment_rule(catalog,ref_catalog,ref_revision,body->'paymentSchedule',publication_number,from_at);
+ SELECT id INTO side FROM trading.swap_floating_sides s WHERE s.catalog_id=catalog AND s.definition_revision_id=definition AND s.curve_code=cv.code AND s.reference_catalog_id=ref_catalog AND s.reference_revision_id=ref_revision AND s.index_code=body->>'index' AND s.quote_code=q.code AND s.delivery_from=starts AND s.delivery_to=ends AND s.first_fixing_at=fixing AND s.payment_at=payment AND s.averaging=sampling AND s.payment_rule_id=rule AND s.spread=spread_value AND s.implementation='index_observation_fixings_v1' AND s.custom_projection_id IS NOT DISTINCT FROM custom_binding AND s.observation_schedule_id IS NOT DISTINCT FROM observation_binding;
+ IF side IS NULL THEN
+  side=gen_random_uuid();
+  INSERT INTO trading.swap_floating_sides(catalog_id,id,definition_revision_id,curve_code,contract_id,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,publication_order,effective_at,payment_rule_id,custom_projection_id,spread,observation_schedule_id)
+   VALUES(catalog,side,definition,cv.code,k.id,ref_catalog,ref_revision,body->>'index',q.code,starts,ends,fixing,payment,sampling,'index_observation_fixings_v1',publication_number,from_at,rule,custom_binding,spread_value,observation_binding);
+  INSERT INTO trading.swap_reset_projections
+   SELECT catalog,side,x.ordinal,definition,cv.code,x."contractId",x.weight,publication_number,from_at
+   FROM jsonb_to_recordset(observation_rows) x(ordinal integer,"contractId" uuid,weight numeric);
+ END IF;
+ IF EXISTS(SELECT 1 FROM(SELECT p.ordinal,p.definition_revision_id,p.curve_code,p.contract_id,p.weight FROM trading.swap_reset_projections p WHERE(p.catalog_id,p.side_id)=(catalog,side)) retained FULL JOIN
+  (SELECT x.ordinal,definition AS definition_revision_id,cv.code AS curve_code,x."contractId" AS contract_id,x.weight
+   FROM jsonb_to_recordset(observation_rows) x(ordinal integer,"contractId" uuid,weight numeric)) expected USING(ordinal)
+  WHERE retained.ordinal IS NULL OR expected.ordinal IS NULL OR(retained.definition_revision_id,retained.curve_code,retained.contract_id,retained.weight) IS DISTINCT FROM(expected.definition_revision_id,expected.curve_code,expected.contract_id,expected.weight)) THEN RAISE EXCEPTION 'swap_projection';END IF;
+ RETURN side;
+END $$;
+
+-- Retained old schedules keep their original evidence shape. New schedules use
+-- their exact stored projection rows, never a reconstructed daily denominator.
+CREATE FUNCTION security.retained_swap_fixing_evidence(catalog uuid,selected_side uuid,valuation timestamptz,input_pins uuid[]) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE side trading.swap_floating_sides;selected jsonb;
+BEGIN
+ SELECT * INTO STRICT side FROM trading.swap_floating_sides s WHERE(s.catalog_id,s.id)=(catalog,selected_side);
+ IF side.observation_schedule_id IS NULL THEN
+  RETURN security.swap_fixing_evidence(catalog,side.definition_revision_id,side.reference_catalog_id,side.reference_revision_id,
+   side.curve_code,side.index_code,side.delivery_from,side.delivery_to,side.averaging,valuation,side.payment_at,input_pins);
+ END IF;
+ SELECT jsonb_agg(jsonb_build_object('contractId',p.contract_id) ORDER BY p.ordinal) INTO selected
+ FROM trading.swap_reset_projections p WHERE(p.catalog_id,p.side_id)=(catalog,selected_side);
+ RETURN security.swap_observation_fixing_evidence(catalog,side.definition_revision_id,side.reference_catalog_id,side.reference_revision_id,
+  side.curve_code,side.index_code,valuation,side.payment_at,input_pins,selected);
+END$$;
+
+-- Preserve the composed command identity, ownership and publication fences.
+-- Only its evidence adapter and new-rule authority checks change.
+DO $$DECLARE signature regprocedure='security.save_composed_swap(uuid,uuid,uuid,integer,uuid,uuid,uuid,uuid,text,jsonb,jsonb,jsonb,numeric,numeric,boolean,timestamptz,timestamptz,text,text,text,jsonb,uuid[])'::regprocedure;
+ definition text;before text;checks text;
+BEGIN
+ definition=pg_get_functiondef(signature);
+ before='security.swap_fixing_evidence(catalog,definition,ref_catalog,ref_revision,s.curve_code,s.index_code,s.delivery_from,s.delivery_to,s.averaging,valuation,s.payment_at,input_pins)';
+ IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'Unexpected composed fixing evidence';END IF;
+ definition=replace(definition,before,'security.retained_swap_fixing_evidence(catalog,s.id,valuation,input_pins)');
+ before='PERFORM security.validate_custom_projection(catalog,float_body->''customProjection'');';
+ IF(length(definition)-length(replace(definition,before,'')))/length(before)<>2 THEN RAISE EXCEPTION 'Unexpected composed source checks';END IF;
+ checks=$check$
+ IF NULLIF(first_body->'observationSchedule','null'::jsonb) IS NOT NULL THEN
+  PERFORM security.swap_observation_rows(catalog,definition,ref_catalog,ref_revision,first_body->>'curve',first_body->>'index',
+   (first_body->>'deliveryFrom')::date,(first_body->>'deliveryTo')::date,security.swap_observation_sampling(first_body->>'resetFrequency',first_body->>'averagingMethod'),first_body->'observationSchedule');
+ END IF;
+ IF NULLIF(float_body->'observationSchedule','null'::jsonb) IS NOT NULL THEN
+  PERFORM security.swap_observation_rows(catalog,definition,ref_catalog,ref_revision,float_body->>'curve',float_body->>'index',
+   (float_body->>'deliveryFrom')::date,(float_body->>'deliveryTo')::date,security.swap_observation_sampling(float_body->>'resetFrequency',float_body->>'averagingMethod'),float_body->'observationSchedule');
+ END IF;
+$check$;
+ EXECUTE replace(definition,before,before||checks);
+END$$;
+
 DO $$DECLARE fn record;BEGIN
  FOR fn IN SELECT p.oid::regprocedure AS signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-  WHERE n.nspname='security' AND p.proname IN('swap_observation_rows','swap_observation_fixing_evidence','retain_swap_observation_schedule','save_projected_swap_core','save_projected_swap_with_parties','save_observation_swap_with_parties') LOOP
+  WHERE n.nspname='security' AND p.proname IN('swap_observation_rows','swap_observation_fixing_evidence','retain_swap_observation_schedule','save_projected_swap_core','save_projected_swap_with_parties','save_observation_swap_with_parties','swap_observation_sampling','retain_floating_swap_side','retained_swap_fixing_evidence') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',fn.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',fn.signature);
   IF fn.proname IN('save_projected_swap_with_parties','save_observation_swap_with_parties') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',fn.signature);END IF;

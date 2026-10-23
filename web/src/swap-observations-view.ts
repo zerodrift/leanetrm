@@ -19,20 +19,21 @@ export function renderSwapObservationInspection(host:HTMLElement,plan:Observatio
  details.append(summary,description,observationTitle,observations,applicationTitle,applications,evidence);host.append(details);
 }
 
-export function setupSwapObservationControls(options:{api:<T>(path:string,body:unknown)=>Promise<T>;request:()=>unknown;
+export function setupSwapObservationControls(options:{prefix:string;enabled:()=>boolean;api:<T>(path:string,body:unknown)=>Promise<T>;request:()=>unknown;
  choice:()=>SamplingChoice|undefined;unit:()=>string;busy:()=>boolean;apply:(value:ObservationOptions)=>void}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
- const calendar=get<HTMLSelectElement>('swap-observation-calendar'),weights=get('swap-observation-quantities'),status=get('swap-observation-status');
+ const id=(suffix:string)=>`${options.prefix}-observation-${suffix}`;
+ const calendar=get<HTMLSelectElement>(id('calendar')),weights=get(id('quantities')),status=get(id('status'));
  let current:ObservationOptions|undefined,requestKey='',generation=0,pending=false;
  let inputs:HTMLInputElement[]=[],rows:ObservationRow[]|null=null,retained:ObservationSchedule|undefined,lastMode='';
  const rowKey=(row:ObservationRow)=>JSON.stringify([row.from,row.to,row.quantitySpecification]);
  function sync(){
-  const choice=options.choice(),mode=choice?JSON.stringify([choice.resetFrequency,choice.averagingMethod]):'';
+  const choice=options.choice(),enabled=options.enabled(),mode=choice?JSON.stringify([choice.resetFrequency,choice.averagingMethod]):'';
   if(mode!==lastMode){if(!choice?.requiresObservationCalendar)calendar.value='';if(!choice?.requiresQuantityWeights){inputs=[];rows=null;weights.replaceChildren();}lastMode=mode;}
-  get('swap-observation-calendar-field').hidden=!choice?.requiresObservationCalendar;
-  calendar.required=!!choice?.requiresObservationCalendar;calendar.disabled=options.busy()||pending||!choice?.requiresObservationCalendar;
+  get(id('calendar-field')).hidden=!choice?.requiresObservationCalendar;
+  calendar.required=enabled&&!!choice?.requiresObservationCalendar;calendar.disabled=!enabled||options.busy()||pending||!choice?.requiresObservationCalendar;
   weights.hidden=!choice?.requiresQuantityWeights;
-  for(const input of inputs){input.required=!!choice?.requiresQuantityWeights;input.disabled=options.busy()||pending||!choice?.requiresQuantityWeights;}
+  for(const input of inputs){input.required=enabled&&!!choice?.requiresQuantityWeights;input.disabled=!enabled||options.busy()||pending||!choice?.requiresQuantityWeights;}
  }
  function reset(){generation++;current=undefined;requestKey='';pending=false;inputs=[];rows=null;retained=undefined;calendar.replaceChildren(new Option('Choose…',''));weights.replaceChildren();status.textContent='';sync();}
  function restore(value:ObservationSchedule|undefined){retained=value?structuredClone(value):undefined;}

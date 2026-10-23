@@ -26,6 +26,25 @@ the ordinary exact graph, while booked references and retained jobs stay pinned.
 Daily indexed projections use exact delivery intervals independently of output
 positions, preserving actual fixings and schedule weights.
 
+
+Blotter and swap entry extend this baseline through D206–D207. The blotter keeps
+numeric amounts separate from unit labels, supports comparison filters, and
+projects backend aggregates into configurable row/column pivots and linked
+bar, line and heatmap plots. Additive totals retain exact rational cash; price
+extrema retain exact values and unweighted means use an explicit rounding policy.
+Unit references, currency references and quote multipliers keep incompatible
+cells separate. Local grid filters do not change report/chart scope. Subtotals
+and cell drill-through remain work.
+
+Swap entry offers financial fixed/floating and floating/floating composition.
+Floating sides retain independent index fixings, explicit projection references,
+payment rules and fixed spreads; opposite coefficients express pay/receive.
+Blank fixed prices can be solved by Price under a selected par-rate precision
+policy, reviewed as a concrete quote, then used unchanged by Risk and booking.
+This uses the connected valuation pipeline, including selected actual fixings,
+custom projections and discount inputs. Migration 0101 adds the persisted side
+relationships and generated/existing-close evidence without rewriting retained events.
+
 ## 1. Product purpose
 
 Build an ETRM that an AI can use as a complete application. People, internal

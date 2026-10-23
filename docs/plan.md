@@ -265,7 +265,7 @@ Calendar-based rules retain an exact observation calendar and any required
 outside-month guards. Quantity weighting retains a positive typed quantity for
 each daily observation. Shared compatibility and schedule generation serve
 authoring and submitted terms; original target applications are the rows valued
-and inspected. Migration 0101 supplies normalized immutable authoring and shared
+and inspected. Migration 0102 supplies normalized immutable authoring and shared
 atomic booking. The bounded version still has one payment per Side.
 Independent pricing windows, explicit zero weights, delivery blocks/events and
 contract-relative or paired observations require separately qualified versions.
@@ -517,6 +517,15 @@ selectors. The private preview implements indexed monthly references and
 implemented. Backdated replay for future trading/lifecycle domains remains work.
 See [date-field bindings](schedules-and-contract-sequences.md#date-schedules-before-contract-construction).
 
+
+
+Blotter delivery includes numeric values with separate unit labels, exact
+comparison filters, backend price statistics, configurable row/column pivots
+and linked bar, line and heatmap plots (D206). Subtotals, cross-axis grand totals
+and cell drill-through remain later work. Swap entry now covers fixed/floating
+and floating/floating financial composition with explicit spreads and reviewed
+par-rate entry (D207). Qualification includes selected actual fixings, published
+custom projections, booking replay and generated/existing-close report compatibility.
 
 ## Milestone 0 — Record and review the design
 

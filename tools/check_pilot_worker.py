@@ -29,6 +29,11 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
                 'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':quantity,'fixedCoefficient':'-1','discounting':discounting,
                 'fixed':{'price':strike,'currency':index['currencyCode'],**delivery,'paymentSchedule':payment(18)},
                 'floating':{'curve':curve,'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment(46),'resetFrequency':'monthly','averagingMethod':'none'}})
+    index=next(i for i in catalog['indices'] if i['curve']=='base_forward' and i['definitionRevisionId']==manifest['revisionId'])
+    floating={'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment(18),'resetFrequency':'monthly','averagingMethod':'none','spread':'0.1'}
+    pair=trader.call('swaps/book',{**swap_context,**trade_booking(),'operationId':str(uuid4()),'bookId':books[0],
+        'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':'10','firstCoefficient':'-1','swapType':'financial_floating_floating',
+        'firstFloating':floating,'floating':{**floating,'spread':'0.2'},'discounting':False})
     future_context={**swap_context,'convention':'fixed_total_cash_execution_pnl_v1'}
     future=next(c for c in trader.call('futures/catalog',future_context)['contracts'] if c['curve']=='future' and c['deliveryFrom']=='2021-01-01')
     future_trade=trader.call('futures/book',{**future_context,**trade_booking(),'operationId':str(uuid4()),'bookId':books[0],
@@ -217,7 +222,11 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     assert query(f"SELECT count(*) FROM market_data.observations WHERE source_event_id LIKE 'pilot:{run}:%';")==before
     report=owner.call('jobs/pilot-close/results?runId='+run)
     assert report['state']=='report_published' and report['runId']==run
-    assert {t['measure'] for t in report['totals']}=={'futures_execution_pnl','swap_present_value'} and len(report['positions'])==5
+    assert {t['measure'] for t in report['totals']}=={'futures_execution_pnl','swap_present_value'} and len(report['positions'])==6
+    pair_position=next(p for p in report['positions'] if p['tradeId']==pair['tradeId'])
+    pair_discounts=[d for d in report['discountInputs'] if d['instrumentId']==pair_position['instrumentId']]
+    assert len(pair_discounts)==2 and all(not d['input']['enabled'] and d['input']['factor']=='1' for d in pair_discounts)
+    assert query(f"SELECT count(*) FROM automation.pilot_report_discounts WHERE report_id='{run}' AND first_floating_side_id IS NOT NULL;")=='1'
     assert len(report['risk'])>0 and all(row['gamma']['value']['numerator']=='0' for row in report['risk'])
     from check_market_close_frames import check_generated_history
     check_generated_history(url,query,manifest,run,'future',future['id'])

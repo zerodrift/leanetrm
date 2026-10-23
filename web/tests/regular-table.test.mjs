@@ -8,3 +8,21 @@ test('global search ignores hidden cells while hidden column filters still apply
 test('empty and whitespace filters retain all displayed rows',()=>{assert.equal(matchesTableRow(['Jan 2021','3.05'],'   ',[null,null]),true);});
 
 test('column choices list exact distinct displayed values and match whole cells',()=>{assert.deepEqual(columnValues(['3','3.1','3','0.000000000000000001','']),['3','3.1','0.000000000000000001','']);assert.equal(matchesTableRow(['3.1'],'',['3']),false);assert.equal(matchesTableRow([''],'',['']),true);});
+
+test('numeric filters compare exact decimal values and combine inequalities with text filters',()=>{
+ const row=['Book A','100000000000000000.01','-0.000000000000000001'];
+ assert.equal(matchesTableRow(row,'book',['Book A','> 100000000000000000.00','< 0'],undefined,[1,2]),true);
+ assert.equal(matchesTableRow(row,'',['Book A','>= 100000000000000000.02',null],undefined,[1,2]),false);
+ assert.equal(matchesTableRow(['3.10'],'',['= 3.1'],undefined,[0]),true);
+ assert.equal(matchesTableRow(['3.1'],'',['!= 3.10'],undefined,[0]),false);
+ assert.equal(matchesTableRow(['-2'],'',['<= -2'],undefined,[0]),true);
+ assert.equal(matchesTableRow([''],'',['< 1'],undefined,[0]),false);
+ assert.equal(matchesTableRow(['0'],'',['> nope'],undefined,[0]),false);
+ assert.equal(matchesTableRow(['0'],'',[''],undefined,[0]),false);
+ assert.equal(matchesTableRow([''],'',[''],undefined,[0]),true);
+});
+
+test('numeric comparisons retain rational server precision',()=>{
+ assert.equal(matchesTableRow(['1/3'],'',['> 0.333333333333333333'],undefined,[0]),true);
+ assert.equal(matchesTableRow(['-1/3'],'',['< -0.333333333333333333'],undefined,[0]),true);
+});

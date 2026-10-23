@@ -28,3 +28,35 @@ test('required observation calendars stay exact and old sampling pairs omit the 
  selected.calendar.code='changed';assert.equal(calendar.code,'synthetic_calendar');
  assert.equal(observationScheduleInput({requiresObservationCalendar:false,requiresQuantityWeights:false},null,null,[]),undefined);
 });
+
+test('each floating slot owns its observation calendar and clears only its own inapplicable choice',async()=>{
+ const {setupSwapObservationControls}=await import('../dist/swap-observations-view.js');
+ const previous=globalThis.document;
+ const nodes=Object.fromEntries(['swap','swap-first'].flatMap(prefix=>['calendar','calendar-field','quantities','status'].map(suffix=>[`${prefix}-observation-${suffix}`,{value:'',hidden:false,required:false,disabled:false,replaceChildren(){}}])));
+ globalThis.document={getElementById:id=>nodes[id]};
+ try{
+  let firstMode={resetFrequency:'daily',averagingMethod:'observation_arithmetic',requiresObservationCalendar:true,requiresQuantityWeights:false};
+  const secondMode={...firstMode};
+  const setup=(prefix,choice)=>setupSwapObservationControls({prefix,enabled:()=>true,api:()=>assert.fail('No API read expected'),request:()=>({}),choice,unit:()=>'',busy:()=>false,apply:()=>{}});
+  const first=setup('swap-first',()=>firstMode),second=setup('swap',()=>secondMode);
+  nodes['swap-first-observation-calendar'].value=JSON.stringify(calendar);
+  nodes['swap-observation-calendar'].value=JSON.stringify({...calendar,code:'another_calendar'});
+  first.sync();second.sync();
+  assert.equal(first.calendar().code,calendar.code);
+  assert.equal(second.calendar().code,'another_calendar');
+  firstMode={resetFrequency:'daily',averagingMethod:'quantity_weighted',requiresObservationCalendar:false,requiresQuantityWeights:true};first.sync();
+  assert.equal(nodes['swap-first-observation-calendar'].value,'');
+  assert.equal(second.calendar().code,'another_calendar');
+ }finally{globalThis.document=previous;}
+});
+
+test('an inactive floating slot cannot leave required observation controls enabled',async()=>{
+ const {setupSwapObservationControls}=await import('../dist/swap-observations-view.js');
+ const previous=globalThis.document;
+ const nodes=Object.fromEntries(['calendar','calendar-field','quantities','status'].map(suffix=>[`swap-observation-${suffix}`,{value:'',hidden:false,required:false,disabled:false,replaceChildren(){}}]));
+ globalThis.document={getElementById:id=>nodes[id]};
+ try{
+  const controls=setupSwapObservationControls({prefix:'swap',enabled:()=>false,api:()=>assert.fail('No API read expected'),request:()=>({}),choice:()=>({resetFrequency:'daily',averagingMethod:'observation_arithmetic',requiresObservationCalendar:true,requiresQuantityWeights:false}),unit:()=>'',busy:()=>false,apply:()=>{}});
+  controls.sync();assert.equal(nodes['swap-observation-calendar'].disabled,true);assert.equal(nodes['swap-observation-calendar'].required,false);
+ }finally{globalThis.document=previous;}
+});

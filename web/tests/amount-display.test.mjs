@@ -65,3 +65,12 @@ test('the page requests exactly the displays the shared corpus states for each p
   assert.deepEqual(sent.map(requested).sort(),[...displays.keys()].sort(),example.name);
  }
 });
+
+test('price pivot measures use backend price formatting while keeping their exact values',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());const requests=[];
+ const source={groups:[{executionPriceMean:'0.123456789012345678',markMin:'2.34',fixedPriceMax:'9.87'}]};
+ await prepareAmountDisplay(source,async body=>{requests.push(...body);return body.map(r=>r.value==='0.123456789012345678'?'0.1235':r.value);});
+ assert.equal(requests.length,3);assert.ok(requests.every(r=>r.decimalPlaces===4&&r.tick===null));
+ assert.equal(amountText(source.groups[0].executionPriceMean,'price'),'0.1235');
+ assert.equal(source.groups[0].executionPriceMean,'0.123456789012345678');
+});

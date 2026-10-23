@@ -246,6 +246,11 @@ def run_correction_checks(query, manifest, c, frames):
     assert values(first)==original
     commands={name:booking(body,book) for name,body in terms.items()}
     booked={name:c.call('swaps/book',command) for name,command in commands.items()}
+    pair={**commands['daily'],'operationId':str(uuid4()),'fixed':None,'fixedCoefficient':None,'swapType':'financial_floating_floating','firstCoefficient':'-1',
+        'firstFloating':{**commands['daily']['floating'],'spread':'0.1'},'floating':{**commands['daily']['floating'],'spread':'0.2'}}
+    pair_booked=c.call('swaps/book',pair)
+    original_evidence=query(f"SELECT (request->'sideFixings')::text FROM trading.swap_trade_revisions WHERE operation_id='{pair['operationId']}';")
+    assert all(len(side['evidence']['inputs'])==15 and DAILY_DAY_1 in side['evidence']['inputs'] for side in json.loads(original_evidence))
     # A daily-bundle correction needs the same current import authority as a main-bundle one.
     c.call('corrections',{'snapshotId':seed['id'],'observationId':DAILY_DAY_1,'value':'3.63'},expected=403)
     c.call('profile',{'profile':'editor'})
@@ -313,6 +318,14 @@ def run_correction_checks(query, manifest, c, frames):
         editor=c.call('swaps/editor',{'context':{**terms['daily']['context'],'snapshotId':frame['id']},'tradeId':trade,'revision':None})
         assert F(editor['valuation']['presentValue'])==pv,(frame['name'],editor['valuation']['presentValue'])
     print('PASS a booking from a snapshot with a selected daily correction stores that actual, and the trade revalues from each snapshot\'s own pins',flush=True)
+    assert c.call('swaps/book',{**pair,'snapshotId':daily['frame']['id']})==pair_booked
+    assert query(f"SELECT (request->'sideFixings')::text FROM trading.swap_trade_revisions WHERE operation_id='{pair['operationId']}';")==original_evidence
+    fresh_pair={**pair,'operationId':str(uuid4()),'snapshotId':daily['frame']['id']}
+    c.call('swaps/book',fresh_pair)
+    updated=json.loads(query(f"SELECT (request->'sideFixings')::text FROM trading.swap_trade_revisions WHERE operation_id='{fresh_pair['operationId']}';"))
+    assert all(daily['observationId'] in side['evidence']['inputs'] and DAILY_DAY_1 not in side['evidence']['inputs'] for side in updated)
+    c.call('swaps/amend',{**commands['daily'],'operationId':str(uuid4()),'snapshotId':daily['frame']['id'],'tradeId':pair_booked['tradeId'],'expectedRevision':1,'effectiveAt':daily['frame']['at'],'reason':'Synthetic rejected fixed-side substitution'},expected=422)
+    print('PASS composed fixing receipts: both slots retain original actuals on corrected replay; a fresh operation records corrected pins and direct subtype conversion rejects',flush=True)
     after=priced(seed)['monthly context']['knownAt']
     aliases=set()
     for known,result in [(first['monthly context']['knownAt'],original),

@@ -27,7 +27,7 @@ def run_checks(query, psql, environment):
     try:
         assert Path(sql('SHOW data_directory;')).resolve() == Path(query('SHOW data_directory;')).resolve()
         for migration in sorted((root/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if int(migration.name[:4]) < 101:
+            if int(migration.name[:4]) < 102:
                 sql(local_roles(migration.read_text()))
         reference, market, security, manifest = fixture(root)
         secondary, _ = swap_fixture()
@@ -50,6 +50,16 @@ def run_checks(query, psql, environment):
              '2021-01-01','2021-02-01','2021-02-18T00:00:00Z','{mode}',3,100,-1,false,'2020-12-18T16:00:00Z',NULL,'2020-12-18T16:00:00Z',
              'Initial booking','independent_side_financial_swap_v2','{rule}'::jsonb,'{rule}'::jsonb,'test_gas',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb,'{{}}'::uuid[],NULL);"""
             commands.append((command, json.loads(runtime(command))))
+        monthly = {'curve': 'base_forward', 'index': 'test_price', 'currency': 'usd',
+                   'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01',
+                   'paymentSchedule': json.loads(rule), 'resetFrequency': 'monthly', 'averagingMethod': 'none'}
+        first = json.dumps({**monthly, 'spread': '0.2'})
+        second = json.dumps({**monthly, 'spread': '-0.1'})
+        composed = f"""SELECT security.save_composed_swap('{catalog}','{uuid4()}',NULL,NULL,'d1000000-0000-0000-0000-000000000001',
+         '{manifest['revisionId']}','{rc}','{rr}','test_gas',NULL,'{first}'::jsonb,'{second}'::jsonb,100,-1,false,
+         '2020-12-18T16:00:00Z','2020-12-18T16:00:00Z','Initial booking','independent_side_financial_swap_v2',NULL,
+         '{json.dumps(trade_booking())}'::jsonb,'{{}}'::uuid[]);"""
+        commands.append((composed, json.loads(runtime(composed))))
         tables = ['swap_fixed_sides', 'swap_floating_sides', 'swap_reset_projections', 'swap_instruments', 'swap_trade_revisions', 'swap_payment_rules', 'publications', 'trades']
 
         def rows(table, added=False):
@@ -59,13 +69,13 @@ def run_checks(query, psql, environment):
         before = {table: rows(table) for table in tables}
         signature = "security.save_projected_swap_with_parties(uuid,uuid,uuid,integer,uuid,uuid,uuid,uuid,text,text,text,text,date,date,timestamptz,date,date,timestamptz,text,numeric,numeric,numeric,boolean,timestamptz,timestamptz,timestamptz,text,text,jsonb,jsonb,text,uuid,integer,text,jsonb,uuid[],jsonb)"
         oid = sql(f"SELECT '{signature}'::regprocedure::oid;")
-        sql((root/'db/migrations/0101_side_observation_schedules.sql').read_text())
+        sql((root/'db/migrations/0102_side_observation_schedules.sql').read_text())
         assert sql(f"SELECT '{signature}'::regprocedure::oid;") == oid
         assert before == {table: rows(table, True) for table in tables}, 'Schema adoption changed retained financial rows or request bytes'
         assert sql('SELECT count(*) FROM trading.swap_observation_schedules;') == '0'
         for command, expected in commands:
             assert json.loads(runtime(command)) == expected, 'A pending original operation lost its exact replay outcome'
         assert before == {table: rows(table, True) for table in tables}, 'Replay created or changed a retained definition'
-        print('PASS observation upgrade: original monthly/daily rows, function identity, instrument keys and pending-command receipts remain exact', flush=True)
+        print('PASS observation upgrade: original monthly/daily and composed spread rows, function identity, instrument keys and pending-command receipts remain exact', flush=True)
     finally:
         query(f'DROP DATABASE {name} WITH(FORCE);')

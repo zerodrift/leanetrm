@@ -89,6 +89,8 @@ def run_checks(url, query, manifest, psql=None, environment=None):
     assert not any(row['isGuard'] for row in weighted_view['observations'])
     print('PASS side observations: all positive typed daily quantities survive normalized storage, repricing and exact denominator evidence', flush=True)
     _weighted_actuals_and_risk(client, query, context, draft, weighted, weighted_booking, weighted_receipt, weighted_price)
+    from check_side_observation_composition import run_checks as check_composition
+    check_composition(client, query, context, draft, weighted, weighted_booking)
     before_publications = query('SELECT count(*) FROM trading.publications;')
     invalid = []
     missing = deepcopy(floating); missing.pop('observationSchedule'); invalid.append(missing)

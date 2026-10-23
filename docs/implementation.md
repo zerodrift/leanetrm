@@ -30,6 +30,22 @@ in-memory operations only. Date-set operations remain coding utilities. The name
 described below is a domain consumer with exact contract identities. Monthly anchor generation and durable schedule authoring are now consumers. Project instructions
 now require TDD, DRY, simple code and an explicit quality review before check-in.
 
+The blotter now separates numeric amounts from units and currencies. Its pivot
+builder assigns row and column dimensions, backend measures and linked bar,
+line or heatmap plots. Numeric sorting/filtering retains exact values, including
+rational custom marks and PV; saved layout v3 retains chart choices. Charts use
+the selected financial report scope before local grid filters. Price aggregation
+supports exact minimum/maximum and explicit rounded arithmetic mean. Subtotals
+and cell drill-through are not implemented.
+
+Swaps support financial fixed/floating and floating/floating types with separate
+side schedules and explicit fixed spreads. Blank fixed-price entry can request a
+managed par quote for review; Risk requires the resolved concrete quote. Both
+floating slots preserve published fixing/custom-source evidence through pricing,
+booking, amendments, portfolio valuation and generated/existing-close reports (D207,
+migration 0101). The new migration requires a separately reviewed schema window;
+no hosted migration, worker deployment or production qualification is implied.
+
 ## Durable jobs and shared infrastructure
 
 The [automation implementation](automation.md) adds a separate .NET worker and
@@ -264,11 +280,15 @@ Exact reference keys and their revision objects reject unknown JSON members, so
 an unrecognized nested financial policy cannot disappear during input binding.
 These are synthetic source qualifications; a product name alone admits nothing.
 
-Migration 0101 adds immutable observation-schedule headers and typed quantity
+Migration 0102 adds immutable observation-schedule headers and typed quantity
 children. Exact-version foreign keys retain the curve, index, quote, calendar,
 quantity specification and quantity contract. Hash lookup is followed by a full
-definition/child comparison. Old and new booking entry points delegate one private
-writer, preserving atomic publications, command retries and amendment history.
+definition/child comparison. Legacy and observation booking entry points delegate
+one private writer. Composed booking uses the same per-Side observation selection
+and fixing evidence for both floating memberships, retaining their calendars and
+quantity weights independently. Side lookup includes both the explicit spread and
+observation schedule. Atomic publications, command retries and amendment history
+remain unchanged.
 The additional authoring version is `side_observation_schedule_v1`; the existing
 `FloatingSide_v3`, `index_observation_fixings_v1` and six averaging definitions
 remain unchanged. New rules still use one complete delivery month and one payment

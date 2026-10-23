@@ -1310,10 +1310,29 @@ Current reads retain their existing behavior; historical reads retain exact
 publication transactions, knowledge cutoffs, effective dates and observation-time
 bounds. Raw RLS policies and the bounded close-parts reader remain unchanged.
 
-Migration `0101_side_observation_schedules.sql` retains immutable observation-rule
-headers and positive daily quantity weights for the existing Side averaging modes.
+
+[0101_swap_composition.sql](migrations/0101_swap_composition.sql) serves composed
+swap booking and generated/existing-close reports. It retains an exact fixed or first
+floating side, the second floating side and explicit coefficients. Floating sides
+add typed fixed spreads and retain custom projection references. The fenced
+command records each floating slot's derived fixing evidence, compares only
+submitted terms on retry, and rechecks current transitive source authority.
+Existing zero-spread commands retain their replay contracts and reject subtype
+conversion of floating/floating heads. Discount rows add an exact first-floating
+membership FK alongside fixed, second-floating and PPA memberships. The inner
+report writer preserves the existing renewable publication fence and PPA receipts;
+complete-book scope resolves reference versions from the mandatory floating side.
+Existing report rows remain unchanged. Apply only
+in a reviewed schema window after draining runtime writes. No deployment or
+backfill of immutable events is performed by the application.
+
+Migration `0102_side_observation_schedules.sql` retains immutable observation-rule
+headers and positive daily quantity weights for each independently selected
+floating Side's existing averaging modes.
 Exact-version foreign keys bind the curve, index, quote, calendar, quantity unit
 and dated contracts. Earlier monthly/daily definitions and writer signatures
-remain readable and replayable through the shared private writer. Stop write
-admission and drain requests before applying this separately qualified schema
-change. General observation windows and interval pricing remain separate contracts.
+remain readable and replayable through the shared private writer. Composed swaps
+retain both spread and observation-schedule identity with per-slot fixing evidence.
+Before applying this separately qualified schema change, stop write admission and
+drain requests. General observation windows and interval pricing remain separate
+contracts.

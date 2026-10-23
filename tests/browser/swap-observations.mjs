@@ -7,13 +7,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await persona('trader');await click('#example');await click('#nav-futures');
  const change=async(selector,value)=>{await set(selector,value);await wait(idle);};
  const last=path=>`window.observationCalls.filter(row=>row.path==='/api/${path}').at(-1)`;
- async function start(selectIndex=true){await click('#futures-new');await click('#trade-kind-swap');await wait("document.querySelector('#swap-editor').open&&"+idle);
+ async function start(selectIndex=true,type='financial_fixed_floating'){await click('#futures-new');await click('#trade-kind-swap');await wait("document.querySelector('#swap-editor').open&&"+idle);await change('#swap-type',type);
   const index=await evaluate(`${last('swaps/catalog')}.data.indices.find(index=>index.curve==='daily_gas')`);
   await change('#swap-commodity',index.commodity);if(selectIndex)await change('#swap-index',index.index);return index;
  }
- async function fillTerms(index){
-  await change('#swap-floating-from','2021-01-01');await change('#swap-floating-to','2021-02-01');
-  await change('#swap-floating-currency',index.currencyCode);await change('#swap-direction','-1');await change('#swap-quantity','100');await change('#swap-price','3');await change('#swap-discounting','none');await change('#swap-price-source','ordinary');
+ async function fillTerms(index,dateSide='floating'){
+  await change(`#swap-${dateSide}-from`,'2021-01-01');await change(`#swap-${dateSide}-to`,'2021-02-01');
+  if(dateSide==='fixed')await check('fixed-side entry refreshes the floating plan after initializing its empty delivery dates',"document.querySelector('#swap-floating-from').value==='2021-01-01'&&document.querySelector('#swap-floating-to').value==='2021-02-01'&&document.querySelectorAll('#swap-observation-quantities input').length===31");
+  await change('#swap-floating-currency',index.currencyCode);await change('#swap-direction','-1');await change('#swap-quantity','100');await change('#swap-price','3');await change('#swap-discounting','none');await change('#swap-price-source','ordinary');await change('#swap-spread','0');
   for(const side of ['fixed','floating']){await change(`#swap-${side}-payment-frequency`,'monthly');await change(`#swap-${side}-payment-rule`,'days_after_period_end');await change(`#swap-${side}-payment-number`,'18');await change(`#swap-${side}-day-basis`,'calendar_days');await change(`#swap-${side}-payment-adjustment`,'unadjusted');}
  }
  async function bookingParties(){for(const id of ['swap-book','swap-legal-entity','swap-counterparty'])await change('#'+id,await evaluate(`document.querySelector('#${id}').options[1].value`));}
@@ -32,7 +33,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('convention-first entry filters indices through the authorized backend matrix',`(()=>{const options=${last('swaps/observation-options')}.data;const expected=[...new Set(options.indices.map(row=>row.index))].sort(),actual=[...document.querySelector('#swap-index').options].map(row=>row.value).filter(Boolean).sort();return document.querySelector('#swap-index').value===''&&document.querySelector('#swap-averaging').value==='quantity_weighted'&&JSON.stringify(expected)===JSON.stringify(actual);})()`);
  await change('#swap-index',index.index);await change('#swap-projection',projection);
  await check('mode-first and curve-first selection resolve the same exact projection',`document.querySelector('#swap-projection').value===${JSON.stringify(projection)}&&document.querySelector('#swap-averaging').value==='quantity_weighted'`);
- await fillTerms(index);
+ await fillTerms(index,'fixed');
  await check('weighted entry uses the complete backend-planned interval rows without default quantities',`(()=>{const plan=${last('swaps/observation-options')}.data.observations,inputs=[...document.querySelectorAll('#swap-observation-quantities input')];return plan.length===31&&inputs.length===31&&inputs.every((input,index)=>input.dataset.from===plan[index].from&&input.dataset.to===plan[index].to&&input.value==='');})()`);
  for(let position=0;position<31;position++)await change(`#swap-observation-quantities input:nth-of-type(1)[data-from="2021-01-${String(position+1).padStart(2,'0')}"]`,position===0?'2':'1');
  await click('#swaps-draft-price');
@@ -61,6 +62,27 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  }
  await change('#swap-averaging','quantity_weighted');
  await check('switching away from calendar sampling clears the calendar before requesting new intervals',`(()=>{const request=${last('swaps/observation-options')};return request.status===200&&!request.body.observationCalendar&&document.querySelector('#swap-observation-calendar-field').hidden&&document.querySelectorAll('#swap-observation-quantities input').length===31&&[...document.querySelectorAll('#swap-observation-quantities input')].every(input=>input.value==='');})()`);
+ await click('#swap-close');
+ index=await start(true,'financial_floating_floating');
+ await change('#swap-reset-frequency','daily');await change('#swap-averaging','observation_arithmetic');await change('#swap-projection',projection);
+ await change('#swap-first-reset-frequency','daily');await change('#swap-first-averaging','quantity_weighted');await change('#swap-first-index',index.index);await change('#swap-first-projection',projection);
+ for(const side of ['first','floating']){
+  await change(`#swap-${side}-from`,'2021-01-01');await change(`#swap-${side}-to`,'2021-02-01');await change(`#swap-${side}-currency`,index.currencyCode);
+  await change(`#swap-${side}-payment-frequency`,'monthly');await change(`#swap-${side}-payment-rule`,'days_after_period_end');await change(`#swap-${side}-payment-number`,'18');await change(`#swap-${side}-day-basis`,'calendar_days');await change(`#swap-${side}-payment-adjustment`,'unadjusted');
+ }
+ await change('#swap-first-direction','-1');await change('#swap-first-price-source','ordinary');await change('#swap-price-source','ordinary');await change('#swap-first-spread','0.05');await change('#swap-spread','0.01');await change('#swap-quantity','100');await change('#swap-discounting','none');
+ await change('#swap-observation-calendar',calendar);
+ for(let position=0;position<31;position++)await change(`#swap-first-observation-quantities input[data-from="2021-01-${String(position+1).padStart(2,'0')}"]`,position===0?'2':'1');
+ await click('#swaps-draft-price');
+ await check('two floating slots transport independent observation contracts through the real pricer',`(()=>{const request=${last('swaps/price')};return request.status===200&&request.body.fixed===null&&request.body.firstFloating.observationSchedule.quantities.length===31&&request.body.firstFloating.observationSchedule.quantities[0].quantity.value==='2'&&JSON.stringify(request.body.floating.observationSchedule.calendar)===${JSON.stringify(calendar)}&&request.body.floating.observationSchedule.quantities===null&&request.data.valuation.presentValue==='-3.03125';})()`);
+ await bookingParties();await submit('#swap-form');
+ await check('composed floating inspection keeps each backend denominator and application table separate',"(()=>{const sections=[...document.querySelectorAll('#swap-schedules .swap-schedule')];return sections.length===2&&sections[0].textContent.includes('First floating')&&sections[1].textContent.includes('Second floating')&&sections[0].querySelector('.swap-observation-plan').textContent.includes('Denominator: 32')&&sections[1].querySelector('.swap-observation-plan').textContent.includes('Denominator: 20')&&document.querySelectorAll('[id^=column-filters-swap-0-]').length>0&&document.querySelectorAll('[id^=column-filters-swap-1-]').length>0;})()");
+ const pairReference=await book();await reopen(pairReference);
+ await check('reopened composition restores both floating policies without crossing calendar or quantity inputs',`document.querySelector('#swap-type').value==='financial_floating_floating'&&document.querySelector('#swap-first-averaging').value==='quantity_weighted'&&document.querySelector('#swap-averaging').value==='observation_arithmetic'&&document.querySelectorAll('#swap-first-observation-quantities input').length===31&&document.querySelector('#swap-first-observation-quantities input').value==='2'&&document.querySelector('#swap-observation-calendar').value===${JSON.stringify(calendar)}`);
+ await change('#swap-quantity','200');await change('#swap-reason','Synthetic composed quantity amendment');await submit('#swap-form');await click('#swap-confirm');await click('#swap-submit');await reopen(pairReference);
+ await check('composed amendment retains both exact plans and independently scaled PV',`${last('swaps/editor')}.data.state.revision===2&&${last('swaps/editor')}.data.valuation.presentValue==='-6.0625'&&${last('swaps/amend')}.body.firstFloating.observationSchedule.quantities[0].quantity.value==='2'&&JSON.stringify(${last('swaps/amend')}.body.floating.observationSchedule.calendar)===${JSON.stringify(calendar)}`);
+ await change('#swap-first-averaging','observation_arithmetic');
+ await check('editing the first floating convention preserves the second side calendar',`document.querySelector('#swap-first-observation-quantities').hidden&&!document.querySelector('#swap-first-observation-calendar-field').hidden&&document.querySelector('#swap-first-observation-calendar').value===''&&document.querySelector('#swap-observation-calendar').value===${JSON.stringify(calendar)}`);
  await click('#swap-close');
  await click('#futures-new');await evaluate("window.holdObservation=true;document.querySelector('#trade-kind-swap').click()");await wait('!!window.releaseObservation');
  await evaluate("document.querySelector('#swap-editor').dispatchEvent(new Event('cancel'));window.releaseObservation()");await wait(idle);

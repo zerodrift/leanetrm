@@ -50,6 +50,7 @@ public sealed partial class SwapStore
             if(instrument.Id!=row.Id("instrument_id"))
                 throw Error("instrument_identity","Equivalent retained terms cannot replace an exact published instrument identity.");
             ValidateProjections(instrument.Floating.GenerateSchedule().Payments.SelectMany(payment=>payment.Prices),row);
+            if(row.OptionalId("first_floating_side_id") is not null)ValidateProjections(((SidePaymentSchedule)instrument.First.GenerateSchedule()).Payments.SelectMany(payment=>payment.Prices),row,"first_projection_contracts","first_projection_weights");
             if(!providers.TryGetValue(instrument.Id,out var provider))
             {
                 var mapping=instrument.Discounting?await Discount(connection,market.Data,market.Frame,instrument.Currency,ct):null;
