@@ -1500,11 +1500,16 @@ no event, and nothing is written to the console. No check calls a real provider.
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on
 pushes, pull requests and manual dispatch. Checkout and tool-setup actions are
 pinned to exact commits. The checks job has read-only repository access, does not
-persist checkout credentials and requires no repository secrets. It runs the same
-`check_all.py` command as local verification, with a 45-minute job deadline for
-the complete suite; individual command and owned-resource deadlines remain in
-force. The previous 30-minute limit interrupted the final mixed-period suite
-after the preceding checks passed. It does not publish packages or
+persist checkout credentials and requires no repository secrets. The full local
+`check_all.py` command remains available. CI partitions its existing stages with
+`--group workspace`, `--group ppa` and `--group recovery`; each fresh checkout
+repeats all shared preparation and checks. The union covers every full-gate stage,
+with no duplicated preview stages. Each group retains a 45-minute job deadline;
+individual command and owned-resource deadlines remain in force. The expanded
+51-stage sequential gate exceeded that job deadline on Ubuntu. Group completion
+is reported separately from full-gate completion, and the final required check
+accepts only successful completion of every group. Failures, cancellation and
+skipped groups cannot qualify. It does not publish packages or
 deploy the application. A separate, gated `publish` job runs only after successful
 checks on a push to `master` when release publication is explicitly enabled. It
 uses the hosted-release environment and scoped write/attestation permissions to

@@ -13,8 +13,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
-    name: Stock database and browser checks
+  verification:
+    name: Synthetic verification (${{ matrix.group }})
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ["workspace", "ppa", "recovery"]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -52,10 +56,22 @@ jobs:
       - name: Run synthetic verification
         shell: bash
         run: |
-          python3 tools/check_all.py \
+          python3 tools/check_all.py --group "${{ matrix.group }}" \
             --pg-bin /usr/lib/postgresql/16/bin \
             --dotnet "$(command -v dotnet)" \
             --browser "$(command -v google-chrome)"
+
+  checks:
+    name: Stock database and browser checks
+    needs: verification
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Require every verification group to complete successfully
+        env:
+          VERIFICATION_RESULT: ${{ needs.verification.result }}
+        run: test "$VERIFICATION_RESULT" = success
 
   publish:
     name: Publish hosted release
