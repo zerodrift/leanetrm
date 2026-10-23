@@ -2,11 +2,11 @@ import {closesOnDate,uniqueClose,type MarketDates} from './market-calendar.js';
 
 type Availability=Pick<MarketDates,'dates'|'maxDate'>;
 
-// What opening on the newest close does (D208). A date with one close selects it. A date with several closes or
+// What opening on the newest close does (D212). A date with one close selects it. A date with several closes or
 // correction versions asks, and nothing is selected for it (D162). No available date selects nothing.
 export type CloseChoice={kind:'single';closeId:string;date:string}|{kind:'choose';date:string}|{kind:'none'};
-// What the As-of control tells the person about the close it shows: the newest, one they picked, a newer one that
-// arrived after the app chose, or that a close still has to be chosen.
+// What the As-of control tells the person about the close it shows: the latest, an earlier one with nothing newer
+// since it was selected, that a newer close has become available, or that a close still has to be chosen.
 export type CloseBadge='latest'|'selected'|'newer'|'choose';
 
 // The backend names the newest date (`maxDate`). A name that lists no close, that is not the latest date listed, or
@@ -26,11 +26,12 @@ export function newestClose(catalog:Availability):CloseChoice{
  return closeId===undefined?{kind:'choose',date}:{kind:'single',closeId,date};
 }
 
-// A close on the newest date is the latest close, whoever chose it. Nothing selected asks for a choice. An earlier
-// close is Selected when the person picked it and Newer when the app chose it before a later date appeared.
-export function closeBadge(selectedId:string,chosenByUser:boolean,catalog:Availability):CloseBadge{
+// A close on the newest date is the latest close. Nothing selected asks for a choice. Otherwise the close is earlier:
+// it is Newer when the calendar's newest date is later than the one it had when this close was selected (null when it
+// had none), whoever selected it, and Selected while nothing newer has appeared since.
+export function closeBadge(selectedId:string,newestAtSelection:string|null,catalog:Availability):CloseBadge{
  const date=newestDate(catalog);
  if(selectedId==='')return 'choose';
  if(date!==null&&closesOnDate(catalog,date).some(close=>close.id===selectedId))return 'latest';
- return chosenByUser?'selected':'newer';
+ return date!==null&&newestAtSelection!==null&&date>newestAtSelection?'newer':'selected';
 }

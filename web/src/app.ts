@@ -60,9 +60,9 @@ const historicalContext=()=>navigation?.context??undefined;
 const canCorrect=()=>can('ImportObservations')&&!historicalContext();
 let prefs:Preferences=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);
 let marketDateGeneration=0,marketDatesLoaded=false;
-// The workspace's newest close (D208): the last availability read for the whole workspace, the close the app chose by
-// itself (empty once a person picks another), whether a newer-close check is due and whether one is running.
-let workspaceCloses:MarketDates|undefined,appClose='',closeCheckDue=false,checkingCloses=false;
+// The workspace's newest close (D212): the last availability read for the whole workspace, the newest date it had when
+// the close now shown was selected, whether a newer-close check is due and whether one is running.
+let workspaceCloses:MarketDates|undefined,closeBasis:{close:string;newest:string}|undefined,closeCheckDue=false,checkingCloses=false;
 const data=()=>{if(!workspace)throw Error('Market data is still loading.');return workspace;};
 const directory=()=>{if(!navigation)throw Error('Market navigation is still loading.');return navigation;};
 const frame=()=>{const found=directory().frames.find(f=>f.id===select('snapshot').value);if(!found)throw Error('Choose a market date above.');return found;};
@@ -211,7 +211,7 @@ async function openMarketCalendar(date?:string):Promise<void>{
   throw error;
  }
 }
-// Opening a workspace on its newest close (D208). The workspace-wide calendar names the newest date: one close on it is
+// Opening a workspace on its newest close (D212). The workspace-wide calendar names the newest date: one close on it is
 // selected as if the person had picked it, several ask, and none selects nothing. The page that is showing then reads it.
 const workspaceDates=():MarketDatesRequest=>({curve:null,timeZone:prefs.timeZone,definition:null});
 async function selectNewestClose():Promise<CloseChoice>{
@@ -219,7 +219,7 @@ async function selectNewestClose():Promise<CloseChoice>{
  if(!catalog)return {kind:'none'};
  const choice=newestClose(catalog);
  workspaceCloses=catalog;
- if(choice.kind==='single'){select('snapshot').value=choice.closeId;closeChanged(true);}
+ if(choice.kind==='single'){select('snapshot').value=choice.closeId;closeChanged();}
  return choice;
 }
 // A click on Newer close available. Selecting it loads the page like a close the person picked.
@@ -240,11 +240,14 @@ async function recheckNewestClose(){
  }catch{/* the badge stays as the last check left it */}
  finally{checkingCloses=false;}
 }
-// The badge compares the close shown with the workspace's newest. A historical or unapplied view has no newest close to
-// claim, and a workspace without closes has nothing to compare.
+// The badge compares the close shown with the workspace's newest. Its basis is the newest date known when that close was
+// selected (taken the first time the close is rendered, and again whenever it is selected), so a later date is news
+// whoever selected the close. A historical or unapplied view has no newest close to claim, and a workspace without closes
+// has nothing to compare.
 function renderCloseBadge(){
- const closes=workspaceCloses,shown=select('snapshot').value;
- marketCalendar.badge(closes&&closes.dates.length&&!contextDirty&&!historicalContext()?closeBadge(shown,shown!==appClose,closes):null);
+ const closes=workspaceCloses,shown=select('snapshot').value,newest=closes?newestDate(closes):null;
+ if(newest&&closeBasis?.close!==shown)closeBasis={close:shown,newest};
+ marketCalendar.badge(closes&&newest&&closeBasis&&!contextDirty&&!historicalContext()?closeBadge(shown,closeBasis.newest,closes):null);
 }
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
 function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
@@ -519,7 +522,7 @@ $('sidebar-toggle').onclick=()=>{if(busy)return;prefs.sidebarCollapsed=!prefs.si
 $('library-toggle').onclick=()=>{if(busy)return;prefs.libraryCollapsed=!prefs.libraryCollapsed;renderLayout();persist();};
 for(const {id} of sidebarGroups)groupNode(id).ontoggle=()=>{if(!currentProfile||prefs.sidebarCollapsed)return;const closed=prefs.collapsedMenus.includes(id),open=groupNode(id).open;if(closed===!open)return;prefs.collapsedMenus=open?prefs.collapsedMenus.filter(k=>k!==id):[...prefs.collapsedMenus,id];persist();};
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
-$('preferences-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value;prefs.timeZone=zone;await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];persist();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});};
+$('preferences-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeBasis=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];persist();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
   hostedPilot=mode==='hosted-pilot';
@@ -534,7 +537,7 @@ $('sign-out').onclick=()=>void act(async()=>{await api('logout',{});location.ass
 async function loadIdentity(initialAccess?:unknown){
   customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('no-access-page').hidden=true;
-  curve='';clearPrices();clearReference();choose('reference-table',[],'');marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;appClose='';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
+  curve='';clearPrices();clearReference();choose('reference-table',[],'');marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
@@ -562,10 +565,9 @@ async function loadIdentity(initialAccess?:unknown){
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
 }
 $('open').onclick=()=>void act(async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});
-// A newly selected As of close replaces what the previous one showed. A close the app chose by itself (the newest, at
-// startup or on a click on Newer close available) is remembered, so the badge can tell it from one a person picked.
-function closeChanged(chosenByApp=false){
-  appClose=chosenByApp?select('snapshot').value:'';
+// A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
+function closeChanged(){
+  closeBasis=undefined;
   marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset();clearPrices();
 }
 async function loadSelectedClose(){
@@ -636,7 +638,7 @@ $('reference-next').onclick=()=>void act(()=>loadReference(referencePage!.offset
 for(const id of ['source-contract','pricing-contract'])select(id).onchange=()=>void act(async()=>{pricingContract=select(id).value;input='';draftFor='';renderDependencies();renderInputs();});
 for(const id of ['source-all','pricing-all'])$(id).onclick=()=>void act(async()=>{showAllContracts=!showAllContracts;renderDependencies();renderInputs();});
 $('history-close').onclick=()=>{historyRequested=false;clearChart($('history-chart'));$('history-card').hidden=true;historyData=undefined;contract='';};
-$('correction-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const current=frame(),next=await api<{frame:Frame;observationId:string}>('corrections',{snapshotId:current.id,observationId:input,value:$<HTMLInputElement>('correction-value').value});clearPrices();await reload(next.frame.id);input=next.observationId;await build();notice('Your change was saved. The market date now shows the corrected prices. Earlier versions are still available.');});};
+$('correction-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const current=frame(),next=await api<{frame:Frame;observationId:string}>('corrections',{snapshotId:current.id,observationId:input,value:$<HTMLInputElement>('correction-value').value});closeCheckDue=true;clearPrices();await reload(next.frame.id);input=next.observationId;await build();notice('Your change was saved. The market date now shows the corrected prices. Earlier versions are still available.');});};
 // Opens a page as its navigation does. The assistant's moves and Back open pages the same way.
 async function showPage(next:string){
   switch(next){
