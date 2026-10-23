@@ -186,7 +186,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
      exactPrice=new{reset.Price.ExactPrice.Numerator,reset.Price.ExactPrice.Denominator},spread=reset.Price.Term.Spread?.Value.ToString(),
      currency=reset.Price.ExactPrice.Unit.Currency,quantity=reset.Price.ExactPrice.Unit.Quantity,multiplier=reset.Price.ExactPrice.Unit.Multiplier.ToString(),lookup=reset.Price.Term.Lookup,lineage=reset.Price.Lineage})})})};
  private static string ExactPrice(OpenEtrm.MarketData.CustomCurves.ExactUnitPrice price)=>price.ToExactString();
- public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
+ public Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)=>Catalog(connection,data,frame,ct,null);
+ private async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct,SwapWriteRequest? retained)
  {
   var indices=new List<object>();
   var markets=new List<(PreviewData Data,InputFrame Frame)>{(data,frame)};markets.AddRange(await database.ReadSwapMarkets(connection,frame,ct,data));
@@ -200,7 +201,10 @@ public sealed partial class SwapStore(PreviewDatabase database)
    var quote=One(data.Quotes.Where(q=>q.Key.Code==curve.Text("quote_code")));
    if(target.Text("kind")!="index"||quote.Kind!=QuoteKind.Outright)continue;
    var samplings=SwapObservationCompatibility.SupportedSamplings(data,curve);
-   if(samplings.IsEmpty)continue;
+   // Retained terms remain inspectable without acquiring new-pricing eligibility.
+   var retainedIndex=retained?.DefinitionRevisionId==data.DefinitionRevision.RevisionId&&
+    new[]{retained.Floating,retained.FirstFloating}.Any(side=>side?.Curve==curve.Text("code")&&side.Index==target.Text("index_a_code"));
+   if(samplings.IsEmpty&&!retainedIndex)continue;
    var ids=data.Definitions["curve_members"].Where(m=>m.Text("curve_code")==curve.Text("code")).Select(m=>m.Id("contract_id")).ToHashSet();
    var contracts=data.Contracts.Where(c=>ids.Contains(c.Key.Id)&&c.Kind==ContractKind.Forward&&c.DeliveryFrom.Day==1&&c.DeliveryFrom.Year<9999&&c.DeliveryFrom.AddMonths(1)==c.DeliveryTo).GroupBy(c=>(c.DeliveryFrom,c.DeliveryTo)).Where(g=>g.Count()==1&&(frame.At<g.Single().Expiry||FixingPublished(data,target.Text("index_a_code"),quote.Key,g.Single(),frame.At))).Select(g=>g.Single()).OrderBy(c=>c.DeliveryFrom).ToArray();
    var daily=data.Contracts.Where(c=>ids.Contains(c.Key.Id)&&c.Kind==ContractKind.Forward&&c.DeliveryTo.DayNumber-c.DeliveryFrom.DayNumber==1)
@@ -353,7 +357,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var row=One(rows.Where(r=>r.Number("revision")==ExactDecimal.Parse(selected.ToString(CultureInfo.InvariantCulture))));
   var terms=Terms(data,row,frame.Id);var value=await Price(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
   ValidateProjections(value,row);
-  return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=Value(value),catalog=await Catalog(connection,data,frame,ct),
+  return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=Value(value),catalog=await Catalog(connection,data,frame,ct,terms),
    lifecycleEligible=frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
  }
  private static object? CanonicalFloating(SwapFloatingInput? side)=>side is null?null:new{

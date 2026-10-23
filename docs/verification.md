@@ -1,5 +1,19 @@
 # Local verification and continuous integration
 
+## Retained swap editor and repeated sign-in regression checks
+
+An isolated pre-fixing-convention database books a synthetic legacy swap, then
+applies every subsequent migration. Its current editor returns only the saved
+exact index/curve/revision with empty new-pricing sampling choices; its 10 USD
+PV and retained event remain unchanged. Ordinary entry does not offer that
+unqualified index. The swap browser suite verifies retained disabled selections
+survive observation-choice refresh and that valued sides remain visible.
+
+Hosted HTTPS checks verify a repeated sign-in redirects to the application while
+preserving the current identity, session count and cookies, even when the form
+names another account. Missing antiforgery tokens and foreign origins remain
+refused. These checks use disposable synthetic databases.
+
 Run verification from a clean checkout using public dependencies and the supplied
 synthetic fixtures. No existing database or application is a verification target.
 

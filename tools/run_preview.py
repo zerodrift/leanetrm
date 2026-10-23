@@ -340,7 +340,7 @@ def main():
             check_interval_series_storage(query,manifest,psql,env)
         if args.index_fixing_check:
             from check_index_fixing_upgrade import run_checks as check_index_fixing_upgrade
-            check_index_fixing_upgrade(query,psql,env,ROOT)
+            check_index_fixing_upgrade(query,psql,env,ROOT,dotnet)
         if args.unit_check:
             manifest['unitCatalogPreviousKnownAt']=query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');")
             unit_reference='20000000-0000-0000-0000-000000000004'

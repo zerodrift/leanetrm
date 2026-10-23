@@ -8,7 +8,7 @@ from preview_fixture import fixture, trade_booking, trading_fixture
 from swap_fixture import fixture as swap_fixture
 
 
-def run_checks(query, psql, environment, root):
+def run_checks(query, psql, environment, root, dotnet):
     name = 'openetrm_fixing_upgrade_' + uuid4().hex
     target = list(psql)
     target[target.index('-d') + 1] = name
@@ -106,6 +106,17 @@ def run_checks(query, psql, environment, root):
         reject(arguments(op=str(uuid4())), 'swap_fixing_read_only')
         assert snapshot() == before
         print('PASS index-fixing upgrade: exact legacy retry/status and certified history survive; changed terms conflict and unused commands cannot create manual-boundary trades', flush=True)
+        for migration in sorted((root/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if int(migration.name[:4]) > 50:
+                upgraded('\n'.join(line for line in migration.read_text().splitlines() if not line.startswith('CREATE ROLE ')))
+        subprocess.run([str(dotnet), 'build', 'tests/OpenEtrm.Api.Checks'], cwd=root, env=environment,
+                       check=True, capture_output=True, timeout=120)
+        token = upgraded("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
+                         f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+        connection = f"Host={target[target.index('-h')+1]};Port={target[target.index('-p')+1]};Database={name};Username=preview_runtime;Timezone=UTC"
+        payload = dict(manifest=manifest, connection=connection, token=token, tradeId=retained['tradeId'])
+        subprocess.run([str(dotnet), str(root/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0/OpenEtrm.Api.Checks.dll'), '--legacy-swap-editor'],
+                       input=json.dumps(payload), text=True, cwd=root, env=environment, check=True, timeout=60)
     finally:
         # Every target connection is a completed subprocess. No force-drop or
         # shared cluster teardown is allowed here.
