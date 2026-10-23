@@ -18,12 +18,19 @@ import type {BlotterSelection} from './assistant-pages.js';
 import {isPriceMeasure,priceMeanPolicy,blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,type BlotterView} from './blotter-layout.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
+import {valuationReason,valuationNote,type ValuationReason} from './valuation-status.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
 type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'retained';contextId?:string};
 type BookingCatalog='directory'|'priced_contracts';
 type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string;portfolio_id:string}[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;bookingUnavailableReason:string|null}&({kind:'directory'}|{kind:'priced_contracts';contracts:Contract[]});
-type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:{booking:Booking;priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;fixedPrice:string|null;presentValue:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;bookId:string;contractId:string;revision:string;book:string;portfolio:string;curve:string;lots:string;quantity:string;unit:string;executedAt:string;executionPrice:string;mark:string;executionPnl:string;currency:string;deliveryFrom:string;deliveryTo:string;settlement:string}[];totals:{book:string;currency:string;executionPnl:string}[]};
+type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:{booking:Booking;priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;fixedPrice:string|null;presentValue:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;bookId:string;contractId:string;revision:string;book:string;portfolio:string;curve:string;lots:string;quantity:string;unit:string;executedAt:string;executionPrice:string;mark:string|null;executionPnl:string|null;currency:string;deliveryFrom:string;deliveryTo:string;settlement:string;unavailableReason:ValuationReason|null}[];totals:{book:string;currency:string;executionPnl:string|null;unvaluedPositions:number}[];unvaluedPositions:number};
+// The value cells each instrument type shows; a position the close cannot value says why in them (D213).
+const valueFields:Readonly<Record<string,readonly string[]>>={future:['mark','executionPnl'],financial_swap:['mark','presentValue']};
+function valueCells(instrumentType:string){
+  if(!Object.hasOwn(valueFields,instrumentType))throw Error('The Blotter returned an unknown instrument type.');
+  return valueFields[instrumentType];
+}
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 
 export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}}}){
@@ -145,9 +152,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const gridVisible=gridColumns.map(c=>c.key.startsWith('pivot:')?view.columns.includes((c as {measure:string}).measure):view.columns.includes(c.key)||pivot&&['instrumentType','unit','currency','priceUnit'].includes(c.key));
     const rawRows=matrix?.rows??rows;
     const displayRows=rawRows.map((row,index)=>gridColumns.map(c=>{
+      const original=pivot?undefined:holdings!.holdings[index];
+      if(original?.unavailableReason&&valueCells(original.instrumentType).includes(c.key))return `Not valued · ${valuationReason(original.unavailableReason)}`;
       const value=row[c.key]??'';if(!c.numeric||value==='')return value;
       const measure=c.key.startsWith('pivot:')?(c as {measure:string}).measure:c.key;
-      const original=pivot?undefined:holdings!.holdings[index];
       if(['executionPrice','mark','fixedPrice'].includes(measure)||isPriceMeasure(measure))return amountText(value,'price',measure==='mark'?original?.markTick:original?.priceTick,measure==='fixedPrice'?original?.fixedAmountFormat:original?.amountFormat);
       if(['presentValue','executionPnl'].includes(measure))return amountText(value,'money',undefined,original?.amountFormat);
       if(measure==='quantity')return amountText(value,'quantity',undefined,original?.amountFormat);
@@ -160,9 +168,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(!selected.length){render();return;}captureFilters();if(table?.ready())view.grid=table.layout();view.columns=selected;render();
     },pivot?['instrumentType','unit','currency','priceUnit']:[]);
     if(pivot)get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value)){n.checked=true;n.disabled=true;}});
-    renderRegularTable(get('futures-totals'),'futures-totals',scope,['Book','Currency','Execution P&L'],holdings.totals.map(t=>[t.book,t.currency,t.executionPnl]),[2],busy,{displayRows:holdings.totals.map(t=>[t.book,t.currency,amountText(t.executionPnl,'money')])});
+    renderRegularTable(get('futures-totals'),'futures-totals',scope,['Book','Currency','Execution P&L'],holdings.totals.map(t=>[t.book,t.currency,t.executionPnl??'']),[2],busy,{displayRows:holdings.totals.map(t=>[t.book,t.currency,t.executionPnl===null?'Not valued':amountText(t.executionPnl,'money')])});
     workspace.summary([{label:'Trades · selected books',value:String(holdings.holdings.length)},{label:'Futures prices evaluated',value:String(holdings.evaluatedContracts)},
-      ...holdings.totals.map(t=>({label:`${t.book} · execution P&L`,value:`${amountText(t.executionPnl,'money')} ${t.currency}`,signed:t.executionPnl}))]);
+      ...holdings.totals.map(t=>t.executionPnl===null?{label:`${t.book} · execution P&L`,value:'Not valued'}:{label:`${t.book} · execution P&L`,value:`${amountText(t.executionPnl,'money')} ${t.currency}`,signed:t.executionPnl})],valuationNote(holdings.unvaluedPositions));
     text('blotter-table-title',pivot?view.splitBy.length?'Pivot table':'Pivot summary':'Individual trades');
     workspace.describe(pivot?[
       {label:'Rows',values:view.groupBy.filter(d=>!view.splitBy.includes(d)).map(d=>groupChoices.find(c=>c[0]===d)![1])},

@@ -74,11 +74,15 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
  }
  private sealed record Work(int SwapTrades,int SwapValuations,int SupplementalMarketLoads);
  private sealed record Report(FuturesBlotterView View,string PivotNumericalPolicy,List<JsonObject> Groups,
-  List<JsonObject> Holdings,int EvaluatedContracts,JsonNode? Totals,Work Work,bool HasSwaps,string Convention);
+  List<JsonObject> Holdings,int EvaluatedContracts,JsonNode? Totals,Work Work,bool HasSwaps,string Convention,int UnvaluedPositions);
+ // D213: valuation measures add only positions the selected close values; booked facts count every position.
+ private static bool Valuation(string measure)=>measure is "presentValue" or "executionPnl"||PriceMeasures.TryGetValue(measure,out var price)&&price.Field=="mark";
  private static Report Project(FuturesBlotterView view,List<JsonObject> rows,int evaluatedContracts,JsonNode? totals,Work work)
  {
   string? Text(JsonObject row,string key)=>row[key]?.GetValue<string>();
   ReferenceKey Key(JsonObject row,string key)=>row[key]!.Deserialize<ReferenceKey>(Json);
+  bool Valued(JsonObject row)=>row["unavailableReason"] is null;
+  int Unvalued(IEnumerable<JsonObject> selected)=>selected.Where(r=>!Valued(r)).Select(r=>Text(r,"tradeId")).Distinct().Count();
   var groups=new List<JsonObject>();
   var hasPrices=view.Measures.Any(PriceMeasures.ContainsKey);
   var dimensions=new Dictionary<string,string>{{"portfolio","portfolioId"},{"book","bookId"},{"market","curve"},{"contract","contractId"},{"instrumentType","instrumentType"}};
@@ -99,21 +103,23 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
    foreach(var measure in view.Measures)
    {
     if(measure=="tradeCount"){group[measure]=partition.Select(r=>Text(r,"tradeId")).Distinct().Count();continue;}
+    var counted=Valuation(measure)?partition.Where(Valued).ToArray():partition.ToArray();
     if(PriceMeasures.TryGetValue(measure,out var price))
     {
-     if(partition.Any(r=>r[price.Field] is null)){group[measure]=null;continue;}
+     if(counted.Length==0||counted.Any(r=>r[price.Field] is null)){group[measure]=null;continue;}
      var priceUnit=new PriceUnit(Key(first,"currencyReference"),Key(first,"quantitySpecification"),ExactDecimal.Parse(Text(first,"quoteMultiplier")??throw Invalid()));
-     group[measure]=PriceStatistics.AggregateExact(partition.Select(r=>ExactUnitPrice.Parse(Text(r,price.Field)!,priceUnit)).ToImmutableArray(),price.Statistic,
+     group[measure]=PriceStatistics.AggregateExact(counted.Select(r=>ExactUnitPrice.Parse(Text(r,price.Field)!,priceUnit)).ToImmutableArray(),price.Statistic,
       price.Statistic==PriceStatistic.ArithmeticMean?view.PriceNumericalPolicy:null).ToExactString();continue;
     }
-    if(partition.Any(r=>r[measure] is null)){group[measure]=null;continue;}
-    if(measure=="quantity")group[measure]=partition.Select(r=>new Quantity(ExactDecimal.Parse(Text(r,measure)!),Key(r,"quantitySpecification"))).Aggregate((a,b)=>a.Add(b)).Amount.ToString();
-    else if(measure is "presentValue" or "executionPnl")group[measure]=partition.Select(r=>ExactMoney.Parse(Text(r,measure)!,Key(r,"currencyReference"))).Aggregate((a,b)=>a.Add(b)).ToExactString();
-    else group[measure]=partition.Select(r=>ExactDecimal.Parse(Text(r,measure)!)).Aggregate((a,b)=>a+b).ToString();
+    if(counted.Length==0||counted.Any(r=>r[measure] is null)){group[measure]=null;continue;}
+    if(measure=="quantity")group[measure]=counted.Select(r=>new Quantity(ExactDecimal.Parse(Text(r,measure)!),Key(r,"quantitySpecification"))).Aggregate((a,b)=>a.Add(b)).Amount.ToString();
+    else if(measure is "presentValue" or "executionPnl")group[measure]=counted.Select(r=>ExactMoney.Parse(Text(r,measure)!,Key(r,"currencyReference"))).Aggregate((a,b)=>a.Add(b)).ToExactString();
+    else group[measure]=counted.Select(r=>ExactDecimal.Parse(Text(r,measure)!)).Aggregate((a,b)=>a+b).ToString();
    }
+   group["unvaluedPositions"]=Unvalued(partition);
    groups.Add(group);
   }
   return new(view,"typed_partitioned_trade_totals_v1",view.Mode=="pivot"?groups:[],rows,evaluatedContracts,totals,
-   work,rows.Any(r=>Text(r,"instrumentType")=="financial_swap"),Convention);
+   work,rows.Any(r=>Text(r,"instrumentType")=="financial_swap"),Convention,Unvalued(rows));
  }
 }

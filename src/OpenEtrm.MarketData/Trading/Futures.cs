@@ -177,6 +177,8 @@ public sealed record FuturesPosition
     public UnitPrice ExecutionPrice { get; }
     public DateTimeOffset ExecutedAt { get; }
     public FuturesSettlementState Settlement { get; }
+    // The booked size: signed lots of the contract's exact lot size.
+    public Quantity Quantity => Instrument.LotSize.Scale(Lots);
     public FuturesPosition(Guid id, FuturesMarketBinding marketBinding, ExactDecimal lots, UnitPrice executionPrice,
         DateTimeOffset executedAt, FuturesSettlementState settlement, Guid? retainedInstrumentId = null)
     {
@@ -270,9 +272,8 @@ public static class FuturesHoldings
                 throw FuturesMarketBinding.Error("missing_observation", "The exact held contract price is required; no prompt contract is substituted.");
             if (value.Quote != side.Quote.Key) throw FuturesMarketBinding.Error("futures_definition", "The exact held quote definition is required.");
             var mark = value.Price;
-            var quantity = position.Instrument.LotSize.Scale(position.Lots);
             side.RequirePrices(mark,position.ExecutionPrice);
-            result.Add(new(trade.Id,trade.BookId,position,quantity,mark));
+            result.Add(new(trade.Id,trade.BookId,position,position.Quantity,mark));
         }
         return result.ToImmutable();
     }

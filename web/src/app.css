@@ -540,6 +540,8 @@ dialog label{margin-top:16px}
 .table-workspace-actions button:last-child:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
 .table-workspace-summary{display:flex;flex-wrap:wrap;gap:0;margin:0;border-bottom:1px solid var(--border)}
 .table-workspace-summary[hidden]{display:none}
+.table-workspace-note{margin:0;padding:8px 16px;font-size:12px;color:var(--warn);background:var(--warn-soft);border-bottom:1px solid var(--warn-border)}
+.table-workspace-note[hidden]{display:none}
 .table-workspace-summary>div{flex:1 1 160px;min-width:0;padding:12px 16px;border-right:1px solid var(--border)}
 .table-workspace-summary>div:last-child{border-right:0}
 .table-workspace-summary dt{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

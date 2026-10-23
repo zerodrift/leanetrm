@@ -47,8 +47,9 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   const chartApply=button('Apply chart','chart-apply');chartApply.onclick=()=>options.onApply();chartPanel.append(chartApply);
   const actions=node('div');actions.className='table-workspace-actions';for(const [id,label] of options.actions)actions.append(button(label,id));toolbar.append(actions);
   const summary=node('dl',undefined,'summary');summary.className='table-workspace-summary';summary.hidden=true;
+  const summaryNote=node('p',undefined,'summary-note');summaryNote.className='table-workspace-note';summaryNote.hidden=true;
   const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';const definition=node('div',undefined,'definition');definition.className='table-view-definition';definition.hidden=true;const content=node('div',undefined,'rows');content.className='table-wrap';
-  shell.append(toolbar,summary,title,definition,content);host.replaceChildren(shell);
+  shell.append(toolbar,summary,summaryNote,title,definition,content);host.replaceChildren(shell);
   shell.addEventListener('keydown',event=>{if(event.key==='Escape'){const open=menus.find(m=>m.open);if(open){open.open=false;open.querySelector('summary')?.focus();}}});
   function fillChoices(target:HTMLElement,choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){
     const order=[...choices].sort(([a],[b])=>{const ai=selected.indexOf(a),bi=selected.indexOf(b);return (ai<0?choices.length:ai)-(bi<0?choices.length:bi);});
@@ -73,13 +74,14 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   function setPivot(dimensions:string[],measures:string[],splitBy:string[]=[]){fillChoices(fields.querySelector('#'+options.key+'-dimensions')!,options.dimensions,dimensions.filter(d=>!splitBy.includes(d)),()=>{});fillChoices(fields.querySelector('#'+options.key+'-split-dimensions')!,options.dimensions,splitBy,()=>{});fillChoices(fields.querySelector('#'+options.key+'-measures')!,options.measures,measures,()=>{});}
   let grid:ReturnType<typeof renderDataGrid>|undefined;
   return {
-    clear(){grid?.destroy();grid=undefined;content.replaceChildren();summary.replaceChildren();summary.hidden=true;definition.replaceChildren();definition.hidden=true;},
+    clear(){grid?.destroy();grid=undefined;content.replaceChildren();summary.replaceChildren();summary.hidden=true;summaryNote.textContent='';summaryNote.hidden=true;definition.replaceChildren();definition.hidden=true;},
     describe(axes:{label:string;values:string[]}[]){definition.replaceChildren(...axes.map(axis=>{const group=node('div'),label=node('span',axis.label);group.append(label,...(axis.values.length?axis.values:['None']).map(value=>node('strong',value)));return group;}));definition.hidden=!axes.length;},
-    /** Headline figures supplied by the consumer; a signed value is shaded by its sign. */
-    summary(items:{label:string;value:string;signed?:string}[]){
+    /** Headline figures supplied by the consumer; a signed value is shaded by its sign. The note states what they leave out. */
+    summary(items:{label:string;value:string;signed?:string}[],note:string|null){
       summary.replaceChildren(...items.map(item=>{const wrap=node('div'),term=node('dt',item.label),value=node('dd',item.value);
         if(item.signed!==undefined)value.dataset.sign=item.signed.startsWith('-')?'negative':/^0(\.0*)?$/.test(item.signed)?'zero':'positive';wrap.append(term,value);return wrap;}));
       summary.hidden=!items.length;
+      summaryNote.textContent=note??'';summaryNote.hidden=note===null;
     },
     busy(value:boolean){content.inert=value;},
     render(...args:Parameters<typeof renderDataGrid> extends [HTMLElement,...infer Rest]?Rest:never){grid?.destroy();grid=renderDataGrid(content,...args);return grid;},

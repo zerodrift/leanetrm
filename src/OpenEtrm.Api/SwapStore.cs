@@ -505,30 +505,41 @@ public sealed partial class SwapStore(PreviewDatabase database)
   // includes discounting and distinguishes unit work under this context.
   var markets=rows.Any(r=>r.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId)?await database.ReadSwapMarkets(connection,frame,ct,data):[];
   var values=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),FinancialSwapEvaluation>();
-  var identities=new Dictionary<Guid,(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId)>();
+  var unvalued=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),string>();
+  var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();
   foreach(var row in rows)
   {
    var terms=Terms(data,row,frame.Id);var id=row.Id("instrument_id");
-   if(!identities.TryGetValue(id,out var key))
+   if(!identities.TryGetValue(id,out var identity))
    {
     var source=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?data:One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId)).Data;
-    var instrument=Resolve(source,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id")).Instrument;
-    key=(instrument.EconomicIdentity,instrument.PricingBindingIdentity,id);identities.Add(id,key);
+    var resolved=Resolve(source,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id")).Instrument;
+    identity=((resolved.EconomicIdentity,resolved.PricingBindingIdentity,id),resolved);identities.Add(id,identity);
    }
-   if(!values.TryGetValue(key,out var unitValue)){unitValue=await Evaluate(connection,data,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,markets);values.Add(key,unitValue);}
-   if(unitValue.Instrument.InstrumentId!=id)throw Error("instrument_identity","Equivalent retained terms cannot silently replace an exact published instrument identity.");
-   var value=Scale(unitValue,terms);
-   ValidateProjections(value,row);
-   var quote=value.Instrument.Currency;var currency=One(data.References["currencies"].Where(c=>c.Text("code")==quote.Code));
-   var quantity=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==value.Quantity.Specification.Code));
-   var unit=One(data.References["units"].Where(u=>u.Text("code")==quantity.Text("unit_code")));var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
+   var key=identity.Key;
+   // D213: a position-specific failure leaves the unit, and each position holding it, unvalued at the
+   // close; any other failure fails the read.
+   if(!values.ContainsKey(key)&&!unvalued.ContainsKey(key))
+    try{values.Add(key,await Evaluate(connection,data,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,markets));}
+    catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){unvalued.Add(key,error.Code);}
+   FinancialSwapValue? value=null;
+   if(values.TryGetValue(key,out var unitValue))
+   {
+    if(unitValue.Instrument.InstrumentId!=id)throw Error("instrument_identity","Equivalent retained terms cannot silently replace an exact published instrument identity.");
+    value=Scale(unitValue,terms);ValidateProjections(value,row);
+   }
+   var instrument=identity.Instrument;var quantity=new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),instrument.UnitQuantity.Specification);
+   var currency=One(data.References["currencies"].Where(c=>c.Text("code")==instrument.Currency.Code));
+   var specification=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quantity.Specification.Code));
+   var unit=One(data.References["units"].Where(u=>u.Text("code")==specification.Text("unit_code")));var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
    result.Add(Json(new{booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),traderId=row.Id("booker_id"),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentId=row.Id("instrument_id"),instrumentReference=TradingReference.Instrument(row),bindingId=row.Id("binding_id"),
     revision=row.Text("revision"),bookId=row.Id("book_id"),book=book.Text("name"),portfolioId=book.Id("portfolio_id"),portfolio=book.Text("portfolio"),instrumentType="financial_swap",definitionRevisionId=row.Id("definition_revision_id"),
     contractId=row.Id("instrument_id"),contractIdentityKind="swap_instrument",curve=row.Text("curve_code"),deliveryFrom=row.Text("floating_from"),deliveryTo=row.Text("floating_to"),
-    quoteMultiplier=value.Sides[1].Payments[0].Cashflow.Prices[0].ExactPrice.Unit.Multiplier.ToString(),lots=(string?)null,quantity=value.Quantity.Amount.ToString(),unit=unit.Text("symbol"),quantitySpecification=value.Quantity.Specification,currencyReference=quote,
-    executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=row.OptionalText("fixed_price"),mark=value.Sides[1].Payments[0].Cashflow.Prices.Length==1?ExactPrice(value.Sides[1].Payments[0].Cashflow.Prices[0].ExactPrice):null,executionPnl=(string?)null,
-    presentValue=Exact(value.ExactPresentValue),currency=currency.Text("display_code"),settlement="Projection"}));
+    quoteMultiplier=instrument.Floating.Quote.Multiplier.ToString(),lots=(string?)null,quantity=quantity.Amount.ToString(),unit=unit.Text("symbol"),quantitySpecification=quantity.Specification,currencyReference=instrument.Currency,
+    executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=row.OptionalText("fixed_price"),mark=value?.Sides[1].Payments[0].Cashflow.Prices.Length==1?ExactPrice(value.Sides[1].Payments[0].Cashflow.Prices[0].ExactPrice):null,executionPnl=(string?)null,
+    presentValue=value is null?null:Exact(value.ExactPresentValue),currency=currency.Text("display_code"),settlement="Projection",unavailableReason=unvalued.GetValueOrDefault(key)}));
   }
-  return new(result.ToArray(),values.Count,markets.IsEmpty?0:1);
+  // Request-local work: each unique unit valuation attempted, whether or not the close could value it.
+  return new(result.ToArray(),values.Count+unvalued.Count,markets.IsEmpty?0:1);
  }
 }

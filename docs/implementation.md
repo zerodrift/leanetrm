@@ -220,6 +220,24 @@ Leaf futures contracts retain exact market terms; composed instruments retain no
 Pricing reports typed gross execution P&L and open quote sensitivity; it does not
 implement futures PV, settlement cash, variation margin or fees.
 
+A close that cannot value a held position no longer fails the Blotter (D213). The
+trading workspace, Blotter and pivot reads, and the futures holdings and futures
+Blotter reads, return every position in scope. Exactly `source_expired` and
+`missing_observation` are position-specific (`ValuationStatus`): such a position keeps
+its booked facts and states the code as `unavailableReason`, with null mark, execution
+P&L and PV. Futures build all held markets once; only when that build fails with one
+of the two codes is each market built alone, and the markets that build are then
+priced together in one build. Swaps catch the codes per unit valuation and reuse the
+outcome for every position holding that unit. Pivot groups, futures book totals and
+the report add only valued positions to PV, execution P&L and curve-price statistics,
+count every position in trades, lots, quantity and execution- and fixed-price
+statistics, and state `unvaluedPositions`. The Blotter table shows **Not valued** with
+the reason in plain words in a position's value cells, and a note under the summary
+counts the positions its totals exclude. Every other failure still fails the read. Risk
+runs, the trade editors and the priced futures booking catalog still fail when the close
+cannot value one of their contracts. `tools/run_preview.py --check --valuation-status-check`
+qualifies the reads on the seeded example with the custom-curve closes through Dec 31, 2020.
+
 The editor opens from trade rows. Amendments append immutable latest-head booking
 states with expected revision, explicit reason/effective instant, current authority
 and idempotent operation identity. Previous states remain read-only. Book moves

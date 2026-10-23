@@ -306,7 +306,7 @@ internal static class FuturesChecks
         var entries=Price(trades,snapshot).Select(h=>new FuturesBlotterEntry(portfolio,h)).ToImmutableArray();
         Check("pivot sums exact quantities and money per book and dated contract",()=>
         {
-            var groups=FuturesBlotter.Pivot(entries,[BlotterDimension.Book,BlotterDimension.Contract],[BlotterMeasure.TradeCount,BlotterMeasure.Lots,BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
+            var groups=FuturesBlotter.Pivot(entries,[],[BlotterDimension.Book,BlotterDimension.Contract],[BlotterMeasure.TradeCount,BlotterMeasure.Lots,BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
             var a=groups.Single(g=>g.Key.BookId==bookA);var b=groups.Single(g=>g.Key.BookId==bookB);
             Equal(a.TradeCount!.Value,2);Equal(a.Lots!.Value.ToString(),"3");Equal(a.Quantity!.Amount.ToString(),"120");Equal(a.ExecutionPnl!.Amount.ToString(),"22");
             Equal(b.Lots!.Value.ToString(),"-1");Equal(b.Quantity!.Amount.ToString(),"-40");Equal(b.ExecutionPnl!.Amount.ToString(),"-4");
@@ -315,35 +315,50 @@ internal static class FuturesChecks
         Check("portfolio pivot keeps zero net positions and independent execution economics",()=>
         {
             var balanced=Price([Trade(bookA,"1","3"),Trade(bookB,"-1","3.1")],snapshot).Select(h=>new FuturesBlotterEntry(portfolio,h)).ToImmutableArray();
-            var group=FuturesBlotter.Pivot(balanced,[BlotterDimension.Portfolio],[BlotterMeasure.TradeCount,BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation).Single();
+            var group=FuturesBlotter.Pivot(balanced,[],[BlotterDimension.Portfolio],[BlotterMeasure.TradeCount,BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation).Single();
             Equal(group.TradeCount!.Value,2);Equal(group.Quantity!.Amount.ToString(),"0");Equal(group.ExecutionPnl!.Amount.ToString(),"4");Equal(group.Lots is null,true);
         });
         Check("pivot partitions unlike quantity specifications and currencies rather than adding them",()=>
         {
             var h=entries[0].Holding;var other=h with {TradeId=Guid.NewGuid(),Quantity=new Quantity(h.Quantity.Amount,f.R("other_quantity")),ExecutionPnl=new Money(h.ExecutionPnl.Amount,f.R("other_currency"))};
-            var groups=FuturesBlotter.Pivot([entries[0],new(portfolio,other)],[BlotterDimension.Portfolio],[BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
+            var groups=FuturesBlotter.Pivot([entries[0],new(portfolio,other)],[],[BlotterDimension.Portfolio],[BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
             Equal(groups.Length,2);Equal(groups.Select(g=>g.Key.Currency).Distinct().Count(),2);Equal(groups.Select(g=>g.Key.Quantity).Distinct().Count(),2);
         });
         Check("pivot requires explicit unique dimensions measures and a supported version",()=>
         {
-            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[],[BlotterMeasure.Quantity],FuturesBlotter.Implementation));
-            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[BlotterDimension.Book],[],FuturesBlotter.Implementation));
-            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[BlotterDimension.Book,BlotterDimension.Book],[BlotterMeasure.Quantity],FuturesBlotter.Implementation));
-            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[BlotterDimension.Book],[BlotterMeasure.Lots],FuturesBlotter.Implementation));
-            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[BlotterDimension.Book],[BlotterMeasure.Quantity],""));
-            Reject("blotter_view",()=>FuturesBlotter.Pivot([entries[0],entries[0]],[BlotterDimension.Book],[BlotterMeasure.Quantity],FuturesBlotter.Implementation));
+            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[],[],[BlotterMeasure.Quantity],FuturesBlotter.Implementation));
+            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[],[BlotterDimension.Book],[],FuturesBlotter.Implementation));
+            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[],[BlotterDimension.Book,BlotterDimension.Book],[BlotterMeasure.Quantity],FuturesBlotter.Implementation));
+            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[],[BlotterDimension.Book],[BlotterMeasure.Lots],FuturesBlotter.Implementation));
+            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[],[BlotterDimension.Book],[BlotterMeasure.Quantity],""));
+            Reject("blotter_view",()=>FuturesBlotter.Pivot([entries[0],entries[0]],[],[BlotterDimension.Book],[BlotterMeasure.Quantity],FuturesBlotter.Implementation));
         });
         Check("pivot trade count counts a multi-instrument trade once",()=>
         {
             var combined=new FuturesTrade(Guid.NewGuid(),bookA,[trades[0].Instruments[0],trades[1].Instruments[0]]);
             var bindings=Price([combined],snapshot).Select(h=>new FuturesBlotterEntry(portfolio,h)).ToImmutableArray();
-            Equal(FuturesBlotter.Pivot(bindings,[BlotterDimension.Book],[BlotterMeasure.TradeCount],FuturesBlotter.Implementation).Single().TradeCount!.Value,1);
+            Equal(FuturesBlotter.Pivot(bindings,[],[BlotterDimension.Book],[BlotterMeasure.TradeCount],FuturesBlotter.Implementation).Single().TradeCount!.Value,1);
         });
         Check("pivot results are independent of supplied trade enumeration",()=>
         {
-            var a=FuturesBlotter.Pivot(entries,[BlotterDimension.Book],[BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
-            var b=FuturesBlotter.Pivot(entries.Reverse().ToImmutableArray(),[BlotterDimension.Book],[BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
+            var a=FuturesBlotter.Pivot(entries,[],[BlotterDimension.Book],[BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
+            var b=FuturesBlotter.Pivot(entries.Reverse().ToImmutableArray(),[],[BlotterDimension.Book],[BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
             Equal(string.Join(",",a.Select(g=>g.ExecutionPnl!.Amount)),string.Join(",",b.Select(g=>g.ExecutionPnl!.Amount)));
+        });
+        Check("pivot counts the booked size of positions the close cannot value and leaves them out of execution P&L",()=>
+        {
+            var held=Trade(bookA,"4","3.1");
+            UnvaluedFuturesEntry Unvalued(FuturesTrade trade)=>new(portfolio,trade.Id,trade.BookId,trade.Instruments[0]);
+            var groups=FuturesBlotter.Pivot(entries,[Unvalued(held)],[BlotterDimension.Book,BlotterDimension.Contract],
+                [BlotterMeasure.TradeCount,BlotterMeasure.Lots,BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
+            var a=groups.Single(g=>g.Key.BookId==bookA);var b=groups.Single(g=>g.Key.BookId==bookB);
+            Equal(a.TradeCount!.Value,3);Equal(a.Lots!.Value.ToString(),"7");Equal(a.Quantity!.Amount.ToString(),"280");
+            Equal(a.ExecutionPnl!.Amount.ToString(),"22");Equal(a.UnvaluedPositions,1);Equal(b.UnvaluedPositions,0);
+            var none=FuturesBlotter.Pivot([],[Unvalued(held),Unvalued(Trade(bookA,"-1","3"))],[BlotterDimension.Portfolio],
+                [BlotterMeasure.TradeCount,BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation).Single();
+            Equal(none.TradeCount!.Value,2);Equal(none.Quantity!.Amount.ToString(),"120");Equal(none.ExecutionPnl is null,true);Equal(none.UnvaluedPositions,2);
+            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[Unvalued(trades[0])],[BlotterDimension.Book],[BlotterMeasure.Quantity],FuturesBlotter.Implementation));
+            Reject("blotter_view",()=>FuturesBlotter.Pivot(entries,[new(portfolio,held.Id,bookB,held.Instruments[0]),Unvalued(held)],[BlotterDimension.Book],[BlotterMeasure.Quantity],FuturesBlotter.Implementation));
         });
         Check("generic side and instrument PV cannot substitute execution P&L for futures settlement state", () =>
         {

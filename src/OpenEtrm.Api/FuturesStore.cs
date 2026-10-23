@@ -123,19 +123,27 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
             else if(dimensions.Length!=0 || measures.Length!=0 || view.PivotConvention is not null)throw Error("blotter_view","Trade rows do not select pivot rules.");
         }
         var resolved=await ReadTrades(connection,data,books,view?.BookIds??[],view?.PortfolioIds??[],ct);
-        var rows=resolved.Rows;var sides=resolved.MarketBindings;var trades=resolved.Trades;
+        var rows=resolved.Rows;var trades=resolved.Trades;
         var snapshot=data.Snapshot(frame);
-        var requests=trades.SelectMany(t=>t.Instruments.Select(p=>p.MarketBinding.Market)).Distinct().ToImmutableArray();
-        var build=requests.Length==0?null:data.Model.Build(snapshot,requests);
-        var holdings=build is null?ImmutableArray<FuturesHolding>.Empty:FuturesHoldings.Price(trades,snapshot,build,manifest.FuturesConvention);
+        var (build,unvalued)=BuildHeld(data.Model,snapshot,trades.SelectMany(t=>t.Instruments.Select(p=>p.MarketBinding.Market)).Distinct().ToImmutableArray());
+        bool Valued(FuturesPosition position)=>!unvalued.ContainsKey(position.MarketBinding.Market);
+        var priced=(build is null?ImmutableArray<FuturesHolding>.Empty:FuturesHoldings.Price([..trades.Where(t=>t.Instruments.Any(Valued))
+            .Select(t=>t.Instruments.All(Valued)?t:new FuturesTrade(t.Id,t.BookId,[..t.Instruments.Where(Valued)],t.Booking))],snapshot,build,manifest.FuturesConvention))
+            .ToDictionary(h=>(h.TradeId,h.BindingId));
+        // Every held binding in trade order, with its valuation or the reason the close cannot value it (D213).
+        var positions=trades.SelectMany(t=>t.Instruments.Select(p=>(Trade:t,Position:p,Holding:priced.GetValueOrDefault((t.Id,p.Id)),
+            Reason:unvalued.GetValueOrDefault(p.MarketBinding.Market)))).ToImmutableArray();
         string Name(Guid id)=>books.Single(b=>b.Id("id")==id).Text("name");
+        Guid Portfolio(Guid book)=>books.Single(b=>b.Id("id")==book).Id("portfolio_id");
         string Currency(ReferenceKey key)=>One(data.References["currencies"].Where(c=>c.Text("code")==key.Code)).Text("display_code");
         string Unit(ReferenceKey key)
         {
             var quantity=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==key.Code));
             return One(data.References["units"].Where(u=>u.Text("code")==quantity.Text("unit_code"))).Text("symbol");
         }
-        var groups=view?.Mode=="pivot"?FuturesBlotter.Pivot(holdings.Select(h=>new FuturesBlotterEntry(books.Single(b=>b.Id("id")==h.BookId).Id("portfolio_id"),h)).ToImmutableArray(),dimensions,measures,view.PivotConvention!):ImmutableArray<FuturesBlotterGroup>.Empty;
+        var groups=view?.Mode=="pivot"?FuturesBlotter.Pivot([..positions.Where(p=>p.Holding is not null).Select(p=>new FuturesBlotterEntry(Portfolio(p.Trade.BookId),p.Holding!))],
+            [..positions.Where(p=>p.Reason is not null).Select(p=>new UnvaluedFuturesEntry(Portfolio(p.Trade.BookId),p.Trade.Id,p.Trade.BookId,p.Position))],
+            dimensions,measures,view.PivotConvention!):ImmutableArray<FuturesBlotterGroup>.Empty;
         return new {view,pivotNumericalPolicy=CurveModel.NumericalPolicy,groups=groups.Select(g=>new {
                 portfolioId=g.Key.PortfolioId,portfolio=g.Key.PortfolioId is {} portfolio?books.First(b=>b.Id("portfolio_id")==portfolio).Text("portfolio"):null,
                 bookId=g.Key.BookId,book=g.Key.BookId is {} book?Name(book):null,
@@ -143,15 +151,40 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
                 deliveryFrom=g.Key.Contract is {} contract?Date(data.Contracts.Single(c=>c.Key==contract).DeliveryFrom):null,
                 deliveryTo=g.Key.Contract is {} endContract?Date(data.Contracts.Single(c=>c.Key==endContract).DeliveryTo):null,
                 tradeCount=g.TradeCount,lots=g.Lots?.ToString(),quantity=g.Quantity?.Amount.ToString(),executionPnl=g.ExecutionPnl?.Amount.ToString(),
-                quantitySpecification=g.Key.Quantity,unit=Unit(g.Key.Quantity),currencyReference=g.Key.Currency,currency=Currency(g.Key.Currency)}).ToArray(),
+                quantitySpecification=g.Key.Quantity,unit=Unit(g.Key.Quantity),currencyReference=g.Key.Currency,currency=Currency(g.Key.Currency),unvaluedPositions=g.UnvaluedPositions}).ToArray(),
             convention=manifest.FuturesConvention,evaluatedContracts=build?.Evaluations.Length??0,
-            holdings=holdings.Select(h=>new {booking=TradeParties.State(manifest.CatalogId,rows.Single(r=>r.Id("trade_id")==h.TradeId)),bookingFacts=TradeAnnotations.Facts(rows.Single(r=>r.Id("trade_id")==h.TradeId)),traderId=rows.Single(r=>r.Id("trade_id")==h.TradeId).Id("booker_id"),trader=rows.Single(r=>r.Id("trade_id")==h.TradeId).Text("booker_name"),traderCode=rows.Single(r=>r.Id("trade_id")==h.TradeId).Text("booker_login"),memo=rows.Single(r=>r.Id("trade_id")==h.TradeId).OptionalText("memo"),tradeId=h.TradeId,tradeReference=TradingReference.Trade(rows.Single(r=>r.Id("trade_id")==h.TradeId)),instrumentReference=TradingReference.Instrument(rows.Single(r=>r.Id("trade_id")==h.TradeId)),revision=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Number("revision").ToString(),revisionEffectiveAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("revision_effective_at"),bookId=h.BookId,book=Name(h.BookId),portfolioId=books.Single(b=>b.Id("id")==h.BookId).Id("portfolio_id"),portfolio=books.Single(b=>b.Id("id")==h.BookId).Text("portfolio"),bindingId=h.BindingId,instrumentId=h.InstrumentId,pricingBindingId=h.PricingBindingId,canonicalInstrumentId=sides[h.PricingBindingId].Instrument.Id,priceTick=sides[h.PricingBindingId].Quote.TradingTick.ToString(),markTick=sides[h.PricingBindingId].Quote.ClearingIncrement.ToString(),quoteMultiplier=sides[h.PricingBindingId].Quote.Multiplier.ToString(),contractId=h.Contract.Id,
-                curve=sides[h.PricingBindingId].Market.Curve.Code,deliveryFrom=Date(sides[h.PricingBindingId].Contract.DeliveryFrom),deliveryTo=Date(sides[h.PricingBindingId].Contract.DeliveryTo),
-                lots=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("lots"),quantity=h.Quantity.Amount.ToString(),unit=Unit(h.Quantity.Specification),
-                executedAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("booked_at"),economicEffectiveAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("effective_at"),
-                executionPrice=h.ExecutionPrice.Value.ToString(),mark=h.Mark.Value.ToString(),executionPnl=h.ExecutionPnl.Amount.ToString(),currency=Currency(h.ExecutionPnl.Currency),settlement="unprocessed"}).ToArray(),
-            totals=holdings.GroupBy(h=>(h.BookId,h.ExecutionPnl.Currency)).Select(g=>new {book=Name(g.Key.BookId),currency=Currency(g.Key.Currency),
-                executionPnl=g.Select(h=>h.ExecutionPnl).Aggregate((a,b)=>a.Add(b)).Amount.ToString()}).ToArray()};
+            holdings=positions.Select(p=>
+            {
+                var row=rows.Single(r=>r.Id("trade_id")==p.Trade.Id&&r.Id("binding_id")==p.Position.Id);var side=p.Position.MarketBinding;
+                return new {booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),traderId=row.Id("booker_id"),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),
+                    tradeId=p.Trade.Id,tradeReference=TradingReference.Trade(row),instrumentReference=TradingReference.Instrument(row),revision=row.Number("revision").ToString(),revisionEffectiveAt=row.Text("revision_effective_at"),
+                    bookId=p.Trade.BookId,book=Name(p.Trade.BookId),portfolioId=Portfolio(p.Trade.BookId),portfolio=books.Single(b=>b.Id("id")==p.Trade.BookId).Text("portfolio"),
+                    bindingId=p.Position.Id,instrumentId=p.Position.RetainedInstrumentId,pricingBindingId=side.Id,canonicalInstrumentId=side.Instrument.Id,
+                    priceTick=side.Quote.TradingTick.ToString(),markTick=side.Quote.ClearingIncrement.ToString(),quoteMultiplier=side.Quote.Multiplier.ToString(),contractId=side.Contract.Key.Id,
+                    curve=side.Market.Curve.Code,deliveryFrom=Date(side.Contract.DeliveryFrom),deliveryTo=Date(side.Contract.DeliveryTo),
+                    lots=row.Text("lots"),quantity=p.Position.Quantity.Amount.ToString(),unit=Unit(p.Position.Quantity.Specification),
+                    executedAt=row.Text("booked_at"),economicEffectiveAt=row.Text("effective_at"),
+                    executionPrice=p.Position.ExecutionPrice.Value.ToString(),mark=p.Holding?.Mark.Value.ToString(),executionPnl=p.Holding?.ExecutionPnl.Amount.ToString(),
+                    currency=Currency(p.Position.Instrument.Currency),settlement="unprocessed",unavailableReason=p.Reason};
+            }).ToArray(),
+            totals=positions.GroupBy(p=>(p.Trade.BookId,p.Position.Instrument.Currency)).Select(g=>new {book=Name(g.Key.BookId),currency=Currency(g.Key.Currency),
+                executionPnl=g.Where(p=>p.Holding is not null).Select(p=>p.Holding!.ExecutionPnl).Aggregate((Money?)null,(sum,value)=>sum?.Add(value)??value)?.Amount.ToString(),
+                unvaluedPositions=g.Where(p=>p.Reason is not null).Select(p=>p.Trade.Id).Distinct().Count()}).ToArray()};
+    }
+    // One build values every held market (D213). Only when it fails for a position-specific reason is
+    // each market built alone: the markets that fail are reported and the rest priced together. When
+    // none fails alone, the failure is not one position's and the final build fails the read.
+    private static (CurveBuild? Build,ImmutableDictionary<CurveRequest,string> Unvalued) BuildHeld(CurveModel model,MarketSnapshot snapshot,ImmutableArray<CurveRequest> markets)
+    {
+        if(markets.IsEmpty)return(null,ImmutableDictionary<CurveRequest,string>.Empty);
+        try{return(model.Build(snapshot,markets),ImmutableDictionary<CurveRequest,string>.Empty);}
+        catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){}
+        var unvalued=ImmutableDictionary.CreateBuilder<CurveRequest,string>();
+        foreach(var market in markets)
+            try{model.Build(snapshot,[market]);}
+            catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){unvalued.Add(market,error.Code);}
+        var valued=markets.RemoveAll(unvalued.ContainsKey);
+        return(valued.IsEmpty?null:model.Build(snapshot,valued),unvalued.ToImmutable());
     }
     internal sealed record ResolvedTrades(ImmutableArray<JsonElement> Rows,Dictionary<Guid,FuturesMarketBinding> MarketBindings,ImmutableArray<FuturesTrade> Trades);
     internal async Task<ResolvedTrades> ReadTrades(NpgsqlConnection connection,PreviewData data,ImmutableArray<JsonElement> books,
