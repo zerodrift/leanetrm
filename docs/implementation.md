@@ -226,8 +226,9 @@ Blotter reads, return every position in scope. Exactly `source_expired` and
 `missing_observation` are position-specific (`ValuationStatus`): such a position keeps
 its booked facts and states the code as `unavailableReason`, with null mark, execution
 P&L and PV. Futures build all held markets once; only when that build fails with one
-of the two codes is each market built alone, and the markets that build are then
-priced together in one build. Swaps catch the codes per unit valuation and reuse the
+of the two codes are the markets that fail alone isolated (`ValuationStatus.BuildValued`,
+shared with the curve shapes and the risk run's exclusion list), and the markets that build
+are then priced together in one build. Swaps catch the codes per unit valuation and reuse the
 outcome for every position holding that unit. Pivot groups, futures book totals and
 the report add only valued positions to PV, execution P&L and curve-price statistics,
 count every position in trades, lots, quantity and execution- and fixed-price
@@ -271,25 +272,36 @@ and an amendment that changes a direction.
 
 The desk's groupings and curve shapes each come from one read (blotter-desk.md, Backend
 changes). `trading/workspace` takes up to four `summaries`, each a pivot view of exactly the
-books and portfolios of the request's own view, and states `summaries` beside `catalog` and
-`blotter`: one `{view, groups}` per summary in request order, grouped from the rows the
-report was built from. Nothing is valued again, so the report's `work` is that of the read
-without them. A fifth summary, a view that is not a pivot, and a view of other books or
-portfolios are refused with `blotter_view`, over an empty book too.
+books and portfolios of the request's own view, each named once as the Blotter requires, and
+states `summaries` beside `catalog` and `blotter`: one `{view, groups}` per summary in
+request order, grouped from the rows the report was built from. Nothing is valued again, so
+the report's `work` is that of the read without them. A fifth summary, a view that is not a
+pivot, and a view of other books or portfolios, or one that repeats a book or portfolio, are
+refused with `blotter_view`, over an empty book too.
 
 `POST /api/market/curve-shapes` (`snapshotId` and 1 to 64 distinct `curves`, otherwise
 `curve_shapes`) reads the contract prices of several curves from one load of the data
-`/evaluate` would load, under the same pin, identity and permission, including a selected
-historical context. Each curve states its price `unit`, named as the Blotter names the price
-units of its pivots, and the delivery period and exact price `/evaluate` gives for each
-contract its view selects, in the same order. One build prices a whole curve. Only if it
-fails with `source_expired` or `missing_observation` is each contract priced alone, and one
-that cannot be priced has no price and states that code (D213). A curve whose view selects
-no contract has no points. Every other failure fails the request: a curve the pinned data
-does not define (a rate curve, or a swap market of another definition revision), a curve the
-frame selects no view for, and any other code. `tools/run_preview.py --check
---desk-fields-check` qualifies both against the reads they replace, and
-`--valuation-status-check` the contracts a close cannot price.
+`/evaluate` would load and one snapshot of its inputs, under the same pin, identity and
+permission, including a selected historical context, which the response states as
+`/evaluate` does. Each curve states `curve`, `unit`, `points` and `unavailableReason`. A
+curve the pinned data can read has its price `unit`, named as the Blotter names the price
+units of its pivots, and a point for each contract its view selects, in the order
+`/evaluate` gives them, with the delivery period and the exact price `/evaluate` gives; its
+`unavailableReason` is null. One build prices a whole curve. Only if it fails with
+`source_expired` or `missing_observation` are the contracts that fail alone isolated, and
+each states that code as its point's `unavailableReason` with no price (D213). A curve whose
+view selects no contract has no points. A curve the pinned data cannot read has null `unit`
+and `points` and states the code its own `/evaluate` read raises, such as `missing_curve`
+for a curve the data does not define (a rate curve, or a swap market of another definition
+revision) and `missing_curve_view` for one the frame selects no view for, without failing
+the curves beside it. Authorization, the pin and its context, the request's form and the
+pinned inputs still fail the whole request. The isolation passes contracts that build in
+blocks that double in size and halves a block that fails, so its builds follow the contracts
+that fail and never exceed three for each contract; on a 405-contract curve with four
+unpriceable contracts it takes about 15 builds, not 406. Each build still validates the
+whole snapshot, which is what bounds the saving when every contract fails.
+`tools/run_preview.py --check --desk-fields-check` qualifies both against the reads they
+replace, and `--valuation-status-check` the contracts and curves a close cannot price.
 
 The editor opens from trade rows. Amendments append immutable latest-head booking
 states with expected revision, explicit reason/effective instant, current authority

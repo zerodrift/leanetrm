@@ -810,12 +810,12 @@ api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async sessio
     }
     return Results.Ok(result);
 }));
-// The same pin, identity and permission as /evaluate, for the contract prices of several curves in one read.
+// The same pin, identity and permission as /evaluate, for the contract prices of several curves in one read; a selected context is stated as there.
 api.MapPost("/market/curve-shapes",(HttpContext c,CurveShapesRequest body)=>Locked(c,async session=>
 {
     var pin=Pin(session,body.SnapshotId);
     var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.CurveShapes(connection,pin,body.Curves,ct),c.RequestAborted);
-    return Results.Ok(new {curves});
+    return pin.Context is {} context?Results.Ok(new {curves,context}):Results.Ok(new {curves});
 }));
 api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async session=>
 {

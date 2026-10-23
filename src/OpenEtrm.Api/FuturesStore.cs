@@ -125,7 +125,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
         var resolved=await ReadTrades(connection,data,books,view?.BookIds??[],view?.PortfolioIds??[],ct);
         var rows=resolved.Rows;var trades=resolved.Trades;
         var snapshot=data.Snapshot(frame);
-        var (build,unvalued)=BuildHeld(data.Model,snapshot,trades.SelectMany(t=>t.Instruments.Select(p=>p.MarketBinding.Market)).Distinct().ToImmutableArray());
+        var (build,unvalued)=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),trades.SelectMany(t=>t.Instruments.Select(p=>p.MarketBinding.Market)).Distinct().ToImmutableArray());
         bool Valued(FuturesPosition position)=>!unvalued.ContainsKey(position.MarketBinding.Market);
         var priced=(build is null?ImmutableArray<FuturesHolding>.Empty:FuturesHoldings.Price([..trades.Where(t=>t.Instruments.Any(Valued))
             .Select(t=>t.Instruments.All(Valued)?t:new FuturesTrade(t.Id,t.BookId,[..t.Instruments.Where(Valued)],t.Booking))],snapshot,build,manifest.FuturesConvention))
@@ -170,21 +170,6 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
             totals=positions.GroupBy(p=>(p.Trade.BookId,p.Position.Instrument.Currency)).Select(g=>new {book=Name(g.Key.BookId),currency=Currency(g.Key.Currency),
                 executionPnl=g.Where(p=>p.Holding is not null).Select(p=>p.Holding!.ExecutionPnl).Aggregate((Money?)null,(sum,value)=>sum?.Add(value)??value)?.Amount.ToString(),
                 unvaluedPositions=g.Where(p=>p.Reason is not null).Select(p=>p.Trade.Id).Distinct().Count()}).ToArray()};
-    }
-    // One build values every held market (D213). Only when it fails for a position-specific reason is
-    // each market built alone: the markets that fail are reported and the rest priced together. When
-    // none fails alone, the failure is not one position's and the final build fails the read.
-    internal static (CurveBuild? Build,ImmutableDictionary<CurveRequest,string> Unvalued) BuildHeld(CurveModel model,MarketSnapshot snapshot,ImmutableArray<CurveRequest> markets)
-    {
-        if(markets.IsEmpty)return(null,ImmutableDictionary<CurveRequest,string>.Empty);
-        try{return(model.Build(snapshot,markets),ImmutableDictionary<CurveRequest,string>.Empty);}
-        catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){}
-        var unvalued=ImmutableDictionary.CreateBuilder<CurveRequest,string>();
-        foreach(var market in markets)
-            try{model.Build(snapshot,[market]);}
-            catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){unvalued.Add(market,error.Code);}
-        var valued=markets.RemoveAll(unvalued.ContainsKey);
-        return(valued.IsEmpty?null:model.Build(snapshot,valued),unvalued.ToImmutable());
     }
     internal sealed record ResolvedTrades(ImmutableArray<JsonElement> Rows,Dictionary<Guid,FuturesMarketBinding> MarketBindings,ImmutableArray<FuturesTrade> Trades);
     internal async Task<ResolvedTrades> ReadTrades(NpgsqlConnection connection,PreviewData data,ImmutableArray<JsonElement> books,

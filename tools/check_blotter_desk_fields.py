@@ -73,6 +73,11 @@ def check_summaries(c, check, context):
     refused('a summary of other books than its read is refused', [{**DESK_SUMMARIES[0], 'bookIds': scope}])
     refused('a summary of other portfolios than its read is refused', [{**DESK_SUMMARIES[0], 'portfolioIds': [str(uuid4())]}])
     refused('a summary does not widen a read scoped to one book', [DESK_SUMMARIES[0]], book_a['view'])
+    portfolio = plain['catalog']['books'][0]['portfolio_id']
+    refused('a summary that repeats a book its read names once is refused, as the Blotter refuses a repeated book',
+            [{**DESK_SUMMARIES[0], 'bookIds': scope*2}], book_a['view'])
+    refused('a summary that repeats a portfolio its read names once is refused, as the Blotter refuses a repeated portfolio',
+            [{**DESK_SUMMARIES[0], 'portfolioIds': [portfolio]*2}], {**TRADES, 'portfolioIds': [portfolio]})
 
 
 def check_historical_summaries(c, check):
@@ -91,7 +96,8 @@ def check_historical_summaries(c, check):
 
 
 def check_curve_shapes(c, check, frame, context, held):
-    """One read prices every requested curve exactly as /evaluate does for it, at the same pin and under the same permission."""
+    """One read prices every requested curve exactly as /evaluate does for it, at the same pin and under the same permission,
+    and states each curve the pinned data cannot read with the code /evaluate raises for it."""
     def shapes(body, **options):
         return c.call('market/curve-shapes', {'snapshotId': frame['id'], **body}, **options)
 
@@ -100,8 +106,9 @@ def check_curve_shapes(c, check, frame, context, held):
                  'unavailableReason': None} for p in c.call('evaluate', {'snapshotId': snapshot, 'curve': curve})['points']]
 
     read = shapes({'curves': held})
-    check('one read returns each curve asked, in request order, as its code, unit and points',
-          set(read) == {'curves'} and [s['curve'] for s in read['curves']] == held and all(set(s) == {'curve', 'unit', 'points'} for s in read['curves']))
+    check('one read returns each curve asked, in request order, as its code, unit, points and no unavailable reason; working data names no context',
+          set(read) == {'curves'} and [s['curve'] for s in read['curves']] == held
+          and all(set(s) == {'curve', 'unit', 'points', 'unavailableReason'} and s['unavailableReason'] is None for s in read['curves']))
     units = {g['market']: g['priceUnit'] for g in c.call('trading/blotter', {'context': context, 'view': PRICE_UNITS})['groups']}
     for shape in read['curves']:
         expected = evaluated_points(frame['id'], shape['curve'])
@@ -109,17 +116,27 @@ def check_curve_shapes(c, check, frame, context, held):
               expected and shape['points'] == expected)
         check(f"{shape['curve']}: its unit is the price unit the Blotter names for the market", shape['unit'] == units[shape['curve']])
 
+    # A curve the pinned data cannot read is stated unavailable, with the code its own /evaluate read raises, and the
+    # curves beside it are still shaped. A rate curve has no contract prices to shape, so /evaluate's rates are not its shape.
+    unreadable = ['unlisted', 'daily_gas', 'interest_rates']
+    mixed = shapes({'curves': ['future', *unreadable, 'base_forward']})['curves']
+    by_curve = {s['curve']: s for s in read['curves']}
+    check('curves the pinned data cannot read are stated unavailable with no unit or points, and do not fail the curves beside them',
+          [s['curve'] for s in mixed] == ['future', *unreadable, 'base_forward'] and mixed[0] == by_curve['future'] and mixed[4] == by_curve['base_forward']
+          and mixed[1:4] == [{'curve': k, 'unit': None, 'points': None, 'unavailableReason': 'missing_curve'} for k in unreadable])
+    check('an unavailable curve states the code its own /evaluate read raises',
+          [c.call('evaluate', {'snapshotId': frame['id'], 'curve': k}, expected=422)['code'] for k in ('unlisted', 'daily_gas')] == ['missing_curve']*2)
+    many = shapes({'curves': [f'curve_{i}' for i in range(64)]})['curves']
+    check('64 curves are within the limit; ones the pinned data does not define are each stated unavailable',
+          len(many) == 64 and all(s['unit'] is None and s['points'] is None and s['unavailableReason'] == 'missing_curve' for s in many))
+
     def refused(name, body, code):
         check(name, shapes(body, expected=422)['code'] == code)
     refused('a request for 65 curves is refused', {'curves': [f'curve_{i}' for i in range(65)]}, 'curve_shapes')
-    refused('64 curves are within the limit, and fail here only because the pinned data does not define them', {'curves': [f'curve_{i}' for i in range(64)]}, 'missing_curve')
     refused('a request for no curves is refused', {'curves': []}, 'curve_shapes')
     refused('a request that omits its curves is refused', {}, 'curve_shapes')
     refused('a repeated curve is refused', {'curves': ['future', 'future']}, 'curve_shapes')
     refused('a blank curve code is refused', {'curves': ['future', ' ']}, 'curve_shapes')
-    refused('a curve the pinned data does not define fails the whole request, as /evaluate fails for it', {'curves': ['future', 'unlisted']}, 'missing_curve')
-    refused('a swap market of another definition revision is not in the pinned data, as for /evaluate', {'curves': ['daily_gas']}, 'missing_curve')
-    refused('a rate curve has no contract prices to shape', {'curves': ['interest_rates']}, 'missing_curve')
     unknown = str(uuid4())
     check('an unknown snapshot is refused as /evaluate refuses it',
           c.call('market/curve-shapes', {'snapshotId': unknown, 'curves': ['future']}, expected=422)['code']
@@ -141,6 +158,9 @@ def check_curve_shapes(c, check, frame, context, held):
         check('under a selected historical context, the curves are priced at that context\'s frame exactly as /evaluate prices them',
               past['id'] != frame['id'] and [s['curve'] for s in retained['curves']] == held
               and all(s['points'] and s['points'] == evaluated_points(past['id'], s['curve']) for s in retained['curves']))
+        check('and the selected context is stated exactly as /evaluate states it',
+              set(retained) == {'curves', 'context'} and retained['context']['contextId']
+              and retained['context'] == c.call('evaluate', {'snapshotId': past['id'], 'curve': held[0]})['context'])
         check('under a selected historical context, a frame of the working data is refused by both reads',
               shapes({'curves': held}, expected=422)['code'] == c.call('evaluate', {'snapshotId': frame['id'], 'curve': 'future'}, expected=422)['code'] == 'snapshot_missing')
     finally:

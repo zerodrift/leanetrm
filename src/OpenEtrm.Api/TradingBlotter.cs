@@ -40,9 +40,13 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
    if(summary.Mode!="pivot"||!SameScope(summary,view))throw Invalid();
   }
  }
- private static bool SameScope(FuturesBlotterView first,FuturesBlotterView second)=>
-  !first.BookIds.IsDefault&&!first.PortfolioIds.IsDefault&&!second.BookIds.IsDefault&&!second.PortfolioIds.IsDefault&&
-  first.BookIds.ToHashSet().SetEquals(second.BookIds)&&first.PortfolioIds.ToHashSet().SetEquals(second.PortfolioIds);
+ // Each view names its books and its portfolios once, as the Blotter requires, and they are the same ones.
+ private static bool SameScope(FuturesBlotterView first,FuturesBlotterView second)
+ {
+  static bool SameOnce(ImmutableArray<Guid> a,ImmutableArray<Guid> b)=>
+   !a.IsDefault&&!b.IsDefault&&a.Distinct().Count()==a.Length&&b.Distinct().Count()==b.Length&&a.ToHashSet().SetEquals(b);
+  return SameOnce(first.BookIds,second.BookIds)&&SameOnce(first.PortfolioIds,second.PortfolioIds);
+ }
  // The caller has already bound the exact certified market and trading cut.
  internal async Task<BlotterRead?> ReadEmptyDirectory(NpgsqlConnection connection,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
  {

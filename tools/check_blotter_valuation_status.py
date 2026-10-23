@@ -11,7 +11,7 @@ from collections import defaultdict
 from fractions import Fraction
 import json
 from uuid import UUID, uuid4, uuid5
-from check_blotter_desk_fields import SEEDED_DIRECTION
+from check_blotter_desk_fields import DESK_SUMMARIES, SEEDED_DIRECTION
 from check_portfolio_risk import financial, reconcile
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
@@ -114,17 +114,17 @@ def run_checks(url, session=None):
     check('its execution P&L is exact against that price',
           Fraction(held['executionPnl']) == (Fraction(held['mark'])-Fraction('3.05'))*Fraction(held['quoteMultiplier'])*Fraction(held['quantity']))
     check('only the valued futures market counts as an evaluated price', late['evaluatedContracts'] == 1)
-    # The curves behind those positions, read for the desk's sparklines, state what the close cannot price per contract.
-    priced, unpriced = c.call('market/curve-shapes', {'snapshotId': dec31['id'], 'curves': ['ng_monthly', 'ng_fixed_bridge']})['curves']
+    # The curves read for the desk's sparklines state what the close cannot price per contract, and which curves it cannot read.
+    priced, unavailable, unpriced = c.call('market/curve-shapes', {'snapshotId': dec31['id'], 'curves': ['ng_monthly', 'future', 'ng_fixed_bridge']})['curves']
     check('a curve the close prices is shaped exactly as /evaluate prices it',
           priced['curve'] == 'ng_monthly' and priced['points'] and [(p['contractId'], p['price'], p['unavailableReason']) for p in priced['points']]
           == [(p['contractId'], p['value'], None) for p in c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_monthly'})['points']])
     check('a curve whose one contract the close cannot price states that reason for the contract, where /evaluate fails the curve',
           unpriced['curve'] == 'ng_fixed_bridge' and [(p['price'], p['unavailableReason']) for p in unpriced['points']] == [(None, 'missing_observation')]
           and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_fixed_bridge'}, expected=422)['code'] == 'missing_observation')
-    check('a curve the close selects no contracts for fails the whole read, as /evaluate fails it',
-          c.call('market/curve-shapes', {'snapshotId': dec31['id'], 'curves': ['ng_monthly', 'future']}, expected=422)['code']
-          == c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'future'}, expected=422)['code'] == 'missing_curve_view')
+    check('a curve the close selects no contracts for is stated unavailable with the code /evaluate raises, and does not fail the curves beside it',
+          unavailable == {'curve': 'future', 'unit': None, 'points': None, 'unavailableReason': 'missing_curve_view'}
+          and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'future'}, expected=422)['code'] == 'missing_curve_view')
     early = {(r['tradeId'], r['bindingId']): r for r in report(dec18, TRADES)['holdings']}
     check('positions keep their booked facts when the close cannot value them',
           early.keys() == {(r['tradeId'], r['bindingId']) for r in rows} and all(
@@ -133,6 +133,23 @@ def run_checks(url, session=None):
     check('three book totals at this close mix valued positions with positions they leave out, and one values none',
           states.count({True, False}) == 3 and states.count({False}) == 1)
     check_totals('Dec 31, 2020', rows, {**report(dec31, BY_BOOK), 'totals': late['totals'], 'unvaluedPositions': late['unvaluedPositions']})
+
+    # The desk's groupings, taken from the one valuation of its own read at this close, equal the same views read on their own,
+    # while some positions are unvalued: the groups state what they leave out, and one values none.
+    retained = {**context(dec31), 'knowledgeMode': 'retained', 'contextId': late['context']['contextId']}
+    desk = c.call('trading/workspace', {'context': retained, 'view': TRADES, 'bookingCatalog': 'directory', 'summaries': DESK_SUMMARIES})
+    on_their_own = [c.call('trading/blotter', {'context': retained, 'view': view}) for view in DESK_SUMMARIES]
+    check('at this close the desk summaries equal the same views read on their own, over the same rows',
+          desk['blotter']['holdings'] == late['holdings'] and [s['view'] for s in desk['summaries']] == [r['view'] for r in on_their_own]
+          and [s['groups'] for s in desk['summaries']] == [r['groups'] for r in on_their_own])
+
+    def values_any(group):
+        return (group['executionPnl'] if group['instrumentType'] == 'future' else group['presentValue']) is not None
+    by_book = desk['summaries'][1]['groups']
+    check('their book groups say what they leave out: three mix valued and unvalued positions and one values none, never zero',
+          sum(1 for g in by_book if g['unvaluedPositions'] and values_any(g)) == 3
+          and [(g['presentValue'], g['executionPnl']) for g in by_book if g['unvaluedPositions'] and not values_any(g)] == [(None, None)]
+          and sum(g['unvaluedPositions'] for g in by_book) == 16)
 
     contract_view = {**TRADES, 'mode': 'pivot', 'groupBy': ['book', 'contract'], 'measures': ['tradeCount', 'lots', 'quantity', 'executionPnl'],
                      'pivotConvention': 'futures_blotter_totals_v1'}

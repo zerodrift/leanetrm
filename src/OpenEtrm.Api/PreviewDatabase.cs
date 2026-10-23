@@ -730,17 +730,23 @@ public sealed class PreviewData
         return new(frame.Id,revision,frame.At,frame.At,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,selections);
     }
     public CurveBuild Build(InputFrame frame,string code)=>Build(frame,[code]);
+    // The requests for the contracts the frame selects for a curve, none when its view explicitly selects none.
+    public ImmutableArray<CurveRequest> Requests(InputFrame frame,string code)
+    {
+        if (string.IsNullOrEmpty(code) || !DefinitionRows("curves","code",code).Any()) throw new MarketDataException("missing_curve","Select an exact curve definition.");
+        if(!frame.CurveContracts.TryGetValue(code,out var members) || members.IsDefault)
+            throw new MarketDataException("missing_curve_view","An explicit contract selection is required for this market date.");
+        return [..members.Select(id=>new CurveRequest(new(revision,code),K(id)))];
+    }
     // One build of each curve's selected contracts in the frame.
     public CurveBuild Build(InputFrame frame,IReadOnlyList<string> codes)
     {
         var requests=ImmutableArray.CreateBuilder<CurveRequest>();
         foreach(var code in codes)
         {
-            if (string.IsNullOrEmpty(code) || !DefinitionRows("curves","code",code).Any()) throw new MarketDataException("missing_curve","Select an exact curve definition.");
-            if(!frame.CurveContracts.TryGetValue(code,out var members) || members.IsDefault)
-                throw new MarketDataException("missing_curve_view","An explicit contract selection is required for this market date.");
-            if(members.IsEmpty)throw new MarketDataException("empty_curve_view","This market date has no remaining contracts in the selected view.");
-            requests.AddRange(members.Select(id=>new CurveRequest(new(revision,code),K(id))));
+            var selected=Requests(frame,code);
+            if(selected.IsEmpty)throw new MarketDataException("empty_curve_view","This market date has no remaining contracts in the selected view.");
+            requests.AddRange(selected);
         }
         return Model.Build(Snapshot(frame),requests.ToImmutable());
     }

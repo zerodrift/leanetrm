@@ -65,6 +65,8 @@ def run_checks(c,check,query,manifest):
                     {**view,'mode':'pivot','groupBy':['contract'],'measures':['lots'],'pivotConvention':'unknown'}]:
         error=c.call('trading/workspace',{**request,'view':invalid},expected=422)
         check('empty directory rejects invalid view or scope',error['code']=='blotter_view')
+    error=c.call('trading/workspace',{**request,'view':{**view,'bookIds':[book]},'summaries':[{**grouped,'bookIds':[book,book]}]},expected=422)
+    check('empty directory rejects a summary that repeats a book its view names once',error['code']=='blotter_view')
     for profile in ['viewer','admin']:
         c.call('profile',{'profile':profile});c.call('trading/workspace',request,expected=403)
         check('an empty result cannot confer Read Trades authority: '+profile)

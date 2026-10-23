@@ -19,7 +19,7 @@ def page_view(c, name, context=None):
     evaluations = {curve: c.call('evaluate', {'snapshotId': frame['id'], 'curve': curve})
                    for curve in ['local_power', 'interest_rates']}
     contract = evaluations['local_power']['points'][0]['contractId']
-    shapes = c.call('market/curve-shapes', {'snapshotId': frame['id'], 'curves': ['future', 'local_power']})
+    shapes = c.call('market/curve-shapes', {'snapshotId': frame['id'], 'curves': ['future', 'interest_rates', 'local_power']})
 
     def current_only(path, body=None):
         return c.call(path, body) if context is None else c.call(path, body, expected=422)['code']

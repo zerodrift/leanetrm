@@ -130,7 +130,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     {
         var futuresStore=new FuturesStore(database.Manifest);
         var futures=await futuresStore.ReadTrades(connection,data,await futuresStore.Books(connection,ct),bookIds,[],ct);
-        var markets=FuturesStore.BuildHeld(data.Model,snapshot,[..futures.Trades.SelectMany(t=>t.Instruments.Select(p=>p.MarketBinding.Market)).Distinct()]).Unvalued;
+        var markets=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),[..futures.Trades.SelectMany(t=>t.Instruments.Select(p=>p.MarketBinding.Market)).Distinct()]).Unvalued;
         var rows=futures.Rows.ToDictionary(r=>(r.Id("trade_id"),r.Id("binding_id")));
         var swaps=await new SwapStore(database).Holdings(connection,data,frame,bookIds,[],ct);
         return [..futures.Trades.SelectMany(t=>t.Instruments.Where(p=>markets.ContainsKey(p.MarketBinding.Market)).Select(p=>
