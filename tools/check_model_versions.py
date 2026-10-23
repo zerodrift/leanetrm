@@ -100,7 +100,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
 
     capable = admin.call(f'{MODELS}/add', {'operationId': str(uuid4()), 'vendor': 'anthropic', 'identifier': 'model-synthetic-capable',
                                             'displayName': 'Synthetic capable model'})
-    unadapted = admin.call(f'{MODELS}/add', {'operationId': str(uuid4()), 'vendor': 'openai', 'identifier': 'model-synthetic-unadapted',
+    unadapted = admin.call(f'{MODELS}/add', {'operationId': str(uuid4()), 'vendor': 'meta', 'identifier': 'model-synthetic-unadapted',
                                               'displayName': 'Synthetic unadapted model'})
     check('an added model starts disabled and unqualified, without a capability version',
           not capable['enabled'] and not capable['qualified'] and capable['capability'] is None and capable['version'] == 1)
@@ -114,8 +114,10 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
     check('the database itself refuses every model capability command to a viewer, and to an agent even under a current delegation')
     check('a model without a capability version cannot be enabled, whatever its provider',
           refusal('enable', command(capable['id'], 1), 409, 'model_unqualified') and refusal('enable', command(unadapted['id'], 1), 409, 'model_unqualified'))
+    query("DELETE FROM assistant.adapter_mappings WHERE vendor='meta';")
     check("a model whose vendor's adapter applies no confirmed mapping gets no capability version",
           refusal('edit', capabilities(unadapted['id'], 1), 409, 'model_mapping_unconfirmed'))
+    query("INSERT INTO assistant.adapter_mappings VALUES('meta','meta_responses_v1');")
 
     rows = state('models', 'model_versions', 'administration_audit')
     unchanged = query(rows)

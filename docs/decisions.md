@@ -401,3 +401,63 @@ versioned reference relationships, complete identity comparisons and shared
 per-Side admission. Existing economic identity versions and the two earlier command
 signatures retain their meaning. General pricing windows, zero-weight means,
 recurring booking and paired observations require separate qualified versions.
+
+## D209 — Dependent selectors use applicable data and explicit date availability
+
+Futures entry narrows exact listed contracts by commodity, exchange, product and
+delivery date. Swap entry narrows indices by commodity/search and links quantity
+choices to the selected quote specification. A unique applicable reference may
+populate its control; ambiguous financial choices remain explicit. Parent changes
+clear incompatible selections and prior results. Existing execution eligibility,
+custom projections and all six observation modes retain their backend contracts.
+
+Delivery-price calendars consume certified operating-day availability at one
+resolved knowledge cutoff (migration 0103), with current source/reference authority
+rechecked after certification. End dates stop at coverage gaps and the existing
+read-window bound. Configured sources without published prices contribute no
+choices. Swap delivery calendars use the existing managed observation/fixing rules
+within the supported single-month booking scope. Unavailable days are disabled;
+retained contractual dates remain visible separately from selectable alternatives.
+
+Instant labels, including retained risk-job coordinates, use the profile time
+zone. Contractual delivery and operating dates retain their declared market/date
+semantics. The existing managed market-close calendar remains authoritative for
+As of selection; lightweight navigation and paginated reference data are not
+filtered by incompletely loaded client observations. Quantity conversion and power
+TOU controls cascade only through their supplied applicable catalogs.
+
+## D210 — Explicit swap entry templates and side-scoped choices
+
+Entry follows Trade, Instrument, then Sides. Choosing a fixed/floating or
+floating/floating instrument card applies the managed
+`monthly_18_calendar_days_v1` starting template visibly: pay first / receive
+second, zero floating spreads, monthly payments 18 calendar days after the last
+delivery day, and no adjustment. This initializes only empty controls; switching
+structure preserves user edits and never applies defaults to a retained trade.
+The starting template does not select commodity, index, dates, quantity or
+discounting. After a commodity choice, D209 may populate a unique applicable
+index; ambiguous choices remain explicit.
+Booking receives concrete side terms through the existing operations; missing
+terms never acquire a backend fallback from the entry template.
+
+Each floating side selects a commodity before its index, projection and compatible
+unit choices. The fixed side has no commodity selector. Changing the reference
+floating commodity clears the fixed price and incompatible quantity selection;
+changing either commodity clears a nonzero spread and observation configuration.
+The current swap model still requires compatible units and a shared commodity;
+independent filters do not implement cross-commodity valuation.
+
+New Trade also offers PPA and routes to the existing authorized PPA workflow,
+where the user explicitly selects market inputs before entering a booking.
+
+## D211 — Additional model-provider mappings
+
+The page assistant adds OpenAI, xAI and Meta Responses mappings and Google's
+streamGenerateContent mapping through the existing provider-neutral boundary.
+[Provider adapters](provider-adapters.md) specifies fixed destinations, explicit
+parameters, immutable per-vendor usage normalization and source confirmations.
+Migration 0104 adds no prices, credentials, account attestation, model capability
+versions or enablement. Meta's documented Responses usage now permits its own
+confirmed mapping, replacing the earlier unconfirmed status under D150. Synthetic
+conformance does not close real-provider qualification O09 or authorize a hosted
+schema/application deployment.

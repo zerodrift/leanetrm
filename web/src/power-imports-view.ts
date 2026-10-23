@@ -1,3 +1,4 @@
+import {createAvailableDatePicker} from './available-date-picker.js';
 import {renderRegularTable} from './regular-table.js';
 import {publicText} from './market-view.js';
 import {deliveryPriceChoices,type DeliveryPriceSource} from './delivery-price-filters.js';
@@ -9,25 +10,35 @@ export function setupPowerImports(options:{api:<T>(path:string,body?:unknown)=>P
  const select=(name:typeof filterNames[number])=>get<HTMLSelectElement>('delivery-price-'+name);
  let catalog:Catalog|undefined,generation=0;
  const clear=()=>{generation++;get('delivery-price-results').replaceChildren();};
+ const from=get<HTMLInputElement>('delivery-price-from'),through=get<HTMLInputElement>('delivery-price-through');
+ const firstDate=createAvailableDatePicker(get('delivery-price-from-calendar'),{id:'delivery-price-from-picker',label:'Delivery date from',busy:options.busy,onChange:date=>{from.value=date;clear();syncDates();}});
+ const lastDate=createAvailableDatePicker(get('delivery-price-through-calendar'),{id:'delivery-price-through-picker',label:'Delivery date to',busy:options.busy,onChange:date=>{through.value=date;clear();}});
+ function syncDates(){
+  const source=catalog?.sources.find(s=>s.id===select('source').value),dates=source?.availableDates??[];
+  firstDate.set(dates,from.value);from.value=firstDate.value();
+  lastDate.set(dates.filter(date=>!!from.value&&date>=from.value&&date<=(source?.availableThrough[from.value]??'')),through.value);through.value=lastDate.value();
+ }
  function filters(){
   const choices=deliveryPriceChoices(catalog?.sources??[],{commodityKey:select('commodity').value,provider:select('provider').value,market:select('market').value,locationKey:select('location').value});
   for(const name of filterNames){const control=select(name),value=control.value,rows=choices[name==='commodity'?'commodities':name==='provider'?'providers':name==='market'?'markets':name==='location'?'locations':'sources'];control.replaceChildren(new Option(`Choose ${name==='provider'?'operator':name}…`,''),...rows.map(c=>new Option(publicText(c.name),c.value)));control.value=rows.some(r=>r.value===value)?value:'';control.disabled=rows.length===0;}
+  syncDates();
   const source=catalog?.sources.find(s=>s.id===select('source').value);
   get('delivery-price-clock').textContent=source?`Delivery dates use ${source.marketClock}; both dates are included. Interval timestamps use your profile time zone.`:'Choose a source to see its market clock. Both delivery dates are included.';
  }
- filterNames.forEach((name,index)=>{select(name).onchange=()=>{clear();for(const child of filterNames.slice(index+1))select(child).value='';filters();};});
- for(const name of ['from','through'])get<HTMLInputElement>('delivery-price-'+name).onchange=clear;
+ filterNames.forEach((name,index)=>{select(name).onchange=()=>{clear();from.value='';through.value='';for(const child of filterNames.slice(index+1))select(child).value='';filters();};});
+ for(const name of ['from','through'])get<HTMLInputElement>('delivery-price-'+name).onchange=()=>{clear();syncDates();};
  get<HTMLFormElement>('delivery-price-form').onsubmit=event=>{event.preventDefault();clear();void options.act(async()=>{
   if(!catalog)throw Error('Load available delivery-price sources.');
   const eligible=deliveryPriceChoices(catalog.sources,{commodityKey:select('commodity').value,provider:select('provider').value,market:select('market').value,locationKey:select('location').value}).sources;
   const source=catalog.sources.find(s=>s.id===select('source').value&&eligible.some(c=>c.value===s.id));if(!source)throw Error('Choose a delivery-price source.');
+  if(!source.availableDates.includes(from.value)||!source.availableDates.includes(through.value)||through.value<from.value||through.value>(source.availableThrough[from.value]??''))throw Error('Choose available first and last delivery dates.');
   const owner=catalog,started=generation;
   const result=await options.api<{priceUnit:string;rows:{start:string;end:string;formattedPrice:string;knownAt:string}[]}>('power-imports/period',{sourceId:source.id,fromDate:get<HTMLInputElement>('delivery-price-from').value,throughDate:get<HTMLInputElement>('delivery-price-through').value,knownAt:catalog.knownAt});
   if(catalog!==owner||generation!==started)return;
   renderRegularTable(get('delivery-price-results'),'delivery-prices',source.id+catalog.knownAt,['Delivery start','Delivery end',publicText(result.priceUnit),'Known at'],result.rows.map(r=>[options.instant(r.start),options.instant(r.end),r.formattedPrice,options.instant(r.knownAt)]),[2],options.busy);
  });};
  return {
-  sync(){for(const name of filterNames)select(name).disabled=options.busy()||select(name).options.length<2;},
+  sync(){firstDate.sync();lastDate.sync();for(const name of filterNames)select(name).disabled=options.busy()||select(name).options.length<2;},
   reset(){catalog=undefined;clear();for(const name of filterNames)select(name).replaceChildren();filters();get('delivery-price-attempts').replaceChildren();get('delivery-price-jobs').textContent='';get('delivery-price-known').textContent='';},
   async load(){
    clear();const started=generation;catalog=undefined;filters();get('delivery-price-attempts').replaceChildren();get('delivery-price-jobs').textContent='';get('delivery-price-known').textContent='';

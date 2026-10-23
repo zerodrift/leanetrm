@@ -2823,3 +2823,28 @@ PPA HTTP harness also checks draft pricing through current scoped authority, and
 the existing PPA browser harness checks graphics, read-only draft access and
 stale-response rejection in the enlarged fixture. The independent settlement
 specification and prior Phase C gates remain separate preserved checks.
+
+## Additional model-provider mappings (D210)
+
+Local qualification on 2026-10-23 used .NET 10.0.402, unmodified PostgreSQL
+18.1 and Python 3.14.2 on macOS. The following checks passed:
+
+- Managed API checks with `--model-providers`: the existing Messages matrix and
+  OpenAI, Google, xAI and Meta synthetic request/stream/tool-loop/usage checks,
+  including malformed payloads, final-usage retention, model mismatch, cancellation,
+  unknown billing fields and output limits that release no tool work.
+- Managed API checks with `--schedules`, including the shared worker and transport
+  consumers, plus the standalone dependency boundary check.
+- `tools/run_preview.py --assistant-check` on a fresh owned database: provider,
+  capability, test, agent, delegation, tool execution, streaming and usage checks,
+  including the new four-vendor HTTP Test checks.
+- `tools/run_preview.py --provider-adapters-check` on the final source and another
+  fresh owned database: all four new vendors route through key custody and admitted
+  mappings, record exact synthetic costs, replay Test without another request and
+  close mismatched-model calls durably. A loopback fake and proxy trap receive all
+  requests; the owned resources are removed after each run.
+
+Independent adversarial review has no remaining material finding. This records
+local synthetic evidence, not real-provider/account availability, browser rendering
+or hosted schema/application deployment qualification. No real token prices or
+credentials ship in migration 0104. See [the adapter contract](provider-adapters.md).

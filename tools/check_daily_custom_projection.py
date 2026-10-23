@@ -47,6 +47,10 @@ def run_checks(url, manifest, query, run_worker):
         'fixed':{'price':'0','currency':index['currencyCode'],**delivery,'paymentSchedule':payment},
         'floating':{'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment,
                     'resetFrequency':'daily','averagingMethod':'arithmetic','customProjection':choice['reference']}}
+    period_query={'context':context,'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],
+                  'curve':index['curve'],'index':index['index'],'resetFrequency':'daily','averagingMethod':'arithmetic',
+                  'customProjection':choice['reference']}
+    assert any(p['deliveryFrom']=='2021-01-01' for p in client.call('swaps/observation-options',period_query)['deliveryPeriods'])
     omitted={k:v for k,v in choice['reference'].items() if k!='position'}
     assert client.call('swaps/book',{**terms,'floating':{**terms['floating'],'customProjection':omitted}},expected=400)['code']=='request_format'
     booked=client.call('swaps/book',terms)
@@ -70,6 +74,7 @@ def run_checks(url, manifest, query, run_worker):
         invalid=publish(graph)
         client.call('profile',{'profile':'trader'})
         reference={**choice['reference'],'curveId':invalid['id']}
+        assert client.call('swaps/observation-options',{**period_query,'customProjection':reference})['deliveryPeriods']==[], 'Incomplete or ambiguous daily custom mapping became selectable.'
         rejected=client.call('swaps/book',{**terms,'operationId':str(uuid4()),'floating':{**terms['floating'],'customProjection':reference}},expected=422)
         assert rejected['code'] in ('custom_projection','custom_curve_definition'),rejected
     client.call('profile',{'profile':'risk'})

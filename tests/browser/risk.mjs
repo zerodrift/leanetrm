@@ -95,7 +95,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     // The independently imported module has its own metadata map beside the
     // bundled application; initialize it from the actual authorized directory.
     (await import('/market-view.js')).setCurveNames(await(await fetch('/api/curve-names')).json());
-    window.__riskHarness=(await import('/risk-view.js')).setupRisk({api,act:work=>work(),busy:()=>false,canRun:()=>true,profile:()=> 'synthetic-risk-races',scope:()=>window.__riskJobs.at(-1).request,onDenied:()=>{}});
+    window.__riskHarness=(await import('/risk-view.js')).setupRisk({api,act:work=>work(),busy:()=>false,zone:()=> 'America/Chicago',canRun:()=>true,profile:()=> 'synthetic-risk-races',scope:()=>window.__riskJobs.at(-1).request,onDenied:()=>{}});
     await window.__riskHarness.open();
   })()`);
   await set('#risk-factor',factor);await set('#risk-bump','0.1');await click('#risk-queue');await wait('window.__riskRaceResponses.length===1');

@@ -33,6 +33,20 @@ def run_checks(query,manifest,dotnet,root,environment):
     query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{ordinary}');SELECT security.capture_date_context('{c}','2026-11-02',NULL);COMMIT;")
     query(f"SELECT power_data.certify('{c}');")
     first=query('SELECT known_at::text FROM power_data.receipts ORDER BY sequence LIMIT 1;')
+    def available(cutoff):
+        token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','editor','human_interactive','{t}','{w}',NULL,'preview_runtime',60);")
+        value=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT power_data.available_dates('{cutoff}')::text;COMMIT;")
+        return json.loads(value)
+    # Availability comes from certified complete price days, never attempt ranges.
+    empty_source=str(uuid4())
+    query(f"INSERT INTO power_data.sources SELECT '{empty_source}',catalog_id,'Synthetic source without prices',provider,dataset,market,'NO_DATA',minutes,reference_catalog_id,reference_revision_id,location_code,clock_code,currency_code,quantity_code FROM power_data.sources WHERE id='{source}';")
+    dates=available(first)
+    assert len(dates)==1 and dates[0]['id']==source and dates[0]['availableDates']==['2026-11-02'],dates
+    before=query(f"SELECT ('{first}'::timestamptz-interval '1 microsecond')::text;")
+    assert available(before)==[]
+    token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','editor','human_interactive','{t}','{w}',NULL,'preview_runtime',60);")
+    hidden=query(f"BEGIN;DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{r}' AND tenant_id='{t}' AND workspace_id='{w}';SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');SELECT power_data.available_dates('{first}')::text;ROLLBACK;")
+    assert json.loads(hidden)==[]
     publish('0')
     query(f"SELECT power_data.certify('{c}');")
     second=query('SELECT known_at::text FROM power_data.receipts ORDER BY sequence DESC LIMIT 1;')

@@ -16,7 +16,7 @@ public sealed record TestRequest(Guid OperationId,Guid ModelId,string? Reasoning
 // then closes the record without a request context, whatever ended the stream, so a deadline, an abort or a
 // permission lost meanwhile still records the outcome. The answer is what a retry returns, under the
 // administrator's current authority.
-public sealed class ProviderTests(CredentialCustody custody,AgentWorker worker,MessagesAdapter adapter,ILogger logger)
+public sealed class ProviderTests(CredentialCustody custody,AgentWorker worker,ModelAdapters adapter,ILogger logger)
 {
     const string Instruction="This is a connectivity test from OpenETRM's page assistant settings. It carries no workspace data.";
     const string Prompt="Reply with the single word: ready.";
@@ -62,7 +62,7 @@ public sealed class ProviderTests(CredentialCustody custody,AgentWorker worker,M
         var key=ModelCalls.Key(custody,opened);
         var request=new ModelRequest(ModelCalls.Target(opened),Instruction,[new ModelUserText(Prompt)],[],
             new(opened.GetProperty("maxOutputTokens").GetInt32(),opened.GetProperty("reasoning").GetString(),false));
-        MessagesAdapter.Validate(request,key);
+        ModelAdapters.Validate(request,key);
         return new(opened.GetProperty("call").GetGuid(),request,key);
     }
 

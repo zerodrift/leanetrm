@@ -4,7 +4,7 @@ export function mountSwapSideEditor(side:'fixed'|'floating'){
  const host=document.getElementById(`swap-${side}-editor`)!;
  const template=document.getElementById(`swap-${side}-template`) as HTMLTemplateElement;
  host.replaceChildren(template.content.cloneNode(true));
- if(side==='floating')mountObservationControls(host,'swap');
+ if(side==='floating'){mountObservationControls(host,'swap');mountIndexSearch(host,'swap-index');}
 }
 
 function mountObservationControls(host:HTMLElement,prefix:string){
@@ -26,6 +26,12 @@ export function mountFirstFloatingEditor(){
  content.querySelectorAll<HTMLElement>('*').forEach(el=>{for(const attribute of ['id','for','aria-labelledby']){const old=el.getAttribute(attribute);if(old&&names.has(old))el.setAttribute(attribute,names.get(old)!);}});
  content.querySelector('h3')!.textContent='First floating side';
  const direction=content.querySelector('#swap-first-direction')!,select=document.createElement('select');select.id='swap-first-direction';select.required=true;select.append(new Option('Choose…',''),new Option('Pay floating','-1'),new Option('Receive floating','1'));direction.replaceWith(select);
- content.querySelector('label')!.setAttribute('for',select.id);
- const host=document.getElementById('swap-first-editor')!;host.replaceChildren(content);mountObservationControls(host,'swap-first');
+ select.parentElement!.querySelector('label')!.setAttribute('for',select.id);
+ const host=document.getElementById('swap-first-editor')!;host.replaceChildren(content);mountObservationControls(host,'swap-first');mountIndexSearch(host,'swap-first-index');
+}
+
+function mountIndexSearch(host:HTMLElement,id:string){
+ const select=host.querySelector<HTMLSelectElement>(`#${id}`)!,label=document.createElement('label'),search=document.createElement('input');
+ search.id=id+'-search';search.type='search';search.placeholder='Filter indices and curves';search.autocomplete='off';
+ label.htmlFor=search.id;label.textContent='Find index';select.previousElementSibling!.before(label,search);
 }

@@ -1,5 +1,7 @@
+import {chooseFutures} from './futures-selection.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url}){
+  const rawSet=set;set=async(selector,value)=>{if(selector==='#futures-contract'){const c=await evaluate(`window.__tradingCatalogs(window.__futuresResponses).at(-1).data.contracts.find(c=>JSON.stringify([c.curve,c.id])===${JSON.stringify(value)})`);if(!c)throw Error('Missing selected futures contract');await chooseFutures({evaluate,set:rawSet,click},c);}else await rawSet(selector,value);};
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});
@@ -48,7 +50,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#blotter-mode','pivot');await menu('blotter-settings');await set('#blotter-name','Incomplete pivot');await click('#blotter-save');
   await check('invalid unsaved pivot cannot relabel or replace displayed trade data',"!document.querySelector('#error').hidden&&document.querySelector('#blotter-table-title').textContent==='Individual trades'");await menu('blotter-pivot');await set('#blotter-mode','trades');
   await click('#futures-new');await click('#trade-kind-future');
-  const contract=await evaluate("document.querySelector('#futures-contract').options[1].value");
+  const contract=await evaluate("JSON.stringify((c=>[c.curve,c.id])(window.__tradingCatalogs(window.__futuresResponses).at(-1).data.contracts[0]))");
   const book=await evaluate("document.querySelector('#futures-book').options[1].value");
   const before=await evaluate("window.__tradingReports(window.__futuresResponses).at(-1).data.holdings.length");
   await set('#futures-contract',contract);await set('#futures-book',book);await set('#futures-lots','2');
@@ -72,8 +74,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('all same-contract bookings retain one shared contract and pricing binding',"(()=>{const rows=window.__tradingReports(window.__futuresResponses).at(-1).data.holdings;return new Set(rows.map(r=>r.instrumentId)).size===1&&new Set(rows.map(r=>r.pricingBindingId)).size===1;})()");
   await evaluate('window.__duplicateContract=true');await click('#futures-refresh');
   await click('#futures-new');await click('#trade-kind-future');
-  const alternate=await evaluate("document.querySelector('#futures-contract').options[7].value");
-  await check('same-product contract choices show their distinct curve names',"document.querySelector('#futures-contract').options[7].textContent.includes('Second Future')&&document.querySelector('#futures-contract').options[1].textContent!==document.querySelector('#futures-contract').options[7].textContent");
+  const alternate=await evaluate("JSON.stringify((c=>[c.curve,c.id])(window.__tradingCatalogs(window.__futuresResponses).at(-1).data.contracts.find(c=>c.curve==='second_future')))");
+  await set('#futures-contract',alternate);await check('same-product contract choices show their distinct curve names',"[...document.querySelector('#futures-contract').options].some(o=>o.textContent.includes('Second Future'))&&document.querySelector('#futures-contract').options.length===3");
   await set('#futures-contract',alternate);await set('#futures-book',book);await set('#futures-lots','1');await set('#futures-execution','2.9');await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
   await check('shared dated contract selection preserves the exact curve binding',"window.__futuresRequests.at(-1).curve==='second_future'&&!document.querySelector('#error').hidden&&document.querySelector('#futures-pending').hidden");
   await evaluate('window.__duplicateContract=false');await click('#futures-refresh');

@@ -185,6 +185,12 @@ def _weighted_actuals_and_risk(client, query, context, draft, floating, booking,
     assert detail['valuation']['sides'][1]['payments'][0]['observationSchedule'] == inspection
     before_missing = query('SELECT count(*) FROM trading.publications;')
     missing_context = {**context, 'snapshotId': frame('2021-01-15T09:00:00')['id']}
+    period_query = {'definitionRevisionId': draft['definitionRevisionId'], 'commodity': draft['commodity'],
+                    'curve': floating['curve'], 'index': floating['index'], 'resetFrequency': 'daily', 'averagingMethod': 'quantity_weighted'}
+    partial_dates = client.call('swaps/observation-options', {**period_query, 'context': partial_context})
+    assert any(p['deliveryFrom'] == '2021-01-01' for p in partial_dates['deliveryPeriods'])
+    missing_dates = client.call('swaps/observation-options', {**period_query, 'context': missing_context})
+    assert not any(p['deliveryFrom'] == '2021-01-01' for p in missing_dates['deliveryPeriods']), 'A month with a missing due actual fixing remained selectable.'
     missing = client.call('swaps/price', {**projected_terms, 'context': missing_context}, expected=422)
     assert missing['code'] == 'index_fixing_missing'
     rejected = client.call('swaps/book', {**booking, **missing_context, 'operationId': str(uuid4())}, expected=422)

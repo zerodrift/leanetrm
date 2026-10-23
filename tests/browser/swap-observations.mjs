@@ -7,7 +7,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await persona('trader');await click('#example');await click('#nav-futures');
  const change=async(selector,value)=>{await set(selector,value);await wait(idle);};
  const last=path=>`window.observationCalls.filter(row=>row.path==='/api/${path}').at(-1)`;
- async function start(selectIndex=true,type='financial_fixed_floating'){await click('#futures-new');await click('#trade-kind-swap');await wait("document.querySelector('#swap-editor').open&&"+idle);await change('#swap-type',type);
+ async function start(selectIndex=true,type='financial_fixed_floating'){await click('#futures-new');await click('#trade-kind-swap');await wait("document.querySelector('#swap-editor').open&&"+idle);await click(`[data-swap-type="${type}"]`);await wait(idle);
   const index=await evaluate(`${last('swaps/catalog')}.data.indices.find(index=>index.curve==='daily_gas')`);
   await change('#swap-commodity',index.commodity);if(selectIndex)await change('#swap-index',index.index);return index;
  }
@@ -30,7 +30,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('a daily source offers every qualified observation method from the backend',`(()=>{const choices=${last('swaps/observation-options')}.data.samplings.filter(row=>row.resetFrequency==='daily');return choices.length===5&&choices.every(row=>[...document.querySelector('#swap-averaging').options].some(option=>option.value===row.averagingMethod));})()`);
  await click('#swap-close');index=await start(false);
  await change('#swap-reset-frequency','daily');await change('#swap-averaging','quantity_weighted');
- await check('convention-first entry filters indices through the authorized backend matrix',`(()=>{const options=${last('swaps/observation-options')}.data;const expected=[...new Set(options.indices.map(row=>row.index))].sort(),actual=[...document.querySelector('#swap-index').options].map(row=>row.value).filter(Boolean).sort();return document.querySelector('#swap-index').value===''&&document.querySelector('#swap-averaging').value==='quantity_weighted'&&JSON.stringify(expected)===JSON.stringify(actual);})()`);
+ await check('convention-first entry filters indices through the authorized backend matrix',`(()=>{const options=${last('swaps/observation-options')}.data;const expected=[...new Set(options.indices.map(row=>row.index))].sort(),actual=[...document.querySelector('#swap-index').options].map(row=>row.value).filter(Boolean).sort();return document.querySelector('#swap-averaging').value==='quantity_weighted'&&JSON.stringify(expected)===JSON.stringify(actual);})()`);
  await change('#swap-index',index.index);await change('#swap-projection',projection);
  await check('mode-first and curve-first selection resolve the same exact projection',`document.querySelector('#swap-projection').value===${JSON.stringify(projection)}&&document.querySelector('#swap-averaging').value==='quantity_weighted'`);
  await fillTerms(index,'fixed');
@@ -64,6 +64,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('switching away from calendar sampling clears the calendar before requesting new intervals',`(()=>{const request=${last('swaps/observation-options')};return request.status===200&&!request.body.observationCalendar&&document.querySelector('#swap-observation-calendar-field').hidden&&document.querySelectorAll('#swap-observation-quantities input').length===31&&[...document.querySelectorAll('#swap-observation-quantities input')].every(input=>input.value==='');})()`);
  await click('#swap-close');
  index=await start(true,'financial_floating_floating');
+ await check('first floating side requires its own commodity before index selection',"document.querySelector('#swap-first-commodity').value===''&&![...document.querySelector('#swap-first-index').options].some(option=>option.value)");
+ await change('#swap-first-commodity',index.commodity);
+ await check('explicit first-side commodity offers its index without changing the second side',`[...document.querySelector('#swap-first-index').options].some(option=>option.value===${JSON.stringify(index.index)})&&document.querySelector('#swap-index').value===${JSON.stringify(index.index)}`);
  await change('#swap-reset-frequency','daily');await change('#swap-averaging','observation_arithmetic');await change('#swap-projection',projection);
  await change('#swap-first-reset-frequency','daily');await change('#swap-first-averaging','quantity_weighted');await change('#swap-first-index',index.index);await change('#swap-first-projection',projection);
  for(const side of ['first','floating']){

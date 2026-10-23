@@ -60,10 +60,13 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
 
     mappings = json.loads(query("SELECT json_agg(json_build_object('vendor',vendor,'mapping',mapping,'confirmedOn',confirmed_on,'sources',sources)) "
                                 "FROM assistant.confirmed_mappings;"))
-    check('the release confirms exactly one usage mapping, the Messages mapping, with its published sources, and its adapter applies it',
-          [(m['vendor'], m['mapping'], m['confirmedOn']) for m in mappings] == [('anthropic', 'messages_v1', '2026-10-20')]
-          and all(s.startswith('https://platform.claude.com/docs/en/') for s in mappings[0]['sources'])
-          and query("SELECT string_agg(vendor||' '||mapping,',') FROM assistant.adapter_mappings;") == 'anthropic messages_v1')
+    expected_mappings = {('anthropic', 'messages_v1', '2026-10-20'), ('openai', 'openai_responses_v1', '2026-10-23'),
+                         ('google', 'generate_content_v1', '2026-10-23'), ('xai', 'xai_responses_v1', '2026-10-23'), ('meta', 'meta_responses_v1', '2026-10-23')}
+    check('the release confirms each implemented vendor mapping with sources and applies exactly those mappings',
+          {(m['vendor'], m['mapping'], m['confirmedOn']) for m in mappings} == expected_mappings
+          and all(m['sources'] and all(s.startswith('https://') for s in m['sources']) for m in mappings)
+          and set(query("SELECT vendor||' '||mapping FROM assistant.adapter_mappings;").splitlines())
+          == {v+' '+m for v, m, _ in expected_mappings})
     for table in ('confirmed_mappings', 'adapter_mappings', 'provider_terms', 'attestations'):
         contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
     check('the runtime reads mappings, terms and attestations only through administration operations')
@@ -75,13 +78,15 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
                 "(1,'2026-10-21','2026-10-20 10:00:00+00'),(2,'2026-10-21','2026-10-20 09:59:59.999999+00'),"
                 "(3,'2026-10-20','2026-10-20 00:00:00+00'),(4,'-infinity','2026-10-20 10:00:00+00'))v(n,d,at);") == 'true,false,true,false')
 
+    admin.call(f'{PROVIDERS}/key', {'operationId': str(uuid4()), 'vendor': 'meta', 'expectedVersion': providers()['meta']['version'],
+                                  'key': 'sk-synthetic-meta-unadapted-key'})
     before = providers()
-    anthropic, openai = before['anthropic'], before['openai']
+    anthropic, meta = before['anthropic'], before['meta']
     check("a provider starts disabled and unqualified, without terms or attestation, and only a vendor whose adapter applies a confirmed mapping names it, with the efforts it states",
           all(not p['enabled'] and not p['qualified'] and p['terms'] is None and p['attestation'] is None for p in before.values())
           and anthropic['mapping'] == {'mapping': 'messages_v1', 'confirmedOn': '2026-10-20', 'sources': mappings[0]['sources'],
                                        'efforts': ['low', 'medium', 'high', 'xhigh', 'max']}
-          and all(p['mapping'] is None for v, p in before.items() if v != 'anthropic'))
+          and all(p['mapping'] is not None for p in before.values()))
     check('the earlier checks left keys for the Anthropic, OpenAI, Google and xAI providers',
           all(before[v]['credential'] is not None for v in ('anthropic', 'openai', 'google', 'xai')))
     for path, body in (('terms', terms('anthropic', anthropic['version'])), ('attest', command('anthropic', anthropic['version'])),
@@ -185,22 +190,24 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
     check('Enable alone resumes a disabled provider whose attestation is current', resumed['enabled'] and resumed['attestation'] == disabled['attestation'])
     disabled = admin.call(f'{PROVIDERS}/disable', command('anthropic', resumed['version']))
 
-    responses = admin.call(f'{PROVIDERS}/terms', terms('openai', openai['version']))
-    responses = admin.call(f'{PROVIDERS}/attest', command('openai', responses['version']))
+    query("DELETE FROM assistant.adapter_mappings WHERE vendor='meta';")
+    responses = admin.call(f'{PROVIDERS}/terms', terms('meta', meta['version']))
+    responses = admin.call(f'{PROVIDERS}/attest', command('meta', responses['version']))
     check('a provider with a key, terms and an attestation but no confirmed usage mapping stays unqualified',
           not responses['qualified'] and responses['attestation'] is not None
-          and refusal('enable', command('openai', responses['version']), 409, 'model_provider_unqualified'))
+          and refusal('enable', command('meta', responses['version']), 409, 'model_provider_unqualified'))
     check("qualification follows the mapping the vendor's adapter applies, not any mapping confirmed for the vendor",
-          query("BEGIN;INSERT INTO assistant.confirmed_mappings VALUES('openai','synthetic_responses_v1','2026-10-20',ARRAY['https://example.invalid/usage']);"
-                "INSERT INTO assistant.mapping_efforts VALUES('openai','synthetic_responses_v1',ARRAY['low']);"
-                f"SELECT assistant.provider_qualified('{provider_id('openai')}');"
-                "INSERT INTO assistant.adapter_mappings VALUES('openai','synthetic_responses_v1');"
-                f"SELECT assistant.provider_qualified('{provider_id('openai')}');ROLLBACK;").splitlines() == ['f', 't'])
+          query("BEGIN;INSERT INTO assistant.confirmed_mappings VALUES('meta','synthetic_responses_v1','2026-10-20',ARRAY['https://example.invalid/usage']);"
+                "INSERT INTO assistant.mapping_efforts VALUES('meta','synthetic_responses_v1',ARRAY['low']);"
+                f"SELECT assistant.provider_qualified('{provider_id('meta')}');"
+                "INSERT INTO assistant.adapter_mappings VALUES('meta','synthetic_responses_v1');"
+                f"SELECT assistant.provider_qualified('{provider_id('meta')}');ROLLBACK;").splitlines() == ['f', 't'])
 
+    query("INSERT INTO assistant.adapter_mappings VALUES('meta','meta_responses_v1');")
     audit = admin.call(PROVIDERS)['audit']
     check('the audit lists each qualification change once, newest first',
           [(a['action'], a['vendor']) for a in audit[:9]] == [
-              ('attest', 'openai'), ('record_terms', 'openai'), ('disable_provider', 'anthropic'), ('enable_provider', 'anthropic'),
+              ('attest', 'meta'), ('record_terms', 'meta'), ('disable_provider', 'anthropic'), ('enable_provider', 'anthropic'),
               ('disable_provider', 'anthropic'), ('enable_provider', 'anthropic'), ('attest', 'anthropic'), ('record_terms', 'anthropic'),
               ('enable_provider', 'anthropic')])
     stored = json.loads(query("SELECT json_agg(request ORDER BY recorded_at) FROM assistant.administration_audit WHERE action='record_terms';"))
@@ -213,7 +220,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
         + refused("PERFORM assistant.attest(gen_random_uuid(),'anthropic',1);", 'model_admin_conflict')).splitlines()
     isolated, created = json.loads(lines[-2]), json.loads(lines[-1])
     check("another workspace sees none of this workspace's providers, terms, attestations or audit, and the same release mappings",
-          isolated['providers'] == [] and isolated['audit'] == [] and list(isolated['mappings']) == ['anthropic'])
+          isolated['providers'] == [] and isolated['audit'] == [] and set(isolated['mappings']) == {'anthropic', 'openai', 'google', 'xai', 'meta'})
     check("a vendor's first terms create its provider at version 1 without a key, which cannot be attested",
           created['version'] == 1 and created['credential'] is None and created['terms']['version'] == 1 and not created['enabled'])
 
@@ -238,7 +245,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
         query(expect(statement, '23514'))
     for statement in (*(f"INSERT INTO assistant.attestations VALUES('{provider}',{credential_version},{terms_version},'{contexts.administrator}',now());"
                         for credential_version, terms_version in ((99, 1), (1, 99))),
-                      "INSERT INTO assistant.adapter_mappings VALUES('openai','synthetic_unconfirmed');"):
+                      "UPDATE assistant.adapter_mappings SET mapping='synthetic_unconfirmed' WHERE vendor='meta';"):
         query(expect(statement, '23503'))
     check('even for the owner, terms and mappings keep their documented forms, an attestation names an existing key and terms version, '
           'and an adapter applies only a confirmed mapping')

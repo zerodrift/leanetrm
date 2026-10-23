@@ -33,7 +33,7 @@ public sealed record ModelVendor(string Code,string Name,string Protocol,Uri? En
 public sealed partial class ModelProviders(CredentialCustody custody,PreviewManifest manifest,Uri? checkEndpoint)
 {
     public static readonly ImmutableArray<ModelVendor> Vendors=[new("anthropic","Anthropic","Messages API",MessagesAdapter.Endpoint),
-        new("openai","OpenAI","Responses API"),new("google","Google","generateContent"),new("xai","xAI","Responses API"),new("meta","Meta","Responses API")];
+        new("openai","OpenAI","Responses API",ResponsesAdapter.OpenAiEndpoint),new("google","Google","generateContent",GenerateContentAdapter.EndpointTemplate),new("xai","xAI","Responses API",ResponsesAdapter.XaiEndpoint),new("meta","Meta","Responses API",ResponsesAdapter.MetaEndpoint)];
     // Each vendor's code and name, for the pages that name a model's provider.
     public static readonly JsonElement VendorNames=JsonSerializer.SerializeToElement(Vendors.Select(v=>new{code=v.Code,name=v.Name}));
     // A vendor without a provider row has had nothing administered for it.
