@@ -50,6 +50,13 @@ def run_checks(url, manifest, query, run_worker):
     draft = {'context': context, **{key: terms[key] for key in
         ('definitionRevisionId', 'commodity', 'fixedCoefficient', 'discounting', 'fixed', 'floating')},
         'quantity': {'value': terms['quantity'], 'specification': index['quantityChoices'][0]['specification']}}
+    period_query = {'context': context, 'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
+                    'curve': index['curve'], 'index': index['index'], 'resetFrequency': 'monthly', 'averagingMethod': 'none',
+                    'customProjection': reference}
+    periods = client.call('swaps/observation-options', period_query)['deliveryPeriods']
+    assert any(p['deliveryFrom'] == '2021-01-01' for p in periods), 'Qualified custom monthly output disappeared from delivery choices.'
+    unavailable = client.call('swaps/observation-options', {**period_query, 'customProjection': {**reference, 'version': reference['version']+1}})
+    assert unavailable['deliveryPeriods'] == [], 'Unpublished custom projection produced selectable delivery dates.'
     before = query("SELECT count(*)::text||':'||(SELECT count(*) FROM trading.publications)::text FROM trading.trades;")
     priced = client.call('swaps/price', draft)
     assert priced['unbooked'] and Fraction(priced['valuation']['presentValue']) == expected_price * 10

@@ -53,10 +53,36 @@ public static class PowerHistory
         var duration=offset.Duration();
         return "UTC"+(offset<TimeSpan.Zero?"−":"+")+duration.ToString(duration.Seconds==0?@"hh\:mm":@"hh\:mm\:ss",System.Globalization.CultureInfo.InvariantCulture);
     }
+    public static Dictionary<string,string> SelectableThrough(DateOnly[] available)
+    {
+        var dates=available.ToHashSet();var ranges=new Dictionary<string,string>();
+        foreach(var first in dates.Order())
+        {
+            var through=first;
+            for(var offset=1;offset<PowerImportProtocol.MaximumOperatingDays&&offset<=DateOnly.MaxValue.DayNumber-first.DayNumber&&dates.Contains(first.AddDays(offset));offset++)through=first.AddDays(offset);
+            ranges.Add(first.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),through.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture));
+        }
+        return ranges;
+    }
+
     public static async Task<object> Catalog(NpgsqlConnection connection,CancellationToken ct)
     {
         Task<System.Collections.Immutable.ImmutableArray<JsonElement>> Rows(string sql)=>PreviewDatabase.Rows(connection,sql,[],ct);
-        return new {sources=(await Sources(connection,null,ct)).Select(s=>s.Display).ToArray(),jobs=await Rows("SELECT row_to_json(j)::text FROM (SELECT id,name,provider,enabled,schedule_enabled,cron,schedule_zone FROM power_data.jobs)j"),attempts=await Rows("SELECT jsonb_build_object('jobId',j.id,'jobName',j.name,'provider',j.provider,'startedAt',a.started_at,'finishedAt',a.finished_at,'state',a.state,'errorCode',a.error_code,'fromDate',a.from_date,'throughDate',a.through_date)::text FROM power_data.attempts a JOIN power_data.jobs j ON j.id=a.job_id ORDER BY a.started_at DESC,a.id LIMIT 50"),knownAt=DateTimeOffset.UtcNow};
+        await using var clock=ScheduleStore.Command(connection,"SELECT clock_timestamp()");
+        var cutoff=(DateTime)(await clock.ExecuteScalarAsync(ct))!;
+        await using var availability=ScheduleStore.Command(connection,"SELECT power_data.available_dates($1)::text",cutoff);
+        using var available=JsonDocument.Parse((string)(await availability.ExecuteScalarAsync(ct))!);
+        var dates=available.RootElement.EnumerateArray().ToDictionary(row=>row.GetProperty("id").GetGuid(),row=>row.GetProperty("availableDates"));
+        var sources=new List<JsonObject>();
+        foreach(var metadata in await Sources(connection,null,ct))
+        {
+            if(!dates.TryGetValue(metadata.Display.GetProperty("id").GetGuid(),out var days))continue;
+            var source=JsonNode.Parse(metadata.Display.GetRawText())!.AsObject();
+            source["availableDates"]=JsonNode.Parse(days.GetRawText());
+            source["availableThrough"]=JsonSerializer.SerializeToNode(SelectableThrough(days.Deserialize<DateOnly[]>()!));
+            sources.Add(source);
+        }
+        return new {sources,jobs=await Rows("SELECT row_to_json(j)::text FROM (SELECT id,name,provider,enabled,schedule_enabled,cron,schedule_zone FROM power_data.jobs)j"),attempts=await Rows("SELECT jsonb_build_object('jobId',j.id,'jobName',j.name,'provider',j.provider,'startedAt',a.started_at,'finishedAt',a.finished_at,'state',a.state,'errorCode',a.error_code,'fromDate',a.from_date,'throughDate',a.through_date)::text FROM power_data.attempts a JOIN power_data.jobs j ON j.id=a.job_id ORDER BY a.started_at DESC,a.id LIMIT 50"),knownAt=cutoff};
     }
     public static async Task<object> Period(NpgsqlConnection connection,PowerHistoryPeriodRequest request,CancellationToken ct)
     {

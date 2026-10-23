@@ -1,3 +1,4 @@
+import {chooseFutures} from './futures-selection.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
   await command('Page.enable');await command('Runtime.enable');
@@ -29,7 +30,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#nav-power');await check('Power TOUs header identifies Settings',"document.querySelector('#page-section').textContent==='WORKSPACE SETTINGS'");await click('#nav-reference');await check('Reference data header identifies Settings',"document.querySelector('#page-section').textContent==='WORKSPACE SETTINGS'");await click('#nav-futures');
   await check('visible product branding is LeanETRM',"document.title.includes('LeanETRM')&&document.querySelector('.brand').textContent.includes('LeanETRM')");
   await check('working knowledge and actual today are explicit beside selected price date',"document.querySelector('#workspace-mode-label').textContent.includes('Working data')&&document.querySelector('#workspace-today').textContent.includes('Today:')&&document.querySelector('#workspace-today').textContent.includes('earlier market date')&&!document.querySelector('#futures-new').disabled");
-  await click('#futures-new');await click('#trade-kind-future');await evaluate("document.querySelector('#futures-contract').selectedIndex=1;document.querySelector('#futures-contract').dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('#futures-book').selectedIndex=1;");
+  await click('#futures-new');await click('#trade-kind-future');await chooseFutures({evaluate,set,click});await evaluate("document.querySelector('#futures-book').selectedIndex=1;");
   await set('#futures-lots','37');await set('#futures-execution','2.9');await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
   const bookedTrade=await evaluate("window.__editorReplies.filter(r=>r.path==='/api/futures/book').at(-1).data.tradeId");
   const tradeReference=await evaluate(`window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).tradeReference`);

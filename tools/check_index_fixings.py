@@ -129,6 +129,10 @@ def run_checks(url, query, manifest):
         assert risk['factors']==[] and risk['scenarioCount']==1
         for curve,strike,pv_per_actual,base_pv in [('daily_gas','3',1,16),('daily_power','40',10,160)]:
             body=draft(frame,swap_index(c,frame,curve)[0],curve,strike)
+            choices=c.call('swaps/observation-options',{'context':body['context'],'definitionRevisionId':body['definitionRevisionId'],
+                'commodity':body['commodity'],'curve':body['floating']['curve'],'index':body['floating']['index'],
+                'resetFrequency':body['floating']['resetFrequency'],'averagingMethod':body['floating']['averagingMethod']})
+            assert any(period['deliveryFrom']=='2021-01-01' for period in choices['deliveryPeriods']), 'An actual-backed month lost its available dates when native projections expired.'
             priced=c.call('swaps/price',body)
             resets=priced['valuation']['sides'][1]['payments'][0]['resets']
             assert F(priced['valuation']['presentValue'])==base_pv+pv_per_actual*actual_count

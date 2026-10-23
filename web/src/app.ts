@@ -107,12 +107,13 @@ async function api<T>(path:string,body?:unknown):Promise<T>{
  return payload;
 }
 function pageStatus(){return page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval series · working data, known at the chosen time.':page==='interval-curves'?'Interval curves · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Custom curves · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:'Choose a curve and a market date to get started.';}
+const errorMessage=(error:unknown)=>error instanceof Error?error.message:'Something went wrong. Please refresh the page.';
 async function act(work:()=>Promise<void>){
   // Context changes, writes and reads are serialized. Never retry a mutation.
   // Errors and notices describe the previous action; the next one starts clean.
   if(busy)return;busy=true;syncControls();$('error').hidden=true;$('notice').hidden=true;text('status','Loading…');
   try{await work();text('status',pageStatus());}
-  catch(error){text('error',error instanceof Error?error.message:'Something went wrong. Please refresh the page.');$('error').hidden=false;text('status','Please check the message above.');}
+  catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');}
   finally{busy=false;syncControls();}
 }
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
@@ -189,7 +190,8 @@ function renderBrowse(){
   const categories=navigationCategories(directory()),commodities=categories.map(c=>c.code);
   // No commodity code is empty, so the empty value can only mean All markets.
   choose('commodity',[{value:'',name:'All markets'},...categories.map(c=>({value:c.code,name:c.name}))],prefs.market??'');
-  if(prefs.market!==null&&!commodities.includes(prefs.market)){select('commodity').append(new Option('Saved commodity unavailable',prefs.market));select('commodity').value=prefs.market;}
+  // Discard an unavailable presentation filter; market inputs remain separately pinned.
+  if(prefs.market!==null&&!commodities.includes(prefs.market)){prefs.market=null;select('commodity').value='';}
   select('browse-by').value=prefs.browseBy;document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>{const active=b.dataset.type===prefs.marketType;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
   const groups=navigationGroups(directory(),prefs.browseBy,prefs.market,prefs.marketType);text('curve-count',String(groups.reduce((n,g)=>n+g.curves.length,0)));
   const owner=directory();
@@ -454,8 +456,16 @@ async function openProfile(){
 $('sidebar-toggle').onclick=()=>{if(busy)return;prefs.sidebarCollapsed=!prefs.sidebarCollapsed;renderLayout();persist();};
 $('library-toggle').onclick=()=>{if(busy)return;prefs.libraryCollapsed=!prefs.libraryCollapsed;renderLayout();persist();};
 for(const id of ['market-menu','settings-menu','trading-menu'])$<HTMLDetailsElement>(id).ontoggle=()=>{if(!currentProfile||prefs.sidebarCollapsed)return;const closed=prefs.collapsedMenus.includes(id),open=$<HTMLDetailsElement>(id).open;if(closed===!open)return;prefs.collapsedMenus=open?prefs.collapsedMenus.filter(k=>k!==id):[...prefs.collapsedMenus,id];persist();};
+function profileError(message=''){text('profile-error',message);$('profile-error').hidden=!message;}
+// The page behind an open modal is inert, so its actions report within the modal.
+async function profileAction(control:HTMLElement,work:()=>Promise<void>){
+  let failed=false;
+  await act(async()=>{profileError();try{await work();}catch(error){if(!$<HTMLDialogElement>('profile-dialog').open)throw error;profileError(errorMessage(error));failed=true;}});
+  if(failed&&$<HTMLDialogElement>('profile-dialog').open)control.focus();
+}
+$('profile-dialog').addEventListener('close',()=>profileError());
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
-$('preferences-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value;prefs.timeZone=zone;await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];persist();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});};
+$('preferences-form').onsubmit=event=>{event.preventDefault();void profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value;prefs.timeZone=zone;await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];persist();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
   hostedPilot=mode==='hosted-pilot';
@@ -488,7 +498,7 @@ async function loadIdentity(initialAccess?:unknown){
   else if(aiTabs(permissions).length){await setPage('ai');await aiSettings.load();}
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
 }
-$('open').onclick=()=>void act(async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});
+$('open').onclick=()=>void profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});
 $('snapshot').onchange=()=>void act(async()=>{marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset();clearPrices();if(select('snapshot').value){if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'&&curve)await build();}});
 $('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await build();});
 $('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').onchange=()=>void act(async()=>updateFilters());

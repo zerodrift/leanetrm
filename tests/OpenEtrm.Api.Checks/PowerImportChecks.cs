@@ -9,6 +9,19 @@ static class PowerImportChecks
 {
     public static void Run()
     {
+        var selection=PowerHistory.SelectableThrough([new(2026,1,1),new(2026,1,2),new(2026,1,4)]);
+        Require(selection["2026-01-01"]=="2026-01-02"&&selection["2026-01-04"]=="2026-01-04","delivery ranges stop at missing operating dates");
+        var longSelection=PowerHistory.SelectableThrough(Enumerable.Range(0,40).Select(i=>new DateOnly(2026,1,1).AddDays(i)).ToArray());
+        Require(longSelection["2026-01-01"]=="2026-01-31","delivery range selector honors the supported 31-day window");
+        Require(PowerHistory.SelectableThrough([DateOnly.MaxValue])["9999-12-31"]=="9999-12-31","last supported operating date does not overflow availability");
+        var priorCulture=System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture=new("ar-SA");
+            var localized=PowerHistory.SelectableThrough([new(2026,1,1)]);
+            Require(localized.TryGetValue("2026-01-01",out var end)&&end=="2026-01-01","delivery availability uses ISO dates independently of server culture");
+        }
+        finally {System.Globalization.CultureInfo.CurrentCulture=priorCulture;}
         var revision=new ReferenceRevision(Guid.NewGuid(),Guid.NewGuid());
         var unit=new PriceUnit(new(revision,"usd"),new(revision,"power_mwh"),ExactDecimal.Parse("1"));
         var pjm=JsonSerializer.SerializeToElement(new{pnode_id=51288,datetime_beginning_utc="2026-11-01T05:00:00",total_lmp_da="-17.125",system_energy_price_da="20",congestion_price_da="-37",marginal_loss_price_da="-0.125",version_nbr=2});

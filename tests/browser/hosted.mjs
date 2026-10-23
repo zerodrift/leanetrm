@@ -23,7 +23,10 @@ await withOwnedBrowser(target,process.argv[3],async({command,evaluate,wait,set,c
   await check('commodity reveals operators while later filters remain empty',"document.querySelector('#delivery-price-provider').options.length===2&&document.querySelector('#delivery-price-market').disabled&&document.querySelector('#delivery-price-source').disabled");
   await firstChoice('#delivery-price-provider');await firstChoice('#delivery-price-market');await firstChoice('#delivery-price-location');await firstChoice('#delivery-price-source');
   await check('the selected source explains its explicit delivery clock and inclusive dates',"document.querySelector('#delivery-price-clock').textContent.includes('America/New_York')&&document.querySelector('#delivery-price-clock').textContent.includes('both dates are included')");
-  await set('#delivery-price-from','2026-11-02');await set('#delivery-price-through','2026-11-02');
+  await click('#delivery-price-from-calendar summary');
+  await check('delivery calendar enables only days with certified saved prices',`!document.querySelector('#delivery-price-from-calendar button[data-date="2026-11-02"]').disabled&&document.querySelector('#delivery-price-from-calendar button[data-date="2026-11-03"]').disabled`);
+  await click('#delivery-price-from-calendar button[data-date="2026-11-02"]');
+  await click('#delivery-price-through-calendar summary');await click('#delivery-price-through-calendar button[data-date="2026-11-02"]');
   await submit('#delivery-price-form');
   await check('delivery-price history is served with exact typed amounts and complete interval coverage',"document.querySelectorAll('#delivery-price-results tbody tr').length===24 && document.querySelector('#delivery-price-results').textContent.includes('-17.125')");
   await check('collection history explains import attempts and includes their delivery ranges',"document.querySelector('#delivery-price-attempts').textContent.includes('Delivery date from')&&document.querySelector('#delivery-price-attempts').textContent.includes('Finished')&&document.querySelector('#delivery-page').textContent.includes('Failed attempts do not publish prices')");

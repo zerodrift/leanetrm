@@ -594,7 +594,7 @@ public sealed class PreviewData
             ("settlement_targets","code"),("futures_series","code"),("futures_products","code"),
             ("futures_milestones","series_code"),("futures_product_terms","product_code"),
             ("futures_lot_resolutions","series_code"),("futures_basis_settlements","series_code"),
-            ("units","code"),("currencies","code"),("sources","code"),("interest_rate_definitions","code"),
+            ("units","code"),("currencies","code"),("commodities","code"),("exchanges","code"),("sources","code"),("interest_rate_definitions","code"),
             ("delivery_profiles","code"),("clock_rules","code")]);
         definitionRows=IndexRows(Definitions,[("curves","code"),("curve_members","curve_code"),
             ("curve_inputs","curve_code"),("rate_curves","code"),("rate_curve_points","curve_code"),

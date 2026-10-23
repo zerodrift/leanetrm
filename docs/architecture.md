@@ -45,7 +45,7 @@ This uses the connected valuation pipeline, including selected actual fixings,
 custom projections and discount inputs. Migration 0101 adds the persisted side
 relationships and generated/existing-close evidence without rewriting retained events.
 
-Swap entry follows Trade → Instrument → Sides (D209). Visual instrument choices
+Swap entry follows Trade → Instrument → Sides (D210). Visual instrument choices
 apply a visible, managed starting template to empty side controls; all submitted
 terms remain explicit. Floating-side commodity choices filter index, projection
 and unit choices independently, within the current same-commodity swap model.
