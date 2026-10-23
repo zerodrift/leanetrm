@@ -171,6 +171,18 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         client.login('', password, '/auth?failed=1')
         client.login('invalid', password)
         boot = client.bootstrap(); assert boot['profile'] == first and boot['mode'] == 'hosted-pilot' and len(boot['profiles']) == 1
+        # A second sign-in from a stale tab keeps the authenticated identity and session.
+        sessions = query('SELECT count(*) FROM security.hosted_sessions;')
+        cookies = [(cookie.name, cookie.value) for cookie in client.cookies]
+        _, headers = client.call('/auth/login', {'login': 'second_human', 'password': password,
+            '__RequestVerificationToken': client.form_token()}, form=True, expected=302)
+        assert headers['Location'] == '/' and client.bootstrap()['profile'] == first
+        assert query('SELECT count(*) FROM security.hosted_sessions;') == sessions
+        assert [(cookie.name, cookie.value) for cookie in client.cookies] == cookies
+        client.call('/auth/login', {'login': 'second_human', 'password': password}, form=True, expected=400)
+        client.call('/auth/login', {'login': 'second_human', 'password': password,
+            '__RequestVerificationToken': client.form_token()}, form=True,
+            headers={'Origin': 'https://untrusted.invalid'}, expected=403)
         compact, _ = client.call('/api/bootstrap?includeFrames=false')
         assert compact['frames'] == [] and compact['profile'] == first and compact['profiles'] == boot['profiles'] and 'access' not in compact
         startup, _ = client.call('/api/bootstrap?includeFrames=false&includeAccess=true')

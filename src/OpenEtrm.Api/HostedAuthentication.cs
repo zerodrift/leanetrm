@@ -124,7 +124,7 @@ public sealed class HostedAuthentication : IAsyncDisposable
         }).RequireRateLimiting("local-auth");
         auth.MapPost("/login", async (HttpContext c) =>
         {
-            if(c.User.Identity?.IsAuthenticated==true)return Results.StatusCode(409);
+            if(c.User.Identity?.IsAuthenticated==true)return Results.Redirect("/");
             var form = await c.Request.ReadFormAsync(c.RequestAborted);
             string? login;
             try { login = HostedAccess.Login(form["login"].ToString()); }
