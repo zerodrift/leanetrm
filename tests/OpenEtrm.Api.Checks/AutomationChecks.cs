@@ -49,6 +49,7 @@ static class AutomationChecks
         if (ScheduleTiming.Next(now, null, now.AddSeconds(1)) is not null)
             throw new Exception("One-time job repeated");
         Console.WriteLine("PASS explicit managed job contracts and anchored run-once recurrence");
+        CloseRiskCompletionChecks.Run().GetAwaiter().GetResult();
         awaitSwarmChecks().GetAwaiter().GetResult();
     }
 

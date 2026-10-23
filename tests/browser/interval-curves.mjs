@@ -41,9 +41,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   text('interval-curves-summary'));
 
  await show('test_power_hourly_shaped','2031-11-01T00:00','2031-12-01T00:00');
- await check('a shaped curve names its blocks, reads its shape at Known at and cannot resolve',
-  `${text('interval-curves-summary')}==='Shaped Additive from Power Offpeak Monthly (Off · pjm v1) and Power Peak Monthly (Peak · pjm v1) · Synthetic Eastern · 60-minute intervals'`+
-  "&&!document.querySelector('#interval-curves-known').disabled&&document.querySelector('#interval-curves-resolve').disabled",text('interval-curves-summary'));
+ await check('a shaped curve names its blocks, reads its shape at Known at and offers actual resolution',
+  `${text('interval-curves-summary')}==='Shaped Additive from Power Offpeak Monthly (Off · pjm v1) and Power Peak Monthly (Peak · pjm v1) and Power Offpeak Balance (Off · pjm v1) and Power Peak Balance (Peak · pjm v1) · Synthetic Eastern · 60-minute intervals'`+
+  "&&!document.querySelector('#interval-curves-known').disabled&&!document.querySelector('#interval-curves-resolve').disabled",text('interval-curves-summary'));
  await check('shaped November shows every hour with its block, shape revision and chart, the fall-back hour twice',
   `(()=>{const rows=${values},starts=rows.map(r=>r[0]);return rows.length===721&&new Set(starts).size===721&&starts.includes('Nov 2, 2031, 1:00 AM GMT-4')&&starts.includes('Nov 2, 2031, 1:00 AM GMT-5')`+
   "&&rows.every(r=>/^-?\\d+\\.\\d{6}$/.test(r[2]))&&rows.some(r=>r[3]==='Power Peak Monthly')&&rows.some(r=>r[4]==='2')&&!!document.querySelector('#interval-curves-chart canvas')&&document.querySelector('#error').hidden;})()",
@@ -52,6 +52,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('choosing a row shows the block mark and shape revision behind its price',
   `${text('interval-curves-lineage')}.startsWith('Nov 1, 2031, 1:00 AM · ')&&${text('interval-curves-lineage')}.endsWith('the Power Offpeak Monthly block mark, shaped by shape revision 1')`,text('interval-curves-lineage'));
 
+ await show('test_power_hourly_shaped','2020-12-15T10:00','2020-12-16T00:00');
+ await click('#interval-curves-resolve');await submit('#interval-curves-form');
+ await check('a shaped remainder has one unresolved estimate and live balance prices',
+  `${values}.length===14&&${values}[0][5]==='Unresolved'&&${values}.slice(1).every(r=>r[5]==='Projected')&&document.querySelector('#error').hidden`,text('error'));
+ await click('#interval-curves-values tbody tr:last-child');
+ await check('a resolved shaped row names its live balance anchor',`${text('interval-curves-lineage')}.includes('Balance block mark')`,text('interval-curves-lineage'));
  await set('#interval-curves-select','test_power_hourly_marked');
  await check('a marked curve with a due rule offers resolution; Known at and Aggregate wait for it',
   "!document.querySelector('#interval-curves-resolve').disabled&&document.querySelector('#interval-curves-known').disabled&&document.querySelector('#interval-curves-aggregate').disabled&&document.querySelectorAll('#interval-curves-values tbody tr').length===0");

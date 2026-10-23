@@ -1,0 +1,63 @@
+using System.Collections.Immutable;
+using OpenEtrm.Api;
+using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Risk;
+
+internal static class CloseRiskPreflightChecks
+{
+    internal static void Run()
+    {
+        var f=new PpaAcceptanceFixture();var market=f.Market(f.From.AddDays(-1));
+        var instrument=f.WithCertificate();var inputs=f.Prepare(market,[instrument]);
+        var binding=new PpaBinding(Guid.NewGuid(),1,Guid.NewGuid(),instrument,new(f.From,f.To),ExactDecimal.Parse("1"));
+        var requested=new Dictionary<(CurveKey,Guid),HashSet<DateOnly>>
+        {
+            [(f.C("synthetic_energy"),binding.BindingId)]=[f.Month],
+            [(f.C("synthetic_certificate"),binding.BindingId)]=[f.Month]
+        };
+        long Work(ImmutableArray<PpaBinding> bindings,PpaAcceptanceFixture.MarketInputs? selected=null)
+        {
+            var source=selected??market;
+            return CloseRiskAdmission.FutureVolumeWork(bindings,inputs.Reference,source.Curves,requested,source.Build,source.Model.QuoteFactors(source.Snapshot));
+        }
+        void Equal(long actual,long expected){if(actual!=expected)throw new Exception($"Early risk work expected {expected}, got {actual}.");}
+        // 721 native hours including the repeated DST hour, four sides, base plus
+        // two directions for each of two reached factors. Three unused factors
+        // in the same market must not count. Duplicate bindings reuse one scope.
+        Equal(Work([binding]),14_420);Equal(Work([binding,binding with {BindingId=Guid.NewGuid()}]),14_420);
+        long Final(ImmutableArray<PpaBinding> selected,IntervalValuationInputs prepared)
+        {
+            var book=Guid.NewGuid();var positions=selected.Select(b=>new RiskPosition(Guid.NewGuid(),Guid.NewGuid(),book,b.Instrument.Id,
+                new(b.Mw,f.Capacity.Key),new(new Money(default,b.Instrument.Currency),f.Capacity.Key),new(default,b.Instrument.Currency)){Coverage=b.Coverage}).ToImmutableArray();
+            var portfolio=new ValuationPortfolio([..selected.Select(b=>b.Instrument).DistinctBy(i=>i.Id)],positions,
+                new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){Interval=prepared});
+            return RiskEngine.IntervalWork(RiskEngine.Prepare(market.Model,market.Snapshot,[portfolio])).RowScenarios;
+        }
+        Equal(Final([binding,binding],inputs),14_420);
+        var hour=binding with {Coverage=new(f.From,f.From.AddHours(1))};
+        Equal(Work([hour]),20);Equal(Work([binding,hour]),14_440);
+        Equal(Final([binding,hour],inputs),14_440);
+        var physical=f.Physical(volume:true);var pb=binding with {BindingId=Guid.NewGuid(),Instrument=physical};
+        requested[(f.C("synthetic_energy"),pb.BindingId)]=[f.Month];
+        Equal(Work([binding,pb]),18_746);
+        Equal(Final([binding,pb],f.Prepare(market,[instrument,physical])),18_746);
+        var transition=inputs.Reference with {Assignments=[..inputs.Reference.Assignments.SelectMany(a=>a.Attribute!=ValuedAttribute.Energy?[a]:
+            new[]{a with {To=f.From.AddHours(1)},a with {Code=a.Code+"_later",From=f.From.AddHours(1)}})]};
+        Equal(CloseRiskAdmission.FutureVolumeWork([binding],transition,market.Curves,requested,market.Build,market.Model.QuoteFactors(market.Snapshot)),0);
+        // Valuation at the contractual date is overdue. A current certificate
+        // holding may still carry risk, so the early lower bound skips the scope.
+        var equality=f.Market(new(2031,12,10,0,0,0,TimeSpan.Zero),actuals:_=>"42");
+        Equal(Work([binding],equality),0);
+        var late=f.Market(new(2031,12,11,0,0,0,TimeSpan.Zero),actuals:_=>"42");Equal(Work([binding],late),0);
+        var profile=f.Physical();Equal(Work([binding with {Instrument=profile}]),0);
+        var capacity=f.CapacityAgreement();Equal(Work([binding with {Instrument=capacity}]),0);
+        Equal(Work([binding with {Mw=ExactDecimal.Parse("0")}]),14_420);
+        var quarter=new PpaAcceptanceFixture(15);var qm=quarter.Market(quarter.From.AddDays(-1));var qi=quarter.WithCertificate();var qinputs=quarter.Prepare(qm,[qi]);
+        var qb=binding with {Instrument=qi,Coverage=new(quarter.From,quarter.To)};
+        var qr=new Dictionary<(CurveKey,Guid),HashSet<DateOnly>> {[(quarter.C("synthetic_energy"),qb.BindingId)]=[quarter.Month],[(quarter.C("synthetic_certificate"),qb.BindingId)]=[quarter.Month]};
+        Equal(CloseRiskAdmission.FutureVolumeWork([qb],qinputs.Reference,qm.Curves,qr,qm.Build,qm.Model.QuoteFactors(qm.Snapshot)),57_680);
+        Console.WriteLine("PASS early risk refusal lower bound: native DST grids, reached factors, exact coverage reuse, zero MW and overdue/unproven scopes");
+    }
+}

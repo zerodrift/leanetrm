@@ -108,7 +108,7 @@ internal static class SwapValuationChecks
             if (value.PresentValue.Amount.ToString() != "9.71118981067694871" || value.Sides.Length != 2 ||
                 value.Instrument.Sides.Length != 2 || value.Quantity.Amount.ToString() != "100")
                 throw new Exception("Incorrect independently summed trade PV");
-            var fixedValue = value.Sides[0].Contribution.Value; var floatValue = value.Sides[1].Contribution.Value;
+            var fixedValue = (PaymentSideValuation)value.Sides[0].Contribution.Value; var floatValue = (PaymentSideValuation)value.Sides[1].Contribution.Value;
             if (fixedValue.Payments.Single().CashAmount.ToMoney().Amount.ToString() != "3" ||
                 floatValue.Payments.Single().CashAmount.ToMoney().Amount.ToString() != "3.1" ||
                 value.Instrument.Sides[0].Coefficient.ToString() != "-1" || value.Instrument.Sides[1].Coefficient.ToString() != "1")
@@ -271,7 +271,7 @@ internal static class SwapValuationChecks
         });
         Check("side discount contexts require schedules and a selected snapshot", () =>
         {
-            Reject("discount_context", () => new CurrencyDefaultDiscounting([], snapshot, false, null));
+            Reject("discount_context", () => new CurrencyDefaultDiscounting(Array.Empty<SideSchedule>(), snapshot, false, null));
             Reject("discount_context", () => new CurrencyDefaultDiscounting([fixedSide.GenerateSchedule()], null!, false, null));
         });
         Check("par fixed price uses the independent floating PV and fixed payment discount factor", () =>

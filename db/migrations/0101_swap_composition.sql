@@ -91,7 +91,8 @@ BEGIN
   PERFORM security.validate_custom_projection(catalog,float_body->'customProjection');
   RETURN security.swap_operation_status(catalog,operation);
  END IF;
- IF EXISTS(SELECT 1 FROM trading.trades WHERE catalog_id=catalog AND operation_id=operation) OR EXISTS(SELECT 1 FROM trading.trade_revisions WHERE catalog_id=catalog AND operation_id=operation) THEN RAISE EXCEPTION 'swap_conflict';END IF;
+ IF EXISTS(SELECT 1 FROM trading.trades WHERE catalog_id=catalog AND operation_id=operation) OR EXISTS(SELECT 1 FROM trading.trade_revisions WHERE catalog_id=catalog AND operation_id=operation)
+  OR EXISTS(SELECT 1 FROM trading.ppa_trade_revisions WHERE catalog_id=catalog AND operation_id=operation) THEN RAISE EXCEPTION 'swap_conflict';END IF;
  IF NOT security.reference_access(ref_catalog,'ReadMarketData') THEN RAISE EXCEPTION 'No current reference access' USING ERRCODE='42501';END IF;
  executed=valuation;
  IF trade IS NOT NULL THEN
@@ -185,17 +186,27 @@ ALTER TABLE automation.pilot_report_discounts ADD COLUMN first_floating_side_id 
  ADD FOREIGN KEY(catalog_id,instrument_id,first_floating_side_id) REFERENCES trading.swap_instruments(catalog_id,instrument_id,first_floating_side_id);
 DO $$DECLARE key_name text;BEGIN
  SELECT conname INTO STRICT key_name FROM pg_constraint WHERE conrelid='automation.pilot_report_discounts'::regclass AND contype='c'
-  AND pg_get_constraintdef(oid) LIKE '%num_nonnulls(fixed_side_id, floating_side_id)%';
+  AND pg_get_constraintdef(oid) LIKE '%num_nonnulls(fixed_side_id, floating_side_id, ppa_side_id)%';
  EXECUTE format('ALTER TABLE automation.pilot_report_discounts DROP CONSTRAINT %I',key_name);
 END$$;
-ALTER TABLE automation.pilot_report_discounts ADD CHECK(num_nonnulls(fixed_side_id,first_floating_side_id,floating_side_id)=1);
-DO $$DECLARE signature regprocedure='automation.publish_pilot_report(uuid,jsonb)'::regprocedure;definition text;before text;BEGIN
+ALTER TABLE automation.pilot_report_discounts ADD CHECK(num_nonnulls(fixed_side_id,first_floating_side_id,floating_side_id,ppa_side_id)=1);
+-- The renewal wrapper retains lease fencing and atomic terminal publication.
+-- Extend only its inner writer, keeping the existing PPA column order intact.
+DO $$DECLARE signature regprocedure='automation.publish_pilot_report_pre_renewal(uuid,jsonb)'::regprocedure;definition text;before text;BEGIN
  definition=pg_get_functiondef(signature);
- before='x.currency,x.rate_policy,x.interpolation_policy';
+ before='x.currency,x.rate_policy,x.interpolation_policy,x.ppa';
  IF strpos(definition,before)=0 THEN RAISE EXCEPTION 'Unexpected report discount insert';END IF;
  definition=replace(definition,before,before||',x.first_floating');
- before='currency text,rate_policy text,interpolation_policy text)';
+ before='currency text,rate_policy text,interpolation_policy text,ppa uuid)';
  IF strpos(definition,before)=0 THEN RAISE EXCEPTION 'Unexpected report discount parser';END IF;
- EXECUTE replace(definition,before,'currency text,rate_policy text,interpolation_policy text,first_floating uuid)');
+ EXECUTE replace(definition,before,'currency text,rate_policy text,interpolation_policy text,ppa uuid,first_floating uuid)');
+END$$;
+-- Every supported swap has a second floating side; the first may also float.
+-- Scope admission must retain its exact references for either composition.
+DO $$DECLARE signature regprocedure='automation.close_risk_scope(uuid,uuid,timestamptz,uuid[])'::regprocedure;definition text;before text;BEGIN
+ definition=pg_get_functiondef(signature);
+ before='f.definition_revision_id,s.reference_catalog_id,s.reference_revision_id,i.implementation FROM swaps';
+ IF strpos(definition,before)=0 THEN RAISE EXCEPTION 'Unexpected close swap scope';END IF;
+ EXECUTE replace(definition,before,'f.definition_revision_id,f.reference_catalog_id,f.reference_revision_id,i.implementation FROM swaps');
 END$$;
 COMMIT;

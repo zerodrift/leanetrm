@@ -82,7 +82,7 @@ app.Use(async (context,next)=>
     context.Items["client_aborted"]=context.RequestAborted;
     // Authorized event streams have their own session, heartbeat and write bounds.
     using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-    if(!LiveContexts.Matches(context.Request.Method,apiPath)&&!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(15));
+    if(!LiveContexts.Matches(context.Request.Method,apiPath)&&!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(apiPath.StartsWithSegments("/api/ppa")?20:15));
     context.RequestAborted=deadline.Token;
     const string malformed="The request is incomplete or malformed.";
     try
@@ -96,6 +96,8 @@ app.Use(async (context,next)=>
             // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
             PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
             PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
+            PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"The complete settlement preview requires compatible, final, certified evidence and explicit policies."),
+            CloseRiskInputsException c => (422,CloseRiskInputsException.Code,c.Message),
             AutomationException a => (422,a.Code,a.Message),
             OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
             PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
@@ -119,6 +121,8 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="reference_conflict" => (409,p.MessageText,"This reference version or display selection changed. Reload before editing."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "reference_edit" or "reference_limit" or "reference_economic_change" => (422,p.MessageText,"Supply supported display fields within the authoring limits. Financial terms must remain identical before display activation."),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/tou-products") => (409,"tou_conflict","This TOU product changed or its code already exists. Reload before editing."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="ppa_conflict" => (409,p.MessageText,"The trade or operation changed. Reconcile its original request or current head."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("ppa_",StringComparison.Ordinal) => (422,p.MessageText,"The PPA operation does not meet its explicit terms, pins, coverage or limits."),
             MarketDataException m => (422,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
@@ -206,6 +210,7 @@ app.Use(async (context,next)=>
         // A role refusal also names the role and permission as fields, so a page never parses its message.
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
             ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
+        if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
     }
     // Binding refuses a body or query value it cannot read, and a body over the limit, with a bare status before any
@@ -298,7 +303,7 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
         var identity=hosted is null?null:HostedAuthentication.Current(context);
         if(identity is not null){if(session.Profile is not null&&session.Profile!=identity.Subject)throw new PreviewDeniedException();session.Profile=identity.Subject;}
         object response=new {mode=database.Manifest.Mode,runId,notice=hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
-        profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
+        profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
         catalogId=database.Manifest.CatalogId,tenantId=database.Manifest.TenantId,workspaceId=database.Manifest.WorkspaceId};
         if(includeAccess)
         {
@@ -333,7 +338,12 @@ PinnedContext Pin(PreviewSession session,Guid? frame=null)
     var selected=frame is {} id?Frame(session,id):null;
     return session.MarketContext is {} context?PinnedContext.Retained(context,selected):PinnedContext.Current(selected);
 }
-InputFrame Frame(PreviewSession session,Guid id)=>Pin(session).Require(session.Frames.GetValueOrDefault(id));
+InputFrame PpaFrame(PreviewSession session,Guid id)=>Pin(session).Require(session.Frames.GetValueOrDefault(id));
+InputFrame Frame(PreviewSession session,Guid id)
+{
+    var frame=PpaFrame(session,id);
+    return frame.PpaBundle is null?frame:throw new MarketDataException("snapshot_inputs","This exact bundle frame belongs to the bounded PPA consumer.");
+}
 async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewSession session,CancellationToken ct)
 {
     if(session.Live is not null)return new([],session.FrameCatalog);
@@ -358,6 +368,11 @@ api.MapMarketDates(database,(c,work)=>Locked(c,async session=>
 api.MapPost("/market/closes/register",(HttpContext c,MarketCloseRegister body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"PublishMarketData",async(connection,ct)=>
         Results.Ok(await MarketCloses.Register(database,connection,Pin(session),Frame(session,body.SnapshotId),body,ct)),c.RequestAborted)));
+api.MapPost("/jobs/close-book-risk/create",(HttpContext c,CloseBookRiskCreate body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunJobs",async(connection,ct)=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Admit existing-close jobs in the current workspace.");
+    return Results.Ok(await CloseBookRiskJobs.Create(database,connection,body,ct));
+},c.RequestAborted)));
 api.MapGet("/jobs/pilot-close/catalog",async Task<IResult>(HttpContext c)=>await Locked(c,session=>database.WithIdentity(Profile(session),"RunJobs",async(connection,ct)=>
     Results.Ok(await PilotCloseJobs.Catalog(database,connection,Pin(session),[..session.Frames.Values.Where(f=>f.ContextId==session.MarketContext?.ContextId)],ct)),c.RequestAborted)));
 api.MapPost("/jobs/pilot-close/create",(HttpContext c,PilotCloseJobCreate body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunJobs",async(connection,ct)=>
@@ -451,6 +466,7 @@ api.MapPost("/interval-series/revise",(HttpContext c,IntervalSeriesReviseRequest
 api.MapPost("/interval-series/values",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Values(connection,body,ct)));
 api.MapPost("/interval-series/changes",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Changes(connection,body,ct)));
 var intervalCurves=new IntervalCurvesStore(marketReads,touStore);
+var ppaQuantities=new PpaQuantitiesStore(marketReads,touStore);
 // Interval curves read published TOU and shape inputs, which are current definitions, so a historical view never substitutes them.
 Task<IResult> IntervalCurveRead(HttpContext c,Guid snapshot,Func<NpgsqlConnection,PinnedContext,CancellationToken,Task<object>> work)=>Locked(c,session=>
 {
@@ -462,6 +478,64 @@ Task<IResult> IntervalCurveRead(HttpContext c,Guid snapshot,Func<NpgsqlConnectio
 });
 api.MapPost("/interval-curves/catalog",(HttpContext c,IntervalCurveCatalogRequest body)=>IntervalCurveRead(c,body.SnapshotId,intervalCurves.Catalog));
 api.MapPost("/interval-curves/values",(HttpContext c,IntervalCurveValuesRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>intervalCurves.Values(connection,pin,body,ct)));
+api.MapPost("/period-curves/values",(HttpContext c,PeriodCurveValuesRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>intervalCurves.PeriodValues(connection,pin,body,ct)));
+var ppaStore=new PpaStore(database,touStore);
+var settlementPreview=new SettlementPreview(database,ppaStore);
+Task<IResult> SettlementOperation(HttpContext c,Guid snapshot,Func<NpgsqlConnection,InputFrame,CancellationToken,Task<(object Value,Guid Trade)>> work)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("settlement_context","Use an explicit preview knowledge cutoff from current working data.");
+    var frame=PpaFrame(session,snapshot);
+    return database.WithIdentity(Profile(session),SettlementPreview.Permission,async(connection,ct)=>
+    {
+        var result=await work(connection,frame,ct);ct.ThrowIfCancellationRequested();
+        var bytes=PpaStore.Response(result.Value,SettlementPreview.JsonOptions,SettlementPreview.MaximumResponseBytes);ct.ThrowIfCancellationRequested();
+        await settlementPreview.Recheck(connection,result.Trade,ct);
+        return (IResult)new PpaJsonResult(bytes,200);
+    },c.RequestAborted);
+});
+api.MapPost("/settlement/payment-lineages/plan",(HttpContext c,PaymentLineageRequest body)=>SettlementOperation(c,body.SnapshotId,async(connection,frame,ct)=>(await settlementPreview.Plan(connection,frame,body,ct),body.TradeId)));
+api.MapPost("/settlement/ppa/preview",(HttpContext c,SettlementPreviewRequest body)=>SettlementOperation(c,body.SnapshotId,(connection,frame,ct)=>settlementPreview.Preview(connection,frame,body,ct)));
+
+Task<IResult> PpaOperation(HttpContext c,Guid? snapshot,string permission,Func<NpgsqlConnection,InputFrame?,CancellationToken,Task<object>> work,Func<NpgsqlConnection,InputFrame?,CancellationToken,Task>? recheck=null)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("ppa_historical","Return to current working data; PPA history uses an explicit known-at cutoff.");
+    var frame=snapshot is {} id?PpaFrame(session,id):null;
+    return database.WithIdentity(Profile(session),permission,async(connection,ct)=>
+    {
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct) || !await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
+        var value=await work(connection,frame,ct);ct.ThrowIfCancellationRequested();
+        var bytes=PpaStore.Response(value);ct.ThrowIfCancellationRequested();
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct) || !await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
+        await ppaStore.Recheck(connection,frame,ct);
+        if(value is PpaRevisionRefusal refusal)await ppaStore.RecheckRefusal(connection,refusal,ct);
+        if(recheck is not null)await recheck(connection,frame,ct);ct.ThrowIfCancellationRequested();
+        return (IResult)new PpaJsonResult(bytes,value is PpaRevisionRefusal?422:200);
+    },c.RequestAborted);
+});
+api.MapGet("/ppa/frames",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("ppa_historical","PPA frames use explicit current-session bundle selection.");
+    var frames=await ppaStore.FramesRead(connection,session.Frames.Values.Where(f=>f.ContextId is null).OrderBy(f=>f.At).ThenBy(f=>f.Id),ct);
+    var bytes=PpaStore.Response(frames);
+    await ppaStore.Recheck(connection,null,ct);
+    foreach(var frame in frames)await ppaStore.Recheck(connection,frame,ct);
+    return (IResult)new PpaJsonResult(bytes,200);
+},c.RequestAborted))));
+api.MapPost("/ppa/catalog",(HttpContext c,IntervalCurveCatalogRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.CatalogRead(connection,frame!,ct)));
+api.MapPost("/ppa/directory",(HttpContext c,PpaDirectoryRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Directory(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,"books",body.BookIds,ppaStore.ReferenceFor(frame!),ct)));
+api.MapPost("/ppa/inspect",(HttpContext c,PpaInspectRequest body)=>PpaOperation(c,body.Preview?.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Inspect(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.Preview!.KnownAt,body.Preview.Scope,body.Preview.SelectedIds,body.Preview.ReferenceCatalogId,ct)));
+api.MapPost("/ppa/break-even",(HttpContext c,PpaBreakEvenRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>new PpaBreakEvenStore(database,ppaStore).Solve(connection,frame!,body,ct)));
+api.MapPost("/ppa/validate",(HttpContext c,PpaValidateRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Validate(connection,frame!,body,ct)));
+api.MapPost("/ppa/preview",(HttpContext c,PpaPreviewRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Preview(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,body.Scope,body.SelectedIds,body.ReferenceCatalogId,ct)));
+api.MapPost("/ppa/book",(HttpContext c,PpaWriteRequest body)=>PpaOperation(c,body.SnapshotId,"BookTrade",(connection,frame,ct)=>ppaStore.Save(connection,frame!,body,"booked",ct),(connection,frame,ct)=>ppaStore.RecheckWrite(connection,frame!,body,ct)));
+api.MapPost("/ppa/amend",(HttpContext c,PpaWriteRequest body)=>PpaOperation(c,body.SnapshotId,"AmendTrade",(connection,frame,ct)=>ppaStore.Save(connection,frame!,body,"amended",ct),(connection,frame,ct)=>ppaStore.RecheckWrite(connection,frame!,body,ct)));
+api.MapPost("/ppa/terminate",(HttpContext c,PpaWriteRequest body)=>PpaOperation(c,body.SnapshotId,"AmendTrade",(connection,frame,ct)=>ppaStore.Save(connection,frame!,body,"terminated",ct),(connection,frame,ct)=>ppaStore.RecheckWrite(connection,frame!,body,ct)));
+api.MapPost("/ppa/status",(HttpContext c,PpaStatusRequest body)=>PpaOperation(c,null,"ReadTrades",(connection,frame,ct)=>ppaStore.Status(connection,body.OperationId,ct),async(connection,frame,ct)=>{await ppaStore.Status(connection,body.OperationId,ct);}));
+api.MapPost("/ppa/editor",(HttpContext c,PpaEditorRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Editor(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,"trades",[body.TradeId],ppaStore.ReferenceFor(frame!),ct)));
+api.MapPost("/ppa/legs",(HttpContext c,PpaLegsRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Legs(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,"trades",[body.TradeId],ppaStore.ReferenceFor(frame!),ct)));
+api.MapPost("/ppa/quantities",(HttpContext c,PpaQuantityRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>ppaQuantities.Quantities(connection,pin,body,ct)));
+api.MapPost("/ppa/capacity",(HttpContext c,PpaCapacityRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>ppaQuantities.Capacity(connection,pin,body,ct)));
+api.MapPost("/ppa/profile",(HttpContext c,PpaProfileRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>ppaQuantities.Profile(connection,pin,body,ct)));
 api.MapGet("/schedules",(Func<HttpContext,Task<IResult>>)(c=>ScheduleOperation(c,(session,data)=>
 {
     var sources=(database.Manifest.Schedules??[]).Select(source=>
@@ -742,7 +816,7 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     var pin=Pin(session,body.SnapshotId);
     // Current history includes initial inputs and every offered stored close;
     // unselected manual edits remain separate explicit input choices.
-    var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
+    var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,ct,
         session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
     return Results.Ok(new {mode="exact_visible_close_history_with_selected_instant_v1",points});
@@ -1192,8 +1266,8 @@ public sealed partial class PreviewSession
         foreach(var f in manifest.Frames) {
             if(f.CurveContracts is null)throw new MarketDataException("missing_curve_view","Every seed frame requires explicit curve contract selections.");
             var frame=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",f.At,f.ObservationIds.ToImmutableArray(),
-                f.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()));Frames.Add(frame.Id,frame);
+                f.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),FrozenObservationIds:(f.FrozenObservationIds??[]).ToImmutableArray()){PpaBundle=f.PpaBundle};Frames.Add(frame.Id,frame);
         }
-        InitialFrames=Frames.Keys.ToArray();
+        InitialFrames=Frames.Values.Where(f=>f.PpaBundle is null).Select(f=>f.Id).ToArray();
     }
 }

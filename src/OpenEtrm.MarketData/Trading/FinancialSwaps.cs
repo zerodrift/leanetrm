@@ -69,7 +69,7 @@ public sealed record FixedSide : Side
     public override SidePaymentSchedule GenerateSchedule() => new(new(Id, DeliveryFrom, DeliveryTo, PaymentAt,
         Price.Unit.Currency, UnitQuantity, null, null, null,
         [new(ExactDecimal.Parse("1"), Price, null)], Implementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
-    public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
+    public override PaymentSideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 }
 
 public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, int Version,
@@ -303,7 +303,7 @@ public sealed record FloatingSide : Side
         Projections.Select((p, n) => new SchedulePriceTerm(weights[n], null,
             new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity, Fixings.IsEmpty ? null : Fixings[n], CustomProjection),Spread)).ToImmutableArray(),
         Fixings.IsEmpty ? Implementation : IndexedImplementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
-    public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
+    public override PaymentSideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 
 }
 
@@ -347,7 +347,7 @@ public sealed record FinancialSwapInstrument : SidedInstrument
     }
     internal static InstrumentValuation RequireDiscounting(InstrumentValuation value, bool discounting)
     {
-        if (value.Sides.SelectMany(s => s.Value.Payments).Any(p =>
+        if (value.Sides.SelectMany(s => ((PaymentSideValuation)s.Value).Payments).Any(p =>
             discounting == (p.Discount.Source == DiscountFactorSource.Undiscounted)))
             throw new MarketDataException("swap_valuation", "Payment discounting must match the immutable instrument definition.");
         return value;
@@ -364,7 +364,7 @@ public sealed record FinancialSwapInstrument : SidedInstrument
             Discounting != (valuationPolicy == Discounted) ||
             valuationPolicy == Undiscounted && paymentFactor != ExactDecimal.Parse("1"))
             throw new MarketDataException("swap_valuation", "Choose explicit discounted or undiscounted valuation with a positive payment factor; undiscounted requires one.");
-        if (valuationPolicy == Discounted && First.GenerateSchedule().Payments.Single().PaymentAt != Floating.PaymentAt)
+        if (valuationPolicy == Discounted && ((SidePaymentSchedule)First.GenerateSchedule()).Payments.Single().PaymentAt != Floating.PaymentAt)
             throw new MarketDataException("swap_valuation", "Independent payment dates require per-side payment discount factors.");
         var context = new SideValuationContext(market, new ExplicitDiscounting(paymentFactor,
             valuationPolicy == Undiscounted ? DiscountFactorSource.Undiscounted : DiscountFactorSource.Explicit));

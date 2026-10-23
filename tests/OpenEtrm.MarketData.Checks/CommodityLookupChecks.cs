@@ -55,7 +55,7 @@ internal static class CommodityLookupChecks
             var value = swap.PV(new(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
             // Actuals20..34 sum405; remaining i7289..7304 sum168.744; fixed4*31=124.
             Equal(value.PresentValue.Scale(ExactDecimal.Parse("31")).ToMoney().Amount.ToString(), "449.744");
-            var resets = value.Sides[1].Value.Payments[0].Resets;
+            var resets = ((PaymentSideValuation)value.Sides[1].Value).Payments[0].Resets;
             if (resets.Take(15).Any(r => r.Price.State != SchedulePriceState.Actual) ||
                 resets.Skip(15).Any(r => r.Price.State != SchedulePriceState.Projected))
                 throw new Exception("Actual/projected boundaries changed.");

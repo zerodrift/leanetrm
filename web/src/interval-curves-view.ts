@@ -12,8 +12,8 @@ type Catalog={knownAt:string;curves:(Curve|Unavailable)[]};
 const available=(c:Curve|Unavailable):c is Curve=>!('unavailable' in c);
 type Price={numerator:string;denominator:string;display:string};
 type Labelled={start:string;end:string;operatingDate:string;hourLabel:number;minute:number;occurrence:number};
-type Point={interval:Labelled;price:Price|null;block?:{curve:string};shapeRevision?:number;state?:'actual'|'projected'|'unresolved';dueAt?:string;
- actual?:{providerRevision:number|null;knownAt:string}|null};
+type Point={interval:Labelled;price:Price|null;block?:{curve:string}|null;shapeRevision?:number;state?:'actual'|'projected'|'modeled'|'publishedfixing'|'unresolved';dueAt?:string;publication?:string;liveMarketRiskCoverage?:string;
+ estimate?:Price|null;actual?:{providerRevision:number|null;knownAt:string}|null};
 type Aggregate={start:string;end:string;mean:Price|null;constituents:string[]};
 export type IntervalValues={curve:string;kind:'marked'|'shaped';resolved?:boolean;points:Point[];aggregates?:Aggregate[]|null;knownAt?:string;
  shapeSeries?:{code:string;head:number}};
@@ -23,14 +23,16 @@ export function intervalTable(values:IntervalValues,zone:string){
  const points=values.points,count=points.length,shaped=values.kind==='shaped',resolved=!!values.resolved;
  const labels=timeLabels([...points.map(p=>p.interval.start),...points.map(p=>p.interval.end)],zone),due=resolved?timeLabels(points.map(p=>p.dueAt!),zone):[];
  return {headers:['Start','End','Price',...(shaped?['Block','Shape revision']:[]),...(resolved?['State','Due']:[])],
-  rows:points.map((p,i)=>[labels[i],labels[count+i],p.price?.display??'Unresolved',...(shaped?[friendly(p.block!.curve),String(p.shapeRevision)]:[]),
+  rows:points.map((p,i)=>[labels[i],labels[count+i],p.price?.display??'Unresolved',...(shaped?[p.block?friendly(p.block.curve):'—',p.shapeRevision==null?'—':String(p.shapeRevision)]:[]),
    ...(resolved?[friendly(p.state!),due[i]]:[])]),numeric:shaped?[2,4]:[2]};
 }
 // Where one point's price came from, in words; observation and batch identities stay internal.
 export function describePoint(values:IntervalValues,index:number,label:string,zone:string){
  const p=values.points[index],shown=`${label} · ${p.price?.display??'no price'} · `;
- if(p.state==='unresolved')return shown+`no eligible actual yet; it is due ${displayInstant(p.dueAt!,zone)}`;
+ if(p.state==='unresolved')return shown+`no eligible actual yet; it is due ${displayInstant(p.dueAt!,zone)}`+(p.estimate?`; estimate ${p.estimate.display} from the ${friendly(p.block?.curve)} ${p.publication==='final_settlement_anchor'?'frozen final settlement; live market-risk coverage is missing':'live block anchor'}`:'');
  if(p.state==='actual')return shown+`the collected actual, provider revision ${p.actual!.providerRevision??'none'}, known at ${displayInstant(p.actual!.knownAt,zone,true)}`;
+ if(p.publication==='final_settlement_anchor')return shown+`modeled from the ${friendly(p.block?.curve)} frozen final settlement; live market-risk coverage is missing`;
+ if(p.state==='publishedfixing')return shown+'the qualified published period fixing';
  if(values.kind==='shaped')return shown+`the ${friendly(p.block!.curve)} block mark, shaped by shape revision ${p.shapeRevision}`;
  return shown+'the pinned mark of this interval'+(p.state==='projected'?`; its actual is due ${displayInstant(p.dueAt!,zone)}`:'');
 }
@@ -76,7 +78,8 @@ export function setupIntervalCurves(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   if(!shown)return;
   const {values,scope,title,unit}=shown,zone=o.zone(),table=intervalTable(values,zone),count=values.points.length;
   get('interval-curves-note').textContent=[`${count} ${count===1?'interval':'intervals'}`,values.knownAt?`known at ${displayInstant(values.knownAt,zone,true)}`:'',
-   values.shapeSeries?`shape ${values.shapeSeries.code} through revision ${values.shapeSeries.head}`:''].filter(Boolean).join(' · ');
+   values.shapeSeries?`shape ${values.shapeSeries.code} through revision ${values.shapeSeries.head}`:'',
+   values.points.some(p=>p.liveMarketRiskCoverage==='frozen_anchor_only')?'Frozen-anchor coverage includes missing live market-risk coverage':''].filter(Boolean).join(' · ');
   renderChart(get('interval-curves-chart'),intervalChart(values,title,unit,zone));
   const lineage=(text:string)=>{get('interval-curves-lineage').textContent=text;};
   renderRegularTable(get('interval-curves-values'),'interval-curves-values',scope,table.headers,table.rows,table.numeric,o.busy,

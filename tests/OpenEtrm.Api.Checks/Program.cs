@@ -7,11 +7,15 @@ if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();retur
 if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
 if(args is ["--live-calculation"]){LiveContextChecks.Run();return;}
 
+if(args is ["--close-risk"]){CloseRiskChecks.Run();return;}
+if(args is ["--ppa-limits"]){PpaLimitChecks.Run();return;}
 if(args is ["--preview-data"]){PreviewDataChecks.Run();return;}
 if(args is ["--portfolio-risk-scope",var portfolioScopeFixture]){await SwapRiskHoldingChecks.Scope(portfolioScopeFixture);return;}
 if(args is ["--swap-risk-holdings",var swapRiskFixture]){await SwapRiskHoldingChecks.Run(swapRiskFixture,false);return;}
 if(args is ["--swap-risk-holdings-denied",var deniedSwapRiskFixture]){await SwapRiskHoldingChecks.Run(deniedSwapRiskFixture,true);return;}
 if(args is ["--swap-risk-holdings-expired",var expiredSwapRiskFixture]){await SwapRiskHoldingChecks.Run(expiredSwapRiskFixture,false,true);return;}
+if(args is ["--ppa-portfolio",var ppaPortfolioFixture]){await PpaPortfolioChecks.Run(ppaPortfolioFixture);return;}
+if(args is ["--ppa-portfolio-denied",var deniedPpaPortfolioFixture]){await PpaPortfolioChecks.Run(deniedPpaPortfolioFixture,true);return;}
 
 if (args is ["--automation"])
 {
@@ -56,6 +60,8 @@ if (args is ["--schedules"])
     DateWorkspaceChecks.Run();
     SchedulePublicationChecks.Run();
     DirectReadChecks.ReportsDifferences();
+    PpaLimitChecks.Run();
+    CloseRiskChecks.Run();
     return;
 }
 
@@ -63,6 +69,7 @@ TradePartyChecks.Run();
 AmountJsonChecks.Run();
 PilotReportChecks.Run();
 TableViewChecks.Run();
+PpaLimitChecks.Run();
 
 var cat=Guid.NewGuid(); var revision=Guid.NewGuid(); var reference=Guid.NewGuid(); var referenceRevision=Guid.NewGuid();
 var manifest=new PreviewManifest("local-synthetic-preview",cat,revision,reference,referenceRevision,Guid.NewGuid(),Guid.NewGuid(),[],new(DateTimeOffset.UtcNow,"local_power"));

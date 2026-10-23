@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.MarketData.Risk;
 
@@ -20,6 +21,19 @@ public static partial class RiskEngine
         internal PortfolioValue[] Bases{get;}
         internal int[] Calls{get;}
         internal int[] Applications{get;}
+        internal IntervalWorkCount[] IntervalWork{get;}
+        internal sealed class IntervalWorkCount
+        {
+            internal int Sides,Resolved,Reused,Calibrated,ReusedBlocks;
+            internal long Rows;
+            internal void Add(IntervalValuationSession? session)
+            {
+                if(session is null)return;
+                Sides+=session.UniqueSideCalculations;Rows+=session.RowEvaluations;
+                Resolved+=session.Resolver.Resolved;Reused+=session.Resolver.ReusedMonths;
+                Calibrated+=session.Resolver.CalibratedBlocks;ReusedBlocks+=session.Resolver.ReusedBlocks;
+            }
+        }
         internal PortfolioRiskCalculation(PreparedValuationMarket market,ImmutableArray<ValuationPortfolio> portfolios,
             ImmutableArray<ImmutableArray<UnitPricingContract>> contracts,RiskDetail detail,CancellationToken cancellation)
         {
@@ -27,6 +41,7 @@ public static partial class RiskEngine
             Bases=portfolios.Select((portfolio,n)=>portfolio.PV(market,contracts[n],ct:cancellation,detail:detail)).ToArray();
             Calls=Bases.Select(value=>value.UnitValuations).ToArray();
             Applications=Bases.Select(value=>value.QuantityApplications).ToArray();
+            IntervalWork=Bases.Select(value=>{var work=new IntervalWorkCount();work.Add(value.IntervalSession);return work;}).ToArray();
         }
         internal PortfolioRiskMeasurement[] Measure(PreparedValuationMarket upMarket,PreparedValuationMarket downMarket,
             ExactDecimal size,PriceUnit unit,CancellationToken cancellation)
@@ -40,6 +55,7 @@ public static partial class RiskEngine
                 var down=portfolio.PV(downMarket,contracts[group],market,basis,cancellation,detail);
                 var values=MeasurePortfolio(portfolio,basis,up,down,size,unit,detail,cancellation);
                 measured[group]=new(values.Totals,values.Positions,up.UnitValuations,down.UnitValuations);
+                IntervalWork[group].Add(up.IntervalSession);IntervalWork[group].Add(down.IntervalSession);
                 Calls[group]+=up.UnitValuations+down.UnitValuations;
                 Applications[group]+=up.QuantityApplications+down.QuantityApplications;
             }
