@@ -1,7 +1,8 @@
 import {init,type Chart} from './vendor/echarts.js';
 import {publicText} from './market-view.js';
 export type ChartSpec={title:string;subtitle?:string;axis:'delivery'|'observation'|'maturity'|'category';categoryTitle?:string;axisName?:string;dense?:boolean;unit:string;exportImage?:(download:()=>void)=>void;kind?:'line'|'bar'|'heatmap';series:{id?:string;name:string;points:{x:string;y:string|null;label?:string}[]}[]};
-const palette=['#287a65','#527fae','#b58249','#8770aa','#bb6570','#5099a3'];
+// Validated categorical order. The last two sit under 3:1 contrast on white, so a chart that reaches them keeps its table view.
+export const palette=['#2f8a66','#2a78d6','#eb6834','#6250d6','#e87ba4','#eda100'];
 const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 export function chartOptions(spec:ChartSpec){
   for(const series of spec.series)if(new Set(series.points.map(p=>p.x)).size!==series.points.length)throw Error('A chart series needs distinct category identities.');
