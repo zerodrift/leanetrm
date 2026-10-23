@@ -18,6 +18,10 @@ def run_checks(query,manifest,psql,environment,close_id,context):
     start=original.index(' IF NOT EXISTS(SELECT 1 FROM security.request_contexts q WHERE q.id=request.id')
     end=original.index(' RETURN payload;',start)
     without_final_guard=original[:start]+original[end:]
+    visibility=query("SELECT pg_get_functiondef('security.market_close_visible(uuid,uuid)'::regprocedure);")
+    visibility_start=visibility.index(' IF NOT EXISTS(SELECT 1 FROM security.request_contexts q WHERE q.id=request.id')
+    visibility_end=visibility.index(' RETURN true;',visibility_start)
+    visibility_without_guard=visibility[:visibility_start]+visibility[visibility_end:]
     query(f"""INSERT INTO security.roles(id,code,name) VALUES('{role}','synthetic_expiring_close_reader','Synthetic expiring close reader');
     INSERT INTO security.role_permissions VALUES('{role}','ReadMarketData');INSERT INTO security.principals VALUES('{principal}','human',true);
     INSERT INTO security.identity_bindings VALUES('https://preview.invalid','synthetic_expiring_close_reader','{principal}','human_interactive');
@@ -28,24 +32,26 @@ def run_checks(query,manifest,psql,environment,close_id,context):
     SELECT security.use_market_context('{catalog}','{context['contextId']}');
     DO $$BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{uuid4()}');
     RAISE EXCEPTION 'A close read mislabeled its bound context';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;ROLLBACK;""")
-    def attempt(expect_refusal):
+    def attempt(expect_refusal,direct=False):
+        table='market_close_receipts' if direct else 'market_close_members'
+        read=(f"IF security.market_close_visible('{catalog}','{close_id}') THEN RAISE EXCEPTION 'Expired close reader returned financial parts';END IF;" if direct else
+              f"PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{context['contextId']}');RAISE EXCEPTION 'Expired close reader returned financial parts';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;")
         locker=subprocess.Popen(psql,env=environment,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         try:
-            locker.stdin.write('BEGIN;LOCK TABLE market_data.market_close_members IN ACCESS EXCLUSIVE MODE;\n\\echo LOCKED\n');locker.stdin.flush()
+            locker.stdin.write(f'BEGIN;LOCK TABLE market_data.{table} IN ACCESS EXCLUSIVE MODE;\n\\echo LOCKED\n');locker.stdin.flush()
             while locker.stdout.readline().strip()!='LOCKED':
                 if locker.poll() is not None:raise AssertionError(locker.stderr.read())
             query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '8 seconds' WHERE id='{grant}';")
             token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','synthetic_expiring_close_reader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
             sql=f"""SET SESSION AUTHORIZATION preview_runtime;SET application_name='synthetic_close_parts_expiry';BEGIN;SET LOCAL statement_timeout='15s';
             SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{context['contextId']}');
-            DO $$BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{context['contextId']}');
-            RAISE EXCEPTION 'Expired close reader returned financial parts';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;
+            DO $$BEGIN {read} END$$;
             SELECT NOT security.has_permission('ReadMarketData');ROLLBACK;"""
             with ThreadPoolExecutor(max_workers=1) as pool:
                 request=pool.submit(subprocess.run,psql,input=sql,env=environment,capture_output=True,text=True,timeout=25)
                 try:
                     for _ in range(200):
-                        if query("SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='synthetic_close_parts_expiry' AND NOT l.granted AND l.relation='market_data.market_close_members'::regclass;")=='1':break
+                        if query(f"SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='synthetic_close_parts_expiry' AND NOT l.granted AND l.relation='market_data.{table}'::regclass;")=='1':break
                         if request.done():raise AssertionError(request.result().stderr)
                         time.sleep(.03)
                     else:raise AssertionError('The exact close reader did not reach the controlled content read')
@@ -65,9 +71,13 @@ def run_checks(query,manifest,psql,environment,close_id,context):
     try:
         query(without_final_guard);attempt(False)
         query(original);attempt(True)
+        query(visibility_without_guard);attempt(False,direct=True)
+        query(visibility);attempt(True,direct=True)
     finally:
+        query(visibility)
         query(original)
         query(f"DELETE FROM security.request_contexts WHERE actor_id='{principal}';DELETE FROM security.role_grants WHERE id='{grant}';DELETE FROM security.workspace_memberships WHERE principal_id='{principal}';DELETE FROM security.identity_bindings WHERE principal_id='{principal}';DELETE FROM security.principals WHERE id='{principal}';DELETE FROM security.role_permissions WHERE role_id='{role}';DELETE FROM security.roles WHERE id='{role}';")
+    print('PASS direct close visibility: missing helper final guard detected; natural expiry while waiting for the exact close receipt refuses visibility',flush=True)
     print('PASS close-parts guard: missing final guard detected, natural expiry after content wait rejected, wrong context refused, recent-header index usable',flush=True)
 
 

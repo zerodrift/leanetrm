@@ -131,7 +131,7 @@ complete within the interactive 20-second target.
   existing current-service and scoped temporal predicates, omits unused PPA
   asset/source metadata, and uses a trusted boolean complete-scope guard. The connected portfolio
   consumer refuses books containing unsupported PPA positions as a whole.
-- Migrations **0090–0099** append current master (through 0089). Fresh installation
+- Migrations **0090–0100** append current master (through 0089). Fresh installation
   is tested. Upgrades from existing populated databases, including unpublished
   earlier migration numbering, are **unqualified**; do not renumber a live history.
 

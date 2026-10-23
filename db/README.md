@@ -1302,3 +1302,10 @@ branch explicitly and evaluates the complete current existing-close authority
 once per live-context check. Repeated calls still recheck current grants,
 ownership, cancellation, lease and overall deadline. Legacy eligibility, function
 ownership/ACLs, final read/publication guards and statement timeouts are unchanged.
+
+Migration `0100_close_pin_visibility.sql` qualifies a close's exact native pin
+set with certified temporal joins, while rechecking complete current authority
+at entry and exit. Missing or ineligible pin evidence refuses the whole close.
+Current reads retain their existing behavior; historical reads retain exact
+publication transactions, knowledge cutoffs, effective dates and observation-time
+bounds. Raw RLS policies and the bounded close-parts reader remain unchanged.
