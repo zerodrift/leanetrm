@@ -15,7 +15,7 @@ import {renderSwapObservationInspection,setupSwapObservationControls} from './sw
 import type {SamplingChoice,ObservationInspection,ObservationOptions,ObservationSchedule} from './swap-observations.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Index={definitionRevisionId:string;curve:string;index:string;commodity:string;currencyCode:string;currency:string;unit:string;quoteMultiplier:string;quantityChoices:{specification:unknown;unit:string}[];defaultDiscountCurve:string|null;fixingConvention:'published_index_observations_v1'|null;fixingUnavailableReason:string|null;customProjections:ProjectionChoice[];averaging:string[];samplings:SamplingChoice[];contracts:{deliveryFrom:string;deliveryTo:string}[]};
-type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];commodities:{code:string;name:string}[];paymentCalendars:{code:string}[];paymentOptions:PaymentOptions;parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean};
+type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];commodities:{code:string;name:string}[];paymentCalendars:{code:string}[];paymentOptions:PaymentOptions;entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean};
 type FloatingTerms={curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null;firstFixingAt?:string|null;customProjection?:CustomProjection|null;observationSchedule?:ObservationSchedule;resetFrequency:string;averagingMethod:string;spread:string};
 type Terms={swapType:string;firstCoefficient:string|null;firstFloating:FloatingTerms|null;commodity:string;definitionRevisionId:string;bookId:string;executedAt:string;quantity:string;fixedCoefficient:string;discounting:boolean;fixed:{price:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null}|null;floating:FloatingTerms};
 type State=Annotation&{tradeId:string;tradeReference:string;instrumentReference:string;revision:number;quantity:string;kind:string;reason:string;effectiveAt:string;recordedAt:string;terms:Terms};
@@ -41,7 +41,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const floatingPair=()=>field('swap-type').value==='financial_floating_floating';
  const observationId=(side:string,suffix:string)=>`swap-${side==='first'?'first-':''}${suffix}`;
  const selectedIndex=(side='floating')=>catalog?.indices.find(i=>indexKey(i)===field(observationId(side,'projection')).value);
- const sources=(side='floating')=>catalog?.indices.filter(i=>i.commodity===field('swap-commodity').value&&(!field(observationId(side,'index')).value||i.index===field(observationId(side,'index')).value)&&(side!=='first'||!selectedIndex()||i.definitionRevisionId===selectedIndex()!.definitionRevisionId))??[];
+ const sources=(side='floating')=>catalog?.indices.filter(i=>i.commodity===field(observationId(side,'commodity')).value&&(!field(observationId(side,'index')).value||i.index===field(observationId(side,'index')).value)&&(side!=='first'||!selectedIndex()||i.definitionRevisionId===selectedIndex()!.definitionRevisionId))??[];
  const projectionChoices=(side='floating')=>selectedIndex(side)?.customProjections.filter(p=>p.samplings.some(s=>s.resetFrequency===field(observationId(side,'reset-frequency')).value&&s.averagingMethod===field(observationId(side,'averaging')).value))??[];
  let observationOptions:Record<string,ObservationOptions|undefined>={};
  const samplingRows=(side:string)=>observationOptions[side]?.samplings??selectedIndex(side)?.samplings??sources(side).flatMap(index=>index.samplings);
@@ -49,19 +49,20 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const observations:Record<string,ReturnType<typeof setupSwapObservationControls>>={};
  for(const side of ['floating','first'])observations[side]=setupSwapObservationControls({prefix:side==='first'?'swap-first':'swap',enabled:()=>!!field('swap-type').value&&(side==='floating'||floatingPair()),api:options.api,busy:options.busy,choice:()=>selectedSampling(side),unit:()=>selectedIndex(side)?.unit??'',
   request:()=>{const i=selectedIndex(side),definition=side==='first'?selectedIndex()??i:i,custom=projectionChoices(side).find(choice=>JSON.stringify(choice.reference)===field(observationId(side,'price-source')).value);return {context:{...context(),knowledgeMode:'retained',contextId:catalog?.context.contextId},
-   ...(definition?{definitionRevisionId:definition.definitionRevisionId}:{}),...(i?{curve:i.curve}:{}),commodity:field('swap-commodity').value||undefined,index:field(observationId(side,'index')).value||undefined,
+   ...(definition?{definitionRevisionId:definition.definitionRevisionId}:{}),...(i?{curve:i.curve}:{}),commodity:field(observationId(side,'commodity')).value||undefined,index:field(observationId(side,'index')).value||undefined,
    resetFrequency:field(observationId(side,'reset-frequency')).value||undefined,averagingMethod:field(observationId(side,'averaging')).value||undefined,
    deliveryFrom:field(`swap-${side}-from`).value||undefined,deliveryTo:field(`swap-${side}-to`).value||undefined,
    ...(custom?{customProjection:custom.reference}:{}),observationCalendar:observations[side].calendar()};},
   apply:response=>{if((response.context as Context)?.contextId!==catalog?.context.contextId)throw Error('The observation choices belong to a different market context. Reload the editor.');observationOptions[side]=response;indexChoices(side);projectionControls(side);},
  });
  async function refreshObservations(){const started=generation,source=key();await observations.floating.refresh();if(started!==generation||source!==key())return;if(floatingPair())await observations.first.refresh();}
- const retainedFloating=(side:string)=>side==='first'?detail?.state.terms.firstFloating:detail?.state.terms.floating;
+ const retainedFloating=(side:string)=>detail?.state.terms.commodity===field(observationId(side,'commodity')).value?(side==='first'?detail.state.terms.firstFloating:detail.state.terms.floating):undefined;
  const activeSides=()=>[floatingPair()?'first':'fixed','floating'];
  function typeControls(){
   const type=field('swap-type').value;
+  get('swap-type-choices').querySelectorAll<HTMLButtonElement>('button').forEach(button=>{button.setAttribute('aria-pressed',String(button.dataset.swapType===type));button.disabled=options.busy()||!!detail||!!options.pending();});
   for(const side of ['fixed','first','floating']){const on=!!type&&(side==='floating'||side===(floatingPair()?'first':'fixed'));get(`swap-${side}-editor`).hidden=!on;get(`swap-${side}-editor`).querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select').forEach(n=>n.disabled=!on);if(on)paymentControls(side);}
-  text('swap-floating-title',floatingPair()?'Second floating side':'Floating side');direction();
+  text('swap-floating-title',floatingPair()?'Second floating side':'Floating side');get('swap-side-compatibility').hidden=!floatingPair();direction();
  }
  function applyPar(result:{resolvedFixedPrice?:string;parRate?:{decimalPlaces:number}|null}){
   if(result.resolvedFixedPrice!==undefined&&result.parRate){field('swap-price').value=result.resolvedFixedPrice;text('swap-par-result',`Par fixed rate: ${result.resolvedFixedPrice} · ${result.parRate.decimalPlaces} decimal places, ties to even. Review this fixed rate before booking.`);}
@@ -88,7 +89,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const draft=draftValuation(get('swaps-draft-valuation'),{product:'swaps',api:options.api,act:options.act,busy:options.busy,key,denied:options.onDenied,draft:instrumentDraft,priced:async result=>applyPar(result)});
  function invalidate(){text('swap-par-result','');draft.reset();previewGeneration++;prepared=undefined;get('swap-result').hidden=true;get('swap-confirmation').hidden=true;get<HTMLInputElement>('swap-confirm').checked=false;sync();}
  function sync(){typeControls();Object.values(observations).forEach(controls=>controls.sync());field('swap-type').disabled=options.busy()||!!detail;draft.sync();display.sync();dates.sync();get<HTMLFieldSetElement>('swap-fields').disabled=options.busy()||!!options.pending()||(!detail? !catalog:!detail.canAmend);get<HTMLButtonElement>('swap-preview').disabled=options.busy()||(!detail?!catalog?.canBook:!detail.canAmend);get<HTMLButtonElement>('swap-submit').disabled=options.busy()||!!options.pending()||!prepared||!get<HTMLInputElement>('swap-confirm').checked;field('swap-revision').disabled=options.busy()||!!options.pending();get<HTMLButtonElement>('swap-latest').disabled=options.busy()||!!options.pending();}
- function reset(){observationOptions={};Object.values(observations).forEach(controls=>controls.reset());failedLiveSelection=undefined;display.reset();visibleValuation=undefined;annotations.reset();generation++;if(dialog.open)dialog.close();detail=undefined;catalog=undefined;dates.reset();invalidate();get<HTMLFormElement>('swap-form').reset();edits.clear();for(const id of ['swap-book','swap-commodity','swap-index','swap-projection','swap-reset-frequency','swap-averaging','swap-fixed-currency','swap-floating-currency','swap-quantity-unit','swap-fixed-payment-calendar','swap-floating-payment-calendar','swap-revision','swap-first-index','swap-first-projection','swap-first-reset-frequency','swap-first-averaging','swap-first-currency','swap-first-payment-calendar','swap-price-source','swap-first-price-source'])field(id).replaceChildren();for(const id of ['swap-reference','swap-mode','swap-unit','swap-price-unit','swap-coverage','swap-projection-note','swap-first-projection-note','swap-legacy-fixing','swap-first-legacy-fixing','swap-pv','swap-effective','swap-error'])text(id,'');get('swap-error').hidden=true;for(const side of ['floating','first'])get(observationId(side,'legacy-fixing')).hidden=true;get('swap-schedules').replaceChildren();get('swap-history').replaceChildren();get('swap-revisions').hidden=true;get('swap-history-panel').hidden=true;get('swap-amendment').hidden=true;for(const side of ['fixed','first','floating'])paymentControls(side);typeControls();}
+ function reset(){text('swap-template-note','Choose a structure to set up its sides.');observationOptions={};Object.values(observations).forEach(controls=>controls.reset());failedLiveSelection=undefined;display.reset();visibleValuation=undefined;annotations.reset();generation++;if(dialog.open)dialog.close();detail=undefined;catalog=undefined;dates.reset();invalidate();get<HTMLFormElement>('swap-form').reset();edits.clear();for(const id of ['swap-book','swap-commodity','swap-first-commodity','swap-index','swap-projection','swap-reset-frequency','swap-averaging','swap-fixed-currency','swap-floating-currency','swap-quantity-unit','swap-fixed-payment-calendar','swap-floating-payment-calendar','swap-revision','swap-first-index','swap-first-projection','swap-first-reset-frequency','swap-first-averaging','swap-first-currency','swap-first-payment-calendar','swap-price-source','swap-first-price-source'])field(id).replaceChildren();for(const id of ['swap-reference','swap-mode','swap-unit','swap-price-unit','swap-coverage','swap-projection-note','swap-first-projection-note','swap-legacy-fixing','swap-first-legacy-fixing','swap-pv','swap-effective','swap-error'])text(id,'');get('swap-error').hidden=true;for(const side of ['floating','first'])get(observationId(side,'legacy-fixing')).hidden=true;get('swap-schedules').replaceChildren();get('swap-history').replaceChildren();get('swap-revisions').hidden=true;get('swap-history-panel').hidden=true;get('swap-amendment').hidden=true;for(const side of ['fixed','first','floating'])paymentControls(side);typeControls();}
  async function safe(work:()=>Promise<void>){const started=generation;try{get('swap-error').hidden=true;await work();}catch(error){if(started!==generation)return;text('swap-error',error instanceof Error?error.message:'The financial swap operation failed.');get('swap-error').hidden=false;if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}throw error;}}
  function choose(id:string,rows:{value:string;label:string}[],value='',retained?:string){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(publicText(r.label),r.value)));if(value&&retained&&!rows.some(row=>row.value===value)){const option=new Option(publicText(retained+' · retained, unavailable for new pricing'),value);option.disabled=true;select.append(option);}select.value=[...select.options].some(row=>row.value===value)?value:'';}
  function restoreSelection(id:string,value:string,label:string){
@@ -127,18 +128,32 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   observationOptions[side]=undefined;choose(observationId(side,'reset-frequency'),[...new Set(sources(side).flatMap(i=>i.samplings.map(s=>s.resetFrequency)))].map(value=>({value,label:friendly(value)})),field(observationId(side,'reset-frequency')).value);projectionControls(side);
  }
  function indexChoices(side:string){
-  const indices=catalog?.indices.filter(index=>index.commodity===field('swap-commodity').value&&(!observationOptions[side]||observationOptions[side]!.indices.some(candidate=>indexKey(candidate)===indexKey(index)))&&(side!=='first'||!selectedIndex()||index.definitionRevisionId===selectedIndex()!.definitionRevisionId))??[];
+  const indices=catalog?.indices.filter(index=>index.commodity===field(observationId(side,'commodity')).value&&(!observationOptions[side]||observationOptions[side]!.indices.some(candidate=>indexKey(candidate)===indexKey(index)))&&(side!=='first'||!selectedIndex()||index.definitionRevisionId===selectedIndex()!.definitionRevisionId))??[];
   const value=field(observationId(side,'index')).value;choose(observationId(side,'index'),[...new Set(indices.map(index=>index.index))].map(value=>({value,label:friendly(value)})),value,retainedFloating(side)?.index===value?friendly(value):undefined);
  }
- function commodityControls(){
-  observationOptions={};for(const side of ['floating','first']){indexChoices(side);indexControls(side);}
-  field('swap-price').value='';field('swap-quantity').value='';for(const side of ['fixed','first','floating'])field(`swap-${side}-currency`).value='';
+ function commodityControls(selected?:string){
+  for(const side of selected?[selected]:['floating','first']){
+   observationOptions[side]=undefined;observations[side].reset();
+   for(const suffix of ['index','projection','reset-frequency','averaging','price-source'])field(observationId(side,suffix)).value='';
+   indexChoices(side);indexControls(side);
+  }
+ }
+ function applyEntryTemplate(){
+  if(!catalog||detail)return;
+  const template=catalog.entryTemplate;
+  const coefficient=floatingPair()?'swap-first-direction':'swap-direction';
+  if(!field(coefficient).value)field(coefficient).value=template.firstCoefficient;
+  for(const side of activeSides()){
+   if(['payment-frequency','payment-rule','payment-number','day-basis','short-month','payment-adjustment','payment-calendar'].every(key=>!field(`swap-${side}-${key}`).value))setPayment(side,template.payment);
+   if(side!=='fixed'&&!field(observationId(side,'spread')).value)field(observationId(side,'spread')).value=template.spread;
+  }
+  text('swap-template-note',template.description);direction();
  }
  function populateCatalog(){if(!catalog)return;
   annotations.populate(catalog.bookingActor,catalog,detail?.state);
   const policies=catalog.paymentOptions;field('swap-par-places').value=String(catalog.parRateOptions.initialDecimalPlaces);
   for(const side of ['fixed','first','floating'])for(const [suffix,choices] of [['payment-frequency',policies.frequencies],['payment-rule',policies.rules],['day-basis',policies.dayBases],['short-month',policies.shortMonths],['payment-adjustment',policies.adjustments]] as const)choose(`swap-${side}-${suffix}`,choices);
- choose('swap-book',catalog.books.map(b=>({value:b.id,label:`${b.portfolio} · ${b.name}`})));choose('swap-commodity',catalog.commodities.filter(c=>catalog!.indices.some(i=>i.commodity===c.code)).map(c=>({value:c.code,label:c.name})));commodityControls();for(const side of ['fixed','first','floating'])choose(`swap-${side}-payment-calendar`,catalog.paymentCalendars.map(c=>({value:c.code,label:friendly(c.code)})));}
+ choose('swap-book',catalog.books.map(b=>({value:b.id,label:`${b.portfolio} · ${b.name}`})));for(const side of ['floating','first'])choose(observationId(side,'commodity'),catalog.commodities.filter(c=>catalog!.indices.some(i=>i.commodity===c.code)).map(c=>({value:c.code,label:c.name})));commodityControls();for(const side of ['fixed','first','floating'])choose(`swap-${side}-payment-calendar`,catalog.paymentCalendars.map(c=>({value:c.code,label:friendly(c.code)})));}
  function paymentControls(side:string){
   const rule=field(`swap-${side}-payment-rule`).value,lag=rule===PaymentDateRule.DaysAfterPeriodEnd,next=rule===PaymentDateRule.DayOfFollowingMonth;
   text(`swap-${side}-payment-number-label`,lag?'Days after last delivery day':next?'Day of following month':'Rule parameter');
@@ -171,7 +186,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   }
   get('swap-result').hidden=false;
  }
- function renderDetail(value:Detail){detail=value;catalog={...value.catalog,context:value.context,asOf:value.asOf};dates.invalidate();populateCatalog();const state=value.state,t=state.terms;field('swap-type').value=t.swapType;typeControls();field('swap-commodity').value=t.commodity;commodityControls();
+ function renderDetail(value:Detail){detail=value;catalog={...value.catalog,context:value.context,asOf:value.asOf};dates.invalidate();populateCatalog();const state=value.state,t=state.terms;field('swap-type').value=t.swapType;typeControls();for(const side of ['floating','first'])field(observationId(side,'commodity')).value=t.commodity;commodityControls();text('swap-template-note','Retained trade terms. Each side shows its saved values.');
   field('swap-book').value=t.bookId;field('swap-quantity').value=t.quantity;field(floatingPair()?'swap-first-direction':'swap-direction').value=t.firstCoefficient??t.fixedCoefficient;
   for(const side of ['floating',...(floatingPair()?['first']:[])]){
    const terms=side==='first'?t.firstFloating!:t.floating;
@@ -191,15 +206,16 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  async function open(tradeId:string,revision:number|null){reset();const started=++generation,source=key();invalidate();await safe(async()=>{const response=await options.api<Detail>('swaps/editor',{context:context(),tradeId,revision});if(started!==generation||source!==key())return;await display.load(response.state.tradeId,context(),response.canAmend,response.state.terms.firstFloating?['trade','floating']:['trade','fixed','floating']);await prepare(response.valuation);if(started!==generation||source!==key())return;renderDetail(response);await refreshObservations();if(started!==generation||source!==key())return;if(!dialog.open)dialog.showModal();});}
  get('swap-close').onclick=()=>{if(!options.busy())reset();};dialog.addEventListener('cancel',reset);
  field('swap-quantity-unit').onchange=quantityUnitLabel;
- field('swap-type').onchange=()=>{invalidate();typeControls();dates.sync();};
- field('swap-commodity').onchange=()=>{invalidate();commodityControls();};
+ get('swap-type-choices').querySelectorAll<HTMLButtonElement>('button').forEach(button=>button.onclick=()=>{field('swap-type').value=button.dataset.swapType!;field('swap-type').dispatchEvent(new Event('change',{bubbles:true}));});
+ field('swap-type').onchange=()=>{invalidate();typeControls();applyEntryTemplate();dates.sync();};
+ for(const side of ['floating','first'])field(observationId(side,'commodity')).onchange=()=>{invalidate();if(side==='floating')field('swap-price').value='';const spread=field(observationId(side,'spread'));if(spread.value!==catalog?.entryTemplate.spread)spread.value='';commodityControls(side);};
  for(const side of ['first','floating']){
   field(observationId(side,'averaging')).onchange=()=>{observationOptions[side]=undefined;invalidate();projectionControls(side);};field(observationId(side,'price-source')).onchange=()=>{invalidate();priceSourceControls(side);};
   field(observationId(side,'index')).onchange=()=>{invalidate();indexControls(side);};field(observationId(side,'reset-frequency')).onchange=()=>{observationOptions[side]=undefined;invalidate();projectionControls(side);};field(observationId(side,'projection')).onchange=()=>{observationOptions[side]=undefined;invalidate();projectionControls(side);};
  }
  for(const side of ['fixed','first','floating'])for(const id of ['payment-rule','day-basis','payment-adjustment'])field(`swap-${side}-${id}`).addEventListener('change',()=>paymentControls(side));field('swap-direction').onchange=direction;field('swap-first-direction').onchange=direction;
  for(const suffix of ['from','to','currency'])for(const side of ['fixed','first','floating'])field(`swap-${side}-${suffix}`).addEventListener('change',()=>{for(const otherSide of activeSides().filter(s=>s!==side)){const other=field(`swap-${otherSide}-${suffix}`);if(!other.value)other.value=field(`swap-${side}-${suffix}`).value;}});
- get<HTMLFormElement>('swap-form').addEventListener('change',event=>{const id=(event.target as HTMLElement).id;if(['swap-type','swap-commodity','swap-fixed-from','swap-fixed-to',...['first','floating'].flatMap(side=>['index','projection','reset-frequency','averaging','price-source','observation-calendar'].map(suffix=>observationId(side,suffix)).concat([`swap-${side}-from`,`swap-${side}-to`]))].includes(id)){void options.act(()=>safe(refreshObservations));}});
+ get<HTMLFormElement>('swap-form').addEventListener('change',event=>{const id=(event.target as HTMLElement).id;if(['swap-type','swap-commodity','swap-first-commodity','swap-fixed-from','swap-fixed-to',...['first','floating'].flatMap(side=>['index','projection','reset-frequency','averaging','price-source','observation-calendar'].map(suffix=>observationId(side,suffix)).concat([`swap-${side}-from`,`swap-${side}-to`]))].includes(id)){void options.act(()=>safe(refreshObservations));}});
  get<HTMLFormElement>('swap-form').addEventListener('input',event=>{invalidate();if(!(event.target as Element).closest('.schedule-date-picker'))dates.invalidate();});
  get<HTMLFormElement>('swap-form').onsubmit=event=>{event.preventDefault();void options.act(()=>safe(async()=>{
   const i=selectedIndex();if(!i||!catalog)throw Error('Choose a supported exact index and curve.');if(detail&&!detail.canAmend)throw Error('Only the latest eligible trade revision can be amended.');

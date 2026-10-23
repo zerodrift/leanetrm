@@ -26,6 +26,6 @@ export function mountFirstFloatingEditor(){
  content.querySelectorAll<HTMLElement>('*').forEach(el=>{for(const attribute of ['id','for','aria-labelledby']){const old=el.getAttribute(attribute);if(old&&names.has(old))el.setAttribute(attribute,names.get(old)!);}});
  content.querySelector('h3')!.textContent='First floating side';
  const direction=content.querySelector('#swap-first-direction')!,select=document.createElement('select');select.id='swap-first-direction';select.required=true;select.append(new Option('Choose…',''),new Option('Pay floating','-1'),new Option('Receive floating','1'));direction.replaceWith(select);
- content.querySelector('label')!.setAttribute('for',select.id);
+ select.parentElement!.querySelector('label')!.setAttribute('for',select.id);
  const host=document.getElementById('swap-first-editor')!;host.replaceChildren(content);mountObservationControls(host,'swap-first');
 }

@@ -400,3 +400,25 @@ versioned reference relationships, complete identity comparisons and shared
 per-Side admission. Existing economic identity versions and the two earlier command
 signatures retain their meaning. General pricing windows, zero-weight means,
 recurring booking and paired observations require separate qualified versions.
+
+## D209 — Explicit swap entry templates and side-scoped choices
+
+Entry follows Trade, Instrument, then Sides. Choosing a fixed/floating or
+floating/floating instrument card applies the managed
+`monthly_18_calendar_days_v1` starting template visibly: pay first / receive
+second, zero floating spreads, monthly payments 18 calendar days after the last
+delivery day, and no adjustment. This initializes only empty controls; switching
+structure preserves user edits and never applies defaults to a retained trade.
+Commodity, index, dates, quantity and discounting require explicit selection.
+Booking receives concrete side terms through the existing operations; missing
+terms never acquire a backend fallback from the entry template.
+
+Each floating side selects a commodity before its index, projection and compatible
+unit choices. The fixed side has no commodity selector. Changing the reference
+floating commodity clears the fixed price and incompatible quantity selection;
+changing either commodity clears a nonzero spread and observation configuration.
+The current swap model still requires compatible units and a shared commodity;
+independent filters do not implement cross-commodity valuation.
+
+New Trade also offers PPA and routes to the existing authorized PPA workflow,
+where the user explicitly selects market inputs before entering a booking.

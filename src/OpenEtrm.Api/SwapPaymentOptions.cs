@@ -24,5 +24,8 @@ public static class SwapPaymentOptions
         new(DateRoll.Preceding,"preceding","Preceding"),new(DateRoll.ModifiedFollowing,"modified_following","Modified following")];
     public static T Parse<T>(ImmutableArray<PaymentChoice<T>> choices,string? value) where T:struct,Enum =>
         choices.FirstOrDefault(c=>c.Value==value)?.Policy ?? throw new MarketDataException("payment_rule","Select an explicitly supported payment convention.");
+    public static object EntryTemplate=>new{version="monthly_18_calendar_days_v1",firstCoefficient="-1",spread="0",
+        description="Starting terms: pay the first side, receive the second; zero floating spreads; monthly payments 18 calendar days after the last delivery day, without date adjustment. Review and edit each side.",
+        payment=new SwapPaymentInput("monthly","days_after_period_end",18,null,"calendar_days",null,"unadjusted",null,PaymentRule.Implementation)};
     public static object Catalog=>new{frequencies=Frequencies,rules=Rules,dayBases=DayBases,shortMonths=ShortMonths,adjustments=Adjustments,implementation=PaymentRule.Implementation};
 }
