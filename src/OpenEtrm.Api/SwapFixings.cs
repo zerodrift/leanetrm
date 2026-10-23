@@ -11,15 +11,15 @@ public sealed partial class SwapStore
             row.Id("reference_catalog_id")==quote.Revision.CatalogId&&row.Id("reference_revision_id")==quote.Revision.RevisionId&&
             Date(row.Text("observation_from"))==contract.DeliveryFrom&&Date(row.Text("observation_to"))==contract.DeliveryTo&&row.Instant("fixing_at")<=at);
 
-    private static ImmutableArray<IndexFixing> Fixings(PreviewData data, ReferenceKey index,
+    internal static ImmutableArray<IndexFixing> Fixings(PreviewData data, ReferenceKey index,
         QuoteSpecification quote, ImmutableArray<SwapProjection> projections)
     {
+        var definitions=data.Definitions["index_fixing_observations"].Where(row=>row.Text("index_code")==index.Code)
+            .ToLookup(row=>(Date(row.Text("observation_from")),Date(row.Text("observation_to"))));
         return projections.Select(projection =>
         {
             var period = projection.Contract;
-            var rows = data.Definitions["index_fixing_observations"].Where(row =>
-                row.Text("index_code") == index.Code && Date(row.Text("observation_from")) == period.DeliveryFrom &&
-                Date(row.Text("observation_to")) == period.DeliveryTo).ToArray();
+            var rows=definitions[(period.DeliveryFrom,period.DeliveryTo)].Take(2).ToArray();
             if (rows.Length != 1)
                 throw Error("index_fixing_convention_missing", "This index has no qualified fixing schedule for the selected observations.");
             var row = rows[0];

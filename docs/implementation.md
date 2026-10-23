@@ -260,6 +260,57 @@ valuation at or after their declared first fixing. Indexed sides consume exact
 pinned actual fixings from their qualified schedules (D165, D172); settlement
 remains future work.
 
+`FloatingObservationPlan` now supplies the same six-mode date selection to the
+Side and its booking adapter. A generated payment retains `Applications`, with
+target bounds, observation ordinal, exact weight and a versioned mapping rule.
+Previous/next rules retain every represented day, including the link to an
+outside-period guard observation. Each observation is resolved once; the payment
+evaluator creates application cash contributions and reconciles them into the
+existing observation subtotals. `ObservationWeightTotal` is exact decimal text
+from the unbounded integer sum, so displaying the denominator does not narrow the
+existing numerical contract. The schedule itself can be evaluated directly.
+
+The admission service distinguishes the period of a qualified fixing from
+payment frequency and projected curve tenor. `/api/swaps/observation-options`
+accepts partial authoring at an exact retained context and returns source/method
+choices, required typed observation coordinates and structured coverage failures.
+Quantity entry coordinates contain no placeholder amounts or inferred weights.
+Submitted definitions use the same compatibility and observation-plan operations.
+Exact reference keys and their revision objects reject unknown JSON members, so
+an unrecognized nested financial policy cannot disappear during input binding.
+These are synthetic source qualifications; a product name alone admits nothing.
+
+Migration 0102 adds immutable observation-schedule headers and typed quantity
+children. Exact-version foreign keys retain the curve, index, quote, calendar,
+quantity specification and quantity contract. Hash lookup is followed by a full
+definition/child comparison. Legacy and observation booking entry points delegate
+one private writer. Composed booking uses the same per-Side observation selection
+and fixing evidence for both floating memberships, retaining their calendars and
+quantity weights independently. Side lookup includes both the explicit spread and
+observation schedule. Atomic publications, command retries and amendment history
+remain unchanged.
+The additional authoring version is `side_observation_schedule_v1`; the existing
+`FloatingSide_v3`, `index_observation_fixings_v1` and six averaging definitions
+remain unchanged. New rules still use one complete delivery month and one payment
+per Side. Quantity weights must remain strictly positive. Other observation
+windows, explicit zero weights, blocks/events, persisted recurring strips and
+contract-relative or paired sampling are not admitted by this version.
+
+Focused verification commands use disposable synthetic resources:
+
+```sh
+dotnet run --project tests/OpenEtrm.MarketData.Checks -- --observation-schedules
+dotnet run --project tests/OpenEtrm.Api.Checks -- --side-observation-compatibility
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet --side-observation-check
+```
+
+The managed checks compare independent exact values, original day mappings,
+partly fixed risk, publication boundaries, large denominators and unchanged Side
+reuse. The HTTP check exercises the real authoring, valuation and saved-trade
+operations. Broader convention qualification needs its own implementation and
+independent acceptance evidence; these checks do not establish market-source or
+production qualification.
+
 Each side applies its own quote multiplier and payment factors to exact rational
 cash amounts. Exact side PVs survive signed instrument aggregation and later
 trade quantity scaling. Repeating averages and final amounts remain exact

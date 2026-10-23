@@ -4,6 +4,19 @@ export function mountSwapSideEditor(side:'fixed'|'floating'){
  const host=document.getElementById(`swap-${side}-editor`)!;
  const template=document.getElementById(`swap-${side}-template`) as HTMLTemplateElement;
  host.replaceChildren(template.content.cloneNode(true));
+ if(side==='floating')mountObservationControls(host,'swap');
+}
+
+function mountObservationControls(host:HTMLElement,prefix:string){
+  const id=(suffix:string)=>`${prefix}-observation-${suffix}`;
+  const averaging=host.querySelector(`#${prefix}-averaging`)!.parentElement!;
+  const calendar=document.createElement('div');calendar.id=id('calendar-field');calendar.hidden=true;
+  const label=document.createElement('label');label.htmlFor=id('calendar');label.textContent='Observation calendar';
+  const choices=document.createElement('select');choices.id=id('calendar');
+  calendar.append(label,choices);
+  const status=document.createElement('p');status.id=id('status');status.className='field-help';status.setAttribute('role','status');
+  const weights=document.createElement('div');weights.id=id('quantities');weights.hidden=true;
+  averaging.append(calendar,status,weights);
 }
 
 export function mountFirstFloatingEditor(){
@@ -14,5 +27,5 @@ export function mountFirstFloatingEditor(){
  content.querySelector('h3')!.textContent='First floating side';
  const direction=content.querySelector('#swap-first-direction')!,select=document.createElement('select');select.id='swap-first-direction';select.required=true;select.append(new Option('Choose…',''),new Option('Pay floating','-1'),new Option('Receive floating','1'));direction.replaceWith(select);
  content.querySelector('label')!.setAttribute('for',select.id);
- document.getElementById('swap-first-editor')!.replaceChildren(content);
+ const host=document.getElementById('swap-first-editor')!;host.replaceChildren(content);mountObservationControls(host,'swap-first');
 }

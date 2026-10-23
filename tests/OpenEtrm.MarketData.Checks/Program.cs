@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 
+if(args is ["--observation-schedules"]){ObservationScheduleChecks.Run();return;}
 if(args is ["--ppa-normalization-reuse"]){PpaNormalizationReuseChecks.Run();return;}
 if(args is ["--series-index-acceptance"]){SeriesIndexAcceptanceChecks.Run();return;}
 if(args is ["--ppa-summary"]){PpaSummaryChecks.Run();return;}
@@ -441,6 +442,7 @@ passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();
 passed += FuturesChecks.Run();
 passed += ExchangeFuturesChecks.Run();
 passed += SwapChecks.Run();
+passed += ObservationScheduleChecks.Run();
 passed += CommodityLookupChecks.Run();
 passed += SnapshotInputChecks.Run();
 passed += MonthlySwapChecks.Run();

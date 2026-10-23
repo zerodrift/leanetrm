@@ -83,7 +83,7 @@ def run_checks(url, query, manifest, client=None):
         state = c.call('swaps/editor', {'context': context, 'tradeId': booked['tradeId'], 'revision': None})['state']
         assert state['terms']['discounting'] is expected
     columns = query("SELECT array_agg(a.attname ORDER BY k.n)::text FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,n) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid='trading.swap_floating_sides'::regclass AND c.conname='swap_floating_economic_key';")
-    assert columns == '{catalog_id,definition_revision_id,curve_code,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id,custom_projection_id,spread}', f'Unexpected floating-side economic key: {columns}'
+    assert columns == '{catalog_id,definition_revision_id,curve_code,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id,custom_projection_id,spread,observation_schedule_id}', f'Unexpected floating-side economic key: {columns}'
     spread_body={**body,'operationId':str(uuid4()),'floating':{**body['floating'],'spread':'0.2'}}
     spread_trade=c.call('swaps/book',spread_body)
     assert spread_trade['instrumentId']!=plain['instrumentId'], 'A fixed floating spread distinguishes economic sides.'

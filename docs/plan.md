@@ -240,8 +240,8 @@ the common portfolio path (D169, D181). See [pricing lookups](pricing-lookups.md
 
 Financial gas and power swaps now have local booking/amendment operations, a
 shared trade blotter and an editor with independently valued side tables. The
-booking model supports one whole delivery month, monthly-index or complete daily
-calendar observations, independently generated payment dates and explicit currency-default
+booking model supports one whole delivery month, a single monthly index or the
+five existing daily observation/weighting modes, independently generated payment dates and explicit currency-default
 or no discounting. Daily resets aggregate into one monthly floating payment;
 retained exact lookups, cash allocations, DFs and PVs are inspectable. Four explicit
 weekday dates have synthetic monthly/daily gas and power examples.
@@ -261,9 +261,17 @@ typed supported conventions; reference choices remain database-backed. The stand
 local example uses USD from the currency reference table with synthetic prices.
 Shared tables now guard row activation during selection/scrolling and use a single
 scroll container for schedule inspection.
-The managed core additionally validates calendar-based and quantity-weighted
-rules; those need persisted authoring before booking controls are exposed.
-Fixing lifecycle events and persisted recurring payment strips remain work. Bounded physical and virtual PPA capabilities are documented below.
+Calendar-based rules retain an exact observation calendar and any required
+outside-month guards. Quantity weighting retains a positive typed quantity for
+each daily observation. Shared compatibility and schedule generation serve
+authoring and submitted terms; original target applications are the rows valued
+and inspected. Migration 0102 supplies normalized immutable authoring and shared
+atomic booking. The bounded version still has one payment per Side.
+Independent pricing windows, explicit zero weights, delivery blocks/events and
+contract-relative or paired observations require separately qualified versions.
+Fixing lifecycle events and persisted recurring payment strips remain work.
+Bounded physical and virtual PPA capabilities are documented below.
+Draft swap quote risk supports unresolved
 observations; final index fixings remain frozen inputs.
 FixedSide and FloatingSide now independently generate and value their own
 schedules through Side.PV. Each constituent monthly side has one payment;

@@ -386,3 +386,17 @@ terms/due dates, final meter evidence and exact normalization. Collected prices
 remain available source observations, not contractually final publications.
 Missing or incompatible evidence refuses the whole preview. This adds no cash
 acceptance, obligations, payment workflow or automated correction adjustment.
+
+## D208 — Preserve original Side price applications alongside shared observation terms
+
+`FloatingObservationPlan` serves both Side generation and booking resolution for
+the six existing averaging modes. A payment retains each target interval,
+observation ordinal, mapping rule and exact weight before shared observations are
+resolved. The same payment evaluator values those applications and derives its
+observation subtotals; the inspector does not calculate a second schedule.
+
+Migration 0102 retains exact calendar and positive quantity authoring with
+versioned reference relationships, complete identity comparisons and shared
+per-Side admission. Existing economic identity versions and the two earlier command
+signatures retain their meaning. General pricing windows, zero-weight means,
+recurring booking and paired observations require separate qualified versions.

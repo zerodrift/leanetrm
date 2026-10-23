@@ -1325,3 +1325,14 @@ complete-book scope resolves reference versions from the mandatory floating side
 Existing report rows remain unchanged. Apply only
 in a reviewed schema window after draining runtime writes. No deployment or
 backfill of immutable events is performed by the application.
+
+Migration `0102_side_observation_schedules.sql` retains immutable observation-rule
+headers and positive daily quantity weights for each independently selected
+floating Side's existing averaging modes.
+Exact-version foreign keys bind the curve, index, quote, calendar, quantity unit
+and dated contracts. Earlier monthly/daily definitions and writer signatures
+remain readable and replayable through the shared private writer. Composed swaps
+retain both spread and observation-schedule identity with per-slot fixing evidence.
+Before applying this separately qualified schema change, stop write admission and
+drain requests. General observation windows and interval pricing remain separate
+contracts.

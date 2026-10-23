@@ -2,7 +2,9 @@ using System.Collections.Immutable;
 
 namespace OpenEtrm.MarketData;
 
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public readonly record struct ReferenceRevision(Guid CatalogId, Guid RevisionId);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public readonly record struct ReferenceKey(ReferenceRevision Revision, string Code);
 public readonly record struct DefinitionRevision(Guid CatalogId, Guid RevisionId);
 public readonly record struct ContractKey(DefinitionRevision Revision, Guid Id);

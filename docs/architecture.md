@@ -358,6 +358,10 @@ These are distinct concepts:
   explicit unit and basis for each instrument.
 - Generated schedule legs are dated delivery, observation or payment events. A
   generated leg is not another side.
+- A Side's observation plan retains target-to-price applications before combining
+  their weights. Several delivery dates may consume one observation. The valued
+  application points to the same generated price term and resolved price as its
+  observation subtotal; inspection never builds a parallel calculation.
 - A composite side contains explicit members, coefficients, roles and ordering.
   Dependencies between components, including quantity sources, are explicit.
 
