@@ -88,6 +88,8 @@ def run_checks(url, query, manifest, psql=None, environment=None):
     assert weighted_view['denominator'] == '496' and [row['weight'] for row in weighted_view['observations']] == [str(n) for n in range(1, 32)]
     assert not any(row['isGuard'] for row in weighted_view['observations'])
     print('PASS side observations: all positive typed daily quantities survive normalized storage, repricing and exact denominator evidence', flush=True)
+    from check_swap_observation_reads import run_checks as check_reads
+    check_reads(client, query, context, booking, weighted_receipt['tradeId'])
     _weighted_actuals_and_risk(client, query, context, draft, weighted, weighted_booking, weighted_receipt, weighted_price)
     from check_side_observation_composition import run_checks as check_composition
     check_composition(client, query, context, draft, weighted, weighted_booking)

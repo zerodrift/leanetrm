@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
@@ -235,11 +236,6 @@ public sealed partial class SwapStore(PreviewDatabase database)
  private async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct)
  {
   var rows=await PreviewDatabase.Rows(connection,"""
-  WITH observation_schedules AS NOT MATERIALIZED(
-   SELECT o.catalog_id,o.id,jsonb_build_object('implementation',o.implementation,'calendar',CASE WHEN o.calendar_code IS NULL THEN NULL ELSE jsonb_build_object('revision',jsonb_build_object('catalogId',o.reference_catalog_id,'revisionId',o.reference_revision_id),'code',o.calendar_code) END,
-    'quantities',CASE WHEN o.averaging='quantity_weighted' THEN(SELECT jsonb_agg(jsonb_build_object('from',k.delivery_from,'to',k.delivery_to,'quantity',jsonb_build_object('value',trim_scale(q.amount)::text,'specification',jsonb_build_object('revision',jsonb_build_object('catalogId',q.reference_catalog_id,'revisionId',q.reference_revision_id),'code',q.quantity_code))) ORDER BY q.ordinal)
-     FROM trading.swap_observation_quantities q JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(q.catalog_id,q.definition_revision_id,q.contract_id) WHERE(q.catalog_id,q.schedule_id)=(o.catalog_id,o.id)) ELSE NULL END) AS terms
-   FROM trading.swap_observation_schedules o)
   SELECT row_to_json(v)::text FROM(
    SELECT r.*,facts.booker_id,facts.booker_version,facts.booker_name,facts.booker_login,facts.executed_at AS booked_at,facts.trade_date AS booking_date,facts.implementation AS booking_implementation,facts.label_captured_at AS booker_label_captured_at,le.code AS legal_entity_code,le.name AS legal_entity_name,cp.code AS counterparty_code,cp.name AS counterparty_name,trdr.code AS trader_code,trdr.name AS trader_name,tr.reference_number AS trade_reference,ir.reference_number AS instrument_reference,k.known_from AS recorded_at,
     coalesce(i.fixed_side_id,i.first_floating_side_id) AS fixed_side_id,i.first_floating_side_id,i.floating_side_id,i.fixed_coefficient,i.discounting,i.implementation,
@@ -247,11 +243,11 @@ public sealed partial class SwapStore(PreviewDatabase database)
     (SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) AS projection_contracts,
     (SELECT array_agg(p.weight ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) AS projection_weights,
     s.implementation AS floating_implementation,s.definition_revision_id,s.curve_code,s.index_code,s.quote_code,s.delivery_from AS floating_from,s.delivery_to AS floating_to,s.first_fixing_at,s.payment_at AS floating_payment,s.averaging,s.custom_projection_id,s.observation_schedule_id,
-    os.terms AS observation_schedule,
+    NULL::jsonb AS observation_schedule,
     (SELECT jsonb_build_object('curve',a.curve_code,'index',a.index_code,'currency',q.currency_code,'deliveryFrom',a.delivery_from,'deliveryTo',a.delivery_to,
      'firstFixingAt',CASE WHEN a.implementation='prefixing_index_projection_v1' THEN to_jsonb(a.first_fixing_at) ELSE NULL END,'paymentAt',CASE WHEN a.payment_rule_id IS NULL THEN to_jsonb(a.payment_at) ELSE NULL END,
      'paymentSchedule',(SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(a.catalog_id,a.payment_rule_id)),
-     'resetFrequency',CASE WHEN a.averaging='monthly_index_price' THEN 'monthly' ELSE 'daily' END,'averagingMethod',CASE a.averaging WHEN 'monthly_index_price' THEN 'none' WHEN 'calendar_day_arithmetic' THEN 'arithmetic' ELSE a.averaging END,'spread',a.spread::text,'observationSchedule',first_os.terms,
+     'resetFrequency',CASE WHEN a.averaging='monthly_index_price' THEN 'monthly' ELSE 'daily' END,'averagingMethod',CASE a.averaging WHEN 'monthly_index_price' THEN 'none' WHEN 'calendar_day_arithmetic' THEN 'arithmetic' ELSE a.averaging END,'spread',a.spread::text,'observationSchedule',NULL,
      'customProjection',(SELECT jsonb_build_object('catalogId',p.catalog_id,'curveId',p.curve_id,'version',p.version,'outputNode',p.output_node,'position',p.position,'selection',p.selection,'implementation',p.implementation) FROM trading.custom_curve_projection_bindings p WHERE(p.catalog_id,p.id)=(a.catalog_id,a.custom_projection_id)))
      FROM trading.swap_floating_sides a JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(a.reference_catalog_id,a.reference_revision_id,a.quote_code) WHERE(a.catalog_id,a.id)=(i.catalog_id,i.first_floating_side_id)) AS first_floating,
     a.first_fixing_at AS first_floating_fixing,a.custom_projection_id AS first_custom_projection_id,a.observation_schedule_id AS first_observation_schedule_id,
@@ -264,8 +260,6 @@ public sealed partial class SwapStore(PreviewDatabase database)
    LEFT JOIN trading.swap_fixed_sides f ON(f.catalog_id,f.id)=(i.catalog_id,i.fixed_side_id)
    JOIN trading.swap_floating_sides s ON(s.catalog_id,s.id)=(i.catalog_id,i.floating_side_id)
    LEFT JOIN trading.swap_floating_sides a ON(a.catalog_id,a.id)=(i.catalog_id,i.first_floating_side_id)
-   LEFT JOIN observation_schedules os ON(os.catalog_id,os.id)=(s.catalog_id,s.observation_schedule_id)
-   LEFT JOIN observation_schedules first_os ON(first_os.catalog_id,first_os.id)=(a.catalog_id,a.observation_schedule_id)
    LEFT JOIN trading.booking_facts facts ON(facts.catalog_id,facts.trade_id)=(r.catalog_id,r.trade_id)
    LEFT JOIN trading.legal_entities le ON(le.catalog_id,le.id,le.revision)=(r.catalog_id,r.legal_entity_id,r.legal_entity_revision)
    LEFT JOIN trading.counterparties cp ON(cp.catalog_id,cp.id,cp.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
@@ -276,7 +270,34 @@ public sealed partial class SwapStore(PreviewDatabase database)
    WHERE r.catalog_id=$1 AND($2::uuid IS NULL OR r.trade_id=$2) ORDER BY r.trade_id,r.revision
   )v
   """,[manifest.CatalogId,trade is {} id?id:DBNull.Value],ct);
-  TradeAnnotations.RequireFacts(rows);return rows;
+  TradeAnnotations.RequireFacts(rows);
+  return await ObservationSchedules(connection,rows,ct);
+ }
+ // Headers and children are immutable, published atomically no later than a
+ // referencing side. The selected knowledge context therefore qualifies the
+ // same exact references across both bounded reads; current RLS remains active
+ // on this connection, and absent required rows remain absent.
+ private async Task<ImmutableArray<JsonElement>> ObservationSchedules(NpgsqlConnection connection,ImmutableArray<JsonElement> rows,CancellationToken ct)
+ {
+  var ids=rows.SelectMany(row=>new[]{row.OptionalId("observation_schedule_id"),row.OptionalId("first_observation_schedule_id")})
+   .OfType<Guid>().Distinct().ToArray();
+  if(ids.Length==0)return rows;
+  var schedules=await PreviewDatabase.Rows(connection,"""
+   SELECT jsonb_build_object('id',o.id,'terms',jsonb_build_object('implementation',o.implementation,
+    'calendar',CASE WHEN o.calendar_code IS NULL THEN NULL ELSE jsonb_build_object('revision',jsonb_build_object('catalogId',o.reference_catalog_id,'revisionId',o.reference_revision_id),'code',o.calendar_code) END,
+    'quantities',CASE WHEN o.averaging='quantity_weighted' THEN(SELECT jsonb_agg(jsonb_build_object('from',k.delivery_from,'to',k.delivery_to,'quantity',jsonb_build_object('value',trim_scale(q.amount)::text,'specification',jsonb_build_object('revision',jsonb_build_object('catalogId',q.reference_catalog_id,'revisionId',q.reference_revision_id),'code',q.quantity_code))) ORDER BY q.ordinal)
+     FROM trading.swap_observation_quantities q JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(q.catalog_id,q.definition_revision_id,q.contract_id) WHERE(q.catalog_id,q.schedule_id)=(o.catalog_id,o.id)) ELSE NULL END))::text
+   FROM trading.swap_observation_schedules o WHERE o.catalog_id=$1 AND o.id=ANY($2::uuid[])
+   """,[manifest.CatalogId,ids],ct);
+  var byId=schedules.ToDictionary(row=>row.Id("id"),row=>row.GetProperty("terms"));
+  JsonNode? Terms(Guid? id)=>id is {} key&&byId.TryGetValue(key,out var value)?JsonNode.Parse(value.GetRawText()):null;
+  return rows.Select(row=>
+  {
+   var retained=JsonNode.Parse(row.GetRawText())!.AsObject();
+   retained["observation_schedule"]=Terms(row.OptionalId("observation_schedule_id"));
+   if(retained["first_floating"] is JsonObject first)first["observationSchedule"]=Terms(row.OptionalId("first_observation_schedule_id"));
+   return JsonSerializer.SerializeToElement(retained);
+  }).ToImmutableArray();
  }
  private SwapWriteRequest Terms(PreviewData data,JsonElement row,Guid snapshot)
  {
