@@ -26,7 +26,7 @@ type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;port
 type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:{booking:Booking;priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;fixedPrice:string|null;presentValue:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;bookId:string;contractId:string;revision:string;book:string;portfolio:string;curve:string;lots:string;quantity:string;unit:string;executedAt:string;executionPrice:string;mark:string;executionPnl:string;currency:string;deliveryFrom:string;deliveryTo:string;settlement:string}[];totals:{book:string;currency:string;executionPnl:string}[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 
-export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}}}){
+export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}}}){
   const {api,act,busy}=options;
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -69,6 +69,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   const kindDialog=get<HTMLDialogElement>('trade-kind');
   get('trade-kind-close').onclick=()=>kindDialog.close();
+  get('trade-kind-ppa').onclick=()=>{kindDialog.close();void act(options.newPpa);};
   get('trade-kind-future').onclick=()=>{kindDialog.close();void act(async()=>{await load('priced_contracts');get('futures-booking').hidden=false;bookingEdits.clear();field('futures-book').focus();});};
   get('trade-kind-swap').onclick=()=>{kindDialog.close();get('futures-booking').hidden=true;void act(swapEditor.openNew);};
   const selected=(id:string)=>Array.from(get<HTMLSelectElement>(id).selectedOptions,o=>o.value);

@@ -283,6 +283,11 @@ quantity scales afterward. Persisted recurring periods and fixing lifecycle even
 work; the browser inspector now exposes the actual valued payment and reset rows. Options retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open and no option model is enabled.
+The D210 entry refinement places visual instrument cards between trade details
+and side forms. A selected versioned template populates empty side terms;
+commodity and market selections remain explicit. Each floating side owns its
+commodity filter, and New Trade offers the existing PPA workflow. Cross-commodity
+swap valuation remains outside this refinement.
 The instrument editor uses vertical side fields, separated from trade-level
 booking terms. Future multi-side editors align corresponding fields; delivery
 start/end and currency may initialize only unset counterpart fields during entry,

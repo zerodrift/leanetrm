@@ -424,3 +424,27 @@ semantics. The existing managed market-close calendar remains authoritative for
 As of selection; lightweight navigation and paginated reference data are not
 filtered by incompletely loaded client observations. Quantity conversion and power
 TOU controls cascade only through their supplied applicable catalogs.
+
+## D210 — Explicit swap entry templates and side-scoped choices
+
+Entry follows Trade, Instrument, then Sides. Choosing a fixed/floating or
+floating/floating instrument card applies the managed
+`monthly_18_calendar_days_v1` starting template visibly: pay first / receive
+second, zero floating spreads, monthly payments 18 calendar days after the last
+delivery day, and no adjustment. This initializes only empty controls; switching
+structure preserves user edits and never applies defaults to a retained trade.
+The starting template does not select commodity, index, dates, quantity or
+discounting. After a commodity choice, D209 may populate a unique applicable
+index; ambiguous choices remain explicit.
+Booking receives concrete side terms through the existing operations; missing
+terms never acquire a backend fallback from the entry template.
+
+Each floating side selects a commodity before its index, projection and compatible
+unit choices. The fixed side has no commodity selector. Changing the reference
+floating commodity clears the fixed price and incompatible quantity selection;
+changing either commodity clears a nonzero spread and observation configuration.
+The current swap model still requires compatible units and a shared commodity;
+independent filters do not implement cross-commodity valuation.
+
+New Trade also offers PPA and routes to the existing authorized PPA workflow,
+where the user explicitly selects market inputs before entering a booking.

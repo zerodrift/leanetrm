@@ -31,7 +31,8 @@ class Events:
                     event={}
                 elif text.startswith('data:'):event['data']=json.loads(text[5:])
                 elif text.startswith('event:'):event['event']=text[6:].strip()
-                elif text.startswith(':'):event['comment']=text
+                # SSE comments keep the connection alive; they are not events.
+                elif text.startswith(':'):continue
         except (OSError,ValueError):
             pass
 
