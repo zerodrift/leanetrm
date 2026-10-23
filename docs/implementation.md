@@ -279,6 +279,27 @@ the report's `work` is that of the read without them. A fifth summary, a view th
 pivot, and a view of other books or portfolios, or one that repeats a book or portfolio, are
 refused with `blotter_view`, over an empty book too.
 
+The desk's money totals come from a second pivot convention (D216). `trading_blotter_totals_v1`
+also partitions by quantity specification (D98), so a currency's swap present value across MWh and
+MMBtu positions is never one number in it, and the browser may not add amounts.
+`trading_blotter_money_totals_v1` partitions by the view's dimensions, the exact instrument type and
+the exact currency reference only, and by definition revision when a dimension names a market or
+contract; it ignores quantity specification and price multiplier. It accepts only `presentValue`,
+`executionPnl` and `tradeCount`: `quantity`, `lots`, every price statistic and a price policy are
+refused with `blotter_view`, over an empty book too. A group states `instrumentType`, `currency`,
+`currencyReference`, its dimension fields, its measures and `unvaluedPositions`, and no `unit`,
+`quantitySpecification` or `priceUnit`. PV and execution P&L add the valued positions of the group
+as exact money of its one currency (`ExactMoney.Add` raises `currency_mismatch` for any other) and
+are null where none is valued or the measure does not apply to the instrument type (swaps have no
+execution P&L, futures no PV). `tradeCount` counts the group's distinct trades and
+`unvaluedPositions` those left out (D213). `trading/blotter`, the workspace
+`view` and each of its `summaries` accept either convention, together, with the summary limits and
+the single valuation unchanged. `--desk-fields-check` qualifies the totals on the seeded example
+against exact sums of its rows, across its MWh and MMBtu swaps, and `--valuation-status-check` at
+the mixed Dec 31 close. The example holds one currency and one definition revision of each market
+it holds, so the API checks (`TradingBlotterChecks`) qualify a second currency, a second reference
+revision of a currency code and a second definition revision on synthetic positions.
+
 `POST /api/market/curve-shapes` (`snapshotId` and 1 to 64 distinct `curves`, otherwise
 `curve_shapes`) reads the contract prices of several curves from one load of the data
 `/evaluate` would load and one snapshot of its inputs, under the same pin, identity and

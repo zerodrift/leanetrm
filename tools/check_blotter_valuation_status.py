@@ -11,7 +11,7 @@ from collections import defaultdict
 from fractions import Fraction
 import json
 from uuid import UUID, uuid4, uuid5
-from check_blotter_desk_fields import DESK_SUMMARIES, SEEDED_DIRECTION
+from check_blotter_desk_fields import DESK_SUMMARIES, MIXED_SUMMARIES, SEEDED_DIRECTION, check_money_totals, exact, money_view, total, unvalued
 from check_portfolio_risk import financial, reconcile
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
@@ -23,20 +23,6 @@ BY_BOOK = {**TRADES, 'mode': 'pivot', 'groupBy': ['book'], 'measures': ['present
            'pivotConvention': 'trading_blotter_totals_v1'}
 BOOKED = ('instrumentType', 'bookId', 'curve', 'contractId', 'deliveryFrom', 'deliveryTo', 'lots', 'quantity', 'unit',
           'quantitySpecification', 'currencyReference', 'currency', 'quoteMultiplier', 'executionPrice', 'fixedPrice', 'revision')
-
-
-def total(rows, field):
-    """The exact sum of a measure over valued rows; None when none is valued or the measure does not apply."""
-    values = [r[field] for r in rows if r['unavailableReason'] is None]
-    return None if not values or None in values else sum(map(Fraction, values))
-
-
-def exact(value):
-    return None if value is None else Fraction(value)
-
-
-def unvalued(rows):
-    return len({r['tradeId'] for r in rows if r['unavailableReason'] is not None})
 
 
 def run_checks(url, session=None):
@@ -134,6 +120,15 @@ def run_checks(url, session=None):
           states.count({True, False}) == 3 and states.count({False}) == 1)
     check_totals('Dec 31, 2020', rows, {**report(dec31, BY_BOOK), 'totals': late['totals'], 'unvaluedPositions': late['unvaluedPositions']})
 
+    # Money totals (D216) add the positions the close values across quantity units, and say how many they leave out.
+    check_money_totals(lambda view: report(dec31, view), check, rows, 'Dec 31, 2020')
+    money = {g['instrumentType']: g for g in report(dec31, money_view('instrumentType'))['groups']}
+    check('at this close the swap total adds the eight valued daily swaps and leaves out the eight monthly swaps, and the futures total is '
+          'the one valued future\'s execution P&L, leaving out the eight expired',
+          [(g['tradeCount'], g['unvaluedPositions']) for g in (money['financial_swap'], money['future'])] == [(16, 8), (9, 8)]
+          and exact(money['financial_swap']['presentValue']) == sum(Fraction(r['presentValue']) for r in daily)
+          and exact(money['future']['executionPnl']) == exact(held['executionPnl']))
+
     # The desk's groupings, taken from the one valuation of its own read at this close, equal the same views read on their own,
     # while some positions are unvalued: the groups state what they leave out, and one values none.
     retained = {**context(dec31), 'knowledgeMode': 'retained', 'contextId': late['context']['contextId']}
@@ -142,6 +137,12 @@ def run_checks(url, session=None):
     check('at this close the desk summaries equal the same views read on their own, over the same rows',
           desk['blotter']['holdings'] == late['holdings'] and [s['view'] for s in desk['summaries']] == [r['view'] for r in on_their_own]
           and [s['groups'] for s in desk['summaries']] == [r['groups'] for r in on_their_own])
+
+    mixed = c.call('trading/workspace', {'context': retained, 'view': TRADES, 'bookingCatalog': 'directory', 'summaries': MIXED_SUMMARIES})
+    mixed_alone = [c.call('trading/blotter', {'context': retained, 'view': view}) for view in MIXED_SUMMARIES]
+    check('at this close summaries of both pivot conventions equal the same views read on their own, over the same rows',
+          mixed['blotter']['holdings'] == late['holdings'] and [s['view'] for s in mixed['summaries']] == [r['view'] for r in mixed_alone]
+          and [s['groups'] for s in mixed['summaries']] == [r['groups'] for r in mixed_alone])
 
     def values_any(group):
         return (group['executionPnl'] if group['instrumentType'] == 'future' else group['presentValue']) is not None
@@ -165,6 +166,7 @@ def run_checks(url, session=None):
     valued = c.call('trading/workspace', {'context': context(dec18), 'view': TRADES, 'bookingCatalog': 'directory'})['blotter']
     check('Dec 18, 2020 values every position', len(valued['holdings']) == 25 and all(r['unavailableReason'] is None for r in valued['holdings']))
     check_totals('Dec 18, 2020', valued['holdings'], {**report(dec18, BY_BOOK), 'totals': valued['totals'], 'unvaluedPositions': valued['unvaluedPositions']})
+    check_money_totals(lambda view: report(dec18, view), check, valued['holdings'], 'Dec 18, 2020')
     print(f'{passed} valuation status checks passed.', flush=True)
     return c
 

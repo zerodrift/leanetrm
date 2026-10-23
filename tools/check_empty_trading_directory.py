@@ -20,7 +20,9 @@ def run_checks(c,check,query,manifest):
     full=c.call('trading/workspace',{'context':retained,'view':view})
     check('empty directory preserves the exact legacy report and booking metadata',initial['blotter']==legacy==full['blotter']
           and initial['catalog']=={**{k:v for k,v in full['catalog'].items()if k not in ('kind','contracts')},'kind':'directory'})
-    for selected_view in [view,{**view,'mode':'pivot','groupBy':['book','instrumentType'],'measures':['quantity'],'pivotConvention':'trading_blotter_totals_v1'}]:
+    for selected_view in [view,{**view,'mode':'pivot','groupBy':['book','instrumentType'],'measures':['quantity'],'pivotConvention':'trading_blotter_totals_v1'},
+                          {**view,'mode':'pivot','groupBy':['book','instrumentType'],'measures':['presentValue','executionPnl','tradeCount'],
+                           'pivotConvention':'trading_blotter_money_totals_v1'}]:
         light=c.call('trading/workspace',{**request,'view':selected_view})
         check('empty directory retains exact typed '+selected_view['mode']+' projection',light['blotter']==c.call('trading/blotter',{'context':retained,'view':selected_view})
               and light['blotter']['holdings']==[] and light['blotter']['groups']==[] and light['blotter']['evaluatedContracts']==0)
@@ -32,7 +34,12 @@ def run_checks(c,check,query,manifest):
     check('empty directory states each requested summary as the empty projection of its view',
           summarized['summaries']==[{'view':own['view'],'groups':[]}]*2 and own['groups']==[] and initial['summaries']==[]
           and {k:v for k,v in summarized.items()if k!='summaries'}=={k:v for k,v in initial.items()if k!='summaries'})
-    for invalid in [[view],[grouped]*5,[{**grouped,'groupBy':['unknown']}]]:
+    money={**grouped,'measures':['presentValue','executionPnl','tradeCount'],'pivotConvention':'trading_blotter_money_totals_v1'}
+    own_money=c.call('trading/blotter',{'context':retained,'view':money})
+    check('empty directory states a money summary as the empty projection of its view, beside one of the totals convention',
+          c.call('trading/workspace',{**request,'summaries':[grouped,money]})['summaries']==[{'view':own['view'],'groups':[]},{'view':own_money['view'],'groups':[]}]
+          and own_money['groups']==[])
+    for invalid in [[view],[grouped]*5,[{**grouped,'groupBy':['unknown']}],[{**money,'measures':['quantity']}]]:
         error=c.call('trading/workspace',{**request,'summaries':invalid},expected=422)
         check('empty directory rejects an invalid summary list',error['code']=='blotter_view')
 

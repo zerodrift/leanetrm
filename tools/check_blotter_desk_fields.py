@@ -7,7 +7,8 @@ floating/floating swap, amends the first, and reads every direction back against
 with. Positions a close cannot value are covered by the valuation-status check.
 
 The summaries and curve shapes are compared with the reads they replace: the same views read on their own through
-`trading/blotter`, and `evaluate` for each curve.
+`trading/blotter`, and `evaluate` for each curve. The money-totals convention (D216) adds present value and execution P&L
+across quantity units within one currency and instrument type; its totals are compared with exact sums of the rows.
 """
 from collections import defaultdict
 from fractions import Fraction
@@ -19,16 +20,30 @@ from seed_preview_positions import BOOKS
 from seed_preview_swaps import FIXED_COEFFICIENT
 
 SWAP_CONVENTION = 'independent_side_financial_swap_v2'
+TOTALS, MONEY_TOTALS = 'trading_blotter_totals_v1', 'trading_blotter_money_totals_v1'
 TRADES = {'mode': 'trades', 'bookIds': [], 'portfolioIds': [], 'groupBy': [], 'measures': [], 'pivotConvention': None}
 BY_COMMODITY = {**TRADES, 'mode': 'pivot', 'groupBy': ['commodity'], 'measures': ['tradeCount', 'quantity'],
-                'pivotConvention': 'trading_blotter_totals_v1'}
+                'pivotConvention': TOTALS}
 # What the desk shows from one valuation: tile totals, tile splits and book group headers, the position mix, and the
 # charts and market group headers.
 DESK_SUMMARIES = [{**TRADES, 'mode': 'pivot', 'groupBy': dimensions, 'measures': ['presentValue', 'executionPnl', 'tradeCount', 'quantity'],
-                   'pivotConvention': 'trading_blotter_totals_v1'}
+                   'pivotConvention': TOTALS}
                   for dimensions in (['instrumentType'], ['book'], ['commodity', 'instrumentType'], ['market'])]
 # Any price measure makes a pivot state the price unit of each market.
 PRICE_UNITS = {**BY_COMMODITY, 'groupBy': ['market'], 'measures': ['markMax']}
+# D216: the money-totals convention keeps a pivot's dimensions, instrument type and currency apart, and adds across quantity units.
+MONEY_MEASURES = ['presentValue', 'executionPnl', 'tradeCount']
+MONEY_FIELDS = {'instrumentType', 'currency', 'currencyReference', 'unvaluedPositions', *MONEY_MEASURES}
+MEAN_POLICY = 'arithmetic_price_mean_to_even_18_v1'
+
+
+def money_view(*dimensions):
+    """A pivot of money totals and trade counts, grouped by the dimensions."""
+    return {**TRADES, 'mode': 'pivot', 'groupBy': list(dimensions), 'measures': MONEY_MEASURES, 'pivotConvention': MONEY_TOTALS}
+
+
+# Money totals beside quantity pivots: the tile totals and splits as money, the position mix and the markets per quantity unit.
+MIXED_SUMMARIES = [money_view('instrumentType'), money_view('book'), *DESK_SUMMARIES[2:]]
 # A fixed side's membership coefficient; the floating side takes the opposite sign.
 DIRECTIONS = {'-1': 'pay_fixed', '1': 'receive_fixed'}
 SEEDED_DIRECTION = DIRECTIONS[FIXED_COEFFICIENT]
@@ -38,6 +53,96 @@ def partition(item):
     """What a commodity pivot keeps apart: commodity, instrument type, quantity unit and currency."""
     return (item['commodity']['code'], item['instrumentType'], json.dumps(item['quantitySpecification'], sort_keys=True),
             json.dumps(item['currencyReference'], sort_keys=True))
+
+
+def exact(value):
+    return None if value is None else Fraction(value)
+
+
+def total(rows, field):
+    """The exact sum of a measure over valued rows; None when none is valued or the measure does not apply."""
+    values = [r[field] for r in rows if r['unavailableReason'] is None]
+    return None if not values or None in values else sum(map(Fraction, values))
+
+
+def unvalued(rows):
+    return len({r['tradeId'] for r in rows if r['unavailableReason'] is not None})
+
+
+def money_key(item, field=None):
+    """What a money group keeps apart: its dimension, instrument type and exact currency; never the quantity unit."""
+    return (None if field is None else item[field], item['instrumentType'], json.dumps(item['currencyReference'], sort_keys=True))
+
+
+def added(amounts):
+    """The exact sum of the amounts a set of groups state; None when none states one."""
+    known = [Fraction(a) for a in amounts if a is not None]
+    return sum(known) if known else None
+
+
+def check_money_totals(read, check, rows, when):
+    """Money pivots add the valued positions of one instrument type and currency across quantity units, and nothing else (D216).
+
+    `read` gives the report of a view at the close the rows were read at. The expectations come from the rows alone.
+    """
+    # Each pivot's dimension, the row field and the group field that name it, and what its groups state beside the money fields.
+    pivots = (('instrument type', 'instrumentType', None, None, set()), ('book', 'book', 'bookId', 'bookId', {'bookId', 'book'}),
+              ('market', 'market', 'curve', 'market', {'market'}))
+    reports = {}
+    for label, dimension, row_field, group_field, stated in pivots:
+        reports[dimension] = groups = read(money_view(dimension))['groups']
+        expected = defaultdict(list)
+        for r in rows:
+            expected[money_key(r, row_field)].append(r)
+        actual = {money_key(g, group_field): g for g in groups}
+        name = f'{when}: the {label} money pivot'
+        check(name+' has one group for each combination of its dimension, instrument type and currency, whatever the quantity units',
+              len(actual) == len(groups) and actual.keys() == expected.keys())
+        check(name+' adds the valued positions of each group exactly, and states null where none is valued or the measure does not apply',
+              all(exact(g[m]) == total(expected[k], m) for k, g in actual.items() for m in ('presentValue', 'executionPnl')))
+        check(name+' counts the distinct trades of each group, and those it leaves out',
+              all(g['tradeCount'] == len({r['tradeId'] for r in expected[k]}) and g['unvaluedPositions'] == unvalued(expected[k]) for k, g in actual.items()))
+        check(name+' states its type, currency and measures, and no quantity unit or specification',
+              all(set(g) == MONEY_FIELDS | stated for g in groups))
+    by_type = {money_key(g): g for g in reports['instrumentType']}
+    for label, dimension, *_ in pivots[1:]:
+        check(f'{when}: {label} money totals add up to the instrument type totals, exactly',
+              all(added(g[m] for g in reports[dimension] if money_key(g) == k) == exact(t[m]) for k, t in by_type.items() for m in ('presentValue', 'executionPnl')))
+    check(f'{when}: book trade counts add up to the instrument type counts, as each trade is held in one book',
+          all(sum(g[m] for g in reports['book'] if money_key(g) == k) == t[m] for k, t in by_type.items() for m in ('tradeCount', 'unvaluedPositions')))
+
+
+def check_money_example(read, check, rows):
+    """The seeded example holds swaps in more than one quantity unit and futures, all in USD."""
+    groups = read(money_view('instrumentType'))['groups']
+    check('the example has one swap group and one future group in its one currency, USD',
+          len(groups) == 2 and {(g['instrumentType'], g['currency']) for g in groups} == {('financial_swap', 'USD'), ('future', 'USD')})
+    swaps = [r for r in rows if r['instrumentType'] == 'financial_swap']
+    units = defaultdict(list)
+    for r in swaps:
+        units[json.dumps(r['quantitySpecification'], sort_keys=True)].append(r)
+    swap_pv = exact(next(g for g in groups if g['instrumentType'] == 'financial_swap')['presentValue'])
+    check('the swaps are held in more than one quantity unit, and the swap present value is the exact sum over all of them',
+          len(units) > 1 and swap_pv == sum(Fraction(r['presentValue']) for r in swaps) and all(total(rs, 'presentValue') != swap_pv for rs in units.values()))
+
+
+def check_money_refusals(c, check, context):
+    """Under the money convention a view or a summary asks for money and trade counts only; the rest is refused (D216)."""
+    asked = {'quantity': {}, 'lots': {}, 'markMax': {}, 'fixedPriceMin': {}, 'executionPriceMean': {'priceNumericalPolicy': MEAN_POLICY}}
+    everything = {**TRADES, 'mode': 'pivot', 'groupBy': ['contract'], 'measures': ['presentValue', *asked], 'pivotConvention': TOTALS,
+                  'priceNumericalPolicy': MEAN_POLICY}
+    check('the totals convention still accepts quantity, lots and price statistics beside money',
+          c.call('trading/blotter', {'context': context, 'view': everything})['groups'])
+
+    def refused(name, path, body):
+        check(name, c.call(path, {'context': context, **body}, expected=422)['code'] == 'blotter_view')
+    for measure, changes in asked.items():
+        refused(f'the money convention refuses {measure}', 'trading/blotter', {'view': {**money_view('contract'), 'measures': ['presentValue', measure], **changes}})
+    quantity = {**money_view('book'), 'measures': ['presentValue', 'quantity']}
+    refused('a workspace read refuses quantity in a money view', 'trading/workspace', {'view': quantity})
+    refused('a workspace read refuses quantity in a money summary', 'trading/workspace', {'view': TRADES, 'summaries': [quantity]})
+    refused('a money view of an unknown convention is refused', 'trading/blotter', {'view': {**money_view('book'), 'pivotConvention': MONEY_TOTALS+'_v2'}})
+    refused('a money view takes no price policy, which only price statistics use', 'trading/blotter', {'view': {**money_view('book'), 'priceNumericalPolicy': MEAN_POLICY}})
 
 
 def check_summaries(c, check, context):
@@ -69,7 +174,8 @@ def check_summaries(c, check, context):
     refused('a fifth summary is refused', [*DESK_SUMMARIES, DESK_SUMMARIES[1]])
     refused('a summary that is not a pivot is refused', [TRADES])
     refused('a summary grouped by an unsupported dimension is refused', [{**DESK_SUMMARIES[0], 'groupBy': ['trader']}])
-    refused('a summary without the totals convention is refused', [{**DESK_SUMMARIES[0], 'pivotConvention': None}])
+    refused('a summary without a pivot convention is refused', [{**DESK_SUMMARIES[0], 'pivotConvention': None}])
+    refused('a summary of an unknown pivot convention is refused', [{**DESK_SUMMARIES[0], 'pivotConvention': MONEY_TOTALS+'_v2'}])
     refused('a summary of other books than its read is refused', [{**DESK_SUMMARIES[0], 'bookIds': scope}])
     refused('a summary of other portfolios than its read is refused', [{**DESK_SUMMARIES[0], 'portfolioIds': [str(uuid4())]}])
     refused('a summary does not widen a read scoped to one book', [DESK_SUMMARIES[0]], book_a['view'])
@@ -78,6 +184,26 @@ def check_summaries(c, check, context):
             [{**DESK_SUMMARIES[0], 'bookIds': scope*2}], book_a['view'])
     refused('a summary that repeats a portfolio its read names once is refused, as the Blotter refuses a repeated portfolio',
             [{**DESK_SUMMARIES[0], 'portfolioIds': [portfolio]*2}], {**TRADES, 'portfolioIds': [portfolio]})
+
+    # Money totals (D216) are summaries like any other: they take the same limits and add no valuation.
+    mixed = c.call('trading/workspace', {**request, 'summaries': MIXED_SUMMARIES})
+    mixed_alone = [c.call('trading/blotter', {'context': context, 'view': view}) for view in MIXED_SUMMARIES]
+    check('four summaries of both pivot conventions come back in request order, each as its view and the groups that view gives on its own',
+          [s['view'] for s in mixed['summaries']] == [r['view'] for r in mixed_alone] and all(s['groups'] for s in mixed['summaries'])
+          and [s['groups'] for s in mixed['summaries']] == [r['groups'] for r in mixed_alone])
+    check('and they add no valuation: the rows, totals and work counts are those of the read without them',
+          all(mixed['blotter'][f] == plain['blotter'][f] for f in ('holdings', 'totals', 'work', 'evaluatedContracts', 'unvaluedPositions')))
+    check('a money pivot is also the view of a workspace read, with the groups it gives on its own',
+          c.call('trading/workspace', {**request, 'view': MIXED_SUMMARIES[0]})['blotter']['groups'] == mixed_alone[0]['groups'])
+    narrowed_mix = c.call('trading/workspace', {**book_a, 'summaries': [{**s, 'bookIds': scope} for s in MIXED_SUMMARIES]})
+    check('summaries of both conventions of a read scoped to one book are that book\'s groups, read on their own',
+          [s['groups'] for s in narrowed_mix['summaries']]
+          == [c.call('trading/blotter', {'context': context, 'view': {**s, 'bookIds': scope}})['groups'] for s in MIXED_SUMMARIES]
+          and narrowed_mix['summaries'] != mixed['summaries'])
+    refused('a fifth summary is refused whichever convention it takes', [*MIXED_SUMMARIES, money_view('market')])
+    refused('a money summary of other books than its read is refused', [{**MIXED_SUMMARIES[0], 'bookIds': scope}])
+    refused('a money summary of other portfolios than its read is refused', [{**MIXED_SUMMARIES[0], 'portfolioIds': [str(uuid4())]}])
+    refused('a money summary that repeats a book its read names once is refused', [{**MIXED_SUMMARIES[0], 'bookIds': scope*2}], book_a['view'])
 
 
 def check_historical_summaries(c, check):
@@ -294,6 +420,12 @@ def run_checks(url):
     # What the desk reads for its tiles, charts and sparklines. Both are compared with the reads they replace, under
     # the one context the commodity pivot was read at, so they see the same data.
     retained = {**desk_context, 'knowledgeMode': 'retained', 'contextId': report['context']['contextId']}
+
+    def read_money(view):
+        return c.call('trading/blotter', {'context': retained, 'view': view})
+    check_money_totals(read_money, check, rows, 'seeded example')
+    check_money_example(read_money, check, rows)
+    check_money_refusals(c, check, retained)
     check_summaries(c, check, retained)
     check_historical_summaries(c, check)
     held = sorted({r['curve'] for r in rows if r['definitionRevisionId'] == primary})

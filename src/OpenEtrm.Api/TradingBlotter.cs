@@ -13,6 +13,8 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
 {
  public const string Convention="trading_workspace_v1";
  public const string PivotConvention="trading_blotter_totals_v1";
+ // D216: money of one currency adds across quantity units, so this convention measures money and trade counts only.
+ public const string MoneyTotalsConvention="trading_blotter_money_totals_v1";
  // How many extra groupings of its one valuation a request may ask for.
  public const int MaximumSummaries=4;
  internal static readonly IReadOnlyDictionary<string,(string Field,PriceStatistic Statistic)> PriceMeasures=
@@ -20,7 +22,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
    .Select(stat=>new KeyValuePair<string,(string,PriceStatistic)>(field+stat.Item1,(field,stat.Item2)))).ToDictionary();
  private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
  private static MarketDataException Invalid()=>new("blotter_view","Select supported dimensions/measures and exact authorized book/portfolio scopes.");
- private static void ValidateView(FuturesBlotterView view)
+ internal static void ValidateView(FuturesBlotterView view)
  {
   if(view is null||view.Mode is not("trades" or "pivot")||view.GroupBy.IsDefault||view.Measures.IsDefault||
    view.GroupBy.Distinct().Count()!=view.GroupBy.Length||view.Measures.Distinct().Count()!=view.Measures.Length||
@@ -28,7 +30,9 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
    view.Measures.Any(m=>m is not("tradeCount" or "lots" or "quantity" or "executionPnl" or "presentValue")&&!PriceMeasures.ContainsKey(m))||
    (view.Measures.Any(m=>PriceMeasures.TryGetValue(m,out var price)&&price.Statistic==PriceStatistic.ArithmeticMean)?view.PriceNumericalPolicy!=PriceStatistics.MeanPolicy:view.PriceNumericalPolicy is not null)||
    (view.Mode=="trades"?(view.GroupBy.Length!=0||view.Measures.Length!=0||view.PivotConvention is not null):
-    (view.GroupBy.IsEmpty||view.Measures.IsEmpty||view.PivotConvention!=PivotConvention||view.Measures.Contains("lots")&&!view.GroupBy.Contains("contract"))))throw Invalid();
+    (view.GroupBy.IsEmpty||view.Measures.IsEmpty||view.PivotConvention is not(PivotConvention or MoneyTotalsConvention)||
+     view.PivotConvention==MoneyTotalsConvention&&view.Measures.Any(m=>m is not("presentValue" or "executionPnl" or "tradeCount"))||
+     view.Measures.Contains("lots")&&!view.GroupBy.Contains("contract"))))throw Invalid();
  }
  // A summary groups the rows its request's own view reads, so it is a pivot of exactly that view's books and portfolios.
  private static void ValidateSummaries(FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries)
@@ -108,15 +112,17 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
  private static Report Project(FuturesBlotterView view,List<JsonObject> rows,int evaluatedContracts,JsonNode? totals,Work work)=>
   new(view,"typed_partitioned_trade_totals_v1",view.Mode=="pivot"?Groups(view,rows):[],rows,evaluatedContracts,totals,work,
    rows.Any(r=>Text(r,"instrumentType")=="financial_swap"),Convention,Unvalued(rows));
- private static List<JsonObject> Groups(FuturesBlotterView view,List<JsonObject> rows)
+ internal static List<JsonObject> Groups(FuturesBlotterView view,List<JsonObject> rows)
  {
   var groups=new List<JsonObject>();
   var hasPrices=view.Measures.Any(PriceMeasures.ContainsKey);
+  // D98 keeps totals apart by quantity specification; D216's money totals add across quantity units, keeping apart only the dimensions, instrument type and currency.
+  var byQuantity=view.PivotConvention!=MoneyTotalsConvention;
   var dimensions=new Dictionary<string,string>{{"portfolio","portfolioId"},{"book","bookId"},{"market","curve"},{"contract","contractId"},{"instrumentType","instrumentType"},{"commodity","commodity"}};
   // What identifies a row's group in a dimension: the field's text, or the code of the reference the field names.
   string? Identity(JsonObject row,string field)=>row[field] is JsonObject reference?Text(reference,"code"):Text(row,field);
   var partitions=rows.OrderBy(r=>Text(r,"tradeId"),StringComparer.Ordinal).ThenBy(r=>Text(r,"bindingId"),StringComparer.Ordinal).GroupBy(r=>JsonSerializer.Serialize(new{
-   dimensions=view.GroupBy.Select(d=>Identity(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=Key(r,"quantitySpecification"),currency=Key(r,"currencyReference"),
+   dimensions=view.GroupBy.Select(d=>Identity(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=byQuantity?Key(r,"quantitySpecification"):(ReferenceKey?)null,currency=Key(r,"currencyReference"),
    priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=view.GroupBy.Any(d=>d is "market" or "contract")?Text(r,"definitionRevisionId"):null}));
   foreach(var partition in partitions)
   {
@@ -127,7 +133,8 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
     if(d is "portfolio" or "book")group[d]=first[d]?.DeepClone();
     if(d=="contract"){group["deliveryFrom"]=first["deliveryFrom"]?.DeepClone();group["deliveryTo"]=first["deliveryTo"]?.DeepClone();group["definitionRevisionId"]=first["definitionRevisionId"]?.DeepClone();}
    }
-   foreach(var field in new[]{"instrumentType","unit","currency","quantitySpecification","currencyReference"})group[field]=first[field]?.DeepClone();
+   foreach(var field in byQuantity?new[]{"instrumentType","unit","currency","quantitySpecification","currencyReference"}:new[]{"instrumentType","currency","currencyReference"})
+    group[field]=first[field]?.DeepClone();
    if(hasPrices){group["quoteMultiplier"]=first["quoteMultiplier"]?.DeepClone();group["priceUnit"]=PreviewData.PriceUnitLabel(Text(first,"currency")!,Text(first,"unit")!,Text(first,"quoteMultiplier"));}
    foreach(var measure in view.Measures)
    {
