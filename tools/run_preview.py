@@ -93,8 +93,6 @@ def main():
             parser.error('--identity-check requires the standard fixture without --browser-check')
         if args.market_read_check and args.browser_check:
             parser.error('--market-read-check has no browser scenarios; omit --browser-check')
-        if args.valuation_status_check and args.browser_check:
-            parser.error('--valuation-status-check has no browser scenarios; omit --browser-check')
     if not 0 <= args.port <= 65535:
         parser.error('Port must be between 0 and 65535')
     if args.browser_check and (not args.check or args.example!='standard' or args.browser is None or not args.browser.is_file()):
@@ -669,6 +667,11 @@ def main():
             elif args.valuation_status_check:
                 from check_blotter_valuation_status import run_checks as check_valuation_status
                 check_valuation_status(url)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--valuation-status'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned valuation status browser checks failed')
             elif args.provider_adapters_check:
                 from preview_client import PreviewClient
                 from check_additional_providers import run_checks as check_additional_providers

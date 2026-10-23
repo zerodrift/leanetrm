@@ -4,7 +4,8 @@ import {matchesTableRow,columnValues,validNumericFilter} from './regular-table.j
 import {publicText} from './market-view.js';
 export type GridLayout={order:string[];widths:Record<string,number>;sort:{key:string;direction:'asc'|'desc'}[]};
 export const emptyGridLayout=():GridLayout=>({order:[],widths:{},sort:[]});
-type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void};
+// exportRows: what an export writes for a cell instead of its value, such as the reason a value is missing.
+type GridOptions={displayRows?:string[][];exportRows?:(string|undefined)[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void};
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[],isBusy:()=>boolean,options:GridOptions){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=publicText(value);return n;};
   const values=rows.map(row=>row.map(cell=>publicText(typeof cell==='string'?cell:cell.textContent??'')));
@@ -83,7 +84,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     ready:()=>ready&&alive,
     state:()=>({query:state.query,columns:state.columns.slice()}),layout,
     headers:()=>visibleIndices().map(i=>headers[i]),numeric:()=>visibleIndices().flatMap((original,i)=>numeric.includes(original)?[i]:[]),
-    visibleRows:()=>{if(!current()||!ready)throw Error('Refresh this table before exporting.');return table.getData('display').filter(matches).map(row=>visibleIndices().map(i=>row[field(i)]));},
+    visibleRows:()=>{if(!current()||!ready)throw Error('Refresh this table before exporting.');return table.getData('display').filter(matches).map(row=>visibleIndices().map(i=>options.exportRows?.[Number(row.__sourceIndex)]?.[i]??row[field(i)]));},
     destroy(){if(!alive)return;alive=false;gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();},
   };
 }

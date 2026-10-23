@@ -7,6 +7,10 @@ export const groupChoices=[['instrumentType','Instrument type'],['portfolio','Po
 export const measureChoices=[['presentValue','PV'],['tradeCount','Trades'],['lots','Lots · group by dated contract'],['quantity','Quantity'],['executionPnl','Execution P&L'],...priceMeasureChoices] as const;
 export type BlotterView={version:3;name:string;mode:'trades'|'pivot';columns:string[];bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[];query:string;columnFilters:Record<string,string>;splitBy:string[];grid:GridLayout;chart:{visible:boolean;measure:string;kind:'bar'|'line'|'heatmap'}};
 export const newBlotterView=():BlotterView=>({version:3,name:'Trade rows',mode:'trades',columns:['instrumentType','tradeReference','instrumentReference','revision','book','market','contract','lots','quantity','unit','priceUnit','executionPrice','mark','fixedPrice','presentValue','executionPnl','currency','settlement'],bookIds:[],portfolioIds:[],groupBy:[],measures:[],query:'',columnFilters:{},splitBy:[],grid:{order:['tradeReference','instrumentType'],widths:{},sort:[]},chart:{visible:false,measure:'quantity',kind:'bar'}});
+/** The layout without columns that are shown for one read only and never saved in a view. */
+export function withoutColumns(layout:GridLayout,keys:ReadonlySet<string>):GridLayout{
+ return {order:layout.order.filter(k=>!keys.has(k)),widths:Object.fromEntries(Object.entries(layout.widths).filter(([k])=>!keys.has(k))),sort:layout.sort.filter(s=>!keys.has(s.key))};
+}
 export function validLayoutField(key:string):boolean{
  if(typeof key!=='string')return false;
  if(blotterColumns.some(c=>c[0]===key))return true;

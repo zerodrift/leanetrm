@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseBlotterViews,newBlotterView} from '../dist/blotter-layout.js';
+import {parseBlotterViews,newBlotterView,withoutColumns} from '../dist/blotter-layout.js';
 import {guardedCsv} from '../dist/csv-export.js';
 test('named views retain layout and filters without retaining market inputs or permissions',()=>{
  const view={...newBlotterView(),name:'Book review',columns:['book','contract','executionPnl'],query:'Jan',columnFilters:{book:'Book A'}};
@@ -37,4 +37,9 @@ test('chart layouts retain plot style and measures while older views upgrade pre
  assert.deepEqual(restored.chart,{visible:true,measure:'executionPnl',kind:'bar'});
  assert.deepEqual(restored.bookIds,legacy.bookIds);assert.equal(restored.version,3);
  for(const chart of [{...view.chart,measure:'guessed'},{...view.chart,kind:'pie'}])assert.throws(()=>parseBlotterViews(JSON.stringify([{...view,chart}])));
+});
+test('columns shown for one read leave no trace in the layout a view saves',()=>{
+ const layout={order:['book','unvaluedPositions','presentValue'],widths:{book:120,unvaluedPositions:90},sort:[{key:'unvaluedPositions',direction:'desc'},{key:'book',direction:'asc'}]};
+ assert.deepEqual(withoutColumns(layout,new Set(['unvaluedPositions'])),{order:['book','presentValue'],widths:{book:120},sort:[{key:'book',direction:'asc'}]});
+ assert.deepEqual(withoutColumns(layout,new Set()),layout);
 });

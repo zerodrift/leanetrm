@@ -12,7 +12,7 @@ export function compareDecimalStrings(a:string,b:string):number{
 }
 export type PivotGroup=Record<string,unknown>;
 export type MatrixColumn={key:string;title:string;numeric:boolean;measure?:string;groupKey?:string;groupTitle?:string;measureTitle?:string};
-const labels:Record<string,string>={instrumentType:'Instrument type',presentValue:'PV',portfolio:'Portfolio',book:'Book',market:'Market',contract:'Contract',unit:'Units',currency:'Currency',tradeCount:'Trades',lots:'Lots',quantity:'Quantity',executionPnl:'Execution P&L',priceUnit:'Price units',...Object.fromEntries(priceMeasureChoices)};
+const labels:Record<string,string>={instrumentType:'Instrument type',presentValue:'PV',portfolio:'Portfolio',book:'Book',market:'Market',contract:'Contract',unit:'Units',currency:'Currency',tradeCount:'Trades',lots:'Lots',quantity:'Quantity',executionPnl:'Execution P&L',unvaluedPositions:'Not valued',priceUnit:'Price units',...Object.fromEntries(priceMeasureChoices)};
 const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
 function identity(group:PivotGroup,dimension:string){return dimension==='instrumentType'?group.instrumentType:dimension==='market'?group.market:group[dimension+'Id'];}
 function label(group:PivotGroup,dimension:string){return dimension==='contract'?deliveryLabel(String(group.deliveryFrom),String(group.deliveryTo)):dimension==='market'?curveName(group.market):dimension==='instrumentType'?friendly(String(group.instrumentType)):String(group[dimension]??'');}

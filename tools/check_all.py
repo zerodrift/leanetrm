@@ -84,7 +84,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('connected published portfolio and retained workers', [*preview, '--connected-portfolio-check'])
     preview_check('custom curve graphs and editor', [*preview, '--custom-curves-check', '--browser-check', '--browser', str(browser)])
     preview_check('market close calendar', [*preview, '--market-dates-check', '--browser-check', '--browser', str(browser)])
-    preview_check('positions a close cannot value', [*preview, '--valuation-status-check'])
+    preview_check('positions a close cannot value', [*preview, '--valuation-status-check', '--browser-check', '--browser', str(browser)])
     preview_check('isolated exchange futures browser', [*preview, '--exchange-check', '--browser-check', '--browser', str(browser)])
     preview_check('isolated hosted authentication and browser', [*preview, '--hosted-check', '--browser-check', '--browser', str(browser)])
     preview_check('isolated jobs and infrastructure browser', [*preview, '--jobs-check', '--browser-check', '--browser', str(browser)])

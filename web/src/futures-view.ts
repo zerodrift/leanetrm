@@ -15,10 +15,10 @@ import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import {renderRegularTable} from './regular-table.js';
 import {trackEdits} from './edit-tracking.js';
 import type {BlotterSelection} from './assistant-pages.js';
-import {isPriceMeasure,priceMeanPolicy,blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,type BlotterView} from './blotter-layout.js';
+import {isPriceMeasure,priceMeanPolicy,blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,withoutColumns,type BlotterView} from './blotter-layout.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
-import {valuationReason,valuationNote,type ValuationReason} from './valuation-status.js';
+import {valuationReason,valuationNote,excludedPositions,valuationMeasure,type ValuationReason} from './valuation-status.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
 type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'retained';contextId?:string};
@@ -59,6 +59,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   let lastReadRequest:unknown;
   let chartState:{panels:ChartSpec[];request:{context:unknown;view:unknown}}|undefined;
   let view=newBlotterView(),savedViews:BlotterView[]=[],table:ReturnType<typeof renderDataGrid>|undefined,tableColumns:string[]=[];
+  // Columns the current read shows that a saved view never keeps: each pivot group's count of positions it leaves out.
+  let transientKeys:ReadonlySet<string>=new Set();
   let versions=new Map<string,string>();
   let draftBase:{name:string;version:string}|undefined;
   let viewsLoaded=false;
@@ -83,9 +85,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function choices(id:string,rows:{id:string;name:string}[],ids:string[]){
     const select=get<HTMLSelectElement>(id);select.replaceChildren(...rows.map(r=>new Option(publicText(r.name),r.id,false,ids.includes(r.id))),...ids.filter(id=>!rows.some(r=>r.id===id)).map(id=>new Option('Unavailable saved selection',id,false,true)));
   }
-  function captureFilters(){if(!table)return;const state=table.state();view.query=state.query;view.columnFilters=Object.fromEntries(state.columns.flatMap((value,i)=>value===null?[]:[[tableColumns[i],value]]));}
+  function captureFilters(){if(!table)return;const state=table.state();view.query=state.query;view.columnFilters=Object.fromEntries(state.columns.flatMap((value,i)=>value===null||transientKeys.has(tableColumns[i])?[]:[[tableColumns[i],value]]));}
   function readView():BlotterView{
-    captureFilters();if(table?.ready())view.grid=table.layout();const next=structuredClone(view);next.mode=field('blotter-mode').value as BlotterView['mode'];
+    captureFilters();if(table?.ready())view.grid=withoutColumns(table.layout(),transientKeys);const next=structuredClone(view);next.mode=field('blotter-mode').value as BlotterView['mode'];
     if(get<HTMLSelectElement>('blotter-books').options.length)next.bookIds=selected('blotter-books');
     if(get<HTMLSelectElement>('blotter-portfolios').options.length)next.portfolioIds=selected('blotter-portfolios');
     next.splitBy=Array.from(get('blotter-split-dimensions').querySelectorAll<HTMLInputElement>('input:checked'),n=>n.value);
@@ -142,30 +144,36 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const pivot=view.mode==='pivot';
     const columns=blotterColumns.filter(([key])=>pivot?[...view.groupBy,...view.measures,'instrumentType','unit','currency',...(view.measures.some(isPriceMeasure)?['priceUnit']:[])].includes(key):key!=='tradeCount'&&!isPriceMeasure(key));
     tableColumns=columns.map(c=>c[0]);
-    const rows:Record<string,string|null>[]=pivot?holdings.groups.map(g=>Object.fromEntries(columns.map(([key])=>[key,key==='instrumentType'?friendly(g.instrumentType):key==='market'?curveName(g.market):key==='contract'?deliveryLabel(String(g.deliveryFrom),String(g.deliveryTo)):String(g[key]??'')]))):holdings.holdings.map(({booking,amountFormat,fixedAmountFormat,...h})=>({...h,priceUnit:`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`,tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)}));
+    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D213).
+    const counted=pivot&&holdings.groups.some(g=>excludedPositions(g.unvaluedPositions)>0);
+    const rows:Record<string,string|null>[]=pivot?holdings.groups.map(g=>({...Object.fromEntries(columns.map(([key])=>[key,key==='instrumentType'?friendly(g.instrumentType):key==='market'?curveName(g.market):key==='contract'?deliveryLabel(String(g.deliveryFrom),String(g.deliveryTo)):String(g[key]??'')])),unvaluedPositions:String(excludedPositions(g.unvaluedPositions))})):holdings.holdings.map(({booking,amountFormat,fixedAmountFormat,...h})=>({...h,priceUnit:`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`,tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)}));
     const visible=columns.map(([key])=>view.columns.includes(key)||pivot&&['instrumentType','unit','currency','priceUnit'].includes(key));
     if(!visible.some(Boolean))visible[0]=true;
     const numeric=tableColumns.flatMap((key,i)=>(['tradeCount','lots','quantity','executionPrice','mark','executionPnl','fixedPrice','presentValue','revision'].includes(key)||isPriceMeasure(key))?[i]:[]);
-    const matrix=pivot&&view.splitBy.length?pivotMatrix(holdings.groups,view.groupBy,view.splitBy,view.measures):undefined;
-    const gridColumns=matrix?.columns??columns.map(([key,title],i)=>({key,title,numeric:numeric.includes(i)}));
-    if(matrix){tableColumns=matrix.columns.map(c=>c.key);}
-    const gridVisible=gridColumns.map(c=>c.key.startsWith('pivot:')?view.columns.includes((c as {measure:string}).measure):view.columns.includes(c.key)||pivot&&['instrumentType','unit','currency','priceUnit'].includes(c.key));
+    const matrix=pivot&&view.splitBy.length?pivotMatrix(holdings.groups,view.groupBy,view.splitBy,counted?[...view.measures,'unvaluedPositions']:view.measures):undefined;
+    const gridColumns:{key:string;title:string;numeric:boolean;measure?:string}[]=matrix?.columns??[...columns.map(([key,title],i)=>({key,title,numeric:numeric.includes(i)})),...(counted?[{key:'unvaluedPositions',title:'Not valued',numeric:true}]:[])];
+    tableColumns=gridColumns.map(c=>c.key);
+    transientKeys=new Set(gridColumns.filter(c=>(c.measure??c.key)==='unvaluedPositions').map(c=>c.key));
+    const gridVisible=gridColumns.map(c=>transientKeys.has(c.key)||(c.key.startsWith('pivot:')?view.columns.includes(c.measure!):view.columns.includes(c.key)||pivot&&['instrumentType','unit','currency','priceUnit'].includes(c.key)));
     const rawRows=matrix?.rows??rows;
+    // A trade row's value cells say why the close cannot value it, on screen and in exports.
+    const notValued=(index:number,key:string)=>{const original=pivot?undefined:holdings!.holdings[index];
+      return original?.unavailableReason&&valueCells(original.instrumentType).includes(key)?`Not valued · ${valuationReason(original.unavailableReason)}`:undefined;};
     const displayRows=rawRows.map((row,index)=>gridColumns.map(c=>{
-      const original=pivot?undefined:holdings!.holdings[index];
-      if(original?.unavailableReason&&valueCells(original.instrumentType).includes(c.key))return `Not valued · ${valuationReason(original.unavailableReason)}`;
+      const reason=notValued(index,c.key);if(reason)return reason;
       const value=row[c.key]??'';if(!c.numeric||value==='')return value;
-      const measure=c.key.startsWith('pivot:')?(c as {measure:string}).measure:c.key;
+      const measure=c.measure??c.key;
+      const original=pivot?undefined:holdings!.holdings[index];
       if(['executionPrice','mark','fixedPrice'].includes(measure)||isPriceMeasure(measure))return amountText(value,'price',measure==='mark'?original?.markTick:original?.priceTick,measure==='fixedPrice'?original?.fixedAmountFormat:original?.amountFormat);
       if(['presentValue','executionPnl'].includes(measure))return amountText(value,'money',undefined,original?.amountFormat);
       if(measure==='quantity')return amountText(value,'quantity',undefined,original?.amountFormat);
       return value;
     }));
-    table=workspace.render('futures-holdings',scope+JSON.stringify([view.mode,view.groupBy,view.measures,view.bookIds,view.portfolioIds,view.query,view.columnFilters]),gridColumns.map(c=>c.title),rawRows.map(row=>gridColumns.map(c=>row[c.key]??'')),gridColumns.flatMap((c,i)=>c.numeric?[i]:[]),busy,{displayRows,keys:tableColumns,columnGroups:matrix?Object.fromEntries(matrix.columns.filter(c=>c.groupKey).map(c=>[c.key,{key:c.groupKey!,title:c.groupTitle!,measureTitle:c.measureTitle!}])):undefined,layout:view.grid,onLayout:layout=>{view.grid=layout;},onReady:sync,visible:gridVisible,initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,onRowOpen:pivot?undefined:index=>{const row=holdings?.holdings[index];if(row)void act(()=>row.instrumentType==='financial_swap'?swapEditor.open(row.tradeId,Number(row.revision)):editor.open(row.tradeId,Number(row.revision)));}});
+    table=workspace.render('futures-holdings',scope+JSON.stringify([view.mode,view.groupBy,view.measures,view.bookIds,view.portfolioIds,view.query,view.columnFilters]),gridColumns.map(c=>c.title),rawRows.map(row=>gridColumns.map(c=>row[c.key]??'')),gridColumns.flatMap((c,i)=>c.numeric?[i]:[]),busy,{displayRows,exportRows:rawRows.map((_,index)=>gridColumns.map(c=>notValued(index,c.key))),keys:tableColumns,columnGroups:matrix?Object.fromEntries(matrix.columns.filter(c=>c.groupKey).map(c=>[c.key,{key:c.groupKey!,title:c.groupTitle!,measureTitle:c.measureTitle!}])):undefined,layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,visible:gridVisible,initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,onRowOpen:pivot?undefined:index=>{const row=holdings?.holdings[index];if(row)void act(()=>row.instrumentType==='financial_swap'?swapEditor.open(row.tradeId,Number(row.revision)):editor.open(row.tradeId,Number(row.revision)));}});
 
     workspace.columns(columns,columns.filter((_,i)=>visible[i]).map(c=>c[0]),selected=>{
       if(busy())return;
-      if(!selected.length){render();return;}captureFilters();if(table?.ready())view.grid=table.layout();view.columns=selected;render();
+      if(!selected.length){render();return;}captureFilters();if(table?.ready())view.grid=withoutColumns(table.layout(),transientKeys);view.columns=selected;render();
     },pivot?['instrumentType','unit','currency','priceUnit']:[]);
     if(pivot)get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value)){n.checked=true;n.disabled=true;}});
     renderRegularTable(get('futures-totals'),'futures-totals',scope,['Book','Currency','Execution P&L'],holdings.totals.map(t=>[t.book,t.currency,t.executionPnl??'']),[2],busy,{displayRows:holdings.totals.map(t=>[t.book,t.currency,t.executionPnl===null?'Not valued':amountText(t.executionPnl,'money')])});
@@ -208,7 +216,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const dimensions=view.mode==='pivot'?view.groupBy:['book','market','contract'],splitBy=view.mode==='pivot'?view.splitBy:['contract'];
     const chartRequest={context:reportRequest.context,view:{mode:'pivot',bookIds:view.bookIds,portfolioIds:view.portfolioIds,groupBy:dimensions,measures:[view.chart.measure],pivotConvention:'trading_blotter_totals_v1',priceNumericalPolicy:isPriceMeasure(view.chart.measure)&&view.chart.measure.endsWith('Mean')?priceMeanPolicy:null}};
     const report=await api<Holdings>('trading/blotter',chartRequest);requireCurrentRead(started,scope);
-    text('blotter-chart-scope',view.mode==='pivot'?'Follows the pivot rows and columns · selected books and portfolios, before table row filters.':'By dated contract and book / market · selected books and portfolios, before table row filters.');
+    // A chart of a valuation measure leaves unvalued positions out and says so; booked quantities count every position.
+    const excluded=valuationMeasure(view.chart.measure)?valuationNote(report.unvaluedPositions):null;
+    text('blotter-chart-scope',(view.mode==='pivot'?'Follows the pivot rows and columns · selected books and portfolios, before table row filters.':'By dated contract and book / market · selected books and portfolios, before table row filters.')+(excluded?' '+excluded:''));
     chartState={panels:pivotChartPanels(report.groups,dimensions,splitBy,view.chart.measure),request:chartRequest};renderChartPanels();
   }
   function renderChartPanels(){
@@ -267,7 +277,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     text('blotter-view-note',saved?'The selected account layout has been reloaded.':'Saved-view list refreshed. Choose a view to restore it.');
   });
   get('blotter-delete').onclick=()=>void act(async()=>{const name=field('blotter-saved').value;if(!name)throw Error('Choose a saved view to delete.');await layoutApi('table-views/blotter/delete',{name,expectedVersion:draftBase?.name===name?draftBase.version:versions.get(name)});if(draftBase?.name===name)draftBase=undefined;savedViews=savedViews.filter(v=>v.name!==name);versions.delete(name);viewControls();field('blotter-name').value='';text('blotter-view-note','Saved view deleted. The displayed data is unchanged.');});
-  get('blotter-export').onclick=()=>{if(busy()||!table||!holdings||!lastReadRequest)return;const rows=table.visibleRows();const metadata=[['Blotter snapshot'],['As of',holdings.asOf],['Knowledge cutoff',holdings.context.knownAt],['Convention',holdings.convention],['Display',view.mode],['Grouping',view.mode==='pivot'?view.groupBy.join(' / '):'None'],['Measures',view.mode==='pivot'?view.measures.join(' / '):'Trade rows'],['Portfolios',view.portfolioIds.length?catalog!.books.filter(b=>view.portfolioIds.includes(b.portfolio_id)).map(b=>b.portfolio).filter((v,i,a)=>a.indexOf(v)===i).join(' / '):'All authorized portfolios'],['Books',view.bookIds.length?catalog!.books.filter(b=>view.bookIds.includes(b.id)).map(b=>b.name).join(' / '):'All books in selected portfolios'],['Search',table.state().query],['Column filters',JSON.stringify(Object.fromEntries(table.state().columns.flatMap((v,i)=>v===null?[]:[[tableColumns[i],v]])))],['Numerical policy',holdings.pivotNumericalPolicy],['Pivot convention',view.mode==='pivot'?'trading_blotter_totals_v1':'Not applicable'],[]];
+  get('blotter-export').onclick=()=>{if(busy()||!table||!holdings||!lastReadRequest)return;const rows=table.visibleRows();const metadata=[['Blotter snapshot'],['As of',holdings.asOf],['Knowledge cutoff',holdings.context.knownAt],['Convention',holdings.convention],['Display',view.mode],['Grouping',view.mode==='pivot'?view.groupBy.join(' / '):'None'],['Measures',view.mode==='pivot'?view.measures.join(' / '):'Trade rows'],['Portfolios',view.portfolioIds.length?catalog!.books.filter(b=>view.portfolioIds.includes(b.portfolio_id)).map(b=>b.portfolio).filter((v,i,a)=>a.indexOf(v)===i).join(' / '):'All authorized portfolios'],['Books',view.bookIds.length?catalog!.books.filter(b=>view.bookIds.includes(b.id)).map(b=>b.name).join(' / '):'All books in selected portfolios'],['Search',table.state().query],['Column filters',JSON.stringify(Object.fromEntries(table.state().columns.flatMap((v,i)=>v===null?[]:[[tableColumns[i],v]])))],['Numerical policy',holdings.pivotNumericalPolicy],['Pivot convention',view.mode==='pivot'?'trading_blotter_totals_v1':'Not applicable'],['Positions not valued at this close',String(excludedPositions(holdings.unvaluedPositions))],[]];
     const csv=guardedCsv(metadata)+guardedCsv([table.headers(),...rows],table.numeric());void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv('leanetrm-blotter.csv',csv);});
   };
   get('futures-refresh').onclick=()=>void act(load);

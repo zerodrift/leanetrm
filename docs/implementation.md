@@ -232,8 +232,12 @@ outcome for every position holding that unit. Pivot groups, futures book totals 
 the report add only valued positions to PV, execution P&L and curve-price statistics,
 count every position in trades, lots, quantity and execution- and fixed-price
 statistics, and state `unvaluedPositions`. The Blotter table shows **Not valued** with
-the reason in plain words in a position's value cells, and a note under the summary
-counts the positions its totals exclude. Every other failure still fails the read. Risk
+the reason in plain words in a position's value cells, and the CSV export writes the same
+text there. A note under the summary counts the positions its totals exclude, as does the
+chart's scope line when it plots PV, execution P&L or a curve-price statistic. Pivots add
+a **Not valued** count per group, beside each column group of a cross-tab, whenever a
+group leaves a position out; saved views do not keep that column. The export metadata
+states the report's count. Every other failure still fails the read. Risk
 runs, the trade editors and the priced futures booking catalog still fail when the close
 cannot value one of their contracts. `tools/run_preview.py --check --valuation-status-check`
 qualifies the reads on the seeded example with the custom-curve closes through Dec 31, 2020.
