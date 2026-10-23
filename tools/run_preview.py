@@ -41,6 +41,7 @@ def main():
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
     parser.add_argument('--swap-risk-holdings-check',action='store_true',help='Qualify stored swap risk materialization in an owned fixture')
+    parser.add_argument('--side-observation-check',action='store_true',help='Qualify exact side observation schedules through draft and retained booking operations')
     parser.add_argument('--live-calculation-check',action='store_true',help='Qualify committed live contexts and browser updates')
     parser.add_argument('--connected-portfolio-check',action='store_true',help='Qualify published custom curves in booked portfolio risk and jobs')
     parser.add_argument('--risk-jobs-check',action='store_true',help='Qualify nested risk and durable worker execution in a disposable database')
@@ -64,12 +65,12 @@ def main():
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
-    fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check
+    fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
     if args.interval_series_benchmark or args.usage_benchmark:
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.side_observation_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -261,7 +262,7 @@ def main():
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
-            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames);query(swap_market)
+            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_observation_check);query(swap_market)
             if args.connected_portfolio_check:
                 # The primary daily-consumer fixture also visits January. Its
                 # unrelated secondary bundle explicitly supplies no inputs there.
@@ -459,6 +460,14 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--interval-series'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned interval series browser checks failed')
+            elif args.side_observation_check:
+                from check_side_observations import run_checks as check_side_observations
+                check_side_observations(url,query,manifest,psql,app_env)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--side-observations'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=240):raise RuntimeError('Owned side observation browser checks failed')
             elif args.swap_risk_holdings_check:
                 from check_swap_risk_holdings import run_checks as check_swap_risk_holdings
                 check_swap_risk_holdings(url,query,manifest,dotnet,temporary,app_env,psql)

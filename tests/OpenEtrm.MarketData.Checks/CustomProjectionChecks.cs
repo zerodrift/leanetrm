@@ -76,6 +76,10 @@ internal static class CustomProjectionChecks
             if (value.PresentValue.Numerator != "10" || value.PresentValue.Denominator != "1" ||
                 value.Payments.Single().Prices.Single().State != SchedulePriceState.Actual)
                 throw new Exception("A custom forecast replaced its exact published actual.");
+            var payment=value.Payments.Single();var application=payment.Applications.Single();
+            if(application.Application.Price.Lookup!.CustomProjection!=binding||application.Application.Price.Lookup.Fixing!=fixture.Fixings[0]||
+                !ReferenceEquals(application.Price,payment.Prices.Single())||application.CashContribution!=payment.CashAmount)
+                throw new Exception("A custom application lost its contractual projection, exact actual or evaluated contribution.");
         });
         Check("an unfixed custom side refuses an ordinary projection as a fallback", () =>
         {

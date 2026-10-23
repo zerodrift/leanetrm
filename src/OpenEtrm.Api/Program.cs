@@ -933,6 +933,9 @@ api.MapPost("/trading/workspace",(HttpContext c,TradingWorkspaceRequest body)=>
 api.MapPost("/trading/blotter",(HttpContext c,FuturesBlotterRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Blotter(connection,view,body.View,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/swaps/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,swapStore.Catalog,expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/observation-options",(HttpContext c,SwapObservationOptionsRequest body)=>FuturesRead(c,
+ body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
+ (connection,data,frame,ct)=>swapStore.ObservationOptions(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/editor",(HttpContext c,SwapEditorRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("swap_context","Supply the selected context."),
  (connection,view,ct)=>tradeReads.SwapTrade(connection,view,body.TradeId,body.Revision,ct),headTrade:body.TradeId,expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/preview",(HttpContext c,SwapWriteRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),

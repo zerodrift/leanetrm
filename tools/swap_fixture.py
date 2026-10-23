@@ -6,20 +6,20 @@ from preview_fixture import CAT, RCAT, RREV, identity
 REVISION = '60000000-0000-0000-0000-000000000002'
 
 
-def fixture(fixing_frames=False):
+def fixture(fixing_frames=False, observation_guards=False):
     m = f"'{CAT}','{REVISION}'"; r = f"'{RCAT}','{RREV}'"
     rows = ['BEGIN;', f"INSERT INTO market_data.revisions VALUES ({m},{r},'draft',0);"]
     prices = []
     for n, commodity, quote, target in [(0, 'gas', 'test_gas_outright', 'test_index_target'), (1, 'power', 'test_power_outright', 'test_power_target')]:
         curve = 'daily_'+commodity
         rows.append(f"INSERT INTO market_data.curves VALUES ({m},'{curve}',{r},'test_{commodity}','test_hub_a','{quote}','test_uniform','{target}','direct','fixture','trader_mark','Daily {commodity}');")
-        for day in range(1, 32):
-            start = date(2021, 1, day); end = start+timedelta(days=1)
+        for day in (range(0, 33) if observation_guards else range(1, 32)):
+            start = date(2021, 1, 1)+timedelta(days=day-1); end = start+timedelta(days=1)
             cid = identity('5', 2000+n*100+day); sid = identity('9', 2000+n*100+day)
             fixing_at=f'{start-timedelta(days=1)}T12:00:00Z'
             index='test_price' if commodity=='gas' else 'test_power_price'
             rows.extend([f"INSERT INTO market_data.contracts VALUES ({m},'{cid}',{r},'forward','{start}','{end}','{end} 00:00:00+00',NULL);",
-                         f"INSERT INTO market_data.curve_members VALUES ({m},'{curve}','{cid}',{day-1});",
+                         f"INSERT INTO market_data.curve_members VALUES ({m},'{curve}','{cid}',{day if observation_guards else day-1});",
                          f"INSERT INTO market_data.series VALUES ({m},'{sid}','swap_{commodity}_{day}',{r},'{cid}','{quote}',NULL);",
                          f"INSERT INTO market_data.index_fixing_observations (catalog_id,revision_id,index_code,observation_from,observation_to,reference_catalog_id,reference_revision_id,quote_code,series_id,source_code,fixing_at,implementation) VALUES ({m},'{index}','{start}','{end}',{r},'{quote}','{sid}','fixture','{fixing_at}','published_index_observations_v1');"])
             prices.append((2000+n*100+day, sid, Decimal('3')+Decimal(day)/100 if n==0 else Decimal('40')+Decimal(day)/10, 'trader_mark'))
@@ -51,7 +51,7 @@ def fixture(fixing_frames=False):
                 if role=='parameter':
                     continue
                 day=number%100
-                fixing_at=f'{date(2021,1,day)-timedelta(days=1)}T12:00:00Z'
+                fixing_at=f'{date(2021,1,1)+timedelta(days=day-2)}T12:00:00Z'
                 if fixing_at>at:
                     continue
                 actual_id=identity('7',7000000+number);pins.append(actual_id)

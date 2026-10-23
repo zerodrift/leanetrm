@@ -23,6 +23,13 @@ internal static class MonthlySwapChecks
             if (result.Sides.Any(s => s.Value.Payments.Length != 120) ||
                 result.Sides.Any(s => s.Value.Payments.Select((p,n) => p.Plan.Key.SideId == s.SideId && p.Plan.Key.Ordinal == n).Any(valid => !valid)))
                 throw new Exception("Monthly payments did not retain their leg identity and ordinal.");
+            foreach(var side in result.Sides)
+            foreach(var payment in side.Value.Payments)
+            foreach(var application in payment.Applications)
+                if(application.Application.Payment!=payment.Plan.Key||application.Application.Payment.SideId!=side.SideId||
+                    !ReferenceEquals(application.Application.Price,payment.Plan.Prices[application.Application.PriceOrdinal])||
+                    !ReferenceEquals(application.Price,payment.Prices[application.Application.PriceOrdinal]))
+                    throw new Exception("Monthly composition failed to rebase the exact valued application to its side and payment group.");
         });
         Check("total equal-month quantity is allocated exactly rather than repeated", () =>
         {

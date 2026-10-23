@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChecks.Run();return;}
 if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
 if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
 if(args is ["--live-calculation"]){LiveContextChecks.Run();return;}

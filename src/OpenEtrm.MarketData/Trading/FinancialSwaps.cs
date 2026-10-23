@@ -66,7 +66,8 @@ public sealed record FixedSide : Side
     }
     public override SidePaymentSchedule GenerateSchedule() => new(new(Id, DeliveryFrom, DeliveryTo, PaymentAt,
         Price.Unit.Currency, UnitQuantity, null, null, null,
-        [new(ExactDecimal.Parse("1"), Price, null)], Implementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
+        [new(ExactDecimal.Parse("1"), Price, null)], Implementation,
+        [new(DeliveryFrom,DeliveryTo,0,ExactDecimal.Parse("1"),Implementation)],Implementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
     public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 }
 
@@ -143,7 +144,7 @@ public sealed record FloatingSide : Side
     public ImmutableArray<SwapProjection> Projections => PricingBinding.Projections;
     [IdentityField]
     public SwapObservationCalendar? Calendar { get; }
-    private readonly ImmutableArray<ExactDecimal> weights;
+    private readonly FloatingObservationPlan observationPlan;
     public override ImmutableArray<CurveRequest> Dependencies => Projections.Select(p => CustomProjection?.Request(p.Market) ?? p.Market).ToImmutableArray();
     public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) =>
         GenerateSchedule().DependenciesAt(snapshot);
@@ -224,79 +225,22 @@ public sealed record FloatingSide : Side
             projections.Select(p => p.Market.Curve).Distinct().Count() != 1)
             throw new MarketDataException("swap_definition", "A floating side requires explicit coherent index, quote, unit, delivery, fixing, payment and exact projection contracts.");
         _ = PriceUnit.FromQuote(quote);
-        weights = ResolveWeights(averaging, projections, calendar, quote, deliveryFrom, deliveryTo);
+        if(averaging!=FloatingAveraging.QuantityWeighted&&projections.Any(p=>p.AveragingQuantity is not null))
+            throw new MarketDataException("swap_averaging","Only quantity-weighted observations accept explicit averaging quantities.");
+        observationPlan=FloatingObservationPlan.Generate(deliveryFrom,deliveryTo,averaging,quote,calendar,
+            averaging==FloatingAveraging.QuantityWeighted?projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity)).ToImmutableArray():[]);
+        if(!projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity)).SequenceEqual(observationPlan.Observations))
+            throw new MarketDataException("swap_averaging","Resolved projections must match the complete ordered observation plan.");
         Index = index; Quote = quote; UnitQuantity = unitQuantity; DeliveryFrom = deliveryFrom;
         DeliveryTo = deliveryTo; FirstFixingAt = firstFixingAt; PaymentAt = paymentAt;
         Averaging = averaging; PricingBinding = new(projections); Calendar = calendar;
     }
 
-    private static ImmutableArray<ExactDecimal> ResolveWeights(FloatingAveraging averaging,
-        ImmutableArray<SwapProjection> projections, SwapObservationCalendar? calendar,
-        QuoteSpecification quote, DateOnly deliveryFrom, DateOnly deliveryTo)
-    {
-        static MarketDataException Invalid() => new("swap_averaging", "Select complete ordered observations, an explicit covered calendar where required, and compatible weights for the chosen averaging rule.");
-        var one = ExactDecimal.Parse("1");
-        var calendarRequired = averaging is FloatingAveraging.ObservationArithmetic or
-            FloatingAveraging.CalendarDaysPrevious or FloatingAveraging.CalendarDaysNext;
-        if (!Enum.IsDefined(averaging) || calendarRequired != (calendar is not null) ||
-            averaging != FloatingAveraging.QuantityWeighted && projections.Any(p => p.AveragingQuantity is not null))
-            throw Invalid();
-        if (averaging == FloatingAveraging.MonthlyIndexPrice)
-        {
-            if (deliveryFrom.Day != 1 || deliveryFrom.Year == 9999 || deliveryFrom.AddMonths(1) != deliveryTo || projections.Length != 1 ||
-                projections[0].Contract.DeliveryFrom != deliveryFrom || projections[0].Contract.DeliveryTo != deliveryTo)
-                throw Invalid();
-            return [one];
-        }
-        if (projections.Any(p => p.Contract.DeliveryFrom.Year == 9999 || p.Contract.DeliveryFrom.AddDays(1) != p.Contract.DeliveryTo) ||
-            !projections.Select(p => p.Contract.DeliveryFrom).SequenceEqual(projections.Select(p => p.Contract.DeliveryFrom).Distinct().Order()))
-            throw Invalid();
-        var days = Enumerable.Range(deliveryFrom.DayNumber, deliveryTo.DayNumber - deliveryFrom.DayNumber).Select(DateOnly.FromDayNumber).ToArray();
-        if (!calendarRequired)
-        {
-            if (!projections.Select(p => p.Contract.DeliveryFrom).SequenceEqual(days)) throw Invalid();
-            if (averaging == FloatingAveraging.CalendarDayArithmetic) return projections.Select(_ => one).ToImmutableArray();
-            if (averaging != FloatingAveraging.QuantityWeighted || projections.Any(p => p.AveragingQuantity is null ||
-                p.AveragingQuantity.Specification != quote.Quantity || p.AveragingQuantity.Amount.CompareTo(default) <= 0)) throw Invalid();
-            return projections.Select(p => p.AveragingQuantity!.Amount).ToImmutableArray();
-        }
-        if (calendar!.BusinessDays is null || calendar.Key.Revision != quote.Key.Revision || string.IsNullOrWhiteSpace(calendar.Key.Code) ||
-            calendar.BusinessDays.From > deliveryFrom || calendar.BusinessDays.To < deliveryTo) throw Invalid();
-        var observed = calendar.BusinessDays;
-        int LowerBound(DateOnly date)
-        {
-            var low = 0; var high = observed.Count;
-            while (low < high)
-            {
-                var middle = low + (high - low) / 2;
-                if (observed[middle] < date) low = middle + 1;
-                else high = middle;
-            }
-            return low;
-        }
-        var counts = new Dictionary<DateOnly, int>();
-        if (averaging == FloatingAveraging.ObservationArithmetic)
-        {
-            for (var n = LowerBound(deliveryFrom); n < observed.Count && observed[n] < deliveryTo; n++)
-                counts.Add(observed[n], 1);
-        }
-        else foreach (var day in days)
-        {
-            var n = LowerBound(day);
-            if (averaging == FloatingAveraging.CalendarDaysPrevious && (n == observed.Count || observed[n] != day)) n--;
-            if (n < 0 || n >= observed.Count) throw Invalid();
-            var date = observed[n];
-            counts[date] = counts.GetValueOrDefault(date) + 1;
-        }
-        if (counts.Count == 0 || !projections.Select(p => p.Contract.DeliveryFrom).SequenceEqual(counts.Keys.Order())) throw Invalid();
-        return projections.Select(p => ExactDecimal.Parse(counts[p.Contract.DeliveryFrom].ToString(System.Globalization.CultureInfo.InvariantCulture))).ToImmutableArray();
-    }
-
     public override SidePaymentSchedule GenerateSchedule() => new(new(Id, DeliveryFrom, DeliveryTo, PaymentAt,
         Quote.Currency, UnitQuantity, Fixings.IsEmpty ? FirstFixingAt : null, Averaging, Calendar,
-        Projections.Select((p, n) => new SchedulePriceTerm(weights[n], null,
+        Projections.Select((p, n) => new SchedulePriceTerm(observationPlan.Weights[n], null,
             new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity, Fixings.IsEmpty ? null : Fixings[n], CustomProjection))).ToImmutableArray(),
-        Fixings.IsEmpty ? Implementation : IndexedImplementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
+        Fixings.IsEmpty ? Implementation : IndexedImplementation,observationPlan.Applications,observationPlan.MappingRule,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
     public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 
 }
