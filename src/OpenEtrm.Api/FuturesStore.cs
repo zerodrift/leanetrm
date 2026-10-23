@@ -80,6 +80,8 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
         {
             var series=One(data.ReferenceRows("futures_series","code",s.Series.Key.Code));
             var product=One(data.ReferenceRows("futures_products","code",series.Text("product_code")));
+            var commodity=One(data.ReferenceRows("commodities","code",product.Text("commodity_code")));
+            var exchange=One(data.ReferenceRows("exchanges","code",product.Text("exchange_code")));
             var quantity=One(data.ReferenceRows("quantity_specifications","code",s.Quote.Quantity.Code));
             var unit=One(data.ReferenceRows("units","code",quantity.Text("unit_code")));
             var currency=One(data.ReferenceRows("currencies","code",s.Quote.Currency.Code));
@@ -92,7 +94,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
                 eligibilityNote="Execution eligibility is a selected application policy, separate from the exchange first-trading fact.",
                 firstTradingDate=firstMilestone.OptionalText("business_date"),priceRole=selectedCurve.Text("direct_role"),
                 priceSource=new{code=priceSource.Text("code"),kind=priceSource.Text("kind"),locator=priceSource.Text("locator")},
-                id=s.Contract.Key.Id,instrumentId=s.Instrument.Id,curve=s.Market.Curve.Code,name=product.Text("name"),deliveryFrom=Date(s.Contract.DeliveryFrom),deliveryTo=Date(s.Contract.DeliveryTo),
+                id=s.Contract.Key.Id,instrumentId=s.Instrument.Id,curve=s.Market.Curve.Code,name=product.Text("name"),commodity=commodity.Text("code"),commodityName=commodity.Text("name"),exchange=exchange.Text("code"),exchangeName=exchange.Text("name"),product=product.Text("code"),deliveryFrom=Date(s.Contract.DeliveryFrom),deliveryTo=Date(s.Contract.DeliveryTo),
                 firstTrading=s.Series.FirstTradingAt is {} first?Instant(first):null,eligibleFrom=Instant(s.EligibleFrom),lastTrading=Instant(s.Contract.Expiry),contractSize=s.LotSize.Amount.ToString(),nominalSize=s.Series.ContractSize.ToString(),nominalUnit=One(data.ReferenceRows("units","code",product.Text("lot_unit_code"))).Text("symbol"),lotFactor=s.Series.LotResolution?.Factor.ToString(),lotResolution=s.Series.LotResolution?.Implementation,
                 unit=unit.Text("symbol"),currency=currency.Text("display_code"),quoteMultiplier=s.Quote.Multiplier.ToString(),tick=s.Quote.TradingTick.ToString(),
                 clearingIncrement=s.Quote.ClearingIncrement.ToString(),minimumPrice=s.Quote.Minimum.ToString(),maximumPrice=s.Quote.Maximum.ToString(),

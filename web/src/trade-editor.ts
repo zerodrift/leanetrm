@@ -23,9 +23,9 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
  let failedLiveSelection:{tradeId:string;revision:number|null}|undefined;
  const contextKey=()=>JSON.stringify(options.context());
  function invalidate(){previewGeneration++;prepared=undefined;get('trade-preview-result').hidden=true;get<HTMLInputElement>('trade-confirm').checked=false;sync();}
- function reset(){failedLiveSelection=undefined;display.reset();annotations.reset();generation++;if(dialog.open)dialog.close();detail=undefined;selection=undefined;amendEdits.clear();invalidate();get('trade-history').replaceChildren();for(const id of ['trade-revision','trade-book','trade-contract'])field(id).replaceChildren();for(const id of ['trade-preview-values','trade-effective'])text(id,'');get<HTMLFormElement>('trade-amend-form').reset();text('trade-editor-reference','');text('trade-editor-terms','');get('trade-side-fields').replaceChildren();text('trade-editor-mode','');text('trade-error','');get('trade-error').hidden=true;}
+ function reset(){instrument.clear();failedLiveSelection=undefined;display.reset();annotations.reset();generation++;if(dialog.open)dialog.close();detail=undefined;selection=undefined;amendEdits.clear();invalidate();get('trade-history').replaceChildren();for(const id of ['trade-revision','trade-book','trade-contract'])field(id).replaceChildren();for(const id of ['trade-preview-values','trade-effective'])text(id,'');get<HTMLFormElement>('trade-amend-form').reset();text('trade-editor-reference','');text('trade-editor-terms','');get('trade-side-fields').replaceChildren();text('trade-editor-mode','');text('trade-error','');get('trade-error').hidden=true;}
  async function safe(work:()=>Promise<void>){const started=generation;try{get('trade-error').hidden=true;await work();}catch(error){if(started!==generation)return;text('trade-error',error instanceof Error?error.message:'The trade operation failed.');get('trade-error').hidden=false;if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}throw error;}}
- function sync(){display.sync();
+ function sync(){instrument.sync(options.busy()||!detail?.canAmend||!!options.pending());display.sync();
   const waiting=options.pending()?.path==='futures/amend';
   get<HTMLFieldSetElement>('trade-amend-fields').disabled=options.busy()||!detail?.canAmend||!!options.pending();
   field('trade-revision').disabled=options.busy()||!!options.pending();
@@ -45,8 +45,8 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   text('trade-editor-reference',`${state.tradeReference} · ${state.instrumentReference} · Revision ${state.revision}`);
   field('trade-revision').replaceChildren(...detail.history.map(h=>new Option(`Revision ${h.revision} · ${h.kind==='booked'?'Booked':'Amended'}`,String(h.revision))));field('trade-revision').value=String(state.revision);
   field('trade-book').replaceChildren(...books.map(b=>new Option(publicText(`${b.portfolio} · ${b.name}`),b.id)));field('trade-book').value=state.bookId;
-  field('trade-contract').replaceChildren(...detail.catalog.contracts.map(c=>new Option(publicText(`${curveName(c.curve)} · ${deliveryLabel(c.deliveryFrom,c.deliveryTo)}`),futuresContractKey(c))));
-  const key=JSON.stringify([state.curve,state.contractId]);if(!detail.catalog.contracts.some(c=>futuresContractKey(c)===key))field('trade-contract').append(new Option('Retained dated contract',key));field('trade-contract').value=key;
+  const key=JSON.stringify([state.curve,state.contractId]);instrument.populate(detail.catalog.contracts,key);
+  if(!detail.catalog.contracts.some(c=>futuresContractKey(c)===key)){const retained=new Option('Retained dated contract',key);retained.disabled=true;field('trade-contract').append(retained);field('trade-contract').value=key;}
   field('trade-lots').value=state.lots;field('trade-price').value=state.executionPrice;field('trade-reason').value='';amendEdits.clear();
   text('trade-editor-mode',detail.canAmend?`Current revision ${state.revision} · unprocessed futures`:detail.amendUnavailableReason??'Read-only trade revision');
   text('trade-effective',`Amendment effective time: ${displayInstant(detail.asOf,options.zone())} · ${options.zone()}. Earlier revisions remain unchanged.`);

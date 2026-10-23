@@ -13,11 +13,27 @@ public sealed record SwapObservationOptionsRequest(FuturesReadRequest Context, G
     CustomCurveProjectionInput? CustomProjection = null, ReferenceKey? ObservationCalendar = null);
 
 public sealed record SideObservationUnavailable(string Code, string Message);
+public sealed record SideDeliveryPeriod(string ResetFrequency,string AveragingMethod,string DeliveryFrom,string DeliveryTo);
 public sealed record SideObservationChoice(Guid DefinitionRevisionId, string Curve, string Index,
     string ResetFrequency, string AveragingMethod, bool Available, ImmutableArray<SideObservationUnavailable> Reasons);
 
 public sealed partial class SwapStore
 {
+    private static void RequireObservationInputs(PreviewData data,InputFrame frame,PlannedSideObservationReferences references,bool custom,CancellationToken ct)
+    {
+        var snapshot=data.Snapshot(frame);
+        var requests=references.Projections.Where((_,ordinal)=>!custom&&snapshot.ValuationAt<references.Fixings[ordinal].FixingAt)
+            .Select(projection=>projection.Market).Distinct().ToImmutableArray();
+        var market=data.Model.Build(snapshot,requests,ct);
+        for(var ordinal=0;ordinal<references.Projections.Length;ordinal++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var projection=references.Projections[ordinal];var fixing=references.Fixings[ordinal];
+            var quote=data.QuoteRows(fixing.Quote.Code).Single();
+            _=IndexFixingPricing.Resolve(market,new(fixing.Index,quote,projection.Market,projection.Contract,null,fixing));
+        }
+    }
+
     public async Task<object> ObservationOptions(NpgsqlConnection connection, PreviewData data, InputFrame frame,
         SwapObservationOptionsRequest input, CancellationToken ct)
     {
@@ -94,6 +110,43 @@ public sealed partial class SwapStore
             customUnavailable = "This observation convention has no qualified custom-curve projection mapping.";
         var selectedCandidates = candidates.Where(candidate => (input.Curve is null || candidate.Curve.Text("code") == input.Curve) &&
             (input.Index is null || candidate.Index == input.Index)).ToArray();
+        var deliveryPeriods = new List<SideDeliveryPeriod>();
+        // Derive calendar choices independently of the dates currently entered.
+        // The same observation planner qualifies calendar guards and exact fixings;
+        // a calendar-based mode has no selectable dates before its calendar is chosen.
+        if (input.Curve is not null && selectedCandidates.Length == 1 && selectedMode is {} periodMode &&
+            (!SwapObservationCompatibility.Mode(periodMode).RequiresObservationCalendar || input.ObservationCalendar is not null))
+        {
+            var candidate = selectedCandidates[0];
+            var members = candidate.Data.Definitions["curve_members"].Where(row => row.Text("curve_code") == input.Curve)
+                .Select(row => row.Id("contract_id")).ToHashSet();
+            var months = candidate.Data.Contracts.Where(contract => members.Contains(contract.Key.Id) &&
+                    contract.Kind == ContractKind.Forward && contract.DeliveryFrom.Year < 9999)
+                .Select(contract => new DateOnly(contract.DeliveryFrom.Year,contract.DeliveryFrom.Month,1)).Distinct().Order();
+            var published = input.CustomProjection is null ? ImmutableArray<CustomCurves.PublishedProjectionChoice>.Empty :
+                await CustomCurves.ProjectionChoices(connection,database,candidate.Data,candidate.Frame,ct);
+            foreach (var month in months)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var calendar = input.ObservationCalendar is {} key ? ObservationCalendar(candidate.Data,key) : null;
+                    var custom = input.CustomProjection is {} c ? new CustomCurveProjectionBinding(c.CatalogId,c.CurveId,c.Version,c.OutputNode,c.Position,c.Selection,c.Implementation) : null;
+                    var references = SwapObservationCompatibility.PreviewReferences(candidate.Data,candidate.Curve,
+                        new(candidate.Data.ReferenceRevision,candidate.Index),candidate.Quote,month,month.AddMonths(1),periodMode,calendar,custom);
+                    if (input.CustomProjection is {} projection && !published.Any(choice => choice.Reference == projection &&
+                        choice.Unit == PriceUnit.FromQuote(candidate.Quote) && (projection.Selection == CustomCurveProjectionBinding.SupportedSelection ||
+                        references.Observations.All(observation => choice.Deliveries.Contains(new(observation.From,observation.To)))))) continue;
+                    RequireObservationInputs(candidate.Data,candidate.Frame,references,custom is not null,ct);
+                    var mode = SwapObservationCompatibility.Mode(periodMode);
+                    deliveryPeriods.Add(new(mode.ResetFrequency,mode.AveragingMethod,Date(month),Date(month.AddMonths(1))));
+                }
+                catch (MarketDataException error) when (error.Code is "swap_averaging" or "swap_projection_coverage" or
+                    "index_fixing_convention_missing" or "index_fixing_definition" or "index_fixing_cadence" or
+                    "swap_observation_calendar" or "swap_custom_projection_averaging" or "custom_projection" or
+                    "missing_observation" or "index_fixing_missing" or "source_expired") { }
+            }
+        }
         if (input.Curve is not null && selectedCandidates.Length == 0)
             unavailable = new("swap_definition", "The selected projection is unavailable in this exact reference context.");
         if (input.Curve is not null && selectedCandidates.Length == 1 && selectedMode is {} averaging && from is {} deliveryFrom && to is {} deliveryTo)
@@ -121,7 +174,7 @@ public sealed partial class SwapStore
             }
             catch (MarketDataException error) { unavailable = new(error.Code, error.Message); }
         }
-        return new { indices, samplings, observationCalendars = calendars, observations, availability = unavailable,
+        return new { indices, samplings, deliveryPeriods, observationCalendars = calendars, observations, availability = unavailable,
             customProjectionUnavailableReason = customUnavailable, choices };
     }
 }

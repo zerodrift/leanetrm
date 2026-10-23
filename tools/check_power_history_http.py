@@ -14,6 +14,7 @@ def run_checks(client, query, manifest):
     assert source['locationName'] == query(f"SELECT name FROM ref_data.locations WHERE(catalog_id,revision_id,code)=('{r}','{rr}','test_hub_a');")
     assert source['provider'] == 'PJM' and source['marketName'] == 'Day-ahead'
     assert source['priceUnit'] == 'USD/MWh'
+    assert source['availableDates'] == ['2026-11-02'] and source['availableThrough'] == {'2026-11-02': '2026-11-02'}
     assert source['marketClock'].startswith('America/New_York · tzdb ')
     attempt = next(a for a in catalog['attempts'] if a['jobName'] == 'Synthetic paused schedule' and a['fromDate'] == '2026-11-02' and a['throughDate'] == '2026-11-02')
     assert attempt['provider'] == 'PJM' and attempt['fromDate'] == '2026-11-02'
@@ -41,7 +42,10 @@ def run_checks(client, query, manifest):
     try:
         after, _ = client.call('/api/power-imports')
         original = next(s for s in after['sources'] if s['id'] == source['id'])
-        other = next(s for s in after['sources'] if s['id'] == alternate)
+        assert not any(s['id'] == alternate for s in after['sources']), 'A configured source without prices became selectable'
+        empty, _ = client.call('/api/power-imports/period', {'sourceId':alternate,'fromDate':'2026-11-02','throughDate':'2026-11-02','knownAt':after['knownAt']})
+        assert empty['rows'] == []
+        other = empty['source']
         assert original == source, 'A different reference revision changed exact source metadata'
         assert other['commodityKey'] == f'{alternate_catalog}:{shadow}:test_power'
         assert other['commodityName'] == 'Synthetic alternate commodity'

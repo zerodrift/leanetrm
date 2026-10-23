@@ -1,4 +1,4 @@
-export type DeliveryPriceSource={id:string;name:string;commodityKey:string;commodityName:string;provider:string;market:string;marketName:string;locationKey:string;locationName:string;minutes:number;marketClock:string;priceUnit:string};
+export type DeliveryPriceSource={id:string;name:string;commodityKey:string;commodityName:string;provider:string;market:string;marketName:string;locationKey:string;locationName:string;minutes:number;marketClock:string;priceUnit:string;availableDates:string[];availableThrough:Record<string,string>};
 export type DeliveryPriceSelection={commodityKey?:string;provider?:string;market?:string;locationKey?:string};
 type Choice={value:string;name:string};
 function choices(sources:DeliveryPriceSource[],key:(s:DeliveryPriceSource)=>string,label:(s:DeliveryPriceSource)=>string):Choice[]{
@@ -7,6 +7,7 @@ function choices(sources:DeliveryPriceSource[],key:(s:DeliveryPriceSource)=>stri
  return [...values].map(([value,name])=>({value,name})).sort((a,b)=>a.name.localeCompare(b.name)||a.value.localeCompare(b.value));
 }
 export function deliveryPriceChoices(sources:DeliveryPriceSource[],selection:DeliveryPriceSelection){
+ sources=sources.filter(s=>s.availableDates.length>0);
  const commodity=sources.filter(s=>s.commodityKey===selection.commodityKey);
  const provider=commodity.filter(s=>s.provider===selection.provider);
  const market=provider.filter(s=>s.market===selection.market);

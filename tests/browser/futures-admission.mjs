@@ -1,3 +1,4 @@
+import {chooseFutures} from './futures-selection.mjs';
 import {displayInstant} from '../../web/dist/market-view.js';
 
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
@@ -15,7 +16,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   };`);
   await persona('trader');
   await evaluate("(()=>{const snapshot=document.querySelector('#snapshot');snapshot.value=[...snapshot.options].at(-1).value;snapshot.dispatchEvent(new Event('change',{bubbles:true}));})()");await wait(idle);await click('#nav-futures');
-  async function choose(){await click('#futures-new');await click('#trade-kind-future');await evaluate("(()=>{const contract=document.querySelector('#futures-contract');contract.selectedIndex=1;contract.dispatchEvent(new Event('change',{bubbles:true}));})()");}
+  async function choose(){await click('#futures-new');await click('#trade-kind-future');await chooseFutures({evaluate,set,click});}
   await choose();
   await check('unknown actual first trading remains separate from explicit sample eligibility',"(()=>{const terms=[...document.querySelectorAll('#futures-contract-terms .side-term')];const value=label=>terms.find(row=>row.querySelector('dt').textContent.startsWith(label))?.querySelector('dd').textContent;return value('Actual first trading')==='Source time unavailable'&&value('Trading eligibility from')?.includes('Dec 15, 2020')&&value('Eligibility source')?.includes('sample trading eligibility')&&!document.querySelector('#futures-terms').textContent.includes('1970')&&document.querySelector('#error').hidden;})()");
   await evaluate('window.__unknownFirstTrading=false');await click('#futures-refresh');await choose();
