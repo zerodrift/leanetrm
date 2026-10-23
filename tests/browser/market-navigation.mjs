@@ -19,6 +19,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   };`});
  try{
   await command('Page.navigate',{url:url+'/'});await wait(idle+"&&document.querySelectorAll('.curve-button').length>0&&performance.getEntriesByName('leanetrm:workspace-ready').length===1");
+  // Start on Curves & prices whichever page the account opens on.
+  await click('#nav-market');
   await check('initial directory reads only the explicit navigation contract',"window.__navigationReads.includes('/api/workspace/navigation')&&!window.__navigationReads.includes('/api/workspace/catalog')&&!window.__navigationReads.includes('/api/workspace')&&performance.getEntriesByName('leanetrm:workspace-ready').length===1");
   await set('#commodity','test_gas');await check('navigation filters do not hydrate pricing data',"!window.__navigationReads.includes('/api/workspace/catalog')&&document.querySelectorAll('.curve-button').length>0");
   await set('#commodity','');

@@ -515,7 +515,7 @@ dialog label{margin-top:16px}
 @media(max-width:760px){.trade-annotation-fields{grid-template-columns:1fr}}
 
 /* Merged shell: the example switcher and header time controls use the token palette. */
-.example-switch{margin:0 4px 6px}.example-switch label{color:var(--sidebar-muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+.example-switch{margin:10px 0 0}.example-switch label{color:var(--sidebar-muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
 .example-switch select{width:100%;background:var(--sidebar-2);color:var(--sidebar-text);border-color:#2f4b3e}
 .header-context>summary{color:var(--accent-text)}
 .workspace-mode{color:var(--text-3)}.workspace-mode strong{color:var(--text)}
