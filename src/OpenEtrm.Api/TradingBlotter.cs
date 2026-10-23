@@ -118,12 +118,14 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
   var hasPrices=view.Measures.Any(PriceMeasures.ContainsKey);
   // D98 keeps totals apart by quantity specification; D216's money totals add across quantity units, keeping apart only the dimensions, instrument type and currency.
   var byQuantity=view.PivotConvention!=MoneyTotalsConvention;
+  // A market or contract is defined in one definition revision, so groups naming one are kept apart by revision and say which (R29).
+  var byDefinition=view.GroupBy.Any(d=>d is "market" or "contract");
   var dimensions=new Dictionary<string,string>{{"portfolio","portfolioId"},{"book","bookId"},{"market","curve"},{"contract","contractId"},{"instrumentType","instrumentType"},{"commodity","commodity"}};
   // What identifies a row's group in a dimension: the field's text, or the code of the reference the field names.
   string? Identity(JsonObject row,string field)=>row[field] is JsonObject reference?Text(reference,"code"):Text(row,field);
   var partitions=rows.OrderBy(r=>Text(r,"tradeId"),StringComparer.Ordinal).ThenBy(r=>Text(r,"bindingId"),StringComparer.Ordinal).GroupBy(r=>JsonSerializer.Serialize(new{
    dimensions=view.GroupBy.Select(d=>Identity(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=byQuantity?Key(r,"quantitySpecification"):(ReferenceKey?)null,currency=Key(r,"currencyReference"),
-   priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=view.GroupBy.Any(d=>d is "market" or "contract")?Text(r,"definitionRevisionId"):null}));
+   priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=byDefinition?Text(r,"definitionRevisionId"):null}));
   foreach(var partition in partitions)
   {
    var first=partition.First();var group=new JsonObject();
@@ -131,8 +133,9 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
    {
     var field=dimensions[d];group[field=="curve"?"market":field]=first[field]?.DeepClone();
     if(d is "portfolio" or "book")group[d]=first[d]?.DeepClone();
-    if(d=="contract"){group["deliveryFrom"]=first["deliveryFrom"]?.DeepClone();group["deliveryTo"]=first["deliveryTo"]?.DeepClone();group["definitionRevisionId"]=first["definitionRevisionId"]?.DeepClone();}
+    if(d=="contract"){group["deliveryFrom"]=first["deliveryFrom"]?.DeepClone();group["deliveryTo"]=first["deliveryTo"]?.DeepClone();}
    }
+   if(byDefinition)group["definitionRevisionId"]=first["definitionRevisionId"]?.DeepClone();
    foreach(var field in byQuantity?new[]{"instrumentType","unit","currency","quantitySpecification","currencyReference"}:new[]{"instrumentType","currency","currencyReference"})
     group[field]=first[field]?.DeepClone();
    if(hasPrices){group["quoteMultiplier"]=first["quoteMultiplier"]?.DeepClone();group["priceUnit"]=PreviewData.PriceUnitLabel(Text(first,"currency")!,Text(first,"unit")!,Text(first,"quoteMultiplier"));}

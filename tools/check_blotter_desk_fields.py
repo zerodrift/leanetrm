@@ -69,9 +69,9 @@ def unvalued(rows):
     return len({r['tradeId'] for r in rows if r['unavailableReason'] is not None})
 
 
-def money_key(item, field=None):
+def money_key(item, fields=()):
     """What a money group keeps apart: its dimension, instrument type and exact currency; never the quantity unit."""
-    return (None if field is None else item[field], item['instrumentType'], json.dumps(item['currencyReference'], sort_keys=True))
+    return (*(item[f] for f in fields), item['instrumentType'], json.dumps(item['currencyReference'], sort_keys=True))
 
 
 def added(amounts):
@@ -86,8 +86,9 @@ def check_money_totals(read, check, rows, when):
     `read` gives the report of a view at the close the rows were read at. The expectations come from the rows alone.
     """
     # Each pivot's dimension, the row field and the group field that name it, and what its groups state beside the money fields.
-    pivots = (('instrument type', 'instrumentType', None, None, set()), ('book', 'book', 'bookId', 'bookId', {'bookId', 'book'}),
-              ('market', 'market', 'curve', 'market', {'market'}))
+    # A market is kept apart by its definition revision as well, which its groups state (R29).
+    pivots = (('instrument type', 'instrumentType', (), (), set()), ('book', 'book', ('bookId',), ('bookId',), {'bookId', 'book'}),
+              ('market', 'market', ('curve', 'definitionRevisionId'), ('market', 'definitionRevisionId'), {'market', 'definitionRevisionId'}))
     reports = {}
     for label, dimension, row_field, group_field, stated in pivots:
         reports[dimension] = groups = read(money_view(dimension))['groups']
@@ -110,6 +111,21 @@ def check_money_totals(read, check, rows, when):
               all(added(g[m] for g in reports[dimension] if money_key(g) == k) == exact(t[m]) for k, t in by_type.items() for m in ('presentValue', 'executionPnl')))
     check(f'{when}: book trade counts add up to the instrument type counts, as each trade is held in one book',
           all(sum(g[m] for g in reports['book'] if money_key(g) == k) == t[m] for k, t in by_type.items() for m in ('tradeCount', 'unvaluedPositions')))
+
+
+def check_market_revisions(read, check, rows, when):
+    """A pivot by market keeps each definition revision of a market apart, and its groups say which revision they are (R29).
+
+    The desk keys its market bars and group headers on market and revision, so two groups of one market never look alike.
+    """
+    held = {(r['curve'], r['definitionRevisionId']) for r in rows}
+    views = [{**TRADES, 'mode': 'pivot', 'groupBy': ['market'], 'measures': ['presentValue', 'quantity'], 'pivotConvention': TOTALS},
+             {**TRADES, 'mode': 'pivot', 'groupBy': ['commodity', 'market'], 'measures': ['presentValue', 'executionPnl', 'quantity', 'tradeCount'],
+              'pivotConvention': TOTALS}]
+    for view in views:
+        groups = read(view)['groups']
+        check(f"{when}: groups by {' and '.join(view['groupBy'])} each state the definition revision of their market, and together name every one held",
+              all(isinstance(g.get('definitionRevisionId'), str) for g in groups) and {(g['market'], g['definitionRevisionId']) for g in groups} == held)
 
 
 def check_money_example(read, check, rows):
@@ -424,6 +440,7 @@ def run_checks(url):
     def read_money(view):
         return c.call('trading/blotter', {'context': retained, 'view': view})
     check_money_totals(read_money, check, rows, 'seeded example')
+    check_market_revisions(read_money, check, rows, 'seeded example')
     check_money_example(read_money, check, rows)
     check_money_refusals(c, check, retained)
     check_summaries(c, check, retained)

@@ -277,7 +277,9 @@ states `summaries` beside `catalog` and `blotter`: one `{view, groups}` per summ
 request order, grouped from the rows the report was built from. Nothing is valued again, so
 the report's `work` is that of the read without them. A fifth summary, a view that is not a
 pivot, and a view of other books or portfolios, or one that repeats a book or portfolio, are
-refused with `blotter_view`, over an empty book too.
+refused with `blotter_view`, over an empty book too. Under either pivot convention, a pivot whose
+dimensions name a market or a contract keeps the definition revisions of one market apart, and each
+of its groups states its `definitionRevisionId`, so two groups of one market never look alike.
 
 The desk's money totals come from a second pivot convention (D216). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and
