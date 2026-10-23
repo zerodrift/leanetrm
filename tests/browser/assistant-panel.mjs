@@ -50,8 +50,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   const agentsRead="window.__requests.some(r=>r.path==='/api/assistant/agents')";
   const buttons=`[...(${latest}?.querySelector('.assistant-target')?.querySelectorAll('button')??[])].map(b=>b.textContent).join()`;
   const press=label=>evaluate(`[...${latest}.querySelector('.assistant-target').querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);
+  // A person opens on the newest close, but these checks begin with no As of date chosen, so it is cleared.
+  const clearDate=async()=>{await set('#snapshot','');await wait(idle);};
   // A trader opens on the Blotter, and the checks that follow a reload expect Curves & prices, so it is opened again.
-  const reload=async ready=>{const before=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${before}&&${idle}&&${ready}`);await click('#nav-market');};
+  const reload=async ready=>{const before=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${before}&&${idle}&&${ready}`);await click('#nav-market');await clearDate();};
   const pause=ms=>evaluate(`new Promise(r=>setTimeout(r,${ms}))`);
   // A check in another tab: its expression is evaluated there, and its outcome recorded here.
   const checkIn=async(page,label,expression)=>check(label,JSON.stringify(!!await page.evaluate(expression)));
@@ -69,7 +71,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('the launcher is hidden from a person without UseAgents, who reads no agents',`${q('#assistant-launcher')}.hidden&&!${agentsRead}`);
   await persona('editor');await wait("window.__requests.some(r=>r.path==='/api/assistant/agents'&&r.agents===0)");await pause(50);
   await check('and from a person who uses agents but may use none of them',`${q('#assistant-launcher')}.hidden&&${q('#assistant-agent')}.options.length===1`);
-  await persona('trader');await wait(shown('#assistant-launcher'));await click('#nav-market');
+  await persona('trader');await wait(shown('#assistant-launcher'));await click('#nav-market');await clearDate();
   await click('#assistant-launcher');
   const guideChoice=`${guided.id}:1`,secondChoice=`${seconded.id}:1`;
   await wait(`[...${q('#assistant-agent')}.options].some(o=>o.value===${JSON.stringify(guideChoice)})`);

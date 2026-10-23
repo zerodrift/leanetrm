@@ -2,6 +2,7 @@ import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
+import {newestDate,newestClose,closeBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
 import {setupIntervalSeries} from './interval-series-view.js';
 import {setupIntervalCurves} from './interval-curves-view.js';
@@ -59,6 +60,9 @@ const historicalContext=()=>navigation?.context??undefined;
 const canCorrect=()=>can('ImportObservations')&&!historicalContext();
 let prefs:Preferences=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);
 let marketDateGeneration=0,marketDatesLoaded=false;
+// The workspace's newest close (D208): the last availability read for the whole workspace, the close the app chose by
+// itself (empty once a person picks another), whether a newer-close check is due and whether one is running.
+let workspaceCloses:MarketDates|undefined,appClose='',closeCheckDue=false,checkingCloses=false;
 const data=()=>{if(!workspace)throw Error('Market data is still loading.');return workspace;};
 const directory=()=>{if(!navigation)throw Error('Market navigation is still loading.');return navigation;};
 const frame=()=>{const found=directory().frames.find(f=>f.id===select('snapshot').value);if(!found)throw Error('Choose a market date above.');return found;};
@@ -80,7 +84,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();if(initialWorkspaceReady)customCurves.sync();assistant.sync();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -108,14 +112,14 @@ async function api<T>(path:string,body?:unknown):Promise<T>{
  }
  return payload;
 }
-function pageStatus(){return page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval series · working data, known at the chosen time.':page==='interval-curves'?'Interval curves · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Custom curves · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:'Choose a curve and a market date to get started.';}
+function pageStatus(){return page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval series · working data, known at the chosen time.':page==='interval-curves'?'Interval curves · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Custom curves · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:select('snapshot').value?'Choose a curve to get started.':'Choose a curve and a market date to get started.';}
 async function act(work:()=>Promise<void>){
   // Context changes, writes and reads are serialized. Never retry a mutation.
   // Errors and notices describe the previous action; the next one starts clean.
   if(busy)return;busy=true;syncControls();$('error').hidden=true;$('notice').hidden=true;text('status','Loading…');
   try{await work();text('status',pageStatus());}
   catch(error){text('error',error instanceof Error?error.message:'Something went wrong. Please refresh the page.');$('error').hidden=false;text('status','Please check the message above.');}
-  finally{busy=false;syncControls();}
+  finally{busy=false;syncControls();if(closeCheckDue){closeCheckDue=false;void recheckNewestClose();}}
 }
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
@@ -126,6 +130,7 @@ function table(target:string,headers:string[],rows:(string|HTMLElement)[][],nume
 }
 
 function clearPrices(){historyRequested=false;result=undefined;pricingContract='';contract='';historyData=undefined;$('history-card').hidden=true;clearChart($('history-chart'));input='';draftFor='';$('revision-card').hidden=true;text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
+const showsDate=(next:string)=>!['admin','ai','jobs','interval-series','ppa'].includes(next);
 async function setPage(next:string){
   if(navigation?.live){
     if(['market','custom-curves','futures','reference'].includes(next)){
@@ -138,7 +143,9 @@ async function setPage(next:string){
     }
   }
   invalidateMarketDates();
-  page=next;$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures';$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=['admin','ai','jobs','interval-series','ppa'].includes(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=['admin','ai','jobs','interval-series','ppa'].includes(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
+  // The action that opens a page showing As of then asks whether a newer close has arrived, after the page's own reads.
+  closeCheckDue=showsDate(next);
+  page=next;$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures';$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=!showsDate(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
   text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Custom curves':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval series':next==='interval-curves'?'Interval curves':next==='parties'?'Entities & counterparties':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
   for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','futures','ppa','parties','jobs'])$('nav-'+name).classList.toggle('active',next===name);
   text('status',pageStatus());syncControls();
@@ -155,34 +162,89 @@ function invalidateMarketDates(){
  marketDateGeneration++;marketDatesLoaded=false;
  marketCalendar.invalidate(contextDirty?'Apply the changed history and knowledge context first.':'Open the calendar to check available closes.');
 }
-async function openMarketCalendar(allowCatalogRefresh=true):Promise<void>{
+type MarketDatesRequest={curve:string|null;timeZone:string;definition:unknown};
+const datesMismatch=()=>Error('The available market dates do not match this workspace. Reload the calendar.');
+// What the calendar offers for one scope, checked as describing this workspace. It resolves to nothing when the
+// workspace or the scope changed while it loaded, since that answer no longer applies.
+async function readAvailability(request:MarketDatesRequest):Promise<MarketDates|undefined>{
+ const owner=directory(),generation=marketDateGeneration,stale=()=>navigation!==owner||generation!==marketDateGeneration;
+ let catalog:MarketDates;
+ try{catalog=await api<MarketDates>('market/dates',request);}catch(error){if(stale())return undefined;throw error;}
+ if(stale())return undefined;
+ const frames=catalog.dates.flatMap(group=>group.frames);
+ if(catalog.selectionPolicy!=='exact_snapshot_no_close_substitution_v1'||catalog.timeZone!==prefs.timeZone||catalog.curve!==request.curve||
+  JSON.stringify(catalog.context??null)!==JSON.stringify(historicalContext()??null)||new Set(frames.map(close=>close.id)).size!==frames.length||
+  catalog.dates.some(group=>!/^\d{4}-\d{2}-\d{2}$/.test(group.date)||!group.frames.length))
+  throw datesMismatch();
+ newestDate(catalog); // refuses a newest date its dates do not support
+ return catalog;
+}
+// The same read for a page that selects from it, so every close must be one the page offers. A catalog ahead of the
+// page's saved closes loads them once and is kept only while the selected close is still offered.
+async function readMarketDates(request:MarketDatesRequest,refresh=true):Promise<MarketDates|undefined>{
+ const catalog=await readAvailability(request);
+ if(!catalog)return undefined;
+ const owner=directory(),allowed=new Set([...select('snapshot').options].map(option=>option.value)),frames=catalog.dates.flatMap(group=>group.frames);
+ if(frames.every(close=>allowed.has(close.id)&&owner.frames.some(frame=>frame.id===close.id&&frame.at===close.at)))return catalog;
+ if(refresh&&catalog.frameCatalog?.durableSelection==='exact_recorded_close_pins_v1'&&frames.some(close=>!allowed.has(close.id))){
+  const selected=select('snapshot').value;await reload(selected);
+  if(selected&&select('snapshot').value!==selected){clearPrices();throw Error('The selected close is outside the current saved-close catalog. Choose an available close explicitly.');}
+  return readMarketDates(request,false);
+ }
+ throw datesMismatch();
+}
+async function openMarketCalendar(date?:string):Promise<void>{
  if(!navigation||contextDirty)return;
- if(marketDatesLoaded){marketCalendar.show();return;}
+ if(marketDatesLoaded){marketCalendar.show(date);return;}
  const definition=page==='custom-curves'?customCurves.dateDefinition():undefined;
  if(page==='custom-curves'&&!definition){marketCalendar.unavailable('Complete a curve graph or apply your formula to see available closes.');marketCalendar.show();return;}
- const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,definition:definition??null},owner=navigation,generation=marketDateGeneration;
+ const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,definition:definition??null};
  marketCalendar.loading();
  try{
-  const catalog=await api<MarketDates>('market/dates',request);
-  if(navigation!==owner||generation!==marketDateGeneration)return;
-  const frames=catalog.dates.flatMap(group=>group.frames),ids=new Set(frames.map(close=>close.id)),allowed=new Set([...select('snapshot').options].map(option=>option.value));
-  if(allowCatalogRefresh&&catalog.frameCatalog?.durableSelection==='exact_recorded_close_pins_v1'&&frames.some(close=>!allowed.has(close.id))){
-   const selected=select('snapshot').value;await reload(selected);
-   if(selected&&select('snapshot').value!==selected){clearPrices();throw Error('The selected close is outside the current saved-close catalog. Choose an available close explicitly.');}
-   return openMarketCalendar(false);
-  }
-  if(catalog.selectionPolicy!=='exact_snapshot_no_close_substitution_v1'||catalog.timeZone!==prefs.timeZone||catalog.curve!==request.curve||
-   JSON.stringify(catalog.context??null)!==JSON.stringify(historicalContext()??null)||ids.size!==frames.length||
-   catalog.dates.some(group=>!/^\d{4}-\d{2}-\d{2}$/.test(group.date)||!group.frames.length)||frames.some(close=>!allowed.has(close.id)||!owner.frames.some(frame=>frame.id===close.id&&frame.at===close.at)))
-   throw Error('The available market dates do not match this workspace. Reload the calendar.');
-  marketDatesLoaded=true;marketCalendar.update(catalog);marketCalendar.show();
+  const catalog=await readMarketDates(request);
+  if(!catalog)return;
+  marketDatesLoaded=true;marketCalendar.update(catalog);marketCalendar.show(date);
  }catch(error){
-  if(navigation!==owner||generation!==marketDateGeneration)return;
   if((error as {code?:string}).code==='access_denied'){clearPrices();if(page==='custom-curves')customCurves.contextChanged();}
   marketCalendar.unavailable(page==='custom-curves'?'Complete a valid curve graph with available inputs to see its closes.':'Market-date availability could not be verified. Open the calendar to retry.');
   if(page==='custom-curves'&&['recipe_definition','custom_curve_definition','custom_curve_source','recipe_formula'].includes((error as {code?:string}).code??'')){marketCalendar.show();return;}
   throw error;
  }
+}
+// Opening a workspace on its newest close (D208). The workspace-wide calendar names the newest date: one close on it is
+// selected as if the person had picked it, several ask, and none selects nothing. The page that is showing then reads it.
+const workspaceDates=():MarketDatesRequest=>({curve:null,timeZone:prefs.timeZone,definition:null});
+async function selectNewestClose():Promise<CloseChoice>{
+ const catalog=await readMarketDates(workspaceDates());
+ if(!catalog)return {kind:'none'};
+ const choice=newestClose(catalog);
+ workspaceCloses=catalog;
+ if(choice.kind==='single'){select('snapshot').value=choice.closeId;closeChanged(true);}
+ return choice;
+}
+// A click on Newer close available. Selecting it loads the page like a close the person picked.
+async function openNewestClose(){
+ const choice=await selectNewestClose();
+ if(choice.kind==='single')await loadSelectedClose();
+ else if(choice.kind==='choose')await openMarketCalendar(choice.date);
+}
+// A newer close can arrive while a session is open. Opening a page and returning to the window ask again, in the
+// background and without polling. The badge reports what the check found and only a click on it selects the newer close.
+// A check that could not be made leaves the badge as the last one left it, and the next page or focus asks again.
+async function recheckNewestClose(){
+ if(checkingCloses||!navigation||contextDirty||historicalContext()||!showsDate(page))return;
+ const owner=navigation;checkingCloses=true;
+ try{
+  const catalog=await readAvailability(workspaceDates());
+  if(catalog&&navigation===owner){workspaceCloses=catalog;renderCloseBadge();}
+ }catch{/* the badge stays as the last check left it */}
+ finally{checkingCloses=false;}
+}
+// The badge compares the close shown with the workspace's newest. A historical or unapplied view has no newest close to
+// claim, and a workspace without closes has nothing to compare.
+function renderCloseBadge(){
+ const closes=workspaceCloses,shown=select('snapshot').value;
+ marketCalendar.badge(closes&&closes.dates.length&&!contextDirty&&!historicalContext()?closeBadge(shown,shown!==appClose,closes):null);
 }
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
 function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
@@ -472,7 +534,7 @@ $('sign-out').onclick=()=>void act(async()=>{await api('logout',{});location.ass
 async function loadIdentity(initialAccess?:unknown){
   customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('no-access-page').hidden=true;
-  curve='';clearPrices();clearReference();choose('reference-table',[],'');marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
+  curve='';clearPrices();clearReference();choose('reference-table',[],'');marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;appClose='';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
@@ -488,12 +550,29 @@ async function loadIdentity(initialAccess?:unknown){
   }
   $('schedule-inspector').hidden=!author;
   const first=firstPage(permissions);
-  if(read){await loadNavigation();renderFrames('');renderContext();}else renderLayout();
-  if(first!==null)await showPage(first);
+  // The newest close is chosen between the directory and the first page, which then reads it. A historical view the session
+  // kept is not working data, so it chooses nothing.
+  let opening:CloseChoice={kind:'none'};
+  if(read){await loadNavigation();renderFrames('');renderContext();if(!historicalContext())opening=await selectNewestClose();}else renderLayout();
+  if(first!==null){
+    await showPage(first);
+    closeCheckDue=false; // the read that chose the close is this page's check for a newer one
+    if(opening.kind==='choose')await openMarketCalendar(opening.date);
+  }
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
 }
 $('open').onclick=()=>void act(async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});
-$('snapshot').onchange=()=>void act(async()=>{marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset();clearPrices();if(select('snapshot').value){if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'&&curve)await build();}});
+// A newly selected As of close replaces what the previous one showed. A close the app chose by itself (the newest, at
+// startup or on a click on Newer close available) is remembered, so the badge can tell it from one a person picked.
+function closeChanged(chosenByApp=false){
+  appClose=chosenByApp?select('snapshot').value:'';
+  marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset();clearPrices();
+}
+async function loadSelectedClose(){
+  if(!select('snapshot').value)return;
+  if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'&&curve)await build();
+}
+$('snapshot').onchange=()=>void act(async()=>{closeChanged();await loadSelectedClose();});
 $('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await build();});
 $('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').onchange=()=>void act(async()=>updateFilters());
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];updateFilters();}));
@@ -535,7 +614,7 @@ const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScop
 const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  zone:()=>prefs.timeZone,busy:()=>busy,enabled:()=>!!navigation&&can('ReadMarketData')&&!contextDirty,
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
- open:()=>void act(openMarketCalendar),select:id=>{select('snapshot').value=id;select('snapshot').dispatchEvent(new Event('change',{bubbles:true}));}
+ open:()=>void act(()=>openMarketCalendar()),newer:()=>void act(openNewestClose),select:id=>{select('snapshot').value=id;select('snapshot').dispatchEvent(new Event('change',{bubbles:true}));}
 });
 const deliveryPrices=setupPowerImports({api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
@@ -678,7 +757,7 @@ async function selectContext(knowledge:TargetContext|{mode:'current'|'retained';
   if(select('snapshot').value===frame)return;
   if(frame&&!offeredFrames().some(f=>f.id===frame))throw Error('That As of date is not available in this session. Choose an As of date, or ask again.');
   renderFrames(frame);
-  marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset();clearPrices();
+  closeChanged();
 }
 // A historical view selected again by its id, exactly as it was captured.
 async function selectRetained(contextId:string){
@@ -704,6 +783,8 @@ const assistant=setupAssistant({api,root:apiRoot,identity:()=>administrationScop
   go:async target=>{if(target.kind!=='proposal')await selectContext(target.context);await showTarget(target.page,target.selection);},restore:restorePlace});
 for(const id of ['trade-editor','swap-editor'])$(id).addEventListener('close',()=>assistant.sync());
 $('risk-close').addEventListener('click',()=>assistant.sync());
+// Coming back to the window asks whether a newer close arrived while it was away.
+window.addEventListener('focus',()=>void recheckNewestClose());
 let initialWorkspaceReady=false;
 void act(async()=>{
 const [examples,boot]=await Promise.all([transport<{id:string;name:string;url:string}[]>('examples',undefined,'/api/'),api<ProfileChoices & {csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access?:StartupAccess|null}>(startupBootstrapPath)]);

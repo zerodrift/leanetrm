@@ -169,7 +169,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('disposing before vendor initialization cannot reattach financial rows',"window.__gridDestroyed===true");
   await persona('admin');
   await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();return await(await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'layout_browser',name:'Synthetic layout account',kind:'human',roles:['trader']})})).json();})()`);
-  await persona('layout_browser');await click('#nav-futures');
+  // An account opens on the newest close its calendar offers. This one's calendar offers none, so it has no market date and
+  // no read to replace the prior layout: the layout must clear at the switch itself.
+  await evaluate(`(()=>{const send=window.fetch;window.__noCloses=true;window.fetch=async(input,init)=>{const response=await send(input,init);if(!window.__noCloses||input!=='/api/market/dates'||!response.ok)return response;const data=await response.json();return new Response(JSON.stringify({...data,dates:[],unavailable:[],minDate:null,maxDate:null}),{status:200,headers:{'Content-Type':'application/json'}});};})()`);
+  await persona('layout_browser');await evaluate('window.__noCloses=false');await click('#nav-futures');
   await check('switching accounts without a market date clears the prior layout immediately',"document.querySelector('#snapshot').value===''&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''&&document.querySelector('#blotter-column-choices').children.length===0&&document.querySelector('#blotter-mode').value==='trades'");
   await persona('trader');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await menu('blotter-settings');await set('#blotter-name','Denied view');await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(input==='/api/table-views/blotter'&&init?.method==='POST')return new Response(JSON.stringify({code:'access_denied',message:'Synthetic access denial'}),{status:403,headers:{'Content-Type':'application/json'}});return send(input,init);};})()`);await click('#blotter-save');

@@ -1,5 +1,6 @@
 import {displayDate,displayInstant,publicText,timeLabels} from './market-view.js';
 import {frameCatalogNote,type FrameCatalog} from './frame-catalog.js';
+import type {CloseBadge} from './latest-close.js';
 
 export type MarketClose={id:string;at:string;name:string;businessDateUTC:string};
 export type MarketDates={context:unknown;curve:string|null;timeZone:string;selectionPolicy:string;dates:{date:string;frames:MarketClose[]}[];unavailable:{date:string;reason:string}[];minDate:string|null;maxDate:string|null;frameCatalog?:FrameCatalog};
@@ -15,9 +16,14 @@ export function shiftCalendarMonth(month:string,direction:number){const value=ne
 export function closesOnDate(catalog:Pick<MarketDates,'dates'>,date:string){return catalog.dates.find(group=>group.date===date)?.frames??[];}
 export function uniqueClose(catalog:Pick<MarketDates,'dates'>,date:string){const closes=closesOnDate(catalog,date);return closes.length===1?closes[0].id:undefined;}
 
-export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;busy:()=>boolean;enabled:()=>boolean;selected:()=>string;current:()=>{at:string}|undefined;select:(id:string)=>void;open:()=>void}){
+const badgeText:Record<CloseBadge,string>={latest:'Latest close',selected:'Selected close',newer:'Newer close available',choose:'Choose a close'};
+
+export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;busy:()=>boolean;enabled:()=>boolean;selected:()=>string;current:()=>{at:string}|undefined;select:(id:string)=>void;open:()=>void;newer:()=>void}){
  const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
  const open=el('button','Choose a date…');open.type='button';open.id='market-date-open';open.className='market-date-trigger secondary';open.setAttribute('aria-haspopup','dialog');open.setAttribute('aria-controls','market-date-dialog');
+ // Says which close the control shows. Only a newer close arriving makes it a button, which selects that close.
+ const flag=el('span');flag.id='market-date-badge';flag.className='close-badge';flag.setAttribute('role','status');flag.hidden=true;
+ const control=el('div');control.className='market-date-row';control.append(open,flag);
  const status=el('span');status.id='market-date-status';status.className='market-date-status';status.setAttribute('role','status');
  const dialog=el('dialog');dialog.id='market-date-dialog';dialog.className='market-date-dialog';dialog.setAttribute('aria-labelledby','market-date-title');
  const heading=el('div');heading.className='dialog-heading';const title=el('h2','Choose a market close');title.id='market-date-title';const close=el('button','×');close.type='button';close.className='icon-button';close.id='market-date-close';close.setAttribute('aria-label','Close market calendar');heading.append(title,close);
@@ -27,8 +33,8 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
  const grid=el('table');grid.id='market-date-grid';grid.className='market-calendar-grid';grid.setAttribute('role','grid');grid.setAttribute('aria-label','Available market dates');
  const legend=el('p','● Available close · unavailable dates are disabled');legend.className='field-help';
  const choices=el('section');choices.id='market-date-closes';choices.setAttribute('aria-label','Choose an exact close');
- dialog.append(heading,scope,nav,grid,legend,choices);host.replaceChildren(open,status,dialog);
- let catalog:MarketDates|undefined,shownMonth='',chosenDate='',pending=false,focusOnOpen=false,message='Choose a market date.';
+ dialog.append(heading,scope,nav,grid,legend,choices);host.replaceChildren(control,status,dialog);
+ let catalog:MarketDates|undefined,shownMonth='',chosenDate='',pending=false,focusOnOpen=false,message='Choose a market date.',shownBadge:CloseBadge|null=null;
  const allCloses=()=>catalog?.dates.flatMap(group=>group.frames)??[];
  function sync(){
   open.disabled=options.busy()||pending||!options.enabled();close.disabled=options.busy();
@@ -60,7 +66,7 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
   previous.dataset.unavailable=String(!!month.min&&shownMonth<=month.min);next.dataset.unavailable=String(!!month.max&&shownMonth>=month.max);
   const head=el('thead'),row=el('tr');for(const day of ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']){const cell=el('th',day);cell.scope='col';row.append(cell);}head.append(row);grid.append(head);
   const body=el('tbody'),cells=calendarMonth(shownMonth),selectedDate=catalog.dates.find(group=>group.frames.some(frame=>frame.id===options.selected()))?.date;
-  const available=cells.filter((date):date is string=>!!date&&closesOnDate(shown,date).length>0);const focusDate=selectedDate&&selectedDate.startsWith(shownMonth)?selectedDate:available[0];
+  const available=cells.filter((date):date is string=>!!date&&closesOnDate(shown,date).length>0);const focusDate=[selectedDate,chosenDate].find(date=>date&&date.startsWith(shownMonth))??available[0];
   for(let r=0;r<6;r++){const tr=el('tr');for(let c=0;c<7;c++){
    const date=cells[r*7+c],td=el('td');td.setAttribute('role','gridcell');if(date){const frames=closesOnDate(catalog,date),button=el('button',String(Number(date.slice(-2))));button.type='button';button.dataset.date=date;button.dataset.unavailable=String(!frames.length);button.tabIndex=date===focusDate?0:-1;button.setAttribute('aria-disabled',String(!frames.length));button.setAttribute('aria-label',`${displayDate(date)} · ${frames.length?frames.length+' available '+(frames.length===1?'close':'closes'):'No available close'}`);button.className=frames.length?'available':'';button.setAttribute('aria-pressed',String(date===selectedDate));td.setAttribute('aria-selected',String(date===selectedDate));
     if(frames.length){const dot=el('span','●');dot.className='market-date-dot';dot.setAttribute('aria-hidden','true');button.append(dot);}button.onclick=()=>chooseDate(date);button.onkeydown=event=>{
@@ -85,7 +91,19 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
   },
   loading(){pending=true;message='Checking available closes…';header();},
   unavailable(note:string){reset(note);},
-  show(){render();if(!dialog.open)dialog.showModal();focusOnOpen=true;sync();},
+  // Opens on a given available date, asking for its close when it has several; otherwise on the selected close's month.
+  show(date?:string){
+   if(date&&catalog&&closesOnDate(catalog,date).length){shownMonth=date.slice(0,7);chosenDate=date;}
+   render();if(!dialog.open)dialog.showModal();focusOnOpen=true;sync();
+  },
+  badge(next:CloseBadge|null){
+   if(next===shownBadge)return;
+   shownBadge=next;flag.hidden=next===null;
+   if(next===null){flag.replaceChildren();delete flag.dataset.badge;return;}
+   flag.dataset.badge=next;
+   if(next!=='newer'){flag.textContent=badgeText[next];return;}
+   const action=el('button',badgeText.newer);action.type='button';action.className='close-badge-action';action.disabled=options.busy();action.onclick=options.newer;flag.replaceChildren(action);
+  },
   invalidate(note='Open the calendar to check available closes.'){reset(note);},
   selectedChanged(){header();if(dialog.open)render();},
   reset

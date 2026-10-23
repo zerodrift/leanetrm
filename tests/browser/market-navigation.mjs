@@ -33,7 +33,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   console.log('FIRST_PRICING_WITH_HYDRATION_MS='+await evaluate('performance.now()-window.__firstPriceStart'));
   await evaluate("[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.startsWith('Local power forwards')).click()");await wait(idle);
   await check('repeated pricing uses the ordinary evaluation response without reloading catalog metadata',"window.__pricingReads.length===2&&!Object.hasOwn(window.__pricingReads[1],'includeWorkspace')&&!window.__navigationReads.includes('/api/workspace/catalog')&&document.querySelector('#error').hidden");
-  await persona('viewer');await evaluate("[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.startsWith('Local power forwards')).click()");await wait(idle);
+  // A person arrives on the newest close, so this check clears it first: it is about a curve chosen with no date selected.
+  await persona('viewer');await set('#snapshot','');await wait(idle);await evaluate("[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.startsWith('Local power forwards')).click()");await wait(idle);
   await check('choosing a curve without a date loads its explicit details without manufacturing prices',"document.querySelector('#snapshot').value===''&&!document.querySelector('#curve-detail').hidden&&document.querySelector('#contracts').children.length===0&&document.querySelector('#error').hidden");
   await persona('viewer');await set('#snapshot',selected);await wait(idle);
   await evaluate("window.__holdWorkspace=true;[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.startsWith('Local power forwards')).click()");await wait("typeof window.__releaseWorkspace==='function'");
