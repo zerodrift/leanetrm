@@ -1,8 +1,9 @@
+import {riskContextLabel} from './risk-time.js';
 import {riskTotalGroups,riskWorkDetails,type RiskValues,type RiskTotal,type RiskWorkReport} from './risk-report.js';
 import {PendingCommand} from './pending-command.js';
 import {renderDataGrid} from './data-grid.js';
 import {renderChart,clearChart} from './chart-view.js';
-import {publicText} from './market-view.js';
+import {publicText,timeLabels} from './market-view.js';
 import {scenarioShift,knownRiskRejection,type ScenarioTarget,type ScenarioShift} from './risk-scenarios.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -18,26 +19,27 @@ type Job={id:string;requestId?:string;state:'queued'|'running'|'completed'|'fail
 type Position={book:string;tradeReference:string;instrumentReference:string;instrumentType:string;measure:string;measureLabel:string;values:RiskValues};
 type Report=RiskWorkReport&{displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;factors:{factor:Factor;bump:string;totals:RiskTotal[];positions:Position[]}[]};
 
-export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRun:()=>boolean;profile:()=>string;scope:()=>Scope;onDenied:()=>void}){
+export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;canRun:()=>boolean;profile:()=>string;scope:()=>Scope;onDenied:()=>void}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const select=get<HTMLSelectElement>('risk-factor'),bump=get<HTMLInputElement>('risk-bump'),stressFactor=get<HTMLSelectElement>('risk-stress-factor'),stressSize=get<HTMLInputElement>('risk-stress-size');
   const currentScopeText=get('risk-scope').textContent;
   let catalog:Catalog|undefined,scope:Scope|undefined,lastRequest:Request|undefined,stress:StressLayer[]=[];
   const submissions=new Map<string,PendingJob>();
   let generation=0,pollTimer:ReturnType<typeof setTimeout>|undefined,job:Job|undefined,pending:PendingJob|undefined,jobRequest:Request|undefined,resultJobId:string|undefined,reviewingJob=false;
+  let recent:Job[]=[];
   let grids:ReturnType<typeof renderDataGrid>[]=[];
   const running=()=>!!job&&['queued','running','cancellation_requested'].includes(job.state);
   function stopPolling(){clearTimeout(pollTimer);pollTimer=undefined;}
   function results(){for(const grid of grids)grid.destroy();grids=[];get('risk-results').replaceChildren();get('risk-plots').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));get('risk-plots').replaceChildren();get('risk-work').textContent='';get('risk-export').hidden=true;lastRequest=undefined;resultJobId=undefined;}
   function clearJob(){stopPolling();job=undefined;pending=undefined;jobRequest=undefined;reviewingJob=false;get('risk-job').hidden=true;for(const id of ['risk-job-context','risk-job-scenario','risk-job-status'])get(id).textContent='';get('risk-job-return').hidden=true;get<HTMLSelectElement>('risk-job-history').value='';get('risk-scope').textContent=currentScopeText;}
-  function reset(){generation++;clearJob();results();catalog=undefined;scope=undefined;stress=[];select.replaceChildren(new Option('Choose a scenario target…',''));stressFactor.replaceChildren(new Option('Choose a scenario target…',''));get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''));bump.value='';stressSize.value='';get('risk-unit').textContent='';get('risk-stress-unit').textContent='';get<HTMLDetailsElement>('risk-stress').open=false;for(const prefix of ['risk','risk-stress']){get<HTMLSelectElement>(prefix+'-coordinate').value='all';get<HTMLSelectElement>(prefix+'-target-kind').value='all';get(prefix+'-bucket').hidden=true;for(const suffix of ['from','to']){const input=get<HTMLInputElement>(prefix+'-'+suffix);input.value='';input.required=false;input.disabled=true;}}renderStress();get('risk-card').hidden=true;}
+  function reset(){recent=[];generation++;clearJob();results();catalog=undefined;scope=undefined;stress=[];select.replaceChildren(new Option('Choose a scenario target…',''));stressFactor.replaceChildren(new Option('Choose a scenario target…',''));get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''));bump.value='';stressSize.value='';get('risk-unit').textContent='';get('risk-stress-unit').textContent='';get<HTMLDetailsElement>('risk-stress').open=false;for(const prefix of ['risk','risk-stress']){get<HTMLSelectElement>(prefix+'-coordinate').value='all';get<HTMLSelectElement>(prefix+'-target-kind').value='all';get(prefix+'-bucket').hidden=true;for(const suffix of ['from','to']){const input=get<HTMLInputElement>(prefix+'-'+suffix);input.value='';input.required=false;input.disabled=true;}}renderStress();get('risk-card').hidden=true;}
   function sync(){const locked=options.busy()||running()||!!pending||reviewingJob;get('risk-form').hidden=reviewingJob||!!pending;get<HTMLFieldSetElement>('risk-fields').disabled=locked;get<HTMLButtonElement>('blotter-risk').disabled=options.busy()||!options.canRun();get('blotter-risk').title=options.canRun()?'Revalue selected books under shared market shocks':'Scenario execution requires the Risk Analyst role.';get<HTMLButtonElement>('risk-export').disabled=options.busy()||(!lastRequest&&!resultJobId);get('risk-results').inert=options.busy();get<HTMLButtonElement>('risk-stress-parent').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-clear').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-add').disabled=locked||stress.length>=16;get<HTMLSelectElement>('risk-job-history').disabled=options.busy();for(const id of ['risk-job-refresh','risk-job-retry','risk-job-cancel','risk-job-return','risk-job-discard'])get<HTMLButtonElement>(id).disabled=options.busy();}
   function denied(error:unknown){if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}}
   async function call<T>(path:string,body?:unknown):Promise<T>{try{return await options.api<T>(path,body);}catch(error){results();denied(error);throw error;}}
   function factorLabel(f:Factor|ScenarioTarget){return publicText(f.label);}
   async function recentJobs(version:number){
-    const recent=await call<Job[]>('portfolio/risk/jobs');if(version!==generation)return false;
-    get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''),...recent.map(j=>new Option(`${j.asOf??'Unavailable market time'} · ${j.state.replaceAll('_',' ')}`,j.id)));
+    const loaded=await call<Job[]>('portfolio/risk/jobs');if(version!==generation)return false;recent=loaded;
+    refresh();
     const retained=pending,command=retained?.recovery.command,owner=options.profile();
     const match=command&&recent.find(j=>j.requestId===command.operationId);
     if(!retained||!command||!match)return false;
@@ -126,8 +128,10 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const target=catalog.scenarioTargets.find(f=>f.id===select.value);
     return structuredClone({...scope,bumps:[scenarioShift(target,bump.value,catalog.bumpConvention,bucket('risk'))],stress:stress.map(layer=>layer.shift),pricingPolicy:catalog.pricingPolicy,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy});
   }
-  function contextLabel(context:FinancialContext|undefined,asOf:string|undefined){
-    return `Captured market time: ${asOf??'unavailable'} · effective date: ${context?.effectiveOn??'unavailable'} · known as of: ${context?.knownAt??'unavailable'}. These retained coordinates govern this job.`;
+  function contextLabel(context:FinancialContext|undefined,asOf:string|undefined){return riskContextLabel({context,asOf},options.zone());}
+  function refresh(){const control=get<HTMLSelectElement>('risk-job-history'),selected=control.value,labels=timeLabels(recent.flatMap(j=>j.asOf?[j.asOf]:[]),options.zone());let index=0;
+    control.replaceChildren(new Option('Choose a retained job…',''),...recent.map(j=>new Option(`${j.asOf?labels[index++]:'Unavailable market time'} · ${j.state.replaceAll('_',' ')}`,j.id)));control.value=selected;
+    if(job)get('risk-job-context').textContent=contextLabel(job.context,job.asOf);else if(pending)get('risk-job-context').textContent=contextLabel(pending.context,pending.asOf);
   }
   function showPending(){
     if(!pending)return;
@@ -203,5 +207,5 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const blob=new Blob([JSON.stringify(report,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);
   });
   get('risk-close').onclick=reset;
-  return {open,reset,sync,unconfirmed:()=>submissions.has(options.profile())};
+  return {open,reset,sync,refresh,unconfirmed:()=>submissions.has(options.profile())};
 }

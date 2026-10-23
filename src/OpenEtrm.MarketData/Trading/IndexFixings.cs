@@ -15,9 +15,9 @@ public sealed record IndexFixing([property: IdentityField] ReferenceKey Index,
 }
 
 // Shared eligibility for swaps and period-price consumers; neither may substitute a settlement anchor.
-internal static class IndexFixingPricing
+public static class IndexFixingPricing
 {
-    internal static (UnitPrice Price,ImmutableHashSet<ObservationKey> Lineage)? Resolve(CurveBuild market,IndexPriceLookup lookup)
+    public static (UnitPrice Price,ImmutableHashSet<ObservationKey> Lineage)? Resolve(CurveBuild market,IndexPriceLookup lookup)
     {
         var fixing=lookup.Fixing;
         if(fixing is null)return null;

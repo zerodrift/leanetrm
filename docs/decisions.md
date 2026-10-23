@@ -400,3 +400,27 @@ versioned reference relationships, complete identity comparisons and shared
 per-Side admission. Existing economic identity versions and the two earlier command
 signatures retain their meaning. General pricing windows, zero-weight means,
 recurring booking and paired observations require separate qualified versions.
+
+## D209 — Dependent selectors use applicable data and explicit date availability
+
+Futures entry narrows exact listed contracts by commodity, exchange, product and
+delivery date. Swap entry narrows indices by commodity/search and links quantity
+choices to the selected quote specification. A unique applicable reference may
+populate its control; ambiguous financial choices remain explicit. Parent changes
+clear incompatible selections and prior results. Existing execution eligibility,
+custom projections and all six observation modes retain their backend contracts.
+
+Delivery-price calendars consume certified operating-day availability at one
+resolved knowledge cutoff (migration 0103), with current source/reference authority
+rechecked after certification. End dates stop at coverage gaps and the existing
+read-window bound. Configured sources without published prices contribute no
+choices. Swap delivery calendars use the existing managed observation/fixing rules
+within the supported single-month booking scope. Unavailable days are disabled;
+retained contractual dates remain visible separately from selectable alternatives.
+
+Instant labels, including retained risk-job coordinates, use the profile time
+zone. Contractual delivery and operating dates retain their declared market/date
+semantics. The existing managed market-close calendar remains authoritative for
+As of selection; lightweight navigation and paginated reference data are not
+filtered by incompletely loaded client observations. Quantity conversion and power
+TOU controls cascade only through their supplied applicable catalogs.

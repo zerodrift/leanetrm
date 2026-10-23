@@ -24,6 +24,7 @@ def run_checks(client, context, catalog, manifest):
              'averagingMethod': 'quantity_weighted', 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01'}
     quantities = client.call(endpoint, query)
     assert quantities['availability'] is None and len(quantities['observations']) == 31
+    assert {'resetFrequency': 'daily', 'averagingMethod': 'quantity_weighted', 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01'} in quantities['deliveryPeriods']
     assert all('weight' not in row and 'quantity' not in row for row in quantities['observations'])
     assert all(row['quantitySpecification']['code'] == source['quantityCode'] and row['fixing']['index']['code'] == source['index']
                for row in quantities['observations'])
@@ -36,6 +37,10 @@ def run_checks(client, context, catalog, manifest):
     assert observed['observations'][0]['from'] == '2021-01-04' and observed['observations'][-1]['from'] == '2021-01-29'
     absent = client.call(endpoint, {**query, 'averagingMethod': 'observation_arithmetic'})
     assert absent['observations'] is None and absent['availability']['code'] == 'swap_observation_calendar'
+    assert absent['deliveryPeriods'] == []
+    assert observed['deliveryPeriods'] and all(period['averagingMethod'] == 'observation_arithmetic' for period in observed['deliveryPeriods'])
+    stale = client.call(endpoint, {**query, 'deliveryFrom': '2098-01-01', 'deliveryTo': '2098-02-01'})
+    assert stale['deliveryPeriods'] == quantities['deliveryPeriods'], 'Unavailable entered dates must not remove available replacement dates.'
     wrong = deepcopy(calendar)
     wrong['revision']['revisionId'] = manifest['revisionId']
     rejected = client.call(endpoint, {**query, 'averagingMethod': 'observation_arithmetic', 'observationCalendar': wrong})

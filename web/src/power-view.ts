@@ -1,3 +1,4 @@
+import {powerChoices} from './power-options.js';
 import {renderRegularTable} from './regular-table.js';
 import {displayDate,friendly,timeLabels} from './market-view.js';
 
@@ -44,6 +45,14 @@ export function setupPowerView(o:Options){
       });table.append(body);node(id).replaceChildren(table);
     }
   }
+  function linkedControls(){
+    if(!catalog)return;
+    let available=powerChoices(catalog.presets,choice('power-product').value);
+    options('power-block',catalog.blocks.filter(b=>available.blocks.includes(b.code)).map(b=>({value:b.code,label:b.name})),choice('power-block').value,'Choose hours…');
+    available=powerChoices(catalog.presets,choice('power-product').value,choice('power-block').value);
+    options('power-minutes',catalog.intervals.filter(m=>available.intervals.includes(m)).map(m=>({value:String(m),label:m===60?'Hourly':`${m} minutes`})),choice('power-minutes').value,'Choose an interval…');
+    applyPreset();
+  }
   function applyPreset(){const p=preset();nonHolidays=p?.nonHolidays??'';holidays=p?.holidays??'';clearResult();grids();}
   function contracts(){const curve=catalog?.curves.find(c=>c.code===choice('power-curve').value);options('power-contract',curve?.contracts.map(c=>({value:c.id,label:`${c.from} → ${c.to} (end excluded)`}))??[],undefined,'Choose a delivery period…');options('power-quantity-basis',quantityChoices().map(q=>({value:quantityKey(q),label:q.label})),undefined,'Choose quantity basis…');quantitySelection();holidayCalendar();clearResult();}
   // Holidays come from the selected contract's settlement index calendar.
@@ -61,7 +70,8 @@ export function setupPowerView(o:Options){
     renderRegularTable(node('power-intervals'),'power-intervals',scope,['Market interval',`Start · ${o.zone()}`,`End · ${o.zone()}`,'Market clock offset · minutes','Occurrence','Holiday','Test price','Energy · MWh'],raw,[3,4,6,7],()=>document.body.getAttribute('aria-busy')==='true',{displayRows:raw.map((r,i)=>[...r.slice(0,6),rows[i].priceText,rows[i].energyText])});
     node('power-rows-note').textContent=rows.length===result.rows.length?'All selected intervals.':'First 60 intervals. Choose Show all to inspect the complete period.';
   }
-  for(const id of ['power-product','power-block','power-minutes'])choice(id).onchange=applyPreset;
+  for(const id of ['power-product','power-block'])choice(id).onchange=linkedControls;
+  choice('power-minutes').onchange=applyPreset;
   choice('power-labels').onchange=()=>{clearResult();grids();};
   choice('power-curve').onchange=contracts;
   choice('power-contract').onchange=()=>{holidayCalendar();clearResult();};
@@ -79,13 +89,13 @@ export function setupPowerView(o:Options){
     catalog=await o.api<Catalog>('power/catalog',{snapshotId});
     node<HTMLInputElement>('power-money-precision').value=String(catalog.display.money);node<HTMLDetailsElement>('power-advanced').open=false;
     node('power-guidance').hidden=true;form.hidden=false;node('power-context').textContent=`Market date: ${source.name}`;
-    options('power-product',catalog.products.map(p=>({value:p.code,label:`${p.name} · ${p.code} v${p.version}`})),undefined,'Choose a product…');
+    options('power-product',catalog.products.filter(p=>powerChoices(catalog!.presets).products.includes(p.code)).map(p=>({value:p.code,label:`${p.name} · ${p.code} v${p.version}`})),undefined,'Choose a product…');
     node('power-unavailable').textContent=catalog.unavailableProducts.map(p=>`${p.name} (${p.code}) is unavailable: ${p.reason}`).join(' ');node('power-unavailable').hidden=!catalog.unavailableProducts.length;
-    options('power-block',catalog.blocks.map(b=>({value:b.code,label:b.name})),undefined,'Choose hours…');
-    options('power-minutes',catalog.intervals.map(m=>({value:String(m),label:m===60?'Hourly':`${m} minutes`})),undefined,'Choose an interval…');
+    options('power-block',[],undefined,'Choose hours…');
+    options('power-minutes',[],undefined,'Choose an interval…');
     options('power-labels',catalog.hourLabels.map(h=>({value:h.code,label:h.name})));
     for(const [id,list] of [['power-price-types',catalog.classifications.priceTypes],['power-timings',catalog.classifications.timings]] as const)node(id).replaceChildren(...list.map(v=>{const n=el('option');n.value=v;return n;}));
-    options('power-curve',catalog.curves.map(c=>({value:c.code,label:o.name(c.code)})),source.curve,catalog.curves.some(c=>c.code===source.curve)?undefined:'Choose a power curve…');
-    contracts();applyPreset();
+    options('power-curve',catalog.curves.filter(c=>c.contracts.length>0).map(c=>({value:c.code,label:o.name(c.code)})),source.curve,catalog.curves.some(c=>c.code===source.curve)?undefined:'Choose a power curve…');
+    contracts();linkedControls();
   }};
 }

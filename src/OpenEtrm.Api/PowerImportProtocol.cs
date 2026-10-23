@@ -20,9 +20,11 @@ public static class PowerImportProtocol
             throw Invalid("The provider, dataset, market and native interval must identify a supported feed.");
     }
 
+    public const int MaximumOperatingDays=31;
+
     public static PowerInterval[] Window(DateOnly from,DateOnly through,PowerClock clock,int minutes)
     {
-        if(through<from || through.DayNumber-from.DayNumber>=31)
+        if(through<from || through.DayNumber-from.DayNumber>=MaximumOperatingDays)
             throw Invalid("Choose an explicit inclusive collection window of 1–31 operating days.");
         return PowerHours.Compile(from,through.AddDays(1),clock,TimeOfUse.All(minutes),[],minutes);
     }

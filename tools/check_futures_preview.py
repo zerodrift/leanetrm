@@ -19,6 +19,8 @@ def run_checks(Client, check):
           and contract['priceUnit']['quantity'] == contract['lotQuantity']
           and contract['priceUnit']['multiplier'] == contract['quoteMultiplier']
           and contract['clearingIncrement'] and contract['minimumPrice'] and contract['maximumPrice'])
+    check('futures selector metadata comes from linked commodity exchange and product references',
+          all(c['commodity'] and c['commodityName'] and c['exchange'] and c['exchangeName'] and c['product'] for c in catalog['contracts']))
     baseline = trader.call('futures/holdings', view)
     check('empty holdings are explicit without a fabricated zero portfolio value', baseline['holdings'] == [] and baseline['totals'] == [])
     context = trader.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
