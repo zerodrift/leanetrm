@@ -1495,6 +1495,34 @@ headers, and replays hand-written synthetic recordings:
 Message and request identifiers, reasoning, signatures, error text and the key reach
 no event, and nothing is written to the console. No check calls a real provider.
 
+## Numeric blotter and composed swap qualification (2026-10-22)
+
+The focused suites passed on stock PostgreSQL 16.14, .NET SDK 10.0.402,
+Node 24.7.0 and Chromium-compatible Chrome, using disposable synthetic resources:
+
+- 285 frontend checks, 422 managed core checks, 80 rate checks, the API schedule
+  checks, 54 Python runner checks and 173 combined-schema checks.
+- Draft/composition HTTP checks and 72 swap browser checks cover independently
+  selected floating sides/spreads, blank versus explicit-zero strikes, reviewed
+  par quotes, frozen risk terms, booking retries and amendments. Direct SQL checks
+  reject either side's transitive wrong-revision projection and revoked source
+  access on retry.
+- Published fixing checks retain each slot's original actuals across corrected
+  retries; fresh operations retain the corrected pins. Connected custom-curve
+  and daily-projection checks retain exact PV, risk and worker results.
+- The actual generated-close worker publishes a six-position mixed report with a
+  floating/floating trade, including two undiscounted payment inputs. Recovery
+  and current report-reader authority checks pass.
+
+Pivot cells retain exact quantity/currency references and price multipliers;
+price extrema remain exact and arithmetic means use the explicit 18-place
+rounding policy. Charts approximate coordinates only, preserving exact safe
+strings in tooltips and data exports. The pivot supports row/column grouping and
+linked bar, line and heatmap plots. Subtotals, cross-axis grand totals and cell
+drill-through remain unimplemented. Charts precede local grid row filters.
+Migration 0090 requires operator review and a schema window; these local checks
+do not qualify a hosted deployment or production financial throughput.
+
 ## Hosted job
 
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on

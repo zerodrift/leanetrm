@@ -37,6 +37,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
     // Legacy floating definitions retain their exact v3 encoding. The new
     // indexed variant additionally names its complete immutable fixing rules.
     private static string ContractVersion(object definition, EconomicDefinitionAttribute contract) =>
+        definition is FloatingSide { Spread: not null } ? "FloatingSide_v6" :
         definition is FloatingSide { CustomProjection: not null } ? "FloatingSide_v5" :
         definition is FloatingSide { Fixings.IsEmpty: false } ? "FloatingSide_v4" : contract.Version;
 
@@ -50,7 +51,12 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                 .OrderBy(p => p.Name, StringComparer.Ordinal).ToArray());
             if (fields.Length == 0 || fields.Any(p => p.GetIndexParameters().Length != 0)) throw Error();
             writer.WriteStartObject(); writer.WriteString("contract", ContractVersion(value, contract));
-            foreach (var field in fields) { writer.WritePropertyName(field.Name); Write(writer, field.GetValue(value)); }
+            foreach (var field in fields)
+            {
+                var selected=field.GetValue(value);
+                if(value is FloatingSide&&field.Name==nameof(FloatingSide.Spread)&&selected is null)continue;
+                writer.WritePropertyName(field.Name);Write(writer,selected);
+            }
             if (value is FloatingSide { Fixings.IsEmpty: false } indexed)
             { writer.WritePropertyName("IndexFixings"); Write(writer, indexed.Fixings); }
             if (value is FloatingSide { CustomProjection: { } projection })

@@ -38,7 +38,7 @@ public static class PilotCloseReports
         }
         var indices=result.Factors.Select((factor,n)=>(factor.Axis.Id,n)).ToDictionary(p=>p.Id,p=>p.n);
         var holdingsByValuation=result.Positions.ToLookup(p=>p.ValuationId);
-        var swapSides=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT catalog_id,instrument_id,fixed_side_id,floating_side_id FROM trading.swap_instruments WHERE instrument_id=ANY($1))t",
+        var swapSides=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT catalog_id,instrument_id,fixed_side_id,floating_side_id,first_floating_side_id FROM trading.swap_instruments WHERE instrument_id=ANY($1))t",
             [result.DiscountInputs.Select(d=>d.InstrumentId).Distinct().ToArray()],ct);
         var sidesByInstrument=swapSides.ToDictionary(s=>s.Id("instrument_id"));
         var snapshot=result.DiscountInputs.IsEmpty?null:result.DiscountInputs[0].Input.Snapshot;
@@ -66,9 +66,10 @@ public static class PilotCloseReports
         {
             Reference(d.Input.Currency);Reference(d.Payment.Currency);
             var sides=sidesByInstrument[d.InstrumentId];
-            var fixedSide=d.Payment.SideId==sides.Id("fixed_side_id");
-            if(!fixedSide&&d.Payment.SideId!=sides.Id("floating_side_id")||d.Input.Snapshot.Id!=runId||!d.Input.Snapshot.HasSameInputs(snapshot!))throw Invalid();
-            return new{ordinal,instrument=d.InstrumentId,@fixed=fixedSide?(Guid?)d.Payment.SideId:null,floating=fixedSide?null:(Guid?)d.Payment.SideId,
+            var fixedSide=d.Payment.SideId==sides.OptionalId("fixed_side_id");
+            var firstFloating=d.Payment.SideId==sides.OptionalId("first_floating_side_id");
+            if(!fixedSide&&!firstFloating&&d.Payment.SideId!=sides.Id("floating_side_id")||d.Input.Snapshot.Id!=runId||!d.Input.Snapshot.HasSameInputs(snapshot!))throw Invalid();
+            return new{ordinal,instrument=d.InstrumentId,@fixed=fixedSide?(Guid?)d.Payment.SideId:null,floating=fixedSide||firstFloating?null:(Guid?)d.Payment.SideId,first_floating=firstFloating?(Guid?)d.Payment.SideId:null,
                 payment_ordinal=d.Payment.Ordinal,payment_at=d.Payment.PaymentAt,payment_date=d.Input.PaymentDate,enabled=d.Input.Enabled,factor=d.Input.Factor.ToString(),mapping=d.Input.MappingId,
                 curve=d.Input.Curve?.Code,currency=d.Input.Currency.Code,rate_policy=d.Input.RateNumericalPolicy,interpolation_policy=d.Input.InterpolationPolicy};
         }).ToArray();
@@ -133,7 +134,7 @@ public static class PilotCloseReports
                 var f=factorByOrdinal[r.Text("factor_ordinal")];var currency=r.Text("currency_code");
                 object Derivative(string name,int order)=>new{value=Cash(r.Text(name+"_n"),r.Text(name+"_d"),currency),unit=new{currency=Key(currency),factor=new{currency=Key(f.Text("currency_code")),quantity=Key(f.Text("quantity_code")),multiplier=f.Text("multiplier")},order}};
                 return new{measure=r.Text("measure"),bookId=r.Id("book_id"),book=Book(r.Id("book_id")),currencyLabel=r.Text("currency_label"),factor=Factor(f),up=Cash(r.Text("up_n"),r.Text("up_d"),currency),down=Cash(r.Text("down_n"),r.Text("down_d"),currency),upPnl=Cash(r.Text("up_pnl_n"),r.Text("up_pnl_d"),currency),downPnl=Cash(r.Text("down_pnl_n"),r.Text("down_pnl_d"),currency),delta=Derivative("delta",1),gamma=Derivative("gamma",2)};
-            }).ToArray(),discountInputs=discounts.Select(d=>new{instrumentId=d.Id("instrument_id"),payment=new{sideId=d.OptionalId("fixed_side_id")??d.Id("floating_side_id"),ordinal=int.Parse(d.Text("payment_ordinal")),paymentAt=d.Instant("payment_at"),currency=Key(d.Text("currency_code"))},
+            }).ToArray(),discountInputs=discounts.Select(d=>new{instrumentId=d.Id("instrument_id"),payment=new{sideId=d.OptionalId("fixed_side_id")??d.OptionalId("first_floating_side_id")??d.Id("floating_side_id"),ordinal=int.Parse(d.Text("payment_ordinal")),paymentAt=d.Instant("payment_at"),currency=Key(d.Text("currency_code"))},
                 input=new{enabled=d.GetProperty("enabled").GetBoolean(),factor=d.Text("factor"),mappingId=d.OptionalId("mapping_id"),curve=d.OptionalText("curve_code") is {} curve?(CurveKey?)new(new(catalog,h.Id("definition_revision_id")),curve):null,
                     currency=Key(d.Text("currency_code")),paymentDate=d.Text("payment_date"),rateNumericalPolicy=d.OptionalText("rate_policy"),interpolationPolicy=d.OptionalText("interpolation_policy"),
                     observations=observationsByDiscount[d.Text("ordinal")].Select(o=>new{observation=new ObservationKey(catalog,o.Id("observation_id")),inputUse=o.Text("input_use"),maturity=o.Text("maturity"),annualRate=o.Text("annual_rate"),discountFactor=o.Text("discount_factor"),days=int.Parse(o.Text("days"))}).ToArray()}}).ToArray()};

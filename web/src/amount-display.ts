@@ -1,3 +1,4 @@
+import {priceMeasureChoices} from './blotter-layout.js';
 // The backend formats decimal/rational strings; the browser never rounds amounts.
 export type DisplayPrecision={money:number;price:number;quantity:number;factor:number};
 export const initialDisplayPrecision=():DisplayPrecision=>({money:3,price:4,quantity:3,factor:6});
@@ -13,7 +14,7 @@ export function selectDisplayPrecision(value:DisplayPrecision){precision=display
 const key=(value:string,kind:Kind,tick?:string,policy=precision)=>JSON.stringify([value,policy[kind],tick??null,kind!=='money']);
 export function amountText(value:string,kind:Kind,tick?:string,policy=precision){return rendered.get(key(value,kind,tick,policy))??value;}
 const money=new Set(['presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change']);
-const prices=new Set(['price','fixedPrice','executionPrice','mark','value','annualRate']);
+const prices=new Set(['price','fixedPrice','executionPrice','mark','value','annualRate',...priceMeasureChoices.map(c=>c[0])]);
 const quantities=new Set(['quantity','physicalQuantity','totalQuantity','weight']);
 const factors=new Set(['discountFactor','factor','multiplier','delta','gamma']);
 export async function prepareAmountDisplay(payload:unknown,format:(body:Request[])=>Promise<string[]>,initialTick?:string,initialPolicy=precision){

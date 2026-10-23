@@ -30,6 +30,22 @@ in-memory operations only. Date-set operations remain coding utilities. The name
 described below is a domain consumer with exact contract identities. Monthly anchor generation and durable schedule authoring are now consumers. Project instructions
 now require TDD, DRY, simple code and an explicit quality review before check-in.
 
+The blotter now separates numeric amounts from units and currencies. Its pivot
+builder assigns row and column dimensions, backend measures and linked bar,
+line or heatmap plots. Numeric sorting/filtering retains exact values, including
+rational custom marks and PV; saved layout v3 retains chart choices. Charts use
+the selected financial report scope before local grid filters. Price aggregation
+supports exact minimum/maximum and explicit rounded arithmetic mean. Subtotals
+and cell drill-through are not implemented.
+
+Swaps support financial fixed/floating and floating/floating types with separate
+side schedules and explicit fixed spreads. Blank fixed-price entry can request a
+managed par quote for review; Risk requires the resolved concrete quote. Both
+floating slots preserve published fixing/custom-source evidence through pricing,
+booking, amendments, portfolio valuation and generated-close reports (D195,
+migration 0090). The new migration requires a separately reviewed schema window;
+no hosted migration, worker deployment or production qualification is implied.
+
 ## Durable jobs and shared infrastructure
 
 The [automation implementation](automation.md) adds a separate .NET worker and

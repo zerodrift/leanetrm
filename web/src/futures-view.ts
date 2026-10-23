@@ -10,12 +10,12 @@ import {setupRisk} from './risk-view.js';
 import {futuresInstrumentEditor} from './futures-instrument-editor.js';
 import {createTableWorkspace} from './table-workspace.js';
 import {renderDataGrid} from './data-grid.js';
-import {pivotMatrix,type PivotGroup} from './analytics-model.js';
-import {renderChart,clearChart} from './chart-view.js';
+import {pivotMatrix,pivotChartPanels,type PivotGroup} from './analytics-model.js';
+import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import {renderRegularTable} from './regular-table.js';
 import {trackEdits} from './edit-tracking.js';
 import type {BlotterSelection} from './assistant-pages.js';
-import {blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,type BlotterView} from './blotter-layout.js';
+import {isPriceMeasure,priceMeanPolicy,blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,type BlotterView} from './blotter-layout.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 
@@ -33,7 +33,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   const text=(id:string,value:string)=>{get(id).textContent=publicText(value);};
   const workspace=createTableWorkspace(get('blotter-workspace'),{
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
-    pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Changing display mode clears row filters.',
+    pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
     scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Shocks'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>void act(load),
   });
   // Existing booking controls share the table toolbar.
@@ -50,6 +50,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   get('futures-form').addEventListener('input',draft.reset);
   const bookingEdits=trackEdits(get('futures-form'));
   let lastReadRequest:unknown;
+  let chartState:{panels:ChartSpec[];request:{context:unknown;view:unknown}}|undefined;
   let view=newBlotterView(),savedViews:BlotterView[]=[],table:ReturnType<typeof renderDataGrid>|undefined,tableColumns:string[]=[];
   let versions=new Map<string,string>();
   let draftBase:{name:string;version:string}|undefined;
@@ -80,7 +81,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
     if(get<HTMLSelectElement>('blotter-books').options.length)next.bookIds=selected('blotter-books');
     if(get<HTMLSelectElement>('blotter-portfolios').options.length)next.portfolioIds=selected('blotter-portfolios');
     next.splitBy=Array.from(get('blotter-split-dimensions').querySelectorAll<HTMLInputElement>('input:checked'),n=>n.value);
-    next.chart={visible:get<HTMLInputElement>('blotter-show-chart').checked,measure:field('blotter-chart-measure').value as 'quantity'|'executionPnl'};
+    next.chart={visible:get<HTMLInputElement>('blotter-show-chart').checked,measure:field('blotter-chart-measure').value,kind:field('blotter-chart-kind').value as BlotterView['chart']['kind']};
     next.groupBy=Array.from(get('blotter-dimensions').querySelectorAll<HTMLInputElement>('input:checked'),n=>n.value).concat(next.splitBy);
     next.measures=Array.from(get('blotter-measures').querySelectorAll<HTMLInputElement>('input:checked'),n=>n.value);
     if(view.mode!==next.mode||JSON.stringify([view.groupBy,view.splitBy,view.measures])!==JSON.stringify([next.groupBy,next.splitBy,next.measures]))relayout(next);
@@ -89,12 +90,13 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   }
 
   // A changed display mode, grouping or measure starts its own columns and drops the filters of the last one.
-  function relayout(next:BlotterView){next.columns=next.mode==='pivot'?[...next.groupBy,...next.measures,'instrumentType','unit','currency']:newBlotterView().columns;next.query='';next.columnFilters={};next.grid={order:[],widths:{},sort:[]};}
+  function relayout(next:BlotterView){next.columns=next.mode==='pivot'?[...next.groupBy,...next.measures,'instrumentType','unit','currency',...(next.measures.some(isPriceMeasure)?['priceUnit']:[])]:newBlotterView().columns;next.query='';next.columnFilters={};next.grid={order:[],widths:{},sort:[]};}
   function viewControls(){
     field('blotter-mode').value=view.mode;get('blotter-pivot-fields').hidden=view.mode!=='pivot';
     choices('blotter-books',catalog?.books.map(b=>({id:b.id,name:b.name}))??[],view.bookIds);
     choices('blotter-portfolios',Array.from(new Map(catalog?.books.map(b=>[b.portfolio_id,{id:b.portfolio_id,name:b.portfolio}])??[]).values()),view.portfolioIds);
-    workspace.pivot(view.groupBy,view.measures,view.splitBy);get<HTMLInputElement>('blotter-show-chart').checked=view.chart.visible;field('blotter-chart-measure').value=view.chart.measure;
+    workspace.pivot(view.groupBy,view.measures,view.splitBy);get<HTMLInputElement>('blotter-show-chart').checked=view.chart.visible;field('blotter-chart-measure').value=view.chart.measure;field('blotter-chart-kind').value=view.chart.kind;
+    get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.plotKind===view.chart.kind)));
     choose('blotter-saved',savedViews.map(v=>({id:v.name,name:v.name})),field('blotter-saved').value||draftBase?.name||'','Current view · not saved');
   }
   async function layoutApi<T>(path:string,body?:unknown):Promise<T>{
@@ -116,8 +118,8 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
     owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();savedViews=[];versions.clear();draftBase=undefined;viewsLoaded=false;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Individual trades');workspace.closeMenus();viewControls();
     try{const saved=JSON.parse(sessionStorage.getItem(storageKey())??'null');if(saved&&['futures/book','futures/amend','swaps/book','swaps/amend'].includes(saved.path)&&typeof saved.operationId==='string'&&saved.body&&typeof saved.body==='object'){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
   }
-  function sync(){draft.sync();risk.sync();editor.sync();swapEditor.sync();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency'].includes(n.value))n.disabled=true;});}
-  function clear(){generation++;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;table=undefined;lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();get('futures-totals').replaceChildren();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
+  function sync(){draft.sync();risk.sync();editor.sync();swapEditor.sync();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function clear(){generation++;chartState=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;table=undefined;lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();get('futures-totals').replaceChildren();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
   function reset(){selectedContract='';clear();restore();savedViews=[];versions.clear();viewsLoaded=false;viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   const contractKey=futuresContractKey;
@@ -130,37 +132,42 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
     if(pricedCatalog())selectedContract=field('futures-contract').value;
     const scope=options.profile()+':'+snapshot+':'+catalog.context.contextId;
     const pivot=view.mode==='pivot';
-    const columns=blotterColumns.filter(([key])=>pivot?[...view.groupBy,...view.measures,'instrumentType','unit','currency'].includes(key):key!=='tradeCount');
+    const columns=blotterColumns.filter(([key])=>pivot?[...view.groupBy,...view.measures,'instrumentType','unit','currency',...(view.measures.some(isPriceMeasure)?['priceUnit']:[])].includes(key):key!=='tradeCount'&&!isPriceMeasure(key));
     tableColumns=columns.map(c=>c[0]);
-    const rows:Record<string,string|null>[]=pivot?holdings.groups.map(g=>Object.fromEntries(columns.map(([key])=>[key,key==='instrumentType'?friendly(g.instrumentType):key==='market'?curveName(g.market):key==='contract'?deliveryLabel(String(g.deliveryFrom),String(g.deliveryTo)):String(g[key]??'')]))):holdings.holdings.map(({booking,amountFormat,fixedAmountFormat,...h})=>({...h,tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)}));
-    const visible=columns.map(([key])=>view.columns.includes(key)||pivot&&['instrumentType','unit','currency'].includes(key));
+    const rows:Record<string,string|null>[]=pivot?holdings.groups.map(g=>Object.fromEntries(columns.map(([key])=>[key,key==='instrumentType'?friendly(g.instrumentType):key==='market'?curveName(g.market):key==='contract'?deliveryLabel(String(g.deliveryFrom),String(g.deliveryTo)):String(g[key]??'')]))):holdings.holdings.map(({booking,amountFormat,fixedAmountFormat,...h})=>({...h,priceUnit:`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`,tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)}));
+    const visible=columns.map(([key])=>view.columns.includes(key)||pivot&&['instrumentType','unit','currency','priceUnit'].includes(key));
     if(!visible.some(Boolean))visible[0]=true;
-    const numeric=tableColumns.flatMap((key,i)=>['tradeCount','lots','quantity','executionPrice','mark','executionPnl','fixedPrice','presentValue','revision'].includes(key)?[i]:[]);
+    const numeric=tableColumns.flatMap((key,i)=>(['tradeCount','lots','quantity','executionPrice','mark','executionPnl','fixedPrice','presentValue','revision'].includes(key)||isPriceMeasure(key))?[i]:[]);
     const matrix=pivot&&view.splitBy.length?pivotMatrix(holdings.groups,view.groupBy,view.splitBy,view.measures):undefined;
     const gridColumns=matrix?.columns??columns.map(([key,title],i)=>({key,title,numeric:numeric.includes(i)}));
     if(matrix){tableColumns=matrix.columns.map(c=>c.key);}
-    const gridVisible=gridColumns.map(c=>c.key.startsWith('pivot:')?view.columns.includes((c as {measure:string}).measure):view.columns.includes(c.key)||pivot&&['instrumentType','unit','currency'].includes(c.key));
+    const gridVisible=gridColumns.map(c=>c.key.startsWith('pivot:')?view.columns.includes((c as {measure:string}).measure):view.columns.includes(c.key)||pivot&&['instrumentType','unit','currency','priceUnit'].includes(c.key));
     const rawRows=matrix?.rows??rows;
     const displayRows=rawRows.map((row,index)=>gridColumns.map(c=>{
       const value=row[c.key]??'';if(!c.numeric||value==='')return value;
       const measure=c.key.startsWith('pivot:')?(c as {measure:string}).measure:c.key;
-      const original=pivot?undefined:holdings!.holdings[index],unit=String(row.unit??''),currency=String(row.currency??'');
-      if(['executionPrice','mark','fixedPrice'].includes(measure))return amountText(value,'price',measure==='mark'?original?.markTick:original?.priceTick,measure==='fixedPrice'?original?.fixedAmountFormat:original?.amountFormat)+` ${currency}/${unit}`+(original?.quoteMultiplier&&original.quoteMultiplier!=='1'?` × ${original.quoteMultiplier}`:'');
-      if(['presentValue','executionPnl'].includes(measure))return amountText(value,'money',undefined,original?.amountFormat)+(currency?' '+currency:'');
-      if(measure==='quantity')return amountText(value,'quantity',undefined,original?.amountFormat)+(unit?' '+unit:'');
+      const original=pivot?undefined:holdings!.holdings[index];
+      if(['executionPrice','mark','fixedPrice'].includes(measure)||isPriceMeasure(measure))return amountText(value,'price',measure==='mark'?original?.markTick:original?.priceTick,measure==='fixedPrice'?original?.fixedAmountFormat:original?.amountFormat);
+      if(['presentValue','executionPnl'].includes(measure))return amountText(value,'money',undefined,original?.amountFormat);
+      if(measure==='quantity')return amountText(value,'quantity',undefined,original?.amountFormat);
       return value;
     }));
-    table=workspace.render('futures-holdings',scope+JSON.stringify([view.mode,view.groupBy,view.measures,view.bookIds,view.portfolioIds,view.query,view.columnFilters]),gridColumns.map(c=>c.title),rawRows.map(row=>gridColumns.map(c=>row[c.key]??'')),gridColumns.flatMap((c,i)=>c.numeric?[i]:[]),busy,{displayRows,keys:tableColumns,layout:view.grid,onLayout:layout=>{view.grid=layout;},onReady:sync,visible:gridVisible,initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,onRowOpen:pivot?undefined:index=>{const row=holdings?.holdings[index];if(row)void act(()=>row.instrumentType==='financial_swap'?swapEditor.open(row.tradeId,Number(row.revision)):editor.open(row.tradeId,Number(row.revision)));}});
+    table=workspace.render('futures-holdings',scope+JSON.stringify([view.mode,view.groupBy,view.measures,view.bookIds,view.portfolioIds,view.query,view.columnFilters]),gridColumns.map(c=>c.title),rawRows.map(row=>gridColumns.map(c=>row[c.key]??'')),gridColumns.flatMap((c,i)=>c.numeric?[i]:[]),busy,{displayRows,keys:tableColumns,columnGroups:matrix?Object.fromEntries(matrix.columns.filter(c=>c.groupKey).map(c=>[c.key,{key:c.groupKey!,title:c.groupTitle!,measureTitle:c.measureTitle!}])):undefined,layout:view.grid,onLayout:layout=>{view.grid=layout;},onReady:sync,visible:gridVisible,initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,onRowOpen:pivot?undefined:index=>{const row=holdings?.holdings[index];if(row)void act(()=>row.instrumentType==='financial_swap'?swapEditor.open(row.tradeId,Number(row.revision)):editor.open(row.tradeId,Number(row.revision)));}});
 
     workspace.columns(columns,columns.filter((_,i)=>visible[i]).map(c=>c[0]),selected=>{
       if(busy())return;
       if(!selected.length){render();return;}captureFilters();if(table?.ready())view.grid=table.layout();view.columns=selected;render();
-    },pivot?['instrumentType','unit','currency']:[]);
-    if(pivot)get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency'].includes(n.value)){n.checked=true;n.disabled=true;}});
+    },pivot?['instrumentType','unit','currency','priceUnit']:[]);
+    if(pivot)get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value)){n.checked=true;n.disabled=true;}});
     renderRegularTable(get('futures-totals'),'futures-totals',scope,['Book','Currency','Execution P&L'],holdings.totals.map(t=>[t.book,t.currency,t.executionPnl]),[2],busy,{displayRows:holdings.totals.map(t=>[t.book,t.currency,amountText(t.executionPnl,'money')])});
     workspace.summary([{label:'Trades · selected books',value:String(holdings.holdings.length)},{label:'Futures prices evaluated',value:String(holdings.evaluatedContracts)},
       ...holdings.totals.map(t=>({label:`${t.book} · execution P&L`,value:`${amountText(t.executionPnl,'money')} ${t.currency}`,signed:t.executionPnl}))]);
     text('blotter-table-title',pivot?view.splitBy.length?'Pivot table':'Pivot summary':'Individual trades');
+    workspace.describe(pivot?[
+      {label:'Rows',values:view.groupBy.filter(d=>!view.splitBy.includes(d)).map(d=>groupChoices.find(c=>c[0]===d)![1])},
+      {label:'Columns',values:view.splitBy.map(d=>groupChoices.find(c=>c[0]===d)![1])},
+      {label:'Values',values:view.measures.map(m=>measureChoices.find(c=>c[0]===m)![1])},
+    ]:[]);
     text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();
   }
 
@@ -177,7 +184,7 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
     const started=generation,scope=JSON.stringify([options.profile(),source]);
     const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
     try{
-      const selectedView={mode:view.mode,bookIds:view.bookIds,portfolioIds:view.portfolioIds,groupBy:view.mode==='pivot'?view.groupBy:[],measures:view.mode==='pivot'?view.measures:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null};
+      const selectedView={mode:view.mode,bookIds:view.bookIds,portfolioIds:view.portfolioIds,groupBy:view.mode==='pivot'?view.groupBy:[],measures:view.mode==='pivot'?view.measures:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null,priceNumericalPolicy:view.mode==='pivot'&&view.measures.some(m=>isPriceMeasure(m)&&m.endsWith('Mean'))?priceMeanPolicy:null};
       const combined=await api<{catalog:Catalog;blotter:Holdings}>('trading/workspace',{context:{...request,convention:'trading_workspace_v1'},view:selectedView,bookingCatalog});
       requireCurrentRead(started,scope);
       const selected=combined.catalog.context,reported=combined.blotter.context;
@@ -189,27 +196,23 @@ export function setupFutures(options:{api:Api;act:(work:()=>Promise<void>)=>Prom
   }
   async function loadChart(reportRequest:{context:unknown;view:unknown},started:number,scope:string){
     if(!view.chart.visible)return;
-    const chartRequest={context:reportRequest.context,view:{mode:'pivot',bookIds:view.bookIds,portfolioIds:view.portfolioIds,groupBy:['book','market','contract'],measures:[view.chart.measure],pivotConvention:'trading_blotter_totals_v1'}};
-    const report=await api<Holdings>('trading/blotter',chartRequest);
-    requireCurrentRead(started,scope);
-    const partitions=new Map<string,PivotGroup[]>();
-    for(const group of report.groups){const key=JSON.stringify([group.instrumentType,group.quantitySpecification,group.currencyReference]);const rows=partitions.get(key)??[];rows.push(group);partitions.set(key,rows);}
-    const host=get('blotter-chart');clearChart(host);get('blotter-chart-card').hidden=false;
-    // The baseline chart shows one exact partition per panel, never an implied conversion.
-    for(const groups of partitions.values()){
+    const dimensions=view.mode==='pivot'?view.groupBy:['book','market','contract'],splitBy=view.mode==='pivot'?view.splitBy:['contract'];
+    const chartRequest={context:reportRequest.context,view:{mode:'pivot',bookIds:view.bookIds,portfolioIds:view.portfolioIds,groupBy:dimensions,measures:[view.chart.measure],pivotConvention:'trading_blotter_totals_v1',priceNumericalPolicy:isPriceMeasure(view.chart.measure)&&view.chart.measure.endsWith('Mean')?priceMeanPolicy:null}};
+    const report=await api<Holdings>('trading/blotter',chartRequest);requireCurrentRead(started,scope);
+    text('blotter-chart-scope',view.mode==='pivot'?'Follows the pivot rows and columns · selected books and portfolios, before table row filters.':'By dated contract and book / market · selected books and portfolios, before table row filters.');
+    chartState={panels:pivotChartPanels(report.groups,dimensions,splitBy,view.chart.measure),request:chartRequest};renderChartPanels();
+  }
+  function renderChartPanels(){
+    if(!chartState)return;const {panels,request}=chartState,host=get('blotter-chart');
+    host.querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(host);host.classList.remove('chart-empty');get('blotter-chart-card').hidden=false;
+    get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.plotKind===view.chart.kind)));
+    if(!panels.length){host.classList.add('chart-empty');text('blotter-chart','No values available for the selected books and portfolios.');}
+    for(const spec of panels){
       const panel=document.createElement('div');panel.className='chart';host.append(panel);
-      const contractKey=(group:PivotGroup)=>JSON.stringify([group.contractId,group.deliveryFrom,group.deliveryTo]);
-      const contracts=Array.from(new Map(groups.map(g=>[contractKey(g),g])).values()).sort((a,b)=>String(a.deliveryFrom).localeCompare(String(b.deliveryFrom))||contractKey(a).localeCompare(contractKey(b)));
-      const seriesKeys=[...new Set(groups.map(g=>JSON.stringify([g.bookId,g.market])))];
-      renderChart(panel,{exportImage:download=>void act(async()=>{try{await api('trading/blotter',chartRequest);}catch(error){clear();throw error;}download();}),title:view.chart.measure==='quantity'?'Positions by contract':'Execution P&L by contract',subtitle:friendly((groups[0].quantitySpecification as {code:string}).code)+' · '+friendly((groups[0].currencyReference as {code:string}).code),axis:'delivery',kind:'bar',unit:String(groups[0][view.chart.measure==='quantity'?'unit':'currency']),series:seriesKeys.map(key=>{
-        const rows=groups.filter(g=>JSON.stringify([g.bookId,g.market])===key);
-        return {name:String(rows[0].book)+' · '+curveName(rows[0].market),points:contracts.map(contract=>{
-          const matches=rows.filter(g=>contractKey(g)===contractKey(contract));if(matches.length>1)throw Error('This chart needs distinct exact dated contracts.');
-          return {x:contractKey(contract),label:deliveryLabel(String(contract.deliveryFrom),String(contract.deliveryTo)),y:matches.length&&matches[0][view.chart.measure]!==null?String(matches[0][view.chart.measure]):null};
-        })};
-      })});
+      renderChart(panel,{...spec,kind:view.chart.kind,exportImage:download=>void act(async()=>{try{await api('trading/blotter',request);}catch(error){clear();throw error;}download();})});
     }
   }
+  get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.onclick=()=>{if(busy())return;view.chart.kind=button.dataset.plotKind as BlotterView['chart']['kind'];field('blotter-chart-kind').value=view.chart.kind;renderChartPanels();});
   async function send(command:RequestCommand){
     const retrying=uncertain;uncertain=true;store();
     try{await api(command.path,{...command.body,operationId:command.operationId});}

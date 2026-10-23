@@ -43,11 +43,13 @@ public sealed record SchedulePriceTerm
     public ExactDecimal Weight { get; }
     public UnitPrice? FixedPrice { get; }
     public IndexPriceLookup? Lookup { get; }
-    internal SchedulePriceTerm(ExactDecimal weight, UnitPrice? fixedPrice, IndexPriceLookup? lookup)
+    public UnitPrice? Spread { get; }
+    internal SchedulePriceTerm(ExactDecimal weight, UnitPrice? fixedPrice, IndexPriceLookup? lookup,UnitPrice? spread=null)
     {
         if (weight.CompareTo(default) <= 0 || (fixedPrice is null) == (lookup is null))
             throw new MarketDataException("schedule_price", "A price term requires a positive weight and exactly one fixed price or exact index lookup.");
-        Weight = weight; FixedPrice = fixedPrice; Lookup = lookup;
+        if(spread is not null&&(lookup is null||spread.Unit!=PriceUnit.FromQuote(lookup.Quote)))throw new MarketDataException("swap_spread","A floating spread requires its exact index price unit.");
+        Weight = weight; FixedPrice = fixedPrice; Lookup = lookup; Spread=spread;
     }
 }
 
@@ -187,7 +189,8 @@ public sealed class SideValuationContext
                     observation.Role != ObservationRole.IndexFixing || observation.State != PublicationState.Final ||
                     !TradingInstant.IsSupported(observation.ObservedAt) || observation.ObservedAt < fixing.FixingAt || observation.ObservedAt > Snapshot.MarketCutoff)
                     throw new MarketDataException("index_fixing_selection", "The pinned actual must match the qualified series, source, final role and publication interval.");
-                return new(term, new UnitPrice(observation.Value, lookup.Quote), ImmutableHashSet.Create(observation.Key), SchedulePriceState.Actual);
+                var actual=new UnitPrice(observation.Value, lookup.Quote);
+                return new(term,term.Spread is {} actualSpread?actual.Add(actualSpread):actual,ImmutableHashSet.Create(observation.Key),SchedulePriceState.Actual);
             }
         }
         var projection = lookup.ProjectionRequest;
@@ -200,7 +203,7 @@ public sealed class SideValuationContext
         var price = exactPrices(projection);
         if (price.Unit != PriceUnit.FromQuote(lookup.Quote))
             throw new MarketDataException("custom_projection", "The connected price must retain the contractual index quote unit and exact observation lineage.");
-        return new(term, price, exactLineage(projection));
+        return new(term,term.Spread is {} spread?price.Add(ExactUnitPrice.FromPrice(spread)):price,exactLineage(projection));
     }
 }
 

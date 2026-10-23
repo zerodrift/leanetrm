@@ -48,6 +48,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('build' in c and 'src/OpenEtrm.Worker/OpenEtrm.Worker.csproj' in c for c in commands))
         self.assertTrue(any('tools/check_automation.py' in c and '--dotnet' in c for c in commands))
         self.assertIn(['node','--test','tests/browser/owned-browser.test.mjs'],commands)
+        self.assertTrue(any('--draft-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--execution-check' in c for c in commands))
         self.assertTrue(any('--power-actual-check' in c for c in commands))
         self.assertTrue(any('--interval-series-check' in c and '--browser-check' in c for c in commands))

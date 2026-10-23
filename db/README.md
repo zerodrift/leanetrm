@@ -1124,3 +1124,16 @@ model JSON or a URL. The private owner helper rechecks current source access and
 returns original arguments/context/pins to the managed revalidation path. It grants
 no authoring capability. The migration fails closed over changed helper bodies,
 ownership or ACLs under the authority epoch before replacing reviewed definitions.
+
+
+[0090_swap_composition.sql](migrations/0090_swap_composition.sql) serves composed
+swap booking and generated-close reports. It retains an exact fixed or first
+floating side, the second floating side and explicit coefficients. Floating sides
+add typed fixed spreads and retain custom projection references. The fenced
+command records each floating slot's derived fixing evidence, compares only
+submitted terms on retry, and rechecks current transitive source authority.
+Existing zero-spread commands retain their replay contracts and reject subtype
+conversion of floating/floating heads. Generated-close discount rows add an exact
+first-floating membership FK; existing report rows remain unchanged. Apply only
+in a reviewed schema window after draining runtime writes. No deployment or
+backfill of immutable events is performed by the application.
