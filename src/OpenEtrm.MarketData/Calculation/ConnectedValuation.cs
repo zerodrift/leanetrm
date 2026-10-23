@@ -90,11 +90,11 @@ public sealed class ConnectedValuation
         return new(scenario,Snapshot);
     }
 
-    internal PreparedValuationMarket Market(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation)
-        =>new ConnectedMarket(this,bindings,authority,cancellation);
+    internal PreparedValuationMarket Market(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation,CurveBuild? nativeScenario=null)
+        =>new ConnectedMarket(this,bindings,authority,cancellation,nativeScenario);
 
-    internal static PreparedValuationMarket WithScenario(PreparedValuationMarket market,ConnectedValuation valuation)
-        =>market is ConnectedMarket connected?connected.WithScenario(valuation):
+    internal static PreparedValuationMarket WithScenario(PreparedValuationMarket market,ConnectedValuation valuation,CurveBuild? nativeScenario=null)
+        =>market is ConnectedMarket connected?connected.WithScenario(valuation,nativeScenario):
             throw new MarketDataException("instrument_context","A connected child requires its prepared pricing bindings.");
 
     private sealed class ConnectedMarket : PreparedValuationMarket
@@ -102,13 +102,17 @@ public sealed class ConnectedValuation
         private readonly ConnectedValuation valuation;
         private readonly ImmutableDictionary<CurveRequest,CurvePointKey> bindings;
         private readonly CurveBuild? authority;
+        private readonly CurveBuild? nativeScenario;
         private readonly ImmutableDictionary<int,CurvePointKey> primitivePoints;
         private readonly ConnectedInputEvidence evidence;
         private readonly ConcurrentDictionary<int,QuoteFactor> factors=new();
-        internal ConnectedMarket(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation)
+        internal ConnectedMarket(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation,CurveBuild? nativeScenario)
         {
             if(bindings is null||authority is not null&&!authority.Snapshot.HasSameInputs(valuation.Snapshot))
                 throw new MarketDataException("instrument_context","Connected pricing and lifecycle authority require the same exact pinned snapshot.");
+            if(nativeScenario is not null && !ReferenceEquals(nativeScenario.Graph,valuation.Scenario))
+                throw new MarketDataException("ppa_context","Native interval inputs must name this exact scenario.");
+            this.nativeScenario=nativeScenario;
             this.valuation=valuation;this.bindings=bindings;this.authority=authority;
             evidence=new(valuation.Scenario.Plan);
             var primitives=valuation.Scenario.Plan.Primitives.Select(p=>p.Node).ToHashSet();
@@ -116,19 +120,22 @@ public sealed class ConnectedValuation
                 .Where(p=>primitives.Contains(p.Node)).DistinctBy(p=>p.Node).ToImmutableDictionary(p=>p.Node,p=>p.Point);
             foreach(var point in bindings.Values){cancellation.ThrowIfCancellationRequested();valuation.Scenario.Plan.GetPoint(point);}
         }
-        private ConnectedMarket(ConnectedMarket parent,ConnectedValuation valuation)
-        {this.valuation=valuation;bindings=parent.bindings;authority=parent.authority;primitivePoints=parent.primitivePoints;evidence=parent.evidence;}
-        internal ConnectedMarket WithScenario(ConnectedValuation child)
+        private ConnectedMarket(ConnectedMarket parent,ConnectedValuation valuation,CurveBuild? nativeScenario)
+        {this.nativeScenario=nativeScenario;this.valuation=valuation;bindings=parent.bindings;authority=parent.authority;primitivePoints=parent.primitivePoints;evidence=parent.evidence;}
+        internal ConnectedMarket WithScenario(ConnectedValuation child,CurveBuild? nativeScenario)
         {
             if(!ReferenceEquals(child.Scenario.Plan,valuation.Scenario.Plan)||!child.Snapshot.HasSameInputs(Snapshot))
                 throw new MarketDataException("instrument_context","Connected reuse requires one exact plan and lifecycle context.");
-            return new(this,child);
+            if(nativeScenario is not null && !ReferenceEquals(nativeScenario.Graph,child.Scenario))
+                throw new MarketDataException("ppa_context","Native interval inputs must name this exact child scenario.");
+            return new(this,child,nativeScenario);
         }
         public override MarketSnapshot Snapshot=>valuation.Snapshot;
         public override string ScenarioId=>valuation.Scenario.Id;
         public override string NumericalPolicy=>ConnectedCurves.NumericalPolicy;
         internal override object Identity=>this;
         internal override CurveBuild? Authority=>authority;
+        internal override CurveBuild? NativeIntervalScenario=>nativeScenario;
         private CurvePointKey Point(CurveRequest request)=>bindings.TryGetValue(request,out var point)?point:
             throw new MarketDataException("risk_dependency","The exact connected pricing binding is unavailable.");
         internal override ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation)=>valuation.Scenario.Price(Point(request),cancellation);

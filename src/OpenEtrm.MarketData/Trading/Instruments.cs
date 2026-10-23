@@ -16,7 +16,7 @@ public abstract record Side
     internal virtual ImmutableArray<Side> IdentityComponents => [this];
     public abstract ImmutableArray<CurveRequest> Dependencies { get; }
     public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) => Dependencies;
-    public abstract SidePaymentSchedule GenerateSchedule();
+    public abstract SideSchedule GenerateSchedule();
     public abstract SideValuation PV(SideValuationContext context);
 
     protected Side(Guid id)

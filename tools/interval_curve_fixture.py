@@ -20,8 +20,8 @@ FACTOR = 'test_power_shape_factor'
 # 01:00 on the 2nd repeats), then 14 and 15 December 2020, delivered before and during the first fixture frame.
 OPERATING_DAYS = [(date(2031, 11, 2), date(2031, 11, 4)), (date(2020, 12, 14), date(2020, 12, 16))]
 MARKED_AT = '2020-11-01T16:00:00Z'  # Earlier than every fixture frame, so each frame selects the marks.
-MONTHS = [(2031, 3), (2031, 11), (2031, 12)]
-BLOCK_MARKS = {PEAK: [55, 60, 70], OFF: [35, 40, 45]}
+MONTHS = [(2031, 3), (2031, 11), (2031, 12), (2020, 12)]
+BLOCK_MARKS = {PEAK: [55, 60, 70, 58], OFF: [35, 40, 45, 38]}
 EDITOR = identity('c', 2)  # The synthetic editor defines the shape series.
 
 
@@ -74,10 +74,17 @@ def moved(security):
 
 def prepare(reference, market, security, manifest):
     manifest = deepcopy(manifest)
-    refs = [f"INSERT INTO ref_data.calendars VALUES({R},'{HOLIDAYS}','synthetic_eastern',96,'2031-01-01','2032-01-01');",
+    refs = [f"INSERT INTO ref_data.calendars VALUES({R},'{HOLIDAYS}','synthetic_eastern',96,'2020-01-01','2032-01-01');",
             f"INSERT INTO ref_data.calendar_days VALUES({R},'{HOLIDAYS}','2031-11-27',false,'Synthetic weekday holiday');",
             f"INSERT INTO ref_data.delivery_profiles VALUES({R},'{HOURLY_PROFILE}','uniform','synthetic_eastern','{HOLIDAYS}','per_delivery_hour',60);",
             f"INSERT INTO ref_data.value_specifications VALUES({R},'{FACTOR}','dimensionless',NULL,NULL,0,10);"]
+    refs += [f"INSERT INTO ref_data.commodity_units VALUES({R},'test_power','megawatt','power');",
+             f"INSERT INTO ref_data.measurement_bases VALUES({R},'test_capacity','test_power','power');",
+             f"INSERT INTO ref_data.quantity_specifications VALUES({R},'test_capacity_quantity','test_power','test_capacity','megawatt','power');",
+             f"INSERT INTO ref_data.quote_specifications VALUES({R},'test_capacity_quote','test_power','outright','test_capacity_quantity','usd',1,0.025,0.001,-1000,1000);",
+             f"INSERT INTO ref_data.price_index_definitions VALUES({R},'test_capacity_index','test_power','test_hub_a','usd','megawatt',1,'test_business');",
+             f"INSERT INTO ref_data.settlement_targets VALUES({R},'test_capacity_target','index','test_capacity_index',NULL);"]
+    anchor_expiry=datetime.now(timezone.utc)-timedelta(days=2)
     now = datetime.now(timezone.utc).isoformat()
     shape, factor, source = identity('d', 750001), identity('d', 750002), identity('d', 760001)
     identities, security = moved(security)
@@ -119,7 +126,7 @@ def prepare(reference, market, security, manifest):
         definitions.append(f"INSERT INTO market_data.curves VALUES({M},'{code}',{R},'test_power','test_hub_a','test_power_outright',"
                            f"'{HOURLY_PROFILE}','test_power_target','direct','fixture','trader_mark','{name}');")
         for ordinal, (cid, sid, oid, first, value) in enumerate(blocks[code]):
-            expiry = datetime(first.year, first.month, first.day, tzinfo=timezone.utc) - timedelta(days=2)
+            expiry = anchor_expiry if first==date(2031,3,1) else datetime(first.year, first.month, first.day, tzinfo=timezone.utc) - timedelta(days=2)
             definitions += [
                 f"INSERT INTO market_data.contracts VALUES({M},'{cid}',{R},'forward','{first}','{next_month(first)}','{expiry.isoformat()}',NULL);",
                 f"INSERT INTO market_data.series VALUES({M},'{sid}','{code}_{first:%Y_%m}',{R},'{cid}','test_power_outright',NULL);",
@@ -127,12 +134,30 @@ def prepare(reference, market, security, manifest):
             observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture',"
                                 f"'{code}_{first:%Y_%m}','1','trader_mark','final','{MARKED_AT}','{now}',{value},NULL);")
             block_ids.append(oid)
+        definitions.append(f"INSERT INTO market_data.curve_expiry_rules VALUES({M},'{code}','freeze_final_settlement_v1');")
         definitions.append(f"INSERT INTO market_data.curve_blocks VALUES({M},'{code}','{membership}','{tou_product('pjm')}',1);")
     for code, name, method, series in [(SHAPED, 'Synthetic hourly power · shaped offsets', 'additive', shape),
                                        (SCALED, 'Synthetic hourly power · shaped factors', 'multiplicative', factor)]:
         definitions += [f"INSERT INTO market_data.shaped_curves VALUES({M},'{code}','{name}','{method}','duration_weighted_block_mean_v1','block_shape_v1','{series}');",
-                        f"INSERT INTO market_data.shaped_curve_blocks VALUES({M},'{code}','{PEAK}');",
-                        f"INSERT INTO market_data.shaped_curve_blocks VALUES({M},'{code}','{OFF}');"]
+                        f"INSERT INTO market_data.shaped_curve_blocks VALUES({M},'{code}','{PEAK}','period');",
+                        f"INSERT INTO market_data.shaped_curve_blocks VALUES({M},'{code}','{OFF}','period');"]
+    definitions.append(f"INSERT INTO market_data.shaped_curve_actual_rules VALUES({M},'{SHAPED}',{R},'{source}','interval_end',60,'interval_actual_due_v1');")
+    # Explicit current-day-through-month-end live anchors. No final settlement is
+    # manufactured for a month that has not completed at this frame's valuation.
+    balances={}
+    for n,(period,membership,value) in enumerate([(PEAK,'peak',62),(OFF,'off',42)]):
+        code=period.replace('monthly','balance')
+        cid,sid,oid=(identity('d',744000+n*10+i) for i in range(3))
+        definitions += [
+            f"INSERT INTO market_data.curves VALUES({M},'{code}',{R},'test_power','test_hub_a','test_power_outright','{HOURLY_PROFILE}','test_power_target','direct','fixture','trader_mark','Synthetic remaining December {membership}');",
+            f"INSERT INTO market_data.contracts VALUES({M},'{cid}',{R},'forward','2020-12-15','2021-01-01','2021-01-01T05:00:00Z',NULL);",
+            f"INSERT INTO market_data.series VALUES({M},'{sid}','{code}_2020_12',{R},'{cid}','test_power_outright',NULL);",
+            f"INSERT INTO market_data.curve_members VALUES({M},'{code}','{cid}',0);",
+            f"INSERT INTO market_data.curve_blocks VALUES({M},'{code}','{membership}','{tou_product('pjm')}',1);",
+            f"INSERT INTO market_data.shaped_curve_blocks VALUES({M},'{SHAPED}','{code}','balance');",
+            f"INSERT INTO market_data.curve_expiry_rules VALUES({M},'{code}','freeze_final_settlement_v1');"]
+        observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','{code}_2020_12','1','trader_mark','final','{MARKED_AT}','{now}',{value},NULL);")
+        balances[membership]={'curve':code,'contractId':cid,'seriesId':sid,'observationId':oid,'mark':value}
     flat = identity('d', 743000)
     definitions += [
         f"INSERT INTO market_data.curves VALUES({M},'{FLAT}',{R},'test_power','test_hub_a','test_power_outright',"
@@ -142,22 +167,54 @@ def prepare(reference, market, security, manifest):
         f"INSERT INTO market_data.curve_members VALUES({M},'{FLAT}','{flat}',0);",
         f"INSERT INTO market_data.curve_blocks VALUES({M},'{FLAT}','all',NULL,NULL);",
         f"INSERT INTO market_data.shaped_curves VALUES({M},'{UNCOVERED}','Synthetic hourly power · uncovered','additive','duration_weighted_block_mean_v1','block_shape_v1','{shape}');",
-        f"INSERT INTO market_data.shaped_curve_blocks VALUES({M},'{UNCOVERED}','{FLAT}');"]
+        f"INSERT INTO market_data.shaped_curve_blocks VALUES({M},'{UNCOVERED}','{FLAT}','period');"]
+    capacity='test_capacity_period'
+    cap_contract,cap_series,cap_mark,cap_fixing=(identity('d',770000+i) for i in range(4))
+    definitions += [
+        f"INSERT INTO market_data.curves VALUES({M},'{capacity}',{R},'test_power','test_hub_a','test_capacity_quote','test_uniform','test_capacity_target','direct','fixture','trader_mark','Synthetic capacity period');",
+        f"INSERT INTO market_data.contracts VALUES({M},'{cap_contract}',{R},'forward','2021-01-01','2021-02-01','2020-12-16T12:00:00Z',NULL);",
+        f"INSERT INTO market_data.series VALUES({M},'{cap_series}','test_capacity_january',{R},'{cap_contract}','test_capacity_quote',NULL);",
+        f"INSERT INTO market_data.curve_members VALUES({M},'{capacity}','{cap_contract}',0);",
+        f"INSERT INTO market_data.index_fixing_observations VALUES({M},'test_capacity_index','2021-01-01','2021-02-01',{R},'test_capacity_quote','{cap_series}','fixture','2020-12-16T12:00:00Z','published_index_observations_v1');"]
+    for oid,role,observed,value in [(cap_mark,'trader_mark',MARKED_AT,5),(cap_fixing,'index_fixing','2020-12-16T12:00:00Z',4)]:
+        observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{cap_series}',{R},'fixture','capacity_{role}','1','{role}','final','{observed}','{now}',{value},NULL);")
     # As a close would, each frame selects and pins only the intervals still live at its instant.
     for frame in manifest['frames']:
         live = [n for n, end in enumerate(ends) if end > datetime.fromisoformat(frame['at'].replace('Z', '+00:00'))]
-        frame['observationIds'] = frame['observationIds'] + [ids[n] for n in live] + block_ids
+        frame['observationIds'] = frame['observationIds'] + [ids[n] for n in live] + block_ids + [b['observationId'] for b in balances.values()]
         views = frame.setdefault('curveContracts', {})
         views[MARKED] = [contracts[n] for n in live]
+        capacity_fixed=datetime.fromisoformat(frame['at'].replace('Z','+00:00'))>=datetime(2020,12,16,12,tzinfo=timezone.utc)
+        frame['observationIds'] += [cap_fixing if capacity_fixed else cap_mark]
+        views[capacity]=[] if capacity_fixed else [cap_contract]
+        for balance in balances.values():
+            views[balance['curve']]=[balance['contractId']]
         for code in (PEAK, OFF):
             views[code] = [cid for cid, *_ in blocks[code]]
+    missing_capacity=deepcopy(next(f for f in manifest['frames'] if cap_fixing in f['observationIds']))
+    missing_capacity['at']=(datetime.fromisoformat(missing_capacity['at'].replace('Z','+00:00'))+timedelta(seconds=1)).isoformat()
+    missing_capacity['observationIds'].remove(cap_fixing)
+    manifest['frames'].append(missing_capacity)
+    # Synthetic pre-delivery contract finals, explicitly separate from a completed delivery-month index.
+    # HTTP checks publish these after the initial shape cutoff to qualify knowledge exclusion too.
+    frozen_frame=deepcopy(manifest['frames'][0])
+    frozen_frame['at']=(datetime.now(timezone.utc)+timedelta(minutes=2)).isoformat()
+    frozen=[]
+    for n,code in enumerate((PEAK,OFF)):
+        cid,sid,old,first,value=blocks[code][0]
+        oid=identity('d',780000+n)
+        frozen_frame['observationIds'].remove(old)
+        frozen_frame['observationIds'].append(oid)
+        frozen.append({'id':oid,'seriesId':sid,'observedAt':(anchor_expiry+timedelta(days=1)).isoformat(),'value':58 if n==0 else 38})
+    frozen_frame['frozenObservationIds']=[f['id'] for f in frozen]
+    manifest['frames'].append(frozen_frame)
     market = market.replace('UPDATE ref_data.revisions SET', '\n'.join(refs) + '\nUPDATE ref_data.revisions SET', 1)
     market = market.replace('UPDATE market_data.revisions SET', '\n'.join(definitions) + '\nUPDATE market_data.revisions SET', 1)
     market = market.rsplit('COMMIT;', 1)[0] + '\n' + '\n'.join(observations) + '\nCOMMIT;\n'
     manifest['intervalCurves'] = {'marked': MARKED, 'contracts': contracts, 'observations': ids, 'source': source,
                                   'shaped': SHAPED, 'scaled': SCALED, 'uncovered': UNCOVERED, 'peak': PEAK, 'off': OFF,
-                                  'shapeSeries': {'additive': shape, 'multiplicative': factor},
-                                  'blocks': {code: [{'contractId': cid, 'observationId': oid, 'month': f'{first:%Y-%m}', 'mark': value}
-                                                    for cid, _, oid, first, value in blocks[code]] for code in (PEAK, OFF)},
+                                  'shapeSeries': {'additive': shape, 'multiplicative': factor}, 'balances':balances, 'capacity':capacity, 'capacityFixing':cap_fixing, 'missingCapacityAt':missing_capacity['at'], 'frozenAt':frozen_frame['at'], 'frozenObservations':frozen,
+                                  'blocks': {code: [{'contractId': cid, 'seriesId': sid, 'observationId': oid, 'month': f'{first:%Y-%m}', 'mark': value}
+                                                    for cid, sid, oid, first, value in blocks[code]] for code in (PEAK, OFF)},
                                   'pjm': tou_product('pjm'), 'nyiso': tou_product('nyiso'), 'spp': tou_product('spp')}
     return reference, market, security, manifest

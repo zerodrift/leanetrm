@@ -1,0 +1,42 @@
+{
+  "schema": "synthetic_ppa_oracle_v1",
+  "currency": "synthetic_usd",
+  "clock": "America/New_York",
+  "cases": {
+    "01_segmented_payment": {
+      "boundary": "2031-11-15T05:00:00Z",
+      "intervals": [
+        {"from": "2031-11-15T04:00:00Z", "to": "2031-11-15T05:00:00Z", "unit_mwh": "0.25", "contract_mw": "80", "strike": "40", "coefficient": "-1"},
+        {"from": "2031-11-15T05:00:00Z", "to": "2031-11-15T06:00:00Z", "unit_mwh": "0.25", "contract_mw": "60", "strike": "50", "coefficient": "-1"}
+      ],
+      "payment_date": "2031-12-10T00:00:00Z", "discount_factor": "0.9"
+    },
+    "02_coverage_partition": {
+      "full_from": "2031-11-02T04:00:00Z", "full_to": "2031-11-02T08:00:00Z",
+      "boundary": "2031-11-02T06:00:00Z", "interval_minutes": 60,
+      "unit_mwh": "0.25", "contract_mw": "80", "price": "40", "coefficient": "-1",
+      "invalid_boundary": "2031-11-02T05:30:00Z"
+    },
+    "03_retained_certificates": {"certificates": "100", "mark": "5", "adjustment": "0", "bump": "1", "payment_price": "3", "payment_coefficient": "-1"},
+    "04_estimated_holdings": {"estimated_certificates": "100", "corrected_certificates": "90", "mark": "5"},
+    "05_mixed_overdue": {"known_mwh": "20", "estimated_mwh": "10", "actual_price": "40", "future_amount": "100", "future_delivery_end": "2031-11-01T06:00:00Z", "future_payment_at": "2031-12-20T00:00:00Z", "valuation_at": "2031-12-10T00:00:00Z", "discount_factor": "0.9", "holding_quantity": "100", "holding_mark": "5"},
+    "06_deadlines_and_cutoffs": {"corrected_mwh": "12", "actual_price": "40", "meter_deadline": "2031-11-16T05:00:00Z", "price_deadline": "2031-11-15T12:00:00Z"},
+    "07_capacity_month": {"month": "2031-11-01", "basis_mw": "200", "accredited_mw": "160", "contract_mw": "80", "price_per_mw_day": "4", "changed_accredited_mw": "120", "change_date": "2031-11-16"},
+    "08_capacity_components": {"components": [{"mw_day": "600", "price": "4"}, {"mw_day": "400", "price": "5"}]},
+    "09_unit_reuse": {"bindings_per_scope": 100, "full_scopes": 1, "segmented_scopes": 3, "sides_per_scope": 2, "unit_value": "3.125", "contract_mw": ["80", "20", "100"]},
+    "10_shared_work": {"unit_quantities": ["0.25", "0.5"], "strikes": ["40", "50"], "physical_price": "42", "contract_mw": "80"},
+    "11_independent_discounting": {"amounts": ["100", "-100"], "discount_factors": ["0.9", "0.8"], "unit_value": "2.5", "contract_mw": ["80", "20", "100"]},
+    "12_measure_reconciliation": {"delivered_amount": "400"}
+  },
+  "plan": {
+    "physical": {"mwh": "100", "location_price": "42", "strike": "40"},
+    "virtual": {"mwh": "100", "hub_price": "30", "strike": "40"},
+    "normalization": {"meter_mwh": "50", "basis_mw": "200", "contract_mw": "80", "degraded_unit_mwh": "0.2401"},
+    "escalation": {"strike": "40", "rate": "0.025", "base_date": "2030-03-15", "dates": ["2030-03-15", "2031-03-14", "2031-03-15", "2031-06-01", "2032-03-15"]},
+    "capacity_fixing": {"basis_mw": "50", "accredited_mw": "50", "contract_mw": "50", "operating_days": 30, "fixing": "4", "mark": "3.5"},
+    "indexed": {"mwh": "100", "index": "32", "adder": "1", "coefficient": "-1", "multiplier_example": {"index": "40", "multiplier": "0.95", "adder": "2"}},
+    "basis_cash": {"mwh": "100", "receive_index": "30", "pay_index": "32"},
+    "quarter_hour_covariance": {"mwh": ["1", "2", "3", "4"], "prices": ["10", "20", "30", "40"]},
+    "economic_classes": {"realised_cash": "-500", "realised_delivery": "400", "unrealised": "100"}
+  }
+}

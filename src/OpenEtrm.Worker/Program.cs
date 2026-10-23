@@ -97,14 +97,24 @@ sealed class Scheduler(JobWorkerStore store, int pollSeconds, int leaseSeconds, 
         if (controller is not null) { await controller.Tick(ct); return; }
         var claim = await store.Claim(id, leaseSeconds, ct);
         if (claim is null) return;
-        if(claim.Operation==PilotCloseJobs.Operation)
+        if(claim.Operation is PilotCloseJobs.Operation or CloseBookRiskJobs.Operation)
         {
             if(pilot is null)throw new AutomationException("pilot_configuration","This worker has no qualified pilot runtime and market manifest.");
+            if(claim.Operation==CloseBookRiskJobs.Operation)
+            {
+                await ExistingClose(claim,ct);
+                return;
+            }
             try
             {
                 await pilot.Process(claim,ct);
                 await store.Finish(claim,true,null,ct);
-                logger?.LogInformation("Generated pilot close completed: {RunId}",claim.Id);
+                logger?.LogInformation("Portfolio report completed: {RunId}",claim.Id);
+            }
+            catch(CloseRiskInputsException)
+            {
+                await store.Finish(claim,false,CloseRiskInputsException.Code,ct);
+                logger?.LogWarning("Portfolio occurrence rejected ({ErrorCode}): {RunId}",CloseRiskInputsException.Code,claim.Id);
             }
             catch(MarketDataException error)
             {
@@ -119,6 +129,59 @@ sealed class Scheduler(JobWorkerStore store, int pollSeconds, int leaseSeconds, 
         // restricted database identity and durable admission/publication path.
         await store.Finish(claim, true, null, ct);
         logger?.LogInformation("Readiness job completed: {RunId}", claim.Id);
+    }
+
+    private async Task ExistingClose(JobClaim claim,CancellationToken ct)
+    {
+        using var work=CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var heartbeat=CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Exception? renewalFailure=null;
+        var completion=new CloseRiskCompletion();
+        async Task Renew()
+        {
+            try
+            {
+                while(true)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(leaseSeconds/3.0),heartbeat.Token);
+                    await store.RenewCloseRisk(claim,leaseSeconds,heartbeat.Token);
+                }
+            }
+            catch(OperationCanceledException) when(heartbeat.IsCancellationRequested) { }
+            catch(Exception error) when(error is NpgsqlException or AutomationException or OperationCanceledException)
+            {
+                renewalFailure=error;
+                await completion.Cancel(work);
+            }
+        }
+        var renewing=Renew();
+        try
+        {
+            Exception? failure=null;
+            try{await pilot!.Process(claim,work.Token);}
+            catch(Exception error) when(error is NpgsqlException or AutomationException or MarketDataException or CloseRiskInputsException or OperationCanceledException)
+            {failure=error;}
+            // Publication and terminal success share one transaction. Callback
+            // failures cannot bypass joining renewal and reconciling that commit.
+            if(await completion.Reconcile(heartbeat,renewing,token=>store.CloseRiskCompleted(claim,token),ct))
+            {
+                logger?.LogInformation("Portfolio report completed: {RunId}",claim.Id);
+                return;
+            }
+            if(renewalFailure is not null)throw new AutomationException("job_fence","Risk ownership could not be renewed; no further publication is authorized.");
+            if(failure is CloseRiskInputsException)await store.Finish(claim,false,CloseRiskInputsException.Code,ct);
+            else if(failure is MarketDataException invalid)await store.Finish(claim,false,invalid.Code,ct);
+            else if(failure is not null)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+            else throw new AutomationException("job_protocol","The exact risk occurrence has no committed complete report.");
+        }
+        finally
+        {
+            // Also stop ownership renewal if processing throws an unexpected error.
+            // Repeating cancellation/join after reconciliation is idempotent.
+            await completion.Stop(heartbeat,renewing);
+            if(completion.CancellationFailures.Length>0)
+                logger?.LogWarning("Existing-close cancellation callbacks failed ({FailureCount}); the exact durable outcome governs recovery: {RunId}",completion.CancellationFailures.Length,claim.Id);
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

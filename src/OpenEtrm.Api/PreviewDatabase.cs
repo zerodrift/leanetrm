@@ -22,7 +22,8 @@ public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows
 public sealed record PreviewSwapMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
 public sealed record PreviewSequenceCoverage(string Curve, DateTimeOffset From, DateTimeOffset To, DateTimeOffset ExampleAt);
 public sealed record PreviewExample(DateTimeOffset At,string Curve);
-public sealed record PreviewSeedFrame(DateTimeOffset At, Guid[] ObservationIds, Dictionary<string,Guid[]> CurveContracts);
+public sealed record PpaBundle(Guid DefinitionRevisionId,Guid ReferenceCatalogId,Guid ReferenceRevisionId);
+public sealed record PreviewSeedFrame(DateTimeOffset At, Guid[] ObservationIds, Dictionary<string,Guid[]> CurveContracts,Guid[]? FrozenObservationIds=null,PpaBundle? PpaBundle=null);
 public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, ImmutableArray<Guid> ObservationIds,
     ImmutableDictionary<string,ImmutableArray<Guid>> CurveContracts,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ContextId=null,
@@ -30,6 +31,7 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Guid? OriginCloseId{get;init;}
+    public PpaBundle? PpaBundle{get;init;}
     // Pins explicitly selected in separate swap bundles, by bundle revision (D172).
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableDictionary<Guid,ImmutableArray<Guid>>? SwapMarketSelections{get;init;}
@@ -85,15 +87,18 @@ public sealed class PreviewDatabase : IAsyncDisposable
         ("curve_members","curve_code,contract_id"), ("curve_inputs","curve_code,slot"), ("constituent_mappings","curve_code,slot,target_contract_id"),
         ("rate_curves","code"), ("rate_curve_points","curve_code,maturity"), ("revision_periods","revision_id"),
         ("index_fixing_observations","index_code,observation_from,observation_to"), ("contract_intervals","contract_id"),
-        ("curve_blocks","curve_code"), ("shaped_curves","code"), ("shaped_curve_blocks","shaped_curve_code,block_curve_code")];
+        ("curve_blocks","curve_code"), ("shaped_curves","code"), ("shaped_curve_blocks","shaped_curve_code,block_curve_code"),
+        ("curve_expiry_rules","curve_code"), ("generation_assets","code"), ("generation_asset_versions","asset_code,effective_from"),
+        ("volume_sources","code"), ("location_valuation_assignments","code")];
     private static string ReferenceKey(string table)=>ReferenceKeys.Single(r=>r.Table==table).Key;
     internal static readonly ImmutableArray<string> UnitTables = ["dimensions", "units", "unit_conversions", "commodities", "measurement_bases", "quantity_specifications"];
 
     // The scheduler's application adapter receives an already-qualified runtime
     // source. It has no authenticator capability or HTTP host construction.
-    internal PreviewDatabase(PreviewManifest manifest,NpgsqlDataSource runtime)
+    private readonly bool includePpaReferences=true;
+    internal PreviewDatabase(PreviewManifest manifest,NpgsqlDataSource runtime,bool includePpaReferences=true)
     {
-        Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;
+        Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;this.includePpaReferences=includePpaReferences;
     }
 
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
@@ -259,13 +264,18 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
 
     public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null,ImmutableArray<Guid>? observationIds=null,
         ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=true,
-        ObservationReadScope observationScope=ObservationReadScope.FactHistory)
+        ObservationReadScope observationScope=ObservationReadScope.FactHistory,PpaBundle? ppaBundle=null)
     {
         if(selectedRevision is {} requested&&!DeclaredBundle(requested))throw new PreviewDeniedException();
-        var selectedManifest=selectedRevision is {} id?Manifest with {RevisionId=id}:Manifest;
+        if(ppaBundle is {} p && (p.DefinitionRevisionId==Guid.Empty || p.ReferenceCatalogId==Guid.Empty || p.ReferenceRevisionId==Guid.Empty))throw new PreviewDeniedException();
+        var selectedManifest=ppaBundle is {} bundle?Manifest with {RevisionId=bundle.DefinitionRevisionId,ReferenceCatalogId=bundle.ReferenceCatalogId,ReferenceRevisionId=bundle.ReferenceRevisionId}:selectedRevision is {} id?Manifest with {RevisionId=id}:Manifest;
         var definitions = new Dictionary<string, ImmutableArray<JsonElement>>();
         foreach (var (table,key) in DefinitionTables)
         {
+            // The connected risk worker refuses complete scopes containing PPA positions.
+            // It needs curve expiry contracts, but not PPA asset/location/source metadata.
+            if(!includePpaReferences&&table is "generation_assets" or "generation_asset_versions" or "volume_sources" or "location_valuation_assignments")
+            {definitions[table]=[];continue;}
             var revisionColumn = table == "revisions" ? "id" : "revision_id";
             definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2 ORDER BY {key}) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
         }
@@ -349,6 +359,8 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         foreach(var table in new[]{"futures_product_terms","product_evidence"})loaded[table]=await ReadTable(table,"product_code",products);
         foreach(var table in new[]{"futures_milestones","futures_lot_resolutions","futures_execution_policies"})loaded[table]=await ReadTable(table,"series_code",seen);
         var locations=Codes(definitions["curves"],"location_code")
+            .Concat(Codes(definitions["generation_assets"],"location_code"))
+            .Concat(Codes(definitions["location_valuation_assignments"],"location_code"))
             .Concat(Codes(loaded["futures_products"],"location_code"))
             .Concat(Codes(loaded["price_index_definitions"],"location_code")).Distinct().ToArray();
         loaded["locations"]=await ReadTable("locations","code",locations);
@@ -424,7 +436,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         ("measurement_bases",["basis_code"]),("price_index_definitions",["index_a_code","index_b_code"])
     ];
 
-    private static Task<ImmutableArray<JsonElement>> ReadObservationPins(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)
+    internal static Task<ImmutableArray<JsonElement>> ReadObservationPins(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)
     {
         if(pins.IsEmpty)return Task.FromResult(ImmutableArray<JsonElement>.Empty);
         return Rows(connection,"""
@@ -624,7 +636,9 @@ public sealed class PreviewData
                 c.Text("rule") switch {"direct"=>CurveRule.Direct,"add"=>CurveRule.Add,"scale_add"=>CurveRule.ScaleAdd,_=>throw Unsupported()},members,
                 inputs.Where(i=>i.Text("slot")!="multiplier").Select(i=>new CurveInput(i.Text("slot") switch {"base"=>InputSlot.Base,"spread"=>InputSlot.Spread,_=>throw Unsupported()},new(revision,i.Text("source_curve_code")),i.Text("expiry_rule") switch {"require_live"=>SourceExpiryRule.RequireLive,"freeze_final_future"=>SourceExpiryRule.FreezeFinalFuture,_=>throw Unsupported()},
                     mappings[(code,i.Text("slot"))].Select(m=>new ConstituentMapping(K(m.Id("target_contract_id")),K(m.Id("source_contract_id")))).ToImmutableArray())).ToImmutableArray(),
-                c.OptionalText("direct_role") is {} directRole?ParseRole(directRole):null,c.OptionalText("direct_source_code") is {} directSource?R(directSource):null,multiplier);
+                c.OptionalText("direct_role") is {} directRole?ParseRole(directRole):null,c.OptionalText("direct_source_code") is {} directSource?R(directSource):null,multiplier)
+            {ConstituentExpiry=Definitions["curve_expiry_rules"].Where(r=>r.Text("curve_code")==code).Select(r=>r.Text("rule_version")).SingleOrDefault() switch
+                {null=>ConstituentExpiryRule.RequireLive,"freeze_final_settlement_v1"=>ConstituentExpiryRule.FreezeFinalSettlement,_=>throw Unsupported()}};
         }).ToImmutableArray();
         var futures=FuturesSeries=contracts.Where(c=>c.Kind==ContractKind.Future).Select(c=>
         {

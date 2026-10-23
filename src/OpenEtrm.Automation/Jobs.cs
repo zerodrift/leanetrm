@@ -131,10 +131,26 @@ public sealed record JobClaim(Guid Id, Guid JobId, string Operation, long Fence,
 
 public sealed class JobWorkerStore(NpgsqlDataSource source,bool pilotEnabled=false)
 {
+    public async Task RenewCloseRisk(JobClaim claim,int leaseSeconds,CancellationToken ct)
+    {
+        await using var command=source.CreateCommand("SELECT automation.renew_close_risk_lease($1,$2,$3,$4)");
+        command.CommandTimeout=Math.Max(1,leaseSeconds/3);
+        command.Parameters.AddWithValue(claim.Id);command.Parameters.AddWithValue(claim.Fence);
+        command.Parameters.AddWithValue(claim.WorkerId);command.Parameters.AddWithValue(leaseSeconds);
+        await command.ExecuteScalarAsync(ct);
+    }
+
+    public async Task<bool> CloseRiskCompleted(JobClaim claim,CancellationToken ct)
+    {
+        await using var command=source.CreateCommand("SELECT automation.close_risk_completed($1,$2,$3)");
+        command.Parameters.AddWithValue(claim.Id);command.Parameters.AddWithValue(claim.Fence);command.Parameters.AddWithValue(claim.WorkerId);
+        return Equals(await command.ExecuteScalarAsync(ct),true);
+    }
+
     public async Task<JobClaim?> Claim(Guid workerId, int leaseSeconds, CancellationToken ct)
     {
-        await using var command = source.CreateCommand("SELECT automation.claim_next($1,$2,$3)::text");
-        command.Parameters.AddWithValue(workerId); command.Parameters.AddWithValue(leaseSeconds);command.Parameters.AddWithValue(pilotEnabled);
+        await using var command = source.CreateCommand("SELECT automation.claim_next($1,$2,$3::text[])::text");
+        command.Parameters.AddWithValue(workerId); command.Parameters.AddWithValue(leaseSeconds);command.Parameters.AddWithValue(pilotEnabled?new[]{"worker_check","swarm_job","generated_pilot_close_v1","close_book_risk_v1"}:new[]{"worker_check","swarm_job"});
         var value = await command.ExecuteScalarAsync(ct);
         return value is string json ? JsonSerializer.Deserialize<JobClaim>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))
             ?? throw new AutomationException("job_protocol", "The worker claim is incomplete.") : null;

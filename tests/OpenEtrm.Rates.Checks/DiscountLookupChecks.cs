@@ -137,6 +137,22 @@ internal static class DiscountLookupChecks
             Reject("rate_domain", () => PaymentDiscount.Resolve(true, R("USD"), future, selected with
             { Selections = [selected.Selections[0] with { Observation = selected.Selections[0].Observation with { Value = ExactDecimal.Parse("-0.1") } }] }, mapping with { Definition = terms }));
         });
+        Check("exact physical value keys preserve D94 factors without cash plans", () =>
+        {
+            var keys=dates.Select((date,n)=>new SidePaymentKey(Guid.NewGuid(),n,new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero),R("USD"))).ToImmutableArray();
+            var discounting=new CurrencyDefaultDiscounting(keys,snapshot,true,mapping);
+            var factors=discounting.Resolve(keys.Reverse().ToImmutableArray(),snapshot);
+            if(!factors.Select(f=>f.Payment).SequenceEqual(keys.Reverse()) || factors.Select(f=>f.DiscountFactor.ToString()).SequenceEqual(new[]{"0.735294117647058824","0.862068965517241379","0.961538461538461538"}) is false ||
+                discounting.Inputs.Any(p=>p.Value.MappingId!=mapping.Id || p.Value.Pillars.Length!=1))throw new Exception("Exact value-key discounting lost its date or D94 evidence.");
+            Reject("side_payment_factors",()=>discounting.Resolve([keys[0] with {Ordinal=99}],snapshot));
+            Reject("side_payment_factors",()=>discounting.Resolve([keys[0],keys[0]],snapshot));
+            Reject("discount_context",()=>discounting.Resolve(keys,snapshot with {MarketCutoff=snapshot.MarketCutoff.AddSeconds(-1)}));
+            Reject("discount_curve_missing",()=>new CurrencyDefaultDiscounting(keys,snapshot,true,null));
+            Reject("side_payment_due",()=>new CurrencyDefaultDiscounting([keys[0] with {PaymentAt=at}],snapshot,false,null));
+            Reject("discount_coverage",()=>new CurrencyDefaultDiscounting([keys[0] with {PaymentAt=at.AddDays(1)}],snapshot,true,mapping));
+            var empty=new CurrencyDefaultDiscounting(ImmutableArray<SidePaymentKey>.Empty,snapshot,true,null);
+            if(!empty.Inputs.IsEmpty || !empty.Resolve(ImmutableArray<SidePaymentKey>.Empty,snapshot).IsEmpty)throw new Exception("No eligible value dates invented rate inputs.");
+        });
         return passed;
     }
 }

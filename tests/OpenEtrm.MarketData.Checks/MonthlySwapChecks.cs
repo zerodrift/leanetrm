@@ -20,11 +20,11 @@ internal static class MonthlySwapChecks
             var swap = ten.Swap(MonthlyQuantityBasis.PerMonth);
             var result = ten.Value(swap);
             Equal(result.PresentValue.Scale(ExactDecimal.Parse("10")).ToMoney().Amount.ToString(), "-828.6");
-            if (result.Sides.Any(s => s.Value.Payments.Length != 120) ||
-                result.Sides.Any(s => s.Value.Payments.Select((p,n) => p.Plan.Key.SideId == s.SideId && p.Plan.Key.Ordinal == n).Any(valid => !valid)))
+            if (result.Sides.Any(s => ((PaymentSideValuation)s.Value).Payments.Length != 120) ||
+                result.Sides.Any(s => ((PaymentSideValuation)s.Value).Payments.Select((p,n) => p.Plan.Key.SideId == s.SideId && p.Plan.Key.Ordinal == n).Any(valid => !valid)))
                 throw new Exception("Monthly payments did not retain their leg identity and ordinal.");
             foreach(var side in result.Sides)
-            foreach(var payment in side.Value.Payments)
+            foreach(var payment in ((PaymentSideValuation)side.Value).Payments)
             foreach(var application in payment.Applications)
                 if(application.Application.Payment!=payment.Plan.Key||application.Application.Payment.SideId!=side.SideId||
                     !ReferenceEquals(application.Application.Price,payment.Plan.Prices[application.Application.PriceOrdinal])||
@@ -35,8 +35,8 @@ internal static class MonthlySwapChecks
         {
             var result = ten.Value(ten.Swap(MonthlyQuantityBasis.TotalEqualMonths));
             Equal(result.PresentValue.Scale(ExactDecimal.Parse("120")).ToMoney().Amount.ToString(), "-82.86");
-            Equal(result.Sides[0].Value.Payments[0].Plan.AllocatedQuantity.Numerator, "1");
-            Equal(result.Sides[0].Value.Payments[0].Plan.AllocatedQuantity.Denominator, "120");
+            Equal(((PaymentSideValuation)result.Sides[0].Value).Payments[0].Plan.AllocatedQuantity.Numerator, "1");
+            Equal(((PaymentSideValuation)result.Sides[0].Value).Payments[0].Plan.AllocatedQuantity.Denominator, "120");
         });
         Check("calendar-day allocation accounts for leap years without changing price averaging", () =>
         {
@@ -53,7 +53,7 @@ internal static class MonthlySwapChecks
         Check("one-third payment allocations retain rational cash before final aggregation", () =>
         {
             var three = new StripFixture(3); var value = three.Value(three.Swap(MonthlyQuantityBasis.TotalEqualMonths));
-            var payment = value.Sides[0].Value.Payments[0];
+            var payment = ((PaymentSideValuation)value.Sides[0].Value).Payments[0];
             Equal(payment.CashAmount.Numerator, "4"); Equal(payment.CashAmount.Denominator, "3");
             Equal(value.PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "-2.247");
         });
@@ -146,7 +146,7 @@ internal static class MonthlySwapChecks
             var value = indexed.PV(new(market,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
             Equal(value.PresentValue.ToMoney().Amount.ToString(),"21.252");
             if(indexed.DependenciesAt(snapshot).Length!=1)throw new Exception("Resolved months remained live dependencies.");
-            var resets=value.Sides[1].Value.Payments.SelectMany(p=>p.Resets).ToArray();
+            var resets=((PaymentSideValuation)value.Sides[1].Value).Payments.SelectMany(p=>p.Resets).ToArray();
             if(resets[0].Price.State!=SchedulePriceState.Actual||resets[1].Price.State!=SchedulePriceState.Actual||resets[2].Price.State!=SchedulePriceState.Projected)
                 throw new Exception("Monthly actual/projected states changed.");
             var held=new RiskPosition(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),indexed.Id,new(ExactDecimal.Parse("1"),indexed.UnitQuantity.Specification),

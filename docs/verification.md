@@ -1500,11 +1500,16 @@ no event, and nothing is written to the console. No check calls a real provider.
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on
 pushes, pull requests and manual dispatch. Checkout and tool-setup actions are
 pinned to exact commits. The checks job has read-only repository access, does not
-persist checkout credentials and requires no repository secrets. It runs the same
-`check_all.py` command as local verification, with a 45-minute job deadline for
-the complete suite; individual command and owned-resource deadlines remain in
-force. The previous 30-minute limit interrupted the final mixed-period suite
-after the preceding checks passed. It does not publish packages or
+persist checkout credentials and requires no repository secrets. The full local
+`check_all.py` command remains available. CI partitions its existing stages with
+`--group workspace`, `--group ppa` and `--group recovery`; each fresh checkout
+repeats all shared preparation and checks. The union covers every full-gate stage,
+with no duplicated preview stages. Each group retains a 45-minute job deadline;
+individual command and owned-resource deadlines remain in force. The expanded
+51-stage sequential gate exceeded that job deadline on Ubuntu. Group completion
+is reported separately from full-gate completion, and the final required check
+accepts only successful completion of every group. Failures, cancellation and
+skipped groups cannot qualify. It does not publish packages or
 deploy the application. A separate, gated `publish` job runs only after successful
 checks on a push to `master` when release publication is explicitly enabled. It
 uses the hosted-release environment and scoped write/attestation permissions to
@@ -2653,3 +2658,115 @@ and nonzero-second displays, exact fractional-cutoff retention, and rejection of
 an empty value, a wrong zone or missing nonzero seconds. Both owned interval
 suites pass with these assertions (21 curve and 38 series browser checks).
 `tools/check_all.py` runs all five layers.
+
+## Existing-close PPA book risk
+
+The full gate includes the owned `--close-risk-check` preview. It applies migration
+0094 after a rollback-only pre-upgrade history probe, then uses the actual runtime
+roles and worker against synthetic retained closes. The probe compares every
+original job, run, audit and report column, including factors, discount inputs and
+exact rational amounts. Historical operation names and identities remain intact.
+
+The integration oracle checks a 25-hour DST delivery, retry input pinning after
+later forecast/meter/actual corrections, held-certificate value and sensitivity,
+separate known and estimated overdue balances, and enabled payment discount
+receipts against an independent rational calculation. It checks whole-book
+revision and unsupported-position refusals, an actual over-limit long-term book,
+idempotent admission, missing policies, current authority, cancellation/replacement
+fences, old and undeclared worker claim gates, and zero market writes by report
+execution. Existing generated-close and PPA HTTP/browser suites remain in the gate.
+
+`PpaBenchmark.cs --ppa-benchmark` runs the five named cases in fresh child
+processes, with three samples per case. Small independent acceptance cases compare
+calendar arithmetic and selected base/up/down full repricings; exact work counters
+are asserted for the full-size samples. The measured workloads, process protocol,
+allocation/residency distinction and original nonrenewing worker limitation are
+recorded in [the implementation record](implementation.md#existing-close-ppa-book-risk).
+The benchmark measures managed preparation and valuation, not complete HTTP or
+durable-job latency.
+
+The complete local gate passed on 2026-10-22, including all prior PPA economic,
+R3, reuse and browser checks. Independent adversarial probes additionally verify
+missing/later retained-cutoff refusal without certification writes, current
+owner/service revocation, hidden-series restrictions under bound human and worker
+contexts, helper-role isolation, cancellation and natural lease expiry during a
+blocked read. All owned disposable resources were removed. This is local
+synthetic qualification. The managed benchmarks alone do not establish durable
+completion; D201 has separate actual-worker evidence below.
+
+
+### Renewable existing-close worker verification
+
+`tools/run_preview.py --close-risk-lease-check --pg-bin <stock-PG-bin> --dotnet
+<pinned-dotnet> --no-build` uses this repository and a fresh disposable database.
+It admits actual ten-year hourly PPA risk, runs isolated scheduler/runtime worker
+logins, and covers failed renewal, cancellation, current authority loss, overall
+deadline expiry, real worker death and natural replacement. A PostgreSQL wire
+proxy drops a committed report's acknowledgement; it first independently confirms
+one durable report and terminal success. The test checks unchanged admission
+pins/deadline after correction, exact complete HTTP results, stale-context refusal,
+terminal outcome replay/conflict/authority, and original legacy claim gates.
+Independent count assertions can also be applied directly to the captured complete
+worker receipt, without repeating valuation.
+
+The actual long completion measured 326.922 seconds; replacement and lost-ack
+recovery measured 329.441 seconds, both over 120 seconds. Exact numerical/work and
+renewal/lock measurements and remaining limits are recorded in the
+[implementation qualification](implementation.md#renewable-existing-close-completion-qualification).
+The new stage is included in `tools/check_all.py`; this bounded change ran that
+stage and affected suites, not the entire expanded 45-stage gate. Independent
+adversarial probes also exercised expiry after a held job-row wait, wrong worker
+and fence, invalid lease bounds, paused renewal, original deadline clamping,
+current owner/service revocation and renewal/cancellation during a bound read
+transaction. All tests use synthetic data and remove their owned resources.
+
+
+### Final Phase C complete gate
+
+On 2026-10-22 the complete expanded 45-stage `tools/check_all.py` command passed
+on the corrected tree in 1,532.375 seconds, using stock PostgreSQL 16.14, SDK
+10.0.402, Node 24.22.0 and Chrome on macOS Arm64. All executable/test/migration and
+configuration hashes matched the starting tree. This supersedes the earlier
+bounded D201 affected-suite-only qualification; it includes every legacy and PPA
+stage, including actual renewable completion and recovery.
+
+Final qualification reproduced and fixed a slot ordinal admission/storage mismatch,
+missing unsupported-feature catalog metadata and a cancellation callback exception
+that could bypass exact committed-outcome reconciliation. Failing checks precede
+all three fixes. Twelve deterministic callback-fault/outcome combinations plus
+unexpected-error cleanup preserve authority refusal, caller cancellation and
+incomplete outcomes. The real replacement/lost-ack workload then completed in
+332.465 seconds with one report/success audit, exact base 40,408,960 and independently
+verified 721 scenarios/316,057,560 evaluated rows. All four no-report failure controls
+passed. Existing economic oracles, R3, reuse, browser/mobile/navigation and generated
+worker checks remain green. Independent whole-branch review has no open material
+finding. All owned fixtures were removed. See [Phase C qualification](ppa-phase-c.md)
+for measurements and limits; this is local synthetic, not production qualification.
+
+
+The PPA reference/quantity stage also executes `tools/check_meter_finality.py`
+against its isolated stock PostgreSQL fixture. Independent runtime backends are
+observed waiting on the publication gate before testing first-head, identical
+request and conflicting-successor outcomes. Temporal, predecessor, exact-zero,
+withdrawal, scope/expiry, immutable-calendar and commit-receipt checks accompany
+the unchanged PPA HTTP and independent settlement specification checks. These
+qualify the bounded evidence prerequisite, not global S1 or a cash lifecycle.
+See [the operation boundaries](meter-finality.md), including the PostgreSQL
+constraint-timing limitation and history-dependent certification work.
+
+
+The bounded [monthly gross preview](settlement-preview.md) adds managed cases to
+the existing MarketData suite and HTTP/DB cases to `--ppa-check`. Its separate
+`--settlement-quarter-check` qualification uses a fresh owned database to preserve
+the unchanged per-catalog knowledge-context budget. The independent executable
+settlement specification remains a separate `unittest discover -s specs/settlement`
+run. These checks create no accepted cash or settlement worker.
+
+
+PPA model pricing and graphical qualification is recorded in
+[ppa-break-even.md](ppa-break-even.md). The core suite includes independent exact
+root, discount, signed rounding, zero-sensitivity and profile cases. The existing
+PPA HTTP harness also checks draft pricing through current scoped authority, and
+the existing PPA browser harness checks graphics, read-only draft access and
+stale-response rejection in the enlarged fixture. The independent settlement
+specification and prior Phase C gates remain separate preserved checks.

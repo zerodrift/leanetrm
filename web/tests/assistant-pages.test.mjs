@@ -229,3 +229,12 @@ test('a kept ask is read back from browser storage only in the exact form the pa
     JSON.stringify({...stored,body:{...body,more:1}}),JSON.stringify({...stored,body:{...body,pageReport:{page:'curves'}}})])
     assert.equal(keptAsk(bad),undefined,bad);
 });
+
+test('PPA is an explicit unsupported assistant page without a financial read target',()=>{
+ const report=pageReport({page:'ppa'});
+ assert.deepEqual(report,{page:'ppa',selection:{}});
+ const looking=lookingAt(report,{mode:'current',frameId:frame,frameLabel:'Synthetic frame'},{curve:x=>x,table:x=>x});
+ assert.equal(looking.page,'PPA bookings');assert.equal(looking.supported,false);
+ assert.equal(looking.shows,'The assistant does not read this page.');
+ assert.throws(()=>webPage('ppa'));
+});

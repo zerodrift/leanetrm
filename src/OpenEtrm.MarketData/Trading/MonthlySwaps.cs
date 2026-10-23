@@ -32,7 +32,7 @@ public sealed record MonthlySwapSide : Side
         if (implementation != Implementation || periods.IsDefaultOrEmpty || periods.Length > MaximumMonths ||
             periods.Any(p => p is null || p.Id == id) || periods.Select(p => p.Id).Distinct().Count() != periods.Length ||
             !(periods.All(p => p is FixedSide) || periods.All(p => p is FloatingSide))) throw Invalid();
-        var plans = periods.Select(p => p.GenerateSchedule()).ToImmutableArray();
+        var plans = periods.Select(p => (SidePaymentSchedule)p.GenerateSchedule()).ToImmutableArray();
         if (plans.Any(p => p.Payments.Length != 1)) throw Invalid();
         var payments = plans.Select(p => p.Payments[0]).ToImmutableArray();
         var first = payments[0];
@@ -56,7 +56,7 @@ public sealed record MonthlySwapSide : Side
         schedule = new(id, Currency, UnitQuantity, Implementation, allocated);
     }
     public override SidePaymentSchedule GenerateSchedule() => schedule;
-    public override SideValuation PV(SideValuationContext context) => schedule.Evaluate(context);
+    public override PaymentSideValuation PV(SideValuationContext context) => schedule.Evaluate(context);
     private static MarketDataException Invalid() => new("monthly_swap_periods",
         "Supply one to 1200 complete, ordered, contiguous months of independent fixed or floating sides with exact common quote and quantity references.");
 }

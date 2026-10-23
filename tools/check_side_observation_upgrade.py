@@ -27,7 +27,7 @@ def run_checks(query, psql, environment):
     try:
         assert Path(sql('SHOW data_directory;')).resolve() == Path(query('SHOW data_directory;')).resolve()
         for migration in sorted((root/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if int(migration.name[:4]) < 90:
+            if int(migration.name[:4]) < 101:
                 sql(local_roles(migration.read_text()))
         reference, market, security, manifest = fixture(root)
         secondary, _ = swap_fixture()
@@ -59,7 +59,7 @@ def run_checks(query, psql, environment):
         before = {table: rows(table) for table in tables}
         signature = "security.save_projected_swap_with_parties(uuid,uuid,uuid,integer,uuid,uuid,uuid,uuid,text,text,text,text,date,date,timestamptz,date,date,timestamptz,text,numeric,numeric,numeric,boolean,timestamptz,timestamptz,timestamptz,text,text,jsonb,jsonb,text,uuid,integer,text,jsonb,uuid[],jsonb)"
         oid = sql(f"SELECT '{signature}'::regprocedure::oid;")
-        sql((root/'db/migrations/0090_side_observation_schedules.sql').read_text())
+        sql((root/'db/migrations/0101_side_observation_schedules.sql').read_text())
         assert sql(f"SELECT '{signature}'::regprocedure::oid;") == oid
         assert before == {table: rows(table, True) for table in tables}, 'Schema adoption changed retained financial rows or request bytes'
         assert sql('SELECT count(*) FROM trading.swap_observation_schedules;') == '0'

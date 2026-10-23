@@ -160,7 +160,7 @@ internal static class MonthlySwapRateChecks
                 c.DeliveryFrom, c.DeliveryTo, At(c.DeliveryFrom.AddDays(-1)), rule, FloatingAveraging.MonthlyIndexPrice,
                 [new(new(curve, c.Key), c)], FloatingSide.Implementation)).ToImmutableArray();
             Days = contracts.Select(c => c.DeliveryTo.DayNumber - c.DeliveryFrom.DayNumber).ToArray();
-            var payments = fixedPeriods.Select(p => p.GenerateSchedule().Payments[0].PaymentDate).ToArray();
+            var payments = fixedPeriods.Select(p => ((SidePaymentSchedule)p.GenerateSchedule()).Payments[0].PaymentDate).ToArray();
             Factors = payments.Select(p => decimal.Round(365m / (365m + 0.05m * (p.DayNumber - referenceDate.DayNumber)), 18, MidpointRounding.ToEven)).ToArray();
             Mapping = new(Guid.NewGuid(), Quote.Currency, new(new(definitions, "yield"), R("rates"), Quote.Currency,
                 "actual_365_fixed", "simple", RateConventions.Implementation, "valuation_utc_date", R("source"),

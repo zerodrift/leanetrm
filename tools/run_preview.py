@@ -34,6 +34,13 @@ def main():
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
     parser.add_argument('--power-actual-check',action='store_true',help='Qualify exact collected-price interval settlement sources')
     parser.add_argument('--interval-series-check',action='store_true',help='Qualify audited interval series storage and API')
+    parser.add_argument('--close-risk-lease-check',action='store_true',help='Qualify renewable risk ownership, real long completion and recovery faults')
+    parser.add_argument('--close-risk-check',action='store_true',help='Qualify read-only existing-close PPA risk with actual fenced workers')
+    parser.add_argument('--ppa-bookings-check',action='store_true',help='Qualify durable PPA bookings and bounded HTTP valuation')
+    parser.add_argument('--ppa-http-benchmark',action='store_true',help='Also measure owned twenty-year hourly and ten-year quarter-hour PPA HTTP previews')
+    parser.add_argument('--settlement-quarter-check',action='store_true',help='Qualify one full quarter-hour gross preview in a fresh owned context budget')
+    parser.add_argument('--with-ppa',action='store_true',help='Load synthetic PPA references and pricing inputs for interactive exploration')
+    parser.add_argument('--ppa-check',action='store_true',help='Qualify isolated PPA quantity, normalization and location-reference consumers')
     parser.add_argument('--interval-curves-check',action='store_true',help='Qualify interval curves, shaping and resolution: storage, API and, with --browser-check, the screen')
     parser.add_argument('--interval-series-benchmark',action='store_true',help='Measure twenty-year interval series workloads in an owned fixture and print a JSON report')
     parser.add_argument('--usage-benchmark',action='store_true',help='Measure a year of page-assistant usage at a stated volume in an owned fixture and print a JSON report')
@@ -65,12 +72,20 @@ def main():
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.settlement_quarter_check:
+        args.ppa_check = True
+    if args.close_risk_lease_check:
+        args.close_risk_check = True
+    if args.close_risk_check:
+        args.ppa_bookings_check = True
+    if args.ppa_http_benchmark:
+        args.ppa_bookings_check = True
     fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
     if args.interval_series_benchmark or args.usage_benchmark:
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.side_observation_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -80,6 +95,8 @@ def main():
         parser.error('Port must be between 0 and 65535')
     if args.browser_check and (not args.check or args.example!='standard' or args.browser is None or not args.browser.is_file()):
         parser.error('--browser-check requires --check, --example standard and an installed --browser executable')
+    if args.with_ppa and (args.example!='standard' or args.check):
+        parser.error('--with-ppa is an interactive standard-fixture option; use --ppa-check for verification')
     if args.with_custom_curves and args.example!='standard':
         parser.error('--with-custom-curves requires the standard fixture')
     bins = {n: args.pg_bin.resolve()/n for n in ('initdb','pg_ctl','psql')}
@@ -153,6 +170,9 @@ def main():
             if args.connected_portfolio_check and migration.name in ('0080_connected_recipe_weights.sql','0081_connected_risk_axes.sql'):
                 from check_curve_cutover import run_checks as check_curve_cutover
                 check_curve_cutover(query,[reference,market,security],manifest,migration.read_text(),migration.name[:4])
+            if args.close_risk_check and migration.name=='0094_close_book_risk.sql':
+                from check_close_risk_upgrade import run_checks as check_risk_upgrade
+                check_risk_upgrade(query,[reference,market,security,trading_fixture(manifest['catalogId'])],manifest,migration.read_text())
             if args.execution_check and migration.name=='0040_futures_execution_policies.sql':
                 from check_futures_policy_upgrade import run_checks as check_policy_upgrade
                 legacy_reference,legacy_market,_,legacy_manifest=fixture(ROOT)
@@ -229,9 +249,18 @@ def main():
         if args.index_fixing_check:
             from check_index_fixings import prepare as prepare_index_fixings
             reference,market,manifest=prepare_index_fixings(reference,market,manifest)
-        if args.interval_curves_check:
+        if args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa:
             from interval_curve_fixture import prepare as prepare_interval_curves
             reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
+        if args.ppa_check or args.ppa_bookings_check or args.with_ppa:
+            from ppa_fixture import prepare as prepare_ppa
+            reference,market,security,manifest=prepare_ppa(reference,market,security,manifest)
+        if args.ppa_bookings_check:
+            from ppa_bookings_fixture import prepare as prepare_ppa_bookings
+            reference,market,security,manifest=prepare_ppa_bookings(reference,market,security,manifest)
+            if args.close_risk_check:
+                from close_risk_fixture import prepare as prepare_close_risk
+                reference,market,security,manifest=prepare_close_risk(reference,market,security,manifest)
         if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.with_custom_curves or args.market_dates_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest,daily_lifecycle=args.connected_portfolio_check)
@@ -283,12 +312,29 @@ def main():
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
+        if args.ppa_bookings_check:
+            from ppa_bookings_fixture import trading as ppa_benchmark_books
+            query(ppa_benchmark_books(manifest['catalogId']))
+            from ppa_revision_fixture import install as install_ppa_revisions
+            install_ppa_revisions(query,manifest)
         if args.power_actual_check:
             from check_power_actual_storage import run_checks as check_power_actual_storage
             check_power_actual_storage(query,manifest)
         if args.interval_curves_check:
             from check_interval_curves_storage import run_checks as check_interval_curves_storage
             check_interval_curves_storage(query,manifest)
+        # The close-risk fixture has a contemporary definition period; the
+        # unchanged temporal baseline runs separately in --ppa-bookings-check.
+        if args.ppa_bookings_check and not args.close_risk_check:
+            from check_ppa_bookings_storage import run_checks as check_ppa_bookings_storage
+            check_ppa_bookings_storage(query,manifest)
+            from check_ppa_temporal_storage import run_checks as check_ppa_temporal_storage
+            check_ppa_temporal_storage(query,manifest)
+        if args.ppa_check:
+            from check_ppa_storage import run_checks as check_ppa_storage
+            check_ppa_storage(query,manifest)
+            from check_meter_finality import run_checks as check_meter_finality
+            check_meter_finality(query,manifest,psql,env,dotnet,temporary)
         if args.interval_series_check:
             from check_interval_series_storage import run_checks as check_interval_series_storage
             check_interval_series_storage(query,manifest,psql,env)
@@ -366,7 +412,7 @@ def main():
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
-        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check) and args.example=='standard':
+        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check) and args.example=='standard' and not args.with_ppa:
             from seed_preview_positions import seed_positions
             seed_positions(url,run_id,temporary)
             from seed_preview_swaps import seed_swaps
@@ -380,6 +426,10 @@ def main():
             from seed_exchange_positions import seed_positions as seed_exchange
             seed_exchange(url,run_id,temporary)
             print('Loaded twelve source-listed monthly futures examples with original synthetic execution prices.',flush=True)
+        if args.with_ppa:
+            from seed_preview_ppa import seed_ppa
+            seed_ppa(url,manifest)
+            print('Loaded synthetic PPA references and November 2031 pricing inputs. No PPA trade was booked.',flush=True)
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
@@ -441,6 +491,35 @@ def main():
             elif args.usage_benchmark:
                 from benchmark_usage import run_benchmark as run_usage_benchmark
                 print(json.dumps(run_usage_benchmark(url,query,psql,manifest,app_env,dotnet,child.pid),indent=2),flush=True)
+            elif args.close_risk_lease_check:
+                from check_close_risk_leases import run_checks as check_close_risk_leases
+                check_close_risk_leases(url,query,manifest,dotnet,temporary,app_env,psql,env)
+            elif args.close_risk_check:
+                from check_close_risk import run_checks as check_close_risk
+                check_close_risk(url,query,manifest,dotnet,temporary,app_env,psql,env)
+            elif args.ppa_bookings_check:
+                from check_ppa_portfolio import run_checks as check_ppa_portfolio
+                check_ppa_portfolio(url,query,manifest,dotnet,temporary,app_env)
+                from check_ppa_bookings_http import run_checks as check_ppa_bookings_http
+                check_ppa_bookings_http(url,query,manifest,benchmark=args.ppa_http_benchmark,api_pid=child.pid,dotnet=dotnet)
+                from check_ppa_ui_http import run_checks as check_ppa_ui_http
+                ppa_browser_fixture=check_ppa_ui_http(url,query,manifest)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'ppa':ppa_browser_fixture}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--ppa'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=240):raise RuntimeError('Owned PPA browser checks failed')
+                    if evidence:=os.environ.get('OPENETRM_PPA_BROWSER_EVIDENCE'):
+                        destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                        for screenshot in temporary.glob('ppa-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
+
+            elif args.ppa_check:
+                from check_ppa_http import run_checks as check_ppa_http
+                check_ppa_http(url,query,manifest)
+                from check_ppa_break_even import run_checks as check_ppa_break_even
+                check_ppa_break_even(url,query,manifest)
+                from check_settlement_preview import run_checks as check_settlement_preview
+                check_settlement_preview(url,query,manifest,dotnet,temporary,env,quarter_only=args.settlement_quarter_check)
             elif args.power_actual_check:
                 from check_power_actual_http import run_checks as check_power_actual_http
                 check_power_actual_http(url,query,manifest)
@@ -720,6 +799,8 @@ def main():
             child.wait()
     except KeyboardInterrupt:
         print('Stopping the owned preview.',flush=True)
+        if args.check:
+            raise
     finally:
         if risk_worker_process is not None:
             try:

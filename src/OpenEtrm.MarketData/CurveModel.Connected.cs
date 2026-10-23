@@ -24,6 +24,13 @@ public sealed partial class CurveModel
         var pending=new Queue<(CurveRequest Request,InputUse Use)>();
         CurvePointKey Point(CurveRequest request,InputUse use)
         {
+            if(use==InputUse.Variable && curves.TryGetValue(request.Curve,out var selected) &&
+                selected.ConstituentExpiry==ConstituentExpiryRule.FreezeFinalSettlement && contracts.TryGetValue(request.Contract,out var term) && snapshot.ValuationAt>=term.Expiry)
+            {
+                var frozen=Point(request,InputUse.FrozenFact);
+                points.TryAdd((request,InputUse.Variable),frozen);
+                return frozen;
+            }
             if(points.TryGetValue((request,use),out var existing))return existing;
             var sample=new ConnectedSourceSample(snapshot.Id,snapshot.ValuationAt,snapshot.MarketCutoff,snapshot.SelectionPolicy,use,freezeHistorical);
             var key=new CurvePointKey(request.Curve,ConnectedIdentity.Id(new{Version="connected_curve_build_v1",request,Use=use,Sample=sample}));
@@ -49,7 +56,7 @@ public sealed partial class CurveModel
                 var expectedRole=use==InputUse.FrozenFact?ObservationRole.FinalContractSettlement:curve.DirectRole;
                 if(observation.Source!=curve.DirectSource||observation.Role!=expectedRole||observation.State!=PublicationState.Final)
                     throw new MarketDataException("selection_mismatch","Selected quote, source, role or finality is incompatible.");
-                if(use==InputUse.FrozenFact&&(contract.Kind!=ContractKind.Future||observation.ObservedAt<contract.Expiry))
+                if(use==InputUse.FrozenFact&&(contract.Kind!=ContractKind.Future&&curve.ConstituentExpiry!=ConstituentExpiryRule.FreezeFinalSettlement||observation.ObservedAt<contract.Expiry))
                     throw new MarketDataException("frozen_fact","Final future settlement must be observed at or after its explicit expiry.");
                 expression=new ConnectedSource(request,freezeHistorical?key with{Use=InputUse.FrozenFact}:key,
                     observation,quote,series[key.Series]){Sample=sample};

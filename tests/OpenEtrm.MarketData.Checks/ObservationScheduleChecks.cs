@@ -106,7 +106,7 @@ internal static class ObservationScheduleChecks
             var snapshot=fixture.Snapshot with{Id=Guid.NewGuid(),ValuationAt=at,MarketCutoff=at,Selections=fixture.Snapshot.Selections.AddRange(actuals)};
             var dependencies=side.DependenciesAt(snapshot);Equal(dependencies.Length,2);
             var market=fixture.Model.Build(snapshot,dependencies);
-            SideValuation Value(CurveBuild build)=>side.GenerateSchedule().Evaluate(new(build,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            PaymentSideValuation Value(CurveBuild build)=>side.GenerateSchedule().Evaluate(new(build,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
             var baseline=Value(market);Equal(baseline.PresentValue.Scale(ExactDecimal.Parse("8")).ToMoney().Amount.ToString(),"148");
             var shifts=new[]{1,3}.Select(n=>new QuoteShift(new(fixture.Series[n].Key,InputUse.Variable),fixture.Quote.Key,PriceUnit.FromQuote(fixture.Quote),ExactDecimal.Parse("2.5"),QuoteShift.Convention)).ToImmutableArray();
             var up=Value(fixture.Model.WithShifts(market,shifts));
@@ -141,7 +141,7 @@ internal static class ObservationScheduleChecks
             var side=new FloatingSide(Guid.NewGuid(),fixture.Base.R("index"),fixture.Quote,fixture.Unit,from,from.AddDays(1),[fixing],fixture.Payment,FloatingAveraging.CalendarDayArithmetic,fixture.Projections,FloatingSide.IndexedImplementation);
             var actual=new SelectedObservation(new(fixture.Series[0].Key,InputUse.FrozenFact),new(new(fixture.Base.Revision.CatalogId,Guid.NewGuid()),fixture.Series[0].Key,fixing.Source,ObservationRole.IndexFixing,PublicationState.Final,at,ExactDecimal.Parse("28.75")));
             var due=fixture.Snapshot with{Id=Guid.NewGuid(),ValuationAt=at,MarketCutoff=at,Selections=fixture.Snapshot.Selections.Add(actual)};
-            SideValuation Value(MarketSnapshot snapshot)=>side.GenerateSchedule().Evaluate(new(fixture.Model.Build(snapshot,side.DependenciesAt(snapshot)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            PaymentSideValuation Value(MarketSnapshot snapshot)=>side.GenerateSchedule().Evaluate(new(fixture.Model.Build(snapshot,side.DependenciesAt(snapshot)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
             var before=due with{ValuationAt=at.AddTicks(-10),MarketCutoff=at.AddTicks(-10),Selections=fixture.Snapshot.Selections};
             Equal(Value(before).PresentValue.ToMoney().Amount.ToString(),"29.5");Equal(Value(due).PresentValue.ToMoney().Amount.ToString(),"28.75");
             MarketSnapshot Change(Func<MarketObservation,MarketObservation> change)=>due with{Selections=fixture.Snapshot.Selections.Add(actual with{Observation=change(actual.Observation)})};

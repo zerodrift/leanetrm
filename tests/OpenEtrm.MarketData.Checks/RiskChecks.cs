@@ -40,6 +40,21 @@ internal static class RiskChecks
             Equal(run.Base.EvaluatedConstituents,9);Equal(pair.Up.EvaluatedConstituents,5);Equal(pair.Up.ReusedConstituents,4);
             Equal(pair.Down.EvaluatedConstituents,5);Equal(pair.Down.ReusedConstituents,4);
         });
+        Check("cached base work is distinct from explicit scenario-parent reuse",()=>
+        {
+            var cache=new OpenEtrm.MarketData.Calculation.ConnectedCalculationCache(4,1000);
+            var cached=f.Model(calculations:cache);
+            var cold=cached.Build(snapshot,[power,future]);
+            Equal(cold.EvaluatedConstituents,9);Equal(cold.ReusedConstituents,0);
+            var run=cached.BuildScenarios(snapshot,[power,future],[Bump()]);
+            Equal(run.Base.Evaluations.Length,9);
+            Equal(run.Base.EvaluatedConstituents,0);Equal(run.Base.ReusedConstituents,0);
+            Equal(run.Base.Values[0].Price.Value.ToString(),"29.1");
+            foreach(var scenario in new[]{run.Factors[0].Up,run.Factors[0].Down})
+            {Equal(scenario.EvaluatedConstituents,5);Equal(scenario.ReusedConstituents,4);}
+            Equal(run.Factors[0].Up.Values[0].Price.Value.ToString(),"29.8");
+            Equal(run.Factors[0].Down.Values[0].Price.Value.ToString(),"28.4");
+        });
         Check("scenario settlement quotes can move off clearing increments without becoming new facts",()=>
         {
             var run=model.BuildScenarios(snapshot,[future],[Bump(size:"0.0001")]);

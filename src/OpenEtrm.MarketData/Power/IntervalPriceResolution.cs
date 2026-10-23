@@ -3,7 +3,9 @@ using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.MarketData.Power;
 
-public enum IntervalPriceState { Projected = 1, Actual, Unresolved }
+public enum IntervalPriceState { Projected = 1, Actual, Unresolved, Modeled, PublishedFixing }
+public sealed record IntervalAnchor(CurveRequest Request,InputUse Use,ImmutableHashSet<ObservationKey> Lineage);
+public sealed record PriceUnavailable(string Code,DateTimeOffset? DueAt);
 
 // A collected actual price for one interval, as the collected-price reader returns it at a knowledge cutoff.
 public sealed record IntervalActual(DateTimeOffset Start,DateTimeOffset End,UnitPrice Price,DateTimeOffset KnownAt,Guid BatchId,int? Revision);
@@ -23,6 +25,11 @@ public sealed record IntervalPriceResolution(DeliveryInterval Interval,IntervalP
 {
     public DateTimeOffset Start=>Interval.Start;
     public DateTimeOffset End=>Interval.End;
+    public IntervalAnchor? Anchor { get; init; }
+    public ExactUnitPrice? Estimate { get; init; }
+    public string Publication { get; init; } = "mark";
+    public PriceUnavailable? Reason { get; init; }
+    public string LiveMarketRiskCoverage { get; init; } = "live_anchor";
 }
 
 // An explicit duration-weighted mean over native intervals that keeps every constituent.
@@ -41,26 +48,19 @@ public static class IntervalPricing
         DateTimeOffset valuationAt,DateTimeOffset knownAt)
     {
         ArgumentNullException.ThrowIfNull(intervals);ArgumentNullException.ThrowIfNull(unit);ArgumentNullException.ThrowIfNull(forwards);ArgumentNullException.ThrowIfNull(actuals);
-        if(rule is null || rule.Version!=IntervalActualRule.SupportedVersion || rule.Anchor is not ("interval_start" or "interval_end") ||
-            rule.OffsetMinutes is <0 or >10080)
-            throw Invalid("Choose the supported actual-due rule.");
-        var byStart=IntervalAlignment.ByStart(actuals,a=>a.Start,a=>a.End,"interval_actual","Actual prices must be distinct UTC intervals.");
-        if(actuals.Any(a=>a.KnownAt>knownAt))throw Invalid("Actual prices must be known by the cutoff.");
-        if(actuals.Any(a=>a.Price.Unit!=unit) || forwards.Values.Any(f=>f.Price.Unit!=unit))
-            throw Invalid("Actual and forward prices must share the curve's exact price unit.");
-        var covered=intervals.ToDictionary(i=>i.Start);
-        foreach(var actual in actuals)
-            if(covered.TryGetValue(actual.Start,out var interval)?interval.End!=actual.End:intervals.Any(i=>i.Start<actual.End && actual.Start<i.End))
-                throw Invalid("Actual prices must lie exactly on the curve's intervals.");
+        var byStart=ValidateInputs(intervals,unit,actuals,rule,knownAt);
+        if(forwards.Values.Any(f=>f.Price.Unit!=unit))throw Invalid("Actual and forward prices must share the curve's exact price unit.");
         return [..intervals.OrderBy(i=>i.Start).Select(i=>
         {
             var due=rule.DueAt(i.Start,i.End);
             if(byStart.TryGetValue(i.Start,out var actual) && (valuationAt>=i.End || actual.KnownAt<=valuationAt))
-                return new IntervalPriceResolution(i,IntervalPriceState.Actual,ExactUnitPrice.FromPrice(actual.Price),[],actual,due);
+                return new IntervalPriceResolution(i,IntervalPriceState.Actual,ExactUnitPrice.FromPrice(actual.Price),[],actual,due)
+                    {Publication="collected",LiveMarketRiskCoverage="observed"};
             if(valuationAt>=due)
                 throw new MarketDataException("interval_actual_missing",$"The actual for the interval starting {i.Start:O} was due at {due:O} and is missing.");
             if(valuationAt>=i.End)
-                return new IntervalPriceResolution(i,IntervalPriceState.Unresolved,null,[],null,due);
+                return new IntervalPriceResolution(i,IntervalPriceState.Unresolved,null,[],null,due)
+                    {Reason=new("no_estimate",due),Publication="unavailable",LiveMarketRiskCoverage="unavailable"};
             return forwards.TryGetValue(i.Start,out var live)
                 ?new IntervalPriceResolution(i,IntervalPriceState.Projected,live.Price,live.Lineage,null,due)
                 :throw new MarketDataException("request_member","A live interval needs its forward price.");
@@ -92,6 +92,25 @@ public static class IntervalPricing
             return new IntervalAggregate(constituents[0].Start,constituents[^1].End,ExactUnitPrice.FromFraction(numerator,denominator,unit),constituents);
         })];
     }
+
+    internal static Dictionary<DateTimeOffset,IntervalActual> ValidateInputs(IReadOnlyList<DeliveryInterval> intervals,PriceUnit unit,
+        IReadOnlyList<IntervalActual> actuals,IntervalActualRule rule,DateTimeOffset knownAt)
+    {
+        if(rule is null || rule.Version!=IntervalActualRule.SupportedVersion || rule.Anchor is not ("interval_start" or "interval_end") ||
+            rule.OffsetMinutes is <0 or >10080)
+            throw Invalid("Choose the supported actual-due rule.");
+        var byStart=IntervalAlignment.ByStart(actuals,a=>a.Start,a=>a.End,"interval_actual","Actual prices must be distinct UTC intervals.");
+        if(actuals.Any(a=>a.KnownAt>knownAt))throw Invalid("Actual prices must be known by the cutoff.");
+        if(actuals.Any(a=>a.Price.Unit!=unit))
+            throw Invalid("Actual and forward prices must share the curve's exact price unit.");
+        var covered=intervals.ToDictionary(i=>i.Start);
+        foreach(var actual in actuals)
+            if(covered.TryGetValue(actual.Start,out var interval)?interval.End!=actual.End:intervals.Any(i=>i.Start<actual.End && actual.Start<i.End))
+                throw Invalid("Actual prices must lie exactly on the curve's intervals.");
+        return byStart;
+    }
+    internal static bool Eligible(IntervalActual actual,DeliveryInterval interval,DateTimeOffset valuationAt)=>
+        valuationAt>=interval.End || actual.KnownAt<=valuationAt;
 
     private static MarketDataException Invalid(string message)=>new("interval_actual",message);
 }

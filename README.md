@@ -11,6 +11,9 @@ without a seven-figure implementation.
 > **Status:** a foundation, not a finished product. Try it as a disposable local
 > preview on synthetic data. Nothing here is production-qualified.
 
+For the experimental PPA branch, follow the [PPA tester guide](docs/experimental-ppa-testing.md)
+for synthetic booking, graphical break-even pricing and settlement previews.
+
 ## What works today
 
 - **Trade capture:** futures, plus financial gas and power swaps built from reusable

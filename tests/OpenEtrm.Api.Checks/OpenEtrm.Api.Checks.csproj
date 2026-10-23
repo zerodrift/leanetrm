@@ -7,4 +7,5 @@
   <ItemGroup><ProjectReference Include="../../src/OpenEtrm.Api/OpenEtrm.Api.csproj" /></ItemGroup>
   <!-- The amount display corpus the web checks also assert. -->
   <ItemGroup><None Include="../fixtures/amount-display-cases.json" Link="fixtures/amount-display-cases.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><Compile Include="../OpenEtrm.MarketData.Checks/PpaAcceptanceFixture.cs" Link="PpaAcceptanceFixture.cs" /></ItemGroup>
 </Project>
