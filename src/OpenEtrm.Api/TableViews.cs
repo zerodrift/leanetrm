@@ -16,6 +16,10 @@ public static class TableViews
     private static readonly string[] Columns=["tradeDate","legalEntity","counterparty","traderCode","trader","memo","instrumentType","fixedPrice","presentValue","portfolio","book","market","contract","commodity","executed","tradeCount","lots","quantity","unit","priceUnit","executionPrice","mark","executionPnl","currency","settlement","tradeReference","instrumentReference","revision",..TradingBlotter.PriceMeasures.Keys];
     private static readonly string[] Dimensions=["instrumentType","portfolio","book","market","contract","commodity"];
     private static readonly string[] Measures=["presentValue","tradeCount","lots","quantity","executionPnl",..TradingBlotter.PriceMeasures.Keys];
+    // How the desk groups trade rows; null is a flat list.
+    private static readonly string[] RowGroups=["book","market","instrumentType"];
+    // The only layout version. Layouts of an earlier version are not migrated and cannot be saved.
+    private const int Version=4;
     private static MarketDataException Invalid()=>new("table_view","Supply a valid named table layout. Dates, authority and market inputs cannot be saved in a layout.");
     private static bool Field(string key)
     {
@@ -34,11 +38,9 @@ public static class TableViews
     {
         try
         {
-            var fields=new[]{"version","name","mode","columns","bookIds","portfolioIds","groupBy","measures","query","columnFilters"};
+            var fields=new[]{"version","name","mode","rowGroup","columns","bookIds","portfolioIds","groupBy","measures","query","columnFilters","splitBy","grid","chart"};
             if(layout.ValueKind!=JsonValueKind.Object)throw Invalid();
-            var version=layout.GetProperty("version").GetInt32();
-            if(version>=2)fields=[..fields,"splitBy","grid","chart"];
-            if(version is not(1 or 2 or 3)||layout.EnumerateObject().Count()!=fields.Length||layout.EnumerateObject().Select(p=>p.Name).Distinct().Count()!=fields.Length||layout.EnumerateObject().Any(p=>!fields.Contains(p.Name)))throw Invalid();
+            if(layout.GetProperty("version").GetInt32()!=Version||layout.EnumerateObject().Count()!=fields.Length||layout.EnumerateObject().Select(p=>p.Name).Distinct().Count()!=fields.Length||layout.EnumerateObject().Any(p=>!fields.Contains(p.Name)))throw Invalid();
             var name=layout.GetProperty("name").GetString();
             if(string.IsNullOrWhiteSpace(name)||name!=name.Trim()||name.Length>60||name.Any(char.IsControl))throw Invalid();
             string[] List(string key,string[] allowed)
@@ -54,31 +56,29 @@ public static class TableViews
             }
             var columns=List("columns",Columns);var dimensions=List("groupBy",Dimensions);var measures=List("measures",Measures);
             var mode=layout.GetProperty("mode").GetString();
+            var rowGroup=layout.GetProperty("rowGroup");
+            if(rowGroup.ValueKind is not JsonValueKind.Null&&(rowGroup.ValueKind!=JsonValueKind.String||!RowGroups.Contains(rowGroup.GetString())))throw Invalid();
             if(columns.Length==0||mode is not("trades" or "pivot")||mode=="trades"&&columns.Any(c=>c=="tradeCount"||TradingBlotter.PriceMeasures.ContainsKey(c)))throw Invalid();
             if(mode=="pivot"&&measures.Any(TradingBlotter.PriceMeasures.ContainsKey)&&!columns.Contains("priceUnit"))throw Invalid();
             if(mode=="pivot"&&(dimensions.Length==0||measures.Length==0||measures.Contains("lots")&&!dimensions.Contains("contract")||!columns.Contains("unit")||!columns.Contains("currency")||columns.Any(c=>!dimensions.Concat(measures).Concat(["instrumentType","unit","currency","priceUnit"]).Contains(c))))throw Invalid();
             var query=layout.GetProperty("query").GetString();if(query is null||query.Length>200)throw Invalid();
             var filters=layout.GetProperty("columnFilters");
             if(filters.ValueKind!=JsonValueKind.Object||filters.EnumerateObject().Count()>128||filters.EnumerateObject().Any(p=>!Field(p.Name)||p.Value.ValueKind!=JsonValueKind.String||p.Value.GetString()!.Length>200))throw Invalid();
-            if(version>=2)
-            {
-                var split=List("splitBy",Dimensions);
-                if(split.Any(d=>!dimensions.Contains(d))||split.Length>0&&(mode!="pivot"||!dimensions.Any(d=>!split.Contains(d))))throw Invalid();
-                var grid=layout.GetProperty("grid");
-                if(grid.ValueKind!=JsonValueKind.Object||grid.EnumerateObject().Count()!=3||grid.EnumerateObject().Any(p=>p.Name is not("order" or "widths" or "sort")))throw Invalid();
-                var order=grid.GetProperty("order").EnumerateArray().Select(p=>p.GetString()??throw Invalid()).ToArray();
-                if(order.Length>128||order.Distinct().Count()!=order.Length||order.Any(k=>!Field(k)))throw Invalid();
-                var widths=grid.GetProperty("widths");
-                if(widths.ValueKind!=JsonValueKind.Object||widths.EnumerateObject().Count()>128||widths.EnumerateObject().Any(p=>!Field(p.Name)||p.Value.ValueKind!=JsonValueKind.Number||!p.Value.TryGetInt32(out var width)||width is <40 or >3000))throw Invalid();
-                var sort=grid.GetProperty("sort").EnumerateArray().ToArray();
-                if(sort.Length>16||sort.Any(p=>p.ValueKind!=JsonValueKind.Object||p.EnumerateObject().Count()!=2||!Field(p.GetProperty("key").GetString()??"")||p.GetProperty("direction").GetString() is not("asc" or "desc"))||sort.Select(p=>p.GetProperty("key").GetString()).Distinct().Count()!=sort.Length)throw Invalid();
-                var chart=layout.GetProperty("chart");
-                if(chart.ValueKind!=JsonValueKind.Object||chart.EnumerateObject().Count()!=(version==3?3:2)||chart.EnumerateObject().Select(p=>p.Name).Distinct().Count()!=(version==3?3:2)||chart.GetProperty("visible").ValueKind is not(JsonValueKind.True or JsonValueKind.False))throw Invalid();
-                var chartMeasure=chart.GetProperty("measure").GetString();
-                if(version==2?chartMeasure is not("quantity" or "executionPnl"):!Measures.Contains(chartMeasure!))throw Invalid();
-                if(version==3&&chart.GetProperty("kind").GetString() is not("bar" or "line" or "heatmap"))throw Invalid();
-                if(chart.GetProperty("visible").GetBoolean()&&chartMeasure=="lots"&&mode=="pivot"&&!dimensions.Contains("contract"))throw Invalid();
-            }
+            var split=List("splitBy",Dimensions);
+            if(split.Any(d=>!dimensions.Contains(d))||split.Length>0&&(mode!="pivot"||!dimensions.Any(d=>!split.Contains(d))))throw Invalid();
+            var grid=layout.GetProperty("grid");
+            if(grid.ValueKind!=JsonValueKind.Object||grid.EnumerateObject().Count()!=3||grid.EnumerateObject().Any(p=>p.Name is not("order" or "widths" or "sort")))throw Invalid();
+            var order=grid.GetProperty("order").EnumerateArray().Select(p=>p.GetString()??throw Invalid()).ToArray();
+            if(order.Length>128||order.Distinct().Count()!=order.Length||order.Any(k=>!Field(k)))throw Invalid();
+            var widths=grid.GetProperty("widths");
+            if(widths.ValueKind!=JsonValueKind.Object||widths.EnumerateObject().Count()>128||widths.EnumerateObject().Any(p=>!Field(p.Name)||p.Value.ValueKind!=JsonValueKind.Number||!p.Value.TryGetInt32(out var width)||width is <40 or >3000))throw Invalid();
+            var sort=grid.GetProperty("sort").EnumerateArray().ToArray();
+            if(sort.Length>16||sort.Any(p=>p.ValueKind!=JsonValueKind.Object||p.EnumerateObject().Count()!=2||!Field(p.GetProperty("key").GetString()??"")||p.GetProperty("direction").GetString() is not("asc" or "desc"))||sort.Select(p=>p.GetProperty("key").GetString()).Distinct().Count()!=sort.Length)throw Invalid();
+            var chart=layout.GetProperty("chart");
+            if(chart.ValueKind!=JsonValueKind.Object||chart.EnumerateObject().Count()!=3||chart.EnumerateObject().Select(p=>p.Name).Distinct().Count()!=3||chart.GetProperty("visible").ValueKind is not(JsonValueKind.True or JsonValueKind.False))throw Invalid();
+            var chartMeasure=chart.GetProperty("measure").GetString();
+            if(!Measures.Contains(chartMeasure!)||chart.GetProperty("kind").GetString() is not("bar" or "line" or "heatmap"))throw Invalid();
+            if(chart.GetProperty("visible").GetBoolean()&&chartMeasure=="lots"&&mode=="pivot"&&!dimensions.Contains("contract"))throw Invalid();
             if(System.Text.Encoding.UTF8.GetByteCount(layout.GetRawText())>24000)throw Invalid();
         }
         catch(Exception e) when(e is InvalidOperationException or KeyNotFoundException or FormatException or OverflowException){throw Invalid();}

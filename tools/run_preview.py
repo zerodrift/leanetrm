@@ -764,7 +764,7 @@ def main():
                 from check_direct_reads import run_checks as check_direct_reads
                 workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary))
                 from check_table_views import run_checks as check_table_views
-                check_table_views(url)
+                check_table_views(url,query)
                 from check_schedule_storage import run_checks as check_schedule_storage
                 check_schedule_storage(query,psql,env,manifest)
                 from check_temporal_storage import run_checks as check_temporal_storage

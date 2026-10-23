@@ -307,8 +307,18 @@ The editor opens from trade rows. Amendments append immutable latest-head bookin
 states with expected revision, explicit reason/effective instant, current authority
 and idempotent operation identity. Previous states remain read-only. Book moves
 and amendments preserve stable trade references; reusable instruments have their
-own references. UUIDs remain relationship keys. New table layouts show references;
-existing saved layouts retain their selections.
+own references. UUIDs remain relationship keys. New table layouts show references.
+
+Saved Blotter views are layout version 4, the only version the application saves or reads
+(`blotter-layout.ts`, `TableViews.Validate`). Besides the grid, column split and chart choices
+it records `rowGroup`, how trade rows are grouped: `book` (what a new view starts with),
+`market`, `instrumentType`, or `null` for a flat list. Pivot views keep their own `groupBy`. Nothing is
+migrated. The API refuses to save a layout of versions 1 to 3, or of any version it does not
+know, with `table_view`. A stored view from an earlier version appears in the saved-view list as
+`<name> · Earlier format · save again`: choosing it explains and applies nothing, saving a view
+under its name replaces it, and Delete view removes it. A stored view that fails to read for any
+other reason still fails the Blotter's load with that reason. A pivot that groups by instrument
+type lists the column once (`pivotColumns`), so it also saves as a view.
 
 The header distinguishes working knowledge, retained history, selected price date
 and actual today in the user's time zone. Disabled booking has an explanation and

@@ -15,7 +15,7 @@ import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import {renderRegularTable} from './regular-table.js';
 import {trackEdits} from './edit-tracking.js';
 import type {BlotterSelection} from './assistant-pages.js';
-import {isPriceMeasure,priceMeanPolicy,blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,withoutColumns,type BlotterView} from './blotter-layout.js';
+import {isPriceMeasure,priceMeanPolicy,blotterColumns,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,withoutColumns,type BlotterView} from './blotter-layout.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure,type ValuationReason} from './valuation-status.js';
@@ -32,6 +32,9 @@ function valueCells(instrumentType:string){
   return valueFields[instrumentType];
 }
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
+// A stored view an earlier release saved is listed with this label. It cannot be applied, and choosing it says why.
+const earlierFormatLabel='Earlier format · save again';
+const earlierFormatNote=(name:string)=>`Saved view "${name}" is in an earlier format and cannot be applied. Set up the Blotter as you want it and save it again under this name, or delete it.`;
 
 export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}}}){
   const {api,act,busy}=options;
@@ -62,6 +65,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Columns the current read shows that a saved view never keeps: each pivot group's count of positions it leaves out.
   let transientKeys:ReadonlySet<string>=new Set();
   let versions=new Map<string,string>();
+  // Stored views an earlier release saved: listed so they can be saved again or deleted, never applied.
+  let earlierViews:string[]=[];
   let draftBase:{name:string;version:string}|undefined;
   let viewsLoaded=false;
   const risk=setupRisk({api,act,busy,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,scope:()=>{
@@ -100,37 +105,38 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
 
   // A changed display mode, grouping or measure starts its own columns and drops the filters of the last one.
-  function relayout(next:BlotterView){next.columns=next.mode==='pivot'?[...next.groupBy,...next.measures,'instrumentType','unit','currency',...(next.measures.some(isPriceMeasure)?['priceUnit']:[])]:newBlotterView().columns;next.query='';next.columnFilters={};next.grid={order:[],widths:{},sort:[]};}
+  function relayout(next:BlotterView){next.columns=next.mode==='pivot'?pivotColumns(next.groupBy,next.measures):newBlotterView().columns;next.query='';next.columnFilters={};next.grid={order:[],widths:{},sort:[]};}
   function viewControls(){
     field('blotter-mode').value=view.mode;get('blotter-pivot-fields').hidden=view.mode!=='pivot';
     choices('blotter-books',catalog?.books.map(b=>({id:b.id,name:b.name}))??[],view.bookIds);
     choices('blotter-portfolios',Array.from(new Map(catalog?.books.map(b=>[b.portfolio_id,{id:b.portfolio_id,name:b.portfolio}])??[]).values()),view.portfolioIds);
     workspace.pivot(view.groupBy,view.measures,view.splitBy);get<HTMLInputElement>('blotter-show-chart').checked=view.chart.visible;field('blotter-chart-measure').value=view.chart.measure;field('blotter-chart-kind').value=view.chart.kind;
     get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.plotKind===view.chart.kind)));
-    choose('blotter-saved',savedViews.map(v=>({id:v.name,name:v.name})),field('blotter-saved').value||draftBase?.name||'','Current view · not saved');
+    choose('blotter-saved',[...savedViews.map(v=>({id:v.name,name:v.name})),...earlierViews.map(name=>({id:name,name:`${name} · ${earlierFormatLabel}`}))],field('blotter-saved').value||draftBase?.name||'','Current view · not saved');
   }
   async function layoutApi<T>(path:string,body?:unknown):Promise<T>{
     try{return await api<T>(path,body);}catch(error){
-      if((error as {code?:string}).code==='access_denied'){savedViews=[];versions.clear();viewsLoaded=false;viewControls();clear();}
+      if((error as {code?:string}).code==='access_denied'){forgetViews();viewControls();clear();}
       throw error;
     }
   }
+  function forgetViews(){savedViews=[];earlierViews=[];versions.clear();viewsLoaded=false;}
   async function loadViews(){
-    const saved=await layoutApi<{version:string;layout:BlotterView}[]>('table-views/blotter');
-    const parsed=parseBlotterViews(JSON.stringify(saved.map(v=>v.layout)));
-    savedViews=parsed;versions=new Map(saved.map(v=>[v.layout.name,v.version]));viewsLoaded=true;viewControls();
+    const saved=await layoutApi<{version:string;layout:{name:string}}[]>('table-views/blotter');
+    const read=readSavedViews(saved.map(v=>v.layout));
+    savedViews=read.views;earlierViews=read.earlier;versions=new Map(saved.map(v=>[v.layout.name,v.version]));viewsLoaded=true;viewControls();
   }
 
   const storageKey=()=>`openetrm.futures.request.server_booking_utc_v1.${options.profile()}`;
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The current visit still retains the exact in-memory request. */}}
   function restore(){
     if(owner===options.profile())return;
-    owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();savedViews=[];versions.clear();draftBase=undefined;viewsLoaded=false;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Individual trades');workspace.closeMenus();viewControls();
+    owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();forgetViews();draftBase=undefined;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Individual trades');workspace.closeMenus();viewControls();
     try{const saved=JSON.parse(sessionStorage.getItem(storageKey())??'null');if(saved&&['futures/book','futures/amend','swaps/book','swaps/amend'].includes(saved.path)&&typeof saved.operationId==='string'&&saved.body&&typeof saved.body==='object'){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
   }
   function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clear(){instrument.clear();generation++;chartState=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;table=undefined;lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();get('futures-totals').replaceChildren();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
-  function reset(){selectedContract='';clear();restore();savedViews=[];versions.clear();viewsLoaded=false;viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
+  function reset(){selectedContract='';clear();restore();forgetViews();viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   const contractKey=futuresContractKey;
   function terms(){const c=pricedCatalog()?.contracts.find(c=>contractKey(c)===field('futures-contract').value);text('futures-terms',c?futuresContractDescription(c,options.zone()):'Select a dated contract to see its terms.');instrument.render(c,options.zone(),(value,tick)=>amountText(value,'price',tick));}
@@ -142,7 +148,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(pricedCatalog())selectedContract=field('futures-contract').value;
     const scope=options.profile()+':'+snapshot+':'+catalog.context.contextId;
     const pivot=view.mode==='pivot';
-    const columns=blotterColumns.filter(([key])=>pivot?[...view.groupBy,...view.measures,'instrumentType','unit','currency',...(view.measures.some(isPriceMeasure)?['priceUnit']:[])].includes(key):key!=='tradeCount'&&!isPriceMeasure(key));
+    const pivotKeys=pivotColumns(view.groupBy,view.measures);
+    const columns=blotterColumns.filter(([key])=>pivot?pivotKeys.includes(key):key!=='tradeCount'&&!isPriceMeasure(key));
     tableColumns=columns.map(c=>c[0]);
     // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D213).
     const counted=pivot&&holdings.groups.some(g=>excludedPositions(g.unvaluedPositions)>0);
@@ -265,10 +272,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   get('blotter-save').onclick=()=>void act(async()=>{
     const draft=readView();const next=parseBlotterViews(JSON.stringify([{...draft,name:field('blotter-name').value}]))[0];
     const saved=await layoutApi<{version:string;layout:BlotterView}>('table-views/blotter',{layout:next,expectedVersion:draftBase?.name===next.name?draftBase.version:versions.get(next.name)??null});
-    versions.set(next.name,saved.version);draftBase={name:next.name,version:saved.version};savedViews=[...savedViews.filter(v=>v.name!==next.name),saved.layout];
+    versions.set(next.name,saved.version);draftBase={name:next.name,version:saved.version};savedViews=[...savedViews.filter(v=>v.name!==next.name),saved.layout];earlierViews=earlierViews.filter(name=>name!==next.name);
     view=structuredClone(saved.layout);viewControls();field('blotter-saved').value=next.name;text('blotter-view-note','Saved to your account. Dates and market inputs are selected separately.');table=undefined;workspace.closeMenus();await load();
   });
-  field('blotter-saved').onchange=()=>void act(async()=>{const saved=savedViews.find(v=>v.name===field('blotter-saved').value);if(!saved)return;draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;viewControls();workspace.closeMenus();await load();});
+  field('blotter-saved').onchange=()=>void act(async()=>{const name=field('blotter-saved').value;if(earlierViews.includes(name))throw Error(earlierFormatNote(name));const saved=savedViews.find(v=>v.name===name);if(!saved)return;draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;viewControls();workspace.closeMenus();await load();});
   get('blotter-views-reload').onclick=()=>void act(async()=>{
     const name=field('blotter-saved').value;
     await loadViews();
@@ -276,7 +283,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(saved){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;viewControls();await load();}
     text('blotter-view-note',saved?'The selected account layout has been reloaded.':'Saved-view list refreshed. Choose a view to restore it.');
   });
-  get('blotter-delete').onclick=()=>void act(async()=>{const name=field('blotter-saved').value;if(!name)throw Error('Choose a saved view to delete.');await layoutApi('table-views/blotter/delete',{name,expectedVersion:draftBase?.name===name?draftBase.version:versions.get(name)});if(draftBase?.name===name)draftBase=undefined;savedViews=savedViews.filter(v=>v.name!==name);versions.delete(name);viewControls();field('blotter-name').value='';text('blotter-view-note','Saved view deleted. The displayed data is unchanged.');});
+  get('blotter-delete').onclick=()=>void act(async()=>{const name=field('blotter-saved').value;if(!name)throw Error('Choose a saved view to delete.');await layoutApi('table-views/blotter/delete',{name,expectedVersion:draftBase?.name===name?draftBase.version:versions.get(name)});if(draftBase?.name===name)draftBase=undefined;savedViews=savedViews.filter(v=>v.name!==name);earlierViews=earlierViews.filter(n=>n!==name);versions.delete(name);viewControls();field('blotter-name').value='';text('blotter-view-note','Saved view deleted. The displayed data is unchanged.');});
   get('blotter-export').onclick=()=>{if(busy()||!table||!holdings||!lastReadRequest)return;const rows=table.visibleRows();const metadata=[['Blotter snapshot'],['As of',holdings.asOf],['Knowledge cutoff',holdings.context.knownAt],['Convention',holdings.convention],['Display',view.mode],['Grouping',view.mode==='pivot'?view.groupBy.join(' / '):'None'],['Measures',view.mode==='pivot'?view.measures.join(' / '):'Trade rows'],['Portfolios',view.portfolioIds.length?catalog!.books.filter(b=>view.portfolioIds.includes(b.portfolio_id)).map(b=>b.portfolio).filter((v,i,a)=>a.indexOf(v)===i).join(' / '):'All authorized portfolios'],['Books',view.bookIds.length?catalog!.books.filter(b=>view.bookIds.includes(b.id)).map(b=>b.name).join(' / '):'All books in selected portfolios'],['Search',table.state().query],['Column filters',JSON.stringify(Object.fromEntries(table.state().columns.flatMap((v,i)=>v===null?[]:[[tableColumns[i],v]])))],['Numerical policy',holdings.pivotNumericalPolicy],['Pivot convention',view.mode==='pivot'?'trading_blotter_totals_v1':'Not applicable'],['Positions not valued at this close',String(excludedPositions(holdings.unvaluedPositions))],[]];
     const csv=guardedCsv(metadata)+guardedCsv([table.headers(),...rows],table.numeric());void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv('leanetrm-blotter.csv',csv);});
   };
