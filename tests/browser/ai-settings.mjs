@@ -250,8 +250,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#ai-test-model',modelId);await set('#ai-test-effort','low');await submit('#ai-test-form');
   await check('a refusal the server can send after a test ran keeps its request',`${testOffered}&&${retainedTest}?.body.reasoning==='low'`);
   await click('#ai-test-discard');await click('#ai-providers-refresh');await openProvider('OpenAI');
-  await check('a vendor without an adapter offers no model to test, and its card says why',
-    "document.querySelector('#ai-test-model').options.length===1&&!document.querySelector('#ai-test-note').hidden&&document.querySelector('#ai-test-note').textContent.includes('No adapter for OpenAI')");
+  await check('OpenAI offers exactly its models with recorded capabilities for testing through its adapter',
+    `(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/models')).json(),expected=d.models.filter(m=>m.vendor==='openai'&&m.capability).map(m=>m.id).sort(),actual=[...document.querySelector('#ai-test-model').options].map(o=>o.value).filter(Boolean).sort();return expected.length>0&&JSON.stringify(actual)===JSON.stringify(expected)&&document.querySelector('#ai-test-note').hidden&&!document.querySelector('#ai-provider-facts').textContent.includes('no adapter');})()`);
   await openProvider('Anthropic');
   // A new key ends the attestation the last test ran under, and the page says so.
   await click('#ai-provider-key');await set('#ai-key-value','sk-browser-synthetic-key-0004');await submit('#ai-key-form');
