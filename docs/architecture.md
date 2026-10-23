@@ -1125,6 +1125,15 @@ can omit them. No migration relabels retained jobs, occurrences or reports.
 Generated-close cutover remains a separate operation requiring implementation and
 qualification. Admission counts actual declared row-scenario work by unique
 instrument/coverage unit and affected factors, before PV scenario evaluation.
+For existing-close admission, a refusal-only lower bound also runs before native
+quantity-row construction. It counts only volume/linked-slot scopes whose covered
+months all have future UTC value dates and constant location assignments. Each
+scope counts its own reached native factors and exact native rows; other scopes
+contribute zero to this early check. Exceeding the same two-billion row-scenario
+limit refuses the whole request. Every request that proceeds retains complete
+input validation and the final exact admission check. Overdue, profile, capacity
+and assignment-transition scopes use that existing path. An already oversized
+request can therefore receive `risk_size` before a later input-content error.
 
 The [Phase C qualification record](ppa-phase-c.md) enumerates the implemented
 catalog, current limits and evidence. Managed slot ordinals match durable storage

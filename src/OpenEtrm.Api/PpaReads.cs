@@ -139,6 +139,9 @@ internal sealed class PpaReads
             throw PpaCompiler.Error("missing_curve_view","The selected frame must explicitly include every required projection.");
         }
         var market=data.Model.Build(snapshot,dependencies);
+        if(closeRiskInputs)
+            CloseRiskAdmission.RequireRowScenarios(CloseRiskAdmission.FutureVolumeWork(bindings,reference,curves,
+                requestedBindings,market,data.Model.QuoteFactors(snapshot)),0);
         contexts.Add(knowledgeContext);
         var inputs=IntervalValuationInputs.Prepare(reference,new(series.ToImmutable(),curves.ToImmutable()),instruments,market,known,knowledgeContext,pending,"ppa_coverage_v1",detail,coverage);
         var discounts=ImmutableDictionary.CreateBuilder<Guid,ISideDiscounting>();

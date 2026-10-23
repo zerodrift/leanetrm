@@ -5,6 +5,7 @@ internal static class CloseRiskChecks
 {
     internal static void Run()
     {
+        CloseRiskPreflightChecks.Run();
         CloseRiskAdmission.RequireRowScenarios(2_000_000_000,480);
         try
         {

@@ -61,6 +61,7 @@ if (args is ["--schedules"])
     SchedulePublicationChecks.Run();
     DirectReadChecks.ReportsDifferences();
     PpaLimitChecks.Run();
+    CloseRiskChecks.Run();
     return;
 }
 

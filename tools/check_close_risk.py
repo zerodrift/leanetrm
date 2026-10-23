@@ -94,6 +94,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
     before_jobs=query('SELECT count(*) FROM automation.jobs;')
     for selected,code in [(large_book,'risk_size'),(mixed_book,'pilot_close_inputs'),(unsupported_book,'pilot_close_inputs')]:
         refused=deepcopy(body);refused['schedule']['requestId']=str(uuid4());refused['definition']['bookIds']=[selected]
+        started=time.monotonic()
         result=owner.call('jobs/close-book-risk/create',refused,expected=422)
         assert result['code']==code and 'totals' not in result,(selected,code,result)
         if selected==mixed_book:
@@ -101,6 +102,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
         if selected==unsupported_book:
             assert {x['tradeId'] for x in result['affectedBindings']}=={unsupported['tradeId']},result
         assert query('SELECT count(*) FROM automation.jobs;')==before_jobs
+        print(f'PASS close risk: {code} refusal in {time.monotonic()-started:.3f}s without admission',flush=True)
     print('PASS close risk: actual long-term work bound and incompatible complete book refuse before admission without partial totals',flush=True)
 
     def due(job):
