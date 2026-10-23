@@ -62,7 +62,7 @@ def main():
     parser.add_argument('--custom-curves-check',action='store_true',help='Qualify custom curve definitions and calculations in an owned synthetic fixture')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
-    parser.add_argument('--valuation-status-check',action='store_true',help='Qualify Blotter reads at closes that cannot value every seeded position')
+    parser.add_argument('--valuation-status-check',action='store_true',help='Qualify Blotter reads and risk runs at closes that cannot value every seeded position')
     parser.add_argument('--with-custom-curves',action='store_true',help='Load synthetic monthly and daily NG panels for the custom curve editor')
     parser.add_argument('--exchange-check',action='store_true',help='Qualify the independent exchange futures dataset')
     parser.add_argument('--with-exchange',action='store_true',help='Publish the independent exchange futures dataset in this newly owned database')
@@ -665,8 +665,11 @@ def main():
                 from check_market_read_authority import run_checks as check_market_authority
                 check_market_authority(query,manifest)
             elif args.valuation_status_check:
-                from check_blotter_valuation_status import run_checks as check_valuation_status
-                check_valuation_status(url)
+                from check_blotter_valuation_status import run_checks as check_valuation_status, run_risk_checks as check_valuation_status_risk
+                worker_env=prepare_risk_worker()
+                def run_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                check_valuation_status_risk(check_valuation_status(url),run_worker)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

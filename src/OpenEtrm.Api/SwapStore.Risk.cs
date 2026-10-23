@@ -12,15 +12,16 @@ public sealed partial class SwapStore
     internal sealed record ResolvedSwapHolding(JsonElement Row,FinancialSwapInstrument Instrument,Quantity Quantity,ISideDiscounting Discounting,
         PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot);
 
+    // Resolves every held swap in scope except exactly the excluded ones (D213).
     internal async Task<ImmutableArray<ResolvedSwapHolding>> ReadRiskHoldings(NpgsqlConnection connection,PreviewData data,InputFrame frame,
-        ImmutableArray<Guid> bookIds,CancellationToken ct,MarketSnapshot? snapshot=null,
+        ImmutableArray<Guid> bookIds,ImmutableArray<ExcludedPosition> excluded,CancellationToken ct,MarketSnapshot? snapshot=null,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default)
     {
         var books=await new FuturesStore(manifest).Books(connection,ct);
         FuturesStore.ValidateScope(books,bookIds,[]);
-        var rows=(await Rows(connection,null,ct)).GroupBy(row=>row.Id("trade_id"))
+        var rows=ExcludedPosition.Keep((await Rows(connection,null,ct)).GroupBy(row=>row.Id("trade_id"))
             .Select(group=>group.MaxBy(row=>row.Number("revision"))!)
-            .Where(row=>bookIds.IsEmpty||bookIds.Contains(row.Id("book_id"))).ToImmutableArray();
+            .Where(row=>bookIds.IsEmpty||bookIds.Contains(row.Id("book_id"))).ToImmutableArray(),excluded);
         snapshot??=data.Snapshot(frame);
         if(snapshot.Id!=frame.Id||snapshot.Definitions!=data.DefinitionRevision||snapshot.ValuationAt!=frame.At)
             throw Error("swap_context","Swap risk requires the exact selected model and snapshot context.");

@@ -51,7 +51,7 @@ internal static class CurveRiskAxisChecks
         var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
             SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
         var operation=new PortfolioValuation.Prepared(snapshot.Id,new(snapshot.ValuationAt.ToString("yyyy-MM-dd"),null,
-            snapshot.ValuationAt.ToString("O"),snapshot.Id),policy,[market],[],[]);
+            snapshot.ValuationAt.ToString("O"),snapshot.Id),policy,[market],[],[],[]);
         var catalog=CurveRiskAxes.Catalog(operation,default);
         var quote=CurveRiskAxes.Quote(operation,factor,default);
         if(!quote.Label.Contains("selected points",StringComparison.Ordinal))

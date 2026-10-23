@@ -45,15 +45,18 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
                     Convention:DeliveryBucketCurveTarget.WholeDelivery))})).ToArray();
         return new{factors=portfolio.Factors.Select(f=>Factor(markets,CurveRiskAxes.Quote(portfolio,f,ct))),
             availableFactors=available.Select(f=>Factor(markets,CurveRiskAxes.Quote(portfolio,f,ct))),scenarioTargets=targets,
-            books=portfolio.Positions.GroupBy(p=>p.BookId).Select(g=>new{bookId=g.Key}),
+            books=portfolio.Positions.GroupBy(p=>p.BookId).Select(g=>new{bookId=g.Key}),excludedPositions=portfolio.Excluded,
             measures=portfolio.Positions.Select(p=>p.Measure).Distinct().Order().Select(m=>new{measure=m,measureLabel=MeasureLabel(m)}),
             bumpConvention=ConnectedRiskBump.Convention,stressConvention=CurveShift.ParentAdditive,convention=Convention,
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy};
     }
 
+    // A queued run retains its connected graphs and the positions its submission left out (D213), and
+    // prepares exactly the positions its submission prepared.
+    internal readonly record struct RetainedRun(ImmutableArray<ConnectedMarketEvidence> Graphs,ImmutableArray<ExcludedPosition> Excluded);
     private async Task<(PortfolioValuation.Prepared Portfolio,ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books)> PreparePortfolio(
         NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,
-        PortfolioValuationPolicy policy,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null)
+        PortfolioValuationPolicy policy,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,RetainedRun? retained=null)
     {
         PortfolioValuation.ValidatePolicy(policy);
         if(frame.ContextId is not {} contextId||bookIds.IsDefault||portfolioIds.IsDefault)
@@ -64,7 +67,10 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         var selected=books.Where(b=>(bookIds.IsEmpty||bookIds.Contains(b.Id("id")))&&
             (portfolioIds.IsEmpty||portfolioIds.Contains(b.Id("portfolio_id")))).Select(b=>b.Id("id")).Order().ToImmutableArray();
         if(selected.IsEmpty)throw new MarketDataException("risk_position","Select visible books before running risk.");
-        var portfolio=await new PortfolioValuation(database).Prepare(connection,data,frame,data.Snapshot(frame),context,selected,policy,supplemental,ct,retainedGraphs);
+        var valuation=new PortfolioValuation(database);var snapshot=data.Snapshot(frame);
+        var portfolio=retained is {} run?
+            await valuation.Prepare(connection,data,frame,snapshot,context,selected,policy,supplemental,run.Excluded,ct,run.Graphs):
+            await valuation.PrepareValued(connection,data,frame,snapshot,context,selected,policy,supplemental,ct);
         return (portfolio,selected,books);
     }
 
@@ -72,7 +78,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         =>Calculate(await Prepare(connection,data,frame,body,ct),ct);
 
     internal async Task<Prepared> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioRiskRequest body,CancellationToken ct,
-        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null)
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,RetainedRun? retained=null)
     {
         var detail=body.Detail switch{null or "holdings"=>RiskDetail.Holdings,"books"=>RiskDetail.Books,
             _=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
@@ -81,7 +87,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit curve-coordinate bumps.");
         if(!body.Stress.IsDefault&&(body.Stress.Length>16||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
-        var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retainedGraphs);
+        var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retained);
         var bumps=body.Bumps.Select(b=>
         {
             var axis=CurveRiskAxes.Resolve(portfolio,b.Factor,ct);var size=ExactDecimal.Parse(b.Size??"");
@@ -123,6 +129,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         return new{detail=run.Detail.ToString(),convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
             engineVersion=RiskJobs.EngineVersion,displayPolicy=new{implementation="risk_decimal_display_v1",decimalPlaces=12,tieRule="to_even"},
             run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>p.InstrumentId).Distinct().Count(),
+            excludedPositions=prepared.Portfolio.Excluded,
             inputs=new{pricingPolicy=run.Policy,markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
                 selectionPolicy=m.Snapshot.SelectionPolicy.ToString(),observations=m.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,

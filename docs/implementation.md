@@ -237,10 +237,20 @@ text there. A note under the summary counts the positions its totals exclude, as
 chart's scope line when it plots PV, execution P&L or a curve-price statistic. Pivots add
 a **Not valued** count per group, beside each column group of a cross-tab, whenever a
 group leaves a position out; saved views do not keep that column. The export metadata
-states the report's count. Every other failure still fails the read. Risk
-runs, the trade editors and the priced futures booking catalog still fail when the close
-cannot value one of their contracts. `tools/run_preview.py --check --valuation-status-check`
-qualifies the reads on the seeded example with the custom-curve closes through Dec 31, 2020.
+states the report's count. Every other failure still fails the read.
+
+Portfolio risk runs, their catalog and their queued jobs leave out the positions the
+run's base close cannot value and list them as `excludedPositions` (trade, binding,
+reference, instrument type and reason). Normally one preparation covers every held
+position. Only when it fails with one of the two codes are the positions the Blotter
+reports unvalued at that close left out and the rest prepared, so holding rows, inputs,
+book totals and work are those of a run over exactly the remaining positions. A queued
+run retains its submission's list and leaves out exactly those positions. A failure under
+a shock or stress, like every other failure, still fails the run. Generated pilot close
+reports, the trade editors and the priced futures booking catalog still fail when the
+close cannot value one of their contracts. `tools/run_preview.py --check
+--valuation-status-check` qualifies the reads and risk runs on the seeded example with
+the custom-curve closes through Dec 31, 2020.
 
 The editor opens from trade rows. Amendments append immutable latest-head booking
 states with expected revision, explicit reason/effective instant, current authority

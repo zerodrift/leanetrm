@@ -494,7 +494,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   await using var command=ScheduleStore.Command(connection,"SELECT security.swap_operation_status($1,$2)::text",manifest.CatalogId,operation);
   return JsonSerializer.Deserialize<JsonElement>(await command.ExecuteScalarAsync(ct) is string text?text:"{\"found\":false}");
  }
- internal sealed record HoldingsResult(JsonElement[] Rows,int Valuations,int SupplementalMarketLoads);
+ internal sealed record HoldingsResult(JsonElement[] Rows,int Valuations,int SupplementalMarketLoads,ImmutableArray<(JsonElement Row,string Reason)> Unvalued);
  internal async Task<HoldingsResult> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
  {
   var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,bookIds,portfolioIds);
@@ -507,6 +507,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var values=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),FinancialSwapEvaluation>();
   var unvalued=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),string>();
   var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();
+  var unvaluedRows=ImmutableArray.CreateBuilder<(JsonElement Row,string Reason)>();
   foreach(var row in rows)
   {
    var terms=Terms(data,row,frame.Id);var id=row.Id("instrument_id");
@@ -528,6 +529,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
     if(unitValue.Instrument.InstrumentId!=id)throw Error("instrument_identity","Equivalent retained terms cannot silently replace an exact published instrument identity.");
     value=Scale(unitValue,terms);ValidateProjections(value,row);
    }
+   else unvaluedRows.Add((row,unvalued[key]));
    var instrument=identity.Instrument;var quantity=new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),instrument.UnitQuantity.Specification);
    var currency=One(data.References["currencies"].Where(c=>c.Text("code")==instrument.Currency.Code));
    var specification=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quantity.Specification.Code));
@@ -540,6 +542,6 @@ public sealed partial class SwapStore(PreviewDatabase database)
     presentValue=value is null?null:Exact(value.ExactPresentValue),currency=currency.Text("display_code"),settlement="Projection",unavailableReason=unvalued.GetValueOrDefault(key)}));
   }
   // Request-local work: each unique unit valuation attempted, whether or not the close could value it.
-  return new(result.ToArray(),values.Count+unvalued.Count,markets.IsEmpty?0:1);
+  return new(result.ToArray(),values.Count+unvalued.Count,markets.IsEmpty?0:1,unvaluedRows.ToImmutable());
  }
 }

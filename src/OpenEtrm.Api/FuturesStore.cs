@@ -174,7 +174,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
     // One build values every held market (D213). Only when it fails for a position-specific reason is
     // each market built alone: the markets that fail are reported and the rest priced together. When
     // none fails alone, the failure is not one position's and the final build fails the read.
-    private static (CurveBuild? Build,ImmutableDictionary<CurveRequest,string> Unvalued) BuildHeld(CurveModel model,MarketSnapshot snapshot,ImmutableArray<CurveRequest> markets)
+    internal static (CurveBuild? Build,ImmutableDictionary<CurveRequest,string> Unvalued) BuildHeld(CurveModel model,MarketSnapshot snapshot,ImmutableArray<CurveRequest> markets)
     {
         if(markets.IsEmpty)return(null,ImmutableDictionary<CurveRequest,string>.Empty);
         try{return(model.Build(snapshot,markets),ImmutableDictionary<CurveRequest,string>.Empty);}

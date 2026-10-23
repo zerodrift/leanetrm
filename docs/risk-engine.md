@@ -133,8 +133,10 @@ sensitivities for the selected factor, including every requested holding row.
 
 Submission retains the exact context, market revision, selected book scope,
 observation pins and frozen-input uses, market frames, stress/bump conventions and managed engine
-fingerprint. Empty interactive scope selectors resolve to explicit books before
-queueing. An identical request identity and payload return the original run;
+fingerprint. It also retains the positions the run leaves out because its base close
+cannot value them (D213); the worker leaves out exactly those, each a held position of
+the scope, and reports them in the result. Empty interactive scope selectors resolve
+to explicit books before queueing. An identical request identity and payload return the original run;
 different inputs conflict. Saved managed projections additionally retain their
 published version/output descriptors and exact dated sample observations
 (0076–0077). Migration 0081 retains a compiled graph manifest for every prepared

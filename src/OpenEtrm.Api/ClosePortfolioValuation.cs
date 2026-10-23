@@ -84,7 +84,7 @@ public sealed class ClosePortfolioValuation(PreviewDatabase database)
         var futuresStore=new FuturesStore(database.Manifest);
         var books=await futuresStore.Books(connection,ct);
         var futures=await futuresStore.ReadTrades(connection,data,books,bookIds,[],ct);
-        var swaps=await new SwapStore(database).ReadRiskHoldings(connection,data,frame,bookIds,ct,snapshot);
+        var swaps=await new SwapStore(database).ReadRiskHoldings(connection,data,frame,bookIds,excluded:[],ct,snapshot);
         var portfolios=ImmutableArray.CreateBuilder<ValuationPortfolio>();
         var measures=new List<string>();
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
