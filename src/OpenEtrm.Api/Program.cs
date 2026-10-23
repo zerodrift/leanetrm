@@ -54,7 +54,7 @@ var (workerHolder,workerWrites)=PreviewDatabase.WorkerSources(root,hosted);
 await using var agentWorker=new AgentWorker(workerHolder,workerWrites,app.Logger);
 // Provider keys are sealed under the installation's key files when hosted, else the preview runner's (§5.2, §11).
 var custody=hosted is null?CredentialCustody.FromEnvironment():new CredentialCustody(hosted.CredentialKeyFile,hosted.CredentialRetryKeyFile);
-var adapter=new MessagesAdapter(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider);
+var adapter=new ModelAdapters(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider);
 var providerTests=new ProviderTests(custody,agentWorker,adapter,app.Logger);
 // The live event stream's subscriptions, which the worker tells of what it publishes (§8).
 var turnStreams=new TurnStreams();

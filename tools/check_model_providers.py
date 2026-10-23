@@ -95,7 +95,7 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin
           [p['vendor'] for p in directory['providers']] == VENDORS and directory['audit'] == []
           and all(not p['enabled'] and not p['qualified'] and p['credential'] is None and p['terms'] is None and p['attestation'] is None
                   and p['version'] == 0 for p in directory['providers'])
-          and [p['mapping'] and p['mapping']['mapping'] for p in directory['providers']] == ['messages_v1', None, None, None, None])
+          and [p['mapping'] and p['mapping']['mapping'] for p in directory['providers']] == ['messages_v1', 'openai_responses_v1', 'generate_content_v1', 'xai_responses_v1', 'meta_responses_v1'])
 
     secret_parts = [secrets.token_hex(16) for _ in range(7)]
     keys = ['sk-synthetic-' + part + suffix for part, suffix in zip(secret_parts, ('WXYZ', 'ABCD', 'QRST', 'LMNO', 'EFGH', 'IJKL', 'MNOP'))]

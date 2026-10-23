@@ -374,6 +374,12 @@ audit as history.
 
 ## 6. Provider adapters
 
+The [implemented mappings and limits](provider-adapters.md) include D210: Messages
+for Anthropic, Responses for OpenAI, xAI and Meta, and streamGenerateContent for
+Google. Conformance and owned HTTP checks are synthetic; real-provider task
+qualification remains open.
+
+
 ### 6.1 Contract
 
 - A provider-neutral boundary (D06) streams a response for normalized messages, a
@@ -477,8 +483,8 @@ audit as history.
   spelled out so the rule never depends on the database's locale; its source an `https`
   URL naming a host, without user information or a port, in at most 2048 visible ASCII
   characters; and its checked date one that has begun somewhere, so no administrator's
-  today is refused (UTC+14). Meta is shown but unqualified until its usage fields are
-  confirmed; phase 1 is accepted without it.
+  today is refused (UTC+14). D210 confirms Meta's documented Responses usage along
+  with OpenAI, xAI and Google; account terms and attestation remain required.
 - A model is enableable only when tool calling and streaming are confirmed from
   published documentation and pass conformance (`model_unqualified`): its current
   capability version records both confirmations and was validated under the usage
@@ -1193,7 +1199,8 @@ security.md, reference-data.md, hosted-pilot.md).
    provider unqualified.
 4. The fake provider; adapters and mappings; model capability versions; conformance;
    usage and cost; model-call records for tests; qualification and attestation; Test,
-   Enable, Disable. Meta stays unqualified unless its usage fields are confirmed.
+   Enable, Disable. D210 adds the remaining sourced adapter mappings; account and
+   model qualification remain separate.
 5. Agents, grants and turns: the remaining tables; `ManageAgents`, `UseAgents`,
    `ReadModelUsage` and the agent reader role; creation, Publish, Retire; the Users &
    access and provisioning changes; context pinning and reserve; read tools and
