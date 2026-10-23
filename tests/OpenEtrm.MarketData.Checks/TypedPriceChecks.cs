@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.CustomCurves;
 
 internal static class TypedPriceChecks
 {
@@ -156,6 +157,29 @@ internal static class TypedPriceChecks
                 Multiplier = new(null, f.R("conversion_ratio"), ExactDecimal.Parse("0.0001"), null, null) } : c).ToImmutableArray();
             var built = f.Model(curves).Build(f.Snapshot(), [new(f.C("hub_power"), f.K(4))]);
             Equal(built.Values[0].Price.Value.ToString(), "4.00033");
+        });
+        Check("price pivot extrema and arithmetic means preserve units and explicit rounding", () =>
+        {
+            UnitPrice P(string value)=>new(ExactDecimal.Parse(value),PriceUnit.FromQuote(gas));
+            Equal(PriceStatistics.Aggregate([P("100000000000000000.01"),P("100000000000000000.02")],PriceStatistic.Minimum,null).Value.ToString(),"100000000000000000.01");
+            Equal(PriceStatistics.Aggregate([P("100000000000000000.01"),P("100000000000000000.02")],PriceStatistic.Maximum,null).Value.ToString(),"100000000000000000.02");
+            Equal(PriceStatistics.Aggregate([P("999999999999999999999999"),P("999999999999999999999999")],PriceStatistic.ArithmeticMean,PriceStatistics.MeanPolicy).Value.ToString(),"999999999999999999999999");
+            Equal(PriceStatistics.Aggregate([P("0.000000000000000001"),P("0.000000000000000002")],PriceStatistic.ArithmeticMean,PriceStatistics.MeanPolicy).Value.ToString(),"0.000000000000000002");
+            Equal(PriceStatistics.Aggregate([P("0"),P("0.000000000000000001")],PriceStatistic.ArithmeticMean,PriceStatistics.MeanPolicy).Value.ToString(),"0");
+            Reject("price_statistics",()=>PriceStatistics.Aggregate([null!],PriceStatistic.Minimum,null));
+            Reject("price_statistics",()=>PriceStatistics.Aggregate([P("1"),P("2")],PriceStatistic.ArithmeticMean,null));
+            Reject("price_statistics",()=>PriceStatistics.Aggregate([P("1"),new UnitPrice(ExactDecimal.Parse("2"),power)],PriceStatistic.Minimum,null));
+        });
+        Check("rational price statistics preserve exact extrema and round only the selected mean", () =>
+        {
+            var unit=PriceUnit.FromQuote(gas);
+            var prices=ImmutableArray.Create(ExactUnitPrice.Parse("1/3",unit),ExactUnitPrice.Parse("0.4",unit));
+            Equal(PriceStatistics.AggregateExact(prices,PriceStatistic.Minimum,null).ToExactString(),"1/3");
+            Equal(PriceStatistics.AggregateExact(prices,PriceStatistic.Maximum,null).ToExactString(),"0.4");
+            Equal(PriceStatistics.AggregateExact(prices,PriceStatistic.ArithmeticMean,PriceStatistics.MeanPolicy).ToExactString(),"0.366666666666666667");
+            Reject("price_statistics",()=>PriceStatistics.AggregateExact(prices,PriceStatistic.ArithmeticMean,null));
+            Reject("numeric_format",()=>ExactUnitPrice.Parse("1/0",unit));
+            Equal(ExactMoney.Parse("1/3",unit.Currency).Add(ExactMoney.Parse("2/3",unit.Currency)).ToExactString(),"1");
         });
         Console.WriteLine($"{passed} typed price checks passed.");
         return passed;

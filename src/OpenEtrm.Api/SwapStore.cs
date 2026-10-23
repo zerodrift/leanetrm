@@ -18,11 +18,11 @@ public sealed record SwapFixedInput(string? Price,string? Currency,string? Deliv
 public sealed record CustomCurveProjectionInput(Guid CatalogId,Guid CurveId,int Version,string OutputNode,
  [property:System.Text.Json.Serialization.JsonRequired]int? Position,string Selection,string Implementation);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record SwapFloatingInput(string? Curve,string? Index,string? Currency,string? DeliveryFrom,string? DeliveryTo,string? FirstFixingAt=null,string? PaymentAt=null,string? Averaging=null,SwapPaymentInput? PaymentSchedule=null,string? ResetFrequency=null,string? AveragingMethod=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]CustomCurveProjectionInput? CustomProjection=null);
+public sealed record SwapFloatingInput(string? Curve,string? Index,string? Currency,string? DeliveryFrom,string? DeliveryTo,string? FirstFixingAt=null,string? PaymentAt=null,string? Averaging=null,SwapPaymentInput? PaymentSchedule=null,string? ResetFrequency=null,string? AveragingMethod=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]CustomCurveProjectionInput? CustomProjection=null,string? Spread=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapWriteRequest(Guid SnapshotId,string? Convention,string? KnowledgeMode,Guid OperationId,Guid BookId,string? ExecutedAt,
  string? Quantity,string? FixedCoefficient,bool? Discounting,SwapFixedInput? Fixed,SwapFloatingInput? Floating,
- Guid? TradeId=null,int? ExpectedRevision=null,string? EffectiveAt=null,string? Reason=null,Guid DefinitionRevisionId=default,string? Commodity=null,Guid? TraderId=null,int? TraderRevision=null,string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null);
+ Guid? TradeId=null,int? ExpectedRevision=null,string? EffectiveAt=null,string? Reason=null,Guid DefinitionRevisionId=default,string? Commodity=null,Guid? TraderId=null,int? TraderRevision=null,string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null,SwapFloatingInput? FirstFloating=null,string? SwapType=null,string? FirstCoefficient=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapEditorRequest(FuturesReadRequest Context,Guid TradeId,int? Revision);
 
@@ -37,11 +37,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  private ReferenceKey R(string code)=>new(new(manifest.ReferenceCatalogId,manifest.ReferenceRevisionId),code);
  private static T One<T>(IEnumerable<T> source)
  {var rows=source.Take(2).ToArray();return rows.Length==1?rows[0]:throw Error("swap_definition","An exact side reference is missing or ambiguous.");}
- private static string Exact(ExactMoney value)
- {
-  try{return value.ToMoney().Amount.ToString();}
-  catch(MarketDataException e)when(e.Code is "precision_loss" or "numeric_range"){return value.Numerator+"/"+value.Denominator;}
- }
+ private static string Exact(ExactMoney value)=>value.ToExactString();
  private static JsonElement Json(object value)=>JsonSerializer.SerializeToElement(value,new JsonSerializerOptions(JsonSerializerDefaults.Web));
  private PaymentRule Payment(PreviewData data,SwapPaymentInput input)
  {
@@ -63,53 +59,75 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  private static string Sampling(SwapFloatingInput input)=>input.Averaging is {} legacy&&input.ResetFrequency is null&&input.AveragingMethod is null?legacy:
   input.Averaging is null?(input.ResetFrequency,input.AveragingMethod) switch{("monthly","none")=>"monthly_index_price",("daily","arithmetic")=>"calendar_day_arithmetic",_=>throw Error("swap_averaging","Choose compatible reset frequency and averaging method.")}:throw Error("swap_averaging","Supply one explicit sampling definition.");
+ private static string Coefficient(SwapWriteRequest body)=>Required(body.FirstFloating is null?body.FixedCoefficient:body.FirstCoefficient);
+ private static void RequireSideKinds(SwapWriteRequest body)
+ {
+  if(body.FirstFloating is null?body.Fixed is null||body.FirstCoefficient is not null||body.SwapType is not(null or "financial_fixed_floating"):
+   body.Fixed is not null||body.FixedCoefficient is not null||body.SwapType!="financial_floating_floating")
+   throw Error("swap_input","Choose a supported swap type with its explicit independent sides and first-side direction.");
+ }
  private void RequireWriteRules(PreviewData data,SwapWriteRequest body)
  {
-  if(body.Fixed?.PaymentAt is not null||body.Floating?.PaymentAt is not null||body.Fixed?.PaymentSchedule is null||body.Floating?.PaymentSchedule is null||
-   body.Floating.Averaging is not null||string.IsNullOrWhiteSpace(body.Commodity))
+  RequireSideKinds(body);
+  if(body.FirstFloating is not null&&(body.FirstFloating.Spread is null||body.Floating?.Spread is null))throw Error("swap_input","Choose an explicit fixed spread on each floating side; use zero for no spread.");
+  if(body.Floating is null||body.Fixed is {} a&&(a.PaymentAt is not null||a.PaymentSchedule is null)||
+   new[]{body.FirstFloating,body.Floating}.OfType<SwapFloatingInput>().Any(b=>b.PaymentAt is not null||b.PaymentSchedule is null||b.Averaging is not null)||string.IsNullOrWhiteSpace(body.Commodity))
    throw Error("swap_input","Select commodity, independent payment rules, reset frequency and averaging method; payment dates are generated by the backend.");
-  if(body.Floating.FirstFixingAt is not null)throw Error("swap_fixing_read_only","Fixing dates come from the selected index convention and cannot be supplied as trade terms.");
+  if(new[]{body.FirstFloating,body.Floating}.OfType<SwapFloatingInput>().Any(side=>side.FirstFixingAt is not null))throw Error("swap_fixing_read_only","Fixing dates come from the selected index convention and cannot be supplied as trade terms.");
   _=One(data.References["commodities"].Where(c=>c.Text("code")==body.Commodity));
  }
- private (FinancialSwapInstrument Instrument,Quantity Quantity) Resolve(PreviewData data,SwapWriteRequest body,Guid? instrumentId=null,Guid? fixedId=null,Guid? floatingId=null)
+ private FloatingSide ResolveFloating(PreviewData data,SwapFloatingInput b,string? commodity,Guid? id)
  {
-  if(body.Convention!=Convention||body.KnowledgeMode!="current"&&body.KnowledgeMode!="retained"||body.Discounting is null||body.Fixed is null||body.Floating is null)
-   throw Error("swap_input","Select explicit side terms, quantity, direction and discounting policy.");
-  var a=body.Fixed??throw Error("swap_input","Select a fixed side.");var b=body.Floating??throw Error("swap_input","Select a floating side.");
-  if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)throw Error("swap_definition","Select the exact supported definition revision.");
   var averaging=Sampling(b) switch {"monthly_index_price"=>FloatingAveraging.MonthlyIndexPrice,"calendar_day_arithmetic"=>FloatingAveraging.CalendarDayArithmetic,_=>throw Error("swap_averaging","Select an available monthly-index or daily-observation averaging rule.")};
   var curve=One(data.Definitions["curves"].Where(c=>c.Text("code")==b.Curve));
   var target=One(data.References["settlement_targets"].Where(t=>t.Text("code")==curve.Text("settlement_target_code")));
   var quote=One(data.Quotes.Where(q=>q.Key.Code==curve.Text("quote_code")));
-  if(body.Commodity is not null&&body.Commodity!=curve.Text("commodity_code")||target.Text("kind")!="index"||target.Text("index_a_code")!=b.Index||quote.Kind!=QuoteKind.Outright||a.Currency!=quote.Currency.Code||b.Currency!=quote.Currency.Code)
+  if(commodity is not null&&commodity!=curve.Text("commodity_code")||target.Text("kind")!="index"||target.Text("index_a_code")!=b.Index||quote.Kind!=QuoteKind.Outright||b.Currency!=quote.Currency.Code)
    throw Error("swap_definition","The selected curve, index, currency and exact unit must agree. Currency conversion is unsupported.");
   var from=Date(b.DeliveryFrom);var to=Date(b.DeliveryTo);
   var ids=data.Definitions["curve_members"].Where(m=>m.Text("curve_code")==b.Curve).Select(m=>m.Id("contract_id")).ToHashSet();
-  if(from.Day!=1||from.Year==9999||from.AddMonths(1)!=to)throw Error("swap_projection","This booking model selects one complete delivery month per instrument.");
+  if(from.Day!=1||from.Year==9999||from.AddMonths(1)!=to)throw Error("swap_projection","This booking model selects one complete delivery month per side.");
   var selected=data.Contracts.Where(c=>ids.Contains(c.Key.Id)&&c.Kind==ContractKind.Forward&&
    (averaging==FloatingAveraging.MonthlyIndexPrice?c.DeliveryFrom==from&&c.DeliveryTo==to:from<=c.DeliveryFrom&&c.DeliveryFrom<to&&c.DeliveryTo.DayNumber-c.DeliveryFrom.DayNumber==1)).OrderBy(c=>c.DeliveryFrom).ToArray();
   if(averaging==FloatingAveraging.MonthlyIndexPrice)_=One(selected);
   var unit=new Quantity(ExactDecimal.Parse("1"),quote.Quantity);
-  var fixedPrice=new UnitPrice(ExactDecimal.Parse(Required(a.Price)),PriceUnit.FromQuote(quote));
-  var fixedSide=a.PaymentSchedule is {} fixedRule?
-   new FixedSide(fixedId??Guid.NewGuid(),fixedPrice,unit,Date(a.DeliveryFrom),Date(a.DeliveryTo),Payment(data,fixedRule),FixedSide.Implementation,quote):
-   new FixedSide(fixedId??Guid.NewGuid(),fixedPrice,unit,Date(a.DeliveryFrom),Date(a.DeliveryTo),SchedulePreview.ParseAt(a.PaymentAt),FixedSide.Implementation,quote);
+  var spread=b.Spread is null?null:new UnitPrice(ExactDecimal.Parse(Required(b.Spread)),PriceUnit.FromQuote(quote));
   var projections=selected.Select(c=>new SwapProjection(new(new(data.DefinitionRevision,Required(b.Curve)),c.Key),c)).ToImmutableArray();
   // Only retained legacy definitions carry a manual boundary. New entry resolves
   // the exact immutable observation schedule from the selected index bundle.
-  var index=R(Required(b.Index));var sideId=floatingId??Guid.NewGuid();
+  var index=R(Required(b.Index));var sideId=id??Guid.NewGuid();
   var floating=b.FirstFixingAt is {} legacyBoundary?
    b.PaymentSchedule is {} legacyRule?
-    new FloatingSide(sideId,index,quote,unit,from,to,SchedulePreview.ParseAt(legacyBoundary),Payment(data,legacyRule),averaging,projections,FloatingSide.Implementation):
-    new FloatingSide(sideId,index,quote,unit,from,to,SchedulePreview.ParseAt(legacyBoundary),SchedulePreview.ParseAt(b.PaymentAt),averaging,projections,FloatingSide.Implementation):
+    new FloatingSide(sideId,index,quote,unit,from,to,SchedulePreview.ParseAt(legacyBoundary),Payment(data,legacyRule),averaging,projections,FloatingSide.Implementation,spread:spread):
+    new FloatingSide(sideId,index,quote,unit,from,to,SchedulePreview.ParseAt(legacyBoundary),SchedulePreview.ParseAt(b.PaymentAt),averaging,projections,FloatingSide.Implementation,spread:spread):
    b.PaymentSchedule is {} floatingRule?
-    new FloatingSide(sideId,index,quote,unit,from,to,Fixings(data,index,quote,projections),Payment(data,floatingRule),averaging,projections,FloatingSide.IndexedImplementation):
+    new FloatingSide(sideId,index,quote,unit,from,to,Fixings(data,index,quote,projections),Payment(data,floatingRule),averaging,projections,FloatingSide.IndexedImplementation,spread:spread):
     throw Error("payment_rule","New index-based swaps require an explicit payment convention.");
   if(b.CustomProjection is {} custom)
    floating=floating.WithCustomProjection(new(custom.CatalogId,custom.CurveId,custom.Version,custom.OutputNode,custom.Position,custom.Selection,custom.Implementation));
-  var coefficient=ExactDecimal.Parse(Required(body.FixedCoefficient));
-  var instrument=new FinancialSwapInstrument(instrumentId??Guid.NewGuid(),[new(fixedSide,coefficient),new(floating,ExactDecimal.Parse("0")-coefficient)],Convention,body.Discounting.Value);
-  var quantity=new Quantity(ExactDecimal.Parse(Required(body.Quantity)),quote.Quantity);
+  return floating;
+ }
+ private (FinancialSwapInstrument Instrument,Quantity Quantity) Resolve(PreviewData data,SwapWriteRequest body,Guid? instrumentId=null,Guid? fixedId=null,Guid? floatingId=null)
+ {
+  RequireSideKinds(body);
+  if(body.Convention!=Convention||body.KnowledgeMode is not("current" or "retained")||body.Discounting is null||body.Floating is null)
+   throw Error("swap_input","Select explicit side terms, quantity, direction and discounting policy.");
+  if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)throw Error("swap_definition","Select the exact supported definition revision.");
+  var floating=ResolveFloating(data,body.Floating,body.Commodity,floatingId);
+  Side first;
+  if(body.FirstFloating is {} firstFloating)first=ResolveFloating(data,firstFloating,body.Commodity,fixedId);
+  else
+  {
+   var a=body.Fixed!;var quote=floating.Quote;
+   if(a.Currency!=quote.Currency.Code)throw Error("swap_definition","The fixed currency must match the exact floating quote.");
+   var price=new UnitPrice(ExactDecimal.Parse(Required(a.Price)),PriceUnit.FromQuote(quote));
+   first=a.PaymentSchedule is {} rule?
+    new FixedSide(fixedId??Guid.NewGuid(),price,floating.UnitQuantity,Date(a.DeliveryFrom),Date(a.DeliveryTo),Payment(data,rule),FixedSide.Implementation,quote):
+    new FixedSide(fixedId??Guid.NewGuid(),price,floating.UnitQuantity,Date(a.DeliveryFrom),Date(a.DeliveryTo),SchedulePreview.ParseAt(a.PaymentAt),FixedSide.Implementation,quote);
+  }
+  var coefficient=ExactDecimal.Parse(Coefficient(body));
+  var instrument=new FinancialSwapInstrument(instrumentId??Guid.NewGuid(),[new(first,coefficient),new(floating,ExactDecimal.Parse("0")-coefficient)],Convention,body.Discounting.Value);
+  var quantity=new Quantity(ExactDecimal.Parse(Required(body.Quantity)),floating.Quote.Quantity);
   if(quantity.Amount.CompareTo(default)<=0)throw Error("swap_quantity","Trade quantity must be positive; each membership specifies pay/receive direction.");
   return(instrument,quantity);
  }
@@ -151,20 +169,16 @@ public sealed partial class SwapStore(PreviewDatabase database)
   marketInputs=instrument.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,s.Observation.Source,s.Observation.Role,s.Observation.ObservedAt,value=s.Observation.Value.ToString()}),
   sides=sides.Select(s=>new{sideId=s.Contribution.SideId,kind=s.Contribution.Value.Schedule.Implementation==FixedSide.Implementation?"fixed":"floating",
    coefficient=s.Contribution.Coefficient.ToString(),presentValue=Exact(s.Contribution.Value.PresentValue),contribution=Exact(s.Contribution.Contribution),
-   implementation=s.Contribution.Value.Schedule.Implementation,payments=s.Payments.Select(p=>new{
+   slot=instrument.Sides.IndexOf(s.Contribution),implementation=s.Contribution.Value.Schedule.Implementation,payments=s.Payments.Select(p=>new{
     ordinal=p.Cashflow.Plan.Key.Ordinal,deliveryFrom=Date(p.Cashflow.Plan.DeliveryFrom),deliveryTo=Date(p.Cashflow.Plan.DeliveryTo),paymentAt=p.Cashflow.Plan.PaymentAt,paymentDate=Date(p.Cashflow.Plan.PaymentDate),generatedDate=p.Cashflow.Plan.GeneratedDate,
     paymentConvention=p.Cashflow.Plan.PaymentConvention is {} rule?new{implementation=PaymentRule.Implementation,rule.Frequency,rule.Rule,rule.Days,rule.DayOfMonth,rule.DayBasis,rule.ShortMonthPolicy,rule.Adjustment,calendar=rule.Calendar?.Key,calendarFrom=rule.Calendar?.BusinessDays.From,calendarTo=rule.Calendar?.BusinessDays.To}:null,
     cashAmount=Exact(p.Cashflow.CashAmount),discountFactor=p.Discount.Factor.ToString(),presentValue=Exact(p.Cashflow.PresentValue),
     discountMappingId=p.Discount.MappingId,discountCurve=p.Discount.Curve,discountPolicy=p.Discount.InterpolationPolicy,pillars=p.Discount.Pillars,
     resets=p.Cashflow.Resets.Select(reset=>new{cashContribution=Exact(reset.CashContribution),fixingState=reset.Price.State.ToString(),fixingAt=reset.Price.Term.Lookup?.Fixing?.FixingAt,fixing=reset.Price.Term.Lookup?.Fixing,from=reset.Price.Term.Lookup is {} l?Date(l.Contract.DeliveryFrom):Date(p.Cashflow.Plan.DeliveryFrom),
      to=reset.Price.Term.Lookup is {} e?Date(e.Contract.DeliveryTo):Date(p.Cashflow.Plan.DeliveryTo),weight=reset.Price.Term.Weight.ToString(),price=ExactPrice(reset.Price.ExactPrice),
-     exactPrice=new{reset.Price.ExactPrice.Numerator,reset.Price.ExactPrice.Denominator},
+     exactPrice=new{reset.Price.ExactPrice.Numerator,reset.Price.ExactPrice.Denominator},spread=reset.Price.Term.Spread?.Value.ToString(),
      currency=reset.Price.ExactPrice.Unit.Currency,quantity=reset.Price.ExactPrice.Unit.Quantity,multiplier=reset.Price.ExactPrice.Unit.Multiplier.ToString(),lookup=reset.Price.Term.Lookup,lineage=reset.Price.Lineage})})})};
- private static string ExactPrice(OpenEtrm.MarketData.CustomCurves.ExactUnitPrice price)
- {
-  try{return price.ToUnitPriceExact().Value.ToString();}
-  catch(MarketDataException e)when(e.Code is "precision_loss" or "numeric_range"){return price.Numerator+"/"+price.Denominator;}
- }
+ private static string ExactPrice(OpenEtrm.MarketData.CustomCurves.ExactUnitPrice price)=>price.ToExactString();
  public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
  {
   var indices=new List<object>();
@@ -203,7 +217,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   return new{books=await new FuturesStore(manifest).Books(connection,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,
    commodities=data.References["commodities"].Select(c=>new{code=c.Text("code"),name=c.Text("name"),reference=R(c.Text("code"))}),
    paymentCalendars=data.References["calendars"].Select(c=>new{code=c.Text("code"),reference=R(c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")}),
-   paymentOptions=SwapPaymentOptions.Catalog,convention=Convention};
+   parRateOptions=new{implementation=FinancialSwapValuation.ParRatePolicy,initialDecimalPlaces=6,tieRule="to_even"},paymentOptions=SwapPaymentOptions.Catalog,convention=Convention};
  }
  private static SwapPaymentInput? StoredPayment(JsonElement row,string key)
  {
@@ -214,16 +228,25 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var rows=await PreviewDatabase.Rows(connection,"""
   SELECT row_to_json(v)::text FROM(
    SELECT r.*,facts.booker_id,facts.booker_version,facts.booker_name,facts.booker_login,facts.executed_at AS booked_at,facts.trade_date AS booking_date,facts.implementation AS booking_implementation,facts.label_captured_at AS booker_label_captured_at,le.code AS legal_entity_code,le.name AS legal_entity_name,cp.code AS counterparty_code,cp.name AS counterparty_name,trdr.code AS trader_code,trdr.name AS trader_name,tr.reference_number AS trade_reference,ir.reference_number AS instrument_reference,k.known_from AS recorded_at,
-    i.fixed_side_id,i.floating_side_id,i.fixed_coefficient,i.discounting,i.implementation,
-    f.fixed_price,f.delivery_from AS fixed_from,f.delivery_to AS fixed_to,f.payment_at AS fixed_payment,f.reference_catalog_id,f.reference_revision_id,
+    coalesce(i.fixed_side_id,i.first_floating_side_id) AS fixed_side_id,i.first_floating_side_id,i.floating_side_id,i.fixed_coefficient,i.discounting,i.implementation,
+    f.fixed_price,f.delivery_from AS fixed_from,f.delivery_to AS fixed_to,f.payment_at AS fixed_payment,s.reference_catalog_id,s.reference_revision_id,s.spread AS floating_spread,
     (SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) AS projection_contracts,
+    (SELECT jsonb_build_object('curve',a.curve_code,'index',a.index_code,'currency',q.currency_code,'deliveryFrom',a.delivery_from,'deliveryTo',a.delivery_to,
+     'firstFixingAt',CASE WHEN a.implementation='prefixing_index_projection_v1' THEN to_jsonb(a.first_fixing_at) ELSE NULL END,'paymentAt',CASE WHEN a.payment_rule_id IS NULL THEN to_jsonb(a.payment_at) ELSE NULL END,
+     'paymentSchedule',(SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(a.catalog_id,a.payment_rule_id)),
+     'resetFrequency',CASE WHEN a.averaging='monthly_index_price' THEN 'monthly' ELSE 'daily' END,'averagingMethod',CASE WHEN a.averaging='monthly_index_price' THEN 'none' ELSE 'arithmetic' END,'spread',a.spread::text,
+     'customProjection',(SELECT jsonb_build_object('catalogId',p.catalog_id,'curveId',p.curve_id,'version',p.version,'outputNode',p.output_node,'position',p.position,'selection',p.selection,'implementation',p.implementation) FROM trading.custom_curve_projection_bindings p WHERE(p.catalog_id,p.id)=(a.catalog_id,a.custom_projection_id)))
+     FROM trading.swap_floating_sides a JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(a.reference_catalog_id,a.reference_revision_id,a.quote_code) WHERE(a.catalog_id,a.id)=(i.catalog_id,i.first_floating_side_id)) AS first_floating,
+    a.first_fixing_at AS first_floating_fixing,a.custom_projection_id AS first_custom_projection_id,
+    (SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE(p.catalog_id,p.side_id)=(i.catalog_id,i.first_floating_side_id)) AS first_projection_contracts,
     s.implementation AS floating_implementation,s.definition_revision_id,s.curve_code,s.index_code,s.quote_code,s.delivery_from AS floating_from,s.delivery_to AS floating_to,s.first_fixing_at,s.payment_at AS floating_payment,s.averaging,s.custom_projection_id,
     (SELECT jsonb_build_object('catalogId',p.catalog_id,'curveId',p.curve_id,'version',p.version,'outputNode',p.output_node,'position',p.position,'selection',p.selection,'implementation',p.implementation) FROM trading.custom_curve_projection_bindings p WHERE(p.catalog_id,p.id)=(s.catalog_id,s.custom_projection_id)) AS custom_projection,
     (SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(f.catalog_id,f.payment_rule_id)) AS fixed_payment_rule,
     (SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(s.catalog_id,s.payment_rule_id)) AS floating_payment_rule
    FROM trading.swap_trade_revisions r JOIN trading.swap_instruments i ON(i.catalog_id,i.instrument_id)=(r.catalog_id,r.instrument_id)
-   JOIN trading.swap_fixed_sides f ON(f.catalog_id,f.id)=(i.catalog_id,i.fixed_side_id)
+   LEFT JOIN trading.swap_fixed_sides f ON(f.catalog_id,f.id)=(i.catalog_id,i.fixed_side_id)
    JOIN trading.swap_floating_sides s ON(s.catalog_id,s.id)=(i.catalog_id,i.floating_side_id)
+   LEFT JOIN trading.swap_floating_sides a ON(a.catalog_id,a.id)=(i.catalog_id,i.first_floating_side_id)
    LEFT JOIN trading.booking_facts facts ON(facts.catalog_id,facts.trade_id)=(r.catalog_id,r.trade_id)
    LEFT JOIN trading.legal_entities le ON(le.catalog_id,le.id,le.revision)=(r.catalog_id,r.legal_entity_id,r.legal_entity_revision)
    LEFT JOIN trading.counterparties cp ON(cp.catalog_id,cp.id,cp.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
@@ -244,18 +267,25 @@ public sealed partial class SwapStore(PreviewDatabase database)
   if(row.Id("definition_revision_id")!=manifest.RevisionId&&!(manifest.SwapMarkets??[]).Any(m=>m.RevisionId==row.Id("definition_revision_id"))||row.Id("reference_catalog_id")!=manifest.ReferenceCatalogId||row.Id("reference_revision_id")!=manifest.ReferenceRevisionId||row.Text("implementation")!=Convention)
    throw Error("swap_definition","The retained swap requires its exact supported reference and model versions.");
   var quote=One(data.Quotes.Where(q=>q.Key.Code==row.Text("quote_code")));
-  return new(snapshot,Convention,"retained",Guid.Empty,row.Id("book_id"),row.Text("execution_at"),row.Text("quantity"),row.Text("fixed_coefficient"),row.GetProperty("discounting").GetBoolean(),
-   new(row.Text("fixed_price"),quote.Currency.Code,row.Text("fixed_from"),row.Text("fixed_to"),StoredPayment(row,"fixed_payment_rule") is null?row.Text("fixed_payment"):null,StoredPayment(row,"fixed_payment_rule")),
+  var first=row.GetProperty("first_floating");
+  if(row.GetProperty("first_custom_projection_id").ValueKind!=JsonValueKind.Null&&(first.ValueKind==JsonValueKind.Null||first.GetProperty("customProjection").ValueKind==JsonValueKind.Null))
+   throw Error("custom_projection","The retained first floating projection is unavailable under the selected context and current authority.");
+  return new(snapshot,Convention,"retained",Guid.Empty,row.Id("book_id"),row.Text("execution_at"),row.Text("quantity"),row.OptionalId("first_floating_side_id") is null?row.Text("fixed_coefficient"):null,row.GetProperty("discounting").GetBoolean(),
+   row.OptionalId("first_floating_side_id") is null?new(row.Text("fixed_price"),quote.Currency.Code,row.Text("fixed_from"),row.Text("fixed_to"),StoredPayment(row,"fixed_payment_rule") is null?row.Text("fixed_payment"):null,StoredPayment(row,"fixed_payment_rule")):null,
    new(row.Text("curve_code"),row.Text("index_code"),quote.Currency.Code,row.Text("floating_from"),row.Text("floating_to"),row.Text("floating_implementation")==FloatingSide.Implementation?row.Text("first_fixing_at"):null,
     StoredPayment(row,"floating_payment_rule") is null?row.Text("floating_payment"):null,null,StoredPayment(row,"floating_payment_rule"),row.Text("averaging")=="monthly_index_price"?"monthly":"daily",row.Text("averaging")=="monthly_index_price"?"none":"arithmetic",
-    custom.ValueKind==JsonValueKind.Null?null:JsonSerializer.Deserialize<CustomCurveProjectionInput>(custom.GetRawText(),new JsonSerializerOptions(JsonSerializerDefaults.Web))),DefinitionRevisionId:row.Id("definition_revision_id"),
-    Commodity:One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quote.Quantity.Code)).Text("commodity_code"),TraderId:row.OptionalId("trader_id"),TraderRevision:row.OptionalText("trader_revision") is {} tv?int.Parse(tv,CultureInfo.InvariantCulture):null,Memo:row.OptionalText("memo"),TradeDate:row.OptionalText("trade_date")??row.Text("booking_date"),LegalEntityId:row.OptionalId("legal_entity_id"),LegalEntityRevision:row.OptionalText("legal_entity_revision") is {} lev?int.Parse(lev,CultureInfo.InvariantCulture):null,CounterpartyId:row.OptionalId("counterparty_id"),CounterpartyRevision:row.OptionalText("counterparty_revision") is {} cpv?int.Parse(cpv,CultureInfo.InvariantCulture):null);
+    custom.ValueKind==JsonValueKind.Null?null:JsonSerializer.Deserialize<CustomCurveProjectionInput>(custom.GetRawText(),new JsonSerializerOptions(JsonSerializerDefaults.Web)),row.Text("floating_spread")),DefinitionRevisionId:row.Id("definition_revision_id"),
+    Commodity:One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quote.Quantity.Code)).Text("commodity_code"),TraderId:row.OptionalId("trader_id"),TraderRevision:row.OptionalText("trader_revision") is {} tv?int.Parse(tv,CultureInfo.InvariantCulture):null,Memo:row.OptionalText("memo"),TradeDate:row.OptionalText("trade_date")??row.Text("booking_date"),LegalEntityId:row.OptionalId("legal_entity_id"),LegalEntityRevision:row.OptionalText("legal_entity_revision") is {} lev?int.Parse(lev,CultureInfo.InvariantCulture):null,CounterpartyId:row.OptionalId("counterparty_id"),CounterpartyRevision:row.OptionalText("counterparty_revision") is {} cpv?int.Parse(cpv,CultureInfo.InvariantCulture):null,
+    FirstFloating:first.ValueKind==JsonValueKind.Null?null:JsonSerializer.Deserialize<SwapFloatingInput>(first.GetRawText(),new JsonSerializerOptions(JsonSerializerDefaults.Web)),SwapType:row.OptionalId("first_floating_side_id") is null?"financial_fixed_floating":"financial_floating_floating",FirstCoefficient:row.OptionalId("first_floating_side_id") is null?null:row.Text("fixed_coefficient"));
  }
  private static void ValidateProjections(FinancialSwapValue value,JsonElement row)
-  =>ValidateProjections(value.Sides[1].Payments.SelectMany(p=>p.Cashflow.Prices).Select(r=>r.Term.Lookup!.Contract.Key.Id),row);
- private static void ValidateProjections(IEnumerable<Guid> actual,JsonElement row)
  {
-  var stored=row.GetProperty("projection_contracts");
+  ValidateProjections(value.Sides[1].Payments.SelectMany(p=>p.Cashflow.Prices).Select(r=>r.Term.Lookup!.Contract.Key.Id),row);
+  if(row.OptionalId("first_floating_side_id") is not null)ValidateProjections(value.Sides[0].Payments.SelectMany(p=>p.Cashflow.Prices).Select(r=>r.Term.Lookup!.Contract.Key.Id),row,"first_projection_contracts");
+ }
+ private static void ValidateProjections(IEnumerable<Guid> actual,JsonElement row,string field="projection_contracts")
+ {
+  var stored=row.GetProperty(field);
   if(stored.ValueKind!=JsonValueKind.Array||!actual.SequenceEqual(stored.EnumerateArray().Select(v=>v.GetGuid())))
    throw Error("swap_projection","The retained reset references do not match this side's exact schedule.");
  }
@@ -271,18 +301,17 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var terms=Terms(data,row,frame.Id);var value=await Price(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
   ValidateProjections(value,row);
   return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=Value(value),catalog=await Catalog(connection,data,frame,ct),
-   lifecycleEligible=frame.At<row.Instant("first_fixing_at")&&frame.At>=row.Instant("effective_at")};
+   lifecycleEligible=frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
  }
- private static string CanonicalTerms(SwapWriteRequest body)
- {
-  var canonical=JsonSerializer.SerializeToNode(new{
+ private static object? CanonicalFloating(SwapFloatingInput? side)=>side is null?null:new{
+  curve=Required(side.Curve),index=Required(side.Index),currency=Required(side.Currency),from=Date(side.DeliveryFrom),to=Date(side.DeliveryTo),
+  fixing=side.FirstFixingAt is {} fixing?SchedulePreview.ParseAt(fixing).ToUniversalTime():(DateTimeOffset?)null,payment=side.PaymentAt is {} payment?SchedulePreview.ParseAt(payment).ToUniversalTime():(DateTimeOffset?)null,
+  side.PaymentSchedule,averaging=Sampling(side),spread=ExactDecimal.Parse(side.Spread??"0").ToString(),side.CustomProjection};
+ private static string CanonicalTerms(SwapWriteRequest body)=>JsonSerializer.Serialize(new{
   body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision,body.TraderId,body.TraderRevision,body.Memo,body.BookId,executed=SchedulePreview.ParseAt(body.ExecutedAt).ToUniversalTime(),quantity=ExactDecimal.Parse(Required(body.Quantity)).ToString(),
-  coefficient=ExactDecimal.Parse(Required(body.FixedCoefficient)).ToString(),body.Discounting,body.DefinitionRevisionId,
-  fixedSide=new{price=ExactDecimal.Parse(Required(body.Fixed?.Price)).ToString(),currency=Required(body.Fixed?.Currency),from=Date(body.Fixed?.DeliveryFrom),to=Date(body.Fixed?.DeliveryTo),payment=body.Fixed?.PaymentAt is {} a?SchedulePreview.ParseAt(a).ToUniversalTime():(DateTimeOffset?)null,body.Fixed?.PaymentSchedule},
-  floatingSide=new{curve=Required(body.Floating?.Curve),index=Required(body.Floating?.Index),currency=Required(body.Floating?.Currency),from=Date(body.Floating?.DeliveryFrom),to=Date(body.Floating?.DeliveryTo),fixing=body.Floating?.FirstFixingAt is {} legacyFixing?SchedulePreview.ParseAt(legacyFixing).ToUniversalTime():(DateTimeOffset?)null,payment=body.Floating?.PaymentAt is {} b?SchedulePreview.ParseAt(b).ToUniversalTime():(DateTimeOffset?)null,body.Floating?.PaymentSchedule,averaging=Sampling(body.Floating!)}})!;
-  if(body.Floating?.CustomProjection is {} projection)canonical["floatingSide"]!["CustomProjection"]=JsonSerializer.SerializeToNode(projection);
-  return canonical.ToJsonString();
- }
+  coefficient=ExactDecimal.Parse(Coefficient(body)).ToString(),body.Discounting,body.DefinitionRevisionId,
+  fixedSide=body.Fixed is {} a?new{price=ExactDecimal.Parse(Required(a.Price)).ToString(),currency=Required(a.Currency),from=Date(a.DeliveryFrom),to=Date(a.DeliveryTo),payment=a.PaymentAt is {} payment?SchedulePreview.ParseAt(payment).ToUniversalTime():(DateTimeOffset?)null,a.PaymentSchedule}:null,
+  firstFloating=CanonicalFloating(body.FirstFloating),floatingSide=CanonicalFloating(body.Floating)});
  private async Task<SwapWriteRequest> BookingTerms(NpgsqlConnection connection,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {
   TradeAnnotations.RequireServerFacts(body.ExecutedAt,body.TraderId,body.TraderRevision,body.TradeDate);
@@ -305,9 +334,10 @@ public sealed partial class SwapStore(PreviewDatabase database)
    if(body.ExpectedRevision!=int.Parse(head.Text("revision"),CultureInfo.InvariantCulture)||body.ExpectedRevision>=256||
     SchedulePreview.ParseAt(body.EffectiveAt)!=frame.At||frame.At<head.Instant("effective_at")||
     string.IsNullOrWhiteSpace(body.Reason)||body.Reason.Length>500||
-    frame.At>=head.Instant("first_fixing_at")||frame.At>=head.Instant("fixed_payment")||frame.At>=head.Instant("floating_payment")||
-    body.Fixed?.Currency!=retained.Fixed!.Currency||body.Floating?.Currency!=retained.Floating!.Currency)
+    frame.At>=head.Instant("first_fixing_at")||(head.OptionalText("fixed_payment") is {} fp&&frame.At>=SchedulePreview.ParseAt(fp))||frame.At>=head.Instant("floating_payment")||
+    body.Fixed?.Currency!=retained.Fixed?.Currency||body.FirstFloating?.Currency!=retained.FirstFloating?.Currency||body.Floating?.Currency!=retained.Floating!.Currency)
     throw Error("swap_amendment","Amend only the latest eligible revision at As of, with a reason and compatible exact market and currency references.");
+   if(head.OptionalText("first_floating_fixing") is {} firstFixing&&frame.At>=SchedulePreview.ParseAt(firstFixing))throw Error("swap_amendment","The retained first floating side requires actual fixing state.");
    var selectedData=data;
    if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
     selectedData=One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId)).Data;
@@ -321,6 +351,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  public async Task<JsonElement> Save(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {
+  RequireSideKinds(body);
+  if(body.FirstFloating is not null||body.Floating?.Spread is {} spread&&ExactDecimal.Parse(Required(spread))!=default)return await SaveComposed(connection,data,frame,body,ct);
   if(body.KnowledgeMode!="current"||body.OperationId==Guid.Empty||body.Discounting is null||body.Fixed is null||body.Floating is null)
    throw Error("swap_input","A stable operation identity, working context and complete explicit terms are required.");
   TradeAnnotations.RequireServerFacts(body.ExecutedAt,body.TraderId,body.TraderRevision,body.TradeDate);
@@ -429,8 +461,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
    result.Add(Json(new{booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),traderId=row.Id("booker_id"),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentId=row.Id("instrument_id"),instrumentReference=TradingReference.Instrument(row),bindingId=row.Id("binding_id"),
     revision=row.Text("revision"),bookId=row.Id("book_id"),book=book.Text("name"),portfolioId=book.Id("portfolio_id"),portfolio=book.Text("portfolio"),instrumentType="financial_swap",definitionRevisionId=row.Id("definition_revision_id"),
     contractId=row.Id("instrument_id"),contractIdentityKind="swap_instrument",curve=row.Text("curve_code"),deliveryFrom=row.Text("floating_from"),deliveryTo=row.Text("floating_to"),
-    quoteMultiplier=value.Sides[0].Payments[0].Cashflow.Prices[0].Price.Unit.Multiplier.ToString(),lots=(string?)null,quantity=value.Quantity.Amount.ToString(),unit=unit.Text("symbol"),quantitySpecification=value.Quantity.Specification,currencyReference=quote,
-    executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=row.Text("fixed_price"),mark=value.Sides[1].Payments[0].Cashflow.Prices.Length==1?ExactPrice(value.Sides[1].Payments[0].Cashflow.Prices[0].ExactPrice):null,executionPnl=(string?)null,
+    quoteMultiplier=value.Sides[1].Payments[0].Cashflow.Prices[0].ExactPrice.Unit.Multiplier.ToString(),lots=(string?)null,quantity=value.Quantity.Amount.ToString(),unit=unit.Text("symbol"),quantitySpecification=value.Quantity.Specification,currencyReference=quote,
+    executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=row.OptionalText("fixed_price"),mark=value.Sides[1].Payments[0].Cashflow.Prices.Length==1?ExactPrice(value.Sides[1].Payments[0].Cashflow.Prices[0].ExactPrice):null,executionPnl=(string?)null,
     presentValue=Exact(value.ExactPresentValue),currency=currency.Text("display_code"),settlement="Projection"}));
   }
   return new(result.ToArray(),values.Count,markets.IsEmpty?0:1);

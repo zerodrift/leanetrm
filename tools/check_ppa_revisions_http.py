@@ -37,6 +37,14 @@ def run_checks(url,query,manifest,fixture):
     saved=inspect(t1['tradeId'],known=old)
     amended=deepcopy(request);amended.update(operationId=str(uuid4()),tradeId=t1['tradeId'],expectedRevision=1,boundaryAt='2031-11-02T06:00:00Z',coverageFrom='2031-11-02T06:00:00Z',quantity='60')
     client.call('ppa/amend',amended)
+    swap_context={'snapshotId':a['id'],'convention':'independent_side_financial_swap_v2','knowledgeMode':'current'}
+    swaps=client.call('swaps/catalog',swap_context)
+    index=next(i for i in swaps['indices'] if i['curve']=='base_forward' and i['definitionRevisionId']==manifest['revisionId'])
+    payment={'frequency':'monthly','rule':'days_after_period_end','days':18,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
+    floating={'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none','spread':'0'}
+    collision=client.call('swaps/book',{**swap_context,**trade_booking(),'operationId':amended['operationId'],'bookId':books[0],
+        'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':'10','firstCoefficient':'-1','swapType':'financial_floating_floating','firstFloating':floating,'floating':floating,'discounting':False},expected=409)
+    check('composed swap refuses an operation ID retained by a PPA amendment',collision['code']=='swap_conflict')
     now=inspect(t1['tradeId'])
     check('R3.1 same-bundle amendment preserves prefix MW and original full terms',len(now['bindings'])==2 and [str(x['quantity']) for x in now['bindings']]==['80','60'] and all(x['terms']==original for x in now['instruments']))
     for name,pins,code,reasons in [('definition',dict(definitionRevisionId=bundle['definitionRevisionId']),'ppa_definition_revision',['ppa_definition_revision','ppa_reference_revision']),('reference',dict(referenceCatalogId=bundle['referenceCatalogId'],referenceRevisionId=bundle['referenceRevisionId']),'ppa_reference_revision',['ppa_reference_revision']),('both',bundle,'ppa_definition_revision',['ppa_definition_revision','ppa_reference_revision'])]:

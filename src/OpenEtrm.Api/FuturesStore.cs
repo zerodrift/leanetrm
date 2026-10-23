@@ -17,7 +17,7 @@ public sealed record FuturesStatusRequest(Guid OperationId);
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesBlotterView(string? Mode,ImmutableArray<Guid> BookIds,ImmutableArray<Guid> PortfolioIds,
-    ImmutableArray<string> GroupBy,ImmutableArray<string> Measures,string? PivotConvention);
+    ImmutableArray<string> GroupBy,ImmutableArray<string> Measures,string? PivotConvention,string? PriceNumericalPolicy=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesBlotterRequest(FuturesReadRequest Context,FuturesBlotterView View);
 

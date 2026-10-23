@@ -510,6 +510,15 @@ implemented. Backdated replay for future trading/lifecycle domains remains work.
 See [date-field bindings](schedules-and-contract-sequences.md#date-schedules-before-contract-construction).
 
 
+
+Blotter delivery includes numeric values with separate unit labels, exact
+comparison filters, backend price statistics, configurable row/column pivots
+and linked bar, line and heatmap plots (D206). Subtotals, cross-axis grand totals
+and cell drill-through remain later work. Swap entry now covers fixed/floating
+and floating/floating financial composition with explicit spreads and reviewed
+par-rate entry (D207). Qualification includes selected actual fixings, published
+custom projections, booking replay and generated/existing-close report compatibility.
+
 ## Milestone 0 — Record and review the design
 
 Deliver:

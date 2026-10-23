@@ -109,7 +109,7 @@ def run_supplemental_checks(c, check, query, manifest):
     before = trading_workspace(c, trading_context(frame)); retained = trading_context(frame, before['catalog']['context'])
     before = trading_workspace(c, retained)
     held = next(h for h in before['blotter']['holdings'] if h['instrumentType'] == 'financial_swap'
-                and h['definitionRevisionId'] != manifest['revisionId'] and h['curve'] == 'daily_gas')
+                and h['definitionRevisionId'] != manifest['revisionId'] and h['curve'] == 'daily_gas' and h['fixedPrice'] is not None)
     market = next(m for m in manifest['swapMarkets'] if m['revisionId'] == held['definitionRevisionId'])
     seed = next(f for f in market['frames'] if datetime.fromisoformat(f['at']) == datetime.fromisoformat(frame['at']))
     selected = ','.join("'" + str(UUID(i)) + "'::uuid" for i in seed['observationIds'])

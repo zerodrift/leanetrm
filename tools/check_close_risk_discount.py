@@ -28,6 +28,10 @@ def prepare_discount(reference,market,security,manifest):
     frame=deepcopy(next(f for f in manifest['frames'] if instant(f['at']).isoformat()=='2020-12-18T16:00:00+00:00' and not f.get('ppaBundle')))
     frame['curveContracts']={code:[contract]};frame['observationIds'].append(observation)
     manifest['frames'].append(frame);manifest['closeRisk']['discountCurve']=code
+    pair=deepcopy(next(f for f in manifest['frames'] if instant(f['at']).isoformat()=='2020-12-18T16:00:00+00:00' and 'base_forward' in f['curveContracts'] and not f.get('ppaBundle')))
+    pair['name']='Synthetic existing-close floating pair'
+    pair['curveContracts']={'base_forward':pair['curveContracts']['base_forward']}
+    manifest['frames'].append(pair)
     return reference,market,security,manifest
 
 
@@ -71,3 +75,36 @@ def run_checks(owner, fixture, query, manifest, request, due, work):
         assert Fraction(value['observations'][0]['annualRate'])==Fraction(3,100)
     assert query(f"SELECT count(*) FROM automation.pilot_report_discounts WHERE report_id='{report['reportId']}' AND ppa_side_id IS NOT NULL;")=='2'
     print('PASS close risk: enabled PPA discount retains exact side, mapping, payment, pillar and numerical policy receipt with independent PV',flush=True)
+    check_floating_pair(owner,fixture.client,query,manifest,request,due,work)
+
+
+def check_floating_pair(owner,trader,query,manifest,request,due,work):
+    """Existing-close scope and receipts retain both independent floating sides."""
+    import json
+    from preview_fixture import trade_booking
+    frames=trader.call('workspace')['frames']
+    frame=next(f for f in frames if instant(f['at']).isoformat()=='2020-12-18T16:00:00+00:00' and set(f['curveContracts'])=={'base_forward'} and not f.get('ppaBundle'))
+    context={'snapshotId':frame['id'],'convention':'independent_side_financial_swap_v2','knowledgeMode':'current'}
+    catalog=trader.call('swaps/catalog',context)
+    index=next(i for i in catalog['indices'] if i['curve']=='base_forward' and i['definitionRevisionId']==manifest['revisionId'])
+    book=str(uuid4())
+    query(f"INSERT INTO trading.books VALUES('{manifest['catalogId']}','{book}','d0000000-0000-0000-0000-000000000001','Synthetic floating pair close',1,'2020-01-01T00:00:00Z');")
+    payment={'frequency':'monthly','rule':'days_after_period_end','days':18,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
+    floating={'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none','spread':'0.1'}
+    trade=trader.call('swaps/book',{**context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'definitionRevisionId':index['definitionRevisionId'],
+        'commodity':index['commodity'],'quantity':'10','firstCoefficient':'-1','swapType':'financial_floating_floating','firstFloating':floating,'floating':{**floating,'spread':'0.2'},'discounting':False})
+    owner_frame=next(f for f in owner.call('workspace')['frames'] if instant(f['at'])==instant(frame['at']) and f['curveContracts']==frame['curveContracts'] and
+        set(f['observationIds'])==set(frame['observationIds']) and set(f.get('frozenObservationIds') or [])==set(frame.get('frozenObservationIds') or []) and not f.get('ppaBundle'))
+    close=owner.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':owner_frame['id'],'name':'Synthetic floating pair close'})
+    body=deepcopy(request);body['schedule']['requestId']=str(uuid4())
+    body['definition'].update(closeId=close['id'],bookIds=[book])
+    job=owner.call('jobs/close-book-risk/create',body);due(job);report=work(job)
+    assert {p['tradeId'] for p in report['positions']}=={trade['tradeId']}
+    assert len(report['totals'])==1 and fraction(report['totals'][0]['value'])==1
+    assert report['risk'] and all(fraction(r['delta']['value'])==fraction(r['gamma']['value'])==0 for r in report['risk'])
+    sides=json.loads(query(f"SELECT row_to_json(i) FROM trading.swap_instruments i WHERE instrument_id='{trade['instrumentId']}';"))
+    assert sides['fixed_side_id'] is None and sides['first_floating_side_id']!=sides['floating_side_id']
+    assert {d['payment']['sideId'] for d in report['discountInputs']}=={sides['first_floating_side_id'],sides['floating_side_id']}
+    assert all(not d['input']['enabled'] and d['input']['factor']=='1' for d in report['discountInputs'])
+    assert query(f"SELECT count(*) FROM automation.pilot_report_discounts WHERE report_id='{report['reportId']}' AND first_floating_side_id='{sides['first_floating_side_id']}' AND ppa_side_id IS NULL;")=='1'
+    print('PASS close risk: floating pair admission, exact spread PV, opposing sensitivity and independent membership receipts',flush=True)
