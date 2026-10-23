@@ -119,8 +119,7 @@ public sealed class PreparedCurve
             }
         }
         if(byMonth.Count>1200)throw Invalid("At most 1,200 operating months can be prepared.");
-        var shapeIndex=curve is ShapedIntervalCurve?IntervalAlignment.ByStart(shape,c=>c.Start,c=>c.End,
-            "interval_shape_coverage","Shape intervals must have distinct exact UTC boundaries."):null;
+        var shapeData=curve is ShapedIntervalCurve?IntervalData.From(shape,minutes):null;
         foreach(var (month,ranges) in byMonth.OrderBy(p=>p.Key))
         {
             var all=PowerHours.Compile(month,month.AddMonths(1),clock,TimeOfUse.All(minutes),[],minutes)
@@ -169,11 +168,7 @@ public sealed class PreparedCurve
                     owners.Add(interval.Start,new(candidates[0].Block.Curve,candidates[0].Contract.Key));
                 }
                 dependencies=[..owners.Values.Distinct()];
-                var selectedRequests=dependencies.ToHashSet();
-                var selectedCells=blocks.Where(b=>selectedRequests.Contains(new(b.Block.Curve,b.Contract.Key))).SelectMany(b=>b.Periods)
-                    .DistinctBy(p=>p.Start).Select(p=>shapeIndex!.TryGetValue(p.Start,out var cell)?cell:
-                        throw new MarketDataException("interval_shape_coverage","Every selected anchor needs its complete shape period.")).ToArray();
-                preparedShape=BlockShaping.PrepareSelected(definition,selectedCells,intervals[0].Start,intervals[^1].End,owners.ToImmutable());
+                preparedShape=BlockShaping.PrepareSelected(definition,shapeData!,intervals[0].Start,intervals[^1].End,owners.ToImmutable());
                 contracts=[..blocks.Where(b=>dependencies.Any(d=>d.Curve==b.Block.Curve && d.Contract==b.Contract.Key)).Select(b=>b.Contract).DistinctBy(c=>c.Key)];
             }
             periods.Add(month,new(intervals,eligible,dependencies,preparedShape,contracts,sources));

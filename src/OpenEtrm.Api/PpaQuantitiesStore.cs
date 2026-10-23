@@ -147,9 +147,12 @@ public sealed class PpaQuantitiesStore(MarketReads reads,TouProductStore product
         using var changes=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);
         var learned=changes.RootElement.GetProperty("revisions").EnumerateArray().ToDictionary(r=>r.GetProperty("revision").GetInt32(),r=>r.Instant("knownFrom"));
         var context=selected.Id("contextId");
+        var values=new IntervalQuantityData.Builder(int.Parse(metadata.Text("interval_minutes"),CultureInfo.InvariantCulture));
+        foreach(var r in selected.GetProperty("rows").EnumerateArray())
+            values.Add(new(r.Instant("start"),r.Instant("end"),r.Number("value"),r.GetProperty("revision").GetInt32(),learned[r.GetProperty("revision").GetInt32()],context));
         return new(id,metadata.Text("kind"),new(data.ReferenceRevision,metadata.Text("clock_code")),int.Parse(metadata.Text("interval_minutes"),CultureInfo.InvariantCulture),
             metadata.OptionalText("quantity_code") is {} quantity?new ReferenceKey(data.ReferenceRevision,quantity):null,
-            [..selected.GetProperty("rows").EnumerateArray().Select(r=>new QuantityCell(r.Instant("start"),r.Instant("end"),r.Number("value"),r.GetProperty("revision").GetInt32(),learned[r.GetProperty("revision").GetInt32()],context))]);
+            []) {Data=values.Build()};
     }
     internal static ImmutableArray<LocationAssignment> Assignments(PreviewData data)=>[..data.Definitions["location_valuation_assignments"].Select(row=>
     {

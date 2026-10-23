@@ -122,7 +122,7 @@ public sealed class IntervalCurvesStore(MarketReads reads,TouProductStore produc
         var (sourceId,rule)=await ActualRule(connection,data,request.Curve,isShaped,ct);
         var source=await PowerHistory.Source(connection,sourceId,ct);
         PriceCurve curve;PowerClock clock;string clockCode;int minutes;
-        object? shapeSeries=null;ImmutableArray<SeriesCell> cells=[];var frozenContexts=new List<Guid>();
+        object? shapeSeries=null;IReadOnlyList<SeriesCell> cells=[];var frozenContexts=new List<Guid>();
         if(isShaped)
         {
             var shaped=IntervalCurveDefinitions.Shaped(data,request.Curve,await products.Read(connection,ct));
@@ -235,19 +235,26 @@ public sealed class IntervalCurvesStore(MarketReads reads,TouProductStore produc
     }
 
     // The shape over [first, last) through the audited series read, in windows the read accepts.
-    internal static async Task<(object Series,ImmutableArray<SeriesCell> Cells)> ReadShape(NpgsqlConnection connection,Guid series,int minutes,
+    internal static async Task<(object Series,IntervalData Cells)> ReadShape(NpgsqlConnection connection,Guid series,int minutes,
         DateTimeOffset first,DateTimeOffset last,DateTimeOffset knownAt,CancellationToken ct)
     {
-        var cells=ImmutableArray.CreateBuilder<SeriesCell>();
-        var reads=new List<System.Text.Json.JsonElement>();
+        var cells=new IntervalData.Builder(minutes);
+        var metadata=await ReadShapeInto(connection,series,minutes,first,last,knownAt,cells,ct);
+        return(metadata,cells.Build());
+    }
+
+    internal static async Task<object> ReadShapeInto(NpgsqlConnection connection,Guid series,int minutes,
+        DateTimeOffset first,DateTimeOffset last,DateTimeOffset knownAt,IntervalData.Builder cells,CancellationToken ct)
+    {
+        var contexts=new HashSet<Guid>();string? code=null;int? head=null;
         foreach(var (from,to) in Chunks(first,last,TimeSpan.FromMinutes(minutes)*IntervalPrices.MaximumWindowIntervals))
         {
-            var read=await IntervalSeriesStore.Values(connection,series,from,to,knownAt,ct);reads.Add(read);
-            cells.AddRange(read.GetProperty("rows").EnumerateArray().Select(row=>
-                new SeriesCell(row.Instant("start"),row.Instant("end"),ExactDecimal.Parse(row.Text("value")),row.GetProperty("revision").GetInt32())));
+            var read=await IntervalSeriesStore.Values(connection,series,from,to,knownAt,ct);
+            contexts.Add(read.Id("contextId"));code??=read.GetProperty("series").Text("code");head??=read.GetProperty("head").GetInt32();
+            foreach(var row in read.GetProperty("rows").EnumerateArray())
+                cells.Add(row.Instant("start"),row.Instant("end"),ExactDecimal.Parse(row.Text("value")),row.GetProperty("revision").GetInt32());
         }
-        return (new {id=series,code=reads[0].GetProperty("series").Text("code"),knownAt,head=reads[0].GetProperty("head").GetInt32(),
-            knowledgeContextIds=reads.Select(r=>r.Id("contextId")).Distinct()},cells.ToImmutable());
+        return new {id=series,code,knownAt,head,knowledgeContextIds=contexts.ToArray()};
     }
 
     // The curve's interval contracts covering the window. The frame must select each one still live at its valuation

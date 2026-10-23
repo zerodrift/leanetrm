@@ -1,7 +1,8 @@
+import {mountIntervalDataWidget} from './interval-data-widget.js';
 import {renderRegularTable} from './regular-table.js';
 import {displayInstant,friendly,timeLabels} from './market-view.js';
 import {zonedInput} from './user-time.js';
-import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
+import {type ChartSpec} from './chart-view.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Block={curve:string;membership:string;touProduct:string|null;touVersion:number|null};
@@ -56,6 +57,7 @@ export function setupIntervalCurves(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement>(id),choice=(id:string)=>get<HTMLSelectElement>(id);
  const from=zonedInput(field('interval-curves-from'),o.zone,o.api),to=zonedInput(field('interval-curves-to'),o.zone,o.api),known=zonedInput(field('interval-curves-known'),o.zone,o.api);
+ const widget=mountIntervalDataWidget({table:get('interval-curves-values'),chart:get('interval-curves-chart'),key:'interval-curves-values',busy:o.busy});
  let catalog:Catalog|undefined,shown:{values:IntervalValues;scope:string;title:string;unit:string}|undefined,generation=0;
  const chosen=()=>catalog?.curves.find(c=>c.code===choice('interval-curves-select').value);
  const curve=()=>{const c=chosen();return c&&available(c)?c:undefined;};
@@ -64,7 +66,7 @@ export function setupIntervalCurves(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  const needsKnownAt=()=>curve()?.kind==='shaped'||resolving();
 
  function clearResults(){
-  shown=undefined;clearChart(get('interval-curves-chart'));
+  shown=undefined;widget.clear();
   for(const id of ['interval-curves-values','interval-curves-aggregates'])get(id).replaceChildren();
   for(const id of ['interval-curves-note','interval-curves-lineage'])get(id).textContent='';
  }
@@ -80,10 +82,9 @@ export function setupIntervalCurves(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   get('interval-curves-note').textContent=[`${count} ${count===1?'interval':'intervals'}`,values.knownAt?`known at ${displayInstant(values.knownAt,zone,true)}`:'',
    values.shapeSeries?`shape ${values.shapeSeries.code} through revision ${values.shapeSeries.head}`:'',
    values.points.some(p=>p.liveMarketRiskCoverage==='frozen_anchor_only')?'Frozen-anchor coverage includes missing live market-risk coverage':''].filter(Boolean).join(' · ');
-  renderChart(get('interval-curves-chart'),intervalChart(values,title,unit,zone));
   const lineage=(text:string)=>{get('interval-curves-lineage').textContent=text;};
-  renderRegularTable(get('interval-curves-values'),'interval-curves-values',scope,table.headers,table.rows,table.numeric,o.busy,
-   {noColumnFilter:[0,1,2],onRowActivate:i=>lineage(describePoint(values,i,table.rows[i][0],zone))});
+  widget.show({scope,title,caption:'Prices from the selected market inputs',headers:table.headers,rows:table.rows,numeric:table.numeric,
+   chart:intervalChart(values,title,unit,zone),noColumnFilter:[0,1,2],onRowActivate:i=>lineage(describePoint(values,i,table.rows[i][0],zone))});
   if(values.aggregates?.length){const aggregates=aggregateTable(values,zone);renderRegularTable(get('interval-curves-aggregates'),'interval-curves-aggregates',scope,
    aggregates.headers,aggregates.rows,aggregates.numeric,o.busy,{noColumnFilter:[0,1,2],onRowActivate:i=>lineage(describeAggregate(values,i,zone))});}
   else get('interval-curves-aggregates').replaceChildren();

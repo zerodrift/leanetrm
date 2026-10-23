@@ -84,19 +84,19 @@ public static class PowerHours
         var start=Midnight(from); var end=Midnight(to); var step=TimeSpan.FromMinutes(intervalMinutes);
         if((end-start).Ticks%step.Ticks!=0)
             throw new MarketDataException("power_clock","Clock transitions must align with the selected intervals.");
+        var grid=OpenEtrm.Shared.Temporal.UtcGrid.Uniform(start,end,step,int.MaxValue-1);
+        var selection=mask.Select(grid,clock,holidays);
         var closed=holidays.ToHashSet(); var intervals=new List<PowerInterval>();
         var occurrences=new Dictionary<(DateOnly,int,int),int>();
-        for(var at=start;at<end;at+=step)
+        for(int slot=0;slot<grid.Count;slot++)
         {
-            // Reject transitions cutting through a cell; never stretch a local label.
-            if(!IsCell(zone,at,step))
-                throw new MarketDataException("power_clock","A clock transition cuts through a selected interval.");
+            var at=grid.Start(slot);
             var local=TimeZoneInfo.ConvertTime(at,zone);
             var day=DateOnly.FromDateTime(local.DateTime);
             var key=(day,local.Hour,local.Minute);
             var occurrence=occurrences.GetValueOrDefault(key)+1;occurrences[key]=occurrence;
             var holiday=closed.Contains(day);
-            if(mask.Contains(local.DateTime,holiday))
+            if(selection.Contains(slot))
                 intervals.Add(new(at,at+step,day,local.Hour,local.Hour+1,local.Minute,(int)local.Offset.TotalMinutes,occurrence,holiday));
         }
         return intervals.ToArray();

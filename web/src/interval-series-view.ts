@@ -1,3 +1,4 @@
+import {mountIntervalDataWidget,intervalDataPoints} from './interval-data-widget.js';
 import {renderRegularTable} from './regular-table.js';
 import {displayInstant,friendly,timeLabels} from './market-view.js';
 import {zonedInput} from './user-time.js';
@@ -30,6 +31,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  const definition:Holder={path:'interval-series/define',pending:new PendingCommand(definiteRefusal),suffix:'.define',panel:'interval-series-define-pending',retry:'interval-series-define-retry',discard:'interval-series-define-discard',done:defined};
  const revision:Holder={path:'interval-series/revise',pending:new PendingCommand(definiteRefusal),suffix:'',panel:'interval-series-pending',retry:'interval-series-retry',discard:'interval-series-discard',done:revised};
  const holders=[definition,revision];
+ const widget=mountIntervalDataWidget({table:get('interval-series-values'),chart:get('interval-series-chart'),key:'interval-series-values',busy:o.busy});
  let catalog:Catalog|undefined,generation=0,latest:{seriesId:string;head:number}|undefined,shown:Shown|undefined,staged:Staged|undefined,chosen:Interval|undefined;
  const series=()=>catalog?.series.find(s=>s.id===choice('interval-series-select').value);
  const requireSeries=()=>{const selected=series();if(!selected)throw Error('Choose a series.');return selected;};
@@ -85,7 +87,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   sync();
  }
  function clearResults(){
-  shown=undefined;staged=undefined;chosen=undefined;get('interval-series-change-form').hidden=true;get('interval-series-selection').hidden=true;
+  widget.clear();shown=undefined;staged=undefined;chosen=undefined;get('interval-series-change-form').hidden=true;get('interval-series-selection').hidden=true;
   for(const id of ['interval-series-values','interval-series-revisions','interval-series-changes'])get(id).replaceChildren();
   get('interval-series-values-note').textContent='';
  }
@@ -103,9 +105,11 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   // Knowledge times show seconds, with an offset where a repeated clock makes two of them alike. A revision has one Known from, shared by its change rows.
   const known=timeLabels([reading.knownAt,...log.revisions.map(r=>r.knownFrom)],zone,true),knownFrom=new Map(log.revisions.map((r,i)=>[r.revision,known[i+1]]));
   get('interval-series-values-note').textContent=`${count} ${count===1?'interval has':'intervals have'} a value · latest revision ${reading.head} known at ${known[0]}${catalog?.canRevise&&!current?' · Reload to correct current values.':''}`;
-  renderRegularTable(get('interval-series-values'),'interval-series-values',scope,['Start','End','Value','Revision'],
-   reading.rows.map((r,i)=>[labels[i],labels[count+i],r.value,String(r.revision)]),[2,3],o.busy,
-   {noColumnFilter:[0,1,2],onRowActivate:editable?i=>chooseInterval({start:reading.rows[i].start,label:labels[i],value:reading.rows[i].value}):undefined});
+  const title=series()?.name??'Interval data',unit=friendly(series()?.specification??'');
+  widget.show({scope,title,caption:`${friendly(series()?.kind??'')} · ${unit}`,headers:['Start','End','Value','Revision'],
+   rows:reading.rows.map((r,i)=>[labels[i],labels[count+i],r.value,String(r.revision)]),numeric:[2,3],
+   chart:{title,axis:'delivery',axisName:'Delivery interval',unit,dense:true,series:[{name:title,points:intervalDataPoints(reading.rows,labels)}]},
+   noColumnFilter:[0,1,2],onRowActivate:editable?i=>chooseInterval({start:reading.rows[i].start,label:labels[i],value:reading.rows[i].value}):undefined});
   get('interval-series-selection').hidden=!editable;showChosen();
   renderRegularTable(get('interval-series-revisions'),'interval-series-revisions',scope,['Revision','Changed by','Reason','Known from','Intervals','In this window'],
    log.revisions.map((r,i)=>[String(r.revision),r.actor,r.reason,known[i+1],String(r.intervals),String(r.intervalsInWindow)]),[0,4,5],o.busy);

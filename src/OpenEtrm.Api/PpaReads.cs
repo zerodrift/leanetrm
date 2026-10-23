@@ -66,14 +66,14 @@ internal sealed class PpaReads
                 // A shared series is read for every declaring source's selected coverage.
                 var shared=bindings.Where(b=>b.Instrument.Memberships.Any(m=>m.Side.Terms.Quantity is VolumeQuantity q && q.Sources.Any(k=>sources.Any(s=>s.Key==k && (s.ForecastSeries==id || s.MeteredSeries==id)))));
                 spans=Union(shared.Select(b=>b.Coverage));
-                QuantitySeries? header=null;var cells=ImmutableArray.CreateBuilder<QuantityCell>();
+                QuantitySeries? header=null;var cells=new IntervalQuantityData.Builder(source.IntervalMinutes);
                 foreach(var span in spans)
                     foreach(var (from,to) in IntervalCurvesStore.Chunks(span.From,span.To,TimeSpan.FromMinutes(source.IntervalMinutes)*35_136))
                     {
                         ct.ThrowIfCancellationRequested();var read=await PpaQuantitiesStore.Series(connection,data,id,from,to,known,ct);header??=read;
-                        cells.AddRange(read.Cells);foreach(var cell in read.Cells)contexts.Add(cell.ContextId);
+                        cells.AddRange(read.Values);foreach(var cell in read.Values)contexts.Add(cell.ContextId);
                     }
-                series.Add(id,header! with {Cells=cells.ToImmutable()});
+                series.Add(id,header! with {Cells=[],Data=cells.Build()});
             }
         }
         var requested=new Dictionary<CurveKey,List<DeliveryCoverage>>();
@@ -105,7 +105,7 @@ internal sealed class PpaReads
         foreach(var (key,requestedSpans) in requested)
         {
             ct.ThrowIfCancellationRequested();var spans=Union(requestedSpans);PriceCurve curve;
-            ImmutableArray<SeriesCell> shape=[];var actuals=new List<IntervalActual>();
+            IReadOnlyList<SeriesCell> shape=[];var actuals=new List<IntervalActual>();
             var isShaped=IntervalCurveDefinitions.IsShaped(data,key.Code);
             var isMarked=IntervalCurveDefinitions.MarkedCodes(data).Contains(key.Code);
             if(isShaped || isMarked)
@@ -162,7 +162,7 @@ internal sealed class PpaReads
         }
         return new(inputs,market,discounts.ToImmutable(),[..contexts.Order()]);
     }
-    internal sealed record NativePriceRead(PriceCurve Curve,ImmutableArray<SeriesCell> Shape,IReadOnlyList<IntervalActual> Actuals,Guid SourceId,ImmutableArray<Guid> Contexts);
+    internal sealed record NativePriceRead(PriceCurve Curve,IReadOnlyList<SeriesCell> Shape,IReadOnlyList<IntervalActual> Actuals,Guid SourceId,ImmutableArray<Guid> Contexts);
     internal static async Task<NativePriceRead> ReadNativePrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         CurveKey key,ImmutableArray<DeliveryCoverage> spans,DateTimeOffset known,ImmutableArray<TouProductVersion> tou,
         ImmutableDictionary<ObservationKey,DateTimeOffset> frozen,CancellationToken ct)
@@ -170,7 +170,7 @@ internal sealed class PpaReads
         var isShaped=IntervalCurveDefinitions.IsShaped(data,key.Code);
         if(!isShaped && !IntervalCurveDefinitions.MarkedCodes(data).Contains(key.Code))
             throw new MarketDataException("settlement_index_evidence","The payment index requires a supported native interval curve.");
-        var snapshot=data.Snapshot(frame);PriceCurve curve;ImmutableArray<SeriesCell> shape=[];
+        var snapshot=data.Snapshot(frame);PriceCurve curve;IReadOnlyList<SeriesCell> shape=[];
         var actuals=new List<IntervalActual>();var contexts=new HashSet<Guid>();
         var (sourceId,rule)=await IntervalCurvesStore.ActualRule(connection,data,key.Code,isShaped,ct);
         var source=await PowerHistory.Source(connection,sourceId,ct);int minutes;string clock;
@@ -178,11 +178,11 @@ internal sealed class PpaReads
         {
             var shaped=IntervalCurveDefinitions.Shaped(data,key.Code,tou);minutes=shaped.Definition.Grid.IntervalMinutes;clock=shaped.ClockCode;
             curve=IntervalCurveDefinitions.PriceCurve(data,shaped,rule,snapshot) with {FrozenKnowledge=frozen};
-            var cells=ImmutableArray.CreateBuilder<SeriesCell>();
+            var cells=new IntervalData.Builder(minutes);
             var windows=spans.Select(s=>BlockShaping.ShapeWindow(shaped.Definition,s.From,s.To)).Select(w=>new DeliveryCoverage(w.Item1,w.Item2));
             foreach(var window in Union(windows))
-            {var read=await IntervalCurvesStore.ReadShape(connection,shaped.Definition.ShapeSeries,minutes,window.From,window.To,known,ct);cells.AddRange(read.Cells);}
-            shape=cells.ToImmutable();
+            await IntervalCurvesStore.ReadShapeInto(connection,shaped.Definition.ShapeSeries,minutes,window.From,window.To,known,cells,ct);
+            shape=cells.Build();
         }
         else
         {

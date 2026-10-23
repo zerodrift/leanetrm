@@ -14,7 +14,7 @@ public sealed record ShapedCurveDefinition(string Code,ShapeMethod Method,string
 }
 
 // One shape interval as the revision that last set it at the knowledge cutoff gives it.
-public sealed record SeriesCell(DateTimeOffset Start,DateTimeOffset End,ExactDecimal Value,int Revision);
+public readonly record struct SeriesCell(DateTimeOffset Start,DateTimeOffset End,ExactDecimal Value,int Revision);
 
 public sealed record ShapedIntervalPrice(DeliveryInterval Interval,ExactUnitPrice Price,CurveRequest Block,
     ImmutableHashSet<ObservationKey> Lineage,int ShapeRevision)
@@ -31,10 +31,10 @@ public sealed class ShapedInputs
     public DateTimeOffset From { get; }
     public DateTimeOffset To { get; }
     public ImmutableArray<CurveRequest> Dependencies => [..Blocks.Select(b=>b.Request)];
-    internal ImmutableArray<(CurveRequest Request,ImmutableArray<PowerInterval> Periods,ImmutableArray<SeriesCell> Cells)> Blocks { get; }
+    internal ImmutableArray<(CurveRequest Request,ImmutableArray<PowerInterval> Periods,IntervalSelection Cells)> Blocks { get; }
     internal ImmutableDictionary<DateTimeOffset,CurveRequest>? SelectedAnchors { get; init; }
     internal ShapedInputs(ShapedCurveDefinition definition,DateTimeOffset from,DateTimeOffset to,
-        ImmutableArray<(CurveRequest,ImmutableArray<PowerInterval>,ImmutableArray<SeriesCell>)> blocks)
+        ImmutableArray<(CurveRequest,ImmutableArray<PowerInterval>,IntervalSelection)> blocks)
     {
         Definition=definition;From=from;To=to;Blocks=blocks;
     }
@@ -55,11 +55,11 @@ public sealed class ShapedCurveBuild
 }
 
 // A whole block's prices and the pinned inputs that produced them.
-internal sealed record CalibratedBlock(UnitPrice Mark,ImmutableHashSet<ObservationKey> Lineage,ImmutableArray<SeriesCell> Cells,
+internal sealed record CalibratedBlock(UnitPrice Mark,ImmutableHashSet<ObservationKey> Lineage,IntervalSelection Cells,
     ImmutableArray<ShapedIntervalPrice> Prices)
 {
-    public bool Matches(BuiltValue mark,ImmutableArray<SeriesCell> cells)=>
-        Mark==mark.Price && Lineage.SetEquals(mark.Lineage) && Cells.SequenceEqual(cells);
+    public bool Matches(BuiltValue mark,IntervalSelection cells)=>
+        Mark==mark.Price && Lineage.SetEquals(mark.Lineage) && Cells.SameValues(cells);
 }
 
 public static class BlockShaping
@@ -72,6 +72,7 @@ public static class BlockShaping
     {
         ArgumentNullException.ThrowIfNull(mark);ArgumentNullException.ThrowIfNull(cells);
         if(cells.Count==0)throw new MarketDataException("interval_block","A block needs at least one interval.");
+        if(cells is IntervalSelection selected)return CalibrateSelected(method,mark,selected);
         var scale=ExactDecimal.WorkingScale;
         var (mean,divisor)=DurationWeights.Mean([..cells.Select(c=>(c.End-c.Start,c.Value.ScaledValue,scale))]);
         var m=mark.Value.ScaledValue;
@@ -82,6 +83,23 @@ public static class BlockShaping
             ShapeMethod.Multiplicative=>throw new MarketDataException("interval_shape","Multiplicative factors need a positive duration-weighted mean."),
             _=>throw UnknownMethod()
         };
+    }
+
+    private static ImmutableArray<ExactUnitPrice> CalibrateSelected(ShapeMethod method,UnitPrice mark,IntervalSelection cells)
+    {
+        var sum=cells.SumScaled();var scale=ExactDecimal.WorkingScale;var count=cells.Count;var m=mark.Value.ScaledValue;
+        if(method==ShapeMethod.Multiplicative && sum<=0)
+            throw new MarketDataException("interval_shape","Multiplicative factors need a positive duration-weighted mean.");
+        if(!Enum.IsDefined(method))throw UnknownMethod();
+        var result=ImmutableArray.CreateBuilder<ExactUnitPrice>(count);
+        for(int i=0;i<count;i++)
+        {
+            var value=cells.Scaled(i);
+            result.Add(method==ShapeMethod.Additive
+                ?ExactUnitPrice.FromFraction((m+value)*count-sum,scale*count,mark.Unit)
+                :ExactUnitPrice.FromFraction(m*value*count,scale*sum,mark.Unit));
+        }
+        return result.MoveToImmutable();
     }
 
     // The span a shape read must cover: the whole delivery period of every block constituent the window overlaps.
@@ -106,9 +124,8 @@ public static class BlockShaping
         var step=TimeSpan.FromMinutes(definition.Grid.IntervalMinutes);
         for(var at=from;at<to;at+=step)
             if(!owners.TryGetValue(at,out var owned) || owned.End!=at+step)throw Unpartitioned();
-        var cells=IntervalAlignment.Align(owners.Values.ToArray(),shape,c=>c.Start,c=>c.End,"interval_shape_coverage",
-            "Shape intervals must have distinct exact UTC boundaries.","Every block interval needs a shape value with its exact boundaries.");
-        return new(definition,from,to,[..selected.Select(b=>(b.Request,b.Periods,b.Periods.Select(p=>cells[p.Start]).ToImmutableArray()))]);
+        var cells=IntervalData.From(shape,definition.Grid.IntervalMinutes);
+        return new(definition,from,to,[..selected.Select(b=>(b.Request,b.Periods,new IntervalSelection(cells,b.Periods)))]);
     }
 
     // Selected anchors can overlap in calendar coverage. Each still calibrates its whole product period;
@@ -123,10 +140,8 @@ public static class BlockShaping
                 (Request:new CurveRequest(b.Block.Curve,b.Contract.Key),Periods:IntervalBlocks.Compile(definition.Grid,b.Block,b.Contract))).ToArray();
         if(blocks.Select(b=>b.Request).Distinct().Count()!=requests.Count || blocks.Length!=requests.Count)
             throw new MarketDataException("interval_anchor_missing","Every selected anchor must name one declared block constituent.");
-        var periods=blocks.SelectMany(b=>b.Periods).DistinctBy(p=>p.Start).ToArray();
-        var cells=IntervalAlignment.Align(periods,shape,c=>c.Start,c=>c.End,"interval_shape_coverage",
-            "Shape intervals must have distinct exact UTC boundaries.","Every selected anchor needs its complete shape period.");
-        return new(definition,from,to,[..blocks.Select(b=>(b.Request,b.Periods,b.Periods.Select(p=>cells[p.Start]).ToImmutableArray()))])
+        var cells=IntervalData.From(shape,definition.Grid.IntervalMinutes);
+        return new(definition,from,to,[..blocks.Select(b=>(b.Request,b.Periods,new IntervalSelection(cells,b.Periods)))])
             {SelectedAnchors=selected};
     }
 
@@ -148,7 +163,7 @@ public static class BlockShaping
             }
             var prices=Calibrate(inputs.Definition.Method,mark.Price,cells);
             results.Add(request,new(mark.Price,mark.Lineage,cells,
-                [..periods.Select((p,i)=>new ShapedIntervalPrice(p.Delivery,prices[i],request,mark.Lineage,cells[i].Revision))]));
+                [..periods.Select((p,i)=>new ShapedIntervalPrice(p.Delivery,prices[i],request,mark.Lineage,cells.Revision(i)))]));
         }
         var window=results.Values.SelectMany(b=>b.Prices).Where(p=>p.Start>=inputs.From && p.End<=inputs.To &&
             (inputs.SelectedAnchors is null || inputs.SelectedAnchors.TryGetValue(p.Start,out var selected) && selected==p.Block)).OrderBy(p=>p.Start).ToImmutableArray();

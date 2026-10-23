@@ -19,8 +19,15 @@ public sealed record MeterDeadline(string Version,int OffsetMinutes);
 public sealed record VolumeSourceDefinition(VolumeSourceKey Key,AssetKey Asset,Guid ForecastSeries,QuantityStage ForecastStage,
     Guid MeteredSeries,QuantityStage MeteredStage,ExactDecimal Loss,ForecastAdjustment Availability,ForecastAdjustment Curtailment,
     Degradation? Degradation,bool DegradationReflected,VolumeRange Range,ReferenceKey Clock,int IntervalMinutes,MeterDeadline MeterDue);
-public sealed record QuantityCell(DateTimeOffset Start,DateTimeOffset End,ExactDecimal Value,int Revision,DateTimeOffset KnownAt,Guid ContextId);
-public sealed record QuantitySeries(Guid Id,string Kind,ReferenceKey Clock,int IntervalMinutes,ReferenceKey? Quantity,ImmutableArray<QuantityCell> Cells);
+public readonly record struct QuantityCell(DateTimeOffset Start,DateTimeOffset End,ExactDecimal Value,int Revision,DateTimeOffset KnownAt,Guid ContextId);
+public sealed record QuantitySeries(Guid Id,string Kind,ReferenceKey Clock,int IntervalMinutes,ReferenceKey? Quantity,ImmutableArray<QuantityCell> Cells)
+{
+    public IntervalQuantityData? Data { get; init; }
+    public IReadOnlyList<QuantityCell> Values=>Data is {} data
+        ?Cells.IsDefaultOrEmpty && data.Values.IntervalMinutes==IntervalMinutes?data
+            :throw new MarketDataException("volume_source","Supply one interval representation with the declared resolution.")
+        :Cells;
+}
 public sealed record VolumeContext(DefinitionRevision Definitions,ReferenceRevision Reference,DateTimeOffset ValuationAt,
     DateTimeOffset KnownAt,PendingActualsPolicy Policy);
 public sealed record AssetVolume(DeliveryInterval Interval,ExactQuantity Energy,VolumeState State,AssetKey Asset,VolumeSourceKey Source,
