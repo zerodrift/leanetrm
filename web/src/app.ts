@@ -62,7 +62,8 @@ const canCorrect=()=>can('ImportObservations')&&!historicalContext();
 let prefs:Preferences=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);
 let marketDateGeneration=0,marketDatesLoaded=false;
 // The workspace's newest close (D213): the last availability read for the whole workspace, the newest date it had when
-// the close now shown was selected, whether a newer-close check is due and whether one is running.
+// the close now shown was selected, whether a newer-close check is due and whether one is running, and the close the page
+// shows, which the As of select is on at every moment: a close that has been chosen is applied only once the person agrees.
 let workspaceCloses:MarketDates|undefined,closeBasis:{close:string;newest:string}|undefined,closeCheckDue=false,checkingCloses=false,shownClose='',sessionEnded=false;
 const data=()=>{if(!workspace)throw Error('Market data is still loading.');return workspace;};
 const directory=()=>{if(!navigation)throw Error('Market navigation is still loading.');return navigation;};
@@ -133,8 +134,16 @@ async function mayLeave(modal?:HTMLDialogElement){
   if(modal?.open&&futures.editing())modal.close();
   return futures.leave();
 }
-// Runs `work` as an action, once the person has agreed to leave what the Blotter holds; `kept` hears that they did not.
-function leaving(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy)return;if(await mayLeave())await act(work);else kept?.();})();}
+// What the profile dialog does gives up what the Blotter holds, which is asked about with the dialog closed, for a modal dialog keeps the panel, and
+// the question, out of reach. Keeping the amendment leaves the dialog closed and nothing done, which is said, for a closed dialog looks like a done one.
+async function mayLeaveForDialog(notDone:string){
+  if(busy)return false;
+  if(await mayLeave($<HTMLDialogElement>('profile-dialog')))return true;
+  notice(`${notDone}, because you kept the amendment you were editing.`);
+  return false;
+}
+// Runs `work` as an action, once the person has agreed to leave what the Blotter holds.
+function leaving(work:()=>Promise<void>){void (async()=>{if(busy)return;if(await mayLeave())await act(work);})();}
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][]){
@@ -162,6 +171,9 @@ async function setPage(next:string){
   $('curve-price-navigation').hidden=!['market','interval-curves'].includes(next);
   $('curve-price-contracts').setAttribute('aria-pressed',String(next==='market'));
   $('nav-interval-curves').setAttribute('aria-pressed',String(next==='interval-curves'));
+  // The Blotter is left on the person's word, whichever route took them, so no form of its panel stays held, with edits that the browser would be asked
+  // about and that nothing can return to: the Blotter is read afresh when they come back to it.
+  if(page==='futures'&&next!=='futures')futures.dropForms();
   page=next;$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures';$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=!showsDate(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
   text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Custom curves':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
   for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','futures','ppa','parties','jobs'])$('nav-'+name).classList.toggle('active',next===name||(name==='market'&&next==='interval-curves'));
@@ -262,7 +274,7 @@ async function recheckNewestClose(){
 // whoever selected the close. A historical or unapplied view has no newest close to claim, and a workspace without closes
 // has nothing to compare.
 function renderCloseBadge(){
- const closes=workspaceCloses,shown=select('snapshot').value,newest=closes?newestDate(closes):null;
+ const closes=workspaceCloses,shown=shownClose,newest=closes?newestDate(closes):null;
  if(newest&&closeBasis?.close!==shown)closeBasis={close:shown,newest};
  marketCalendar.badge(closes&&newest&&closeBasis&&!contextDirty&&!historicalContext()?closeBadge(shown,closeBasis.newest,closes):null);
 }
@@ -548,7 +560,7 @@ async function profileAction(control:HTMLElement,work:()=>Promise<void>){
 }
 $('profile-dialog').addEventListener('close',()=>profileError());
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
-$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(busy||!await mayLeave($<HTMLDialogElement>('profile-dialog')))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeBasis=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];persist();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});})();};
+$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(!await mayLeaveForDialog('Your preferences were not saved'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeBasis=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];persist();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});})();};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
   hostedPilot=mode==='hosted-pilot';
@@ -559,7 +571,7 @@ function setHostMode(mode:string){
 const bootstrapPath='bootstrap?includeFrames=false';
 const startupBootstrapPath=bootstrapPath+'&includeAccess=true';
 async function profileChoices(initial?:ProfileChoices){const boot=initial??await api<ProfileChoices>(bootstrapPath);setHostMode(boot.mode);$('preview-access').hidden=hostedPilot;$('sign-out').hidden=!hostedPilot;choose('profile',[...boot.profiles,...boot.customProfiles.filter(p=>!boot.profiles.some(base=>base.id===p.id))].map(p=>({value:p.id,name:p.name})),currentProfile);const name=select('profile').selectedOptions[0]?.textContent??'Current user';text('profile-label',name);text('profile-avatar',name.slice(0,1));text('profile-title',name);text('profile-access','Current permissions: '+(permissions.length?permissions.map(p=>friendly(p.replace(/([a-z])([A-Z])/g,'$1 $2'))).join(', '):'No workspace access'));$('profile-open').setAttribute('aria-label','Profile · '+name);}
-$('sign-out').onclick=()=>void (async()=>{if(busy||!await mayLeave($<HTMLDialogElement>('profile-dialog')))return;await act(async()=>{await api('logout',{});location.assign('/auth');});})();
+$('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were not signed out'))return;await act(async()=>{await api('logout',{});location.assign('/auth');});})();
 async function loadIdentity(initialAccess?:unknown){
   $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('no-access-page').hidden=true;
@@ -590,7 +602,7 @@ async function loadIdentity(initialAccess?:unknown){
   }
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
 }
-$('open').onclick=()=>void (async()=>{if(busy||!await mayLeave($<HTMLDialogElement>('profile-dialog')))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
+$('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
 function closeChanged(){
   shownClose=select('snapshot').value;closeBasis=undefined;
@@ -600,7 +612,14 @@ async function loadSelectedClose(){
   if(!select('snapshot').value)return;
   if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'&&curve)await build();
 }
-$('snapshot').onchange=()=>leaving(async()=>{closeChanged();await loadSelectedClose();},()=>{select('snapshot').value=shownClose;});
+// A close the person chooses waits for them to agree to what choosing it gives up. The hidden select that every read and command takes its close from
+// stays on the close the page shows until they do, so that nothing made while the question is open uses a close they have not confirmed, and keeping
+// the amendment has nothing to put back. The calendar chooses through here, and so does anything that stands in for it with a change event.
+function chooseClose(id:string){
+  select('snapshot').value=shownClose;
+  leaving(async()=>{select('snapshot').value=id;closeChanged();await loadSelectedClose();});
+}
+$('snapshot').onchange=()=>chooseClose(select('snapshot').value);
 $('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await build();});
 $('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').onchange=()=>void act(async()=>updateFilters());
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];updateFilters();}));
@@ -652,7 +671,7 @@ const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScop
 const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  zone:()=>prefs.timeZone,busy:()=>busy,enabled:()=>!!navigation&&can('ReadMarketData')&&!contextDirty,
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
- open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose),select:id=>{select('snapshot').value=id;select('snapshot').dispatchEvent(new Event('change',{bubbles:true}));}
+ open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose),select:chooseClose
 });
 const deliveryPrices=setupPowerImports({api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});

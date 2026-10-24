@@ -48,6 +48,17 @@ test('a future\'s revisions each state their price in the unit of their own cont
  assert.deepEqual(prices(tradeHistory(moved,'UTC',formats)),['p:2.95 USD/MMBtu (IT)','p:41.5 · unit unavailable: the contract of this revision is not in the catalog'],'a contract the catalog does not hold leaves the unit unstated, never assumed');
 });
 
+test('a revision of the position\'s own contract is written in the position\'s unit, though the catalog no longer holds the contract',()=>{
+ const expired=clone(details.future);
+ expired.catalog.contracts=[];
+ expired.history.push({...clone(details.future.history[0]),revision:2,kind:'amended',executionPrice:'2.975'});
+ const prices=sections=>sections.map(section=>Object.fromEntries(section.rows)['Execution price']);
+ assert.deepEqual(prices(tradeHistory(expired,'UTC',formats,unit)),['p:2.95 USD/MMBtu (IT)','p:2.975 USD/MMBtu (IT)'],'a contract not yet eligible, or expired, is not in the editor\'s catalog, and Terms states its unit all the same');
+ expired.history.push({...clone(details.future.history[0]),revision:3,kind:'amended',curve:'other_future',contractId:'50000000-0000-0000-0000-0000000000b2',executionPrice:'41.5'});
+ assert.deepEqual(prices(tradeHistory(expired,'UTC',formats,unit)).at(-1),'p:41.5 · unit unavailable: the contract of this revision is not in the catalog','another contract the catalog does not hold is still said to have no unit, and is not given the position\'s');
+ assert.deepEqual(prices(tradeHistory(expired,'UTC',formats)).slice(0,2),['p:2.95 · unit unavailable: the contract of this revision is not in the catalog','p:2.975 · unit unavailable: the contract of this revision is not in the catalog'],'with no position\'s unit, the catalog is all there is');
+});
+
 test('a revision of a book the catalog no longer holds says so, and an hour the clock repeats is told apart',()=>{
  const gone=clone(details.future);gone.catalog.books=[];
  assert.equal(Object.fromEntries(tradeHistory(gone,'UTC',formats)[0].rows).Book,'Unavailable book');
@@ -62,7 +73,7 @@ test('a revision of a book the catalog no longer holds says so, and an hour the 
 test('the view of a future joins its terms and revisions, and its amendment state is its own',()=>{
  const view=tradeDetailView(details.future,'UTC',formats,unit);
  assert.deepEqual(Object.keys(view),['terms','history']);
- assert.deepEqual(view.terms,tradeTerms(details.future,'UTC',formats,unit));assert.deepEqual(view.history,tradeHistory(details.future,'UTC',formats));
+ assert.deepEqual(view.terms,tradeTerms(details.future,'UTC',formats,unit));assert.deepEqual(view.history,tradeHistory(details.future,'UTC',formats,unit));
  assert.deepEqual(tradeAmendState(details.future),{allowed:true,reason:null});
  const locked={...details.future,canAmend:false,amendUnavailableReason:'Settlement has been processed.'};
  assert.deepEqual(tradeAmendState(locked),{allowed:false,reason:'Settlement has been processed.'});

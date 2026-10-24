@@ -435,8 +435,9 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await click('#trade-contract-date');
   await evaluate("document.querySelector('#trade-contract-date').focus()");await press('Escape','Escape',27);
   await check('Escape inside a calendar closes only the calendar: the panel and its form stay open',`!document.querySelector('#trade-contract-date').parentElement.open&&!${panel}.hidden&&${editing}&&${prompt}.hidden`);
+  const editorReadsBeforeReload=await evaluate(editorReads);
   await click('#trade-reload');await wait(idle);
-  await check('Reload latest revision reloads a form with no edits without a question',`${prompt}.hidden&&${editing}`);
+  await check('Reload latest revision reloads a form with no edits without a question: the editor is read again, and nothing is asked',`${prompt}.hidden&&${editing}&&${editorReads}>${editorReadsBeforeReload}`,`[${prompt}.textContent,${editorReads},${editorReadsBeforeReload}]`);
   await amend(0,refA);await typeInto('#trade-lots','17');
   await click('#side-panel-tabs-curve');await evaluate("document.querySelector('#side-panel-tabs-curve').focus()");await press('ArrowRight','ArrowRight',39);
   await check('arrow keys travelling to Terms leave focus on the tab, and the form keeps what it held',`document.activeElement.id==='side-panel-tabs-terms'&&!document.querySelector('#side-panel-form').hidden&&document.querySelector('#trade-lots').value==='17'`,`[document.activeElement.id,document.querySelector('#trade-lots').value]`);
@@ -468,7 +469,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await savePreferences();await asks();
   await check('Save preferences asks before it reads the Blotter again over a form with edits, and the dialog has made way for the question',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#profile-dialog').open&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforePreferences}`,`[${prompt}.textContent,document.querySelector('#profile-dialog').open,${workspaceReads},${readsBeforePreferences}]`);
   await answer(0);
-  await check('keeping the edits saves nothing and leaves the form',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforePreferences}`);
+  await check('keeping the edits saves nothing, says so, and leaves the form',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforePreferences}&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes('Your preferences were not saved')`,`[document.querySelector('#notice').hidden,document.querySelector('#notice').textContent]`);
   await savePreferences();await asks();await answer(1);await wait(`${redrawn(idle)}&&${workspaceReads}>${readsBeforePreferences}`);
   await check('and agreeing saves them: the Blotter is read again, and the form is given up',`${workspaceReads}>${readsBeforePreferences}&&document.querySelector('#trade-editing').hidden&&!document.querySelector('#profile-dialog').open`);
   // A newer close arriving while a form is open is offered, and taking it asks first. The calendar's newest date is held back until the window is
@@ -478,8 +479,29 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     return response;};})()`);
   await evaluate('window.__hideNewestDate=true');await persona('trader');await wait(redrawn(idle));
   const olderClose=await evaluate("document.querySelector('#snapshot').value");
+  // A close chosen in the calendar waits for the person to agree to what choosing it gives up. Until they do, the control that every read and command
+  // takes its close from, the calendar and the badge stay on the close the Blotter shows, and so does what the form sends while the question is open.
+  await evaluate(`(()=>{const send=window.fetch;window.__snapshotsSent=[];window.fetch=async(input,init)=>{const path=typeof input==='string'?input:input.url;try{const body=JSON.parse(init?.body??'null');if(body?.snapshotId)window.__snapshotsSent.push([path,body.snapshotId]);}catch{}return send(input,init);};})()`);
+  const closeLabel="document.querySelector('#market-date-open').textContent",labelBefore=await evaluate(closeLabel);
+  const chosenClose=closes.find(close=>close!==olderClose&&close!==closeNow);
+  const chosenDate=await evaluate(`window.__futuresResponses.filter(r=>r.path==='/api/market/dates').at(-1).data.dates.find(group=>group.frames.some(frame=>frame.id===${JSON.stringify(chosenClose)})).date`);
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  const readsBeforeChoice=await evaluate(workspaceReads);
+  await click('#market-date-open');await click(`#market-date-grid button[data-date="${chosenDate}"]`);await asks();
+  await check('a close chosen in the calendar asks before it is applied, and the control, the calendar and the Blotter are on the close they showed while it does',`${prompt}.querySelectorAll('button').length===2&&document.querySelector('#snapshot').value===${JSON.stringify(olderClose)}&&${closeLabel}===${JSON.stringify(labelBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforeChoice}`,`[${prompt}.textContent,document.querySelector('#snapshot').value,${JSON.stringify(olderClose)},${closeLabel},${JSON.stringify(labelBefore)},${workspaceReads},${readsBeforeChoice}]`);
+  await typeInto('#trade-reason','Synthetic close question');
+  await evaluate("document.querySelector('#trade-amend-form').requestSubmit()");await wait(idle);
+  await check('what the form sends while the question is open is sent at the close the Blotter shows, and not at the one waiting to be agreed to',`window.__snapshotsSent.some(([path])=>path==='/api/futures/amend-preview')&&window.__snapshotsSent.every(([,id])=>id===${JSON.stringify(olderClose)})`,'JSON.stringify(window.__snapshotsSent)');
   await evaluate("window.__hideNewestDate=false;window.dispatchEvent(new Event('focus'))");
   await wait("!!document.querySelector('#market-date-badge button')");
+  await check('a newer close found while the question is open is offered against the close the Blotter shows, and not against the one waiting to be agreed to',`!!document.querySelector('#market-date-badge button')&&document.querySelector('#snapshot').value===${JSON.stringify(olderClose)}`,`[document.querySelector('#market-date-badge').textContent,document.querySelector('#snapshot').value]`);
+  await answer(0);
+  await check('and keeping the amendment leaves the control, the calendar, the Blotter and the offer as they were',`document.querySelector('#snapshot').value===${JSON.stringify(olderClose)}&&${closeLabel}===${JSON.stringify(labelBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforeChoice}&&!!document.querySelector('#market-date-badge button')`,`[document.querySelector('#snapshot').value,${closeLabel},${workspaceReads},${readsBeforeChoice},document.querySelector('#market-date-badge').textContent]`);
+  // The offer is judged by the close the Blotter shows, so the next check of the calendar still finds it due.
+  const dateReads="window.__futuresResponses.filter(r=>r.path==='/api/market/dates').length",dateReadsBefore=await evaluate(dateReads);
+  await evaluate("window.dispatchEvent(new Event('focus'))");
+  await wait(`${dateReads}>${dateReadsBefore}`);await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+  await check('and the next check of the calendar still finds the newer close due: the offer is judged by the close the Blotter shows',`!!document.querySelector('#market-date-badge button')&&document.querySelector('#snapshot').value===${JSON.stringify(olderClose)}`,`[document.querySelector('#market-date-badge').textContent,document.querySelector('#snapshot').value]`);
   await amend(1,refB);await typeInto('#trade-lots','5');
   await click('#market-date-badge button');await asks();
   await check('Newer close available asks before it changes the close, and the close is the one it was',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#snapshot').value===${JSON.stringify(olderClose)}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#snapshot').value,${JSON.stringify(olderClose)}]`);
@@ -494,7 +516,12 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await click('#profile-open');await set('#profile','risk');await click('#open');await asks();
   await check('switching to another user asks before it discards a form with edits, and the dialog has made way for the question',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#profile-dialog').open&&${userName}===${JSON.stringify(userBefore)}&&${editing}&&${profileCalls}===${profilesBefore}`,`[${prompt}.textContent,${userName},${profileCalls},${profilesBefore}]`);
   await answer(0);
-  await check('keeping the edits leaves the user and the form as they were',`${userName}===${JSON.stringify(userBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${profileCalls}===${profilesBefore}`);
+  await check('keeping the edits leaves the user and the form as they were, and says that the user was not switched',`${userName}===${JSON.stringify(userBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${profileCalls}===${profilesBefore}&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes('The user was not switched')`,`[document.querySelector('#notice').hidden,document.querySelector('#notice').textContent]`);
+  // Sign out, which the preview hides, asks the same way: its button answers a click as any other does.
+  await click('#profile-open');await evaluate("document.querySelector('#sign-out').click()");await asks();
+  await check('signing out asks before it ends the session over a form with edits, and the dialog has made way for the question',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#profile-dialog').open&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#profile-dialog').open]`);
+  await answer(0);
+  await check('keeping the edits ends nothing, says that nobody was signed out, and leaves the form',`${editing}&&document.querySelector('#trade-lots').value==='5'&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes('You were not signed out')&&location.pathname!=='/auth'`,`[document.querySelector('#notice').textContent,location.pathname]`);
   await click('#profile-open');await set('#profile','risk');await click('#open');await asks();await answer(1);await wait(idle);
   await check('and agreeing switches to the other user and gives the form up',`${userName}!==${JSON.stringify(userBefore)}&&${profileCalls}>${profilesBefore}&&document.querySelector('#trade-editing').hidden`,`[${userName},${profileCalls},${profilesBefore}]`);
   await persona('trader');await wait(redrawn(idle));

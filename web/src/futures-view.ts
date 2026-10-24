@@ -159,9 +159,11 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(sameMode(panel.current(),newSwap))panel.form(true);
     });
   }
+  // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
+  function dropForms(){editor.reset();swapEditor.reset();options.reported();}
   // Asks whether to give up what the panel holds unsaved, when it holds any, and closes its form once the person agrees: false means they
   // kept it. The panel asks for a switch of its own mode; this is the question every other way out of the form asks too.
-  async function leave(){if(!await panel.leave())return false;editor.reset();swapEditor.reset();options.reported();return true;}
+  async function leave(){if(!await panel.leave())return false;dropForms();return true;}
   // An action of the person's that gives the panel's form up, by reading the Blotter again, which closes the panel, or by leaving it,
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
   // control disabled. `kept` hears that the person kept them, for a control that has already changed.
@@ -567,6 +569,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]}}),
     // A booking or editor with edits not yet sent, or a trade request or risk job whose outcome is unconfirmed.
     unsaved:()=>!!pending.command||!get('futures-booking').hidden&&bookingEdits.edited()||editing()||risk.unconfirmed(),
-    // Whether the panel holds an amendment with edits, and the question asked before it is given up: false means the person kept it.
-    editing,leave};
+    // Whether the panel holds an amendment with edits, and the question asked before it is given up: false means the person kept it. The forms
+    // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
+    editing,leave,dropForms};
 }

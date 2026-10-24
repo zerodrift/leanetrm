@@ -17,14 +17,17 @@ export const readTradeDetail=(api:Api,context:Record<string,unknown>,tradeId:str
 /**
  * The revisions of a trade as the History tab lists them: each with the instrument it was of, when it took effect and was recorded,
  * and its facts, its numbers written as Terms writes them and its price in the unit of that revision's own contract. An amendment can
- * move a trade to another curve of the same currency, so the position's unit is not every revision's; a contract the catalog does not
- * hold leaves the unit unstated, which is said, never assumed.
+ * move a trade to another curve of the same currency, so the position's unit is not every revision's: `positionUnit` is the unit of
+ * the contract the position is of, which is that of `detail.state`, and it is the unit of every revision of that contract, whether or
+ * not the editor's catalog holds it (it does not hold one that is not yet eligible, or has expired). Any other revision takes its
+ * contract's unit from the catalog, and a contract the catalog does not hold leaves the unit unstated, which is said, never assumed.
  */
-export function tradeHistory(detail:Detail,zone:string,formats:HoldingFormats):TermSection[]{
- const books=detail.catalog.books,labels=timeLabels(detail.history.flatMap(h=>[h.effectiveAt,h.recordedAt]),zone);
+export function tradeHistory(detail:Detail,zone:string,formats:HoldingFormats,positionUnit?:string):TermSection[]{
+ const books=detail.catalog.books,labels=timeLabels(detail.history.flatMap(h=>[h.effectiveAt,h.recordedAt]),zone),own=detail.state;
  const price=(h:TradeState)=>{
   const contract=detail.catalog.contracts.find(c=>futuresContractKey(c)===JSON.stringify([h.curve,h.contractId]));
-  return `${minus(formats.price(h.executionPrice))} ${contract?priceUnit(contract):'· unit unavailable: the contract of this revision is not in the catalog'}`;
+  const unit=positionUnit!==undefined&&h.curve===own.curve&&h.contractId===own.contractId?positionUnit:contract?priceUnit(contract):undefined;
+  return `${minus(formats.price(h.executionPrice))} ${unit??'· unit unavailable: the contract of this revision is not in the catalog'}`;
  };
  return detail.history.map((h,i)=>({title:`Revision ${h.revision} · ${h.kind==='booked'?'Booked':'Amended'}`,
   rows:[['Effective',labels[2*i]],['Recorded',labels[2*i+1]],['Book',books.find(b=>b.id===h.bookId)?.name??'Unavailable book'],['Instrument',h.instrumentReference],['Lots',minus(h.lots)],['Execution price',price(h)],...historyBooking(h),['Reason',h.reason]]}));
@@ -42,7 +45,7 @@ export function tradeTerms(detail:Detail,zone:string,formats:HoldingFormats,unit
  ];
 }
 /** What the position panel's Terms and History tabs show of a trade revision: the same read the editor makes. */
-export const tradeDetailView=(detail:Detail,zone:string,formats:HoldingFormats,unit:string):DetailView=>({terms:tradeTerms(detail,zone,formats,unit),history:tradeHistory(detail,zone,formats)});
+export const tradeDetailView=(detail:Detail,zone:string,formats:HoldingFormats,unit:string):DetailView=>({terms:tradeTerms(detail,zone,formats,unit),history:tradeHistory(detail,zone,formats,unit)});
 export const tradeAmendState=(detail:Detail):AmendState=>detail.canAmend?{allowed:true,reason:null}:{allowed:false,reason:detail.amendUnavailableReason??'Read-only trade revision'};
 /** A trade's other bindings are other positions: an editor read must hold the binding of the position it is read for. */
 export function holdsBinding(detail:Detail,h:Pick<Holding,'bindingId'>){

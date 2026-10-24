@@ -184,6 +184,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('a live target that would leave an amendment with unsaved edits does not move the page: its notice says so and offers Go anyway',
     `${q('#page-title')}.textContent==='Blotter'&&!${q('#side-panel')}.hidden&&!${q('#trade-editing')}.hidden&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'&&${asks}.at(-1).body.pageReport.selection.view==='trade'`,`${notice}?.textContent`);
   await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules'&&${idle}`);
+  // The edits were given up on the person's word, so the form holds nothing to return to, and the browser is asked nothing when the page is left.
+  await check('once the page has gone on the person\'s word, the form holds nothing and the browser is asked nothing when the page is left',
+    `${q('#trade-editing')}.hidden&&!(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()`,`[${q('#trade-editing')}.hidden]`);
   await press('Back');await wait(`${q('#page-title')}.textContent==='Blotter'&&!${q('#side-panel')}.hidden&&${idle}`);
   await check('Back opens the trade again in the panel, on its Terms and without the edits that were given up',
     `${q('#side-panel-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}&&${q('#side-panel-tabs-terms')}.getAttribute('aria-selected')==='true'&&${q('#trade-editing')}.hidden&&JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision ${revision}`]))}`,looking);

@@ -354,29 +354,37 @@ marks the form edited itself, and Escape inside a calendar closes only the calen
 question is asked before the panel is closed, before its form is closed, before another revision
 replaces the form's, and before every other way out of the form inside the page: a new read of the
 Blotter, which closes the panel, Save preferences included; a move to another page (the sidebar,
-including its own Blotter, Open curve, and New trade for a PPA); another As of date; another
-context, a live selection or Current inputs; another user or signing out; another market example in
-the sidebar, which loads another page; and the header's time controls, which clear the Blotter as
-they are changed: opening them asks, and so do a change of their date or knowledge time and Use
-current knowledge once they are open. A dialog that is open keeps the panel, and the question, out
-of reach, so the profile dialog is closed for the question. The page asks before it is busy, so the
-buttons of the question stay enabled, and what reaches the page while it is busy is not done: the
-time controls stay closed, a change in them is put back, and Use current knowledge does not run.
-Escape or Keep editing leaves everything as it was, and puts back what the person had changed: an As
-of date goes back to the close the Blotter shows, whichever way that close was selected, the time
-controls' date and knowledge time go back exactly, and the sidebar's example select goes back to the
-example the page is. A reload, closing the tab and going back leave the page without the panel's
-question, so the browser asks (`beforeunload`) while the panel holds an amendment with edits: the
-listener is on from the first edit and off once the edits are saved or given up. A session that has
-ended cannot send what the form holds, and is not asked about. The inline futures booking's own
-edits are not among those asked about, until the panel hosts every new trade. A chart's image export
-that fails reports the error and leaves the Blotter as it is, unless the failure is a denial of
-access, which clears it as it does for every read. The assistant's moves hold for unsaved edits
-through their own Go anyway (D191). A live correction (D188) reads an open panel again, unless it
-holds edits, which it leaves alone, and clears the risk card before it reads, with the note "Risk
-results cleared · live corrections changed the inputs" when a run's results were on it
-(`liveRefreshPlan`), so that a read that then fails leaves the note, as it leaves the desk it had.
-The notices one action says are kept beside each other, and none replaces another unseen.
+including its own Blotter, Open curve, and New trade for a PPA); another As of date, which is
+applied only once the person agrees: the As of select, which every read and command takes its close
+from, stays on the close the Blotter shows while the question is open, and so do the calendar and
+the badge of a newer close, which is judged by that close and by no close that has only been chosen;
+another context, a live selection or Current inputs; another user or signing out; another market
+example in the sidebar, which loads another page; and the header's time controls, which clear the
+Blotter as they are changed: opening them asks, and so do a change of their date or knowledge time
+and Use current knowledge once they are open. A dialog that is open keeps the panel, and the
+question, out of reach, so the profile dialog is closed for the question. The page asks before it is
+busy, so the buttons of the question stay enabled. While it is busy and the panel holds edits,
+nothing can be asked and what reaches the page is not done: the time controls stay closed, a change
+in them is put back, and Use current knowledge does not run; while the panel holds none, a change is
+made as ever. Escape or Keep editing leaves everything as it was, and puts back what the person had
+changed: the As of select was never moved, the time controls' date and knowledge time go back
+exactly, and the sidebar's example select goes back to the example the page is. Keeping the
+amendment over a route that closed the profile dialog (Save preferences, another user, signing out)
+leaves the dialog closed and says what was not done. A reload, closing the tab and going back leave
+the page without the panel's question, so the browser asks (`beforeunload`) while the panel holds
+the form of an amendment or of a new swap with edits: the listener is on from the first edit and off
+once the edits are saved or given up. A page that is left on the person's word without the panel's
+question, as by the assistant's Go anyway, gives the forms up as it goes, so that no form stays held
+that nothing can return to. A session that has ended cannot send what the form holds, and is not
+asked about. The inline futures booking's own edits are not among those asked about, until the panel
+hosts every new trade. A chart's image export that fails reports the error and leaves the Blotter as
+it is, unless the failure is a denial of access, which clears it as it does for every read. The
+assistant's moves hold for unsaved edits through their own Go anyway (D191). A live correction
+(D188) reads an open panel again, unless it holds edits, which it leaves alone, and clears the risk
+card before it reads, with the note "Risk results cleared · live corrections changed the inputs"
+when a run's results were on it (`liveRefreshPlan`), so that a read that then fails leaves the note,
+as it leaves the desk it had. The notices one action says are kept beside each other, and none
+replaces another unseen.
 
 The position view shows the instrument, trade reference, revision and book, the market, delivery,
 side and size, the value with its measure or the reason the close cannot value the position, and the
@@ -396,10 +404,11 @@ and the contract terms of a future, or the structure and each side of a swap, ea
 its own direction, and a swap's valuation and the schedule of each side, drawn as its form draws
 them, in the display formats of the deal, which are read with it. History lists every revision with
 the instrument it was of, when it took effect and was recorded and its facts, its numbers written as
-Terms writes them, each price in the unit of its own contract and each quantity in the unit of its
-own index, which it says are unavailable when the catalog does not hold them, in the panel's width,
-as titled lists like Terms (a table of eleven to thirteen columns does not fit it). Risk says that a
-risk run's results for the position will show there, and shows none yet.
+Terms writes them, each price in the unit of its own contract, which for the position's contract is
+the position's unit whether or not the editor's catalog holds it, and each quantity in the unit of
+its own index, which it says are unavailable when the catalog does not hold them, in the panel's
+width, as titled lists like Terms (a table of eleven to thirteen columns does not fit it). Risk says
+that a risk run's results for the position will show there, and shows none yet.
 
 Amend (D215) is offered to an account that may amend, and puts the position's form in the Terms tab
 in place of its read view: the revision selector, the booking facts, the instrument and, for a swap,
@@ -449,18 +458,22 @@ collapsed and at about 1700, and, as a wider panel narrows the grid, that Curve 
 down to neither; the layout at 1100, with the assistant open and at 760 with the page behind the
 sheet out of reach, the keyboard behavior, the tabs, the reads, the ink of the mark minus price of a
 short future and of a receive-fixed swap, and Open curve of a future and of a swap, the form of an
-amendment in the Terms tab, the questions asked before edits are given up, by a switch of position,
-by each route out of the Blotter, by a calendar's or the date lookup's edit, by a change in the time
-controls once they are open and by Use current knowledge, by Save preferences, by another user, by a
-newer close, by another market example and by a swap's revision, each answered both ways, with the
-browser's own question, which is the page's answer to the event the browser sends; that the sidebar
-and its own Blotter, another As of date, Open curve, the time controls, Save preferences, New trade
-for a PPA and Reload latest revision ask nothing of a form with no edits; and an amendment of the
-instrument, of a future's month and of a swap's price, followed to its new binding, with its first
-revision still readable. `--live-calculation-check` asserts that an account that cannot amend is
-told why and not offered Amend, that a live refresh reads the panel's terms again, a swap's among
-them, and draws the panel again, that it keeps focus on a tab and on Open curve, and that it clears
-a risk run with a note that a failed read keeps.
+amendment in the Terms tab, and the questions asked before edits are given up: by a switch of
+position, by each route out of the Blotter, by a calendar's or the date lookup's edit, by a change
+in the time controls once they are open, by Use current knowledge, by Save preferences, by another
+user, by signing out (kept only: the preview hides its button), by a newer close, by another market
+example and by a swap's revision, each answered both ways. A close chosen in the calendar leaves the
+As of select, the calendar, what the form sends and the offer of a newer close on the close the
+Blotter shows until the person agrees, and keeping the amendment over a route of the profile dialog
+says what was not done. The browser's own question is checked as the page's answer to the event it
+sends, and the assistant's Go anyway leaves nothing for it to ask. The sidebar and its own Blotter,
+another As of date, Open curve, the time controls, Save preferences, New trade for a PPA and Reload
+latest revision ask nothing of a form with no edits, and Reload latest revision reads the editor
+again. An amendment of the instrument, of a future's month and of a swap's price, is followed to its
+new binding, with its first revision still readable. `--live-calculation-check` asserts that an
+account that cannot amend is told why and not offered Amend, that a live refresh reads the panel's
+terms again, a swap's among them, and draws the panel again, that it keeps focus on a tab and on
+Open curve, and that it clears a risk run with a note that a failed read keeps.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and
