@@ -1,3 +1,4 @@
+import {plotNumber} from './plot-number.js';
 // Pixel geometry for the small inline charts (row sparklines and signed bars).
 // Exact server strings stay the values: they are read as numbers only to place
 // pixels, and a string that is not an exact decimal or rational raises instead of drawing a
@@ -9,12 +10,6 @@ type Placed=Pixel&{at:number;label:string};
 const inset=3;
 // Geometry is kept to 0.01px so path strings stay short and stable.
 const hundredths=(n:number)=>Math.round(n*100)/100;
-// An exact decimal or rational string (a backend total may be one), as a number for pixels only.
-function plotNumber(value:string){
-  const [numerator,denominator='1']=value.split('/'),n=/^-?\d+(?:\.\d+|\/[1-9]\d*)?$/.test(value)?Number(numerator)/Number(denominator):NaN;
-  if(!Number.isFinite(n))throw Error('A mini chart needs exact finite decimal or rational strings.');
-  return n;
-}
 /**
  * Places a forward curve in a width x height box; `points` ascend by x. A missing
  * month (null y) or a jump of more than one x breaks the line, so a gap is never

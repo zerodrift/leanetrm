@@ -85,3 +85,12 @@ test('a diverging axis keeps zero in the middle between round ends',()=>{
  assert.deepEqual([o.xAxis.min({min:0,max:4000000}),o.xAxis.max({min:0,max:4000000})],[-4000000,4000000]);
  assert.deepEqual([o.xAxis.min({min:-2.5,max:1}),o.xAxis.max({min:-2.5,max:1})],[-2.5,2.5]);
 });
+// The muted text of the desk's rows and group headers, on every background it sits on, hovered rows and headers included.
+test('the muted text of the desk meets AA contrast on the rows and group headers it sits on, hovered or not',()=>{
+ const colorOf=selector=>{const body=css.match(new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\{([^}]*)\\}'))?.[1];return body&&resolved(body.match(/(?:^|[;\s])color:\s*([^;]+)/)?.[1].trim());};
+ const grounds={row:'#ffffff','hovered row':token('--accent-soft'),'group header':token('--surface-2'),'hovered group header':token('--surface-3')};
+ for(const selector of ['.desk-sub','.desk-unit,.desk-muted','#desk-positions .tabulator-group span.desk-group-count']){
+  const color=colorOf(selector);assert.ok(color,`${selector} sets no color`);
+  for(const [name,background] of Object.entries(grounds)){const ratio=contrast(color,background);assert.ok(ratio>=4.5,`${selector} on a ${name} is ${ratio.toFixed(2)}:1`);}
+ }
+});

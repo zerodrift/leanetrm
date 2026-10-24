@@ -118,7 +118,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
   var hasPrices=view.Measures.Any(PriceMeasures.ContainsKey);
   // D98 keeps totals apart by quantity specification; D217's money totals add across quantity units, keeping apart only the dimensions, instrument type and currency.
   var byQuantity=view.PivotConvention!=MoneyTotalsConvention;
-  // A market or contract is defined in one definition revision, so groups naming one are kept apart by revision and say which (R29).
+  // A market or contract is defined in one definition revision, so groups naming one are kept apart by revision and say which (D217).
   var byDefinition=view.GroupBy.Any(d=>d is "market" or "contract");
   var dimensions=new Dictionary<string,string>{{"portfolio","portfolioId"},{"book","bookId"},{"market","curve"},{"contract","contractId"},{"instrumentType","instrumentType"},{"commodity","commodity"}};
   // What identifies a row's group in a dimension: the field's text, or the code of the reference the field names.

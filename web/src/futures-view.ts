@@ -18,7 +18,7 @@ import {isPriceMeasure,priceMeanPolicy,blotterColumns,deskFields,groupChoices,me
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
-import {commodityColors,deskGroups,deskSummaryViews,positionChartPanels,positionRows,positionsTile,pvChartPanels,summaryTiles,type CurveShape,type Holding,type Summary} from './desk-model.js';
+import {commodityColors,deskGroups,deskSummaryViews,positionChartPanels,positionRows,positionsTile,priceUnit,pvChartPanels,summaryTiles,valueFields,type CurveShape,type Holding,type Summary} from './desk-model.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile} from './desk-view.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
@@ -26,12 +26,6 @@ type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'r
 type BookingCatalog='directory'|'priced_contracts';
 type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string;portfolio_id:string}[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;bookingUnavailableReason:string|null}&({kind:'directory'}|{kind:'priced_contracts';contracts:Contract[]});
 type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:Holding[];totals:{book:string;currency:string;executionPnl:string|null;unvaluedPositions:number}[];unvaluedPositions:number};
-// The value cells each instrument type shows; a position the close cannot value says why in them (D214).
-const valueFields:Readonly<Record<string,readonly string[]>>={future:['mark','executionPnl'],financial_swap:['mark','presentValue']};
-function valueCells(instrumentType:string){
-  if(!Object.hasOwn(valueFields,instrumentType))throw Error('The Blotter returned an unknown instrument type.');
-  return valueFields[instrumentType];
-}
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 // A stored view an earlier release saved is listed with this label. It cannot be applied, and choosing it says why.
 const earlierFormatLabel='Earlier format · save again';
@@ -83,7 +77,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   let earlierViews:string[]=[];
   let draftBase:{name:string;version:string}|undefined;
   let viewsLoaded=false;
-  const risk=setupRisk({api,act,busy,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,scope:()=>{
+  const risk=setupRisk({api,act,busy,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:renderRisk,scope:()=>{
     if(!lastReadRequest)throw Error('Load the blotter before running risk.');
     return {context:{...(lastReadRequest as {context:Record<string,unknown>}).context},bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
   }});
@@ -152,13 +146,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();forgetViews();draftBase=undefined;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Positions');workspace.closeMenus();viewControls();
     try{const saved=JSON.parse(sessionStorage.getItem(storageKey())??'null');if(saved&&['futures/book','futures/amend','swaps/book','swaps/amend'].includes(saved.path)&&typeof saved.operationId==='string'&&saved.body&&typeof saved.body==='object'){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
   }
-  // Today's risk report opens below the positions; the tile says whether it is open or has results.
+  // Today's risk report opens below the positions; the tile says whether it is open or has results. The report tells the
+  // page whenever that changes, including its own Close and a queued job that finishes on its own timer.
   function renderRisk(){
     if(!holdings)return;
     renderRiskTile(get('desk-tile-risk'),{state:risk.shown()?'results':get('risk-card').hidden?'none':'open',denial:options.canRunRisk()?null:riskDenied,busy:busy()},
       ()=>{if(get('risk-card').hidden)void act(risk.open);else get('risk-card').scrollIntoView({block:'start'});});
   }
-  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());renderRisk();text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
   function clear(){instrument.clear();generation++;chartState=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;table=undefined;lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
   function reset(){selectedContract='';clear();restore();forgetViews();viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
@@ -168,10 +163,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
     const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,...fields}=h;
-    return {...fields,priceUnit:`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`,tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
+    return {...fields,priceUnit:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
-  // What a trade row's value cell says when the close cannot value it, on screen and in exports.
-  function notValued(h:Holding,key:string){return h.unavailableReason&&valueCells(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
+  // What a trade row's value cell says when the close cannot value it, on screen and in exports (D214).
+  function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
   // Trade columns a desk view can add beside its own; the fields its own present are always on.
   const tradeColumns=blotterColumns.filter(([key])=>key!=='tradeCount'&&!isPriceMeasure(key));
   function render(){
@@ -291,15 +286,24 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;render();
       if(view.mode==='trades')void loadShapes(started,scope,source);
       await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);workspace.closeMenus();
-    }catch(error){if(started===generation&&(!live||(error as {code?:string}).code==='access_denied'))clear();throw error;}
+    }catch(error){
+      if(started===generation){
+        if(!live||(error as {code?:string}).code==='access_denied')clear();
+        // A refresh that fails leaves the desk as it was, but it abandoned the read of the curves, if it was under way.
+        else if(shapes===undefined)noShapes('the refresh that interrupted their read failed');
+      }
+      throw error;
+    }
   }
+  // Every row's curve unavailable, with the reason.
+  function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};table?.redrawCells(curveColumn);}
   // Sparklines follow the first render: the held curves of the close's definitions, at most 64 to a read, in the market
   // context the positions were read in. A failed read leaves each of its curves unavailable with the reason, and never
   // blanks the positions.
   async function loadShapes(started:number,scope:string,source:{snapshotId:string;context?:{contextId?:string}}){
     const current=()=>{try{requireCurrentRead(started,scope);return true;}catch{return false;}};
     let revision:string;
-    try{revision=options.definitionRevision();}catch{shapes={unavailable:'Curve shape unavailable · the market definitions of this close are not loaded'};table?.redrawCells(curveColumn);return;}
+    try{revision=options.definitionRevision();}catch{noShapes('the market definitions of this close are not loaded');return;}
     const curves=[...new Set(holdings!.holdings.filter(h=>h.definitionRevisionId===revision).map(h=>h.curve))].sort();
     const found=new Map<string,CurveShape|string>();
     for(let i=0;i<curves.length;i+=curvesPerShapeRead){
@@ -369,8 +373,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   get('futures-new').onclick=()=>{if(busy()||!catalog)return;kindDialog.showModal();};
   get('futures-cancel').onclick=()=>{if(!busy()){get('futures-booking').hidden=true;bookingEdits.clear();}};
   field('blotter-mode').onchange=()=>{if(busy())return;get('blotter-pivot-fields').hidden=field('blotter-mode').value!=='pivot';};
-  // Grouping arranges the rows already read; every grouping's subtotals came with them.
-  field('blotter-row-group').onchange=()=>{if(busy())return;captureLayout();view.rowGroup=(field('blotter-row-group').value||null) as RowGroup;render();};
+  // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is
+  // refused in the banner, and the grouping on screen stays.
+  field('blotter-row-group').onchange=()=>void act(async()=>{
+    const shown=view.rowGroup;captureLayout();view.rowGroup=(field('blotter-row-group').value||null) as RowGroup;
+    try{render();}catch(error){view.rowGroup=shown;field('blotter-row-group').value=shown??'';throw error;}
+  });
   get('blotter-apply').onclick=()=>void act(load);
   get('blotter-save').onclick=()=>void act(async()=>{
     const draft=readView();const next=parseBlotterViews(JSON.stringify([{...draft,name:field('blotter-name').value}]))[0];

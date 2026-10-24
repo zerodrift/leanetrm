@@ -572,16 +572,23 @@ dialog label{margin-top:16px}
 
 /* Blotter desk: summary tiles, market charts and grouped positions (blotter-desk.md, Desk layout). Every
    figure is a backend string; signs, bar direction and words always accompany gain, loss and commodity colors. */
-.table-group-by{display:inline-flex;align-items:center;gap:6px;margin:0 0 0 4px;font-size:12px;font-weight:500;color:var(--text-2)}
+/* The saved views list gives way before the toolbar wraps to a second row. */
+.table-workspace-toolbar>select{flex:0 1 170px;min-width:120px}
+.table-workspace-heading{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;padding:9px 16px 7px}
+.table-workspace-heading .table-workspace-title{margin:0}
+.table-group-by{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:500;color:var(--text-2)}
 .table-group-by select{width:auto;max-width:170px;min-height:32px;font-size:12px;font-weight:500;padding:5px 28px 5px 10px}
-.table-workspace>.desk{display:grid;gap:12px;padding:14px 16px;background:var(--bg);border-bottom:1px solid var(--border)}
-.desk-tiles{display:grid;grid-template-columns:1.3fr 1.3fr 1fr 1.15fr;gap:12px}
-.desk-tile{display:flex;flex-direction:column;gap:6px;min-width:0;padding:13px 16px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.table-workspace-filters{display:flex;flex:1 1 380px;justify-content:flex-end;min-width:0}
+.table-workspace-filters .table-filters{flex:1;justify-content:flex-end;margin:0;padding:0}
+/* The desk is the container its tiles are laid out in, so an open assistant panel narrows them as a small window does. */
+.table-workspace>.desk{container:desk/inline-size;display:grid;gap:12px;padding:14px 16px;background:var(--bg);border-bottom:1px solid var(--border)}
+.desk-tiles{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1.35fr) minmax(0,1fr) minmax(0,1.05fr);gap:12px}
+.desk-tile{display:flex;flex-direction:column;gap:4px;min-width:0;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
 .desk-tile-label{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:550;color:var(--text-3)}
 .desk-tile-row{display:flex;flex-direction:column;gap:6px;min-width:0}
 .desk-tile-row+.desk-tile-row{padding-top:8px;border-top:1px solid var(--border)}
-.desk-tile .kpi-value{margin:0;line-height:1.2;letter-spacing:-.6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.desk-tile .kpi-value small{margin-left:5px;font-size:13px;font-weight:500;letter-spacing:0;color:var(--text-3)}
+.desk-tile .kpi-value{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.6px;overflow-wrap:anywhere}
+.desk-tile .kpi-value small{font-size:13px;font-weight:500;letter-spacing:0;color:var(--text-3)}
 .desk-tile-several .kpi-value{font-size:20px}
 .desk-tile .desk-not-valued{font-size:20px;color:var(--text-3)}
 .desk-tile-currency{margin:0;font-size:11px;font-weight:600;color:var(--text-2)}
@@ -594,22 +601,24 @@ dialog label{margin-top:16px}
 .desk-split-amount{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .desk-track{fill:var(--surface-3)}.desk-axis{stroke:var(--border-strong)}.desk-bar-gain{fill:var(--gain)}.desk-bar-loss{fill:var(--loss)}
 .desk-tile-note{margin:auto 0 0;font-size:11.5px;line-height:1.4;color:var(--warn)}
-.desk-mix{display:flex;gap:2px;height:10px;margin:2px 0;overflow:hidden;border-radius:5px}
+.desk-mix{display:flex;gap:2px;height:10px;margin:1px 0;overflow:hidden;border-radius:5px}
 .desk-mix i{display:block;min-width:3px;height:100%}
 .desk-mix .desk-mix-financial_swap,.desk-swatch.desk-mix-financial_swap{opacity:.55}
-.desk-legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0;padding:0;list-style:none;font-size:11.5px;color:var(--text-2)}
+.desk-legend{display:flex;flex-wrap:wrap;gap:1px 12px;margin:0;padding:0;list-style:none;font-size:11px;line-height:1.3;color:var(--text-2)}
 .desk-legend li{display:inline-flex;align-items:center;gap:5px}.desk-legend b{font-weight:600;font-variant-numeric:tabular-nums}
 .desk-swatch{display:inline-block;width:9px;height:9px;border-radius:3px}
 .desk-tile-risk{background:radial-gradient(120% 140% at 100% 0%,var(--accent-soft) 0%,var(--surface) 58%)}
-.desk-risk-state{margin:2px 0 0;font-size:20px;font-weight:650;letter-spacing:-.3px}
-.desk-tile-hint{margin:0;font-size:11.5px;line-height:1.45;color:var(--text-2)}
-.desk-tile-risk button{align-self:flex-start;margin-top:auto;font-size:12px;padding:7px 12px}
+.desk-risk-state{margin:0;font-size:18px;font-weight:650;letter-spacing:-.3px}
+.desk-tile-hint{margin:0;font-size:11.5px;line-height:1.4;color:var(--text-2)}
+.desk-tile-risk button{align-self:flex-start;margin-top:auto;font-size:12px;padding:6px 12px}
 .desk-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px}
-.desk-chart{min-width:0;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
-.desk-chart>.chart{min-height:0}.desk-chart>.chart+.chart{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
-.desk-chart .chart-toolbar{align-items:flex-start;min-height:0;margin:0 0 4px}
-.desk-chart .chart-toolbar>span{display:flex;flex-direction:column;gap:1px;font-size:13px}
-.desk-chart .chart-toolbar small{font-size:11.5px;color:var(--text-3)}
+.desk-chart{min-width:0;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.desk-chart-title{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--text)}
+.desk-chart>.chart{min-height:0}.desk-chart>.chart+.chart{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.desk-chart .chart-toolbar{align-items:flex-start;min-height:0;margin:0 0 2px}
+.desk-chart .chart-toolbar>span{display:flex;flex-direction:column;gap:1px;font-size:11.5px}
+.desk-chart .chart-toolbar>span strong{font-weight:550;color:var(--text-2)}
+.desk-chart .chart-toolbar small{font-size:11.5px;color:var(--text-2)}
 .desk-chart .standard-chart-plot{height:var(--plot-height,180px)}
 .desk-chart-empty{margin:0;padding:24px 0;text-align:center;font-size:12px;color:var(--text-3)}
 #desk-positions .tabulator-row.tabulator-group{min-height:0;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:12px;font-weight:650;color:var(--text)}
@@ -617,29 +626,34 @@ dialog label{margin-top:16px}
 .desk-group{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;width:calc(100% - 24px)}
 /* Tabulator's own theme colors group header text; the desk's headers use the shared ink. */
 #desk-positions .tabulator-group span{margin-left:0;color:inherit}
-#desk-positions .tabulator-group span.desk-group-count{font-weight:500;color:var(--text-3)}
+#desk-positions .tabulator-group span.desk-group-count{font-weight:500;color:var(--text-2)}
 #desk-positions .tabulator-group span.desk-group-totals{display:inline-flex;flex-wrap:wrap;gap:2px 14px;margin-left:auto;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
 .desk-group-totals b{font-weight:650}
+.desk-group:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 #desk-positions .tabulator-row .tabulator-cell{vertical-align:middle}
+/* A little less padding keeps the desk's seven columns, with their units, within a 1280 pixel window. */
+.table-workspace #desk-positions .standard-data-grid .tabulator-row .tabulator-cell{padding:7px 10px}
+.table-workspace #desk-positions .standard-data-grid .tabulator-header .tabulator-col .tabulator-col-content{padding:8px 10px}
 .desk-cell{display:flex;flex-direction:column;justify-content:center;min-width:0;line-height:1.35}
 .grid-number .desk-cell{align-items:flex-end}
 .desk-line{display:inline-flex;align-items:center;gap:6px;min-width:0}
-.desk-sub{font-size:10.5px;line-height:1.3;color:var(--text-3)}
+.desk-sub{font-size:10.5px;line-height:1.3;color:var(--text-2)}
 .desk-cell:has(>.desk-pill){flex-direction:row;align-items:center;gap:6px}
 .desk-pill{display:inline-block;min-width:38px;padding:2px 6px;border-radius:5px;font-size:9.5px;font-weight:750;letter-spacing:.05em;text-align:center;color:var(--text-2)}
 .desk-pill-fut{background:var(--surface-3)}.desk-pill-swap{background:var(--surface);box-shadow:inset 0 0 0 1px var(--border-strong)}
 .commodity-dot{display:inline-block;flex:none;width:7px;height:7px;border-radius:50%}
 .desk-market{overflow:hidden;text-overflow:ellipsis}
 .desk-figure{font-variant-numeric:tabular-nums}.desk-value{font-weight:600}
-.desk-unit,.desk-muted{font-size:11px;color:var(--text-3)}
+.desk-unit,.desk-muted{font-size:11px;color:var(--text-2)}.desk-sub .desk-unit{font-size:inherit}
 .desk-size-bar{flex:none}
+.desk-size .desk-line{display:flex;width:100%}.desk-size .desk-figure{margin-left:auto}
 .desk-chip{display:inline-block;padding:0 7px;border:1px solid var(--warn-border);border-radius:999px;background:var(--warn-soft);font-size:10px;font-weight:650;line-height:16px;color:var(--warn)}
 .sparkline{display:block;overflow:visible}.sparkline-line{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.sparkline-mark{stroke:var(--surface);stroke-width:1.5}
 .sparkline-unavailable line{stroke:var(--border-strong);stroke-dasharray:2 3}
 .sparkline-loading{display:block;width:84px;height:22px;border-radius:4px;background:var(--surface-2)}
-@media(max-width:1190px){.desk-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:760px){.table-workspace>.desk{padding:12px}.desk-charts{grid-template-columns:minmax(0,1fr)}.table-group-by{margin-left:0}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}}
-@media(max-width:560px){.desk-tiles{grid-template-columns:minmax(0,1fr)}}
+@container desk (max-width:900px){.desk-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container desk (max-width:560px){.desk-tiles{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:760px){.table-workspace>.desk{padding:12px}.desk-charts{grid-template-columns:minmax(0,1fr)}.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}}
 
 /* Pivot builder and linked visual analysis */
 .table-workspace-toolbar>select{max-width:190px}

@@ -69,3 +69,10 @@ test('an exact rational amount places its bar by its ratio, as an exact decimal 
  assert.deepEqual(divergingBar('-1/3','1',90),{x:30,width:15,direction:'loss'});
  for(const bad of ['1/0','1/-2','1/','/2','1/2/3'])assert.throws(()=>divergingBar(bad,'1',100),/exact/);
 });
+test('a rational whose terms exceed the range of a number still places its bar by its ratio, and an integer too large for any number is refused',()=>{
+ // 10^400 over 10^399 is 10: neither term fits a number, their ratio does.
+ const huge=`1${'0'.repeat(400)}/1${'0'.repeat(399)}`;
+ assert.deepEqual(divergingBar(huge,'20',100),divergingBar('10','20',100));
+ assert.deepEqual(divergingBar(`-${huge}`,'20',100),divergingBar('-10','20',100));
+ assert.throws(()=>divergingBar(`1${'0'.repeat(400)}`,'1',100),/exact/);
+});

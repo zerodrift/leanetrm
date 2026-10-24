@@ -287,19 +287,36 @@ The Blotter's trade rows are a desk (blotter-desk.md, Desk layout), drawn from o
 read and its four summaries. Its tiles show swap PV and futures execution P&L per exact currency
 with a split per book, from the money totals; the number of positions read with their mix by
 commodity and instrument type; and whether a risk report has run at this close, which for now
-opens the risk report below the positions. Swap PV by market has a panel per currency, and long
-and short by market a panel per quantity unit. A swap's booked quantity is unsigned, so its bar
-takes the side the backend's direction states (pay fixed long, receive fixed short) where every
-swap of that market and unit shares one, and is otherwise not drawn. Positions group by book,
-market and definition revision, instrument type, or not at all, under the subtotals of the
-matching summary. The grid's row search reads the words its cells draw, such as the delivery month,
-the instrument kind, the direction, the unit and the value's measure and currency, beside the exact
-amounts. Each row draws its market's forward curve from `market/curve-shapes` after the
-rows render, at most 64 curves to a read, in the market context the positions were read in and
-only for markets of the close's own definition revision; a curve that cannot be drawn, or was read
-in another context, says why in its own row. Pivot views keep their table and
-configurable chart under the same tiles. Commodity colors are the design's identity colors for
-the two commodities of the synthetic reference catalog, and palette colors for any other.
+opens the risk report below the positions and follows that report's own Close and a queued job
+that finishes on its timer, through the report's `onChange`. Swap PV by market is one card with a
+panel per currency, and long and short by market one card with a panel per quantity unit; each
+panel has a caption, bars about 20px tall, and its bars listed as text beside the canvas. A swap's
+booked quantity is unsigned, so its bar takes the side the backend's direction states (pay fixed
+long, receive fixed short) where every swap of that market and unit shares one, and is otherwise
+not drawn. Where two markets, currencies or units share a name, the label adds what identifies
+each, never an ordinal: the code, or the start of the definition or reference revision's id.
+Positions group by book, market and definition revision, instrument type, or not at all, under
+the subtotals of the matching summary; a header says "N of M positions" when row filters hide some
+of its positions, and opens and closes from the keyboard. A grouping the read cannot show is
+refused in the error banner and the grouping on screen stays. The grid's row search reads the words
+its cells draw, such as the delivery month, the instrument kind, the direction, the unit and the
+value's measure and currency, beside the exact amounts. Price and Mark each state the price unit
+they are in (the currency per quantity unit, with the quote multiplier when it is not one), and a
+valued swap without one mark says "Several marks". Each row draws its market's forward curve from
+`market/curve-shapes` after the rows render, at most 64 curves to a read, in the market context the
+positions were read in and only for markets of the close's own definition revision; a curve that
+cannot be drawn, or was read in another context, says why in its own row, and so does every curve
+of a desk kept after a live refresh that failed while they were being read. Pivot views keep their
+table and configurable chart under the same tiles. Commodity colors are the design's identity
+colors for gas and power, under the codes of the imported reference catalog (`gas`, `electricity`)
+and of the synthetic one (`test_gas`, `test_power`), and palette colors for any other.
+
+The desk fits the screens it is used on. The toolbar is one row at 1440 pixels wide, and Group by
+sits with the positions heading, the grid's search and its row count on one line above the rows.
+The tiles are laid out by the width of the desk, not of the window, so an open assistant panel
+narrows them as a small window does; an amount is never cut off, and its currency drops beneath it
+when they do not fit side by side. The browser checks assert that, at 1440 by 900 and at 1280 by
+800, the first position starts above the fold, and at 1366 and 1280 that no money total is clipped.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

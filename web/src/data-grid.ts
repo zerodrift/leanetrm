@@ -1,4 +1,4 @@
-import {TabulatorFull} from './vendor/tabulator.js';
+import {TabulatorFull,type GridGroup} from './vendor/tabulator.js';
 import {compareDecimalStrings} from './analytics-model.js';
 import {matchesTableRow,columnValues,validNumericFilter} from './regular-table.js';
 import {publicText} from './market-view.js';
@@ -9,8 +9,9 @@ export const emptyGridLayout=():GridLayout=>({order:[],widths:{},sort:[]});
 // visual: columns that only draw, such as a sparkline, and are neither sorted nor filtered.
 // group: rows under headers, in the order given: each source row's group key and the header drawn for each key.
 // stretch: the last column fills the grid's remaining width.
+// toolbarHost: where the filter toolbar (search, column filters, row count) is drawn, when not above the table.
 type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void;
-  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:{keys:string[];order:string[];header:(key:string,count:number)=>HTMLElement};rowHeight?:number;stretch?:boolean};
+  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:{keys:string[];order:string[];header:(key:string,count:number)=>HTMLElement};rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement};
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[],isBusy:()=>boolean,options:GridOptions){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=publicText(value);return n;};
   const values=rows.map(row=>row.map(cell=>publicText(typeof cell==='string'?cell:cell.textContent??'')));
@@ -33,7 +34,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     choices.forEach((value,index)=>select.append(new Option(value||'(Blank)',String(index))));select.value=state.columns[i]===null?'':String(choices.indexOf(state.columns[i]!));
     select.onchange=()=>{if(!current())return;state.columns[i]=select.value===''?null:choices[Number(select.value)];apply();};label.append(select);filterPanel.append(label);selects.push(select);
   });
-  const container=el('div');container.className='standard-data-grid';host.replaceChildren(toolbar,filterPanel,container);
+  const container=el('div');container.className='standard-data-grid';host.replaceChildren(...(options.toolbarHost?[]:[toolbar]),filterPanel,container);options.toolbarHost?.replaceChildren(toolbar);
   let alive=true,ready=false;
   const current=()=>alive&&host.isConnected&&container.parentElement===host&&!isBusy();
   // A pointer gesture belongs to one row. Selection, dragging and scrolling
@@ -64,7 +65,17 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     rowFormatter:options.onRowOpen?(row:any)=>{const target=row.getElement() as HTMLElement;target.tabIndex=0;target.classList.add('openable-row');target.setAttribute('aria-label','Open row details');target.onkeydown=event=>{if(event.target===target&&['Enter',' '].includes(event.key)){event.preventDefault();openRow(row);}};}:undefined,
     columns:definitions,
     layout:options.stretch?'fitDataStretch':'fitDataFill',height:Math.min(560,Math.max(140,rows.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)))+'px',movableColumns:true,columnDefaults:{tooltip:false},placeholder:'No rows match this selection.',
-    ...(options.group?{groupBy:(data:Record<string,string>)=>options.group!.keys[Number(data.__sourceIndex)],groupHeader:(key:string,count:number)=>options.group!.header(key,count)}:{}),
+    ...(options.group?{groupBy:(data:Record<string,string>)=>options.group!.keys[Number(data.__sourceIndex)],groupHeader:(key:string,count:number,_rows:unknown,group:GridGroup)=>{
+      // A group header opens and closes its rows from the keyboard as well as the arrow, and says whether its rows show.
+      const header=options.group!.header(key,count);header.tabIndex=0;header.setAttribute('role','button');header.setAttribute('aria-expanded',String(group.isVisible()));
+      header.onkeydown=event=>{
+        if(event.target!==header||!['Enter',' '].includes(event.key))return;
+        event.preventDefault();group.toggle();
+        // Toggling draws every group header again, so the focus follows to the new header of this group.
+        const redrawn=table.getGroups().find(other=>other.getKey()===key)?.getElement();if(redrawn)redrawn.querySelector<HTMLElement>('[role=button]')?.focus();
+      };
+      return header;
+    }}:{}),
     initialSort:options.layout.sort.filter(s=>options.keys.includes(s.key)).map(s=>({column:field(options.keys.indexOf(s.key)),dir:s.direction})),
   });
   function openRow(row:any){if(!current()||!options.onRowOpen)return;const index=Number(row.getData().__sourceIndex);if(Number.isInteger(index)&&index>=0&&index<rows.length)options.onRowOpen(index);}
@@ -97,8 +108,12 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     visibleRows:()=>{if(!current()||!ready)throw Error('Refresh this table before exporting.');return table.getData('display').filter(matches).map(row=>visibleIndices().map(i=>row[field(i)]));},
     /** The source rows the filters show, in display order. */
     shownRows:()=>{if(!current()||!ready)throw Error('Refresh this table before exporting.');return table.getData('display').filter(matches).map(row=>Number(row.__sourceIndex));},
-    /** Draws one column's rich cells again, for content that arrived after the grid; the rest of each row stays as it was. */
+    /**
+     * Draws one column's rich cells again, for content that arrived after the grid; the rest of each row stays as it was.
+     * It relies on Tabulator 6.6.1 running a cell's formatter again when the cell is set to the value it already has
+     * (Cell.setValue); a Tabulator upgrade has to keep that behavior, or this has to change with it.
+     */
     redrawCells(column:number){if(ready&&alive)for(const row of table.getRows()){const cell=row.getCell(field(column));if(cell)cell.setValue(row.getData()[field(column)]);}},
-    destroy(){if(!alive)return;alive=false;gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();},
+    destroy(){if(!alive)return;alive=false;gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }

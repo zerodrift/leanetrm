@@ -36,7 +36,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const tradeReference=await evaluate(`window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).tradeReference`);
   await check('row targeting distinguishes the booked quantity from a competing reference containing 37',`(()=>{const rows=window.__tradingReports(window.__editorReplies).at(-1).data.holdings;return rows.some(row=>row.tradeId!==${JSON.stringify(bookedTrade)}&&row.tradeReference==='TR-990037')&&rows.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).lots==='37';})()`);
   async function open(revision=1){
-    await set('#desk-positions .table-search',tradeReference);
+    await set('#blotter-filters .table-search',tradeReference);
     await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(row=>row.getClientRects().length);return ${idle}&&rows.length===1&&rows[0].querySelector('.desk-reference')?.textContent===${JSON.stringify(tradeReference)};})()`);
     await click('#desk-positions .tabulator-row:not(.tabulator-group)');
     await wait(`(()=>{const state=window.__editorReplies.filter(r=>r.path==='/api/futures/editor').at(-1)?.data.state;return document.querySelector('#trade-editor').open&&state?.tradeId===${JSON.stringify(bookedTrade)}&&state.revision===${revision};})()`);

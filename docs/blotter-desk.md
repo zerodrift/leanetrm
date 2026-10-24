@@ -149,10 +149,11 @@ returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
 
 ```
 ┌ sidebar ┐┌ header: Blotter · As of [Latest close ▾] · knowledge · profile ─────────┐
-│ Trading ││ toolbar: book scope · group by · view · Risk report · Scenario · New trade │
+│ Trading ││ toolbar: book scope · view · Risk report · Scenario · New trade          │
 │ Markets ││ [run bar, after a risk run]                                              │
 │ ...     ││ ┌ Swap PV ┐┌ Futures P&L ┐┌ Positions ┐┌ Risk ┐                         │
 │         ││ ┌ chart: Swap PV by market ┐┌ chart: long/short by market ┐┌ side     ┐ │
+│         ││ Positions · grouped by book  Group by [Book]  [search]  24 of 24 rows    │
 │         ││ ┌ positions, grouped, Values | Risk lens ───────────────────┐│ panel    │ │
 └─────────┘└───────────────────────────────────────────────────────────────┘└──────────┘
 ```
@@ -175,22 +176,28 @@ the Blotter's own read.
 
 **Charts** (shared chart component and theme):
 
-- Swap PV by market: diverging horizontal bars, with gains right and losses
-  left, signed labels, and the commodity marked beside each market.
-- Long and short by market: one panel per quantity unit, diverging bars in the
-  commodity color. After a risk run this chart becomes "Change if each contract
-  moves up".
+- Swap PV by market: one card; per currency a captioned panel of diverging
+  horizontal bars, with gains right and losses left, signed labels, and the
+  commodity marked beside each market.
+- Long and short by market: one card; per quantity unit a captioned panel of
+  diverging bars in the commodity color. After a risk run this chart becomes
+  "Change if each contract moves up".
+- Each card has one heading and a caption per currency or unit, bars about 20px
+  tall, and the values of its bars as text beside the canvas.
 
 **Positions table**, grouped by book by default. Group headers show backend
-subtotals.
+subtotals of all of their positions, and how many of those positions the row
+filters leave showing ("4 of 6 positions"); they open and close from the
+keyboard as well as the arrow. The heading row above the table carries the
+heading, **Group by**, the search and the row count on one line.
 
 | Column | Content |
 | --- | --- |
 | Trade | Instrument-type pill and trade reference |
 | Market | Commodity dot, market name, delivery period |
-| Position | Diverging size bar, signed quantity and unit. Futures add lots; swaps add pay/receive fixed from the trade's sides (backend field) |
-| Price | Execution or fixed price, labeled |
-| Mark | Curve price at the selected close |
+| Position | Diverging size bar on a fixed track, signed quantity, and under it the unit with lots (futures) or pay/receive fixed from the trade's sides (swaps, backend field) |
+| Price | Execution or fixed price, labeled with its price unit (for example "Executed · USD/MMBtu (IT)") |
+| Mark | Curve price at the selected close, labeled with its price unit; **Several marks** when a valued swap has no single curve price |
 | Value | PV or execution P&L with its measure tag; blank with a chip when not valued |
 | Curve | Sparkline of the market's forward curve with the delivery period marked; gaps preserved |
 
@@ -281,7 +288,11 @@ read trades.
 - Keep the existing palette (deep green sidebar, green accent) and refine
   spacing, radius and shadows. Tokens live in `web/src/app.css`.
 - Commodity identity: gas `#eb6834`, power `#2a78d6`. This pair passes the
-  palette validator (normal-vision ΔE 33.6, CVD ΔE 24.7 on white).
+  palette validator (normal-vision ΔE 33.6, CVD ΔE 24.7 on white). Gas is the
+  commodity codes `gas` and `test_gas`, power `electricity` and `test_power`:
+  the explicit energy codes of the imported reference catalog and those of the
+  synthetic one. Any other commodity takes the next palette color in code
+  order, and marks always name the commodity too.
 - Polarity: gains `#1f8a5b`, losses `#d6453d`. Their CVD separation (7.8) needs
   secondary encoding, so signs and bar direction are always shown.
 - Tables use tabular figures; summary values are larger and semibold.

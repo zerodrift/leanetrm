@@ -115,7 +115,7 @@ static class TradingBlotterChecks
             "A market dimension merged the definition revisions of its market, or split a definition revision by unit");
         Console.WriteLine("PASS dimensions that name a market keep its definition revisions apart");
 
-        // R29: a group kept apart by definition revision says which revision it is, so two groups of one market are never indistinguishable.
+        // D217: a group kept apart by definition revision says which revision it is, so two groups of one market are never indistinguishable.
         Require(gasSwaps.Select(group=>Text(group,"definitionRevisionId")).Order(StringComparer.Ordinal).SequenceEqual(["d1","d2"]),
             "Two groups of one market did not state the definition revision that keeps them apart");
         var byMarket=new[]{TradingBlotter.Groups(Pivot(TotalsConvention,["market"],["presentValue","quantity"]),Positions()),markets};

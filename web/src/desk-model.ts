@@ -65,18 +65,40 @@ const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';
   future:{measure:'executionPnl',label:'P&L',pill:'FUT',plural:'Futures',price:'executionPrice',priceLabel:'Executed'},
   financial_swap:{measure:'presentValue',label:'PV',pill:'SWAP',plural:'Swaps',price:'fixedPrice',priceLabel:'Fixed'},
 };
+/** The value cells an instrument type shows: its mark and its own value measure; a position the close cannot value says why in them. */
+export const valueFields=(instrumentType:string)=>['mark',instrument(instrumentType).measure];
 function instrument(type:unknown){if(typeof type!=='string'||!Object.hasOwn(instruments,type))throw Error('The Blotter returned an unknown instrument type.');return instruments[type];}
 
-/** Distinct labels for distinct keys: a label several keys share is followed by each key's place among them. */
-function distinct(labels:ReadonlyMap<string,string>,word:string):Map<string,string>{
-  const shared=new Map<string,string[]>();
-  for(const [key,label] of labels)shared.set(label,[...(shared.get(label)??[]),key]);
-  return new Map([...labels].map(([key,label])=>{const keys=shared.get(label)!.sort(byText);return [key,keys.length>1?`${label} · ${word} ${keys.indexOf(key)+1}`:label];}));
+/** The start of each id, at least eight characters and never cut at a separator, that no other id of the set starts with. */
+function shortIds(ids:Iterable<string>):Map<string,string>{
+  const all=[...new Set(ids)];
+  return new Map(all.map(id=>{
+    let length=Math.min(8,id.length);
+    while(length<id.length&&(/[-:]$/.test(id.slice(0,length))||all.some(other=>other!==id&&other.startsWith(id.slice(0,length)))))length++;
+    return [id,id.slice(0,length)];
+  }));
 }
-const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),text(g,'currency')])),'reference');
+type Identity={label:string;code:string;revision:string};
+/**
+ * Distinct labels for distinct keys. Keys whose labels collide are told apart by what identifies them, never by a position
+ * among them: their codes where these differ, and for one code in several revisions the start of each revision's id.
+ */
+function distinct(entries:ReadonlyMap<string,Identity>,word:string):Map<string,string>{
+  const sharing=new Map<string,string[]>();
+  for(const [key,{label}] of entries)sharing.set(label,[...(sharing.get(label)??[]),key]);
+  return new Map([...entries].map(([key,{label,code,revision}])=>{
+    const colliding=sharing.get(label)!.map(k=>entries.get(k)!);if(colliding.length===1)return [key,label];
+    const short=shortIds(colliding.map(e=>e.revision));
+    return [key,[label,...(new Set(colliding.map(e=>e.code)).size>1?[code]:[]),...(colliding.filter(e=>e.code===code).length>1?[`${word} ${short.get(revision)}`]:[])].join(' · ')];
+  }));
+}
+// A reference is identified by its code in its catalog's revision; a key built from it has been validated by referenceKey.
+const referenceIdentity=(label:string,reference:unknown):Identity=>{const {code,revision}=reference as Reference;return {label,code,revision:`${revision.catalogId}:${revision.revisionId}`};};
+const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),referenceIdentity(text(g,'currency'),g.currencyReference)])),'revision');
+const unitLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.quantitySpecification),referenceIdentity(text(g,'unit'),g.quantitySpecification)])),'revision');
 const marketKey=(market:string,revision:string)=>`${market}|${revision}`;
 // A market is identified by its code and definition revision; only names that two such markets share say which.
-const marketLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[marketKey(text(g,'market'),text(g,'definitionRevisionId')),curveName(text(g,'market'))])),'definition');
+const marketLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[marketKey(text(g,'market'),text(g,'definitionRevisionId')),{label:curveName(text(g,'market')),code:text(g,'market'),revision:text(g,'definitionRevisionId')}])),'definition');
 
 /** What a total leaves out: nothing, some positions, or every position, when it has no value at all. */
 function totalNote(total:string|null,excluded:number):string|null{
@@ -115,14 +137,15 @@ export type PositionsTile={count:number;segments:MixSegment[];note:string|null};
  * one segment per group, never summed per commodity. `unvalued` is the read's own count of positions it cannot value.
  */
 export function positionsTile(summaries:readonly Summary[],rows:number,unvalued:number):PositionsTile{
-  const groups=groupsOf(summaries,mix);
+  const groups=groupsOf(summaries,mix),units=unitLabels(groups),currencies=currencyLabels(groups);
   const entries=groups.map(g=>{const commodity=commodityOf(g),type=text(g,'instrumentType');
     return {key:JSON.stringify([commodity.code,type,referenceKey(g.quantitySpecification),referenceKey(g.currencyReference)]),commodity:commodity.code,commodityName:commodity.name,instrumentType:type,
-      base:`${commodity.name} · ${instrument(type).plural}`,unit:text(g,'unit'),currency:text(g,'currency'),trades:count(g,'tradeCount')};});
+      base:`${commodity.name} · ${instrument(type).plural}`,unit:units.get(referenceKey(g.quantitySpecification))!,currency:currencies.get(referenceKey(g.currencyReference))!,trades:count(g,'tradeCount')};});
   // Segments of one commodity and instrument type say what keeps them apart: their unit, their currency, or both.
   const label=(e:typeof entries[number])=>{const same=entries.filter(o=>o.base===e.base);if(same.length===1)return e.base;
     return [e.base,...(new Set(same.map(o=>o.unit)).size>1?[e.unit]:[]),...(new Set(same.map(o=>o.currency)).size>1?[e.currency]:[])].join(' · ');};
-  const labels=distinct(new Map(entries.map(e=>[e.key,label(e)])),'group');
+  // Two commodities that share a name are told apart by their codes.
+  const labels=distinct(new Map(entries.map(e=>[e.key,{label:label(e),code:e.commodity,revision:e.key}])),'group');
   const segments=entries.map(({key,commodity,commodityName,instrumentType,trades})=>({key,commodity,commodityName,instrumentType,label:labels.get(key)!,trades}))
     .sort((a,b)=>a.label.localeCompare(b.label)||byText(a.key,b.key));
   if(!Number.isInteger(rows)||rows<0)throw Error(inconsistent);
@@ -131,7 +154,7 @@ export function positionsTile(summaries:readonly Summary[],rows:number,unvalued:
 }
 
 export type Subtotal={measure:'PV'|'P&L';amount:string|null;currency:string;excluded:number;note:string|null};
-export type GroupHeader={key:string;label:string;subtotals:Subtotal[]};
+export type GroupHeader={key:string;label:string;positions:number;subtotals:Subtotal[]};
 /**
  * How the rows group under `rowGroup`: each holding's group key, and each group's header with the backend subtotals of
  * the matching summary (money totals for books and instrument types, the market summary for markets). Null is a flat list.
@@ -145,27 +168,30 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
   const headers=new Map<string,GroupHeader>();
   for(const group of groups){
     const key=keyOf(group),{measure,label}=instrument(group.instrumentType),total=amount(group,measure),excluded=excludedPositions(group.unvaluedPositions);
-    const header=headers.get(key)??{key,label:labelOf(group),subtotals:[]};
+    const header=headers.get(key)??{key,label:labelOf(group),positions:0,subtotals:[]};
     header.subtotals.push({measure:label,amount:total,currency:currencies.get(referenceKey(group.currencyReference))!,excluded,note:totalNote(total,excluded)});headers.set(key,header);
   }
   const keys=holdings.map(h=>rowGroup==='book'?h.bookId:rowGroup==='market'?marketKey(h.curve,h.definitionRevisionId):h.instrumentType);
   if(keys.some(key=>!headers.has(key)))throw Error(missingSummaries);
-  const order=['PV','P&L'];
-  return {keys,headers:[...headers.values()].filter(h=>keys.includes(h.key))
-    .map(h=>({...h,subtotals:h.subtotals.sort((a,b)=>order.indexOf(a.measure)-order.indexOf(b.measure)||a.currency.localeCompare(b.currency))}))
+  const order=['PV','P&L'],sizes=new Map<string,number>();
+  for(const key of keys)sizes.set(key,(sizes.get(key)??0)+1);
+  return {keys,headers:[...headers.values()].filter(h=>sizes.has(h.key))
+    .map(h=>({...h,positions:sizes.get(h.key)!,subtotals:h.subtotals.sort((a,b)=>order.indexOf(a.measure)-order.indexOf(b.measure)||a.currency.localeCompare(b.currency))}))
     .sort((a,b)=>a.label.localeCompare(b.label)||byText(a.key,b.key))};
 }
 
-const zero=(value:string)=>/^-?0+(?:\.0+)?(?:\/\d+)?$/.test(value);
+/** How an exact amount's sign reads, for color and for its text: gain, loss or neither. */
+export const signOf=(value:string):'positive'|'negative'|'zero'=>/^-?0+(?:\.0+)?(?:\/\d+)?$/.test(value)?'zero':value.startsWith('-')?'negative':'positive';
 /** A display amount with its sign always shown: + for a gain, − for a loss, none for zero. */
 export function signedText(value:string,format:(value:string)=>string):string{
-  const shown=format(value);
-  return zero(value)?shown:value.startsWith('-')?'−'+shown.replace(/^-/,''):'+'+shown;
+  const shown=format(value),sign=signOf(value);
+  return sign==='zero'?shown:sign==='negative'?'−'+shown.replace(/^-/,''):'+'+shown;
 }
 
 /**
  * Swap PV by market: one horizontal panel per currency, gains right and losses left, largest gain first, each market
- * marked with its commodity's color. The panel says what it leaves out with its currency's own backend count.
+ * marked with its commodity's color. The panel is captioned by its currency and says what it leaves out with that currency's
+ * own backend count. A market in two units of one currency would be two bars of one name: that is refused.
  */
 export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),totals=groupsOf(summaries,byType),labels=marketLabels(markets);
@@ -178,20 +204,29 @@ export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<st
   return [...panels].map(([currency,points])=>{
     const total=totals.filter(g=>instrument(g.instrumentType)===instruments.financial_swap&&referenceKey(g.currencyReference)===currency);
     if(total.length!==1)throw Error(missingSummaries);
+    if(new Set(points.map(p=>p.x)).size!==points.length)throw Error(inconsistent);
     const note=totalNote(amount(total[0],'presentValue'),excludedPositions(total[0].unvaluedPositions)),unit=currencies.get(currency)!;
     points.sort((a,b)=>a.y===null?(b.y===null?a.label!.localeCompare(b.label!):1):b.y===null?-1:compareDecimalStrings(b.y,a.y)||a.label!.localeCompare(b.label!));
-    return {unit,spec:{title:'Swap PV by market',subtitle:[unit,'bar right = gain',...(note?[note]:[])].join(' · '),axis:'category',categoryTitle:'Market',unit,kind:'bar',orientation:'horizontal',colorBySign:true,
+    return {unit,spec:{title:`${unit} · bar right = gain`,...(note?{subtitle:note}:{}),axis:'category',categoryTitle:'Market',unit,kind:'bar',orientation:'horizontal',colorBySign:true,
       series:[{name:'Swap PV',points}]} satisfies ChartSpec};
   }).sort((a,b)=>a.unit.localeCompare(b.unit)).map(p=>p.spec);
 }
 
 /**
- * Long and short by market: one horizontal panel per quantity unit, each bar in its commodity's color. A future's backend
- * quantity is signed. A swap's is its unsigned booked quantity, so its bar takes the side the backend's direction states
- * (pay fixed long, receive fixed short) where every swap of that market and unit shares one; otherwise it is not drawn.
+ * Long and short by market: one horizontal panel per quantity unit, each bar in its commodity's color, captioned by its unit.
+ * A future's backend quantity is signed. A swap's is its unsigned booked quantity, so its bar takes the side the backend's
+ * direction states (pay fixed long, receive fixed short) where every swap of that market and unit shares one; otherwise it
+ * is not drawn. A market held in two currencies of one unit would be two bars of one name: that is refused.
  */
 export function positionChartPanels(summaries:readonly Summary[],holdings:readonly Holding[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{
-  const markets=groupsOf(summaries,byMarket),labels=marketLabels(markets),units=distinct(new Map(markets.map(g=>[referenceKey(g.quantitySpecification),text(g,'unit')])),'quantity');
+  const markets=groupsOf(summaries,byMarket),labels=marketLabels(markets),units=unitLabels(markets);
+  // The directions the swaps of each market, unit and currency state, from one pass over the positions.
+  const directions=new Map<string,Set<Holding['direction']>>();
+  for(const h of holdings){
+    if(instrument(h.instrumentType)!==instruments.financial_swap)continue;
+    const key=JSON.stringify([marketKey(h.curve,h.definitionRevisionId),referenceKey(h.quantitySpecification),referenceKey(h.currencyReference)]);
+    directions.set(key,(directions.get(key)??new Set()).add(h.direction));
+  }
   const panels=new Map<string,ChartPoint[]>();
   for(const group of markets){
     const market=marketKey(text(group,'market'),text(group,'definitionRevisionId')),type=instrument(group.instrumentType),unit=referenceKey(group.quantitySpecification),currency=referenceKey(group.currencyReference);
@@ -199,21 +234,25 @@ export function positionChartPanels(summaries:readonly Summary[],holdings:readon
     const point:ChartPoint={x:`${market}|${type.pill}`,label:`${labels.get(market)} · ${type.plural}`,y:quantity,color:colors.get(commodityOf(group).code)};
     if(type===instruments.future)point.text=signedText(quantity,format);
     else{
-      const directions=new Set(holdings.filter(h=>instrument(h.instrumentType)===type&&marketKey(h.curve,h.definitionRevisionId)===market&&referenceKey(h.quantitySpecification)===unit&&referenceKey(h.currencyReference)===currency).map(h=>h.direction));
-      if(!directions.size)throw Error(missingSummaries);
-      const [only]=directions;
-      if(directions.size===1&&(only==='pay_fixed'||only==='receive_fixed')){point.direction=only==='pay_fixed'?'positive':'negative';point.text=`${format(quantity)} ${only==='pay_fixed'?'pay':'receive'} fixed`;}
-      else{point.y=null;point.label+=directions.size===1&&only==='multi_side'?' · multi-side':' · mixed directions';}
+      const stated=directions.get(JSON.stringify([market,unit,currency]));
+      if(!stated)throw Error(missingSummaries);
+      const [only]=stated;
+      if(stated.size===1&&(only==='pay_fixed'||only==='receive_fixed')){point.direction=only==='pay_fixed'?'positive':'negative';point.text=`${format(quantity)} ${only==='pay_fixed'?'pay':'receive'} fixed`;}
+      else{point.y=null;point.label+=stated.size===1&&only==='multi_side'?' · multi-side':' · mixed directions';}
     }
     panels.set(unit,[...(panels.get(unit)??[]),point]);
   }
   return [...panels].map(([unit,points])=>({unit:units.get(unit)!,points:points.sort((a,b)=>a.label!.localeCompare(b.label!))}))
     .sort((a,b)=>a.unit.localeCompare(b.unit))
-    .map(({unit,points})=>({title:'Long and short by market',subtitle:`${unit} · bar right = long`,axis:'category',categoryTitle:'Market',unit,kind:'bar',orientation:'horizontal',series:[{name:'Quantity',points}]}));
+    .map(({unit,points})=>{
+      if(new Set(points.map(p=>p.x)).size!==points.length)throw Error(inconsistent);
+      return {title:`${unit} · bar right = long`,axis:'category',categoryTitle:'Market',unit,kind:'bar',orientation:'horizontal',series:[{name:'Quantity',points}]} satisfies ChartSpec;
+    });
 }
 
-// The design's commodity identity colors (blotter-desk.md, Visual system), for the commodities of the synthetic reference catalog.
-const identity:Readonly<Record<string,string>>={test_gas:palette[2],test_power:palette[1]};
+// The design's commodity identity colors (blotter-desk.md, Visual system): gas and power, under the explicit energy codes of
+// the imported reference catalog and under those of the synthetic one.
+const identity:Readonly<Record<string,string>>={gas:palette[2],electricity:palette[1],test_gas:palette[2],test_power:palette[1]};
 /** A color for each commodity: its identity color, or the next unused categorical color in code order. Marks always name it too. */
 export function commodityColors(codes:Iterable<string>):Map<string,string>{
   const free=palette.filter(color=>!Object.values(identity).includes(color));let next=0;
@@ -223,13 +262,16 @@ export function commodityColors(codes:Iterable<string>):Map<string,string>{
 export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP';reference:string;
   market:string;commodity:string;commodityName:string;curve:string;delivery:string;deliveryFrom:string;deliveryTo:string;
   quantity:string;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
-  price:string|null;priceLabel:'Executed'|'Fixed';mark:string|null;value:string|null;measure:'P&L'|'PV';currency:string;unavailable:string|null;
+  price:string|null;priceLabel:'Executed'|'Fixed';priceUnit:string;mark:string|null;markNote:string|null;value:string|null;measure:'P&L'|'PV';currency:string;unavailable:string|null;
   /** The words its cells draw beside their exact amounts, which the grid's row search reads. */
   words:string};
+/** The unit of a position's price and mark: its currency per quantity unit, with the quote multiplier when it is not one. */
+export const priceUnit=(h:{currency:string;unit:string;quoteMultiplier?:string})=>`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`;
 const sides:Readonly<Record<string,string>>={pay_fixed:'Pay fixed',receive_fixed:'Receive fixed',multi_side:'Multi-side'};
 /**
- * The position rows: instrument pill, market and delivery, size with lots or the swap's direction, price, mark and value with
- * its measure, or the reason the close cannot value it. A swap's bar side is its backend direction: pay fixed is long.
+ * The position rows: instrument pill, market and delivery, size with lots or the swap's direction, price and mark in their unit,
+ * and value with its measure, or the reason the close cannot value it. A valued position states its value, and a valued
+ * future its mark; a swap without one mark says so. A swap's bar side is its backend direction: pay fixed is long.
  */
 export function positionRows(holdings:readonly Holding[]):DeskRow[]{
   return holdings.map(h=>{
@@ -239,18 +281,23 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
       if(h.direction!==null)throw Error('The Blotter returned a future with a swap direction.');
       if(typeof h.lots!=='string'||!/^-?\d+$/.test(h.lots))throw Error('The Blotter returned a future without its lots.');
       const lots=h.lots.replace(/^-/,''),unit=lots==='1'?'lot':'lots';
-      side=zero(h.lots)?`0 ${unit}`:h.lots.startsWith('-')?`−${lots} ${unit}`:`+${lots} ${unit}`;
-      exposure=zero(h.quantity)?'flat':h.quantity.startsWith('-')?'short':'long';
+      side=signOf(h.lots)==='zero'?`0 ${unit}`:h.lots.startsWith('-')?`−${lots} ${unit}`:`+${lots} ${unit}`;
+      exposure=signOf(h.quantity)==='zero'?'flat':h.quantity.startsWith('-')?'short':'long';
     }else{
       if(typeof h.direction!=='string'||!Object.hasOwn(sides,h.direction))throw Error('The Blotter returned a swap without its direction.');
       side=sides[h.direction];exposure=h.direction==='pay_fixed'?'long':h.direction==='receive_fixed'?'short':null;
     }
     if(h.unavailableReason!==null&&(value!==null||h.mark!==null))throw Error('The Blotter returned a value for a position it cannot value.');
-    const price=h[type.price],delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo),unavailable=h.unavailableReason===null?null:valuationReason(h.unavailableReason,h.instrumentType);
+    if(h.unavailableReason===null){
+      if(value===null)throw Error('The Blotter returned a position without a value or a reason.');
+      if(h.mark===null&&type===instruments.future)throw Error('The Blotter returned a valued future without its mark.');
+    }
+    const price=h[type.price],unitOfPrice=priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo),unavailable=h.unavailableReason===null?null:valuationReason(h.unavailableReason,h.instrumentType);
+    const markNote=h.unavailableReason===null&&h.mark===null?'Several marks':null;
     return {tradeId:h.tradeId,revision:h.revision,instrumentType:h.instrumentType,pill:type.pill,reference:h.tradeReference,
       market:curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
-      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,mark:h.mark,value,measure:type.label,currency:h.currency,unavailable,
-      words:[type.pill,delivery,h.unit,side,price===null?'No fixed price':type.priceLabel,unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${unavailable}`].join(' ')};
+      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark:h.mark,markNote,value,measure:type.label,currency:h.currency,unavailable,
+      words:[type.pill,delivery,h.unit,side,price===null?'No fixed price':`${type.priceLabel} · ${unitOfPrice}`,...(markNote?[markNote]:[]),unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${unavailable}`].join(' ')};
   });
 }
 

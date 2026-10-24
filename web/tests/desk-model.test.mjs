@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,commodityColors} from '../dist/desk-model.js';
+import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,commodityColors,signOf,valueFields,priceUnit} from '../dist/desk-model.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
 setCurveNames(fixture.curveNames);
@@ -98,13 +98,31 @@ test('a row shows the price it was traded at, its mark and its own value measure
  assert.deepEqual([multi.price,multi.value,euro.currency],[null,'230','EUR']);
  assert.deepEqual([swap.market,swap.delivery,swap.commodity,swap.curve,swap.deliveryFrom],['Gas forward','Jan 2021','test_gas','gas_forward','2021-01-01']);
 });
+test('a row states the price unit its price and mark are in, with a quote multiplier other than one',()=>{
+ const [swap,future,,,euro]=positionRows(fixture.holdings);
+ assert.deepEqual([swap.priceUnit,future.priceUnit,euro.priceUnit],['USD/MMBtu (IT)','USD/MMBtu (IT)','EUR/MWh']);
+ assert.equal(positionRows([{...fixture.holdings[1],quoteMultiplier:'100'}])[0].priceUnit,'USD/MMBtu (IT) × 100');
+ assert.equal(positionRows([{...fixture.holdings[1],quoteMultiplier:'1'}])[0].priceUnit,'USD/MMBtu (IT)');
+ assert.equal(priceUnit({currency:'EUR',unit:'MWh',quoteMultiplier:'0.001'}),'EUR/MWh × 0.001');
+});
+test('a valued swap without one mark says so, and a valued position without its value or mark is refused',()=>{
+ const rows=positionRows(fixture.holdings);
+ assert.deepEqual([rows[0].markNote,rows[1].markNote,rows[3].markNote,rows[5].markNote],[null,null,'Several marks',null]);
+ assert.throws(()=>positionRows([{...fixture.holdings[0],presentValue:null}]),{message:'The Blotter returned a position without a value or a reason.'});
+ assert.throws(()=>positionRows([{...fixture.holdings[1],mark:null}]),{message:'The Blotter returned a valued future without its mark.'});
+});
+test('the sign of an amount and the value cells of an instrument come from one definition each',()=>{
+ assert.deepEqual(['-1','0','0.000','-0','1/3','-1/3','0/5'].map(signOf),['negative','zero','zero','zero','positive','negative','zero']);
+ assert.deepEqual([valueFields('future'),valueFields('financial_swap')],[['mark','executionPnl'],['mark','presentValue']]);
+ assert.throws(()=>valueFields('option'),{message:'The Blotter returned an unknown instrument type.'});
+});
 test('a row carries the words its cells draw, so the row search finds what the desk shows',()=>{
  const rows=positionRows(fixture.holdings);
- assert.equal(rows[0].words,'SWAP Jan 2021 MMBtu (IT) Pay fixed Fixed PV · USD');
- assert.equal(rows[1].words,'FUT Jan 2021 MMBtu (IT) +1 lot Executed P&L · USD');
- assert.equal(rows[2].words,'FUT Jan 2021 MMBtu (IT) −1 lot Executed Not valued Contract expired · awaiting settlement');
- assert.equal(rows[3].words,'SWAP Jan 2021 MWh Multi-side No fixed price PV · USD');
- assert.equal(rows[4].words,'SWAP Jan 2021 MWh Receive fixed Fixed PV · EUR');
+ assert.equal(rows[0].words,'SWAP Jan 2021 MMBtu (IT) Pay fixed Fixed · USD/MMBtu (IT) PV · USD');
+ assert.equal(rows[1].words,'FUT Jan 2021 MMBtu (IT) +1 lot Executed · USD/MMBtu (IT) P&L · USD');
+ assert.equal(rows[2].words,'FUT Jan 2021 MMBtu (IT) −1 lot Executed · USD/MMBtu (IT) Not valued Contract expired · awaiting settlement');
+ assert.equal(rows[3].words,'SWAP Jan 2021 MWh Multi-side No fixed price Several marks PV · USD');
+ assert.equal(rows[4].words,'SWAP Jan 2021 MWh Receive fixed Fixed · EUR/MWh PV · EUR');
 });
 test('reasons a close cannot value a position depend on the instrument',()=>{
  const rows=positionRows(fixture.holdings);
@@ -131,7 +149,7 @@ test('book groups read their subtotals from the backend book groups, one per mea
   ['Book A',[['PV','-10','USD',1]]],
   ['Book B',[['PV','15','EUR',0],['PV','230','USD',0],['P&L','-37.5','USD',1]]]]);
 });
-test('market groups are keyed on market and definition revision, and only colliding names say which',()=>{
+test('market groups are keyed on market and definition revision, and only colliding names say which, by the revision itself',()=>{
  const groups=deskGroups('market',fixture.summaries,fixture.holdings);
  assert.deepEqual(groups.headers.map(h=>[h.label,h.subtotals.map(s=>[s.measure,s.amount,s.currency])]),[
   ['Gas forward',[['PV','-10','USD']]],['Gas future',[['P&L','-37.5','USD']]],['Power euro forward',[['PV','15','EUR']]],['Power forward',[['PV','230','USD']]]]);
@@ -140,8 +158,29 @@ test('market groups are keyed on market and definition revision, and only collid
  const holdings=[...fixture.holdings,{...fixture.holdings[0],tradeId:'t7',bindingId:'b7',definitionRevisionId:later}];
  const summaries=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],definitionRevisionId:later,presentValue:'4',tradeCount:1,unvaluedPositions:0}]);
  const split=deskGroups('market',summaries,holdings);
- assert.deepEqual(split.headers.map(h=>h.label).slice(0,2),['Gas forward · definition 1','Gas forward · definition 2']);
+ // These revisions differ only at the end of their ids, so the short id runs to where they differ; it is never a position among them.
+ assert.deepEqual(split.headers.map(h=>h.label).slice(0,2),['Gas forward · definition 60000000-0000-0000-0000-000000000001','Gas forward · definition 60000000-0000-0000-0000-000000000002']);
  assert.equal(split.keys.at(-1),'gas_forward|'+later);
+});
+test('a colliding market label names its revision by the shortest start of its id that no other shares, and a market of another code by its code',()=>{
+ const [first,second]=['a1b2c3d4-0000-4000-8000-000000000001','e5f6a7b8-0000-4000-8000-000000000002'];
+ const holdings=[{...fixture.holdings[0],definitionRevisionId:first},{...fixture.holdings[0],tradeId:'t7',bindingId:'b7',definitionRevisionId:second}];
+ const group=fixture.summaries[3].groups[0];
+ const summaries=changed(fixture.summaries,3,()=>[{...group,definitionRevisionId:first},{...group,definitionRevisionId:second,presentValue:'4'}]);
+ const heldAt=deskGroups('market',summaries,holdings).headers.map(h=>h.label);
+ assert.deepEqual(heldAt,['Gas forward · definition a1b2c3d4','Gas forward · definition e5f6a7b8']);
+ for(const label of heldAt)assert.doesNotMatch(label,/definition \d$/,'an ordinal is not an identity');
+ // Two markets that share a name in one revision are told apart by their codes.
+ setCurveNames([...fixture.curveNames,{code:'gas_forward_b',name:'Gas forward'}]);
+ try{
+  const twin=changed(fixture.summaries,3,groups=>[groups[0],{...groups[0],market:'gas_forward_b'}]);
+  const held=[fixture.holdings[0],{...fixture.holdings[0],tradeId:'t8',bindingId:'b8',curve:'gas_forward_b'}];
+  assert.deepEqual(deskGroups('market',twin,held).headers.map(h=>h.label),['Gas forward · gas_forward','Gas forward · gas_forward_b']);
+ }finally{setCurveNames(fixture.curveNames);}
+});
+test('a group header states how many positions the group holds, so a filtered count can be shown against it',()=>{
+ assert.deepEqual(deskGroups('book',fixture.summaries,fixture.holdings).headers.map(h=>[h.label,h.positions]),[['Book A',2],['Book B',4]]);
+ assert.deepEqual(deskGroups('instrumentType',fixture.summaries,fixture.holdings).headers.map(h=>[h.label,h.positions]),[['Futures',2],['Swaps',4]]);
 });
 test('instrument type groups read the money totals per currency, and a flat list has no groups',()=>{
  const groups=deskGroups('instrumentType',fixture.summaries,fixture.holdings);
@@ -158,25 +197,51 @@ test('swap PV by market is one horizontal, sign-colored panel per currency, larg
  const colors=commodityColors(['test_gas','test_power']);
  const panels=pvChartPanels(fixture.summaries,colors,format);
  assert.deepEqual(panels.map(p=>[p.unit,p.orientation,p.colorBySign,p.kind]),[['EUR','horizontal',true,'bar'],['USD','horizontal',true,'bar']]);
+ // The card's heading is drawn once by the desk; each panel is captioned by its currency.
+ assert.deepEqual(panels.map(p=>p.title),['EUR · bar right = gain','USD · bar right = gain']);
  const usd=panels[1].series[0].points;
  assert.deepEqual(usd.map(p=>[p.label,p.y,p.text,p.marker]),[['Power forward','230','+#230','#2a78d6'],['Gas forward','-10','−#10','#eb6834']]);
- assert.match(panels[1].subtitle,/Excludes 1 position that can't be valued at this close/);
- assert.doesNotMatch(panels[0].subtitle,/Excludes/);
+ assert.equal(panels[1].subtitle,"Excludes 1 position that can't be valued at this close");
+ assert.equal(panels[0].subtitle,undefined);
 });
 test('long and short by market is one panel per quantity unit; swaps are drawn only where every swap of the market shares a direction',()=>{
  const colors=commodityColors(['test_gas','test_power']);
  const panels=positionChartPanels(fixture.summaries,fixture.holdings,colors,format);
  assert.deepEqual(panels.map(p=>p.unit),['MMBtu (IT)','MWh']);
+ assert.deepEqual(panels.map(p=>p.title),['MMBtu (IT) · bar right = long','MWh · bar right = long']);
  const [gas,power]=panels.map(p=>p.series[0].points);
  assert.deepEqual(gas.map(p=>[p.label,p.y,p.color,p.direction??null]),[['Gas forward · Swaps · mixed directions',null,'#eb6834',null],['Gas future · Futures','0','#eb6834',null]]);
  assert.deepEqual(power.map(p=>[p.label,p.y,p.direction??null,p.text]),[['Power euro forward · Swaps','50','negative','#50 receive fixed'],['Power forward · Swaps · multi-side',null,null,undefined]]);
  assert.equal(gas[1].text,'#0');
+});
+test('a market held in more than one unit or currency is refused with a message of the desk, not drawn as one bar',()=>{
+ const message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
+ const colors=commodityColors(['test_gas','test_power']);
+ const otherUnit={...fixture.summaries[3].groups[0].quantitySpecification,code:'other_quantity'};
+ const twoUnits=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],quantitySpecification:otherUnit}]);
+ assert.throws(()=>pvChartPanels(twoUnits,colors,format),{message});
+ const otherCurrency={...fixture.summaries[3].groups[0].currencyReference,code:'other'};
+ const twoCurrencies=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],currencyReference:otherCurrency,currency:'OTH'}]);
+ const held=[...fixture.holdings,{...fixture.holdings[0],tradeId:'t7',bindingId:'b7',currencyReference:otherCurrency,currency:'OTH'}];
+ assert.throws(()=>positionChartPanels(twoCurrencies,held,colors,format),{message});
+});
+test('the direction of every swap of a market is found in one pass over the positions, not one pass per market',()=>{
+ let reads=0;
+ const counted=new Proxy([...fixture.holdings],{get(target,key,receiver){if(typeof key==='string'&&/^\d+$/.test(key))reads++;return Reflect.get(target,key,receiver);}});
+ positionChartPanels(fixture.summaries,counted,commodityColors(['test_gas','test_power']),format);
+ assert.ok(reads<=2*fixture.holdings.length,`read ${reads} positions for ${fixture.holdings.length}`);
 });
 test('commodity colors follow the design identity and stay distinct for other commodities',()=>{
  const colors=commodityColors(['test_power','other_b','test_gas','other_a']);
  assert.equal(colors.get('test_gas'),'#eb6834');assert.equal(colors.get('test_power'),'#2a78d6');
  assert.equal(new Set(colors.values()).size,4);
  assert.deepEqual([colors.get('other_a'),colors.get('other_b')],['#2f8a66','#6250d6']);
+});
+test('the explicit energy codes of the imported catalog take the same identity colors as the synthetic ones',()=>{
+ const colors=commodityColors(['electricity','gas','test_gas','test_power','other']);
+ assert.deepEqual(['gas','test_gas'].map(code=>colors.get(code)),['#eb6834','#eb6834']);
+ assert.deepEqual(['electricity','test_power'].map(code=>colors.get(code)),['#2a78d6','#2a78d6']);
+ assert.equal(colors.get('other'),'#2f8a66');
 });
 
 test('a curve shape becomes sparkline points in its order, with gaps kept and the delivery period marked',()=>{

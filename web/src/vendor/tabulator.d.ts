@@ -1,4 +1,5 @@
 export type GridColumn={getField():string;getWidth():number};
+export type GridGroup={getKey():string;getElement():HTMLElement|false;isVisible():boolean;toggle():void};
 export class TabulatorFull {
  constructor(host:HTMLElement,options:Record<string,unknown>);
  on(event:string,callback:(...args:any[])=>void):void;
@@ -10,4 +11,5 @@ export class TabulatorFull {
  setSort(sort:{column:string;dir:'asc'|'desc'}[]):void;
  redraw(force?:boolean):void;
  getRows():{getData():Record<string,string>;getCell(field:string):{setValue(value:string):void}|false}[];
+ getGroups():GridGroup[];
 }

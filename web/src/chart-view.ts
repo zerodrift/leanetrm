@@ -1,5 +1,6 @@
 import {init,type Chart} from './vendor/echarts.js';
 import {publicText} from './market-view.js';
+import {plotNumber} from './plot-number.js';
 /**
  * A chart of exact server values. Optional per-point presentation: `color` fills that bar, `marker` puts a dot of that color
  * before its category label, `text` is the display text a horizontal chart lists beside its bars (and every tooltip adds),
@@ -37,17 +38,8 @@ export function chartOptions(spec:ChartSpec){
   // A dot of each marker color before the labels of the categories that name one.
   const markers=[...new Set(markerOf.values())];
   const markedLabel=(key:string)=>{const marker=markerOf.get(key);return marker?`{m${markers.indexOf(marker)}|●} ${categoryLabel(key)}`:categoryLabel(key);};
-  const coordinate=(value:string|null)=>{
-    if(value===null)return null;
-    const [n,d]=value.split('/');
-    // Scale significant digits together: either retained integer may exceed
-    // Number's range even when their ratio fits ordinary plot coordinates.
-    const absolute=n.replace(/^-/,'').replace(/^0+/, '')||'0',head=absolute.slice(0,16),divisor=d?.slice(0,16);
-    const result=d?Number(`${(n.startsWith('-')?-1:1)*(Number('0.'+head)/Number('0.'+divisor))}e${absolute.length-d.length}`):Number(n);
-    if(!/^-?\d+(?:\.\d+|\/[1-9]\d*)?$/.test(value)||!Number.isFinite(result))throw Error('A chart needs exact finite server values.');
-    // Approximate coordinates position pixels only. Tooltips retain server strings.
-    return result;
-  };
+  // Approximate coordinates position pixels only. Tooltips retain server strings.
+  const coordinate=(value:string|null)=>value===null?null:plotNumber(value);
   const placed=(point:ChartPoint|undefined)=>{
     const value=coordinate(point?.y??null);
     if(value===null||!point?.direction)return value;

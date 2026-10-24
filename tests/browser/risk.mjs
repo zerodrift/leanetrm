@@ -18,6 +18,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the risk tile says the report is open below while it has no results',"document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Set up below'");
   await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait("document.querySelector('#risk-results .tabulator-row')");
   await check('the risk tile never says not run while results show',"document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Results below'");
+  // Closing the report is the card's own action, outside the page's actions: the tile still follows it.
+  await click('#risk-close');
+  await check('closing the report returns the risk tile to not run',"document.querySelector('#risk-card').hidden&&document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Not run at this close'&&document.querySelector('#desk-risk-run').textContent==='Run risk report'");
+  await click('#desk-risk-run');await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait("document.querySelector('#risk-results .tabulator-row')");
   await check('risk screen displays exact shared-factor results with explicit derivative units',"document.querySelector('#error').hidden&&document.querySelector('#risk-results').textContent.includes('Delta')&&document.querySelector('#risk-results').textContent.includes('Gamma')&&document.querySelector('#risk-results').textContent.includes('USD / (1 USD / MMBtu (IT))')");
   await check('risk uses the blotter context and every selected futures and swap holding',"(()=>{const r=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').at(-1).data;const h=window.__tradingReports(window.__riskReads).at(-1).data;return r.context.contextId===h.context.contextId&&r.heldInstruments>1&&r.work.positionCount===h.holdings.length&&r.inputs.positions.length===h.holdings.length&&h.holdings.every(row=>r.inputs.positions.some(p=>row.tradeId===p.tradeId&&row.bindingId===p.bindingId))&&new Set(r.factors[0].totals.map(t=>t.measure)).size===2;})()");
   await check('risk submits the complete pricing policy offered by its catalog without inventing inputs',"(()=>{const c=window.__riskReads.find(r=>r.path==='/api/portfolio/risk/catalog').data,r=window.__riskRequests.at(-1);const source=c.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01');return r.context.convention==='trading_workspace_v1'&&r.convention==='portfolio_instrument_repricing_v1'&&r.numericalPolicy==='exact_rational_portfolio_repricing_v1'&&JSON.stringify(r.pricingPolicy)===JSON.stringify(c.pricingPolicy)&&JSON.stringify(r.bumps[0].factor)===JSON.stringify(source.factor);})()");
@@ -68,6 +72,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     await check(`${outcome} uncertainty survives a rejected retry and recovers its receipt without selecting a new financial context`,"document.querySelector('#risk-form').hidden&&document.querySelector('#risk-fields').disabled&&document.querySelector('#risk-job-context').textContent.includes('2020-12-18')&&window.__riskReads.filter(r=>r.path==='/api/portfolio/risk/catalog').length===window.__riskCatalogCount");
     await wait("/Completed|Failed/.test(document.querySelector('#risk-job-status').textContent)");
     await check('queued risk completes rather than ending with a hidden worker failure',"document.querySelector('#risk-job-status').textContent.includes('Completed')","window.__riskReads.filter(r=>r.path.startsWith('/api/portfolio/risk/jobs')).at(-1)?.data");
+    // The job finishes on the card's own timer, outside the page's actions: the tile still follows it.
+    await check(`${outcome} queued risk that completes by polling moves the risk tile to its results`,"document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Results below'");
     await check(`${outcome} queued risk retries use one identity and publish the captured context`,"(()=>{const jobs=window.__riskJobs,reads=window.__riskReads.filter(r=>r.path.startsWith('/api/portfolio/risk/jobs'));const done=reads.findLast(r=>r.data.state==='completed').data;return JSON.stringify(jobs.at(-1))===JSON.stringify(jobs.at(-2))&&done.result.context.contextId===jobs.at(-1).request.context.contextId&&done.result.work.positionCount===window.__tradingReports(window.__riskReads).at(-1).data.holdings.length&&!document.querySelector('#risk-export').hidden;})()");
   }
   await click('#risk-export');
@@ -99,7 +105,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     // The independently imported module has its own metadata map beside the
     // bundled application; initialize it from the actual authorized directory.
     (await import('/market-view.js')).setCurveNames(await(await fetch('/api/curve-names')).json());
-    window.__riskHarness=(await import('/risk-view.js')).setupRisk({api,act:work=>work(),busy:()=>false,zone:()=> 'America/Chicago',canRun:()=>true,profile:()=> 'synthetic-risk-races',scope:()=>window.__riskJobs.at(-1).request,onDenied:()=>{}});
+    window.__riskHarness=(await import('/risk-view.js')).setupRisk({api,act:work=>work(),busy:()=>false,zone:()=> 'America/Chicago',canRun:()=>true,profile:()=> 'synthetic-risk-races',scope:()=>window.__riskJobs.at(-1).request,onDenied:()=>{},onChange:()=>{}});
     await window.__riskHarness.open();
   })()`);
   await set('#risk-factor',factor);await set('#risk-bump','0.1');await click('#risk-queue');await wait('window.__riskRaceResponses.length===1');

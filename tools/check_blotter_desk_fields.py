@@ -86,7 +86,7 @@ def check_money_totals(read, check, rows, when):
     `read` gives the report of a view at the close the rows were read at. The expectations come from the rows alone.
     """
     # Each pivot's dimension, the row field and the group field that name it, and what its groups state beside the money fields.
-    # A market is kept apart by its definition revision as well, which its groups state (R29).
+    # A market is kept apart by its definition revision as well, which its groups state (D217).
     pivots = (('instrument type', 'instrumentType', (), (), set()), ('book', 'book', ('bookId',), ('bookId',), {'bookId', 'book'}),
               ('market', 'market', ('curve', 'definitionRevisionId'), ('market', 'definitionRevisionId'), {'market', 'definitionRevisionId'}))
     reports = {}
@@ -114,7 +114,7 @@ def check_money_totals(read, check, rows, when):
 
 
 def check_market_revisions(read, check, rows, when):
-    """A pivot by market keeps each definition revision of a market apart, and its groups say which revision they are (R29).
+    """A pivot by market keeps each definition revision of a market apart, and its groups say which revision they are (D217).
 
     The desk keys its market bars and group headers on market and revision, so two groups of one market never look alike.
     """

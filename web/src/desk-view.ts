@@ -2,7 +2,7 @@
 // grid. It draws what desk-model selected; every figure is a backend string shown in the backend's display format.
 import {compareDecimalStrings} from './analytics-model.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
-import {curvePoints,signedText,type CurveShape,type DeskRow,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
+import {curvePoints,signOf,signedText,type CurveShape,type DeskRow,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
 import {publicText} from './market-view.js';
 import {divergingBar,sparklineGeometry} from './mini-charts.js';
 
@@ -14,8 +14,8 @@ function shape<K extends keyof SVGElementTagNameMap>(tag:K,attributes:Record<str
   const element=document.createElementNS(svgNamespace,tag);for(const [name,value] of Object.entries(attributes))element.setAttribute(name,String(value));return element;
 }
 function tooltip(element:SVGElement,text:string){const title=shape('title',{});title.textContent=publicText(text);element.prepend(title);return element;}
-/** How an exact amount's sign reads, for color: gain, loss or neither. */
-const signOf=(value:string)=>value.startsWith('-')?'negative':/^-?0+(?:\.0+)?(?:\/\d+)?$/.test(value)?'zero':'positive';
+// A space between neighbouring pieces of text, so the text a screen reader gets keeps them apart as the layout does.
+const space=()=>document.createTextNode(' ');
 const minus=(text:string)=>text.replace(/^-/,'−');
 // The largest magnitude among exact amounts, for a shared bar scale: chosen by exact comparison, never computed.
 function largest(values:readonly string[]){
@@ -25,11 +25,11 @@ function largest(values:readonly string[]){
 /** The display text of an exact amount, as the backend formats it for the row or the read. */
 export type Format=(value:string)=>string;
 
-function label(text:string,aside?:string){const row=node('div','desk-tile-label');row.append(node('span',undefined,text),...(aside?[node('span',undefined,aside)]:[]));return row;}
+function label(text:string,aside?:string){const row=node('div','desk-tile-label');row.append(node('span',undefined,text),...(aside?[space(),node('span',undefined,aside)]:[]));return row;}
 function amount(value:string|null,currency:string,money:Format){
   if(value===null)return node('p','kpi-value desk-not-valued','Not valued');
   const figure=node('p','kpi-value',signedText(value,money));figure.dataset.sign=signOf(value);figure.title=`${value} ${currency}`;
-  figure.append(node('small',undefined,currency));return figure;
+  figure.append(space(),node('small',undefined,currency));return figure;
 }
 function splitBar(value:string|null,max:string){
   const track=shape('svg',{class:'desk-split-bar',viewBox:'0 0 120 10',preserveAspectRatio:'none','aria-hidden':'true'});
@@ -51,7 +51,7 @@ export function renderMoneyTile(host:HTMLElement,title:string,word:string,tile:T
     for(const book of row.byBook){
       const split=node('div','desk-split');split.title=publicText(`${book.book} · ${book.value===null?'not valued':`${book.value} ${row.currency}`}${book.excluded?` · excludes ${book.excluded} not valued`:''}`);
       const shown=node('span','desk-split-amount',book.value===null?'Not valued':signedText(book.value,money));if(book.value!==null)shown.dataset.sign=signOf(book.value);
-      split.append(node('span','desk-split-book',book.book),splitBar(book.value,max),shown);splits.append(split);
+      split.append(node('span','desk-split-book',book.book),space(),splitBar(book.value,max),shown);splits.append(split);
     }
     block.append(splits);
     if(tile.rows.length>1&&row.note)block.append(node('p','desk-tile-note',row.note));
@@ -62,13 +62,13 @@ export function renderMoneyTile(host:HTMLElement,title:string,word:string,tile:T
 
 /** The positions tile: the rows read, and one mix segment per backend commodity and instrument type group. */
 export function renderPositionsTile(host:HTMLElement,tile:PositionsTile,colors:ReadonlyMap<string,string>){
-  const figure=node('p','kpi-value',String(tile.count));figure.append(node('small',undefined,tile.count===1?'position':'positions'));
+  const figure=node('p','kpi-value',String(tile.count));figure.append(space(),node('small',undefined,tile.count===1?'position':'positions'));
   const bar=node('div','desk-mix'),legend=node('ul','desk-legend');bar.setAttribute('role','img');
   bar.setAttribute('aria-label',publicText(tile.segments.map(s=>`${s.label} ${trades(s.trades,'trade')}`).join(', ')||'No positions'));
   for(const segment of tile.segments){
     const part=node('i',`desk-mix-${segment.instrumentType}`);part.style.flexGrow=String(segment.trades);part.style.background=colors.get(segment.commodity)!;part.title=publicText(`${segment.label} · ${trades(segment.trades,'trade')}`);bar.append(part);
     const item=node('li'),swatch=node('i',`desk-swatch desk-mix-${segment.instrumentType}`);swatch.style.background=colors.get(segment.commodity)!;
-    item.append(swatch,node('span',undefined,segment.label),node('b',undefined,String(segment.trades)));legend.append(item);
+    item.append(swatch,node('span',undefined,segment.label),space(),node('b',undefined,String(segment.trades)));legend.append(item);
   }
   host.replaceChildren(label('Open positions'),figure,...(tile.segments.length?[bar,legend]:[]));
   if(tile.note)host.append(node('p','desk-tile-note',tile.note));
@@ -90,18 +90,27 @@ export function renderRiskTile(host:HTMLElement,risk:RiskTile,run:()=>void){
   button.textContent=publicText(action);button.disabled=risk.busy||denied;button.onclick=run;
 }
 
-/** The panels of one desk chart, each sized to its bars, or a quiet note when there is nothing to chart. */
+// A horizontal bar chart pads its plot by 8px above and below the bars (chart-view's grid); each bar takes a band of 22px.
+const plotPadding=16,barBand=22;
+/** What a bar chart's canvas shows, as text beside it: each bar's label and the text listed with it, in the order drawn. */
+function textAlternative(spec:ChartSpec){
+  const list=node('ul','sr-only');list.setAttribute('aria-label',publicText(`${spec.title} values`));
+  for(const series of spec.series)for(const point of series.points)
+    list.append(node('li',undefined,`${spec.series.length>1?`${series.name} · `:''}${point.label??point.x}: ${point.text??point.y??'unavailable'}`));
+  return list;
+}
+/** The panels of one desk chart under its card's heading, each sized to its bars, or a quiet note when there is nothing to chart. */
 export function renderDeskCharts(host:HTMLElement,specs:readonly ChartSpec[],empty:string){
   clearDeskCharts(host);
   if(!specs.length){host.append(node('p','desk-chart-empty',empty));return;}
   for(const spec of specs){
-    const panel=node('div','chart');panel.style.setProperty('--plot-height',`${Math.max(72,24+Math.max(...spec.series.map(s=>s.points.length))*28)}px`);
-    host.append(panel);renderChart(panel,spec);
+    const panel=node('div','chart');panel.style.setProperty('--plot-height',`${plotPadding+Math.max(...spec.series.map(s=>s.points.length))*barBand}px`);
+    host.append(panel);renderChart(panel,spec);panel.append(textAlternative(spec));
   }
 }
-export function clearDeskCharts(host:HTMLElement){host.querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));host.replaceChildren();}
+export function clearDeskCharts(host:HTMLElement){host.querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));host.querySelectorAll('.chart,.desk-chart-empty').forEach(element=>element.remove());}
 
-/** A position group's header: its name, the rows it shows, and the backend subtotals of all its positions. */
+/** A position group's header: its name, how many of its positions show, and the backend subtotals of all of them. */
 export function groupHeader(header:GroupHeader,count:number,money:Format){
   const element=node('span','desk-group');
   const totals=node('span','desk-group-totals');totals.title='Totals of every position in this group at this close, before row filters';
@@ -110,7 +119,9 @@ export function groupHeader(header:GroupHeader,count:number,money:Format){
     const figure=node('b',undefined,subtotal.amount===null?'not valued':signedText(subtotal.amount,money));if(subtotal.amount!==null){figure.dataset.sign=signOf(subtotal.amount);figure.title=`${subtotal.amount} ${subtotal.currency}`;}
     item.append(figure,node('span',undefined,' '+subtotal.currency+(subtotal.excluded?` · ${subtotal.excluded} not valued`:'')));totals.append(item);
   }
-  element.append(node('span','desk-group-label',header.label),node('span','desk-group-count',` · ${count} ${count===1?'position':'positions'}`),totals);
+  // Row filters may hide some of the group's positions, while its subtotals are of all of them.
+  const positions=count===header.positions?`${count} ${count===1?'position':'positions'}`:`${count} of ${header.positions} positions`;
+  element.append(node('span','desk-group-label',header.label),node('span','desk-group-count',` · ${positions}`),space(),totals);
   return element;
 }
 
@@ -153,6 +164,7 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
       case 'market':{const dot=node('i','commodity-dot');dot.style.background=color;dot.title=publicText(row.commodityName);
         const line=node('span','desk-line');line.append(dot,node('span','desk-market',row.market));cell.append(line,node('small','desk-sub',row.delivery));return cell;}
       case 'quantity':{
+        cell.classList.add('desk-size');
         const track=shape('svg',{class:'desk-size-bar',width:56,height:12,viewBox:'0 0 56 12','aria-hidden':'true'});track.append(shape('line',{x1:28,x2:28,y1:0,y2:12,class:'desk-axis'}));
         if(row.exposure==='long'||row.exposure==='short'){
           // A swap's booked quantity is unsigned; its bar takes the side its backend direction states.
@@ -161,11 +173,14 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
         }
         // A future's quantity carries its sign; a swap's booked quantity has none, and its side label states its direction.
         const figure=exact(node('span','desk-figure',row.instrumentType==='future'?signedText(row.quantity,v=>formats.quantity(index,v)):minus(formats.quantity(index,row.quantity))),row.quantity);
-        const line=node('span','desk-line');line.append(track,figure,node('span','desk-unit',row.unit));cell.append(line,node('small','desk-sub',row.side));return cell;}
+        // The unit and the side or lots sit under the figure, so figures of different units keep their right edges aligned.
+        const line=node('span','desk-line'),under=node('small','desk-sub');line.append(track,figure);under.append(node('span','desk-unit',row.unit),` · ${publicText(row.side)}`);cell.append(line,under);return cell;}
       case 'executionPrice':{if(row.price===null){cell.append(node('span','desk-muted','None'),node('small','desk-sub','No fixed price'));return cell;}
-        cell.append(exact(node('span','desk-figure',minus(formats.price(index,row.price))),row.price),node('small','desk-sub',row.priceLabel));return cell;}
-      case 'mark':{if(row.mark===null){if(row.unavailable===null)cell.title='No single curve price for this position at this close';return cell;}
-        cell.append(exact(node('span','desk-figure',minus(formats.mark(index,row.mark))),row.mark),node('small','desk-sub','Mark'));return cell;}
+        cell.append(exact(node('span','desk-figure',minus(formats.price(index,row.price))),row.price),node('small','desk-sub',`${row.priceLabel} · ${row.priceUnit}`));return cell;}
+      case 'mark':{
+        // A position the close cannot value leaves its mark blank; its reason is in its Value cell.
+        if(row.mark===null){if(row.markNote!==null){cell.title='No single curve price for this position at this close';cell.append(node('span','desk-muted',row.markNote));}return cell;}
+        cell.append(exact(node('span','desk-figure',minus(formats.mark(index,row.mark))),row.mark),node('small','desk-sub',`Mark · ${row.priceUnit}`));return cell;}
       case 'presentValue':{
         if(row.unavailable!==null){cell.classList.add('desk-unvalued');cell.append(node('span','desk-chip','Not valued'),node('small','desk-sub',row.unavailable));return cell;}
         if(row.value===null)return cell;
@@ -173,7 +188,7 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
         cell.append(figure,node('small','desk-sub',`${row.measure} · ${row.currency}`));return cell;}
       case 'curve':{
         const shown=curve(index);
-        if(shown===undefined){const waiting=node('span','sparkline-loading');waiting.setAttribute('aria-label','Loading curve shape');return waiting;}
+        if(shown===undefined){const waiting=node('span','sparkline-loading');waiting.setAttribute('role','img');waiting.setAttribute('aria-label','Loading curve shape');return waiting;}
         cell.append(sparklineSvg(shown,row,color));return cell;}
       default:return null;
     }
