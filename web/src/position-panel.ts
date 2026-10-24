@@ -4,11 +4,10 @@
 import {clearChart,renderChart,type ChartPoint,type ChartSpec} from './chart-view.js';
 import {curvePoints,minus,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type Holding,type HoldingFormats} from './desk-model.js';
 import {deliveryLabel,publicText} from './market-view.js';
-import {renderRegularTable} from './regular-table.js';
 import {setupTabs,type SidePanel} from './side-panel.js';
 
 export const positionTabs=[['curve','Curve'],['terms','Terms'],['risk','Risk'],['history','History']] as const;
-type PositionTab=typeof positionTabs[number][0];
+export type PositionTab=typeof positionTabs[number][0];
 export const riskEmpty="A risk run's results for this position will show here.";
 
 /** An exact amount with its display text and sign. */
@@ -86,22 +85,30 @@ export function openCurveTarget(h:Holding,row:DeskRow,shape:CurveShape|string|un
   return {curve:h.curve,contractId:sparkline.state==='drawn'&&sparkline.marks.length===1?shape.points![sparkline.marks[0]].contractId:null};
 }
 
-/** What the Terms and History tabs show of one trade revision, drawn from its editor read. */
+/** What the Terms and History tabs show of one trade revision, drawn from its editor read: titled lists of exact facts. */
 export type TermSection={title:string;rows:readonly (readonly [string,string])[]};
-export type HistoryTable={headers:string[];rows:string[][];numeric:number[]};
-export type DetailView={terms:TermSection[];history:HistoryTable};
+export type DetailView={terms:TermSection[];history:TermSection[]};
 /** Whether the editor can amend the revision, and why not when it cannot. */
 export type AmendState={allowed:true;reason:null}|{allowed:false;reason:string};
 /** An editor read of a trade revision: its amendment state, and the views drawn from it in the person's time zone. */
 export type DetailRead={amend:AmendState;view:(zone:string)=>DetailView};
 
 /**
- * What Amend says beside its button when the editor it opens is read-only: first that the account cannot amend, then why the
- * revision cannot be, once the editor has been read. Nothing when the editor is not read-only.
+ * Why Amend is not offered: first that the account cannot amend, then why the revision cannot be, once the editor has been read.
+ * Nothing when it can be.
  */
 export function amendNote(accountCanAmend:boolean,revision:AmendState|undefined):string|null{
-  if(!accountCanAmend)return 'This account cannot amend trades in this market context, so Amend opens the editor read-only.';
-  return revision&&!revision.allowed?`Amend opens the editor read-only: ${revision.reason}`:null;
+  if(!accountCanAmend)return 'This account cannot amend trades in this market context.';
+  return revision&&!revision.allowed?`This position cannot be amended: ${revision.reason}`:null;
+}
+/**
+ * The head's amendment control: Amend while there is nothing against it, none, with the reason in view, when there is, and Close
+ * editor for as long as the form is open, which can always be closed.
+ */
+export function amendControl(state:{accountCanAmend:boolean;revision:AmendState|undefined;editing:boolean}):{label:'Amend'|'Close editor'|null;note:string|null}{
+  if(state.editing)return {label:'Close editor',note:null};
+  const note=amendNote(state.accountCanAmend,state.revision);
+  return note===null?{label:'Amend',note:null}:{label:null,note};
 }
 /** What Open curve says beside its button when there is no curve to open: for a market Curves & prices does not list. */
 export const curveNote=(listed:boolean)=>listed?null:"Curves & prices does not list this position's market, so there is no curve to open.";
@@ -116,8 +123,9 @@ const failure=(error:unknown,fallback:string)=>error instanceof Error?error.mess
 type Detail={key:string}&({state:'loading'}|{state:'ready';read:DetailRead}|{state:'error';message:string});
 
 /**
- * The position view over the shell's head, tab strip and body. The Terms and History tabs read the trade revision once, when
- * first shown, in the market context of the desk; a read made in another context, or of another position, is dropped.
+ * The position view over the shell's head, tab strip and tab panel. The Terms and History tabs read the trade revision once, when
+ * first shown, in the market context of the desk; a read made in another context, or of another position, is dropped. Amend
+ * opens the position's amendment, whose form Terms shows in place of its read view for as long as it is open.
  */
 export function setupPositionPanel(shell:SidePanel,o:{
   zone:()=>string;busy:()=>boolean;canAmend:()=>boolean;
@@ -126,10 +134,17 @@ export function setupPositionPanel(shell:SidePanel,o:{
   /** The market context the desk reads in, as a key: a trade read belongs to one. */
   context:()=>string;
   read:(h:Holding,formats:HoldingFormats)=>Promise<DetailRead>;
-  amend:(h:Holding)=>void;openCurve:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
+  /**
+   * The amendment of a position, whose form the page puts in the shell's form part: `open` starts it, `shown` says whether the form of
+   * a position is open, and `close` ends it, asking first when it holds edits.
+   */
+  amendment:{open:(h:Holding)=>void;shown:(h:Holding)=>boolean;close:()=>Promise<void>};
+  openCurve:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
 }){
   let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
-  const body=()=>shell.element('body');
+  // Whether the last drawing found the position's amendment open, and whether it put its form in the tab panel.
+  let amending=false,formShown=false,reading:{key:string;done:Promise<unknown>}|undefined;
+  const view=()=>shell.element('view');
   const key=(at:PositionInput)=>JSON.stringify([at.holding.tradeId,at.holding.revision,o.context()]);
   function status(text:string,className='side-panel-status'){const p=el('p',className,text);p.setAttribute('role','status');return p;}
   function drawHead(at:PositionInput,now:PositionSummary){
@@ -148,7 +163,7 @@ export function setupPositionPanel(shell:SidePanel,o:{
     }
     const row=el('div','side-panel-actions'),amend=el('button',undefined,'Amend'),open=el('button','secondary','Open curve'),note=el('p','field-help side-panel-note'),openNote=el('p','field-help side-panel-note');
     amend.type=open.type='button';amend.id='side-panel-amend';open.id='side-panel-open-curve';note.id='side-panel-amend-note';openNote.id='side-panel-open-curve-note';note.hidden=openNote.hidden=true;
-    amend.onclick=()=>o.amend(at.holding);
+    amend.onclick=()=>{if(o.amendment.shown(at.holding))void o.amendment.close().then(sync);else o.amendment.open(at.holding);};
     open.onclick=()=>{const target=openCurveTarget(at.holding,at.row,at.shape);o.openCurve(target.curve,target.contractId);};
     row.append(amend,open);actions={amend,open,note,openNote};
     shell.element('head').replaceChildren(kicker,title,el('p','side-panel-sub',now.subtitle),value,row,note,openNote);
@@ -169,16 +184,13 @@ export function setupPositionPanel(shell:SidePanel,o:{
     }
     host.append(facts);
   }
-  function drawTerms(host:HTMLElement,view:DetailView){
-    for(const section of view.terms){
+  // Terms and History are lists of titled sections of label and value rows, which fit the panel's width.
+  function drawSections(host:HTMLElement,sections:readonly TermSection[]){
+    for(const section of sections){
       const list=el('dl','side-terms-list');
       for(const [label,value] of section.rows){const row=el('div','side-term');row.append(el('dt',undefined,label),el('dd',undefined,value));list.append(row);}
       const wrap=el('section','side-panel-section');wrap.append(el('h3',undefined,section.title),list);host.append(wrap);
     }
-  }
-  function drawHistory(host:HTMLElement,at:PositionInput,view:DetailView){
-    const table=el('div','table-wrap');host.append(table);
-    renderRegularTable(table,'position-history',key(at),view.history.headers,view.history.rows,view.history.numeric,o.busy);
   }
   function drawDetail(host:HTMLElement,at:PositionInput){
     if(detail?.key!==key(at))void load();
@@ -187,13 +199,19 @@ export function setupPositionPanel(shell:SidePanel,o:{
       const retry=el('button','secondary','Retry');retry.type='button';retry.id='side-panel-retry';retry.onclick=()=>void load();
       return void host.append(status(detail.message,'side-panel-status side-panel-error'),retry);
     }
-    const view=detail.read.view(o.zone());
-    if(tab==='terms')drawTerms(host,view);else drawHistory(host,at,view);
+    const read=detail.read.view(o.zone());
+    drawSections(host,tab==='terms'?read.terms:read.history);
   }
+  // The first control of the amendment's form, which takes focus when the form opens.
+  function focusForm(){shell.element('form').querySelector<HTMLElement>('select:enabled,input:enabled:not([type=hidden]),textarea:enabled')?.focus({preventScroll:true});}
   function drawBody(at:PositionInput,now:PositionSummary){
-    const host=body();
+    const host=view();
     if(chart){clearChart(chart);chart=undefined;}
     host.replaceChildren();
+    // The amendment's form is the Terms tab's content while it is open: the other tabs keep it, and its edits, out of sight.
+    const form=tab==='terms'&&amending,opened=form&&!formShown;
+    formShown=form;shell.form(form);
+    if(form){if(opened){shell.reveal();focusForm();}return;}
     if(tab==='curve')drawCurve(host,at,now);
     else if(tab==='risk')host.append(status(riskEmpty));
     else drawDetail(host,at);
@@ -202,7 +220,7 @@ export function setupPositionPanel(shell:SidePanel,o:{
   // drops focus a moment later without a word; a redraw replaces the control that has it. So the id of the control that has focus is
   // kept while the page is busy or the panel is drawn again, and focus goes back to the control of that id once it is enabled, if
   // nothing else has taken focus by then.
-  const controlParts=()=>[shell.element('head'),shell.element('tabs'),body()];
+  const controlParts=()=>[shell.element('head'),shell.element('tabs'),shell.element('body')];
   let held:string|undefined;
   const focusLost=()=>{const active=document.activeElement;return active===null||active===document.body||active===document.documentElement;};
   // The control of the panel that has keyboard focus now.
@@ -224,36 +242,45 @@ export function setupPositionPanel(shell:SidePanel,o:{
   function paint(){
     if(!input)return;
     const keep=focused()??held;
-    try{const now=positionSummary(input.holding,input.row,input.formats);drawHead(input,now);drawBody(input,now);}
+    try{const now=positionSummary(input.holding,input.row,input.formats);amending=o.amendment.shown(input.holding);drawHead(input,now);drawBody(input,now);}
     catch(error){
-      actions=undefined;if(chart){clearChart(chart);chart=undefined;}
-      shell.element('head').replaceChildren();body().replaceChildren(status(failure(error,'The position could not be shown.'),'side-panel-status side-panel-error'));
+      actions=undefined;formShown=false;if(chart){clearChart(chart);chart=undefined;}
+      shell.form(false);shell.element('head').replaceChildren();view().replaceChildren(status(failure(error,'The position could not be shown.'),'side-panel-status side-panel-error'));
     }
     sync();
     held=keep;refocus();
   }
-  async function load(){
+  // Reads the trade revision of the position and draws it. Resolves to why it could not be read, or to nothing; it never rejects.
+  function load():Promise<unknown>{
     const at=input!,started=++generation,loading:Detail={key:key(at),state:'loading'};
     detail=loading;
-    try{
-      const read=await o.read(at.holding,at.formats);
-      if(started!==generation)return;
-      detail={key:loading.key,state:'ready',read};
-    }catch(error){
-      if(started!==generation)return;
-      if((error as {code?:string}).code==='access_denied'){o.onDenied();return;}
-      detail={key:loading.key,state:'error',message:failure(error,'The trade could not be read.')};
-    }
-    paint();
+    const done=(async()=>{
+      try{
+        const read=await o.read(at.holding,at.formats);
+        if(started!==generation)return;
+        detail={key:loading.key,state:'ready',read};
+      }catch(error){
+        if(started!==generation)return;
+        if((error as {code?:string}).code==='access_denied'){o.onDenied();return error;}
+        detail={key:loading.key,state:'error',message:failure(error,'The trade could not be read.')};paint();return error;
+      }
+      paint();
+    })();
+    reading={key:loading.key,done};
+    return done;
   }
   function sync(){
     if(!input||!actions)return;
-    // Amend opens the trade's editor, which is read-only for an account or a revision that cannot be amended, and says why: so the
-    // button stays available to everyone who can open the position, and the panel says beforehand, in words, what the editor will be.
-    const revision=detail?.state==='ready'&&detail.key===key(input)?detail.read.amend:undefined,note=amendNote(o.canAmend(),revision);
+    const at=input,editing=o.amendment.shown(at.holding);
+    // The amendment opened or closed, by the panel's own button or by the page: Terms shows its form, or its read view again.
+    if(editing!==amending){if(editing){tab='terms';tabs?.mark('terms');}paint();return;}
+    const revision=detail?.state==='ready'&&detail.key===key(at)?detail.read.amend:undefined;
+    const control=amendControl({accountCanAmend:o.canAmend(),revision,editing});
     if(o.busy())held=focused()??held;
-    actions.amend.disabled=o.busy();say(actions.note,actions.amend,note);
-    const listed=o.curveListed(input.holding.curve);
+    actions.amend.hidden=control.label===null;if(control.label!==null)actions.amend.textContent=control.label;
+    actions.amend.disabled=o.busy();
+    actions.note.hidden=control.note===null;actions.note.textContent=control.note===null?'':publicText(control.note);
+    const listed=o.curveListed(at.holding.curve);
     actions.open.disabled=o.busy()||!listed;say(actions.openNote,actions.open,curveNote(listed));
     if(!o.busy())refocus();
   }
@@ -263,16 +290,26 @@ export function setupPositionPanel(shell:SidePanel,o:{
     if(reason===null)control.removeAttribute('aria-describedby');else control.setAttribute('aria-describedby',note.id);
   }
   return {
-    /** Shows a position the shell has just opened: on its Curve tab, with nothing read of it yet. */
-    show(next:PositionInput){
-      input=next;tab='curve';detail=undefined;held=undefined;generation++;
-      if(!tabs)tabs=setupTabs(shell.element('tabs'),positionTabs,{label:'Position details',panel:body(),selected:'curve',select:id=>{tab=id as PositionTab;paint();}});
-      tabs.mark('curve');paint();
+    /** Shows a position the shell has just opened: on the tab it names, the Curve tab unless told otherwise, with nothing read of it yet. */
+    show(next:PositionInput,start:PositionTab='curve'){
+      input=next;tab=start;detail=undefined;held=undefined;generation++;
+      tabs=setupTabs(shell.element('tabs'),positionTabs,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>{tab=id as PositionTab;paint();shell.element('body').scrollTop=0;}});
+      paint();
     },
     /** Draws the same position again from a newer read of the desk. */
     update(next:PositionInput){input=next;paint();},
-    /** Forgets the position: the panel is closed, or the reads it was drawn from no longer stand. */
-    clear(){input=undefined;actions=undefined;detail=undefined;held=undefined;generation++;if(chart){clearChart(chart);chart=undefined;}body().replaceChildren();shell.element('head').replaceChildren();},
+    /** Reads again what the panel has read of its position, in the market context the desk reads in now, and says why it cannot. */
+    async reload(){
+      if(!input||detail===undefined)return;
+      const failed=await(detail.state==='loading'&&reading?.key===key(input)?reading.done:load());
+      if(failed)throw failed;
+    },
+    /** Forgets the position: the panel is closed or left, or the reads it was drawn from no longer stand. */
+    clear(){
+      input=undefined;actions=undefined;detail=undefined;held=undefined;tabs=undefined;amending=formShown=false;generation++;
+      if(chart){clearChart(chart);chart=undefined;}
+      view().replaceChildren();shell.element('head').replaceChildren();shell.element('tabs').replaceChildren();shell.element('body').removeAttribute('aria-labelledby');
+    },
     sync,
   };
 }

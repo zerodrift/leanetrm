@@ -1,5 +1,6 @@
 import {sideSession} from './side-session.mjs';
 import {qualifyProvider,pricedModel} from './model-fixture.mjs';
+import {chooseFutures} from './futures-selection.mjs';
 
 // The assistant panel (docs/ai-assistant.md §8, §10.1, §13), after the settings scenarios in the assistant check's
 // preview. An administrator's independent session publishes this run's agents; the page asks them as a trader, and the
@@ -153,6 +154,40 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('Back from a page with unsaved edits first says so, keeping them, and offers Back anyway',
     `${shown('#futures-booking')}&&${q('#futures-lots')}.value==='5'&&${notice}.textContent.includes('Back would leave unsaved changes on this page.')`);
   await press('Back anyway');await wait(`${q('#futures-booking')}.hidden&&${q('#page-title')}.textContent==='Blotter'&&${idle}`);
+
+  // A trade open in the panel is not a dialog (D215): the assistant stays open beside it and can be asked about it, and Looking at names
+  // the trade at its revision.
+  // The page assistant's fixture holds no trades, so the one these checks ask about is booked here, from the Blotter's own booking card.
+  await click('#nav-futures');await click('#futures-new');await click('#trade-kind-future');
+  await chooseFutures({evaluate,set,click});await evaluate("document.querySelector('#futures-book').selectedIndex=1;");
+  await set('#futures-lots','4');await set('#futures-execution','2.9');
+  await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");
+  await evaluate(`${q('#futures-form')}.requestSubmit()`);await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&"+idle);
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');
+  await wait("!document.querySelector('#side-panel').hidden");
+  const trade=await evaluate("document.querySelector('#side-panel-head .side-panel-reference').textContent");
+  const revision=await evaluate("document.querySelector('#side-panel-head .side-panel-meta').textContent.match(/Revision (\\d+)/)[1]");
+  await check('Looking at names the trade the panel shows, at its revision, with the assistant open beside the panel',
+    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision ${revision}`]))}&&${shown('#assistant-panel')}&&!${q('#side-panel')}.hidden&&${q('#side-panel')}.dataset.placement==='overlay'`,looking);
+  await script({text:'That trade is open in the panel. '});
+  await ask('What is this trade?');await wait(finished);
+  await check('the assistant is asked while the trade is open, and the ask reports it: its page report names the trade, its kind and its revision',
+    `(()=>{const r=${asks}.at(-1).body.pageReport,s=r.selection;return r.page==='blotter'&&s.view==='trade'&&typeof s.tradeId==='string'&&['future','financial_swap'].includes(s.instrumentType)&&s.revision===${revision}&&s.mode===null&&s.groupBy===null;})()`,`JSON.stringify(${asks}.at(-1).body.pageReport)`);
+  await click('#side-panel-close');
+  await check('closing the panel returns Looking at to the Blotter\'s rows',`${looking}[1].startsWith('Trade rows · ')&&${q('#side-panel')}.hidden`,looking);
+  // An amendment under way holds a live move away from the page, like any other unsaved edit, and Back brings the trade back in the panel.
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel').hidden");
+  await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden");
+  await evaluate(`${q('#trade-lots')}.focus();${q('#trade-lots')}.select()`);await command('Input.insertText',{text:'3'});
+  await script({tools:[['toolu_panel_05b','navigate',{page:'schedules',target:null}]]},{text:'Here are the schedules.'});
+  await ask('Take me to the schedules.');await wait(finished);
+  await check('a live target that would leave an amendment with unsaved edits does not move the page: its notice says so and offers Go anyway',
+    `${q('#page-title')}.textContent==='Blotter'&&!${q('#side-panel')}.hidden&&!${q('#trade-editing')}.hidden&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'&&${asks}.at(-1).body.pageReport.selection.view==='trade'`,`${notice}?.textContent`);
+  await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules'&&${idle}`);
+  await press('Back');await wait(`${q('#page-title')}.textContent==='Blotter'&&!${q('#side-panel')}.hidden&&${idle}`);
+  await check('Back opens the trade again in the panel, on its Terms and without the edits that were given up',
+    `${q('#side-panel-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}&&${q('#side-panel-tabs-terms')}.getAttribute('aria-selected')==='true'&&${q('#trade-editing')}.hidden&&JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision ${revision}`]))}`,looking);
+  await click('#side-panel-close');
 
   // A page the assistant does not read (§7.3).
   await click('#nav-delivery');
@@ -308,7 +343,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await click('#assistant-history-open');await wait(`document.querySelectorAll('#assistant-history-list button').length>0`);
   // Every question of this run went to one conversation with the guide.
   await evaluate(`[...document.querySelectorAll('#assistant-history-list button')].find(b=>b.textContent.includes(${JSON.stringify(guide)})).click()`);
-  await wait(`document.querySelectorAll('#assistant-turns > li').length===12&&!!${latest}.querySelector('.assistant-usage')`);
+  await wait(`document.querySelectorAll('#assistant-turns > li').length===14&&!!${latest}.querySelector('.assistant-usage')`);
   await check('at 390 px the panel covers the width as a sheet that fits it, showing the conversation without identifiers',
     `${q('#assistant-panel')}.getBoundingClientRect().width===document.documentElement.clientWidth&&${fitsWidth}`
     +`&&!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(${q('#assistant-panel')}.innerText)&&${q('#assistant-agent')}.value===${JSON.stringify(guideChoice)}`,

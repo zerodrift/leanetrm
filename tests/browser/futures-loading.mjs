@@ -19,7 +19,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     const count=await evaluate('window.__loadingReads.length');
     await click('#futures-new');await check('New trade opens its kind picker without requesting futures prices',`document.querySelector('#trade-kind').open&&window.__loadingReads.length===${count}`);await click('#trade-kind-close');
     await click('#futures-new');await click('#trade-kind-swap');
-    await check('choosing a swap does not load a futures booking catalog',`document.querySelector('#swap-editor').open&&window.__loadingReads.length===${count}`);await click('#swap-close');
+    await check('choosing a swap does not load a futures booking catalog',`!document.querySelector('#swap-editing').hidden&&!document.querySelector('#side-panel').hidden&&window.__loadingReads.length===${count}`);await click('#side-panel-close');
     await click('#futures-new');await click('#trade-kind-future');
     await check('choosing futures reloads catalog and holdings under one fresh matching context',`(()=>{const read=window.__loadingReads.at(-1),c=read.data.catalog,b=read.data.blotter;return window.__loadingReads.length===${count+1}&&read.body.bookingCatalog==='priced_contracts'&&read.body.context.snapshotId===${JSON.stringify(selected)}&&c.kind==='priced_contracts'&&c.contracts.length>0&&c.context.contextId===b.context.contextId&&c.context.knownAt===b.context.knownAt&&c.asOf===b.asOf&&!document.querySelector('#futures-booking').hidden&&document.querySelector('#futures-contract').options.length===1&&document.querySelector('#futures-contract-commodity').options.length>1;})()`);
     await click('#futures-cancel');await click('#futures-new');

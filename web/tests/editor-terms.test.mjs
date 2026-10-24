@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {tradeTerms,tradeHistoryTable,tradeDetailView,tradeAmendState,readTradeView} from '../dist/trade-editor.js';
-import {swapTerms,swapHistoryTable,swapDetailView,swapAmendState,readSwapView,retainedIndex,sideTitle} from '../dist/swap-editor.js';
+import {tradeTerms,tradeHistory,tradeDetailView,tradeAmendState,readTradeView,holdsBinding} from '../dist/trade-editor.js';
+import {swapTerms,swapHistory,swapDetailView,swapAmendState,readSwapView,retainedIndex,sideTitle,holdsInstrument} from '../dist/swap-editor.js';
 import {setCurveNames} from '../dist/market-view.js';
 const details=JSON.parse(readFileSync(new URL('./fixtures/trade-details.json',import.meta.url),'utf8'));
 setCurveNames([{code:'future',name:'Gas future'},{code:'daily_gas',name:'Daily gas'},{code:'daily_power',name:'Daily power'}]);
@@ -28,18 +28,30 @@ test('a future\'s executed time follows the user\'s zone, and a contract the cat
  assert.deepEqual(rowsOf(tradeTerms(retained,'UTC',formats,unit),'Contract'),{'Contract terms':'Retained contract terms are unavailable in this selectable catalog.'});
 });
 
-test('a future\'s revisions are the editor\'s revisions table: every event, its lots and price exact, and the numeric columns named',()=>{
- const table=tradeHistoryTable(details.future,'UTC');
- assert.deepEqual(table.headers,['Revision','Event','Effective','Recorded','Book','Lots','Execution price','Trader ID','Memo','Trade date','Legal entity','Counterparty','Reason']);
- assert.deepEqual(table.numeric,[0,5,6]);
- assert.equal(table.rows.length,details.future.history.length);
- assert.deepEqual(table.rows[0].filter((_,i)=>[0,1,4,5,6,7,8,9,10,11,12].includes(i)),['1','Booked','Book A','2','2.95','trader','','2026-10-24','Synthetic entity 1','Synthetic party 1','Initial booking']);
+test('a future\'s revisions are listed one by one with their facts, each exact, and what a revision lacks is said so',()=>{
+ const amended=clone(details.future);
+ amended.history.push({...clone(details.future.history[0]),revision:2,kind:'amended',lots:'3',executionPrice:'2.975',memo:'Synthetic note',reason:'Synthetic correction',traderCode:null,booking:{...details.future.history[0].booking,legalEntity:null,tradeDate:null}});
+ const history=tradeHistory(amended,'UTC');
+ assert.deepEqual(history.map(entry=>entry.title),['Revision 1 · Booked','Revision 2 · Amended']);
+ assert.deepEqual(Object.fromEntries(history[0].rows),{Effective:'Dec 15, 2020, 4:00 PM',Recorded:'Oct 24, 2026, 5:53 AM',Book:'Book A',Lots:'2','Execution price':'2.95','Trader ID':'trader',Memo:'None','Trade date':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Reason:'Initial booking'});
+ assert.deepEqual(Object.fromEntries(history[1].rows),{Effective:'Dec 15, 2020, 4:00 PM',Recorded:'Oct 24, 2026, 5:53 AM',Book:'Book A',Lots:'3','Execution price':'2.975','Trader ID':'None',Memo:'Synthetic note','Trade date':'Not recorded','Legal entity':'None',Counterparty:'Synthetic party 1',Reason:'Synthetic correction'});
+});
+
+test('a revision of a book the catalog no longer holds says so, and an hour the clock repeats is told apart',()=>{
+ const gone=clone(details.future);gone.catalog.books=[];
+ assert.equal(Object.fromEntries(tradeHistory(gone,'UTC')[0].rows).Book,'Unavailable book');
+ // Clocks in Chicago show 1:30 a.m. twice on 1 November 2026: once in daylight time, once an hour later in standard time.
+ const repeated=clone(details.future);
+ repeated.history[0].recordedAt='2026-11-01T06:30:00+00:00';
+ repeated.history.push({...clone(repeated.history[0]),revision:2,kind:'amended',recordedAt:'2026-11-01T07:30:00+00:00'});
+ const [first,second]=tradeHistory(repeated,'America/Chicago').map(entry=>Object.fromEntries(entry.rows).Recorded);
+ assert.notEqual(first,second,'the same clock time at two instants is not given one label');
 });
 
 test('the view of a future joins its terms and revisions, and its amendment state is its own',()=>{
  const view=tradeDetailView(details.future,'UTC',formats,unit);
  assert.deepEqual(Object.keys(view),['terms','history']);
- assert.deepEqual(view.terms,tradeTerms(details.future,'UTC',formats,unit));assert.deepEqual(view.history,tradeHistoryTable(details.future,'UTC'));
+ assert.deepEqual(view.terms,tradeTerms(details.future,'UTC',formats,unit));assert.deepEqual(view.history,tradeHistory(details.future,'UTC'));
  assert.deepEqual(tradeAmendState(details.future),{allowed:true,reason:null});
  const locked={...details.future,canAmend:false,amendUnavailableReason:'Settlement has been processed.'};
  assert.deepEqual(tradeAmendState(locked),{allowed:false,reason:'Settlement has been processed.'});
@@ -106,17 +118,19 @@ test('payment rows follow the schedule\'s own rule: a following-month rule names
  assert.deepEqual(Object.entries(rowsOf(swapTerms(adjusted,'UTC',formats),'Fixed side · Pay')).filter(([label])=>['Adjustment','Calendar'].includes(label)),[['Adjustment','Following'],['Calendar','Holiday Calendar']]);
 });
 
-test('a swap\'s revisions are the editor\'s revisions table', ()=>{
- const table=swapHistoryTable(details.swap,'UTC');
- assert.deepEqual(table.headers,['Revision','Event','Effective','Recorded','Quantity','Trader ID','Memo','Trade date','Legal entity','Counterparty','Reason']);
- assert.deepEqual(table.numeric,[0,4]);
- assert.deepEqual(table.rows[0].filter((_,i)=>[0,1,4,5,6,7,8,9,10].includes(i)),['1','booked','100','trader','','2026-10-24','Synthetic entity 1','Synthetic party 1','Initial booking']);
+test('a swap\'s revisions are listed one by one with their facts, and its quantity exact',()=>{
+ const amended=clone(details.swap);
+ amended.history.push({...clone(details.swap.history[0]),revision:2,kind:'amended',quantity:'200',memo:'Synthetic note',reason:'Synthetic correction'});
+ const history=swapHistory(amended,'UTC');
+ assert.deepEqual(history.map(entry=>entry.title),['Revision 1 · Booked','Revision 2 · Amended']);
+ assert.deepEqual(Object.fromEntries(history[0].rows),{Effective:Object.fromEntries(history[0].rows).Effective,Recorded:Object.fromEntries(history[0].rows).Recorded,Quantity:'100','Trader ID':'trader',Memo:'None','Trade date':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Reason:'Initial booking'});
+ assert.deepEqual(history[1].rows.filter(([label])=>['Quantity','Memo','Reason'].includes(label)),[['Quantity','200'],['Memo','Synthetic note'],['Reason','Synthetic correction']]);
 });
 
 test('the view of a swap joins its terms and revisions, and its amendment state is its own',()=>{
  const view=swapDetailView(details.swap,'UTC',formats);
  assert.deepEqual(Object.keys(view),['terms','history']);
- assert.deepEqual(view.terms,swapTerms(details.swap,'UTC',formats));assert.deepEqual(view.history,swapHistoryTable(details.swap,'UTC'));
+ assert.deepEqual(view.terms,swapTerms(details.swap,'UTC',formats));assert.deepEqual(view.history,swapHistory(details.swap,'UTC'));
  assert.deepEqual(swapAmendState(details.swap),{allowed:true,reason:null});
  assert.deepEqual(swapAmendState({...details.swap,canAmend:false,amendUnavailableReason:'Only the latest eligible trade revision can be amended.'}),{allowed:false,reason:'Only the latest eligible trade revision can be amended.'});
  assert.deepEqual(swapAmendState({...details.swap,canAmend:false,amendUnavailableReason:null}),{allowed:false,reason:'Read-only revision'});
@@ -137,4 +151,14 @@ test('the retained index of a side is the catalog\'s index of the swap\'s own de
  assert.deepEqual([found.curve,found.index,found.definitionRevisionId],[terms.floating.curve,terms.floating.index,terms.definitionRevisionId]);
  assert.throws(()=>retainedIndex({...catalog,indices:[]},terms,terms.floating),{message:'The retained exact index definition is unavailable.'});
  assert.throws(()=>retainedIndex(catalog,{...terms,definitionRevisionId:'another'},terms.floating),{message:'The retained exact index definition is unavailable.'});
+});
+
+test('an editor read of a future holds the position\'s binding, or the editor refuses it, as the panel\'s own read does',()=>{
+ assert.doesNotThrow(()=>holdsBinding(details.future,heldFuture()));
+ assert.throws(()=>holdsBinding(details.future,heldFuture({bindingId:'b0000000-0000-0000-0000-0000000000b2'})),{message:'The editor read holds another binding of the trade than the position.'});
+});
+
+test('an editor read of a swap holds the position\'s instrument, or the editor refuses it, as the panel\'s own read does',()=>{
+ assert.doesNotThrow(()=>holdsInstrument(details.swap,heldSwap()));
+ assert.throws(()=>holdsInstrument(details.swap,heldSwap({contractId:'c0000000-0000-0000-0000-0000000000c2'})),{message:'The editor read holds another instrument of the trade than the position.'});
 });

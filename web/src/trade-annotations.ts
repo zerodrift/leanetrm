@@ -13,6 +13,12 @@ export function bookingRows(state:Annotation,zone:string):(readonly [string,stri
   ['Executed',state.executedAt?displayInstant(state.executedAt,zone):'Not recorded'],['Memo',state.memo??'None']];
 }
 
+/** The booking facts a revision's history lists: its trader, memo, trade date and parties, each said when it is absent. */
+export function historyBooking(state:Annotation):(readonly [string,string])[]{
+ const booking=state.booking??state;
+ return [['Trader ID',state.traderCode??'None'],['Memo',state.memo??'None'],['Trade date',booking.tradeDate??'Not recorded'],['Legal entity',booking.legalEntity??'None'],['Counterparty',booking.counterparty??'None']];
+}
+
 // Shared trade header. Identity and dates are returned by the server, never read
 // from controls into a command. Each product editor owns its instrument quantity.
 export function tradeAnnotations(prefix:string,zone:()=>string){

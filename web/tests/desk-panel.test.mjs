@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
-import {positionMode,positionIndex,setupDeskPanel} from '../dist/desk-panel.js';
+import {positionMode,positionIndex,tradeIndex,setupDeskPanel} from '../dist/desk-panel.js';
 import {sameMode} from '../dist/side-panel.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -28,7 +28,7 @@ test('the modes of one trade\'s two bindings differ, and each is found where the
 function desk({holdings=read,drawn=true,answer=async()=>true}={}){
  const log=[],notices=[];let shown=holdings,drawing=drawn,mode=null;
  const shell={current:()=>mode,async show(next){log.push(['shell.show',next.bindingId]);if(sameMode(next,mode))return true;const ok=await answer();if(ok)mode=next;return ok;},reset(){log.push(['shell.reset']);mode=null;}};
- const position={show:at=>log.push(['position.show',at.index]),update:at=>log.push(['position.update',at.index]),clear:()=>log.push(['position.clear'])};
+ const position={show:(at,tab)=>log.push(['position.show',at.index,...(tab?[tab]:[])]),update:at=>log.push(['position.update',at.index]),clear:()=>log.push(['position.clear'])};
  const grid={selectRow:index=>log.push(['grid.select',index]),focusRow:index=>log.push(['grid.focus',index])};
  const controller=setupDeskPanel({shell,position,holdings:()=>shown,input:index=>drawing&&index<shown.length?{index}:undefined,grid:()=>grid,notice:message=>notices.push(message)});
  return {controller,log,notices,mode:()=>mode,reads:next=>{shown=next;},draws:value=>{drawing=value;}};
@@ -108,4 +108,43 @@ test('a question the person answers no to changes nothing, and a row the read do
  const empty=desk();
  await empty.controller.open(9);await empty.controller.open(-1);
  assert.deepEqual(empty.log,[]);
+});
+
+test('a trade is found in a read by its id and kind, and by its binding when it holds several',()=>{
+ assert.equal(tradeIndex(read,{tradeId:other.tradeId,instrumentType:other.instrumentType}),2);
+ assert.equal(tradeIndex(read,{tradeId:first.tradeId,instrumentType:first.instrumentType,bindingId:second.bindingId}),1);
+ assert.equal(tradeIndex(read,{tradeId:first.tradeId,instrumentType:first.instrumentType,bindingId:first.bindingId}),0);
+});
+
+test('a trade the read does not hold, or holds as several positions, is refused instead of guessed',()=>{
+ assert.throws(()=>tradeIndex(read,{tradeId:first.tradeId,instrumentType:first.instrumentType}),{message:'That trade holds several positions in this read, so the panel cannot tell which one is meant.'});
+ assert.throws(()=>tradeIndex(read,{tradeId:'missing',instrumentType:'future'}),{message:'That trade is not in this Blotter read. Choose the books it is in, then open it again.'});
+ assert.throws(()=>tradeIndex(read,{tradeId:other.tradeId,instrumentType:first.instrumentType}),{message:'That trade is not in this Blotter read. Choose the books it is in, then open it again.'},'the same id of another kind is another trade');
+ assert.throws(()=>tradeIndex(read,{tradeId:first.tradeId,instrumentType:first.instrumentType,bindingId:'unknown'}),{message:'That trade is not in this Blotter read. Choose the books it is in, then open it again.'});
+});
+
+test('opening a position can name the tab it opens on, and the tab is only the first drawing\'s',async()=>{
+ const state=desk();
+ await state.controller.open(0,'terms');
+ assert.deepEqual(state.log.filter(([what])=>what==='position.show'),[['position.show',0,'terms']]);
+ state.log.length=0;state.controller.sync();
+ assert.deepEqual(state.log.filter(([what])=>what.startsWith('position')),[['position.update',0]],'a redraw keeps the tab the person is on');
+});
+
+test('the position the panel shows is the read\'s holding of its mode, or nothing',async()=>{
+ const state=desk();
+ assert.equal(state.controller.shown(),undefined,'a closed panel shows none');
+ await state.controller.open(1);
+ assert.equal(state.controller.shown(),second);
+ state.reads([first]);
+ assert.equal(state.controller.shown(),undefined,'a read without its position does not hold it');
+});
+
+test('a panel that moved to another mode forgets its position and its row, and leaves focus where it is',async()=>{
+ const state=desk();
+ await state.controller.open(1);state.log.length=0;
+ state.controller.left();
+ assert.deepEqual(state.log,[['position.clear'],['grid.select',null]]);
+ state.log.length=0;state.controller.closed();
+ assert.deepEqual(state.log,[['position.clear'],['grid.select',null]],'it was not closed from a row, so there is none to return to');
 });

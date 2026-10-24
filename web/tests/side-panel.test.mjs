@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {isolate,panelPlacement,sameMode,setupSidePanel,tabAfterKey} from '../dist/side-panel.js';
+import {isolate,liveRefreshPlan,panelPlacement,sameMode,setupSidePanel,tabAfterKey} from '../dist/side-panel.js';
 
 test('the panel docks beside the desk only when the main area is wide and the assistant is closed',()=>{
  assert.equal(panelPlacement(1200,false),'docked');
@@ -26,7 +26,7 @@ test('modes are the same when they name the same thing',()=>{
 // What the shell touches of its markup, as plain objects: the panel's own element and the parts index.html gives it.
 function markup(){
  const part=()=>({hidden:false,onclick:null,focused:false,children:[],replaceChildren(...nodes){this.children=nodes;}});
- const parts={close:part(),head:part(),tabs:part(),body:part(),prompt:part()};
+ const parts={close:part(),head:part(),tabs:part(),body:part(),view:part(),form:part(),prompt:part()};
  const handlers={};
  const host={hidden:true,dataset:{},focused:0,labels:[],focus(){host.focused++;},setAttribute(name,value){if(name==='aria-label')host.labels.push(value);},addEventListener(type,handler){handlers[type]=handler;},querySelector:selector=>parts[selector.replace('#side-panel-','')]};
  return {host,parts,handlers};
@@ -207,4 +207,68 @@ test('a drawer that leaves the page usable beside it isolates nothing',async()=>
  const shell=setupSidePanel(host,{unsaved:()=>false,confirmLeave:async()=>true,docked:()=>false,sheet:()=>false});
  await shell.show({kind:'risk'});
  assert.equal(tree.toolbar.inert,false);
+});
+
+test('the panel hands out the parts a mode draws into: the head, the tab strip, the tab panel, its view and its form',async()=>{
+ const {shell,parts}=panel();
+ assert.equal(shell.element('head'),parts.head);assert.equal(shell.element('tabs'),parts.tabs);assert.equal(shell.element('body'),parts.body);
+ assert.equal(shell.element('view'),parts.view);assert.equal(shell.element('form'),parts.form);
+});
+
+test('the form is shown in place of the view only when asked, and every mode starts on the view',async()=>{
+ const {shell,parts}=panel();
+ await shell.show(position('t1'));
+ assert.deepEqual([parts.view.hidden,parts.form.hidden],[false,true],'a mode opens on its view');
+ shell.form(true);
+ assert.deepEqual([parts.view.hidden,parts.form.hidden],[true,false]);
+ shell.form(false);
+ assert.deepEqual([parts.view.hidden,parts.form.hidden],[false,true]);
+ shell.form(true);await shell.show(position('t2'));
+ assert.deepEqual([parts.view.hidden,parts.form.hidden],[false,true],'another position does not inherit the last one\'s form');
+ shell.form(true);shell.reset();
+ assert.deepEqual([parts.view.hidden,parts.form.hidden],[false,true],'nor does a closed panel keep it');
+});
+
+test('leaving asks only when the panel holds unsaved edits, and is a question, not a move',async()=>{
+ const edits=panel({unsaved:true,answer:false});
+ await edits.shell.show(position('t1'));
+ assert.equal(await edits.shell.leave(),false);assert.deepEqual(edits.asked,['asked']);
+ const clean=panel({unsaved:false});
+ await clean.shell.show(position('t1'));
+ assert.equal(await clean.shell.leave(),true);assert.deepEqual(clean.asked,[]);
+ const yes=panel({unsaved:true,answer:true});
+ await yes.shell.show(position('t1'));
+ assert.equal(await yes.shell.leave(),true);assert.deepEqual(yes.shell.current(),position('t1'),'the panel stays where it was until the page moves it');
+ const closed=panel({unsaved:true});
+ assert.equal(await closed.shell.leave(),true);assert.deepEqual(closed.asked,[],'a closed panel has nothing to leave');
+});
+
+test('while the person is being asked, leaving is refused too, and a reset answers it no',async()=>{
+ const {host}=markup();let release,signal;
+ const shell=setupSidePanel(host,{unsaved:()=>true,confirmLeave:abandoned=>{signal=abandoned;return new Promise(resolve=>{release=resolve;});},docked:()=>true});
+ await shell.show(position('t1'));
+ const asking=shell.leave();
+ assert.equal(await shell.leave(),false);assert.equal(await shell.show(position('t2')),false);
+ shell.reset();
+ assert.equal(signal.aborted,true);release(true);
+ assert.equal(await asking,false);
+});
+
+const note='Risk results cleared · live corrections changed the inputs';
+test('a live correction leaves a panel with unsaved edits alone and clears a risk run with a note',()=>{
+ const open={kind:'position',tradeId:'t',bindingId:'b',revision:1};
+ assert.deepEqual(liveRefreshPlan({panel:open,unsaved:true,riskRun:true}),{reloadPanel:false,clearRisk:true,note});
+ assert.deepEqual(liveRefreshPlan({panel:open,unsaved:false,riskRun:true}),{reloadPanel:true,clearRisk:true,note});
+});
+
+test('a live correction reloads the open panel, and says nothing about a risk run there was none of',()=>{
+ const open={kind:'position',tradeId:'t',bindingId:'b',revision:1};
+ assert.deepEqual(liveRefreshPlan({panel:open,unsaved:false,riskRun:false}),{reloadPanel:true,clearRisk:false,note:null});
+ assert.deepEqual(liveRefreshPlan({panel:open,unsaved:true,riskRun:false}),{reloadPanel:false,clearRisk:false,note:null});
+ for(const mode of [{kind:'new',product:'swaps'},{kind:'risk'}])assert.equal(liveRefreshPlan({panel:mode,unsaved:false,riskRun:false}).reloadPanel,true,`${mode.kind} mode reloads too`);
+});
+
+test('a live correction has no panel to reload when none is open, whatever the edits say, and still clears a risk run',()=>{
+ assert.deepEqual(liveRefreshPlan({panel:null,unsaved:false,riskRun:false}),{reloadPanel:false,clearRisk:false,note:null});
+ assert.deepEqual(liveRefreshPlan({panel:null,unsaved:true,riskRun:true}),{reloadPanel:false,clearRisk:true,note});
 });

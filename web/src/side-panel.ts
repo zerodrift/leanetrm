@@ -25,6 +25,16 @@ export function sameMode(a:PanelMode,b:PanelMode):boolean{
 
 const modeLabels={position:'Position',new:'New trade',risk:'Risk report'} as const;
 
+const riskClearedNote='Risk results cleared · live corrections changed the inputs';
+/**
+ * What a live correction (D188) does to the panel and to a risk run. An open panel is read again, unless it holds unsaved edits,
+ * which a refresh never takes from the person; and a risk run is cleared, with a note, because its results belong to inputs that
+ * have changed.
+ */
+export function liveRefreshPlan(state:{panel:PanelMode;unsaved:boolean;riskRun:boolean}):{reloadPanel:boolean;clearRisk:boolean;note:string|null}{
+  return {reloadPanel:state.panel!==null&&!state.unsaved,clearRisk:state.riskRun,note:state.riskRun?riskClearedNote:null};
+}
+
 /** The tab an arrow, Home or End key moves to from `current`, wrapping at the ends; null for any other key. */
 export function tabAfterKey(ids:readonly string[],current:string,key:string):string|null{
   const at=ids.indexOf(current);
@@ -81,15 +91,16 @@ export function isolate(host:HTMLElement):()=>void{
 }
 
 /**
- * The shell over the markup of `#side-panel`. `unsaved` says whether leaving the current mode would lose edits, and
- * `confirmLeave` asks the person; it hears `abandoned` aborted when the page resets the panel under its question.
+ * The shell over the markup of `#side-panel`: a head, a tab strip and a tab panel, which holds a `view` that a mode draws its tab
+ * into and a `form` that takes its place while the mode edits something. `unsaved` says whether leaving the current mode would
+ * lose edits, and `confirmLeave` asks the person; it hears `abandoned` aborted when the page resets the panel under its question.
  * `docked` says whether the page has room to dock the panel now, and `sheet` whether the open panel covers the whole page, which
  * is then out of reach until the panel is closed or stops covering it. `closed` hears that the person closed the panel, and
  * `changed` hears every change of its mode or placement, for a page that makes room for it.
  */
 export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLeave:(abandoned:AbortSignal)=>Promise<boolean>;docked:()=>boolean;sheet?:()=>boolean;closed?:()=>void;changed?:()=>void}){
-  const part=(name:'close'|'head'|'tabs'|'body')=>host.querySelector<HTMLElement>('#side-panel-'+name)!;
-  const element=(name:'head'|'tabs'|'body')=>part(name);
+  const part=(name:'close'|'head'|'tabs'|'body'|'view'|'form')=>host.querySelector<HTMLElement>('#side-panel-'+name)!;
+  const element=(name:'head'|'tabs'|'body'|'view'|'form')=>part(name);
   let mode:PanelMode=null,question:AbortController|undefined,release:(()=>void)|undefined;
   /** The page behind a panel that covers it is out of reach while the panel is open, and only then. */
   function contain(){
@@ -99,23 +110,34 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
   }
   /** Applies docked or overlay placement now: the page calls it whenever the room it has changes. */
   function place(){host.dataset.placement=o.docked()?'docked':'overlay';contain();o.changed?.();}
+  /** Shows the form in the tab panel in place of its view, or the view again. Every mode starts on its view. */
+  function form(on:boolean){part('view').hidden=on;part('form').hidden=!on;}
+  /**
+   * Scrolls the page down to the panel when it starts below the window's top, for a form that needs the room: a docked panel keeps in
+   * view from there as the page scrolls. A page already scrolled past the panel's start, and an overlay, stay where they are.
+   */
+  function reveal(){const top=host.getBoundingClientRect().top;if(top>0)window.scrollBy(0,top);}
   function draw(){
-    host.hidden=mode===null;host.dataset.mode=mode?.kind??'';
+    form(false);host.hidden=mode===null;host.dataset.mode=mode?.kind??'';
     if(mode){host.setAttribute('aria-label',modeLabels[mode.kind]);place();}else{contain();o.changed?.();}
   }
   /**
-   * Switches the panel to `next`, asking first when it holds unsaved edits: false means the person kept them and the panel is as
-   * it was. Only one question is asked at a time; a request made while one is open is refused.
+   * Asks whether to leave the unsaved edits the panel holds, when it holds any: false means the person kept them. It is a question, not
+   * a move. Only one question is asked at a time; a request made while one is open is refused.
    */
+  async function leave():Promise<boolean>{
+    if(question)return false;
+    if(mode===null||!o.unsaved())return true;
+    const asking=question=new AbortController();
+    let leaving=false;
+    try{leaving=await o.confirmLeave(asking.signal);}finally{if(question===asking)question=undefined;}
+    return leaving&&!asking.signal.aborted;
+  }
+  /** Switches the panel to `next`, asking first when it holds unsaved edits: false means the person kept them and the panel is as it was. */
   async function show(next:PanelMode):Promise<boolean>{
     if(question)return false;
     if(sameMode(next,mode)){if(mode)host.focus({preventScroll:true});return true;}
-    if(mode!==null&&o.unsaved()){
-      const asking=question=new AbortController();
-      let leave=false;
-      try{leave=await o.confirmLeave(asking.signal);}finally{if(question===asking)question=undefined;}
-      if(asking.signal.aborted||!leave)return false;
-    }
+    if(!await leave())return false;
     mode=next;draw();
     if(mode)host.focus({preventScroll:true});
     return true;
@@ -125,7 +147,7 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
   async function close(){if(mode!==null&&await show(null))o.closed?.();}
   part('close').onclick=()=>void close();
   host.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();void close();}});
-  return {show,reset,place,current:()=>mode,element};
+  return {show,leave,form,reveal,reset,place,current:()=>mode,element};
 }
 
 export type SidePanel=ReturnType<typeof setupSidePanel>;

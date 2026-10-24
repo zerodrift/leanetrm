@@ -30,7 +30,7 @@ export async function deltaInkCheck({evaluate,wait,click,set,check,idle},{what,r
   await set('#blotter-filters .table-search','');
 }
 
-export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,settle,rowsRead}){
+export async function sidePanelChecks({command,evaluate,wait,click,set,check,idle,press,settle,rowsRead}){
   const held=reference=>`${rowsRead}.find(h=>h.tradeReference===${JSON.stringify(reference)})`;
   const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/curve-shapes').length";
   const editorReads="window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').length";
@@ -107,7 +107,7 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
     `[document.activeElement.id,document.querySelector('#side-panel-body').getAttribute('aria-labelledby')]`);
   await check('Terms reads the trade revision once and lists its terms: the booking facts, the position and the dated contract',
     `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor'),h=${held(futureReference)},terms=Object.fromEntries([...document.querySelectorAll('#side-panel-body .side-term')].map(r=>[r.children[0].textContent,r.children[1].textContent]));return read.length===${reads}+1&&read.at(-1).data.state.tradeReference===${JSON.stringify(futureReference)}&&terms.Lots===h.lots.replace('-','−')&&terms['Execution price']?.endsWith(' '+h.currency+'/'+h.unit)&&!!terms.Product&&terms.Trade.startsWith(${JSON.stringify(futureReference)})&&[...document.querySelectorAll('#side-panel-body h3')].map(n=>n.textContent).join()==='Trade,Position,Contract';})()`,
-    `[${editorReads},${reads},document.querySelector('#side-panel-body').innerText.slice(0,300)]`);
+    `[${editorReads},${reads},document.querySelector('#side-panel-view').innerText.slice(0,300)]`);
   await click(rowSelector('fut'));await wait(`document.activeElement===${panel}`);
   await check('pressing the row that is already open keeps the panel on its tab and its read: nothing is drawn or read again',
     `document.querySelector('#side-panel-tabs-terms').getAttribute('aria-selected')==='true'&&!!document.querySelector('#side-panel-body .side-panel-section')&&${editorReads}===${reads}+1&&${panelReference}===${JSON.stringify(futureReference)}`,
@@ -115,24 +115,40 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
   // The tab strip's keys below start from Terms, whichever tab the press left the panel on.
   await click('#side-panel-tabs-terms');await evaluate("document.querySelector('#side-panel-tabs-terms').focus()");
   await press('ArrowRight','ArrowRight',39);
-  await check('Risk says its results will show here, without claiming a run',`document.activeElement.id==='side-panel-tabs-risk'&&document.querySelector('#side-panel-body').textContent==="A risk run's results for this position will show here."`);
+  await check('Risk says its results will show here, without claiming a run',`document.activeElement.id==='side-panel-tabs-risk'&&document.querySelector('#side-panel-view').textContent==="A risk run's results for this position will show here."`);
   await press('ArrowRight','ArrowRight',39);
-  await wait("!!document.querySelector('#side-panel-body .regular-table-scroll')");
-  await check('History is the editor\'s revisions table for the trade, from the same read',
-    `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').at(-1).data;return document.activeElement.id==='side-panel-tabs-history'&&document.querySelectorAll('#side-panel-body tbody tr').length===read.history.length&&[...document.querySelectorAll('#side-panel-body thead th')].map(n=>n.textContent).slice(0,6).join()==='Revision,Event,Effective,Recorded,Book,Lots'&&${editorReads}===${reads}+1;})()`,
-    `[${editorReads},${reads},document.querySelector('#side-panel-body').innerText.slice(0,200)]`);
+  await wait("!!document.querySelector('#side-panel-view .side-panel-section')");
+  await check('History lists the trade\'s revisions one by one, each with its facts, from the same read, and in the width of the panel',
+    `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').at(-1).data,view=document.querySelector('#side-panel-view'),sections=[...view.querySelectorAll('.side-panel-section')];return document.activeElement.id==='side-panel-tabs-history'&&sections.length===read.history.length&&sections.every((section,i)=>section.querySelector('h3').textContent===\`Revision \${read.history[i].revision} · \${read.history[i].kind==='booked'?'Booked':'Amended'}\`&&[...section.querySelectorAll('dt')].map(n=>n.textContent).join()==='Effective,Recorded,Book,Lots,Execution price,Trader ID,Memo,Trade date,Legal entity,Counterparty,Reason')&&!view.querySelector('table')&&view.scrollWidth<=view.clientWidth&&${editorReads}===${reads}+1;})()`,
+    `[${editorReads},${reads},document.querySelector('#side-panel-view').innerText.slice(0,300)]`);
   await press('ArrowRight','ArrowRight',39);
   await check('the arrow keys wrap from the last tab to the first, which draws the curve again',`document.activeElement.id==='side-panel-tabs-curve'&&!!document.querySelector('#side-panel-body .chart canvas')`);
   await press('End','End',35);await press('Home','Home',36);
   await check('End and Home go to the last and the first tab',`document.activeElement.id==='side-panel-tabs-curve'&&document.querySelector('#side-panel-tabs-curve').getAttribute('aria-selected')==='true'`);
 
-  // Amend still reaches today's dialog for the position the panel shows, and the panel stays while it is open.
+  // Amend puts the form of the position the panel shows in its Terms tab, in place of the read view, and the panel stays on its position.
   await click('#side-panel-amend');
-  await wait("document.querySelector('#trade-editor').open");
-  await check('Amend opens the amend dialog of the position the panel shows',
-    `document.querySelector('#trade-editor').open&&document.querySelector('#trade-editor-reference').textContent.includes(${JSON.stringify(futureReference)})&&!${panel}.hidden`);
-  await click('#trade-editor-close');
-  await check('the panel stays open on its position when the dialog closes',`!document.querySelector('#trade-editor').open&&!${panel}.hidden&&${panelReference}===${JSON.stringify(futureReference)}`);
+  await wait("!document.querySelector('#trade-editing').hidden");
+  const formShown=`(()=>{const form=document.querySelector('#side-panel-form');return !form.hidden&&form.contains(document.querySelector('#trade-editing'))&&document.querySelector('#side-panel-view').hidden;})()`;
+  await check('Amend puts the position\'s form in the Terms tab in place of its read view, names the trade, and moves focus into it',
+    `${formShown}&&document.querySelector('#side-panel-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#trade-editor-reference').textContent.includes(${JSON.stringify(futureReference)})&&document.querySelector('#side-panel-form').contains(document.activeElement)&&!${panel}.hidden&&${panelReference}===${JSON.stringify(futureReference)}&&document.querySelector('#side-panel-amend').textContent==='Close editor'`,
+    `[${panel}.hidden,document.activeElement.id,document.querySelector('#side-panel-amend').textContent]`);
+  await check('a docked panel is scrolled up to the top of the window for the form, which has the window\'s height there',
+    `${panel}.dataset.placement==='docked'&&Math.abs(${panel}.getBoundingClientRect().top)<=1&&${panel}.getBoundingClientRect().height>=innerHeight-24`,
+    `[${panel}.dataset.placement,${panel}.getBoundingClientRect().top,${panel}.getBoundingClientRect().height,innerHeight]`);
+  await check('the form fits the panel: its fields take the one column and nothing scrolls sideways, and no dialog is open anywhere',
+    `(()=>{const form=document.querySelector('#side-panel-form'),box=${panel}.getBoundingClientRect();return form.scrollWidth<=form.clientWidth&&[...form.querySelectorAll('input:not([type=hidden]),select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=box.right+1)&&!document.querySelector('dialog[open]');})()`);
+  // Another tab keeps the form out of sight, and what it holds.
+  await evaluate("document.querySelector('#trade-lots').value='11'");
+  await click('#side-panel-tabs-curve');
+  await check('another tab shows its own view, and keeps the form and what it holds out of sight',
+    `document.querySelector('#side-panel-form').hidden&&!document.querySelector('#side-panel-view').hidden&&!!document.querySelector('#side-panel-view .chart canvas')&&document.querySelector('#side-panel-form').contains(document.querySelector('#trade-editing'))&&document.querySelector('#trade-lots').value==='11'&&document.querySelector('#side-panel-amend').textContent==='Close editor'`);
+  await click('#side-panel-tabs-terms');
+  await check('and Terms shows the form again as it was left',`${formShown}&&document.querySelector('#trade-lots').value==='11'`);
+  await click('#side-panel-amend');
+  await check('Close editor gives the Terms tab its read view again, and the head its Amend, on the same position',
+    `document.querySelector('#side-panel-form').hidden&&!document.querySelector('#side-panel-view').hidden&&!!document.querySelector('#side-panel-view .side-panel-section')&&document.querySelector('#trade-editing').hidden&&!document.querySelector('#side-panel-form').contains(document.querySelector('#trade-editing'))&&document.querySelector('#side-panel-amend').textContent==='Amend'&&!${panel}.hidden&&${panelReference}===${JSON.stringify(futureReference)}`);
+  await click('#side-panel-tabs-curve');
 
   // The panel follows the desk drawing its read again, and a new read closes it.
   await set('#blotter-row-group','market');
@@ -164,14 +180,14 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
   await wait("typeof window.__releaseShapes==='function'&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) .desk-pill')");
   await open('fut');
   await check('while the desk is still reading the curves the panel says its curve is loading',
-    `document.querySelector('#side-panel-body').textContent.startsWith('Loading curve shape')&&!document.querySelector('#side-panel-body .chart canvas')&&!document.querySelector('#side-panel-open-curve').disabled`);
+    `document.querySelector('#side-panel-view').textContent.startsWith('Loading curve shape')&&!document.querySelector('#side-panel-body .chart canvas')&&!document.querySelector('#side-panel-open-curve').disabled`);
   const shapeReadsHeld=await evaluate(shapeReads);
   await evaluate("document.querySelector('#side-panel-amend').focus()");
   await evaluate('window.__releaseShapes()');
   await wait("!!document.querySelector('#side-panel-body .chart canvas')");
   await check('the panel drawn again, as its curve arrives, keeps keyboard focus on the control it was on',`document.activeElement.id==='side-panel-amend'`,'[document.activeElement.id,document.activeElement.tagName]');
   // The held read is the desk's own, and completes when it is released: the panel adds none to it.
-  await check('and draws it when it arrives, from the desk\'s read and no other',`${shapeReads}===${shapeReadsHeld}+1&&!document.querySelector('#side-panel-body').textContent.startsWith('Loading curve shape')`,`[${shapeReads},${shapeReadsHeld}]`);
+  await check('and draws it when it arrives, from the desk\'s read and no other',`${shapeReads}===${shapeReadsHeld}+1&&!document.querySelector('#side-panel-view').textContent.startsWith('Loading curve shape')`,`[${shapeReads},${shapeReadsHeld}]`);
   await evaluate(`${panel}.focus()`);await press('Escape','Escape',27);
   await wait(`${panel}.hidden`);
 
@@ -197,26 +213,65 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
   await press('Escape','Escape',27);
   await wait(`${panel}.hidden`);
 
-  // Unsaved edits: nothing in the panel is editable yet, so a copy of its markup, held by a shell that says it has edits, is asked.
-  await evaluate(`(async()=>{
-    const {setupSidePanel,askLeave}=await import('/side-panel.js');
-    const host=document.querySelector('#side-panel').cloneNode(true);host.id='scratch-panel';host.hidden=true;document.body.append(host);
-    const shell=setupSidePanel(host,{unsaved:()=>true,confirmLeave:askLeave(host),docked:()=>false});
-    window.__scratch={host,shell};await shell.show({kind:'position',tradeId:'t1',bindingId:'b1',revision:1});
-    window.__scratch.pending=shell.show({kind:'position',tradeId:'t2',bindingId:'b2',revision:1});
-  })()`);
-  await wait("!document.querySelector('#scratch-panel #side-panel-prompt').hidden");
-  await check('switching what a panel holds with unsaved edits asks inside the panel first, focused on the answer that keeps them',
-    `(()=>{const prompt=document.querySelector('#scratch-panel #side-panel-prompt'),buttons=[...prompt.querySelectorAll('button')];return prompt.getAttribute('role')==='alertdialog'&&prompt.textContent.includes('unsaved changes')&&buttons.map(b=>b.textContent).join()==='Keep editing,Discard changes'&&document.activeElement===buttons[0]&&window.__scratch.shell.current().tradeId==='t1';})()`);
+  // Unsaved edits: the keystrokes a person makes in the form of an amendment are edits the panel holds, and leaving them asks inside it.
+  await settle(1440,900);
+  const prompt="document.querySelector('#side-panel-prompt')",futures=`document.querySelectorAll(${JSON.stringify(rowSelector('fut'))})`;
+  if(await evaluate(`${futures}.length`)<2)throw Error('The unsaved-edit checks need two futures positions.');
+  const [refA,refB]=[await evaluate(`${futures}[0].querySelector('.desk-reference').textContent`),await evaluate(`${futures}[1].querySelector('.desk-reference').textContent`)];
+  const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
+  // Opens the position of a row of futures and then its form, unless they are open already.
+  const amend=async(index,reference)=>{
+    await evaluate(`${futures}[${index}].click()`);await wait(`${panelReference}===${JSON.stringify(reference)}`);
+    if(await evaluate("document.querySelector('#trade-editing').hidden"))await click('#side-panel-amend');
+    await wait("!document.querySelector('#trade-editing').hidden");
+  };
+  const answer=async index=>{await evaluate(`${prompt}.querySelectorAll('button')[${index}].click()`);await wait(`${prompt}.hidden`);};
+  await amend(0,refA);
+  await evaluate(`${futures}[1].click()`);await wait(`${panelReference}===${JSON.stringify(refB)}`);
+  await check('a form with no edits is left at once: another row opens its position, nothing is asked, and the first position\'s form is gone',
+    `${prompt}.hidden&&document.querySelector('#trade-editing').hidden&&!document.querySelector('#side-panel-form').contains(document.querySelector('#trade-editing'))&&document.querySelector('#side-panel-amend').textContent==='Amend'&&document.querySelectorAll('#desk-positions .open-row').length===1`);
+  await amend(0,refA);await typeInto('#trade-lots','9');
+  await evaluate(`${futures}[1].click()`);await wait(`!${prompt}.hidden`);
+  await check('switching to another position with unsaved edits asks inside the panel first, focused on the answer that keeps them',
+    `(()=>{const buttons=[...${prompt}.querySelectorAll('button')];return ${prompt}.getAttribute('role')==='alertdialog'&&${prompt}.textContent.includes('unsaved changes')&&buttons.map(b=>b.textContent).join()==='Keep editing,Discard changes'&&document.activeElement===buttons[0]&&${panelReference}===${JSON.stringify(refA)}&&document.querySelector('#trade-lots').value==='9';})()`,
+    `[${prompt}.textContent,document.activeElement.textContent,${panelReference},document.querySelector('#trade-lots').value]`);
   await press('Escape','Escape',27);
-  await check('Escape keeps the edits: the panel stays on its position, the question closes, and the panel is still open',
-    `(async()=>{const answer=await window.__scratch.pending,prompt=document.querySelector('#scratch-panel #side-panel-prompt');return answer===false&&prompt.hidden&&prompt.children.length===0&&window.__scratch.shell.current().tradeId==='t1'&&!window.__scratch.host.hidden;})()`);
-  await evaluate("window.__scratch.pending=window.__scratch.shell.show({kind:'position',tradeId:'t2',bindingId:'b2',revision:1});0");
-  await wait("!document.querySelector('#scratch-panel #side-panel-prompt').hidden");
-  await evaluate("document.querySelector('#scratch-panel #side-panel-prompt').querySelectorAll('button')[1].click()");
-  await check('Discard changes switches, closes the question and puts focus in the panel',
-    `(async()=>{const answer=await window.__scratch.pending,prompt=document.querySelector('#scratch-panel #side-panel-prompt');return answer===true&&prompt.hidden&&window.__scratch.shell.current().tradeId==='t2'&&document.activeElement===window.__scratch.host;})()`);
-  await evaluate("window.__scratch.host.remove();delete window.__scratch");
+  await check('Escape keeps the edits: the panel stays on its position and its form, the question closes, and the panel is still open',
+    `${prompt}.hidden&&${prompt}.children.length===0&&!${panel}.hidden&&${panelReference}===${JSON.stringify(refA)}&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='9'&&document.activeElement===${panel}`);
+  await evaluate(`${futures}[1].click()`);await wait(`!${prompt}.hidden`);
+  await answer(1);await wait(`${panelReference}===${JSON.stringify(refB)}`);
+  await check('Discard changes switches, closes the question and puts focus in the panel, with the edits and the form gone',
+    `${prompt}.hidden&&document.activeElement===${panel}&&document.querySelector('#trade-editing').hidden&&document.querySelector('#side-panel-amend').textContent==='Amend'&&document.querySelectorAll('#desk-positions .open-row').length===1&&document.querySelector('#desk-positions .open-row .desk-reference').textContent===${JSON.stringify(refB)}`);
+  await amend(1,refB);
+  await check('the other position\'s form opens as that position is, without the edits the first one held',`document.querySelector('#trade-lots').value!=='9'&&document.querySelector('#trade-editor-reference').textContent.includes(${JSON.stringify(refB)})`);
+  await typeInto('#trade-lots','8');
+  await click('#side-panel-close');await wait(`!${prompt}.hidden`);
+  await check('closing the panel with unsaved edits asks first too',`${prompt}.querySelectorAll('button').length===2&&!${panel}.hidden&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='8'`);
+  await answer(0);
+  await check('and keeping them closes the question and leaves the panel open on its form, with the edits',`!${panel}.hidden&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='8'`);
+  await click('#side-panel-amend');await wait(`!${prompt}.hidden`);
+  await check('so does Close editor, which is how a person gives an amendment up',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='8'`);
+  await answer(1);
+  await check('and discarding closes the form and keeps the panel on its position',`document.querySelector('#trade-editing').hidden&&!${panel}.hidden&&${panelReference}===${JSON.stringify(refB)}&&document.querySelector('#side-panel-amend').textContent==='Amend'`);
+  await amend(1,refB);await typeInto('#trade-lots','7');
+  await click('#futures-new');await click('#trade-kind-swap');await wait(`!${prompt}.hidden`);
+  await check('opening a new swap over a form with unsaved edits asks first, before the page is busy, and keeping them leaves the form and the panel as they are',
+    `(()=>{const buttons=[...${prompt}.querySelectorAll('button')];return buttons.length===2&&buttons.every(b=>!b.disabled)&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='7'&&${panel}.dataset.mode==='position'&&document.querySelector('#swap-editing').hidden;})()`);
+  await answer(0);
+  await click('#side-panel-close');await wait(`!${prompt}.hidden`);await answer(1);
+  await wait(`${panel}.hidden&&document.activeElement.classList.contains('tabulator-row')`);
+  await check('discarding what a closing panel held closes it, with its form, and gives focus back to the row it was opened from',
+    `${panel}.hidden&&document.querySelector('#trade-editing').hidden&&document.activeElement.classList.contains('tabulator-row')&&document.activeElement.querySelector('.desk-reference').textContent===${JSON.stringify(refB)}`);
+  await amend(1,refB);await typeInto('#trade-lots','6');
+  await click('#futures-refresh');await wait(`!${prompt}.hidden`);
+  await check('a new read, which closes the panel, asks first about the edits it would give up',
+    `${prompt}.querySelectorAll('button').length===2&&!${panel}.hidden&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='6'`);
+  const readsBefore=await evaluate("window.__futuresResponses.filter(r=>r.path==='/api/trading/workspace').length");
+  await answer(0);await wait(idle);
+  await check('keeping them means no read was made, and the panel and the form are as they were',`!${panel}.hidden&&document.querySelector('#trade-lots').value==='6'&&window.__futuresResponses.filter(r=>r.path==='/api/trading/workspace').length===${readsBefore}`);
+  await click('#futures-refresh');await wait(`!${prompt}.hidden`);await answer(1);
+  await wait(`${panel}.hidden&&${redrawn(idle)}`);
+  await check('and discarding them lets the read happen: the panel closes with its form, and the desk is drawn again',`${panel}.hidden&&document.querySelector('#trade-editing').hidden&&document.querySelector('#error').hidden&&window.__futuresResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsBefore}`);
 
   // A phone: the sheet fills the window, the page does not scroll sideways because of it, and nothing behind it can take focus.
   await settle(760,900);
@@ -229,10 +284,11 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
   await check('the sheet contains focus: the page behind it is inert and takes none, and its own controls do',
     `(()=>{const nodes=${behind}.map(s=>document.querySelector(s));nodes.forEach(n=>n.focus());const amend=document.querySelector('#side-panel-amend');amend.focus();return nodes.every(n=>n.closest('[inert]')!==null)&&!${panel}.closest('[inert]')&&document.activeElement===amend;})()`,
     `[${behind}.map(s=>!!document.querySelector(s).closest('[inert]')),document.activeElement.id]`);
-  await click('#side-panel-amend');await wait("document.querySelector('#trade-editor').open");
-  await check('Amend still opens its dialog over the sheet, and the dialog is not inert',`document.querySelector('#trade-editor').open&&!document.querySelector('#trade-editor').closest('[inert]')`);
-  await click('#trade-editor-close');
-  await check('and when the dialog closes the sheet is still open, still containing focus',`!${panel}.hidden&&document.querySelector('#futures-refresh').closest('[inert]')!==null`);
+  await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden");
+  await check('Amend opens the form in the sheet, whose own controls take focus and are not inert, with the page still out of reach behind it',
+    `(()=>{const form=document.querySelector('#side-panel-form');return !form.hidden&&!form.closest('[inert]')&&form.contains(document.activeElement)&&document.querySelector('#futures-refresh').closest('[inert]')!==null;})()`);
+  await click('#side-panel-amend');
+  await check('and when the form closes the sheet is still open, still containing focus',`!${panel}.hidden&&document.querySelector('#futures-refresh').closest('[inert]')!==null`);
   await click('#side-panel-close');
   await wait(`${panel}.hidden`);
   await check('closing the sheet gives the page back',`document.querySelectorAll('[inert]').length===0`,`document.querySelectorAll('[inert]').length`);

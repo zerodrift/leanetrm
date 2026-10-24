@@ -1380,11 +1380,12 @@ publication recheck and is hidden as text is (§7.3, §8).
 **Panel decisions** (D191, decided by the owner): Looking at reports the curve directory,
 a curve or its observations by Curves & prices' curve and tab, power hours on Power TOUs
 once a frame is chosen and TOU products before, and Blotter rows without their grouping,
-totals with it, an open trade at its revision, though its modal dialog leaves nothing
-asked until it closes, and risk results as `blotter_risk`; only a navigation event
-arriving live on the stream the tab's own ask opened moves the page, while the panel is
-open on an idle page without a dialog, keeping the page's knowledge and frame and leaving
-nothing unsaved, and any other target waits for Go, which selects its context first, a
+totals with it, the trade open in the side panel at its revision (D215: the panel is not
+modal, so the assistant is asked while it is open), and risk results as `blotter_risk`;
+only a navigation event arriving live on the stream the tab's own ask opened moves the
+page, while the panel is open on an idle page without a dialog, keeping the page's
+knowledge and frame and leaving nothing unsaved, and any other target waits for Go, which
+selects its context first, a
 retained view again by its id and never a new capture; Back restores page, report and
 context from the tab's memory, also after a move that failed once it had changed the page,
 and both first say so on a page with unsaved edits or an unconfirmed request; a tab keeps its

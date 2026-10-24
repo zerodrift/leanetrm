@@ -3,7 +3,7 @@ import {sideSession} from './side-session.mjs';
 export async function run({command,evaluate,wait,click,persona,set,check,shot,idle,url}){
  await command('Runtime.enable');await command('Page.enable');await command('Network.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
- await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.liveResponses=[];window.liveRequests=[];window.liveTasks=[];new PerformanceObserver(list=>window.liveTasks.push(...list.getEntries().map(e=>e.duration))).observe({type:'longtask',buffered:true});{const fetch=window.fetch;window.fetch=async(path,init)=>{window.liveRequests.push(String(path));if(window.holdShapes&&String(path)==='/api/market/curve-shapes'){window.holdShapes=false;await new Promise(resolve=>window.releaseShapes=resolve);}if(window.failLiveWorkspace&&String(path)==='/api/trading/workspace'){window.failLiveWorkspace=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}if((window.failLivePreview&&String(path)==='/api/custom-curves/preview')||(window.failLiveEditor&&String(path)==='/api/swaps/editor')){window.failLivePreview=false;window.failLiveEditor=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}let response=await fetch(path,init);if(window.refuseDesk&&String(path)==='/api/trading/workspace'&&response.ok){window.refuseDesk=false;const data=await response.json(),market=data.summaries[3],swap=market.groups.find(g=>g.instrumentType==='financial_swap');market.groups.push({...swap,quantitySpecification:{...swap.quantitySpecification,code:'other_quantity'},unit:'other unit'});for(const group of data.summaries[0].groups)if(group.instrumentType==='future')group.executionPnl='4242.5';for(const holding of data.blotter.holdings)if(holding.instrumentType==='future')holding.executionPrice='9.995';response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}if(response.headers.get('content-type')?.includes('application/json'))window.liveResponses.push({path:String(path),data:await response.clone().json()});return response;};}`});
+ await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.liveResponses=[];window.liveRequests=[];window.liveTasks=[];new PerformanceObserver(list=>window.liveTasks.push(...list.getEntries().map(e=>e.duration))).observe({type:'longtask',buffered:true});{const fetch=window.fetch;window.fetch=async(path,init)=>{window.liveRequests.push(String(path));if(window.holdShapes&&String(path)==='/api/market/curve-shapes'){window.holdShapes=false;await new Promise(resolve=>window.releaseShapes=resolve);}if(window.failLiveWorkspace&&String(path)==='/api/trading/workspace'){window.failLiveWorkspace=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}if((window.failLivePreview&&String(path)==='/api/custom-curves/preview')||(window.failLiveEditor&&['/api/swaps/editor','/api/futures/editor'].includes(String(path)))){window.failLivePreview=false;window.failLiveEditor=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}let response=await fetch(path,init);if(window.refuseDesk&&String(path)==='/api/trading/workspace'&&response.ok){window.refuseDesk=false;const data=await response.json(),market=data.summaries[3],swap=market.groups.find(g=>g.instrumentType==='financial_swap');market.groups.push({...swap,quantitySpecification:{...swap.quantitySpecification,code:'other_quantity'},unit:'other unit'});for(const group of data.summaries[0].groups)if(group.instrumentType==='future')group.executionPnl='4242.5';for(const holding of data.blotter.holdings)if(holding.instrumentType==='future')holding.executionPrice='9.995';response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}if(response.headers.get('content-type')?.includes('application/json'))window.liveResponses.push({path:String(path),data:await response.clone().json()});return response;};}`});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  // A risk analyst opens on the Blotter, and a live correction refreshes the page that is showing, so start on Curves & prices.
  await persona('risk');await click('#nav-market');await click('#example');await click('#contracts tbody tr:first-child button');
@@ -61,47 +61,48 @@ export async function run({command,evaluate,wait,click,persona,set,check,shot,id
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
  await check('a read the desk refuses leaves the desk it had whole, with no new totals or rows beside its old charts',`${deskNow}===${JSON.stringify(deskBefore)}&&!document.querySelector('#desk').textContent.includes('4,242.500')&&!document.querySelector('#desk-positions').textContent.includes('9.995')`,deskNow);
  await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
- const reference=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>h.instrumentType==='financial_swap').tradeReference");
+ // A position in a market Curves & prices lists, so that its Open curve is available to hold focus below.
+ const reference=await evaluate("(async()=>{const listed=new Set((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>c.code));return window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>listed.has(h.curve)).tradeReference;})()");
  await set('#blotter-filters .table-search',reference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
- // A risk analyst cannot amend, and reaches the swap's editor read-only through Amend, which the panel says in words, beside the button.
- await check('an account that cannot amend still opens the editor from Amend, and the panel says in words that it will be read-only',
-  "!document.querySelector('#side-panel-amend').disabled&&(()=>{const note=document.querySelector('#side-panel-amend-note');return !note.hidden&&note.getClientRects().length>0&&note.textContent.includes('cannot amend')&&note.textContent.includes('read-only');})()",
+ // A risk analyst cannot amend: the panel offers no Amend and says why, in words, where Amend would be.
+ await check('an account that cannot amend is not offered Amend, and the panel says in words why',
+  "(()=>{const amend=document.querySelector('#side-panel-amend'),note=document.querySelector('#side-panel-amend-note');return amend.hidden&&amend.getClientRects().length===0&&!note.hidden&&note.getClientRects().length>0&&note.textContent==='This account cannot amend trades in this market context.';})()",
   "document.querySelector('#side-panel-head').innerText");
- await click('#side-panel-amend');await wait("document.querySelector('#swap-editor').open");
- const readsAtOpen=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length");
+ // The panel's Terms are read once, in the live context, and a live correction reads them again with the rest of the desk.
+ await click('#side-panel-tabs-terms');await wait("!!document.querySelector('#side-panel-view .side-panel-section')&&"+idle);
+ const editorReads="window.liveRequests.filter(p=>['/api/swaps/editor','/api/futures/editor'].includes(p)).length",readsAtOpen=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length"),termsRead=await evaluate(editorReads);
+ await correct('base','3.39');
+ await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsAtOpen}&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
+ await check('a live correction reads the panel\'s terms again, with the desk, since the person has no edits in it',`${editorReads}===${termsRead}+1&&!!document.querySelector('#side-panel-view .side-panel-section')&&!document.querySelector('#side-panel-view .side-panel-error')&&document.querySelector('#notice').hidden`,`[${editorReads},${termsRead},document.querySelector('#notice').textContent]`);
  await evaluate('window.failLiveEditor=true');await correct('base','3.4');
- await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);await click('#live-retry');
- await wait("document.querySelector('#swap-editor').open&&document.querySelector('#live-status').dataset.state==='live'&&"+idle);
- await check('failed booked-side refresh retries the requested editor before reporting Live',"document.querySelector('#swap-schedules').children.length>0&&document.querySelector('#swap-error').hidden");
- await click('#swap-close');
- // The side panel behind the editor follows the live refresh: it shows its position from the newest read of the desk.
- await check('the side panel is drawn again from the newest read when a live correction refreshes the desk',`(()=>{const reads=window.liveResponses.filter(r=>r.path==='/api/trading/workspace'),h=reads.at(-1).data.blotter.holdings.find(h=>h.tradeReference===${JSON.stringify(reference)});return reads.length>${readsAtOpen}&&!document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(reference)}&&document.querySelector('.side-panel-value .kpi-value').title===h.presentValue+' '+h.currency;})()`);
- // A live refresh holds the page busy, which disables Amend while the panel is drawn again: focus on the button comes back with it.
+ await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
+ await check('a refresh whose read of the panel\'s terms fails leaves the page stale, and the panel says what failed, with Retry',"!!document.querySelector('#side-panel-view .side-panel-error')&&!!document.querySelector('#side-panel-retry')&&!document.querySelector('#live-retry').hidden");
+ await click('#live-retry');
+ await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
+ await check('Retry reads the panel\'s terms again before reporting Live',`${editorReads}===${termsRead}+3&&!!document.querySelector('#side-panel-view .side-panel-section')&&!document.querySelector('#side-panel-view .side-panel-error')`,`[${editorReads},${termsRead}]`);
+ // The side panel follows the live refresh: it shows its position from the newest read of the desk.
+ await check('the side panel is drawn again from the newest read when a live correction refreshes the desk',`(()=>{const reads=window.liveResponses.filter(r=>r.path==='/api/trading/workspace'),h=reads.at(-1).data.blotter.holdings.find(h=>h.tradeReference===${JSON.stringify(reference)});return reads.length>${readsAtOpen}&&!document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(reference)}&&document.querySelector('.side-panel-value .kpi-value').title===(h.instrumentType==='financial_swap'?h.presentValue:h.executionPnl)+' '+h.currency;})()`);
+ // A live refresh holds the page busy, which disables the panel's controls while it is drawn again: focus on one comes back with it.
  // The profile dialog of the persona switches may still be open, and it is modal: the panel can take focus once it is closed.
  if(await evaluate("document.querySelector('#profile-dialog').open"))await click('#profile-close');
- await evaluate("document.querySelector('#side-panel-amend').focus()");
- const readsAtFocus=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length");
- await correct('base','3.41');
- await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsAtFocus}&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
- await check('keyboard focus on Amend survives a live refresh, which disables the button while the page is busy and draws the panel again',
-  "document.activeElement.id==='side-panel-amend'&&!document.querySelector('#side-panel-amend').disabled",
-  "[document.activeElement.id,document.activeElement.tagName,document.querySelector('#side-panel-amend').disabled]");
+ // Each correction below is one more refresh of the desk, waited for from the reads there were before it.
+ const workspaceReads="window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length";
+ const refreshedBy=async value=>{const before=await evaluate(workspaceReads);await correct('base',value);await wait(`${workspaceReads}>${before}&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);};
  await evaluate("document.querySelector('#side-panel-tabs-terms').focus()");
- await correct('base','3.42');
- await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsAtFocus}+1&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
- await check('and so does keyboard focus on a tab of the panel',
+ await refreshedBy('3.41');
+ await check('keyboard focus on a tab of the panel survives a live refresh, which disables it while the page is busy and draws the panel again',
   "document.activeElement.id==='side-panel-tabs-terms'",
   "[document.activeElement.id,document.activeElement.tagName]");
+ // Open curve is the head's own button, enabled for this market, and keeps focus the same way.
+ await check('Open curve is available for the position, so that focus can be held on a button of the panel\'s head',"!document.querySelector('#side-panel-open-curve').disabled","document.querySelector('#side-panel-head').innerText");
+ await evaluate("document.querySelector('#side-panel-open-curve').focus()");
+ await refreshedBy('3.415');
+ await check('and so does keyboard focus on a button of the panel\'s head',"document.activeElement.id==='side-panel-open-curve'&&!document.querySelector('#side-panel-open-curve').disabled","[document.activeElement.id,document.activeElement.tagName]");
  // Focus the person has moved off the panel is not taken back by a refresh.
  await evaluate("(()=>{const title=document.querySelector('#page-title');title.tabIndex=-1;title.focus();})()");
- await correct('base','3.43');
- await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsAtFocus}+2&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
+ await refreshedBy('3.43');
  await check('while focus that is elsewhere stays there: a refresh does not take it back to the panel',
   "document.activeElement.id==='page-title'",
   "[document.activeElement.id,document.activeElement.tagName]");
- // The panel's reason for a read-only editor is what Amend is described by, after every one of those refreshes too.
- await check('Amend points assistive technology at the reason it opens the editor read-only, which is shown',
-  "(()=>{const amend=document.querySelector('#side-panel-amend'),note=document.getElementById(amend.getAttribute('aria-describedby'));return !!note&&note.id==='side-panel-amend-note'&&!note.hidden&&note.textContent.includes('read-only');})()",
-  "document.querySelector('#side-panel-amend').getAttribute('aria-describedby')");
  console.log('LIVE browser synthetic workload:',JSON.stringify(await evaluate("({requests:window.liveRequests.length,longTasks:window.liveTasks.length,maxLongTaskMilliseconds:Math.max(0,...window.liveTasks),heapBytes:performance.memory?.usedJSHeapSize})")));
 }

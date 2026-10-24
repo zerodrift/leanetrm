@@ -347,10 +347,14 @@ and a narrower one gives up Curve before Mark, never gives up a column it has ro
 a column back when the room returns. The sheet is the only part of
 the page in reach while it is open: everything behind it is inert, except dialogs, and the page is
 given back when the sheet closes, stops covering the page or the Blotter is left. A switch of mode
-or position asks first, inside the panel, when it holds unsaved edits, which for now are an
-amendment in progress, tracked by the editors (`trackEdits`). The editors are still modal dialogs,
-so the application does not ask yet; the shell's question is qualified by its unit tests and a
-browser check on a copy of its markup.
+or position asks first, inside the panel, when it holds unsaved edits, which are what a person has
+typed into the form of an amendment or of a new swap, tracked by the editors (`trackEdits`). The
+same question is asked before the panel is closed, before its form is closed and before a new read
+of the Blotter, which closes the panel; it is asked before the page is busy, so its buttons stay
+enabled, and Escape or Keep editing leaves everything as it was. A live correction (D188) reads an
+open panel again, unless it holds edits, which it leaves alone, and clears a risk run with the note
+"Risk results cleared · live corrections changed the inputs" (`liveRefreshPlan`). The assistant's
+moves still hold for unsaved edits (D191).
 
 The position view shows the instrument, trade reference, revision and book, the market, delivery,
 side and size, the value with its measure or the reason the close cannot value the position, and the
@@ -366,31 +370,48 @@ editor's own endpoint (`futures/editor` or `swaps/editor`) in the desk's market 
 either tab is first shown, and a read that holds another binding of the trade (a future's state
 names its binding) or another instrument of it (a swap's) than the position is refused. Terms lists
 the booking facts, the position, with a future's price in its unit, and the contract terms of a
-future, or the structure and each side of a swap, each side titled by its own direction; History is
-the editor's revisions table. Risk says that a risk run's results for the position will show there,
-and shows none yet.
+future, or the structure and each side of a swap, each side titled by its own direction; History
+lists every revision with when it took effect and was recorded and its facts, in the panel's width,
+as titled lists like Terms (a table of eleven to thirteen columns does not fit it). Risk says that a
+risk run's results for the position will show there, and shows none yet.
 
-Amend opens the existing amend dialogs for the position until amendment moves into the panel (D215);
-they open read-only for an account or a revision that cannot be amended, and the panel says so in
-words beside the button. Open curve opens Curves & prices on the position's curve with the price
+Amend (D215) is offered to an account that may amend, and puts the position's form in the Terms
+tab in place of its read view: the revision selector, the booking facts, the instrument and, for a
+swap, each side with its valuation and payment schedules, the amendment reason and its effective
+time, the preview and its confirmation, a retained request's Check status and Retry, and the deal's
+money display, in the panel's one column. The editor is read for the position when Amend is
+pressed, and a read that holds another binding of the trade, or for a swap another instrument,
+than the position is refused. While the form is open the head's button is Close editor, another
+tab keeps the form and what it holds out of sight, a docked panel is scrolled to so that the form
+has the window's height, and focus moves into the form. An account that cannot amend, or a
+revision that cannot be amended, is not offered Amend, and the panel says why in words under its
+head. When an amendment has been sent, the read that follows closes the panel as any new read does,
+and the panel returns to the position of the amended trade at the revision that read holds, on its
+Terms. A new swap is booked in the same panel, which it takes whole under the head "New swap",
+until the panel hosts every new trade; the editors take the panel's form part as their host, and the
+dialogs they were are gone. Open curve opens Curves & prices on the position's curve with the price
 history of its contract: a future's own, or a swap's when its delivery period holds exactly one. It
-is unavailable for a market Curves & prices does not list, and says why beside the button. Each
-button points assistive technology at its reason (`aria-describedby`) while it has one. A new read, a change of
+is unavailable for a market Curves & prices does not list, and says why beside the button, which
+points assistive technology at that reason (`aria-describedby`). A new read, a change of
 context or an access denial closes the panel; a newer drawing of the same read, including a live
 refresh or the arrival of the curves, redraws it, and closes it with a notice when the read no longer
 holds its position. A live refresh holds the page busy, and the page disables every control while it
 is, which drops keyboard focus from the one that had it; the panel keeps the id of the control that
-had focus when the page went busy (Amend, Open curve, a tab or Retry) and gives focus back once it
+had focus when the page went busy (Open curve, a tab or Retry) and gives focus back once it
 is enabled, if nothing else has taken focus meanwhile. The page's other controls lose focus as before. Pressing the row that is already open leaves the
-panel as it is. The assistant's page report does not yet name the panel's position, and the new
-trade and risk report modes of the panel are not built. The browser checks assert the placement at
+panel as it is. The assistant's page report names the trade the panel shows, at the revision the
+Blotter holds, on any of its tabs and while its form is open (D215); a target for an earlier
+revision opens the position at its latest and says so. The risk report mode of the panel is not
+built, and the page report states no risk lens. The browser checks assert the placement at
 1440 by 900 (the first position above the fold, the tiles unmoved), the columns the grid keeps at
 1440 with the navigation open and collapsed and at about 1700, and, as a wider panel narrows the
 grid, that Curve goes before Mark, down to neither; the layout at 1100, with the assistant open and
 at 760 with the page behind the sheet out of reach, the keyboard behavior, the tabs, the reads, the
 ink of the mark minus price of a short future and of a receive-fixed swap, and Open curve of a
-future and of a swap. `--live-calculation-check` asserts that a live refresh draws the panel again,
-keeps focus on Amend and on a tab, and leaves Amend described by its reason.
+future and of a swap, the form of an amendment in the Terms tab, and the questions asked before edits
+are given up. `--live-calculation-check` asserts that an account that cannot amend is told why
+and not offered Amend, that a live refresh reads the panel's terms again and draws the panel
+again, and that it keeps focus on a tab and on Open curve.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

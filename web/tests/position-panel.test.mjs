@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
-import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,amendNote,curveNote} from '../dist/position-panel.js';
+import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,amendNote,amendControl,curveNote} from '../dist/position-panel.js';
 import {chartOptions} from '../dist/chart-view.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -145,13 +145,23 @@ test('the tabs are Curve, Terms, Risk and History, and the Risk tab says its res
  assert.equal(riskEmpty,"A risk run's results for this position will show here.");
 });
 
-test('Amend says in words when the editor it opens is read-only: for the account, or for the revision',()=>{
+test('Amend says in words why it is not offered: for the account first, then for the revision once the editor has been read',()=>{
  assert.equal(amendNote(true,undefined),null,'before the editor has been read there is nothing against it');
  assert.equal(amendNote(true,{allowed:true,reason:null}),null);
- const account='This account cannot amend trades in this market context, so Amend opens the editor read-only.';
+ const account='This account cannot amend trades in this market context.';
  assert.equal(amendNote(false,undefined),account);
  assert.equal(amendNote(false,{allowed:false,reason:'Settlement has been processed.'}),account,'the account is the first reason');
- assert.equal(amendNote(true,{allowed:false,reason:'Settlement has been processed.'}),'Amend opens the editor read-only: Settlement has been processed.');
+ assert.equal(amendNote(true,{allowed:false,reason:'Settlement has been processed.'}),'This position cannot be amended: Settlement has been processed.');
+});
+
+test('Amend is shown only when the account may amend, and while the form is open it is how the person closes it',()=>{
+ assert.deepEqual(amendControl({accountCanAmend:true,revision:undefined,editing:false}),{label:'Amend',note:null});
+ assert.deepEqual(amendControl({accountCanAmend:true,revision:{allowed:true,reason:null},editing:false}),{label:'Amend',note:null});
+ const account='This account cannot amend trades in this market context.';
+ assert.deepEqual(amendControl({accountCanAmend:false,revision:undefined,editing:false}),{label:null,note:account},'no button, and the reason stays in view');
+ assert.deepEqual(amendControl({accountCanAmend:true,revision:{allowed:false,reason:'Settlement has been processed.'},editing:false}),{label:null,note:'This position cannot be amended: Settlement has been processed.'});
+ assert.deepEqual(amendControl({accountCanAmend:true,revision:{allowed:true,reason:null},editing:true}),{label:'Close editor',note:null});
+ assert.deepEqual(amendControl({accountCanAmend:false,revision:undefined,editing:true}),{label:'Close editor',note:null},'a form that is open can always be closed, whatever opened it');
 });
 
 test('Open curve says in words when there is no curve to open: for a market Curves & prices does not list',()=>{

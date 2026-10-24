@@ -106,7 +106,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a group header closes its positions from the keyboard and says so',`document.activeElement===${firstHeader}&&${firstHeader}.getAttribute('aria-expanded')==='false'&&${positionRows}<${rowsOpen}`,`[document.activeElement.className,${firstHeader}.getAttribute('aria-expanded'),${positionRows}]`);
   await press(' ',' ',32,' ');
   await check('and opens them again with the space bar',`document.activeElement===${firstHeader}&&${firstHeader}.getAttribute('aria-expanded')==='true'&&${positionRows}===${rowsOpen}`,`[document.activeElement.className,${firstHeader}.getAttribute('aria-expanded'),${positionRows}]`);
-  await sidePanelChecks({evaluate,wait,click,set,check,idle,press,settle,rowsRead});
+  await sidePanelChecks({command,evaluate,wait,click,set,check,idle,press,settle,rowsRead});
   // Curves that arrive after the rows are drawn into their own cells; the rest of each row is left as it was.
   await evaluate('window.__holdShapes=true');await click('#futures-refresh');
   await wait("typeof window.__releaseShapes==='function'&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) .desk-pill')");
