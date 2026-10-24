@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
-// D216: desk money totals add money of one currency across quantity units, and never currencies, instrument types or
+// D217: desk money totals add money of one currency across quantity units, and never currencies, instrument types or
 // quantities. The preview example holds one currency, so a second currency, a second currency revision and a second
 // definition revision are exercised here, on synthetic positions.
 static class TradingBlotterChecks

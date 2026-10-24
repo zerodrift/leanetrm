@@ -5,7 +5,7 @@ namespace OpenEtrm.MarketData.Trading;
 public enum BlotterDimension { Portfolio=1, Book, Market, Contract }
 public enum BlotterMeasure { TradeCount=1, Lots, Quantity, ExecutionPnl }
 public sealed record FuturesBlotterEntry(Guid PortfolioId,FuturesHolding Holding);
-// A held binding the selected close cannot value (D213): its trade, lots and quantity count;
+// A held binding the selected close cannot value (D214): its trade, lots and quantity count;
 // it adds nothing to execution P&L.
 public sealed record UnvaluedFuturesEntry(Guid PortfolioId,Guid TradeId,Guid BookId,FuturesPosition Position);
 public sealed record FuturesBlotterKey(Guid? PortfolioId,Guid? BookId,CurveKey? Market,ContractKey? Contract,

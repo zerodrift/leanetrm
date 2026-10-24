@@ -12,7 +12,7 @@ public sealed partial class SwapStore
     internal sealed record ResolvedSwapHolding(JsonElement Row,FinancialSwapInstrument Instrument,Quantity Quantity,ISideDiscounting Discounting,
         PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot);
 
-    // Resolves every held swap in scope except exactly the excluded ones (D213).
+    // Resolves every held swap in scope except exactly the excluded ones (D214).
     internal async Task<ImmutableArray<ResolvedSwapHolding>> ReadRiskHoldings(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ImmutableArray<Guid> bookIds,ImmutableArray<ExcludedPosition> excluded,CancellationToken ct,MarketSnapshot? snapshot=null,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default)

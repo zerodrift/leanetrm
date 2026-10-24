@@ -26,7 +26,7 @@ public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid Bi
     public string InstrumentReference{get;init;}="";
     public string InstrumentType{get;init;}="";
 }
-// D213: a held position a portfolio risk run leaves out because its base valuation at the run's close
+// D214: a held position a portfolio risk run leaves out because its base valuation at the run's close
 // fails for a position-specific reason. The run lists it, and no holding row or total includes it.
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record ExcludedPosition(Guid TradeId,Guid BindingId,string TradeReference,string InstrumentType,string Reason)
@@ -111,7 +111,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         await using var guard=ScheduleStore.Command(connection,"SELECT security.require_bound_market_context($1,$2,$3)",database.Manifest.CatalogId,context.ContextId!.Value,at);
         await guard.ExecuteNonQueryAsync(ct);
     }
-    // D213: a portfolio risk run values every held position the selected close can value. One preparation
+    // D214: a portfolio risk run values every held position the selected close can value. One preparation
     // normally values them all. Only when it fails for a position-specific reason are the positions whose
     // base valuation fails left out, with the reasons the Blotter reports for them, and the rest prepared;
     // a failure that remains fails the run.

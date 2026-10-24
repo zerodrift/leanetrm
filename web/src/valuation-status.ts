@@ -1,4 +1,4 @@
-// Plain words for the positions a close cannot value (D213). The backend decides which positions
+// Plain words for the positions a close cannot value (D214). The backend decides which positions
 // those are and why; a status it has not defined is refused rather than shown as a value.
 export type ValuationReason='source_expired'|'missing_observation';
 // An expired source is a future's own contract, awaiting settlement, but for a swap an input of the
@@ -27,6 +27,6 @@ export function valuationNote(excluded:number):string|null{
   return count===0?null:`Excludes ${count} position${count===1?'':'s'} that can't be valued at this close`;
 }
 
-// The measures that add only the positions a close values (D213); booked quantities and prices count every position.
+// The measures that add only the positions a close values (D214); booked quantities and prices count every position.
 const valuationMeasures:ReadonlySet<string>=new Set(['presentValue','executionPnl','markMin','markMax','markMean']);
 export const valuationMeasure=(measure:string)=>valuationMeasures.has(measure);

@@ -1,4 +1,4 @@
-"""D213: a close that cannot value some positions reports each one and leaves it out of valuation totals and risk runs.
+"""D214: a close that cannot value some positions reports each one and leaves it out of valuation totals and risk runs.
 
 The fixture is the seeded standard example with the custom-curve closes through Dec 31, 2020. By then the
 seeded January future has expired, and the closes after Dec 18 pin neither the standard curves nor the
@@ -120,7 +120,7 @@ def run_checks(url, session=None):
           states.count({True, False}) == 3 and states.count({False}) == 1)
     check_totals('Dec 31, 2020', rows, {**report(dec31, BY_BOOK), 'totals': late['totals'], 'unvaluedPositions': late['unvaluedPositions']})
 
-    # Money totals (D216) add the positions the close values across quantity units, and say how many they leave out.
+    # Money totals (D217) add the positions the close values across quantity units, and say how many they leave out.
     check_money_totals(lambda view: report(dec31, view), check, rows, 'Dec 31, 2020')
     money = {g['instrumentType']: g for g in report(dec31, money_view('instrumentType'))['groups']}
     check('at this close the swap total adds the eight valued daily swaps and leaves out the eight monthly swaps, and the futures total is '
@@ -172,7 +172,7 @@ def run_checks(url, session=None):
 
 
 def run_risk_checks(session, run_worker):
-    """A risk run leaves out the positions its base close cannot value and lists them (D213).
+    """A risk run leaves out the positions its base close cannot value and lists them (D214).
 
     Each run shocks one exact contract. What it keeps must be the result of a run over exactly the positions
     the close values: their Blotter values at that close, the futures sensitivity, and the same numbers whichever

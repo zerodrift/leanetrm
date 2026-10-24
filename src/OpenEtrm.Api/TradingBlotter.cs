@@ -13,7 +13,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
 {
  public const string Convention="trading_workspace_v1";
  public const string PivotConvention="trading_blotter_totals_v1";
- // D216: money of one currency adds across quantity units, so this convention measures money and trade counts only.
+ // D217: money of one currency adds across quantity units, so this convention measures money and trade counts only.
  public const string MoneyTotalsConvention="trading_blotter_money_totals_v1";
  // How many extra groupings of its one valuation a request may ask for.
  public const int MaximumSummaries=4;
@@ -103,7 +103,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
  private sealed record Work(int SwapTrades,int SwapValuations,int SupplementalMarketLoads);
  private sealed record Report(FuturesBlotterView View,string PivotNumericalPolicy,List<JsonObject> Groups,
   List<JsonObject> Holdings,int EvaluatedContracts,JsonNode? Totals,Work Work,bool HasSwaps,string Convention,int UnvaluedPositions);
- // D213: valuation measures add only positions the selected close values; booked facts count every position.
+ // D214: valuation measures add only positions the selected close values; booked facts count every position.
  private static bool Valuation(string measure)=>measure is "presentValue" or "executionPnl"||PriceMeasures.TryGetValue(measure,out var price)&&price.Field=="mark";
  private static string? Text(JsonObject row,string key)=>row[key]?.GetValue<string>();
  private static ReferenceKey Key(JsonObject row,string key)=>row[key]!.Deserialize<ReferenceKey>(Json);
@@ -116,7 +116,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
  {
   var groups=new List<JsonObject>();
   var hasPrices=view.Measures.Any(PriceMeasures.ContainsKey);
-  // D98 keeps totals apart by quantity specification; D216's money totals add across quantity units, keeping apart only the dimensions, instrument type and currency.
+  // D98 keeps totals apart by quantity specification; D217's money totals add across quantity units, keeping apart only the dimensions, instrument type and currency.
   var byQuantity=view.PivotConvention!=MoneyTotalsConvention;
   // A market or contract is defined in one definition revision, so groups naming one are kept apart by revision and say which (R29).
   var byDefinition=view.GroupBy.Any(d=>d is "market" or "contract");

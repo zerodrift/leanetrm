@@ -220,7 +220,7 @@ Leaf futures contracts retain exact market terms; composed instruments retain no
 Pricing reports typed gross execution P&L and open quote sensitivity; it does not
 implement futures PV, settlement cash, variation margin or fees.
 
-A close that cannot value a held position no longer fails the Blotter (D213). The
+A close that cannot value a held position no longer fails the Blotter (D214). The
 trading workspace, Blotter and pivot reads, and the futures holdings and futures
 Blotter reads, return every position in scope. Exactly `source_expired` and
 `missing_observation` are position-specific (`ValuationStatus`): such a position keeps
@@ -301,7 +301,7 @@ in another context, says why in its own row. Pivot views keep their table and
 configurable chart under the same tiles. Commodity colors are the design's identity colors for
 the two commodities of the synthetic reference catalog, and palette colors for any other.
 
-The desk's money totals come from a second pivot convention (D216). `trading_blotter_totals_v1`
+The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and
 MMBtu positions is never one number in it, and the browser may not add amounts.
 `trading_blotter_money_totals_v1` partitions by the view's dimensions, the exact instrument type and
@@ -314,7 +314,7 @@ refused with `blotter_view`, over an empty book too. A group states `instrumentT
 as exact money of its one currency (`ExactMoney.Add` raises `currency_mismatch` for any other) and
 are null where none is valued or the measure does not apply to the instrument type (swaps have no
 execution P&L, futures no PV). `tradeCount` counts the group's distinct trades and
-`unvaluedPositions` those left out (D213). `trading/blotter`, the workspace
+`unvaluedPositions` those left out (D214). `trading/blotter`, the workspace
 `view` and each of its `summaries` accept either convention, together, with the summary limits and
 the single valuation unchanged. `--desk-fields-check` qualifies the totals on the seeded example
 against exact sums of its rows, across its MWh and MMBtu swaps, and `--valuation-status-check` at
@@ -332,7 +332,7 @@ units of its pivots, and a point for each contract its view selects, in the orde
 `/evaluate` gives them, with the delivery period and the exact price `/evaluate` gives; its
 `unavailableReason` is null. One build prices a whole curve. Only if it fails with
 `source_expired` or `missing_observation` are the contracts that fail alone isolated, and
-each states that code as its point's `unavailableReason` with no price (D213). A curve whose
+each states that code as its point's `unavailableReason` with no price (D214). A curve whose
 view selects no contract has no points. A curve that cannot be read has null `unit` and
 `points` and states the code its own `/evaluate` read raises, which is the failure of its
 one build of every contract, whatever isolating its contracts then met: `missing_curve` for

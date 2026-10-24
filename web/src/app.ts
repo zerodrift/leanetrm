@@ -60,7 +60,7 @@ const historicalContext=()=>navigation?.context??undefined;
 const canCorrect=()=>can('ImportObservations')&&!historicalContext();
 let prefs:Preferences=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);
 let marketDateGeneration=0,marketDatesLoaded=false;
-// The workspace's newest close (D212): the last availability read for the whole workspace, the newest date it had when
+// The workspace's newest close (D213): the last availability read for the whole workspace, the newest date it had when
 // the close now shown was selected, whether a newer-close check is due and whether one is running.
 let workspaceCloses:MarketDates|undefined,closeBasis:{close:string;newest:string}|undefined,closeCheckDue=false,checkingCloses=false;
 const data=()=>{if(!workspace)throw Error('Market data is still loading.');return workspace;};
@@ -213,7 +213,7 @@ async function openMarketCalendar(date?:string):Promise<void>{
   throw error;
  }
 }
-// Opening a workspace on its newest close (D212). The workspace-wide calendar names the newest date: one close on it is
+// Opening a workspace on its newest close (D213). The workspace-wide calendar names the newest date: one close on it is
 // selected as if the person had picked it, several ask, and none selects nothing. The page that is showing then reads it.
 const workspaceDates=():MarketDatesRequest=>({curve:null,timeZone:prefs.timeZone,definition:null});
 async function selectNewestClose():Promise<CloseChoice>{

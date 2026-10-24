@@ -3,7 +3,7 @@ using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
-// D213: the valuation failures that concern one position at the selected close. A trading read
+// D214: the valuation failures that concern one position at the selected close. A trading read
 // returns such a position with this code instead of failing, and a portfolio risk run leaves it out
 // and lists it; every other failure still fails them.
 static class ValuationStatus
@@ -11,7 +11,7 @@ static class ValuationStatus
     public static bool PositionSpecific(string? code)=>code is "source_expired" or "missing_observation";
     public static bool PositionSpecific(MarketDataException error)=>PositionSpecific(error.Code);
 
-    // One build values every request the close can value (D213). Only when it fails for a position-specific reason are the
+    // One build values every request the close can value (D214). Only when it fails for a position-specific reason are the
     // requests that fail alone isolated, against the same snapshot: requests that build are passed in blocks that double in
     // size, and a block that fails is halved until one request fails alone. The builds therefore grow with the requests that
     // fail and not with those that do not, and never exceed three for each request. The rest are then built together. When no

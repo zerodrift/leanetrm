@@ -26,7 +26,7 @@ type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'r
 type BookingCatalog='directory'|'priced_contracts';
 type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string;portfolio_id:string}[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;bookingUnavailableReason:string|null}&({kind:'directory'}|{kind:'priced_contracts';contracts:Contract[]});
 type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:Holding[];totals:{book:string;currency:string;executionPnl:string|null;unvaluedPositions:number}[];unvaluedPositions:number};
-// The value cells each instrument type shows; a position the close cannot value says why in them (D213).
+// The value cells each instrument type shows; a position the close cannot value says why in them (D214).
 const valueFields:Readonly<Record<string,readonly string[]>>={future:['mark','executionPnl'],financial_swap:['mark','presentValue']};
 function valueCells(instrumentType:string){
   if(!Object.hasOwn(valueFields,instrumentType))throw Error('The Blotter returned an unknown instrument type.');
@@ -237,7 +237,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const pivotKeys=pivotColumns(view.groupBy,view.measures);
     const columns=blotterColumns.filter(([key])=>pivotKeys.includes(key));
     tableColumns=columns.map(c=>c[0]);
-    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D213).
+    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D214).
     const counted=read.groups.some(g=>excludedPositions(g.unvaluedPositions)>0);
     const rows:Record<string,string|null>[]=read.groups.map(g=>({...Object.fromEntries(columns.map(([key])=>[key,groupLabel(g,key)])),unvaluedPositions:String(excludedPositions(g.unvaluedPositions))}));
     const required=['instrumentType','unit','currency','priceUnit'];
