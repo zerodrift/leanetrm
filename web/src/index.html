@@ -178,6 +178,7 @@
   </section>
   <section id="futures-page" hidden>
     <div id="futures-retained"><div id="futures-pending" class="profile-note retained-request" role="status" hidden><p id="futures-pending-text"></p><div class="schedule-actions"><button id="futures-reconcile" type="button" class="secondary">Check status</button><button id="futures-retry" type="button" class="secondary">Retry original request</button></div></div></div>
+    <p id="new-trade-availability" class="table-workspace-note" role="status" hidden></p>
     <div id="blotter-workspace"></div>
     <div id="desk" class="desk" hidden>
       <div class="desk-tiles" role="group" aria-label="Book summary at this close">
@@ -201,8 +202,8 @@
         <div id="side-panel-retained" class="side-panel-retained"></div>
         <button id="side-panel-close" type="button" class="icon-button side-panel-close" aria-label="Close the panel">×</button>
         <div id="side-panel-head" class="side-panel-head"></div>
-        <div id="side-panel-tabs" class="side-panel-tabs" role="tablist"></div>
-        <div id="side-panel-body" class="side-panel-body" role="tabpanel" tabindex="0">
+        <div id="side-panel-tabs" class="side-panel-tabs"></div>
+        <div id="side-panel-body" class="side-panel-body" tabindex="0">
           <div id="side-panel-view"></div>
           <div id="side-panel-form" class="side-panel-form" hidden></div>
         </div>
@@ -229,12 +230,6 @@
       <div id="risk-job" hidden><p id="risk-job-context" class="field-help"></p><p id="risk-job-scenario" class="field-help"></p><p id="risk-job-status" class="field-help" role="status"></p><div class="pricing-toolbar"><button id="risk-job-cancel" type="button" class="secondary" hidden>Cancel job</button><button id="risk-job-refresh" type="button" class="secondary" hidden>Refresh job</button><button id="risk-job-retry" type="button" class="secondary" hidden>Reconcile submission</button><button id="risk-job-discard" type="button" class="text-button" hidden>Discard unconfirmed request</button></div></div>
       <div id="risk-work" class="field-help" role="status"></div><div id="risk-results"></div><div id="risk-plots"></div><button id="risk-export" type="button" class="secondary" hidden>Download results &amp; inputs</button>
     </section>
-    <p id="futures-booking-availability" class="field-help" role="status">Choose an As of date to book a trade.</p>
-    <section id="futures-booking" class="card" hidden><div class="card-heading"><h3>New futures trade</h3><button id="futures-cancel" type="button" class="text-button">Close</button></div><p id="futures-terms" class="field-help">Select a dated contract to see its terms.</p><form id="futures-form" hidden><fieldset id="futures-fields" class="futures-fields">
-      <section id="futures-trade-terms" class="trade-booking-terms"></section>
-      <section id="futures-instrument"></section><section id="futures-draft-valuation"></section>
-      <p class="field-help">Booking facts are assigned by the server. The selected market date supplies the separate pricing effective time.</p><button id="futures-book-submit" type="submit" class="secondary">Book future</button>
-    </fieldset></form></section>
   </section>
   <section id="jobs-page" hidden>
     <div class="card"><div class="card-heading"><div><h2>Jobs &amp; Infrastructure</h2><p id="jobs-scope"></p></div><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>
@@ -382,8 +377,17 @@
     <div class="assistant-composer-actions"><span id="assistant-composer-note" class="field-help"></span><button id="assistant-discard" type="button" class="secondary" hidden>Discard</button><button id="assistant-retry" type="button" class="secondary" hidden>Retry</button><button id="assistant-send" type="submit">Send</button></div>
   </form>
 </aside>
-<dialog id="trade-kind" aria-labelledby="trade-kind-title"><div class="dialog-heading"><h2 id="trade-kind-title">New trade</h2><button id="trade-kind-close" type="button" class="icon-button" aria-label="Close trade choices">×</button></div><p class="field-help">Choose the instrument for your new trade.</p><div class="trade-kind-actions instrument-choices"><button id="trade-kind-future" type="button"><span class="choice-symbol" aria-hidden="true">↗</span><strong>Futures</strong><span>Exchange contracts with a defined expiry</span></button><button id="trade-kind-swap" type="button"><span class="choice-symbol" aria-hidden="true">⇄</span><strong>Swaps</strong><span>Fixed or floating prices on independent sides</span></button><button id="trade-kind-ppa" type="button"><span class="choice-symbol" aria-hidden="true">ϟ</span><strong>PPA</strong><span>Power purchase agreement</span></button></div></dialog>
 <div id="editor-shelf" hidden>
+<div id="futures-new-trade" class="editing" hidden>
+ <form id="futures-form" hidden><fieldset id="futures-fields" class="futures-fields">
+  <section id="futures-trade-terms" class="trade-booking-terms"></section>
+  <section id="futures-instrument"></section>
+  <p id="futures-terms" class="field-help">Select a dated contract to see its terms.</p>
+  <section id="futures-draft-valuation" class="draft-valuation"></section>
+  <p class="field-help">Booking facts are assigned by the server. The selected market date supplies the separate pricing effective time.</p>
+  <button id="futures-book-submit" type="submit">Book future</button>
+ </fieldset></form>
+</div>
 <div id="swap-editing" class="editing swap-editing" hidden>
  <p id="swap-reference" class="profile-note"></p><p id="swap-mode" class="field-help" role="status"></p><p id="swap-error" role="alert" hidden></p>
  <div id="swap-revisions" hidden><label for="swap-revision">Trade revision</label><select id="swap-revision"></select><button id="swap-latest" type="button" class="secondary">Reload latest revision</button></div>
@@ -403,7 +407,7 @@
    <div id="swap-floating-editor"></div>
   </div>
 
-  <section id="swaps-draft-valuation"></section>
+  <section id="swaps-draft-valuation" class="draft-valuation"></section>
   </section>
   <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. The instrument quantity applies once after signed side PVs are summed. This model has one monthly payment per side. Each floating reset uses its index’s fixing convention and the selected market context; inspect its actual or projected state in the valued schedule.</p>
   <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>

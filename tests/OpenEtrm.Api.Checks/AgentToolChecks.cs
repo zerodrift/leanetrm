@@ -260,7 +260,7 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"blotter_risk","delivery_prices","interval_series","interval_curves","jobs","users_access","settings_ai"};
+        var unsupported=new[]{"blotter_risk","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","jobs","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
                 .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves"}.Order()),
             "the closed set names one id per navigable view, with each coverage row the assistant reads and each it does not");

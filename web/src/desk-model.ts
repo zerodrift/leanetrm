@@ -345,3 +345,20 @@ export function curvePoints(shape:CurveShape,row:Pick<DeskRow,'market'|'delivery
   const range=`${deliveryLabel(shape.points[0].deliveryFrom,shape.points[0].deliveryTo)} to ${deliveryLabel(shape.points.at(-1)!.deliveryFrom,shape.points.at(-1)!.deliveryTo)}`;
   return {state:'drawn',points,marks,title:`${row.market} · forward curve, ${range}\n${marks.length?`This position: ${marks.map(x=>points[x].label).join('; ')}`:"This position's delivery is not on the curve at this close"}`};
 }
+
+/** What a curve's chart is for: the market, and the delivery period whose contracts it marks, as a row or a draft states them. */
+export type CurveTarget=Pick<DeskRow,'market'|'delivery'|'deliveryFrom'|'deliveryTo'>;
+/** A market's forward curve drawn at the close, with the contracts of a delivery period marked; or why it cannot be drawn. */
+export type CurveChart={state:'chart';spec:ChartSpec;marked:boolean}|{state:'unavailable';reason:string};
+/**
+ * The chart of a market's curve shape, in the contracts' own order, a contract the close cannot price kept as a gap, and the
+ * contracts of the target's delivery period marked. A curve the close cannot shape says why, as a row's sparkline does.
+ */
+export function curveChart(shape:CurveShape,target:CurveTarget):CurveChart{
+  const line=curvePoints(shape,target);
+  if(line.state==='unavailable')return line;
+  const points:ChartPoint[]=shape.points!.map(p=>({x:p.contractId,label:deliveryLabel(p.deliveryFrom,p.deliveryTo),y:p.price}));
+  const spec:ChartSpec={title:`${target.market} · forward curve`,axis:'delivery',unit:shape.unit!,kind:'line',series:[{name:'Curve at this close',points}],marked:line.marks.map(i=>points[i].x)};
+  if(spec.marked!.length)spec.subtitle=`Marked: delivery ${target.delivery}`;
+  return {state:'chart',spec,marked:spec.marked!.length>0};
+}

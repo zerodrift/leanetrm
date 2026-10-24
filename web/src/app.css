@@ -487,7 +487,7 @@ dialog label{margin-top:16px}
 .instrument-sides{display:flex;flex-direction:column;gap:16px;margin:20px 0 12px}.instrument-side{min-width:0;padding:14px;border:1px solid #dce5d5;border-radius:8px;background:#fcfdf9}.instrument-side h3{margin:0 0 12px}.instrument-side label{margin-top:0}.side-contract{margin-bottom:12px}.side-terms{display:contents}.side-term{display:grid;grid-template-columns:minmax(110px,.9fr) minmax(0,1.2fr);gap:16px;padding:10px 0;border-top:1px solid #e6ebdf;font-size:12px;line-height:1.5}.side-term dt{color:#6b7d66}.side-term dd{margin:0;overflow-wrap:anywhere;color:#304f3d;font-variant-numeric:tabular-nums}#trade-editor-terms{margin:8px 0 16px}
 @media(max-width:480px){.instrument-side{padding:12px}.side-term{grid-template-columns:minmax(90px,.9fr) minmax(0,1.2fr);gap:10px}}
 
-.trade-kind-actions{display:grid;gap:12px;margin-top:24px}.swap-sides .instrument-side>div{padding:9px 0;border-top:1px solid #e6ebdf}.swap-sides input,.swap-sides select{width:100%}.swap-sides p{margin:0;display:flex;align-items:center}#swap-error{color:#8c3830;background:#fff1ed;padding:12px}#swap-result{margin:24px 0}.swap-schedule{margin:20px 0;padding:16px;border:1px solid #e2e8dc;border-radius:8px}.swap-schedule details{margin-top:14px}#swap-reason{width:100%;margin-bottom:16px}#swap-confirmation{padding:16px 0;border-top:1px solid #e2e8dc}#swap-revisions{margin:12px 0}#swap-revisions select{width:auto;margin-right:12px}
+.swap-sides .instrument-side>div{padding:9px 0;border-top:1px solid #e6ebdf}.swap-sides input,.swap-sides select{width:100%}.swap-sides p{margin:0;display:flex;align-items:center}#swap-error{color:#8c3830;background:#fff1ed;padding:12px}#swap-result{margin:24px 0}.swap-schedule{margin:20px 0;padding:16px;border:1px solid #e2e8dc;border-radius:8px}.swap-schedule details{margin-top:14px}#swap-reason{width:100%;margin-bottom:16px}#swap-confirmation{padding:16px 0;border-top:1px solid #e2e8dc}#swap-revisions{margin:12px 0}#swap-revisions select{width:auto;margin-right:12px}
 
 .swap-evidence{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.6;max-height:320px;overflow:auto;padding:12px;background:#f4f7f1;border-radius:6px}
 
@@ -739,8 +739,26 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .side-panel-form .instrument-choices button{white-space:normal;min-width:0}
 .side-panel-form .available-date-calendar{width:min(21rem,100%)}
 .side-panel-form select,.side-panel-form input:not([type=checkbox]),.side-panel-form textarea{width:100%}
+/* New trade (blotter-desk.md, Side panel). Under the toolbar, why New trade is not offered; in the panel's head, the switch of the product, a segmented
+   control with none of its two choices made for the person, and the note that a form's choices are from before a live correction. */
+.table-workspace-note{margin:0;padding:8px 16px;border-top:1px solid var(--border);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
+.product-switch{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.product-switch button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
+.product-switch button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
+.product-switch button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.new-trade-head .side-panel-title{margin-top:0}
+.new-trade-head .side-panel-note{margin:8px 0 0}
+.new-trade-stale{padding:6px 8px;border:1px solid var(--warn-border);border-radius:var(--radius-sm);background:var(--warn-soft);color:var(--text)}
+/* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
+.draft-valuation{margin:20px 0 12px;padding-top:14px;border-top:1px solid var(--border)}
+.draft-title{margin:0 0 8px;font-size:15px}
+.draft-curves .draft-chart,.draft-curves .field-help{margin-top:10px}
+.draft-curves .draft-chart{min-height:0}
+.draft-curves .draft-chart .standard-chart-plot{height:200px}
 /* The row the panel shows: marked as a hovered row is, and by a bar at its edge. */
 .table-workspace .standard-data-grid .tabulator-row.open-row{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+/* A row brought into view, as a position opened by a booking is, comes to rest with room around it, not flush with an edge. */
+.table-workspace .standard-data-grid .tabulator-row{scroll-margin-block:24px}
 
 /* Pivot builder and linked visual analysis */
 .table-workspace-toolbar .table-menu>summary{padding:7px 6px}
@@ -1001,8 +1019,8 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 #ppa-page .ppa-pricing-summary th,#ppa-page .ppa-pricing-summary td { white-space:normal; overflow-wrap:anywhere; width:50%; }
 
 /* Trade → instrument → side hierarchy. */
-#trade-kind{width:min(760px,calc(100vw - 32px))}.instrument-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0 22px}.trade-kind-actions.instrument-choices{grid-template-columns:repeat(3,minmax(0,1fr))}.instrument-choices button{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:20px;text-align:left;border:1px solid #ccd9cd;border-radius:12px;background:#fff;color:#294737;box-shadow:0 2px 5px #20382e06}.instrument-choices button>span:last-child{font-size:12px;line-height:1.6;font-weight:400;color:#64736a}.instrument-choices button:hover{background:#f4f8f1;border-color:#739879}.instrument-choices button[aria-pressed=true]{border:2px solid #3e7055;padding:19px;background:#edf5ee;box-shadow:0 0 0 3px #3e70550d}.instrument-choices button:focus-visible{outline:3px solid #8faa75;outline-offset:3px}.choice-symbol{font-size:28px;color:#527b5e}.choice-diagram{display:flex;align-items:center;gap:10px;margin-bottom:7px;width:100%}.choice-diagram b{background:#f0f4ed;padding:7px 12px;border:1px solid #dce6d9;border-radius:5px;font-size:11px;font-weight:500}.entry-section-heading{display:flex;align-items:center;gap:12px;margin:24px 0 10px}.entry-section-heading h3{margin:3px 0;font-size:18px}.entry-step{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#eaf0e7;color:#587052;font-size:12px;font-weight:600}.swap-sides .swap-commodity{margin:0}.swap-sides .swap-commodity select{min-width:0}.swap-sides .swap-commodity p{font-size:11px;min-height:0;margin-top:8px}#swap-template-note{padding:12px 15px;background:#f3f6f0;border-radius:7px}.fixed-side-description .eyebrow{color:#75836f}
-@media(max-width:600px){.instrument-choices,.trade-kind-actions.instrument-choices{grid-template-columns:1fr}.choice-diagram{width:auto}.instrument-choices button{gap:6px;padding:15px}.instrument-choices button[aria-pressed=true]{padding:14px}}
+.instrument-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0 22px}.instrument-choices button{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:20px;text-align:left;border:1px solid #ccd9cd;border-radius:12px;background:#fff;color:#294737;box-shadow:0 2px 5px #20382e06}.instrument-choices button>span:last-child{font-size:12px;line-height:1.6;font-weight:400;color:#64736a}.instrument-choices button:hover{background:#f4f8f1;border-color:#739879}.instrument-choices button[aria-pressed=true]{border:2px solid #3e7055;padding:19px;background:#edf5ee;box-shadow:0 0 0 3px #3e70550d}.instrument-choices button:focus-visible{outline:3px solid #8faa75;outline-offset:3px}.choice-symbol{font-size:28px;color:#527b5e}.choice-diagram{display:flex;align-items:center;gap:10px;margin-bottom:7px;width:100%}.choice-diagram b{background:#f0f4ed;padding:7px 12px;border:1px solid #dce6d9;border-radius:5px;font-size:11px;font-weight:500}.entry-section-heading{display:flex;align-items:center;gap:12px;margin:24px 0 10px}.entry-section-heading h3{margin:3px 0;font-size:18px}.entry-step{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#eaf0e7;color:#587052;font-size:12px;font-weight:600}.swap-sides .swap-commodity{margin:0}.swap-sides .swap-commodity select{min-width:0}.swap-sides .swap-commodity p{font-size:11px;min-height:0;margin-top:8px}#swap-template-note{padding:12px 15px;background:#f3f6f0;border-radius:7px}.fixed-side-description .eyebrow{color:#75836f}
+@media(max-width:600px){.instrument-choices{grid-template-columns:1fr}.choice-diagram{width:auto}.instrument-choices button{gap:6px;padding:15px}.instrument-choices button[aria-pressed=true]{padding:14px}}
 
 #swap-trade-terms>h3{display:flex;align-items:center;gap:12px;font-size:18px}#swap-trade-terms>h3::before{content:"01";display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#eaf0e7;color:#587052;font-size:12px;font-weight:600}
 

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {tradeTerms,tradeHistory,tradeDetailView,tradeAmendState,readTradeView,holdsBinding,tradeAtPosition} from '../dist/trade-editor.js';
-import {swapTerms,swapHistory,swapDetailView,swapAmendState,readSwapView,retainedIndex,sideTitle,holdsInstrument,swapAtPosition,valuationLine,sideLine} from '../dist/swap-editor.js';
+import {futuresDraftMarkets} from '../dist/futures-booking.js';
+import {swapTerms,swapHistory,swapDetailView,swapAmendState,readSwapView,retainedIndex,sideTitle,holdsInstrument,swapAtPosition,valuationLine,sideLine,swapDraftMarkets} from '../dist/swap-editor.js';
 import {setCurveNames} from '../dist/market-view.js';
 const details=JSON.parse(readFileSync(new URL('./fixtures/trade-details.json',import.meta.url),'utf8'));
 setCurveNames([{code:'future',name:'Gas future'},{code:'daily_gas',name:'Daily gas'},{code:'daily_power',name:'Daily power'}]);
@@ -237,4 +238,25 @@ test('a swap\'s valuation line and each side\'s line state the amounts the calle
  assert.equal(valuationLine(value,index,text),`Trade PV: trade.money:${value.presentValue} USD · instrument unit PV: trade.money:${value.instrumentPresentValue} USD/MWh · trade quantity: trade.quantity:${value.quantity} MWh. Side values below are per normalized unit.`);
  const side=value.sides[0];
  assert.equal(sideLine(side,index,text),`Side unit PV: ${side.kind}.money:${side.presentValue} USD/MWh; signed contribution: ${side.kind}.money:${side.contribution} USD/MWh.`);
+});
+
+// Price before booking marks the delivery of each market the draft is for on that market's curve.
+test('a futures draft is for the market of its contract and the contract\'s delivery period, and for none until a contract is chosen',()=>{
+ const contract=details.future.catalog.contracts[0];
+ assert.deepEqual(futuresDraftMarkets(contract),[{curve:contract.curve,deliveryFrom:contract.deliveryFrom,deliveryTo:contract.deliveryTo}]);
+ assert.deepEqual(futuresDraftMarkets(undefined),[]);
+});
+
+test('a swap draft is for the market of each floating side, with that side\'s delivery, in the revision it was entered against',()=>{
+ const floating={curve:'daily_gas',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'};
+ assert.deepEqual(swapDraftMarkets({definitionRevisionId:'r1',floating,firstFloating:null,fixed:{deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'}}),
+  [{curve:'daily_gas',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',definitionRevisionId:'r1'}],'the fixed side has no market of its own');
+ const first={curve:'daily_power',deliveryFrom:'2021-01-01',deliveryTo:'2021-03-01'};
+ assert.deepEqual(swapDraftMarkets({definitionRevisionId:'r1',floating,firstFloating:first,fixed:null}).map(m=>[m.curve,m.deliveryTo]),[['daily_power','2021-03-01'],['daily_gas','2021-02-01']],'the first floating side comes first');
+});
+
+test('two floating sides of one market and one delivery period are one market on the chart',()=>{
+ const side={curve:'daily_gas',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'};
+ assert.equal(swapDraftMarkets({definitionRevisionId:'r1',floating:side,firstFloating:{...side},fixed:null}).length,1);
+ assert.equal(swapDraftMarkets({definitionRevisionId:'r1',floating:side,firstFloating:{...side,deliveryTo:'2021-03-01'},fixed:null}).length,2,'another period of the same market is marked too');
 });

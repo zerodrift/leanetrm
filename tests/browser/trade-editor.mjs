@@ -1,4 +1,5 @@
 import {chooseFutures} from './futures-selection.mjs';
+import {newTrade} from './new-trade.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
   await command('Page.enable');await command('Runtime.enable');
@@ -34,7 +35,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#nav-power');await check('Power TOUs header identifies Settings',"document.querySelector('#page-section').textContent==='SETTINGS'");await click('#nav-reference');await check('Reference data header identifies Settings',"document.querySelector('#page-section').textContent==='SETTINGS'");await click('#nav-futures');
   await check('visible product branding is LeanETRM',"document.title.includes('LeanETRM')&&document.querySelector('.brand').textContent.includes('LeanETRM')");
   await check('working knowledge and actual today are explicit beside selected price date',"document.querySelector('#workspace-mode-label').textContent.includes('Working data')&&document.querySelector('#workspace-today').textContent.includes('Today:')&&document.querySelector('#workspace-today').textContent.includes('earlier market date')&&!document.querySelector('#futures-new').disabled");
-  await click('#futures-new');await click('#trade-kind-future');await chooseFutures({evaluate,set,click});await evaluate("document.querySelector('#futures-book').selectedIndex=1;");
+  await newTrade({click,wait},'futures');await chooseFutures({evaluate,set,click});await evaluate("document.querySelector('#futures-book').selectedIndex=1;");
   await set('#futures-lots','37');await set('#futures-execution','2.9');await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
   const bookedTrade=await evaluate("window.__editorReplies.filter(r=>r.path==='/api/futures/book').at(-1).data.tradeId");
   const tradeReference=await evaluate(`window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).tradeReference`);
@@ -50,6 +51,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   }
   // The question a form with unsaved edits asks, and what keystrokes are: trusted input, which is what counts as an edit.
   const prompt="document.querySelector('#side-panel-prompt')";
+  // Text on the page that a person can see: not hidden, and drawn.
+  const shown=selector=>`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !n.hidden&&n.getClientRects().length>0;})()`;
   const asks=()=>evaluate(`new Promise(resolve=>{const start=Date.now(),poll=()=>{if(!${prompt}.hidden||Date.now()-start>1500)resolve();else setTimeout(poll,25);};poll();})`);
   const answer=async index=>{await evaluate(`${prompt}.querySelectorAll('button')[${index}]?.click()`);await wait(`${prompt}.hidden&&`+idle);};
   const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
@@ -162,7 +165,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await wait("document.querySelector('#desk-positions').children.length===0");
   await check('a denied Terms read clears the page and closes the panel, as a denied editor read does',"document.querySelector('#side-panel').hidden&&document.querySelector('#desk-positions').children.length===0&&document.querySelector('#side-panel-view').children.length===0&&document.querySelector('#side-panel-head').children.length===0");
   await click('#futures-refresh');await click('#date-context>summary');await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
-  await check('historical mode visibly explains disabled booking and offers working return',"document.querySelector('#workspace-mode-label').textContent.includes('Historical view')&&!document.querySelector('#return-working').hidden&&document.querySelector('#futures-new').disabled&&document.querySelector('#futures-book-submit').disabled&&document.querySelector('#futures-booking-availability').textContent.includes('Historical view')");
+  await check('historical mode visibly explains disabled booking and offers working return',`document.querySelector('#workspace-mode-label').textContent.includes('Historical view')&&!document.querySelector('#return-working').hidden&&document.querySelector('#futures-new').disabled&&document.querySelector('#futures-book-submit').disabled&&${shown('#new-trade-availability')}&&document.querySelector('#new-trade-availability').textContent.includes('Historical view')&&document.querySelector('#futures-new').getAttribute('aria-describedby')==='new-trade-availability'&&!document.querySelector('#futures-new').title`);
   // Reading a historical close, the desk reads its curves in that same context and draws them beside the positions.
   await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].filter(o=>o.value).at(-1).value"));await wait(idle);await click('#futures-refresh');
   await wait("!!document.querySelector('#desk-positions .tabulator-row')&&document.querySelectorAll('#desk-positions .sparkline-loading').length===0");
@@ -170,7 +173,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#return-working');
   await check('return to working does not silently select a market date',"document.querySelector('#workspace-mode-label').textContent.includes('Working data')&&document.querySelector('#snapshot').value===''&&document.querySelector('#futures-new').disabled");
   await persona('risk');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
-  await check('draft entry stays available while booking permission is explained',"!document.querySelector('#futures-new').disabled&&document.querySelector('#futures-book-submit').disabled&&document.querySelector('#futures-booking-availability').textContent.includes('Book Trade permission')");
+  await check('New trade follows the backend\'s permission: an account that may not book is not offered it, and is told why in words on the page',`document.querySelector('#futures-new').disabled&&${shown('#new-trade-availability')}&&document.querySelector('#new-trade-availability').textContent.includes('Book Trade permission')&&document.querySelector('#futures-new').getAttribute('aria-describedby')==='new-trade-availability'&&!document.querySelector('#futures-new').title`);
+  await evaluate("document.querySelector('#futures-new').click()");
+  await check('and pressing it opens nothing: no panel and no form, where booking is impossible',"document.querySelector('#side-panel').hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#swap-editing').hidden");
   await evaluate("window.__revisionSort=true");await click('#futures-refresh');
   // Revisions sort as numbers in a flat list: grouping would order the rows by book first.
   await set('#blotter-row-group','');await wait(idle);await click('#blotter-columns>summary');await click('#blotter-column-choices input[value="revision"]');await click('#blotter-columns>summary');

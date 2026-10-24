@@ -13,12 +13,17 @@ export const positionMode=(h:PositionKey):PositionMode=>({kind:'position',tradeI
 /** Where a read holds the position a mode names, or -1 when it does not hold it. */
 export const positionIndex=(holdings:readonly PositionKey[],mode:PositionMode)=>holdings.findIndex(h=>sameMode(positionMode(h),mode));
 
+type TradeKey=Pick<Holding,'tradeId'|'bindingId'|'instrumentType'>;
+/** The rows of a read that hold a trade of a kind: those of its binding when one is named, and otherwise every binding it holds. */
+const rowsOfTrade=(holdings:readonly TradeKey[],trade:{tradeId:string;instrumentType:string;bindingId?:string})=>
+  holdings.flatMap((h,i)=>h.tradeId===trade.tradeId&&h.instrumentType===trade.instrumentType&&(trade.bindingId===undefined||h.bindingId===trade.bindingId)?[i]:[]);
+
 /**
  * The row of a trade a person or the assistant names: of its binding when one is named, and otherwise of the only position the read
  * holds of it. A trade the read does not hold, or holds as several positions without a binding to tell them apart, is refused.
  */
-export function tradeIndex(holdings:readonly Pick<Holding,'tradeId'|'bindingId'|'instrumentType'>[],trade:{tradeId:string;instrumentType:string;bindingId?:string}):number{
-  const found=holdings.flatMap((h,i)=>h.tradeId===trade.tradeId&&h.instrumentType===trade.instrumentType&&(trade.bindingId===undefined||h.bindingId===trade.bindingId)?[i]:[]);
+export function tradeIndex(holdings:readonly TradeKey[],trade:{tradeId:string;instrumentType:string;bindingId?:string}):number{
+  const found=rowsOfTrade(holdings,trade);
   if(!found.length)throw Error('That trade is not in this Blotter read. Choose the books it is in, then open it again.');
   if(found.length>1)throw Error('That trade holds several positions in this read, so the panel cannot tell which one is meant.');
   return found[0];
@@ -45,7 +50,7 @@ export function revisionNote(reference:string,target:number|null,held:number):st
  * hold it is never answered for with another position of the trade, and otherwise as the only position the read holds of it. Where it
  * is not found, or not told apart, the panel closes and says why; a move to another binding is said too.
  */
-export function followedPosition(holdings:readonly Pick<Holding,'tradeId'|'bindingId'|'instrumentType'>[],amended:Pick<Holding,'tradeId'|'bindingId'|'instrumentType'|'tradeReference'>,receipt?:{bindingId?:string}):{index:number;note:string|null}|{index:null;note:string}{
+export function followedPosition(holdings:readonly TradeKey[],amended:Pick<Holding,'tradeId'|'bindingId'|'instrumentType'|'tradeReference'>,receipt?:{bindingId?:string}):{index:number;note:string|null}|{index:null;note:string}{
   const of=holdings.flatMap((h,i)=>h.tradeId===amended.tradeId&&h.instrumentType===amended.instrumentType?[i]:[]);
   const named=receipt?.bindingId!==undefined;
   const produced=named?of.find(i=>holdings[i].bindingId===receipt.bindingId):of.length===1?of[0]:undefined;
@@ -56,16 +61,29 @@ export function followedPosition(holdings:readonly Pick<Holding,'tradeId'|'bindi
 }
 
 /**
+ * Where the panel shows the trade a booking made, once the Blotter has been read again: the position of the trade the receipt names, of
+ * its binding when the receipt names one. A trade the read does not show, because the books it is in are not among those selected, or
+ * that it holds as several positions without a binding to tell them apart, is not guessed at: the person is told why nothing opened.
+ */
+export function bookedPosition(holdings:readonly TradeKey[],receipt:{tradeId?:string;bindingId?:string},instrumentType:string):{index:number;note:null}|{index:null;note:string}{
+  if(receipt.tradeId===undefined)return {index:null,note:'The booking was accepted, but its receipt does not name the trade, so the panel cannot show it. Find it in the Blotter.'};
+  const found=rowsOfTrade(holdings,{tradeId:receipt.tradeId,instrumentType,...(receipt.bindingId===undefined?{}:{bindingId:receipt.bindingId})});
+  if(!found.length)return {index:null,note:'The new trade is booked, but this Blotter read does not show it. The books or portfolios selected may leave out its book.'};
+  if(found.length>1)return {index:null,note:'The new trade is booked and holds several positions in this read, so the panel cannot tell which one to show.'};
+  return {index:found[0],note:null};
+}
+
+/**
  * The panel's position follows the read the desk has drawn. `shell` and `position` are the panel and the view it draws a position
  * with; `holdings` are the positions of the read on screen in the order of the desk's rows, and `input` what the desk drew for
- * one, or nothing when it draws no positions. `grid` marks the open row and takes focus back to it.
+ * one, or nothing when it draws no positions. `grid` marks the open row, brings it into view and takes focus back to it.
  */
 export function setupDeskPanel(o:{
   shell:Pick<SidePanel,'show'|'reset'|'current'>;
   position:{show(at:PositionInput,tab?:PositionTab):void;update(at:PositionInput):void;clear():void};
   holdings:()=>readonly Holding[]|undefined;
   input:(index:number)=>PositionInput|undefined;
-  grid:()=>{selectRow(index:number|null):void;focusRow(index:number):void}|undefined;
+  grid:()=>{selectRow(index:number|null):void;focusRow(index:number):void;revealRow(index:number):void}|undefined;
   notice:(message:string)=>void;
 }){
   // The row the panel was opened from, which focus returns to when the person closes the panel.
@@ -80,6 +98,8 @@ export function setupDeskPanel(o:{
     openedAt=index;
     if(opening)o.position.show(at,tab);else o.position.update(at);
     o.grid()?.selectRow(index);
+    // A position opened by a booking or by the assistant can be a row out of sight: it is shown, as a row the person pressed already is.
+    if(opening)o.grid()?.revealRow(index);
   }
   return {
     /** Opens the position of a row, on a tab when one is named. The row that is already open is only given focus: its tab and its reads stay. */

@@ -1,4 +1,5 @@
 import {chooseFutures} from './futures-selection.mjs';
+import {newTrade} from './new-trade.mjs';
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
@@ -9,7 +10,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await wait("document.querySelectorAll('#desk-positions .sparkline-loading').length===0&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
  await check('the exchange dataset opens on the desk: its futures, their execution P&L tile and their curves',"document.querySelector('#error').hidden&&!document.querySelector('#desk').hidden&&document.querySelector('#desk-tile-futuresPnl .kpi-value')!==null&&document.querySelectorAll('#desk-positions svg.sparkline').length===document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)').length&&[...document.querySelectorAll('#desk-positions .desk-pill')].every(p=>p.textContent==='FUT')");
  await click('#profile-open');await check('Profile does not expose deal amount precision',"!document.querySelector('#precision-money')&&!document.querySelector('#precision-price')");await click('#profile-close');
- await click('#futures-new');await click('#trade-kind-future');
+ await newTrade({click,wait},'futures');
  const select=async(curve,day)=>{const c=await evaluate(`window.__exchangeCatalog.contracts.find(c=>c.curve===${JSON.stringify(curve)}&&new Intl.DateTimeFormat('en',{month:'short',timeZone:'UTC'}).format(new Date(c.deliveryFrom+'T00:00:00Z'))===${JSON.stringify(day)})`);if(!c)throw Error('Missing '+curve+' '+day);await chooseFutures({evaluate,set,click},c);};
  await select('nymex_ng','Nov');
  await check('physical Henry Hub futures show typed lot, execution tick and lifecycle scope',"(()=>{const t=document.querySelector('#futures-terms').textContent;return t.includes('10000 MMBtu')&&t.includes('physical delivery')&&t.includes('Execution tick 0.001')&&t.includes('daily/final settlement is not processed');})()");
@@ -19,6 +20,6 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('unconfirmed daily maturities are excluded from trading',"!window.__exchangeCatalog.contracts.some(c=>['ice_css','ice_pda'].includes(c.curve))");
  await shot('exchange-contract-entry');
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');await click('#example');await click('#nav-futures');
- await click('#futures-new');await click('#trade-kind-future');
+ await newTrade({click,wait},'futures');
  await check('returning to the original example restores its independent dated catalog',"document.querySelector('#example-dataset').value==='baseline'&&document.querySelector('#futures-contract').options.length===1");
 }

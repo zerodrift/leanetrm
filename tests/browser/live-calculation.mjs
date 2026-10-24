@@ -128,5 +128,13 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
  await check('a refresh that fails after it cleared a risk run keeps the note that says so',`!document.querySelector('#risk-results .tabulator-row')&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})`,"[document.querySelector('#notice').hidden,document.querySelector('#notice').textContent,!!document.querySelector('#risk-results .tabulator-row')]");
  await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
+ // New trade follows the backend: a live view cannot book, as a historical one cannot, so a trader there is not offered it and is told why.
+ // Its fields never open where booking is impossible, which is also why no form is held while corrections arrive.
+ await persona('trader');await click('#example');await click('#nav-futures');
+ if(await evaluate("!document.querySelector('#follow-live').hidden"))await click('#follow-live');
+ await wait("document.querySelector('#live-status').dataset.state==='live'&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&"+idle);
+ await check('a trader in a live view is not offered New trade, and is told why in words under the toolbar',"document.querySelector('#workspace-mode-label').textContent.includes('Live corrections')&&document.querySelector('#futures-new').disabled&&!document.querySelector('#new-trade-availability').hidden&&document.querySelector('#new-trade-availability').getClientRects().length>0&&document.querySelector('#new-trade-availability').textContent.includes('read-only')&&document.querySelector('#futures-new').getAttribute('aria-describedby')==='new-trade-availability'","[document.querySelector('#workspace-mode-label').textContent,document.querySelector('#new-trade-availability').textContent,document.querySelector('#futures-new').disabled]");
+ await evaluate("document.querySelector('#futures-new').click()");
+ await check('and pressing it opens nothing: no panel, and neither product\'s form',"document.querySelector('#side-panel').hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#swap-editing').hidden");
  console.log('LIVE browser synthetic workload:',JSON.stringify(await evaluate("({requests:window.liveRequests.length,longTasks:window.liveTasks.length,maxLongTaskMilliseconds:Math.max(0,...window.liveTasks),heapBytes:performance.memory?.usedJSHeapSize})")));
 }

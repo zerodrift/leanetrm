@@ -3,13 +3,15 @@ import {sideScheduleData} from './side-schedule.js';
 import {linkedValue,quantityChoice,filterSwapIndices,deliveryChoices} from './swap-selection.js';
 import {createAvailableDatePicker} from './available-date-picker.js';
 import {draftValuation} from './draft-valuation.js';
+import type {DraftMarket} from './curve-shapes.js';
+import {bookingAllowed} from './new-trade.js';
 import {mountSwapSideEditor,mountFirstFloatingEditor} from './swap-side-editor.js';
 import {dealFormatEditor,dealFormats,type DealFormats} from './deal-format-editor.js';
 import {tradeAnnotations,bookingRows,historyBooking,type PartyCatalog,type Trader,type Annotation} from './trade-annotations.js';
 import {createScheduleDatePicker} from './schedule-date-picker.js';
 import type {Context} from './date-editor.js';
 import {PaymentDateRule,PaymentDayBasis,DateAdjustment,Discounting,type Choice,type PaymentInput,type PaymentOptions} from './swap-contract.js';
-import {minus,priceUnit,type Holding,type HoldingFormats} from './desk-model.js';
+import {minus,priceUnit,type CurveShape,type Holding,type HoldingFormats} from './desk-model.js';
 import type {AmendState,DetailRead,DetailView,TermSection} from './position-panel.js';
 import {trackEdits} from './edit-tracking.js';
 import {projectionReference,type CustomProjection,type ProjectionChoice} from './swap-projections.js';
@@ -20,7 +22,7 @@ import {renderSwapObservationInspection,setupSwapObservationControls} from './sw
 import type {SamplingChoice,ObservationInspection,ObservationOptions,ObservationSchedule} from './swap-observations.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Index={definitionRevisionId:string;curve:string;index:string;commodity:string;currencyCode:string;currency:string;unit:string;quoteMultiplier:string;quantityCode:string;quantityChoices:{specification:{code:string};unit:string}[];defaultDiscountCurve:string|null;fixingConvention:'published_index_observations_v1'|null;fixingUnavailableReason:string|null;customProjections:ProjectionChoice[];averaging:string[];samplings:SamplingChoice[];contracts:{deliveryFrom:string;deliveryTo:string}[]};
-type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];commodities:{code:string;name:string}[];paymentCalendars:{code:string}[];paymentOptions:PaymentOptions;entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean};
+type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];commodities:{code:string;name:string}[];paymentCalendars:{code:string}[];paymentOptions:PaymentOptions;entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean;bookingUnavailableReason?:string|null};
 type FloatingTerms={curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null;firstFixingAt?:string|null;customProjection?:CustomProjection|null;observationSchedule?:ObservationSchedule;resetFrequency:string;averagingMethod:string;spread:string};
 type Terms={swapType:string;firstCoefficient:string|null;firstFloating:FloatingTerms|null;commodity:string;definitionRevisionId:string;bookId:string;executedAt:string;quantity:string;fixedCoefficient:string;discounting:boolean;fixed:{price:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null}|null;floating:FloatingTerms};
 type State=Annotation&{tradeId:string;tradeReference:string;instrumentId:string;instrumentReference:string;revision:number;quantity:string;kind:string;reason:string;effectiveAt:string;recordedAt:string;terms:Terms};
@@ -91,6 +93,15 @@ export function swapTerms(detail:Detail,zone:string,formats:HoldingFormats):Term
 /** What the position panel's Terms and History tabs show of a swap revision: the same read the editor makes, and its schedules when it has them. */
 export const swapDetailView=(detail:Detail,zone:string,formats:HoldingFormats,schedules?:(host:HTMLElement)=>()=>void):DetailView=>({terms:swapTerms(detail,zone,formats),history:swapHistory(detail,zone,formats),...(schedules?{schedules}:{})});
 export const swapAmendState=(detail:Detail):AmendState=>detail.canAmend?{allowed:true,reason:null}:{allowed:false,reason:detail.amendUnavailableReason??'Read-only revision'};
+/**
+ * The markets a swap draft is for: the curve of each floating side's index with that side's delivery, in the revision of the market
+ * definitions the draft was entered against, the first floating side first. A fixed side has no market of its own, and two sides of one
+ * market and one delivery period are one market.
+ */
+export function swapDraftMarkets(draft:{definitionRevisionId:string;floating:Pick<FloatingTerms,'curve'|'deliveryFrom'|'deliveryTo'>;firstFloating:Pick<FloatingTerms,'curve'|'deliveryFrom'|'deliveryTo'>|null}):DraftMarket[]{
+ const markets=[draft.firstFloating,draft.floating].flatMap(side=>side?[{curve:side.curve,deliveryFrom:side.deliveryFrom,deliveryTo:side.deliveryTo,definitionRevisionId:draft.definitionRevisionId}]:[]);
+ return markets.filter((market,i)=>markets.findIndex(m=>m.curve===market.curve&&m.deliveryFrom===market.deliveryFrom&&m.deliveryTo===market.deliveryTo)===i);
+}
 /**
  * A swap's editor state names its instrument, not its binding, so an editor read must hold the instrument the position is in: a
  * trade's other positions are not shown from it.
@@ -171,6 +182,8 @@ type Position=Pick<Holding,'tradeId'|'contractId'|'revision'>;
 export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;onDenied:()=>void;host:()=>HTMLElement;
  /** Asks whether to give up what the panel holds unsaved, when it holds any: false means the person kept it. */
  leave:()=>Promise<boolean>;
+ /** The shape of a market's curve at the close, for the form's Price before booking. */
+ shape:(market:DraftMarket)=>Promise<CurveShape|string>;
  /** Hears each time the form starts or stops holding unsaved edits. */
  unsavedChanged:()=>void}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -254,7 +267,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
    firstFloating:floatingPair()?await floatingDraft('first'):null,floating:await floatingDraft(),
    parRatePolicy:!floatingPair()&&!field('swap-price').value.trim()?{implementation:catalog!.parRateOptions.implementation,decimalPlaces:Number(field('swap-par-places').value),tieRule:catalog!.parRateOptions.tieRule}:null};
  }
- const draft=draftValuation(get('swaps-draft-valuation'),{product:'swaps',api:options.api,act:options.act,busy:options.busy,key,denied:options.onDenied,draft:instrumentDraft,priced:async result=>applyPar(result)});
+ const draft=draftValuation(get('swaps-draft-valuation'),{product:'swaps',api:options.api,act:options.act,busy:options.busy,key,denied:options.onDenied,draft:instrumentDraft,markets:swapDraftMarkets,shape:options.shape,priced:async result=>applyPar(result)});
  const scheduleWidgets:ReturnType<typeof mountIntervalDataWidget>[]=[];
  function clearSchedules(){for(const widget of scheduleWidgets)widget.dispose();scheduleWidgets.length=0;get('swap-schedules').replaceChildren();}
  function invalidate(){text('swap-par-result','');draft.reset();previewGeneration++;prepared=undefined;get('swap-result').hidden=true;get('swap-confirmation').hidden=true;get<HTMLInputElement>('swap-confirm').checked=false;sync();}
@@ -365,7 +378,21 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   choose('swap-revision',value.history.map(s=>({value:String(s.revision),label:`Revision ${s.revision} · ${s.kind}`})),String(state.revision));get('swap-revisions').hidden=false;get('swap-amendment').hidden=false;get<HTMLInputElement>('swap-reason').required=value.canAmend;
   prepared=undefined;get('swap-confirmation').hidden=true;valuation(value.valuation);sync();
  }
- async function openNew(){reset();const started=generation,source=key();await safe(async()=>{const response=await options.api<Catalog>('swaps/catalog',context());if(started!==generation||source!==key())return;catalog=response;populateCatalog();await refreshObservations();if(started!==generation||source!==key())return;text('swap-mode','Choose a swap type and enter each independent side.');typeControls();get<HTMLInputElement>('swap-reason').required=false;sync();mount();});}
+ /**
+  * Opens a new swap in the host once its catalog and observation choices are read, and says whether it did: another open, a reset or a
+  * change of context while they were read leaves it closed. Booking is the backend's to allow, so where it does not, no field opens.
+  */
+ async function openNew():Promise<boolean>{
+  reset();const started=generation,source=key();let opened=false;
+  await safe(async()=>{
+   const response=await options.api<Catalog>('swaps/catalog',context());if(started!==generation||source!==key())return;
+   const control=bookingAllowed({canBook:response.canBook===true,bookingUnavailableReason:response.bookingUnavailableReason});
+   if(!control.enabled)throw Error(control.reason);
+   catalog=response;populateCatalog();await refreshObservations();if(started!==generation||source!==key())return;
+   text('swap-mode','Choose a swap type and enter each independent side.');typeControls();get<HTMLInputElement>('swap-reason').required=false;sync();mount();opened=true;
+  });
+  return opened;
+ }
  /** Opens a position's swap at one of its revisions, the latest for none, in the host. Its own revision must hold the position's instrument; an earlier one is read as it is. */
  async function open(at:Position,revision:number|null){reset();position=at;const started=++generation,source=key();invalidate();await safe(async()=>{const read=await readSwapDetail(options.api,options.context(),at.tradeId,revision);if(started!==generation||source!==key())return;const response=swapAtPosition(read,at,revision);await display.load(response.state.tradeId,context(),response.canAmend,response.state.terms.firstFloating?['trade','floating']:['trade','fixed','floating']);await prepare(response.valuation);if(started!==generation||source!==key())return;renderDetail(response);await refreshObservations();if(started!==generation||source!==key())return;mount();});}
  field('swap-quantity-unit').onchange=quantityUnitLabel;

@@ -1,12 +1,13 @@
 import {renderDataGrid} from './data-grid.js';
 
 type Choice=readonly [string,string];
+// note: a line of the consumer's own under the toolbar, such as why one of its actions is not offered.
 // lead: the consumer's own content between the toolbar and the table, across the workspace's whole width, such as summary tiles.
 // overview: more of it, in the column of the table and above its heading, such as charts. aside: a panel the consumer docks beside the overview and the table.
 // rowGroups: how trade rows can be grouped; the Group by control, in the heading row above the table, also offers None, an empty value.
 type WorkspaceOptions={
   key:string;rowMode:string;rowLabel:string;dimensions:readonly Choice[];measures:readonly Choice[];
-  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;lead?:HTMLElement;overview?:HTMLElement;aside?:HTMLElement;rowGroups?:readonly Choice[];
+  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;note?:HTMLElement;lead?:HTMLElement;overview?:HTMLElement;aside?:HTMLElement;rowGroups?:readonly Choice[];
 };
 
 /** Shared presentation shell. Consumers supply authorized rows and server pivot operations. */
@@ -60,7 +61,7 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   const definition=node('div',undefined,'definition');definition.className='table-view-definition';definition.hidden=true;const content=node('div',undefined,'rows');content.className='table-wrap';
   const main=node('div');main.className='table-workspace-main';main.append(...(options.overview?[options.overview]:[]),heading,definition,content);
   const stage=node('div');stage.className='table-workspace-stage';stage.append(main,...(options.aside?[options.aside]:[]));
-  shell.append(toolbar,...(options.lead?[options.lead]:[]),stage);host.replaceChildren(shell);
+  shell.append(toolbar,...(options.note?[options.note]:[]),...(options.lead?[options.lead]:[]),stage);host.replaceChildren(shell);
   shell.addEventListener('keydown',event=>{if(event.key==='Escape'){const open=menus.find(m=>m.open);if(open){open.open=false;open.querySelector('summary')?.focus();}}});
   function fillChoices(target:HTMLElement,choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){
     const order=[...choices].sort(([a],[b])=>{const ai=selected.indexOf(a),bi=selected.indexOf(b);return (ai<0?choices.length:ai)-(bi<0?choices.length:bi);});

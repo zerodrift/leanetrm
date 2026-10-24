@@ -1,4 +1,5 @@
 import {sideSession} from './side-session.mjs';
+import {newTrade} from './new-trade.mjs';
 import {qualifyProvider,pricedModel} from './model-fixture.mjs';
 import {chooseFutures} from './futures-selection.mjs';
 
@@ -137,28 +138,30 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('Go selects the target\'s As of date, opens what it names, and leaves Back',`${notice}.textContent.startsWith('Took you to ')&&${buttons}==='Back'`);
 
   // Unsaved edits on the page being left hold a live move (§10.1).
-  await click('#nav-futures');await click('#futures-new');await click('#trade-kind-future');
+  await click('#nav-futures');await newTrade({click,wait},'futures');
   await evaluate(`${q('#futures-lots')}.focus()`);await command('Input.insertText',{text:'7'});
   await script({tools:[['toolu_panel_05','navigate',{page:'schedules',target:null}]]},{text:'Here are the schedules.'});
   await ask('Take me to the schedules.');await wait(finished);
   await check('a live target that would leave unsaved booking edits does not move the page: its notice says so and offers Go anyway',
-    `${q('#page-title')}.textContent==='Blotter'&&${shown('#futures-booking')}&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'`
-    +`&&${asks}.at(-1).body.pageReport.page==='blotter'&&${asks}.at(-1).body.pageReport.selection.view==='blotter'`,`${notice}?.textContent`);
+    `${q('#page-title')}.textContent==='Blotter'&&${shown('#futures-new-trade')}&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'`
+    +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'blotter_new_future',selection:{}})`,`${notice}?.textContent`);
+  // The page report names the new trade in the panel, and its product: the assistant is told what the page shows, and reads no unsent entry.
+  await check('Looking at names the new future being entered, and says the assistant does not read it',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter','A new future is being entered. The assistant does not read a trade being entered.']))}`,looking);
   await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules'&&${idle}`);
   await check('Go anyway leaves the unsaved booking for the target, with Back',`${notice}.textContent.startsWith('Took you to Schedules')&&${buttons}==='Back'`);
   await press('Back');await wait(`${q('#page-title')}.textContent==='Blotter'&&${idle}`);
   // Back says so too before it would leave unsaved edits.
-  await click('#futures-new');await click('#trade-kind-future');
+  await newTrade({click,wait},'futures');
   await evaluate(`${q('#futures-lots')}.focus()`);await command('Input.insertText',{text:'5'});
   await press('Back');await wait(`${buttons}==='Back anyway'`);
   await check('Back from a page with unsaved edits first says so, keeping them, and offers Back anyway',
-    `${shown('#futures-booking')}&&${q('#futures-lots')}.value==='5'&&${notice}.textContent.includes('Back would leave unsaved changes on this page.')`);
-  await press('Back anyway');await wait(`${q('#futures-booking')}.hidden&&${q('#page-title')}.textContent==='Blotter'&&${idle}`);
+    `${shown('#futures-new-trade')}&&${q('#futures-lots')}.value==='5'&&${notice}.textContent.includes('Back would leave unsaved changes on this page.')`);
+  await press('Back anyway');await wait(`${q('#futures-new-trade')}.hidden&&${q('#page-title')}.textContent==='Blotter'&&${idle}`);
 
   // A trade open in the panel is not a dialog (D215): the assistant stays open beside it and can be asked about it, and Looking at names
   // the trade at its revision.
-  // The page assistant's fixture holds no trades, so the one these checks ask about is booked here, from the Blotter's own booking card.
-  await click('#nav-futures');await click('#futures-new');await click('#trade-kind-future');
+  // The page assistant's fixture holds no trades, so the one these checks ask about is booked here, from the Blotter's own New trade.
+  await click('#nav-futures');await newTrade({click,wait},'futures');
   await chooseFutures({evaluate,set,click});await evaluate("document.querySelector('#futures-book').selectedIndex=1;");
   await set('#futures-lots','4');await set('#futures-execution','2.9');
   await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");

@@ -1,10 +1,10 @@
 // The side panel's position view (blotter-desk.md, Side panel): what one position is, worth and priced at, its market's curve
 // with the position's delivery and price on it, its terms, and its revisions. What is shown is selected from the rows and
 // reads the desk already holds; amounts stay the backend's exact strings in the backend's display text.
-import {clearChart,renderChart,type ChartPoint,type ChartSpec} from './chart-view.js';
-import {curvePoints,minus,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type Holding,type HoldingFormats} from './desk-model.js';
-import {deliveryLabel,publicText} from './market-view.js';
-import {setupTabs,type SidePanel} from './side-panel.js';
+import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
+import {curveChart,curvePoints,minus,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type Holding,type HoldingFormats} from './desk-model.js';
+import {publicText} from './market-view.js';
+import {clearTabs,setupTabs,type SidePanel} from './side-panel.js';
 
 export const positionTabs=[['curve','Curve'],['terms','Terms'],['risk','Risk'],['history','History']] as const;
 export type PositionTab=typeof positionTabs[number][0];
@@ -59,17 +59,13 @@ export function curveView(shape:CurveShape|string|undefined,h:Holding,row:DeskRo
   if(shape===undefined)return {state:'loading'};
   if(typeof shape==='string')return {state:'unavailable',reason:shape};
   ownShape(shape,h);
-  const sparkline=curvePoints(shape,row);
-  if(sparkline.state==='unavailable')return {state:'unavailable',reason:sparkline.reason};
-  const unit=shape.unit!,drawn=shape.points!;
-  const points:ChartPoint[]=drawn.map(p=>({x:p.contractId,label:deliveryLabel(p.deliveryFrom,p.deliveryTo),y:p.price}));
-  const spec:ChartSpec={title:`${row.market} · forward curve`,axis:'delivery',unit,kind:'line',series:[{name:'Curve at this close',points}],marked:sparkline.marks.map(i=>points[i].x)};
-  if(spec.marked!.length)spec.subtitle=`Marked: delivery ${row.delivery}`;
-  const notes:string[]=[];
+  const chart=curveChart(shape,row);
+  if(chart.state==='unavailable')return chart;
+  const {spec}=chart,unit=shape.unit!,notes:string[]=[];
   if(row.price===null)notes.push('This position has no fixed price to draw.');
   else if(row.priceUnit!==unit)notes.push(`The ${row.priceLabel.toLowerCase()} price is in ${row.priceUnit} and the curve in ${unit}, so the price is not drawn on it.`);
   else spec.reference={value:row.price,label:`${row.priceLabel} ${minus(formats.price(row.price))} ${row.priceUnit}`};
-  if(!sparkline.marks.length)notes.push("This position's delivery is not on the curve at this close.");
+  if(!chart.marked)notes.push("This position's delivery is not on the curve at this close.");
   return {state:'chart',spec,note:notes.length?notes.join(' '):null};
 }
 
@@ -210,17 +206,15 @@ export function setupPositionPanel(shell:SidePanel,o:{
     drawSections(host,tab==='terms'?read.terms:read.history);
     if(tab==='terms'&&read.schedules)drawnSchedules=read.schedules(host);
   }
-  // The first control of the amendment's form, which takes focus when the person opens it, and only then.
-  function focusForm(){shell.element('form').querySelector<HTMLElement>('select:enabled,input:enabled:not([type=hidden]),textarea:enabled')?.focus({preventScroll:true});}
   function drawBody(at:PositionInput,now:PositionSummary){
     const host=view();
     if(chart){clearChart(chart);chart=undefined;}
     takeDownSchedules();host.replaceChildren();
     // The amendment's form is the Terms tab's content while it is open: the other tabs keep it, and its edits, out of sight. Travelling
-    // along the tabs back to it is not opening it, so only an Amend press takes focus into it.
+    // along the tabs back to it is not opening it, so only an Amend press takes focus into it, into its first control.
     const form=tab==='terms'&&amending;
     shell.form(form);
-    if(form){if(focusOnOpen){focusOnOpen=false;shell.reveal();focusForm();}return;}
+    if(form){if(focusOnOpen){focusOnOpen=false;shell.reveal();shell.focusForm();}return;}
     if(tab==='curve')drawCurve(host,at,now);
     else if(tab==='risk')host.append(status(riskEmpty));
     else drawDetail(host,at);
@@ -317,7 +311,7 @@ export function setupPositionPanel(shell:SidePanel,o:{
     clear(){
       input=undefined;actions=undefined;detail=undefined;held=undefined;tabs=undefined;amending=focusOnOpen=false;generation++;
       if(chart){clearChart(chart);chart=undefined;}
-      takeDownSchedules();view().replaceChildren();shell.element('head').replaceChildren();shell.element('tabs').replaceChildren();shell.element('body').removeAttribute('aria-labelledby');
+      takeDownSchedules();view().replaceChildren();shell.element('head').replaceChildren();clearTabs(shell.element('tabs'),shell.element('body'));
     },
     sync,
   };

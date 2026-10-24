@@ -1,4 +1,5 @@
 /** Observation choices, intervals and weights come from the real authorized backend. */
+import {newTrade} from './new-trade.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
@@ -7,7 +8,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await persona('trader');await click('#example');await click('#nav-futures');
  const change=async(selector,value)=>{await set(selector,value);await wait(idle);};
  const last=path=>`window.observationCalls.filter(row=>row.path==='/api/${path}').at(-1)`;
- async function start(selectIndex=true,type='financial_fixed_floating'){await click('#futures-new');await click('#trade-kind-swap');await wait("!document.querySelector('#swap-editing').hidden&&"+idle);await click(`[data-swap-type="${type}"]`);await wait(idle);
+ async function start(selectIndex=true,type='financial_fixed_floating'){await newTrade({click,wait},'swaps');await click(`[data-swap-type="${type}"]`);await wait(idle);
   const index=await evaluate(`${last('swaps/catalog')}.data.indices.find(index=>index.curve==='daily_gas')`);
   await change('#swap-commodity',index.commodity);if(selectIndex)await change('#swap-index',index.index);return index;
  }
@@ -91,7 +92,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await change('#swap-first-averaging','observation_arithmetic');
  await check('editing the first floating convention preserves the second side calendar',`document.querySelector('#swap-first-observation-quantities').hidden&&!document.querySelector('#swap-first-observation-calendar-field').hidden&&document.querySelector('#swap-first-observation-calendar').value===''&&document.querySelector('#swap-observation-calendar').value===${JSON.stringify(calendar)}`);
  await click('#side-panel-close');
- await click('#futures-new');await evaluate("window.holdObservation=true;document.querySelector('#trade-kind-swap').click()");await wait('!!window.releaseObservation');
+ await click('#futures-new');await evaluate("window.holdObservation=true;document.querySelector('#new-trade-swaps').click()");await wait('!!window.releaseObservation');
  await evaluate("document.querySelector('#side-panel').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));window.releaseObservation()");await wait(idle);
  await check('late observation options cannot reopen a reset editor or restore cleared side data',"document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-schedules').children.length===0&&document.querySelector('#swap-index').options.length===0");
 }

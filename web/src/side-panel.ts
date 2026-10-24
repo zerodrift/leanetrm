@@ -2,10 +2,13 @@
 // trade or a risk report. This shell owns what every mode shares: showing and hiding, docked or overlay placement, focus,
 // Escape, the tab strip and asking before unsaved edits are left. A mode draws its own content into the parts the shell hands out.
 
-/** What the panel holds: one position (a trade's binding) at a revision, a new trade of a product, a risk report, or nothing. */
+/**
+ * What the panel holds: one position (a trade's binding) at a revision, a new trade of a product or, until the person has chosen
+ * one, of none, a risk report, or nothing.
+ */
 export type PanelMode=
   |{kind:'position';tradeId:string;bindingId:string;revision:number}
-  |{kind:'new';product:'futures'|'swaps'}
+  |{kind:'new';product:'futures'|'swaps'|null}
   |{kind:'risk'}
   |null;
 
@@ -23,16 +26,24 @@ export function sameMode(a:PanelMode,b:PanelMode):boolean{
   return true;
 }
 
-const modeLabels={position:'Position',new:'New trade',risk:'Risk report'} as const;
+/** What a mode is called, for the person and for assistive technology: a new trade names its product once it has one. */
+export function modeLabel(mode:NonNullable<PanelMode>):string{
+  switch(mode.kind){
+    case 'position':return 'Position';
+    case 'new':return mode.product===null?'New trade':mode.product==='futures'?'New future':'New swap';
+    case 'risk':return 'Risk report';
+  }
+}
 
 const riskClearedNote='Risk results cleared · live corrections changed the inputs';
 /**
- * What a live correction (D188) does to the panel and to a risk run. An open panel is read again, unless it holds unsaved edits,
- * which a refresh never takes from the person; and a risk run is cleared, with a note, because its results belong to inputs that
- * have changed.
+ * What a live correction (D188) does to the panel and to a risk run. An open position is read again, unless it holds unsaved
+ * edits, which a refresh never takes from the person. A new trade's form is refreshed whether or not it holds edits, which it keeps:
+ * its choices and its price before booking come from the inputs the correction changed. A risk run is cleared, with a note, because
+ * its results belong to those inputs too.
  */
-export function liveRefreshPlan(state:{panel:PanelMode;unsaved:boolean;riskRun:boolean}):{reloadPanel:boolean;clearRisk:boolean;note:string|null}{
-  return {reloadPanel:state.panel!==null&&!state.unsaved,clearRisk:state.riskRun,note:state.riskRun?riskClearedNote:null};
+export function liveRefreshPlan(state:{panel:PanelMode;unsaved:boolean;riskRun:boolean}):{reloadPanel:boolean;refreshForm:boolean;clearRisk:boolean;note:string|null}{
+  return {reloadPanel:state.panel?.kind==='position'&&!state.unsaved,refreshForm:state.panel?.kind==='new'&&state.panel.product!==null,clearRisk:state.riskRun,note:state.riskRun?riskClearedNote:null};
 }
 
 /** The tab an arrow, Home or End key moves to from `current`, wrapping at the ends; null for any other key. */
@@ -51,7 +62,8 @@ export function tabAfterKey(ids:readonly string[],current:string,key:string):str
 /**
  * Fills a tab strip: buttons in a tablist, the selected one the strip's single tab stop, and the arrow, Home and End keys
  * moving between them and choosing the one they reach. `select` hears every choice the person makes; `mark` shows a tab as the
- * chosen one without that.
+ * chosen one without that. The strip is a tablist, and the panel it controls a tabpanel, for as long as the strip holds tabs and
+ * no longer: `clearTabs` takes both roles away, so that a mode with no tabs has neither.
  */
 export function setupTabs(list:HTMLElement,tabs:readonly (readonly [string,string])[],o:{label:string;panel:HTMLElement;selected:string;select:(id:string)=>void}){
   const ids=tabs.map(([id])=>id);
@@ -64,7 +76,7 @@ export function setupTabs(list:HTMLElement,tabs:readonly (readonly [string,strin
     o.panel.setAttribute('aria-labelledby',buttons.get(id)!.id);
   }
   function choose(id:string,focus:boolean){mark(id);if(focus)buttons.get(id)!.focus();o.select(id);}
-  list.setAttribute('aria-label',o.label);
+  list.setAttribute('role','tablist');list.setAttribute('aria-label',o.label);o.panel.setAttribute('role','tabpanel');o.panel.removeAttribute('aria-label');
   list.onkeydown=event=>{
     const current=ids.find(id=>buttons.get(id)===event.target),next=current===undefined?null:tabAfterKey(ids,current,event.key);
     if(next===null)return;
@@ -72,6 +84,13 @@ export function setupTabs(list:HTMLElement,tabs:readonly (readonly [string,strin
   };
   list.replaceChildren(...buttons.values());mark(o.selected);
   return {mark};
+}
+
+/** Takes the tabs out of a tab strip, and with them the roles of the strip and of the panel they controlled. */
+export function clearTabs(list:HTMLElement,panel:HTMLElement){
+  list.replaceChildren();list.onkeydown=null;
+  for(const name of ['role','aria-label'])list.removeAttribute(name);
+  for(const name of ['role','aria-labelledby','aria-label'])panel.removeAttribute(name);
 }
 
 /**
@@ -117,9 +136,14 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
    * view from there as the page scrolls. A page already scrolled past the panel's start, and an overlay, stay where they are.
    */
   function reveal(){const top=host.getBoundingClientRect().top;if(top>0)window.scrollBy(0,top);}
+  /** Moves focus to the first control of the form that can take it: one that is enabled and shown. */
+  function focusForm(){
+    const controls=part('form').querySelectorAll<HTMLElement>('select:enabled,input:enabled:not([type=hidden]),textarea:enabled');
+    Array.from(controls).find(control=>control.getClientRects().length>0)?.focus({preventScroll:true});
+  }
   function draw(){
     form(false);host.hidden=mode===null;host.dataset.mode=mode?.kind??'';
-    if(mode){host.setAttribute('aria-label',modeLabels[mode.kind]);place();}else{contain();o.changed?.();}
+    if(mode){host.setAttribute('aria-label',modeLabel(mode));place();}else{contain();o.changed?.();}
   }
   /**
    * Asks whether to leave the unsaved edits the panel holds, when it holds any: false means the person kept them. It is a question, not
@@ -147,7 +171,7 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
   async function close(){if(mode!==null&&await show(null))o.closed?.();}
   part('close').onclick=()=>void close();
   host.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();void close();}});
-  return {show,leave,form,reveal,reset,place,current:()=>mode,element};
+  return {show,leave,form,reveal,focusForm,reset,place,current:()=>mode,element};
 }
 
 export type SidePanel=ReturnType<typeof setupSidePanel>;

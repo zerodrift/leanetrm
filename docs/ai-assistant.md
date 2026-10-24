@@ -871,8 +871,10 @@ The tool set is fixed; each tool is switched on per agent version.
   the knowledge mode or retained context, the frame id when selected, and the page
   report, exactly `{"page","selection"}` as Looking at shows: one page identifier per
   navigable view from a closed set, `curves`, `contract_definitions`, `schedules`,
-  `power_tous`, `reference_data`, `parties` and `blotter`, which the assistant reads,
-  and `blotter_risk`, `delivery_prices`, `custom_curves`, `interval_series`,
+  `power_tous`, `reference_data`, `parties`, `blotter` and `custom_curves`, which the
+  assistant reads, and `blotter_risk`, `blotter_new_trade`, `blotter_new_future`,
+  `blotter_new_swap` (a new trade being entered in the Blotter's panel, of its product,
+  or of none while none is chosen), `delivery_prices`, `interval_series`,
   `interval_curves`, `jobs`, `users_access` and `settings_ai`, which it does not. A
   read page's selection is its read tool's input for a view the page shows; any other
   page's is empty. Before admission and writing nothing it refuses an invalid report
@@ -1382,7 +1384,9 @@ a curve or its observations by Curves & prices' curve and tab, power hours on Po
 once a frame is chosen and TOU products before, and Blotter rows without their grouping,
 totals with it, the trade open in the side panel at its revision, which is the one its form
 shows while it is open (D215: the panel is not modal, so the assistant is asked while it is
-open; a target for a trade is refused in a pivot), and risk results as `blotter_risk`;
+open; a target for a trade is refused in a pivot), a new trade being entered there by its
+product (`blotter_new_future`, `blotter_new_swap`, or `blotter_new_trade` before one is
+chosen), which it does not read, and risk results as `blotter_risk`;
 only a navigation event arriving live on the stream the tab's own ask opened moves the
 page, while the panel is open on an idle page without a dialog, keeping the page's
 knowledge and frame and leaving nothing unsaved, and any other target waits for Go, which

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
-import {positionMode,positionIndex,tradeIndex,followedPosition,requireTradeRows,revisionNote,setupDeskPanel} from '../dist/desk-panel.js';
+import {positionMode,positionIndex,tradeIndex,followedPosition,bookedPosition,requireTradeRows,revisionNote,setupDeskPanel} from '../dist/desk-panel.js';
 import {sameMode} from '../dist/side-panel.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -29,7 +29,7 @@ function desk({holdings=read,drawn=true,answer=async()=>true}={}){
  const log=[],notices=[];let shown=holdings,drawing=drawn,mode=null;
  const shell={current:()=>mode,async show(next){log.push(['shell.show',next.bindingId]);if(sameMode(next,mode))return true;const ok=await answer();if(ok)mode=next;return ok;},reset(){log.push(['shell.reset']);mode=null;}};
  const position={show:(at,tab)=>log.push(['position.show',at.index,...(tab?[tab]:[])]),update:at=>log.push(['position.update',at.index]),clear:()=>log.push(['position.clear'])};
- const grid={selectRow:index=>log.push(['grid.select',index]),focusRow:index=>log.push(['grid.focus',index])};
+ const grid={selectRow:index=>log.push(['grid.select',index]),focusRow:index=>log.push(['grid.focus',index]),revealRow:index=>log.push(['grid.reveal',index])};
  const controller=setupDeskPanel({shell,position,holdings:()=>shown,input:index=>drawing&&index<shown.length?{index}:undefined,grid:()=>grid,notice:message=>notices.push(message)});
  return {controller,log,notices,mode:()=>mode,reads:next=>{shown=next;},draws:value=>{drawing=value;}};
 }
@@ -37,7 +37,7 @@ function desk({holdings=read,drawn=true,answer=async()=>true}={}){
 test('each binding of one trade opens its own position, and marks its own row',async()=>{
  const state=desk();
  await state.controller.open(0);await state.controller.open(1);
- assert.deepEqual(state.log.filter(([what])=>what!=='shell.show'),[['position.show',0],['grid.select',0],['position.show',1],['grid.select',1]]);
+ assert.deepEqual(state.log.filter(([what])=>what!=='shell.show'),[['position.show',0],['grid.select',0],['grid.reveal',0],['position.show',1],['grid.select',1],['grid.reveal',1]],'each opens, is marked, and is brought into view');
  assert.deepEqual(state.mode(),positionMode(second));
 });
 
@@ -53,7 +53,7 @@ test('a person who discards what the panel held, while a newer read lands, gets 
  const opening=state.controller.open(0);
  state.reads([other,second,first]);
  answer(true);await opening;
- assert.deepEqual(state.log.filter(([what])=>what!=='shell.show'),[['position.show',2],['grid.select',2]],'the position is found in the newer read, not at the row pressed');
+ assert.deepEqual(state.log.filter(([what])=>what!=='shell.show'),[['position.show',2],['grid.select',2],['grid.reveal',2]],'the position is found in the newer read, not at the row pressed');
  assert.deepEqual(state.notices,[]);
 });
 
@@ -184,4 +184,39 @@ test('a trade the amendment left no single position of is not guessed: the panel
  assert.deepEqual(followedPosition(two,amended),{index:null,note:`${other.tradeReference} holds several positions in this read, so the panel cannot tell which one the amendment produced.`});
  assert.equal(followedPosition(two,amended,{bindingId:two[1].bindingId}).index,1,'a receipt that names one of them settles it');
  assert.deepEqual(followedPosition([{...produced,instrumentType:other.instrumentType==='future'?'financial_swap':'future'}],amended),{index:null,note:`${other.tradeReference} is not in this Blotter read after its amendment, so the panel was closed.`},'the same id of another kind is another trade');
+});
+
+// A new booking's receipt names the trade the backend committed, and the binding it left it with.
+test('a booked trade is found in the read that follows it, by its id and kind and its binding when the receipt names one',()=>{
+ const swap=fixture.holdings.find(h=>h.instrumentType==='financial_swap'),future=fixture.holdings.find(h=>h.instrumentType==='future');
+ assert.deepEqual(bookedPosition(fixture.holdings,{tradeId:future.tradeId,bindingId:future.bindingId},'future'),{index:fixture.holdings.indexOf(future),note:null});
+ assert.deepEqual(bookedPosition(fixture.holdings,{tradeId:swap.tradeId},'financial_swap'),{index:fixture.holdings.indexOf(swap),note:null},'a receipt without a binding names the only position the read holds of the trade');
+ assert.equal(bookedPosition(fixture.holdings,{tradeId:swap.tradeId},'future').index,null,'a trade of another kind is not the booked one');
+});
+
+test('a booked trade the read does not hold is said not to be shown, with what may hide it, and nothing is opened in its place',()=>{
+ const missing=bookedPosition(fixture.holdings,{tradeId:'t9999999-0000-0000-0000-000000000009'},'future');
+ assert.equal(missing.index,null);
+ assert.equal(missing.note,'The new trade is booked, but this Blotter read does not show it. The books or portfolios selected may leave out its book.');
+ const named=bookedPosition(fixture.holdings,{tradeId:fixture.holdings[0].tradeId,bindingId:'b9999999-0000-0000-0000-000000000009'},fixture.holdings[0].instrumentType);
+ assert.equal(named.index,null);assert.equal(named.note,'The new trade is booked, but this Blotter read does not show it. The books or portfolios selected may leave out its book.');
+});
+
+test('a booked trade held as several positions without a binding to tell them apart is not guessed at',()=>{
+ const trade=fixture.holdings[0],both=[trade,{...trade,bindingId:'b0000000-0000-0000-0000-0000000000b2'}];
+ const result=bookedPosition(both,{tradeId:trade.tradeId},trade.instrumentType);
+ assert.equal(result.index,null);assert.equal(result.note,'The new trade is booked and holds several positions in this read, so the panel cannot tell which one to show.');
+ assert.equal(bookedPosition(both,{tradeId:trade.tradeId,bindingId:both[1].bindingId},trade.instrumentType).index,1,'its binding tells them apart');
+});
+
+test('a booking that came back without the trade it made is not shown as anything',()=>{
+ const result=bookedPosition(fixture.holdings,{},'future');
+ assert.equal(result.index,null);assert.equal(result.note,'The booking was accepted, but its receipt does not name the trade, so the panel cannot show it. Find it in the Blotter.');
+});
+
+test('a position opened from a read the desk draws again is brought into view only as it opens: a redraw of the same position does not move the page',async()=>{
+ const state=desk();
+ await state.controller.open(0);state.log.length=0;
+ state.controller.sync();
+ assert.deepEqual(state.log,[['position.update',0],['grid.select',0]]);
 });

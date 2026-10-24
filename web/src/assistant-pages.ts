@@ -7,10 +7,12 @@ import {readPages,type Step,type Ending,type Usage,type TargetContext} from './a
 export type PageReport={page:string;selection:Record<string,unknown>};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
 export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap';revision:number;reference:string};
+/** A new trade being entered in the Blotter's panel: of its product, or of none until the person chooses one. */
+export type EntryShown={product:'futures'|'swaps'|null};
 // What a web page shows, as the page's own state names it.
 export type PageState=
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
-  |{page:'reference';table:string;search:string}|{page:'parties';kind:string}|{page:'futures';risk:boolean;trade:TradeShown|null;view:BlotterSelection}
+  |{page:'reference';table:string;search:string}|{page:'parties';kind:string}|{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;view:BlotterSelection}
   |{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'jobs'|'admin'|'ai'|'ppa'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
@@ -21,6 +23,8 @@ export const inconsistent=()=>Error('The assistant’s page is inconsistent. Rel
 const unsupported:Record<string,string>={delivery:'delivery_prices','interval-series':'interval_series',
   'interval-curves':'interval_curves',jobs:'jobs',admin:'users_access',ai:'settings_ai',ppa:'ppa'};
 
+// The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
+const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap'} as const;
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
 // page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again.
 export function pageReport(state:PageState):PageReport{
@@ -34,6 +38,7 @@ export function pageReport(state:PageState):PageReport{
     case 'parties':return {page:'parties',selection:{kind:state.kind}};
     case 'futures':{
       if(state.risk)return {page:'blotter_risk',selection:{}};
+      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:{}};
       const t=state.trade,v=state.view,pivot=v.mode==='pivot';
       return {page:'blotter',selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
         :{view:'blotter',mode:v.mode,bookIds:[...v.bookIds],portfolioIds:[...v.portfolioIds],groupBy:pivot?[...v.groupBy]:[],measures:pivot?[...v.measures]:[],
@@ -50,7 +55,7 @@ export function askKnowledge(context:PageContext){
 }
 
 const pageNames:Record<string,string>={curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
-  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',delivery_prices:'Delivery prices',
+  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Custom curves',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
   settings_ai:'AI',ppa:'PPA bookings'};
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
@@ -58,6 +63,7 @@ const counted=(n:number,noun:string)=>`${n} ${noun}${n===1?'':'s'}`;
 const joined=(names:string[])=>names.length>1?`${names.slice(0,-1).join(', ')} and ${names.at(-1)}`:names[0];
 export type Names={curve:(code:string)=>string;table:(code:string)=>string};
 
+const unsent='The assistant does not read a trade being entered.';
 function shows(report:PageReport,names:Names,trade?:string){
   const s=report.selection;
   switch(report.page){
@@ -75,6 +81,9 @@ function shows(report:PageReport,names:Names,trade?:string){
       return `${s.mode==='pivot'?`Totals by ${joined((s.groupBy as string[]).map(d=>dimensions[d]))}`:'Trade rows'} · ${scope}`;
     }
     case 'blotter_risk':return 'The assistant does not read risk results.';
+    case 'blotter_new_trade':return `A new trade is being started: no product is chosen yet. ${unsent}`;
+    case 'blotter_new_future':return `A new future is being entered. ${unsent}`;
+    case 'blotter_new_swap':return `A new swap is being entered. ${unsent}`;
     default:return 'The assistant does not read this page.';
   }
 }

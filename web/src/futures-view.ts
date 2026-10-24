@@ -1,19 +1,19 @@
-import {draftValuation} from './draft-valuation.js';
 import {amountText} from './amount-display.js';
-import {tradeAnnotations,type PartyCatalog,type Trader} from './trade-annotations.js';
+import {type PartyCatalog,type Trader} from './trade-annotations.js';
 import {setupSwapEditor,readSwapView} from './swap-editor.js';
 import {setupTradeEditor,readTradeView} from './trade-editor.js';
-import {futuresContractDescription,futuresContractKey,type FuturesContract as Contract} from './futures-contract.js';
+import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {knownTradeRejection,retainedText} from './trade-requests.js';
 import {setupRisk,riskDenied} from './risk-view.js';
-import {futuresInstrumentEditor} from './futures-instrument-editor.js';
+import {setupFuturesBooking} from './futures-booking.js';
+import {draftShapes,readCurveShapes} from './curve-shapes.js';
+import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
 import {createTableWorkspace} from './table-workspace.js';
 import {renderDataGrid} from './data-grid.js';
 import {pivotMatrix,pivotChartPanels,groupLabel,type PivotGroup} from './analytics-model.js';
 import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
-import {trackEdits} from './edit-tracking.js';
-import type {BlotterSelection,TradeShown} from './assistant-pages.js';
+import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js';
 import {isPriceMeasure,priceMeanPolicy,blotterColumns,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
@@ -21,7 +21,7 @@ import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from '
 import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,pvChartPanels,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
 import {askLeave,liveRefreshPlan,panelPlacement,sameMode,setupSidePanel,type PanelMode} from './side-panel.js';
 import {setupPositionPanel,type PositionInput} from './position-panel.js';
-import {followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
+import {bookedPosition,followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile} from './desk-view.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
@@ -59,23 +59,26 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
     scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Shocks'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(load),
-    lead:get('desk'),overview:get('desk-charts'),aside:get('side-panel'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),
+    note:get('new-trade-availability'),lead:get('desk'),overview:get('desk-charts'),aside:get('side-panel'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),
   });
   // Existing booking controls share the table toolbar.
   get('blotter-refresh').id='futures-refresh';get('blotter-new').id='futures-new';get('blotter-rows').id='desk-positions';
-  let catalog:Catalog|undefined,holdings:Holdings|undefined,summaries:Summary[]|undefined,owner='',snapshot='',selectedContract='',uncertain=false,generation=0;
+  let catalog:Catalog|undefined,holdings:Holdings|undefined,summaries:Summary[]|undefined,owner='',snapshot='',uncertain=false,generation=0;
   // The curve shapes of the current read, once read: by curve, a shape or why it is unavailable; or why none could be read.
   let shapes:{revision:string;curves:Map<string,CurveShape|string>}|{unavailable:string}|undefined;
-  const pricedCatalog=()=>catalog?.kind==='priced_contracts'?catalog:undefined;
+  // The desk's read of its curves, while it is under way: what Price before booking waits for before it reads a curve of its own.
+  let shapesRead:Promise<void>=Promise.resolve();
   const pending=new PendingCommand();
-  const annotations=tradeAnnotations('futures',options.zone);
-  const instrument=futuresInstrumentEditor(get('futures-instrument'),{contract:'futures-contract',lots:'futures-lots',price:'futures-execution',terms:'futures-contract-terms'},{edited:()=>bookingEdits.mark()});
-  const draft=draftValuation(get('futures-draft-valuation'),{product:'futures',api,act,busy,denied:clear,key:()=>JSON.stringify(readContext()),draft:async()=>{
-    const c=pricedCatalog()?.contracts.find(c=>contractKey(c)===field('futures-contract').value);if(!c)throw Error('Choose an exact dated futures contract.');
-    return{context:readContext(),curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
-  }});
-  get('futures-form').addEventListener('input',draft.reset);
-  const bookingEdits=trackEdits(get('futures-form'));
+  // Price before booking draws the curve of each market the draft is for: from the desk's own read when it holds the curve, and otherwise
+  // from one read of that curve, kept until the desk reads again.
+  const drafts=draftShapes({
+    desk:async()=>{await shapesRead;return shapes&&'curves' in shapes?shapes.curves:undefined;},
+    revision:()=>{try{return options.definitionRevision();}catch{return '';}},
+    read:async curve=>{
+      let source;try{source=options.source();}catch{return 'Curve shape unavailable · the market selection changed';}
+      return (await readCurveShapes(api,source,[curve])).get(curve)??'Curve shape unavailable';
+    },
+  });
   let lastReadRequest:unknown;
   let chartState:{panels:ChartSpec[];request:{context:unknown;view:unknown}}|undefined;
   // What the trade rows' desk drew from the read on screen, which the side panel draws its position from.
@@ -97,18 +100,21 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
-  const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
+  const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
+  // The form of a new future, which the panel hosts as it hosts the forms of the amendments. What it books is kept as the request it was first sent as.
+  const booking=setupFuturesBooking({api,act,busy,zone:options.zone,context:readContext,catalog:()=>catalog,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
+    book:async body=>{const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);}});
   // The side panel beside the positions: a position's curve, terms, risk and history, and the form of its amendment. Opening a row
-  // opens it; Amend puts the amendment's form in the Terms tab, and a new swap has the whole panel.
+  // opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole panel, its form beneath a Future | Swap switch.
   const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
-  const editing=()=>editor.unsaved()||swapEditor.unsaved();
+  const editing=()=>editor.unsaved()||swapEditor.unsaved()||booking.unsaved();
   const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
   // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
   // Mark, for as long as its columns do not fit the room it has left.
   const dockedGiveUp=()=>panel.current()!==null&&docked()?[curveColumn,markColumn]:[];
   const panel=setupSidePanel(get('side-panel'),{
-    // What the panel holds that switching would lose: an amendment of its position in progress.
+    // What the panel holds that switching would lose: the form of an amendment or of a new trade, with edits in it.
     unsaved:editing,confirmLeave:askLeave(get('side-panel')),docked,
     // On a phone the panel is a sheet over the page, which stays out of reach while it is open, unless the Blotter has been left.
     sheet:()=>phone.matches&&!get('futures-page').hidden,
@@ -117,14 +123,17 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
   function placeRetained(){const slot=get(panel.current()!==null?'side-panel-retained':'futures-retained');if(retained.parentElement!==slot)slot.append(retained);}
+  // The head of the panel's New trade mode, which asks the page for the product the person chooses and for the PPA page.
+  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),ppa:()=>guarded(options.newPpa),busy});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
-  // held edits), and the page says what it now reports.
+  // held edits), and the page says what it now reports. A new trade is drawn as its head and what it says until its form is in the panel.
   let formsFor:PanelMode=null;
   function modeChanged(){
     const mode=panel.current();
     if(sameMode(mode,formsFor))return;
-    formsFor=mode;editor.reset();swapEditor.reset();
+    formsFor=mode;resetForms();
     if(mode!==null&&mode.kind!=='position')deskPanel.left();
+    if(mode?.kind==='new')entry.show(mode,mode.product===null?'choose':'loading');
     options.reported();
   }
   // The panel docks or overlays by the width the main area has: it is placed again when that changes, not when only its height does.
@@ -141,26 +150,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     },
     openCurve:(curve,contractId)=>guarded(()=>options.openCurve(curve,contractId))});
   const deskPanel=setupDeskPanel({shell:panel,position,holdings:()=>holdings?.holdings,input:positionInput,grid:()=>table,notice:options.notice});
-  const kindDialog=get<HTMLDialogElement>('trade-kind');
-  get('trade-kind-close').onclick=()=>kindDialog.close();
-  get('trade-kind-ppa').onclick=()=>{kindDialog.close();guarded(options.newPpa);};
-  get('trade-kind-future').onclick=()=>{kindDialog.close();guarded(async()=>{await load('priced_contracts');get('futures-booking').hidden=false;bookingEdits.clear();field('futures-book').focus();});};
-  get('trade-kind-swap').onclick=()=>{kindDialog.close();get('futures-booking').hidden=true;void openNewSwap();};
-  // A new swap is booked in the panel, which it takes whole. What the panel held, and a booking already begun, are left only when
-  // the person says so, which is asked before the page is busy, not while it is.
-  const newSwap:PanelMode={kind:'new',product:'swaps'};
-  async function openNewSwap(){
-    if(busy())return;
-    if(sameMode(panel.current(),newSwap)&&!await panel.show(null))return;
-    if(!await panel.show(newSwap))return;
-    const title=document.createElement('h2');title.className='side-panel-title';title.textContent='New swap';panel.element('head').replaceChildren(title);
-    await act(async()=>{
-      try{await swapEditor.openNew();}catch(error){panel.reset();throw error;}
-      if(sameMode(panel.current(),newSwap))panel.form(true);
-    });
-  }
+  // Gives the forms the panel hosts up, without asking.
+  function resetForms(){editor.reset();swapEditor.reset();booking.reset();}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
-  function dropForms(){editor.reset();swapEditor.reset();options.reported();}
+  // A new trade has nothing but its form, so the panel it was in is closed with it.
+  function dropForms(){resetForms();closeNew();options.reported();}
+  function closeNew(){if(panel.current()?.kind==='new')panel.reset();}
   // Asks whether to give up what the panel holds unsaved, when it holds any, and closes its form once the person agrees: false means they
   // kept it. The panel asks for a switch of its own mode; this is the question every other way out of the form asks too.
   async function leave(){if(!await panel.leave())return false;dropForms();return true;}
@@ -168,6 +163,47 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
   // control disabled. `kept` hears that the person kept them, for a control that has already changed.
   function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
+  // New trade (D215) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
+  // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
+  // What the panel held is left only when the person says so, which is asked before the page is busy.
+  const newTrade:PanelMode={kind:'new',product:null};
+  const bookingControl=()=>newTradeControl({catalog,retained:!!pending.command,fallback:options.bookingUnavailableReason()});
+  async function openNewTrade(){
+    if(busy()||!bookingControl().enabled)return;
+    if(await panel.show(panel.current()?.kind==='new'?panel.current():newTrade))panel.reveal();
+  }
+  // A product's form takes the panel's place, scrolled to so that it has the window's height.
+  function showForm(){panel.form(true);panel.reveal();}
+  // The panel never holds a product it has nothing to show for: when a product's form could not be opened, it asks for a product again.
+  async function toChoice(failed:PanelMode){if(sameMode(panel.current(),failed))await panel.show(newTrade);}
+  // A product is chosen: its form opens once what it needs has been read, in one action with the question asked first, so that a read that
+  // fails, or a page that is busy, leaves the panel as it was and never an empty New trade.
+  async function chooseProduct(product:NewProduct){
+    const next:PanelMode={kind:'new',product};
+    if(busy()||sameMode(panel.current(),next))return;
+    if(!await panel.leave())return;
+    let ran=false,opened=false;
+    await act(async()=>{
+      ran=true;
+      if(product==='futures'){
+        // The priced contracts come with a new read of the whole Blotter, which closes the panel and the forms it held.
+        await load('priced_contracts');
+        const control=bookingControl();
+        if(!control.enabled)throw Error(control.reason);
+        await panel.show(next);booking.populate();booking.open();showForm();opened=true;
+        return;
+      }
+      // The person has said what the panel held may go: its forms are given up before the panel moves, which would otherwise ask again of a busy page.
+      resetForms();
+      await panel.show(next);
+      try{if(await swapEditor.openNew()){showForm();opened=true;return;}}catch(error){await toChoice(next);throw error;}
+      await toChoice(next);
+    });
+    // A page that became busy while the person was asked does nothing: the panel is as it was, and the person is told, not left to wonder.
+    if(!ran)options.notice(`${newTradeProducts.find(([key])=>key===product)![1]} was not opened because the page was busy. Choose it again.`);
+    // The form takes focus once the page is no longer busy, which disables every control of it.
+    if(opened&&sameMode(panel.current(),next))panel.focusForm();
+  }
   const selected=(id:string)=>Array.from(get<HTMLSelectElement>(id).selectedOptions,o=>o.value);
   function choices(id:string,rows:{id:string;name:string}[],ids:string[]){
     const select=get<HTMLSelectElement>(id);select.replaceChildren(...rows.map(r=>new Option(publicText(r.name),r.id,false,ids.includes(r.id))),...ids.filter(id=>!rows.some(r=>r.id===id)).map(id=>new Option('Unavailable saved selection',id,false,true)));
@@ -227,13 +263,19 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     renderRiskTile(get('desk-tile-risk'),{state:risk.shown()?'results':get('risk-card').hidden?'none':'open',denial:options.canRunRisk()?null:riskDenied,busy:busy()},
       ()=>{if(get('risk-card').hidden)void act(risk.open);else get('risk-card').scrollIntoView({block:'start'});});
   }
-  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();panel.place();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  // New trade is offered where the backend allows booking, and says why where it does not, in words under the toolbar that the button points
+  // assistive technology at: not in a tooltip, and not left for the person to find out by pressing it.
+  function syncNewTrade(){
+    const control=bookingControl(),button=get<HTMLButtonElement>('futures-new');
+    get('new-trade-availability').hidden=control.reason===null;text('new-trade-availability',control.reason??'');
+    button.disabled=busy()||!control.enabled;
+    if(control.reason===null)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby','new-trade-availability');
+  }
+  function sync(){booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
-  function clear(){instrument.clear();generation++;chartState=undefined;drawn=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;table=undefined;deskPanel.reset();lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
-  function reset(){selectedContract='';clear();restore();forgetViews();viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
+  function clear(){generation++;chartState=undefined;drawn=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
+  function reset(){clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
-  const contractKey=futuresContractKey;
-  function terms(){const c=pricedCatalog()?.contracts.find(c=>contractKey(c)===field('futures-contract').value);text('futures-terms',c?futuresContractDescription(c,options.zone()):'Select a dated contract to see its terms.');instrument.render(c,options.zone(),(value,tick)=>amountText(value,'price',tick));}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
     const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,...fields}=h;
@@ -252,10 +294,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // modes; the two charts and grouped positions are the trade-row desk.
     const [swapPv,futuresPnl]=summaryTiles(summaries),mix=positionsTile(summaries,holdings.holdings.length,holdings.unvaluedPositions);
     const plan=pivot?undefined:planDesk(colors);
-    annotations.populate(catalog.bookingActor,catalog,annotations.read());
-    choose('futures-book',catalog.books.map(b=>({id:b.id,name:`${b.portfolio} · ${b.name}`})),field('futures-book').value);
-    instrument.populate(pricedCatalog()?.contracts??[],selectedContract);terms();
-    if(pricedCatalog())selectedContract=field('futures-contract').value;
+    // A new future's form in the panel is filled again from the read, keeping what the person chose and typed that it still offers.
+    if(booking.mounted())booking.populate();
     const scope=options.profile()+':'+snapshot+':'+catalog.context.contextId;
     get('desk').hidden=false;get('desk-charts').hidden=pivot;
     renderMoneyTile(get('desk-tile-swapPv'),'Swap PV','swap',swapPv,money);
@@ -355,7 +395,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   async function load(bookingCatalog:BookingCatalog='directory',live=false){
     restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([readView()]))[0];const source=options.source();
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
-    if(snapshot!==source.snapshotId){if(!live){get<HTMLFormElement>('futures-form').reset();selectedContract='';}snapshot=source.snapshotId;}
+    snapshot=source.snapshotId;
     if(live)generation++;else clear();
     const started=generation,scope=JSON.stringify([options.profile(),source]);
     const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
@@ -370,10 +410,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(!Array.isArray(combined.summaries)||combined.summaries.length!==summaryViews.length)throw Error('The trading workspace did not return the desk summaries. Refresh and try again.');
       // A read the desk refuses leaves the desk it had, and the read that desk was drawn from, as they were.
       const previous={catalog,holdings,summaries,shapes,lastReadRequest};
-      catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=undefined;
+      catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=undefined;drafts.reset();
       const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;
       try{viewControls();render();}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest}=previous);throw error;}
-      if(view.mode==='trades')void loadShapes(started,scope,source);
+      shapesRead=view.mode==='trades'?loadShapes(started,scope,source):Promise.resolve();
       await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);workspace.closeMenus();
     }catch(error){
       if(started===generation){
@@ -396,17 +436,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const curves=[...new Set(holdings!.holdings.filter(h=>h.definitionRevisionId===revision).map(h=>h.curve))].sort();
     const found=new Map<string,CurveShape|string>();
     for(let i=0;i<curves.length;i+=curvesPerShapeRead){
-      const chunk=curves.slice(i,i+curvesPerShapeRead);
-      try{
-        const read=await api<{curves:CurveShape[];context?:{contextId?:string}}>('market/curve-shapes',{snapshotId:source.snapshotId,curves:chunk});
-        // The read states the context it was made in: the selected historical one, or none for working data.
-        if(read.context?.contextId!==source.context?.contextId)for(const curve of chunk)found.set(curve,'Curve shape unavailable · the curves were read in another market context');
-        else for(const curve of read.curves)if(chunk.includes(curve.curve))found.set(curve.curve,curve);
-      }catch(error){
-        // A role that cannot read market data is told so, rather than that the read failed.
-        const why=(error as {code?:string}).code==='access_denied'?'this account cannot read market data':'the curve read failed';
-        for(const curve of chunk)found.set(curve,`Curve shape unavailable · ${why}`);
-      }
+      for(const [curve,shape] of await readCurveShapes(api,source,curves.slice(i,i+curvesPerShapeRead)))found.set(curve,shape);
       if(!current())return;
     }
     shapes={revision,curves:found};table?.redrawCells(curveColumn);deskPanel.sync();
@@ -433,11 +463,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     }
   }
   get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.onclick=()=>{if(busy())return;view.chart.kind=button.dataset.plotKind as BlotterView['chart']['kind'];field('blotter-chart-kind').value=view.chart.kind;renderChartPanels();});
-  // The form a request came from is done with it, whatever became of it: what it held was sent, or is kept by the retained request.
-  // A new swap's form was the whole panel, which has nothing left to show with it closed.
+  // The form a request came from is done with it once what it held was sent, or is kept by the retained request: it is never offered again, so that
+  // a booking of the same request is not offered twice. A new future that was refused for good keeps its form, which the person corrects. A new
+  // trade has nothing but its form, so the panel it was in is closed with it.
   function done(command:RequestCommand){
     if(command.path==='futures/amend')editor.reset();
-    if(command.path.startsWith('swaps/')){swapEditor.reset();if(panel.current()?.kind==='new')panel.reset();}
+    if(command.path==='futures/book'&&pending.command)closeNew();
+    if(command.path.startsWith('swaps/')){swapEditor.reset();closeNew();}
   }
   // What the backend says of a trade request it has committed: the trade, and the binding the request left it with.
   type Receipt={tradeId?:string;bindingId?:string};
@@ -454,8 +486,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const amended=amendedPosition(command);
     // What was sent is no longer an edit: the read that follows closes the form without asking.
     done(command);
-    pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load();
-    await follow(amended,receipt);
+    pending.clear();uncertain=false;store();await load();
+    await follow(amended,receipt);await followBooked(command,receipt);
   }
   // The position the panel shows of the trade an amendment was made to, if it shows it.
   function amendedPosition(command:RequestCommand){const h=deskPanel.shown();return command.path.endsWith('/amend')&&h?.tradeId===command.body.tradeId?h:undefined;}
@@ -467,26 +499,27 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(found.index!==null)await deskPanel.open(found.index,'terms');
     if(found.note)options.notice(found.note);
   }
-  get<HTMLFormElement>('futures-form').onsubmit=event=>{event.preventDefault();guarded(async()=>{
-    const priced=pricedCatalog();if(!priced?.canBook)throw Error('Return to current inputs with trading authority before booking.');
-    const c=priced.contracts.find(c=>contractKey(c)===field('futures-contract').value);if(!c)throw Error('Choose the exact dated contract.');
-    const body={...annotations.read(),snapshotId:options.source().snapshotId,convention:options.source().convention,knowledgeMode:'current',bookId:field('futures-book').value,curve:c.curve,contractId:c.id,
-      lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
-    const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);
-  });};
+  // A new trade, once booked or found committed, is shown as the position it is: its row is marked in the grid and the panel opens on it, so the
+  // person sees what was booked. Where the read has no row to open for it, in a pivot or beyond the books selected, the page says so.
+  async function followBooked(command:RequestCommand,receipt:Receipt){
+    if(!command.path.endsWith('/book')||!holdings)return;
+    if(view.mode!=='trades'){options.notice('The new trade is booked. This Blotter shows totals, which hold no rows to open: set Display to Individual trades to see it.');return;}
+    const found=bookedPosition(holdings.holdings,receipt,command.path.startsWith('swaps/')?'financial_swap':'future');
+    if(found.index!==null)await deskPanel.open(found.index);
+    if(found.note)options.notice(found.note);
+  }
   get('futures-retry').onclick=()=>guarded(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
   get('futures-reconcile').onclick=()=>guarded(async()=>{
     if(!pending.command)throw Error('No retained booking to reconcile.');
     try{
       const result=await api<Receipt>(pending.command.path.startsWith('swaps/')?'swaps/status':'futures/status',{operationId:pending.command.operationId});
       if(!result.tradeId)throw Error('No committed outcome is visible yet. Retry the original request with the same identity.');
-      const amended=amendedPosition(pending.command);
-      pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load();
-      await follow(amended,result);
+      const command=pending.command,amended=amendedPosition(command);
+      pending.clear();uncertain=false;store();await load();
+      await follow(amended,result);await followBooked(command,result);
     }catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}
   });
-  get('futures-new').onclick=()=>{if(busy()||!catalog)return;kindDialog.showModal();};
-  get('futures-cancel').onclick=()=>{if(!busy()){get('futures-booking').hidden=true;bookingEdits.clear();}};
+  get('futures-new').onclick=()=>void openNewTrade();
   field('blotter-mode').onchange=()=>{if(busy())return;get('blotter-pivot-fields').hidden=field('blotter-mode').value!=='pivot';};
   // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is
   // refused in the banner, and the grouping on screen stays.
@@ -522,7 +555,6 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const csv=guardedCsv(metadata)+guardedCsv([shown.headers,...shown.rows],shown.numeric);void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv('leanetrm-blotter.csv',csv);});
   };
   get('futures-refresh').onclick=()=>guarded(load);
-  field('futures-contract').onchange=()=>{selectedContract=field('futures-contract').value;terms();};
   // A Blotter view a navigation target names, applied as Apply applies the view's controls.
   async function show(selection:BlotterSelection){
     restore();if(!viewsLoaded)await loadViews();
@@ -539,19 +571,28 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const form=editor.displayedRevision()??swapEditor.displayedRevision();
     return {tradeId:h.tradeId,instrumentType:h.instrumentType==='financial_swap'?'financial_swap':'future',revision:form??Number(h.revision),reference:h.tradeReference};
   }
+  // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
+  function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
   return {load,reset,sync,show,
-    // A live correction reads the desk again, the panel with it unless the person has edits in it, and clears a risk run with a note.
+    // A live correction reads the desk again, the position the panel shows with it unless the person has edits in it, and clears a risk run
+    // with a note. A new trade's form keeps what the person typed, whether or not it is an edit, and its choices and its price before booking
+    // are read again; until they have been, the panel says they are from the inputs before the correction.
     async liveRefresh(){
       const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:risk.shown()});
       // What the risk card holds belongs to the inputs the correction changed. It is cleared before the read, with the note when a run's
       // results were on it, so that a read that then fails leaves the note, which says what is gone, as it leaves the desk it had.
       risk.reset();
       if(plan.clearRisk)options.notice(plan.note!);
+      entry.stale(plan.refreshForm);
       await load(catalog?.kind??'directory',true);
-      await draft.liveRefresh();
+      if(plan.refreshForm){
+        const mode=panel.current();
+        await (mode?.kind==='new'&&mode.product==='futures'?booking.liveRefresh():swapEditor.liveRefresh());
+        entry.stale(false);
+      }
       if(plan.reloadPanel){await position.reload();await swapEditor.liveRefresh();}
     },
-    refresh(){risk.refresh();draft.reset();editor.refresh();swapEditor.refresh();annotations.refresh();captureFilters();render();},
+    refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
     async openTrade(tradeId:string,instrumentType:'future'|'financial_swap',revision:number|null){
       requireTradeRows(view.mode);
@@ -564,12 +605,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // What a target for a trade needs of the Blotter, checked before the page moves for it, against the view its last read applied and
     // not a Display choice not yet applied: the person's view is never changed to fit it.
     requireTradeRows:()=>requireTradeRows(view.mode),
-    // What the Blotter shows: its risk results, the trade in its panel, or the view its last read applied.
-    report:()=>({risk:!get('risk-card').hidden,trade:shownTrade(),
+    // What the Blotter shows: its risk results, the trade in its panel, the new trade entered there, or the view its last read applied.
+    report:()=>({risk:!get('risk-card').hidden,trade:shownTrade(),entry:newTradeShown(),
       view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]}}),
-    // A booking or editor with edits not yet sent, or a trade request or risk job whose outcome is unconfirmed.
-    unsaved:()=>!!pending.command||!get('futures-booking').hidden&&bookingEdits.edited()||editing()||risk.unconfirmed(),
-    // Whether the panel holds an amendment with edits, and the question asked before it is given up: false means the person kept it. The forms
+    // A form of the panel with edits not yet sent, or a trade request or risk job whose outcome is unconfirmed.
+    unsaved:()=>!!pending.command||editing()||risk.unconfirmed(),
+    // Whether the panel holds the form of an amendment or of a new trade with edits, and the question asked before it is given up: false means the person kept it. The forms
     // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
     editing,leave,dropForms};
 }

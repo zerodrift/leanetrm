@@ -348,7 +348,7 @@ a column back when the room returns. The sheet is the only part of the page in r
 open: everything behind it is inert, except dialogs, and the page is given back when the sheet
 closes, stops covering the page or the Blotter is left. A switch of mode or position asks first,
 inside the panel, when it holds unsaved edits, which are what a person has typed or chosen in the
-form of an amendment or of a new swap, tracked by the editors (`trackEdits`). A calendar or the date
+form of an amendment or of a new trade, tracked by the forms (`trackEdits`). A calendar or the date
 lookup sets a value for the person through events that a form cannot tell from a script's, so each
 marks the form edited itself, and Escape inside a calendar closes only the calendar. The same
 question is asked before the panel is closed, before its form is closed, before another revision
@@ -372,19 +372,20 @@ exactly, and the sidebar's example select goes back to the example the page is. 
 amendment over a route that closed the profile dialog (Save preferences, another user, signing out)
 leaves the dialog closed and says what was not done. A reload, closing the tab and going back leave
 the page without the panel's question, so the browser asks (`beforeunload`) while the panel holds
-the form of an amendment or of a new swap with edits: the listener is on from the first edit and off
+the form of an amendment or a new trade with edits: the listener is on from the first edit and off
 once the edits are saved or given up. A page that is left on the person's word without the panel's
 question, as by the assistant's Go anyway, gives the forms up as it goes, so that no form stays held
 that nothing can return to. A session that has ended cannot send what the form holds, and is not
-asked about. The inline futures booking's own edits are not among those asked about, until the panel
-hosts every new trade. A chart's image export that fails reports the error and leaves the Blotter as
+asked about. A chart's image export that fails reports the error and leaves the Blotter as
 it is, unless the failure is a denial of access, which clears it as it does for every read. The
 assistant's moves hold for unsaved edits through their own Go anyway (D191). A live correction
-(D188) reads an open panel again, unless it holds edits, which it leaves alone, and clears the risk
-card before it reads, with the note "Risk results cleared · live corrections changed the inputs"
-when a run's results were on it (`liveRefreshPlan`), so that a read that then fails leaves the note,
-as it leaves the desk it had. The notices one action says are kept beside each other, and none
-replaces another unseen.
+(D188) reads an open position again, unless it holds edits, which it leaves alone; a new trade's
+form keeps what was typed, edits or not, and has its choices and its price before booking read
+again, saying they are from the inputs before the correction until they have been; and it clears
+the risk card before it reads, with the note "Risk results cleared · live corrections changed the
+inputs" when a run's results were on it (`liveRefreshPlan`), so that a read that then fails leaves
+the note, as it leaves the desk it had. The notices one action says are kept beside each other, and
+none replaces another unseen.
 
 The position view shows the instrument, trade reference, revision and book, the market, delivery,
 side and size, the value with its measure or the reason the close cannot value the position, and the
@@ -433,9 +434,7 @@ at the binding the receipt names, or is there as several positions when the rece
 request whose outcome is not known is kept in a card that names it (a futures or swap amendment of
 its trade, a new futures trade, a new swap), with Check status and Retry: in the panel, above
 whatever the panel shows, while it is open, and at the top of the Blotter while it is closed, so
-that nothing leaves a person with a booking to enter again. A new swap is booked in the same panel,
-which it takes whole under the head "New swap", until the panel hosts every new trade; the editors
-take the panel's form part as their host, and the dialogs they were are gone. Open curve opens
+that nothing leaves a person with a booking to enter again. Open curve opens
 Curves & prices on the position's curve with the price history of its contract: a future's own, or a
 swap's when its delivery period holds exactly one. It is unavailable for a market Curves & prices
 does not list, and says why beside the button, which points assistive technology at that reason
@@ -474,6 +473,58 @@ new binding, with its first revision still readable. `--live-calculation-check` 
 account that cannot amend is told why and not offered Amend, that a live refresh reads the panel's
 terms again, a swap's among them, and draws the panel again, that it keeps focus on a tab and on
 Open curve, and that it clears a risk run with a note that a failed read keeps.
+
+New trade (D215) opens the side panel on a head with the title New trade, a Future | Swap switch of
+two buttons with neither pressed, and the way to PPA bookings, which are booked on their own page.
+It reads nothing and chooses nothing for the person. The panel is named for what it holds (New
+trade, New future, New swap) and its body is a group of that name; the roles of a tablist and a
+tabpanel belong to the tabs a position shows and go with them (`setupTabs`, `clearTabs`), so that no
+mode shows a tabpanel without a tablist. New trade is offered only where the backend allows booking:
+`newTradeControl` words the catalog's `canBook` and `bookingUnavailableReason` for the view and the
+account, a request whose outcome is not known coming first, and before any read the page's own
+reason. A historical or live view and an account without Book Trade permission are told why in a
+line under the toolbar that the button points assistive technology at, never in a tooltip, and no
+field opens there; a new swap's catalog read is held to the same answer. Choosing a product reads
+what its form needs and opens it in one action: a future's form needs the priced futures catalog,
+which is a new read of the whole Blotter and closes what the panel held, and a swap's needs its
+catalog and observation choices. A question about unsaved edits is asked first, before the page is
+busy, and the panel keeps what it held until the form that replaces it is ready: a read that fails,
+or a form closed while it was read, leaves the panel asking for a product with the failure said,
+never a product with nothing in it; an answer that comes while the page is busy leaves the panel as
+it was and says that the product was not opened. A new trade starts empty, with no contract, book or
+price of the trade before it. The form of a new future is `futures-booking.ts`, which the page hosts
+as it hosts the forms of the amendments, and a form is held by the panel as an amendment's is: what
+is typed in either is an edit, switching Future and Swap, closing the panel and every other way out
+ask first, and the browser asks before the page is left.
+
+Price before booking is the draft valuation under its own title: Price and Risk, the draft's value
+and exposure, and after Price the curve of each market the draft is for with the draft's delivery
+period marked, a future's from its contract and a swap's from each floating side (`draftValuation`,
+`futuresDraftMarkets`, `swapDraftMarkets`; the chart is `curveChart`, which the position's Curve tab
+draws too). The curve is the desk's own read of the curves it holds when the desk holds it, which is
+waited for while it is under way, and otherwise one read of that curve, kept until the desk reads
+again and never repeated for a second price (`draftShapes`, `readCurveShapes`); a market defined in
+another revision than the close's curves is said not to have a shape, and a curve that cannot be
+drawn says why without failing the price. A booked trade, or one that Check status finds committed,
+is shown as the position it is: the Blotter is read again, its row is marked and brought into view
+and the panel opens on the position (`bookedPosition`), saying why when the read has no row to open
+for it, in a pivot or beyond the books selected. A booking whose outcome is not known is kept in the
+card that names it, its form and its panel are gone, and New trade is held back until it is settled,
+so that the same booking is never offered twice; a future the backend refused for good keeps its
+form, for the person to correct. A live correction refreshes a new trade's choices and its price
+before booking and keeps what was typed, and says they are from the earlier inputs when it could
+not; no live view can book, so no such form is held while corrections arrive: the unit tests assert
+the plan (`liveRefreshPlan`), and the browser checks assert that New trade is not offered in a live
+view. The assistant's page report names the new trade by its product, or by none while none is
+chosen (`blotter_new_future`, `blotter_new_swap`, `blotter_new_trade`, three more pages of the
+closed set that the assistant does not read), and its Looking at says so. The browser checks assert
+the switch, the roles, the form and the focus in it for each product, that neither the kind dialog
+nor the inline booking card exists, Price before booking and its curve with its delivery marked and
+no curve read twice, the booked row selected in view with the panel on it, a new trade that starts
+empty, the reason New trade is not offered to a historical view, a live view and a role without the
+permission, the retained booking and Check status, a catalog that cannot be read, a question
+answered while the page is busy, and the questions asked before a new trade's edits are given up,
+each answered both ways.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

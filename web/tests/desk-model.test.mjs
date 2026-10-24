@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,commodityColors,signOf,valueFields,priceUnit,holdingFormats,quantityText} from '../dist/desk-model.js';
+import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,curveChart,commodityColors,signOf,valueFields,priceUnit,holdingFormats,quantityText} from '../dist/desk-model.js';
 import {prepareAmountDisplay,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -327,4 +327,28 @@ test('a trade that holds several bindings is a position for each of them: the Bl
  const rows=positionRows([fixture.holdings[0],second]);
  assert.deepEqual(rows.map(r=>[r.tradeId,r.revision,r.quantity]),[[fixture.holdings[0].tradeId,'1','1000'],[fixture.holdings[0].tradeId,'1','250']]);
  assert.equal(positionRows([fixture.holdings[0],{...fixture.holdings[0],revision:'2'}]).length,2,'two revisions of one trade are two positions');
+});
+
+// A market and the delivery period a draft is for, as the Price before booking section states them: no position, no trade price.
+const draftTarget={market:'Gas forward',delivery:'Jan 2021',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'};
+
+test('the curve of a draft\'s market is drawn from the curve shape and marks the contracts of the delivery period it is for',()=>{
+ const view=curveChart(fixture.shapes[0],draftTarget);
+ assert.equal(view.state,'chart');assert.equal(view.marked,true);
+ assert.deepEqual([view.spec.title,view.spec.axis,view.spec.unit,view.spec.kind],['Gas forward · forward curve','delivery','USD/MMBtu (IT)','line']);
+ assert.deepEqual(view.spec.series[0].points.map(p=>[p.x,p.y]),fixture.shapes[0].points.map(p=>[p.contractId,p.price]),'every contract of the curve, a contract without a price kept as a gap');
+ assert.deepEqual(view.spec.marked,['k0000000-0000-0000-0000-000000000001']);assert.equal(view.spec.subtitle,'Marked: delivery Jan 2021');
+ assert.equal(view.spec.reference,undefined,'a draft has no trade price to draw');
+});
+
+test('a delivery period over several contracts marks each, and one the curve does not reach marks none and says so',()=>{
+ const quarter=curveChart(fixture.shapes[0],{...draftTarget,delivery:'Feb–Apr 2021',deliveryFrom:'2021-02-01',deliveryTo:'2021-05-01'});
+ assert.deepEqual(quarter.spec.marked,['k0000000-0000-0000-0000-000000000002','k0000000-0000-0000-0000-000000000003','k0000000-0000-0000-0000-000000000004']);
+ const outside=curveChart(fixture.shapes[0],{...draftTarget,delivery:'Jan 2022',deliveryFrom:'2022-01-01',deliveryTo:'2022-02-01'});
+ assert.equal(outside.state,'chart');assert.equal(outside.marked,false);assert.deepEqual(outside.spec.marked,[]);assert.equal(outside.spec.subtitle,undefined);
+});
+
+test('a curve the close cannot draw says why, in the words a row says it in',()=>{
+ assert.deepEqual(curveChart(fixture.shapes[1],draftTarget),{state:'unavailable',reason:"Curve shape unavailable · this market's curve is not in the definitions of this close"});
+ assert.deepEqual(curveChart({...fixture.shapes[0],points:[]},draftTarget),{state:'unavailable',reason:'Curve shape unavailable · no contracts at this close'});
 });
