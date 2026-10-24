@@ -58,6 +58,17 @@ internal static class PreviewDataChecks
             var branch=Change(second,"id",Guid.NewGuid());
             Reject("revision_conflict",()=>Data([..fixture.Observations,second,branch]).SelectPinned(fixture.Frame));
         });
+        Check("a preliminary index correction cannot displace the latest eligible final fixing",()=>
+        {
+            var original=Change(fixture.Observations[0],"role","index_fixing");
+            var revised=Change(Change(Change(original,"id",Guid.NewGuid()),"corrects_id",original.Id("id")),"value","111.001");
+            var preliminary=Change(Change(Change(revised,"id",Guid.NewGuid()),"corrects_id",revised.Id("id")),"publication_state","preliminary");
+            var inputs=fixture.Observations.SetItem(0,original);
+            var selected=Data([..inputs,revised,preliminary]).SelectPinned(fixture.Frame);
+            if(selected.ObservationIds[0]!=revised.Id("id"))throw new Exception("A preliminary correction displaced a final index fixing.");
+            if(Data([..inputs,revised,preliminary]).Snapshot(fixture.Frame).Selections[0].Observation.Key.Id!=original.Id("id"))
+                throw new Exception("Original exact snapshot was reinterpreted.");
+        });
         Check("frozen settlement identity and use survive latest variable correction selection",()=>
         {
             var final=Change(fixture.Observations[0],"role","final_contract_settlement");

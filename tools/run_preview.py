@@ -55,6 +55,7 @@ def main():
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
+    parser.add_argument('--reference-import-check',action='store_true',help='Qualify private inactive reference intake in an owned database')
     parser.add_argument('--reference-check',action='store_true',help='Qualify reference metadata authoring and reviewed display activation')
     parser.add_argument('--booking-check',action='store_true',help='Qualify backend-owned immutable trade booking facts')
     parser.add_argument('--unit-check', action='store_true', help='Run amount/unit integration checks in the owned standard fixture')
@@ -73,6 +74,10 @@ def main():
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.reference_import_check:
+        args.check=True
+        if args.example!='standard' or args.browser_check:
+            parser.error('--reference-import-check requires the standard fixture without browser checks')
     if args.settlement_quarter_check:
         args.ppa_check = True
     if args.close_risk_lease_check:
@@ -593,6 +598,9 @@ def main():
             elif args.execution_check:
                 from check_futures_execution import run_checks as check_execution
                 check_execution(url,query,manifest)
+            elif args.reference_import_check:
+                from check_reference_import import run_checks as check_reference_import
+                check_reference_import(query,manifest,temporary,dotnet,env)
             elif args.reference_check:
                 from check_reference_display_http import run_checks as check_reference_display
                 check_reference_display(url,query)

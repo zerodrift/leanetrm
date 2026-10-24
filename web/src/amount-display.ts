@@ -13,9 +13,9 @@ const rendered=new Map<string,string>();let precision=initialDisplayPrecision();
 export function selectDisplayPrecision(value:DisplayPrecision){precision=displayPrecision(value);rendered.clear();}
 const key=(value:string,kind:Kind,tick?:string,policy=precision)=>JSON.stringify([value,policy[kind],tick??null,kind!=='money']);
 export function amountText(value:string,kind:Kind,tick?:string,policy=precision){return rendered.get(key(value,kind,tick,policy))??value;}
-const money=new Set(['presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change']);
+const money=new Set(['tradeCashAmount','tradePresentValue','presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change']);
 const prices=new Set(['price','fixedPrice','executionPrice','mark','value','annualRate',...priceMeasureChoices.map(c=>c[0])]);
-const quantities=new Set(['quantity','physicalQuantity','totalQuantity','weight']);
+const quantities=new Set(['resolvedQuantity','quantity','physicalQuantity','totalQuantity','weight']);
 const factors=new Set(['discountFactor','factor','multiplier','delta','gamma']);
 export async function prepareAmountDisplay(payload:unknown,format:(body:Request[])=>Promise<string[]>,initialTick?:string,initialPolicy=precision){
  const requests=new Map<string,Request>();

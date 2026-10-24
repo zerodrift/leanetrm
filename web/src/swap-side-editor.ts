@@ -35,3 +35,22 @@ function mountIndexSearch(host:HTMLElement,id:string){
  search.id=id+'-search';search.type='search';search.placeholder='Filter indices and curves';search.autocomplete='off';
  label.htmlFor=search.id;label.textContent='Find index';select.previousElementSibling!.before(label,search);
 }
+
+// Present the independent terms in business order; no common economics are inferred.
+export function arrangeSwapSections(){
+ for(const side of ['fixed','first','floating']){
+  const root=document.querySelector(`#swap-${side}-editor .instrument-side`)!;
+  const delivery=document.getElementById(`swap-${side}-delivery`)!;
+  const observations=document.getElementById(`swap-${side}-observations`)!;
+  const prefix=side==='first'?'swap-first':'swap';
+  if(side!=='fixed'){
+   delivery.append(document.getElementById(prefix+'-commodity')!.parentElement!);
+   const spread=document.getElementById(prefix+'-spread')!,label=root.querySelector(`label[for="${prefix}-spread"]`)!;
+   const price=document.createElement('div');price.append(label,spread);root.append(price);
+   delivery.append(document.getElementById(prefix+'-index')!.parentElement!);
+   for(const suffix of ['reset-frequency','projection','averaging','fixing-convention'])observations.append(document.getElementById(prefix+'-'+suffix)!.parentElement!);
+  }
+  for(const suffix of ['from','to'])delivery.append(document.getElementById(`swap-${side}-${suffix}`)!.parentElement!);
+  observations.append(root.querySelector('.side-payment-rule')!);
+ }
+}

@@ -476,6 +476,29 @@ Side payment schedules also consume that widget, retaining exact table values
 and separate formatted displays alongside per-payment cash/PV plots.
 [Interval data](interval-data.md) records contracts, measured workloads and limits.
 
+### Swap entry and private intake reconciliation
+
+The financial swap ticket explicitly labels its retained one-month notional as a
+total applied independently to each side's delivery period. Price observation
+weights do not repeat that quantity. Managed review rows apply each payment's
+explicit allocation, membership direction and external quantity once. Normalized
+unit calculations and exact lineage remain inspectable separately.
+
+Independent fixed delivery dates do not depend on floating price coverage and are
+never copied from another side. Fixed-price entry explicitly chooses agreed or
+par pricing; calculation precision belongs only to the par calculation. These
+presentation changes preserve existing stored definitions and trade economics.
+
+Correction-following contexts select eligible final index observations; a later
+preliminary correction cannot displace a final. Exact saved snapshot pins and
+ordinary risk inputs remain frozen under the existing observation contract.
+
+Private managed reference capture/import commands are included as a bounded
+consumer of existing inactive intake storage. Source documents, credentials,
+activation and certified publication remain separate. Current execution policies,
+index-derived fixing schedules, connected valuations and durable result pins are
+retained; no parallel fixing store or earlier migration sequence is introduced.
+
 ## D213 — Explicit model alias approval
 
 Allow a model capability version to declare `fixed` or `alias` explicitly. This
