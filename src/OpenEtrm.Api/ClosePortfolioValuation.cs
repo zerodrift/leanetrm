@@ -106,7 +106,8 @@ public sealed class ClosePortfolioValuation(PreviewDatabase database)
                 h.Quantity,new(new Money(default,h.Instrument.Currency),h.Quantity.Specification),new(default,h.Instrument.Currency))).ToImmutableArray();
             portfolios.Add(new(instruments.Select(h=>(Instrument)h.Instrument).ToImmutableArray(),positions,
                 new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
-                {InstrumentDiscounting=instruments.ToImmutableDictionary(h=>h.Instrument.Id,h=>h.Discounting)}));
+                {InstrumentDiscounting=swaps.Where(h=>h.Settlement is null).DistinctBy(h=>h.Instrument.Id).ToImmutableDictionary(h=>h.Instrument.Id,h=>h.Discounting),
+                 Settlements=swaps.Where(h=>h.Settlement is not null).ToImmutableDictionary(h=>new MeasureBinding(h.Row.Id("trade_id"),h.Row.Id("binding_id")),h=>new SwapBindingValuation(h.Settlement!,h.Discounting))}));
             measures.Add(SwapMeasure);
             var rows=swaps.ToDictionary(h=>h.Row.Id("trade_id"),h=>h.Row);
             foreach(var position in positions)
@@ -124,8 +125,7 @@ public sealed class ClosePortfolioValuation(PreviewDatabase database)
         var admissionWork=RiskEngine.IntervalWork(prepared);
         CloseRiskAdmission.RequireRowScenarios(admissionWork.RowScenarios,factors.Length);
         return new(prepared,snapshot.Id,exact,policy,measures.ToImmutableArray(),evidence.ToImmutable(),factors,
-            swaps.DistinctBy(h=>h.Instrument.Id).SelectMany(h=>((CurrencyDefaultDiscounting)h.Discounting).Inputs
-                .OrderBy(p=>p.Key.SideId).ThenBy(p=>p.Key.Ordinal).Select(p=>new PortfolioDiscountEvidence(h.Instrument.Id,p.Key,p.Value))).ToImmutableArray(),
+            SwapStore.DiscountEvidence(swaps),
             ppaInput?.Receipt,admissionWork.Rows,admissionWork.RowScenarios){PpaDiscounts=ppaInput?.Portfolio.Setup.InstrumentDiscounting??ImmutableDictionary<Guid,ISideDiscounting>.Empty};
     }
     public static ClosePortfolioValuationResult Evaluate(ClosePortfolioPreparation prepared,CancellationToken ct)
@@ -135,7 +135,7 @@ public sealed class ClosePortfolioValuation(PreviewDatabase database)
         var totals=run.Groups.SelectMany((group,n)=>group.BaseValues.Select(v=>new PortfolioTotal(prepared.Measures[n],v.BookId,v.Value))).ToImmutableArray();
         var risk=run.Groups.SelectMany((group,n)=>group.Factors.SelectMany(f=>f.Totals.Select(t=>new CloseFactorRisk(prepared.Measures[n],t.BookId,t.Values.Base.Currency,
             f.Bump.Input,t.Values.Up,t.Values.Down,t.Values.UpPnl,t.Values.DownPnl,t.Values.Delta,t.Values.Gamma)))).ToImmutableArray();
-        return new(prepared.SnapshotId,prepared.Context,prepared.Policy,run.Groups.SelectMany(g=>g.Contracts).GroupBy(c=>c.Id).Select(g=>g.First() with {Dependencies=g.SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray()}).ToImmutableArray(),prepared.Positions,prepared.Factors,totals,risk,run.Work)
+        return new(prepared.SnapshotId,prepared.Context,prepared.Policy,PortfolioValuation.ModelContracts(run.Groups.SelectMany(g=>g.Contracts)),prepared.Positions,prepared.Factors,totals,risk,run.Work)
         {
             DiscountInputs=prepared.Discounts.AddRange(PpaReads.DiscountInputs(prepared.PpaDiscounts)),PpaReceipt=prepared.PpaReceipt,
             PpaMeasures=run.Groups.Where((g,n)=>prepared.Measures[n]==PpaMeasure).SelectMany(g=>g.BaseMeasures).ToImmutableArray()

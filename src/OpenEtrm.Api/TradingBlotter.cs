@@ -124,14 +124,15 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
   // What identifies a row's group in a dimension: the field's text, or the code of the reference the field names.
   string? Identity(JsonObject row,string field)=>row[field] is JsonObject reference?Text(reference,"code"):Text(row,field);
   var partitions=rows.OrderBy(r=>Text(r,"tradeId"),StringComparer.Ordinal).ThenBy(r=>Text(r,"bindingId"),StringComparer.Ordinal).GroupBy(r=>JsonSerializer.Serialize(new{
-   dimensions=view.GroupBy.Select(d=>Identity(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=byQuantity?Key(r,"quantitySpecification"):(ReferenceKey?)null,currency=Key(r,"currencyReference"),
+   dimensions=view.GroupBy.Select(d=>d=="market"?Text(r,"marketKey")??Identity(r,dimensions[d]):Identity(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=byQuantity?Key(r,"quantitySpecification"):(ReferenceKey?)null,currency=Key(r,"currencyReference"),
    priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=byDefinition?Text(r,"definitionRevisionId"):null}));
   foreach(var partition in partitions)
   {
    var first=partition.First();var group=new JsonObject();
    foreach(var d in view.GroupBy)
    {
-    var field=dimensions[d];group[field=="curve"?"market":field]=first[field]?.DeepClone();
+    var field=dimensions[d];group[field=="curve"?"market":field]=(field=="curve"?first["marketKey"]??first[field]:first[field])?.DeepClone();
+    if(d=="market"&&first["marketLabel"] is {} marketLabel)group["marketLabel"]=marketLabel.DeepClone();
     if(d is "portfolio" or "book")group[d]=first[d]?.DeepClone();
     if(d=="contract"){group["deliveryFrom"]=first["deliveryFrom"]?.DeepClone();group["deliveryTo"]=first["deliveryTo"]?.DeepClone();}
    }

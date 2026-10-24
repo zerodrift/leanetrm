@@ -65,7 +65,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
         }
         else if (value is SideMembership member)
         {
-            writer.WriteStartArray(); Write(writer, member.Side); Write(writer, member.Coefficient); writer.WriteEndArray();
+            writer.WriteStartArray(); Write(writer, member.Side); Write(writer, member.Coefficient); if(member.QuantityRatio is {} ratio) Write(writer,ratio); writer.WriteEndArray();
         }
         else if (value is ExactDecimal number) writer.WriteStringValue(number.ToString());
         else if (value is IEnumerable sequence && value is not string)
@@ -100,6 +100,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                 s.Location, s.DeliveryProfile, s.DeliveryFrom, s.DeliveryTo, s.LastTradingAt, s.LotQuantity, s.ContractSize, s.LotBasis, s.FirstTradingAt],
             QuoteSpecification q => ["quote", q.Key, q.Kind, q.Currency, q.Quantity, q.Multiplier, q.TradingTick, q.ClearingIncrement, q.Minimum, q.Maximum],
             Quantity q => ["quantity", q.Amount, q.Specification],
+            OpenEtrm.Shared.Numerics.ExactRatio r => ["exact_ratio", r.Numerator.ToString(CultureInfo.InvariantCulture), r.Denominator.ToString(CultureInfo.InvariantCulture)],
             UnitPrice p => ["price", p.Value, p.Unit],
             PriceUnit u => ["price_unit", u.Currency, u.Quantity, u.Multiplier],
             FloatingObservation o => ["observation",o.From,o.To,o.AveragingQuantity],

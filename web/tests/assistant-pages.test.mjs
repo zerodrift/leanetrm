@@ -4,7 +4,7 @@ test('a proposed curve waits for explicit review on an idle unchanged page',asyn
  const {targetAction}=await import('../dist/assistant-pages.js');
  assert.equal(targetAction({live:true,changesContext:false,unsaved:false,proposal:true}),'go');
 });
-import {pageReport,lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,usageLine,consentText,grantExpiry,webPage,agentChoice,preselect,conversationChoice,panelMessage,keptAsk} from '../dist/assistant-pages.js';
+import {pageReport,lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,webPage,agentChoice,preselect,conversationChoice,panelMessage,keptAsk} from '../dist/assistant-pages.js';
 
 const book='d1000000-0000-4000-8000-000000000001',portfolio='d2000000-0000-4000-8000-000000000002',trade='71000000-0000-4000-8000-000000000009';
 const context='c1000000-0000-4000-8000-000000000001',frame='f1000000-0000-4000-8000-000000000001',other='f2000000-0000-4000-8000-000000000002';
@@ -154,9 +154,17 @@ test('an ending says why an answer stopped; a completed answer needs no line',()
   assert.equal(endingLine({state:'cancelled',code:null,incomplete:true}),'You stopped this answer.');
   assert.equal(endingLine({state:'cancelled',code:'session_ended',incomplete:false}),'The answer stopped because your session changed.');
   assert.equal(endingLine({state:'interrupted',code:null,incomplete:false}),'The answer was interrupted when the assistant restarted.');
-  for(const code of ['limit_input_tokens','context_window_exceeded','limit_input_unverifiable'])
+  for(const code of ['limit_input_tokens','context_window_exceeded'])
     assert.equal(endingLine({state:'failed',code,incomplete:false}),'This conversation is too long to continue. Start a new conversation.');
   assert.equal(endingLine({state:'cancelled',code:'access_changed',incomplete:false}),'The answer stopped because your grant to this agent ended.');
+});
+
+test('unverifiable usage explains the accounting failure instead of claiming the conversation is too long',()=>{
+  const ending={state:'failed',code:'limit_input_unverifiable',incomplete:true};
+  assert.equal(endingLine(ending),'The answer stopped because the provider’s token usage could not be verified. Ask an administrator to check the provider’s usage mapping.');
+  assert.equal(startsOver(ending),false);
+  for(const code of ['limit_input_tokens','context_window_exceeded'])
+    assert.equal(startsOver({...ending,code}),true);
 });
 
 test('the usage line shows tokens by dimension and each currency\'s exact cost, unknown and unpriced as such',()=>{

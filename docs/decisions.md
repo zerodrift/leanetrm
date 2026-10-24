@@ -6,6 +6,18 @@ The architecture is in [architecture.md](architecture.md); delivery scope is in
 
 ## Agreed requirements
 
+D215 authorizes the financial swap settlement MVP through S1–S6, with futures
+margining and physical settlement subsequent. The [swap settlement contract](swap-settlement.md)
+records explicit opt-in, gross occurrence rounding from pinned exact-currency
+minor units, corrections against prior rounded totals with explicitly supplied
+due instants, nominal due balances without interest/credit adjustments, and
+realization per completed final contractual period independently of payment.
+Completion is pinned under `financial_swap_period_completion_v1`: date-only
+exclusive ends use midnight UTC; clocked MW periods use retained final interval
+ends. Matching gross periods require both completion and finality. These policies
+do not supersede bounded physical contracts D202–D204. Implemented capability and
+remaining bounds are recorded with the executable consumers in the linked contract.
+
 | ID | Decision | Consequence |
 | --- | --- | --- |
 | D01 | Public project under Apache-2.0, with DCO sign-offs for contribution commits and an additional agreement for designated core contributors | Preserve license/attribution; review all published material. Casual contributors need no separate CLA. Core contributors retain copyright and grant additional rights under [agreement v1.2](../CLA.md); see the [contribution guide](../CONTRIBUTING.md) and [integration setup](contributing-setup.md). Live signing checks and merge enforcement require separate verification |
@@ -485,3 +497,75 @@ screens share a reusable table/plot widget with optional explicit refresh. Swap
 Side payment schedules also consume that widget, retaining exact table values
 and separate formatted displays alongside per-payment cash/PV plots.
 [Interval data](interval-data.md) records contracts, measured workloads and limits.
+
+### Swap entry and private intake reconciliation
+
+The financial swap ticket explicitly labels its retained one-month notional as a
+total applied independently to each side's delivery period. Price observation
+weights do not repeat that quantity. Managed review rows apply each payment's
+explicit allocation, membership direction and external quantity once. Normalized
+unit calculations and exact lineage remain inspectable separately.
+
+Independent fixed delivery dates do not depend on floating price coverage and are
+never copied from another side. Fixed-price entry explicitly chooses agreed or
+par pricing; calculation precision belongs only to the par calculation. These
+presentation changes preserve existing stored definitions and trade economics.
+
+Correction-following contexts select eligible final index observations; a later
+preliminary correction cannot displace a final. Exact saved snapshot pins and
+ordinary risk inputs remain frozen under the existing observation contract.
+
+Private managed reference capture/import commands are included as a bounded
+consumer of existing inactive intake storage. Source documents, credentials,
+activation and certified publication remain separate. Current execution policies,
+index-derived fixing schedules, connected valuations and durable result pins are
+retained; no parallel fixing store or earlier migration sequence is introduced.
+
+## D213 — Explicit model alias approval
+
+Allow a model capability version to declare `fixed` or `alias` explicitly. This
+supersedes P27's blanket non-repointing requirement for an administrator-approved
+alias. The existing sourced identifier fields describe the selected policy. An
+alias is permission to request that vendor name as it evolves, not evidence of
+fixed model weights or permission to change provider, capability facts or prices.
+
+Both policies accept only the requested identifier and the exact served identifiers
+listed in that capability version. Unknown served identifiers fail before output;
+no wildcard, prefix match or automatic discovery changes the allowed set. Calls
+retain their requested identity, exact capability and price versions and the
+identifier actually reported by the provider. A reported alias cannot establish an
+underlying snapshot. Normal current-authority and account-attestation checks apply.
+
+Migration 0105 labels existing versions `fixed`; its compatibility default and the
+original command preserve the old fixed-only contract and exact retained retries.
+New UI submissions require a choice; the extended command rejects null or unknown
+policies. Existing versions stay immutable, and policy edits create a version so
+running agents retain the existing `model_changed` boundary. This local change
+does not authorize publishing, a hosted schema update or real-provider calls.
+
+## D214 — Explicit financial swap quantity schedules
+
+Agreed scope extends the fixing-capable monthly swap through explicit multi-month
+quantities and recurring payments, calendar-day rates and declared total-contract
+allocation, then MW integrated over selected delivery intervals. Physical gas and
+power obligations are planned separately and do not gate financial booking.
+
+Implement a new scheduled instrument/side version, preserving the original
+one-period definitions and events. Reuse primitive monthly price/fixing/payment
+plans; each SideSchedule owns the normalized quantity allocations used by PV.
+Normalize sides independently and retain cross-side size as an exact rational
+membership term. Apply the external first-side total once. Keep authored quantity
+meaning and interval/clock evidence in immutable trade-revision records, separate
+from reusable normalized pricing.
+
+The initial supported relationship explicitly multiplies period-average price by
+period quantity. It does not infer price weights from delivery power or allocate
+a total from a unit/curve. Monthly payment records and side ranges remain
+independent. Retained intervals and allocations support replay without current
+clock regeneration; current authority and certified cutoffs still apply.
+
+Migration 0106 adds exact typed relationships and explicit version boundaries.
+Existing booked PV is not rewritten. Scheduled amendments stop before any retained
+fixing/payment is due; due-payment processing, interval-price settlement and
+implicit legacy upgrades remain unsupported. See [quantity contracts and numerical
+checks](financial-swap-quantities.md). Standalone physical delivery remains later scope.

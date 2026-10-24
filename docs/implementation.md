@@ -2864,3 +2864,33 @@ starts and explicit quantity states before reuse; multi-slot exact aggregation
 remains unchanged. Migration 0099 removes one duplicate complete authority
 evaluation from each existing-close worker context check without caching
 authority or changing timeout/lease limits.
+
+
+### Swap ticket economics and private reference intake
+
+The persisted swap ticket describes its total notional per independent side
+period, exposes compatible quantity references before projection selection, and
+keeps fixed-side delivery dates independent of floating coverage. Entry separates
+delivery, quantity, pricing, observations and payment rules while retaining the
+common trade/party section, entry templates, qualified index conventions and
+custom projection authoring.
+
+Agreed and par fixed pricing are explicit. A missing agreed price fails;
+calculation precision is required only for par. Managed review rows expose
+resolved allocated quantity, signed trade cash, payment date, discount factor and
+trade PV. Price/state rows remain primary; normalized interval widgets and exact
+lineage remain expandable. Input/change events and asynchronous formatting cannot
+restore an invalidated confirmation. Incompatible quote bases clear price/spread
+amounts instead of reinterpreting them.
+
+Correction-following index reads keep the latest eligible final revision when a
+later preliminary correction exists. Exact saved snapshots and explicitly frozen
+pins are unchanged. Certified context visibility and the existing immutable
+observation correction chain supply retained result lineage.
+
+Private capture/import commands replay source bytes into existing inactive
+reference intake storage. Managed and database checks cover source identity,
+unknown native facts, exact quantities, idempotency and current authority.
+API, collection, scheduler and pilot-runtime startup reject trusted-importer
+membership. These commands do not activate imported contracts or qualify an
+installation's data rights or deployment.

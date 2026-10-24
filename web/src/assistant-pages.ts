@@ -145,7 +145,8 @@ export function stepLine(step:Step){
 
 const tooLong='This conversation is too long to continue. Start a new conversation.';
 const failures:Record<string,string>={limit_elapsed:'The answer ran out of time.',limit_tool_steps:'The answer used as many reads as this agent may make.',
-  limit_output_tokens:'The answer reached this agent’s length limit.',limit_input_tokens:tooLong,context_window_exceeded:tooLong,limit_input_unverifiable:tooLong,
+  limit_output_tokens:'The answer reached this agent’s length limit.',limit_input_tokens:tooLong,context_window_exceeded:tooLong,
+  limit_input_unverifiable:'The answer stopped because the provider’s token usage could not be verified. Ask an administrator to check the provider’s usage mapping.',
   access_changed:'The answer stopped because access to what it read changed.',tool_failed:'A read failed, so the answer could not finish.'};
 const cancellations:Record<string,string>={session_ended:'The answer stopped because your session changed.',
   access_changed:'The answer stopped because your grant to this agent ended.',agent_retired:'The answer stopped because the agent was retired.',

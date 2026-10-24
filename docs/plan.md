@@ -276,7 +276,9 @@ and inspected. Migration 0102 supplies normalized immutable authoring and shared
 atomic booking. The bounded version still has one payment per Side.
 Independent pricing windows, explicit zero weights, delivery blocks/events and
 contract-relative or paired observations require separately qualified versions.
-Fixing lifecycle events and persisted recurring payment strips remain work.
+Fixing lifecycle events remain work. D214 adds explicitly versioned recurring
+monthly financial-swap payments and quantity schedules; see
+[quantity contracts](financial-swap-quantities.md) for qualified bounds.
 Bounded physical and virtual PPA capabilities are documented below.
 Draft swap quote risk supports unresolved
 observations; final index fixings remain frozen inputs.
@@ -286,8 +288,8 @@ payment/delivery dates and DFs can differ. Side results retain normalized unit
 quantities, lookup terms/weights, prices/lineage, exact cash/PV and discount
 construction evidence.
 Instrument.PV only sums membership-signed side PVs under one full context; trade
-quantity scales afterward. Persisted recurring periods and fixing lifecycle events remain
-work; the browser inspector now exposes the actual valued payment and reset rows. Options retain explicit sibling references
+quantity scales afterward. D214 retains explicit recurring periods through a new
+scheduled contract. Fixing/payment lifecycle events remain work; the browser inspector now exposes the actual valued payment and reset rows. Options retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open and no option model is enabled.
 The D210 entry refinement places visual instrument cards between trade details
@@ -396,8 +398,10 @@ publication discipline below.
 Release migration order retains reference-intake storage as 0034, followed by
 durable jobs (0035) and Swarm infrastructure (0036). Pinned migration identities
 and independent executor authority are verified together (D141). The trusted
-reference capture/import runner and external source documents are outside this
-release; retained native facts remain non-executable until separately qualified.
+private managed reference capture/import commands replay retained source bytes
+into the existing inactive reference storage. External source documents and
+credentials remain outside the repository. Import does not activate trading,
+certify historical publication or replace exact execution-policy admission.
 
 The [bounded automation slice](automation.md) now implements durable UTC once/fixed-
 interval jobs, a separate .NET Worker Service, forced RLS/current identity checks,
@@ -939,6 +943,12 @@ authorization and retained-version boundaries.
 
 ## Milestone 5 — AI-operated application
 
+The bounded model-administration extension D213 adds explicit fixed/alias policy
+on immutable capability versions. Alias support keeps exact served-identifier
+checks and existing pricing, authorization and credential gates. It requires
+migration 0105 and matching application/UI assets; local synthetic checks do not
+qualify a hosted release or real-account availability.
+
 D211 adds the other four [provider adapters](provider-adapters.md), retaining
 per-vendor usage mappings, explicit continuation handling and the existing
 administration/worker gates. Real-provider task outcomes and hosted rollout
@@ -1115,6 +1125,12 @@ Acceptance:
   lifecycle and recovery for the actual implemented feature set.
 
 ## Later scope
+
+The [financial swap settlement sequence](swap-settlement.md) is now authorized
+through S1–S6 (D215), with bounded local implementation and executable gates
+recorded there. Futures margining and physical settlement remain later scope.
+Changed-contract bridge attribution and broader cash allocation also remain
+extensions; the implemented backend refuses unsupported comparisons/allocations.
 
 Extend only after the baseline contracts are demonstrated:
 

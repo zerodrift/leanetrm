@@ -24,6 +24,14 @@ def run_checks(url, query=None, manifest=None):
     priced=c.call('swaps/price',draft)
     a=Decimal(c.call('swaps/price',{**draft,'firstFloating':{**left,'spread':'0'},'floating':{**right,'spread':'0'}})['valuation']['presentValue'])
     assert Decimal(priced['valuation']['presentValue'])==a+10
+    cash_pv=Decimal(0)
+    for row in priced['valuation']['sides']:
+        for payment in row['payments']:
+            assert Decimal(payment['resolvedQuantity'])==100
+            assert Decimal(payment['tradeCashAmount'])==Decimal(payment['cashAmount'])*Decimal(row['coefficient'])*100
+            cash_pv+=Decimal(payment['tradePresentValue'])
+    assert cash_pv==Decimal(priced['valuation']['presentValue'])
+
     print('PASS swap composition: each floating spread contributes once after averaging',flush=True)
     wide=c.call('swaps/price',{**draft,'floating':{**right,'spread':'1001.003'}});assert Decimal(wide['valuation']['presentValue'])==Decimal('100090.3')
     body={k:v for k,v in draft.items() if k not in ('context','quantity')};body.update(context);body.update(trade_booking());body.update(quantity='100',bookId=catalog['books'][0]['id'],operationId=str(uuid4()))
@@ -94,7 +102,8 @@ def run_checks(url, query=None, manifest=None):
     print('PASS blotter prices: explicit extrema and arithmetic means match independent decimal oracles with unavailable values and quote partitions',flush=True)
     if query is not None:
         assert query("SELECT bool_and(NOT has_function_privilege('openetrm_runtime',p.oid,'EXECUTE')) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security' AND p.proname='retain_floating_swap_side';")=='t'
-        assert query("SELECT count(*) FROM pg_constraint WHERE conrelid='trading.swap_instruments'::regclass AND contype='f';")== '5'
+        # Five primitive relationships plus the two scheduled-side memberships.
+        assert query("SELECT count(*) FROM pg_constraint WHERE conrelid='trading.swap_instruments'::regclass AND contype='f';")== '7'
         print('PASS swap composition: private side-retention helper and exact-version side foreign keys',flush=True)
     if manifest is not None:check_custom_sides(c,context,query,manifest)
 

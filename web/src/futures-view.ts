@@ -472,8 +472,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The form a request came from is done with it once what it held was sent, or is kept by the retained request: it is never offered again, so that
   // the same request is not offered twice. A new trade has nothing but its form, so the panel it was in is closed with it. A request that was refused
   // for good is kept by nothing, and what the person entered is not dropped unasked, a booking's or an amendment's: its form stays to be corrected,
-  // and what was prepared for it is dropped, so that it is prepared again.
+  // and what was prepared for it is dropped, so that it is prepared again. A settlement command is neither: the settlement view it was sent from
+  // keeps what it shows and says what became of it.
   function done(command:RequestCommand){
+    if(command.path.startsWith('swaps/settlement/'))return;
     const swap=command.path.startsWith('swaps/'),amendment=command.path.endsWith('/amend');
     if(!pending.command){if(swap)swapEditor.unprepare();else if(amendment)editor.unprepare();return;}
     if(command.path==='futures/amend')editor.reset();
@@ -495,7 +497,11 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const amended=amendedPosition(command);
     // What was sent is no longer an edit: the read that follows closes the form without asking.
     done(command);
-    pending.clear();uncertain=false;store();await load();
+    pending.clear();uncertain=false;store();
+    // A settlement command reads the Blotter again as a live correction does: the panel, and the settlement view the command was
+    // sent from, stay, and that view reads its own state again.
+    if(command.path.startsWith('swaps/settlement/')){await load('directory',true);return;}
+    await load();
     await follow(amended,receipt);await followBooked(command,receipt);
   }
   // The position the panel shows of the trade an amendment was made to, if it shows it.
@@ -521,7 +527,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   get('futures-reconcile').onclick=()=>guarded(async()=>{
     if(!pending.command)throw Error('No retained booking to reconcile.');
     try{
-      const result=await api<Receipt>(pending.command.path.startsWith('swaps/')?'swaps/status':'futures/status',{operationId:pending.command.operationId});
+      const result=await api<Receipt>(pending.command.path.startsWith('swaps/settlement/')?'swaps/settlement/status':pending.command.path.startsWith('swaps/')?'swaps/status':'futures/status',{operationId:pending.command.operationId});
       if(!result.tradeId)throw Error('No committed outcome is visible yet. Retry the original request with the same identity.');
       const command=pending.command,amended=amendedPosition(command);
       pending.clear();uncertain=false;store();await load();

@@ -92,6 +92,19 @@ static class AdditionalProviderChecks
         }
         var mixed=Google().Replace("\"text\":\"Ready\"", "\"text\":\"Ready\",\"functionCall\":{\"name\":\"unoffered\",\"args\":{}}",StringComparison.Ordinal);
         Check((await Run(new Fake("google",mixed),Request("google")))[^1] is ModelFailed{Failure:ModelFailure.Transport},"mixed part cannot bypass tool validation");
+        var cacheBreakdown=Response("openai",true).Replace("\"cache_write_tokens\":10",
+            "\"cache_write_tokens\":10,\"cache_write_tokens_details\":{\"ttl_30m_tokens\":10,\"ttl_12h_tokens\":0}",StringComparison.Ordinal);
+        var cachedTool=(ModelCompleted)(await Run(new Fake("openai",cacheBreakdown),Request("openai")))[^1];
+        Check(cachedTool is {Stop:ModelStop.ToolUse,Usage.Status:UsageStatus.Recognized}
+            &&cachedTool.Usage.UncachedInput.Count==70&&cachedTool.Usage.CacheRead.Count==20
+            &&cachedTool.Usage.CacheWrite.Count==10&&cachedTool.Usage.Output.Count==10,"supported cache lifetime breakdown retains disjoint usage and tool continuation");
+        foreach(var details in new[]{"null","[]","{}","{\"ttl_30m_tokens\":10}",
+            "{\"ttl_30m_tokens\":9,\"ttl_12h_tokens\":0}","{\"ttl_30m_tokens\":9,\"ttl_12h_tokens\":1}",
+            "{\"ttl_30m_tokens\":10,\"ttl_12h_tokens\":-1}","{\"ttl_30m_tokens\":10,\"ttl_12h_tokens\":0,\"new_lifetime\":1}"})
+        {
+            var invalid=Response("openai").Replace("\"cache_write_tokens\":10","\"cache_write_tokens\":10,\"cache_write_tokens_details\":"+details,StringComparison.Ordinal);
+            Check((await Run(new Fake("openai",invalid),Request("openai")))[^1] is ModelCompleted{Usage.Status:UsageStatus.Unrecognized},"unsupported or malformed cache lifetimes are not priced");
+        }
         var interim=Event("message",new{modelVersion=Model,usageMetadata=new{promptTokenCount=-1}})+Google();
         Check((await Run(new Fake("google",interim),Request("google")))[^1] is ModelCompleted{Usage.Status:UsageStatus.Unrecognized},"invalid interim counter stays unrecognized");
         var switched=Response("openai");

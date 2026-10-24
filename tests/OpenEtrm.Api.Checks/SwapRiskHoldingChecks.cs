@@ -114,7 +114,7 @@ internal static class SwapRiskHoldingChecks
                 var row=expected.Single(e=>e.Id("tradeId")==holding.Row.Id("trade_id"));
                 return holding.Instrument.Id==row.Id("instrumentId")&&holding.Quantity.Amount.ToString()==row.Text("quantity")&&
                     holding.Instrument.UnitQuantity.Amount.ToString()=="1"&&holding.Row.Text("revision")==row.Text("revision")&&
-                    holding.Instrument.Currency.Revision==data.ReferenceRevision&&holding.Instrument.Floating.PricingBinding.Projections.All(p=>p.Market.Curve.Revision==data.DefinitionRevision);
+                    holding.Instrument.Currency.Revision==data.ReferenceRevision&&holding.Instrument is FinancialSwapInstrument primitive&&primitive.Floating.PricingBinding.Projections.All(p=>p.Market.Curve.Revision==data.DefinitionRevision);
             }));
             var shared=holdings.Where(h=>h.Instrument.Id==request.Id("sharedInstrumentId")).ToArray();
             Check("two stored trades reuse the same unit instrument and run-local payment provider",shared.Length==2&&ReferenceEquals(shared[0].Instrument,shared[1].Instrument)&&ReferenceEquals(shared[0].Discounting,shared[1].Discounting));
@@ -126,12 +126,13 @@ internal static class SwapRiskHoldingChecks
                 var market=data.Model.Build(frozen,holding.Instrument.Dependencies);
                 var value=holding.Instrument.PV(new SideValuationContext(market,holding.Discounting)).PresentValue.Scale(holding.Quantity.Amount).ToMoney();
                 Check("stored projection/payment terms reproduce the separate editor PV for "+expectedRow.Text("label"),value.Amount.ToString()==expectedRow.Text("presentValue"));
-                var ids=holding.Instrument.Floating.GenerateSchedule().Payments.SelectMany(p=>p.Prices).Select(p=>p.Lookup!.Contract.Key.Id);
+                var primitive=holding.Instrument as FinancialSwapInstrument??throw new Exception("This stored fixture requires ordinary swaps.");
+                var ids=primitive.Floating.GenerateSchedule().Payments.SelectMany(p=>p.Prices).Select(p=>p.Lookup!.Contract.Key.Id);
                 Check("exact dated projections match retained editor evidence for "+expectedRow.Text("label"),ids.SequenceEqual(expectedRow.GetProperty("projectionIds").EnumerateArray().Select(id=>id.GetGuid())));
             }
             var discounted=(CurrencyDefaultDiscounting)shared[0].Discounting;
             Check("independent payment dates retain distinct currency-default factors",discounted.Inputs.Values.Select(p=>p.PaymentDate).Distinct().Count()==2&&discounted.Inputs.Values.Select(p=>p.Factor).Distinct().Count()==2);
-            var undiscounted=holdings.Single(h=>!h.Instrument.Discounting);
+            var undiscounted=holdings.Single(h=>h.Instrument is FinancialSwapInstrument{Discounting:false});
             Check("the immutable undiscounted instrument remains separate and consumes no rate factors",undiscounted.Instrument.Id!=shared[0].Instrument.Id&&
                 ((CurrencyDefaultDiscounting)undiscounted.Discounting).Inputs.Values.All(p=>!p.Enabled&&p.Factor==ExactDecimal.Parse("1")&&p.Observations.IsEmpty));
             try{await store.ReadRiskHoldings(connection,data,frame,[request.Id("unsupportedBookId")],excluded:[],ct,supplemental:[]);throw new Exception("A supplemental model was silently loaded.");}

@@ -34,7 +34,14 @@ public sealed record EditModelRequest(Guid OperationId,Guid ModelId,int? Expecte
     string[]? ReasoningEfforts,string? ReasoningSource,string? ReasoningCheckedOn,
     string? IdentifierStabilitySource,string? IdentifierStabilityCheckedOn,
     string[]? AcceptedServed,string? AcceptedServedSource,string? AcceptedServedCheckedOn,
-    string? ToolsSource,string? ToolsCheckedOn,string? StreamingSource,string? StreamingCheckedOn);
+    string? ToolsSource,string? ToolsCheckedOn,string? StreamingSource,string? StreamingCheckedOn)
+{
+    string? identifierPolicy;
+    // An omitted member is the original fixed-only command, including retained retries.
+    // An explicit null is invalid, rather than an instruction to use that legacy contract.
+    public string? IdentifierPolicy {get=>identifierPolicy;init{identifierPolicy=value;HasIdentifierPolicy=true;}}
+    internal bool HasIdentifierPolicy {get;private set;}
+}
 // Enable and Disable name only the model and the version the administrator saw.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ModelCommandRequest(Guid OperationId,Guid ModelId,int? ExpectedVersion);
@@ -105,13 +112,16 @@ public sealed partial class ModelCatalog
                 AcceptedServed:{} served,AcceptedServedSource:{} servedSource,AcceptedServedCheckedOn:{} servedOn,
                 ToolsSource:{} toolsSource,ToolsCheckedOn:{} toolsOn,StreamingSource:{} streamingSource,StreamingCheckedOn:{} streamingOn}
             ||operation==Guid.Empty||model==Guid.Empty||limit is <int.MinValue or >int.MaxValue||efforts.Concat(served).Any(t=>t is null)
+            ||body.HasIdentifierPolicy&&body.IdentifierPolicy is not ("fixed" or "alias")
             ||new[]{limitSource,reasoningSource,stableSource,servedSource,toolsSource,streamingSource}.Concat(efforts).Any(t=>t.Contains('\0')))
             throw Input();
         if(served.Any(identifier=>identifier.Contains('\0')))throw Refused("model_identifier_invalid");
-        return ModelProviders.Read(connection,"SELECT assistant.edit_model($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)::text",
-            [operation,model,expected,(int)limit,limitSource,ModelProviders.Date(limitOn),efforts,reasoningSource,ModelProviders.Date(reasoningOn),
+        object[] arguments=[operation,model,expected,(int)limit,limitSource,ModelProviders.Date(limitOn),efforts,reasoningSource,ModelProviders.Date(reasoningOn),
                 stableSource,ModelProviders.Date(stableOn),served,servedSource,ModelProviders.Date(servedOn),
-                toolsSource,ModelProviders.Date(toolsOn),streamingSource,ModelProviders.Date(streamingOn)],ct);
+                toolsSource,ModelProviders.Date(toolsOn),streamingSource,ModelProviders.Date(streamingOn)];
+        var policyArgument=body.HasIdentifierPolicy?",$19::text":"";
+        return ModelProviders.Read(connection,$"SELECT assistant.edit_model($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18{policyArgument})::text",
+            body.HasIdentifierPolicy?[..arguments,body.IdentifierPolicy!]:arguments,ct);
     }
 
     public Task<JsonElement> EnableModel(NpgsqlConnection connection,ModelCommandRequest body,CancellationToken ct)=>

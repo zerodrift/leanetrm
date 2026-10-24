@@ -171,6 +171,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#ai-model-enable');
   await check('Enable refuses a model without capabilities, retains nothing and keeps focus on Enable',`${shown}.includes('capabilities are recorded')&&document.querySelector('#ai-models-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.ai.models.request.'))&&document.activeElement===document.querySelector('#ai-model-enable')`);
   await set('#ai-capability-limit','64000');
+  await evaluate("document.querySelector('input[name=ai-identifier-policy][value=fixed]').checked=true");
   await evaluate("for(const effort of ['low','high'])[...document.querySelectorAll('#ai-capability-efforts input')].find(i=>i.value===effort).checked=true");
   for(const fact of ['outputLimit','reasoning','identifierStability','acceptedServed','tools','streaming']){await set('#ai-source-'+fact,'https://example.invalid/browser/'+fact);await set('#ai-checked-'+fact,'2026-10-01');}
   await submit('#ai-capability-form');

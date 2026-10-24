@@ -414,7 +414,13 @@ qualification remains open.
   thinking. It sends no speed, which some models accept only with a beta header; fast
   mode is an opt-in, and a reported fast speed makes usage `usage_unrecognized`. A
   model that rejects one of the parameters sent cannot pass Test.
-- A model is allowed only by an identifier its vendor documents as not repointed. A
+- A model capability version explicitly selects `fixed`, whose sourced identifier
+  is documented as not repointed, or `alias`, approving the provider's alias policy
+  (D213). Existing versions and legacy commands retain the fixed-only contract.
+  Either policy accepts only the requested name and its explicit served list; an
+  unlisted snapshot is not automatically approved. A returned alias does not prove
+  which underlying weights ran. Calls retain the requested identity, capability
+  and price versions and actual reported identifier. A
   served identifier that is neither requested nor accepted is checked at the first
   event that names it, so nothing it wrote is published. Its usage is
   `usage_unrecognized`, storing no cost, and the turn fails with `model_mismatch`.
@@ -796,7 +802,9 @@ The tool set is fixed; each tool is switched on per agent version.
 - The input limit is checked before each attempt against input that earlier attempts
   reported; nothing is estimated, so the crossing attempt completes and is billed. An
   earlier unknown or unrecognized input ends the turn with `limit_input_unverifiable`
-  before the next tool-loop call. Input is known zero only for a transport failure
+  before the next tool-loop call. The panel identifies this as a provider usage
+  verification failure, not a conversation-length limit or a request to start over.
+  Input is known zero only for a transport failure
   before any byte was sent or a not-billed error status before any stream event.
 - **Runtime set**: versioned, shipped with the application, recorded on each turn,
   never host configuration. Workspace concurrency; agent pool sizes; retry backoff;

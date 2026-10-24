@@ -8,13 +8,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await persona('trader');await click('#example');await click('#nav-futures');
  const change=async(selector,value)=>{await set(selector,value);await wait(idle);};
  const last=path=>`window.observationCalls.filter(row=>row.path==='/api/${path}').at(-1)`;
- async function start(selectIndex=true,type='financial_fixed_floating'){await newTrade({click,wait},'swaps');await click(`[data-swap-type="${type}"]`);await wait(idle);
+ async function start(selectIndex=true,type='financial_fixed_floating'){await newTrade({click,wait},'swaps');await click(`[data-swap-type="${type}"]`);await wait(idle);if(type==='financial_fixed_floating')await change('#swap-price-mode','agreed');
   const index=await evaluate(`${last('swaps/catalog')}.data.indices.find(index=>index.curve==='daily_gas')`);
   await change('#swap-commodity',index.commodity);if(selectIndex)await change('#swap-index',index.index);return index;
  }
  async function fillTerms(index,dateSide='floating'){
   await change(`#swap-${dateSide}-from`,'2021-01-01');await change(`#swap-${dateSide}-to`,'2021-02-01');
-  if(dateSide==='fixed')await check('fixed-side entry refreshes the floating plan after initializing its empty delivery dates',"document.querySelector('#swap-floating-from').value==='2021-01-01'&&document.querySelector('#swap-floating-to').value==='2021-02-01'&&document.querySelectorAll('#swap-observation-quantities input').length===31");
+  if(dateSide==='fixed')await check('fixed-side delivery entry preserves the independent floating dates',"!document.querySelector('#swap-floating-from').value&&!document.querySelector('#swap-floating-to').value");
+  const other=dateSide==='fixed'?'floating':'fixed';await change(`#swap-${other}-from`,'2021-01-01');await change(`#swap-${other}-to`,'2021-02-01');
   await change('#swap-floating-currency',index.currencyCode);await change('#swap-direction','-1');await change('#swap-quantity','100');await change('#swap-price','3');await change('#swap-discounting','none');await change('#swap-price-source','ordinary');await change('#swap-spread','0');
   for(const side of ['fixed','floating']){await change(`#swap-${side}-payment-frequency`,'monthly');await change(`#swap-${side}-payment-rule`,'days_after_period_end');await change(`#swap-${side}-payment-number`,'18');await change(`#swap-${side}-day-basis`,'calendar_days');await change(`#swap-${side}-payment-adjustment`,'unadjusted');}
  }

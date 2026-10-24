@@ -253,6 +253,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         {
             await using var command=entry.Source.CreateCommand("""
 SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_role(current_user,$1,'MEMBER') AND NOT pg_has_role(current_user,$2,'MEMBER') AND NOT pg_has_role(current_user,'openetrm_security_owner','MEMBER') AND current_setting('track_commit_timestamp')='on'
+ AND NOT EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname='openetrm_reference_importer' AND pg_has_role(current_user,r.oid,'MEMBER'))
  AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,c.relowner,'MEMBER'))
  AND NOT EXISTS(SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,n.nspowner,'MEMBER'))
  AND NOT EXISTS(SELECT 1 FROM pg_database d WHERE d.datname=current_database() AND pg_has_role(current_user,d.datdba,'MEMBER')) FROM pg_roles WHERE rolname=current_user
@@ -710,8 +711,11 @@ public sealed class PreviewData
         {
             if(!frame.FrozenObservationIds.IsDefault&&frame.FrozenObservationIds.Contains(id))return id;
             var current=Observation(id);
+            var indexFixing=current.Text("role")=="index_fixing";
+            Guid? eligibleFinal=null;
             while(true){var successors=correctionRows[current.Id("id")].ToArray();
-                if(successors.Length==0)return current.Id("id");
+                if(indexFixing&&current.Text("publication_state")=="final"&&current.Instant("observed_at")<=frame.At)eligibleFinal=current.Id("id");
+                if(successors.Length==0)return eligibleFinal??current.Id("id");
                 if(successors.Length!=1)throw new MarketDataException("revision_conflict","An observation has conflicting successors.");
                 current=successors[0];}
         }).ToImmutableArray();

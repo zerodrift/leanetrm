@@ -24,7 +24,7 @@ public sealed record SwapFloatingInput(string? Curve,string? Index,string? Curre
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapWriteRequest(Guid SnapshotId,string? Convention,string? KnowledgeMode,Guid OperationId,Guid BookId,string? ExecutedAt,
  string? Quantity,string? FixedCoefficient,bool? Discounting,SwapFixedInput? Fixed,SwapFloatingInput? Floating,
- Guid? TradeId=null,int? ExpectedRevision=null,string? EffectiveAt=null,string? Reason=null,Guid DefinitionRevisionId=default,string? Commodity=null,Guid? TraderId=null,int? TraderRevision=null,string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null,SwapFloatingInput? FirstFloating=null,string? SwapType=null,string? FirstCoefficient=null);
+ Guid? TradeId=null,int? ExpectedRevision=null,string? EffectiveAt=null,string? Reason=null,Guid DefinitionRevisionId=default,string? Commodity=null,Guid? TraderId=null,int? TraderRevision=null,string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null,SwapFloatingInput? FirstFloating=null,string? SwapType=null,string? FirstCoefficient=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]SwapScheduledInput? Scheduled=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapEditorRequest(FuturesReadRequest Context,Guid TradeId,int? Revision);
 
@@ -114,6 +114,15 @@ public sealed partial class SwapStore(PreviewDatabase database)
    floating=floating.WithCustomProjection(new(custom.CatalogId,custom.CurveId,custom.Version,custom.OutputNode,custom.Position,custom.Selection,custom.Implementation));
   return floating;
  }
+ private FixedSide ResolveFixed(PreviewData data,SwapFixedInput input,QuoteSpecification quote,Guid? id)
+ {
+  if(input.Currency!=quote.Currency.Code)throw Error("swap_definition","The fixed currency must match the exact floating quote.");
+  var price=new UnitPrice(ExactDecimal.Parse(Required(input.Price)),PriceUnit.FromQuote(quote));
+  var quantity=new Quantity(ExactDecimal.Parse("1"),quote.Quantity);
+  return input.PaymentSchedule is {} rule?
+   new(id??Guid.NewGuid(),price,quantity,Date(input.DeliveryFrom),Date(input.DeliveryTo),Payment(data,rule),FixedSide.Implementation,quote):
+   new(id??Guid.NewGuid(),price,quantity,Date(input.DeliveryFrom),Date(input.DeliveryTo),SchedulePreview.ParseAt(input.PaymentAt),FixedSide.Implementation,quote);
+ }
  private (FinancialSwapInstrument Instrument,Quantity Quantity) Resolve(PreviewData data,SwapWriteRequest body,Guid? instrumentId=null,Guid? fixedId=null,Guid? floatingId=null)
  {
   RequireSideKinds(body);
@@ -125,12 +134,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   if(body.FirstFloating is {} firstFloating)first=ResolveFloating(data,firstFloating,body.Commodity,fixedId);
   else
   {
-   var a=body.Fixed!;var quote=floating.Quote;
-   if(a.Currency!=quote.Currency.Code)throw Error("swap_definition","The fixed currency must match the exact floating quote.");
-   var price=new UnitPrice(ExactDecimal.Parse(Required(a.Price)),PriceUnit.FromQuote(quote));
-   first=a.PaymentSchedule is {} rule?
-    new FixedSide(fixedId??Guid.NewGuid(),price,floating.UnitQuantity,Date(a.DeliveryFrom),Date(a.DeliveryTo),Payment(data,rule),FixedSide.Implementation,quote):
-    new FixedSide(fixedId??Guid.NewGuid(),price,floating.UnitQuantity,Date(a.DeliveryFrom),Date(a.DeliveryTo),SchedulePreview.ParseAt(a.PaymentAt),FixedSide.Implementation,quote);
+   first=ResolveFixed(data,body.Fixed!,floating.Quote,fixedId);
   }
   var coefficient=ExactDecimal.Parse(Coefficient(body));
   var instrument=new FinancialSwapInstrument(instrumentId??Guid.NewGuid(),[new(first,coefficient),new(floating,ExactDecimal.Parse("0")-coefficient)],Convention,body.Discounting.Value);
@@ -166,19 +170,27 @@ public sealed partial class SwapStore(PreviewDatabase database)
  private static FinancialSwapValue Scale(FinancialSwapEvaluation value,SwapWriteRequest terms)=>
   value.Scale(new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),value.Instrument.UnitQuantity.Specification));
  private async Task<FinancialSwapValue> Price(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrumentId,Guid? fixedId,Guid? floatingId,CancellationToken ct)=>
-  Scale(await Evaluate(connection,data,frame,body,instrumentId,fixedId,floatingId,ct),body);
+  body.Scheduled is not null?await ScheduledPrice(connection,data,frame,body,instrumentId,ct):Scale(await Evaluate(connection,data,frame,body,instrumentId,fixedId,floatingId,ct),body);
+ private static string QuantityText(ExactQuantity value)
+ {
+  try{return value.ToQuantity().Amount.ToString();}
+  catch(MarketDataException error)when(error.Code is "precision_loss" or "numeric_range"){return value.Numerator+"/"+value.Denominator;}
+ }
  private static object Value(FinancialSwapValue value)=>Value(value.Instrument,value.Sides,value.Quantity,Exact(value.ExactPresentValue),value.NumericalPolicy);
  private static object DraftValue(FinancialSwapEvaluation value,Quantity quantity)=>Value(value.Instrument,value.Sides,quantity,Exact(value.Instrument.PresentValue.Scale(quantity.Amount)),DealRisk.NumericalPolicy);
  private static object Value(InstrumentValuation instrument,ImmutableArray<DiscountedSideValuation> sides,Quantity quantity,string presentValue,string numericalPolicy)=>new{
-  presentValue=presentValue,currency=instrument.Currency,quantity=quantity.Amount.ToString(),
+  presentValue=presentValue,currency=instrument.Currency,quantity=quantity.Amount.ToString(),quantityApplication=instrument.Sides.Any(s=>s.Value.Schedule.Implementation==ScheduledSwapSide.Implementation)?ScheduledPriceApplication:"total_per_side_delivery_period_v1",
   instrumentPresentValue=Exact(instrument.PresentValue),numericalPolicy=numericalPolicy,instrument.CurveNumericalPolicy,instrument.ScenarioId,
   snapshotId=instrument.Snapshot.Id,definitions=instrument.Snapshot.Definitions,asOf=instrument.Snapshot.ValuationAt,marketCutoff=instrument.Snapshot.MarketCutoff,
   marketInputs=instrument.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,s.Observation.Source,s.Observation.Role,s.Observation.ObservedAt,value=s.Observation.Value.ToString()}),
-  sides=sides.Select(s=>new{sideId=s.Contribution.SideId,kind=s.Contribution.Value.Schedule.Implementation==FixedSide.Implementation?"fixed":"floating",
-   coefficient=s.Contribution.Coefficient.ToString(),presentValue=Exact(s.Contribution.Value.PresentValue),contribution=Exact(s.Contribution.Contribution),
+  sides=sides.Select(s=>new{sideId=s.Contribution.SideId,kind=s.Contribution.Value is PaymentSideValuation pv&&pv.Payments.All(p=>p.Prices.All(r=>r.Term.FixedPrice is not null))?"fixed":"floating",
+   coefficient=s.Contribution.Coefficient.ToString(),quantityRatio=new{numerator=s.Contribution.QuantityRatio.Numerator.ToString(CultureInfo.InvariantCulture),denominator=s.Contribution.QuantityRatio.Denominator.ToString(CultureInfo.InvariantCulture)},presentValue=Exact(s.Contribution.Value.PresentValue),contribution=Exact(s.Contribution.Contribution),
    slot=instrument.Sides.IndexOf(s.Contribution),implementation=s.Contribution.Value.Schedule.Implementation,payments=s.Payments.Select(p=>new{
     ordinal=p.Cashflow.Plan.Key.Ordinal,deliveryFrom=Date(p.Cashflow.Plan.DeliveryFrom),deliveryTo=Date(p.Cashflow.Plan.DeliveryTo),paymentAt=p.Cashflow.Plan.PaymentAt,paymentDate=Date(p.Cashflow.Plan.PaymentDate),generatedDate=p.Cashflow.Plan.GeneratedDate,
     paymentConvention=p.Cashflow.Plan.PaymentConvention is {} rule?new{implementation=PaymentRule.Implementation,rule.Frequency,rule.Rule,rule.Days,rule.DayOfMonth,rule.DayBasis,rule.ShortMonthPolicy,rule.Adjustment,calendar=rule.Calendar?.Key,calendarFrom=rule.Calendar?.BusinessDays.From,calendarTo=rule.Calendar?.BusinessDays.To}:null,
+    resolvedQuantity=QuantityText(p.Cashflow.Plan.AllocatedQuantity.Scale(s.Contribution.QuantityRatio).Scale(quantity.Amount)),
+    tradeCashAmount=Exact(p.Cashflow.CashAmount.Scale(s.Contribution.QuantityRatio).Scale(s.Contribution.Coefficient).Scale(quantity.Amount)),
+    tradePresentValue=Exact(p.Cashflow.PresentValue.Scale(s.Contribution.QuantityRatio).Scale(s.Contribution.Coefficient).Scale(quantity.Amount)),
     cashAmount=Exact(p.Cashflow.CashAmount),discountFactor=p.Discount.Factor.ToString(),presentValue=Exact(p.Cashflow.PresentValue),
     discountMappingId=p.Discount.MappingId,discountCurve=p.Discount.Curve,discountPolicy=p.Discount.InterpolationPolicy,pillars=p.Discount.Pillars,
     observationSchedule=ObservationInspection(p.Cashflow),
@@ -187,18 +199,18 @@ public sealed partial class SwapStore(PreviewDatabase database)
      exactPrice=new{reset.Price.ExactPrice.Numerator,reset.Price.ExactPrice.Denominator},spread=reset.Price.Term.Spread?.Value.ToString(),
      currency=reset.Price.ExactPrice.Unit.Currency,quantity=reset.Price.ExactPrice.Unit.Quantity,multiplier=reset.Price.ExactPrice.Unit.Multiplier.ToString(),lookup=reset.Price.Term.Lookup,lineage=reset.Price.Lineage})})})};
  private static string ExactPrice(ExactUnitPrice price)=>price.ToExactString();
- // Pay or receive fixed, from the stored membership coefficient of the fixed side. A swap of two floating sides has no
- // fixed side to pay or receive.
- private static string Direction(FinancialSwapInstrument instrument)
+ // Pay or receive fixed, from the stored membership coefficient of the fixed side: the first side of a fixed/floating swap,
+ // whose periods are all fixed when it is scheduled. A swap of two floating sides has no fixed side to pay or receive.
+ private static string Direction(SidedInstrument instrument)
  {
-  if(instrument.First is not FixedSide)return "multi_side";
-  var coefficient=instrument.Sides[0].Coefficient;
-  return coefficient==ExactDecimal.Parse("-1")?"pay_fixed":coefficient==ExactDecimal.Parse("1")?"receive_fixed":
+  var first=instrument.Sides[0];
+  if(first.Side is not(FixedSide or ScheduledSwapSide{IsFixed:true}))return "multi_side";
+  return first.Coefficient==ExactDecimal.Parse("-1")?"pay_fixed":first.Coefficient==ExactDecimal.Parse("1")?"receive_fixed":
    throw Error("swap_instrument","The fixed side's coefficient is neither pay (-1) nor receive (1).");
  }
- // The mark less the fixed price, exactly. A swap without a fixed side or without one mark states none.
- private static string? MarkMinusPrice(FinancialSwapInstrument instrument,ExactUnitPrice? mark)=>
-  mark is not null&&instrument.First is FixedSide fixedSide?ExactPrice(mark.Subtract(ExactUnitPrice.FromPrice(fixedSide.Price))):null;
+ // The mark less the fixed price, exactly. A swap without one fixed price or without one mark states none.
+ private static string? MarkMinusPrice(SidedInstrument instrument,ExactUnitPrice? mark)=>
+  mark is not null&&instrument.Sides[0].Side is FixedSide fixedSide?ExactPrice(mark.Subtract(ExactUnitPrice.FromPrice(fixedSide.Price))):null;
  public Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)=>Catalog(connection,data,frame,ct,null);
  private async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct,SwapWriteRequest? retained)
  {
@@ -216,7 +228,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    var samplings=SwapObservationCompatibility.SupportedSamplings(data,curve);
    // Retained terms remain inspectable without acquiring new-pricing eligibility.
    var retainedIndex=retained?.DefinitionRevisionId==data.DefinitionRevision.RevisionId&&
-    new[]{retained.Floating,retained.FirstFloating}.Any(side=>side?.Curve==curve.Text("code")&&side.Index==target.Text("index_a_code"));
+    new[]{retained.Floating,retained.FirstFloating}.Concat(retained.Scheduled is {} scheduled?new[]{scheduled.First,scheduled.Second}.SelectMany(s=>s.Periods).Select(p=>p.Floating):[]).Any(side=>side?.Curve==curve.Text("code")&&side.Index==target.Text("index_a_code"));
    if(samplings.IsEmpty&&!retainedIndex)continue;
    var ids=data.Definitions["curve_members"].Where(m=>m.Text("curve_code")==curve.Text("code")).Select(m=>m.Id("contract_id")).ToHashSet();
    var contracts=data.Contracts.Where(c=>ids.Contains(c.Key.Id)&&c.Kind==ContractKind.Forward&&c.DeliveryFrom.Day==1&&c.DeliveryFrom.Year<9999&&c.DeliveryFrom.AddMonths(1)==c.DeliveryTo).GroupBy(c=>(c.DeliveryFrom,c.DeliveryTo)).Where(g=>g.Count()==1&&(frame.At<g.Single().Expiry||FixingPublished(data,target.Text("index_a_code"),quote.Key,g.Single(),frame.At))).Select(g=>g.Single()).OrderBy(c=>c.DeliveryFrom).ToArray();
@@ -235,7 +247,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
      new[]{new{resetFrequency="monthly",averagingMethod="none"}}:new[]{new{resetFrequency="daily",averagingMethod="arithmetic"}}}).ToArray(),definitionRevisionId=data.DefinitionRevision.RevisionId,curve=curve.Text("code"),index=target.Text("index_a_code"),commodity=curve.Text("commodity_code"),currencyCode=quote.Currency.Code,currency=currency.Text("display_code"),
     fixingConvention=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?IndexFixing.SupportedImplementation:null,
     fixingUnavailableReason=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?null:"This index has no qualified fixing schedule for the selected observations.",
-    quantityCode=quote.Quantity.Code,quantityChoices=DraftQuantities(data,quote.Quantity),unit=unit.Text("symbol"),quoteMultiplier=quote.Multiplier.ToString(),minimumPrice=quote.Minimum.ToString(),maximumPrice=quote.Maximum.ToString(),
+    quantityCode=quote.Quantity.Code,powerQuantitySupported=quantity.Text("unit_code")=="megawatt_hour"&&quantity.Text("dimension_code")=="energy",quantityChoices=DraftQuantities(data,quote.Quantity),unit=unit.Text("symbol"),quoteMultiplier=quote.Multiplier.ToString(),minimumPrice=quote.Minimum.ToString(),maximumPrice=quote.Maximum.ToString(),
     samplings,
    defaultDiscountCurve=mapping?.Definition.Key.Code,averaging=samplings.Select(s=>s.Averaging switch{FloatingAveraging.MonthlyIndexPrice=>"monthly_index_price",FloatingAveraging.CalendarDayArithmetic=>"calendar_day_arithmetic",_=>s.AveragingMethod}),
     contracts=contracts.Select(c=>new{deliveryFrom=Date(c.DeliveryFrom),deliveryTo=Date(c.DeliveryTo)}).Concat(dailyCandidates.Select(from=>new{deliveryFrom=Date(from),deliveryTo=Date(from.AddMonths(1))})).Distinct()});
@@ -244,6 +256,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
   return new{books=await new FuturesStore(manifest).Books(connection,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,
    commodities=data.References["commodities"].Select(c=>new{code=c.Text("code"),name=c.Text("name"),reference=R(c.Text("code"))}),
    paymentCalendars=data.References["calendars"].Select(c=>new{code=c.Text("code"),reference=R(c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")}),
+   scheduledOptions=new{implementation=ScheduledFinancialSwap.Implementation,priceApplication=ScheduledPriceApplication,maximumPeriods=120,
+    powerQuantities=data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power").Select(q=>new{specification=new ReferenceKey(data.ReferenceRevision,q.Text("code")),unit="MW",commodity=q.Text("commodity_code")}),
+    clocks=data.References["clock_rules"].Select(c=>new{reference=new ReferenceKey(data.ReferenceRevision,c.Text("code")),label=c.OptionalText("iana_zone")??c.Text("code")})},
    parRateOptions=new{implementation=FinancialSwapValuation.ParRatePolicy,initialDecimalPlaces=6,tieRule="to_even"},entryTemplate=SwapPaymentOptions.EntryTemplate,paymentOptions=SwapPaymentOptions.Catalog,convention=Convention};
  }
  private static SwapPaymentInput? StoredPayment(JsonElement row,string key)
@@ -256,6 +271,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
   SELECT row_to_json(v)::text FROM(
    SELECT r.*,facts.booker_id,facts.booker_version,facts.booker_name,facts.booker_login,facts.executed_at AS booked_at,facts.trade_date AS booking_date,facts.implementation AS booking_implementation,facts.label_captured_at AS booker_label_captured_at,le.code AS legal_entity_code,le.name AS legal_entity_name,cp.code AS counterparty_code,cp.name AS counterparty_name,trdr.code AS trader_code,trdr.name AS trader_name,tr.reference_number AS trade_reference,ir.reference_number AS instrument_reference,k.known_from AS recorded_at,
     coalesce(i.fixed_side_id,i.first_floating_side_id) AS fixed_side_id,i.first_floating_side_id,i.floating_side_id,i.fixed_coefficient,i.discounting,i.implementation,
+    i.scheduled_first_id,i.scheduled_second_id,i.second_quantity_numerator,i.second_quantity_denominator,
+    CASE WHEN i.scheduled_first_id IS NULL THEN NULL ELSE trading.scheduled_swap_terms(r.catalog_id,r.trade_id,r.revision,i.instrument_id) END AS scheduled_data,
     f.fixed_price,f.delivery_from AS fixed_from,f.delivery_to AS fixed_to,f.payment_at AS fixed_payment,s.reference_catalog_id,s.reference_revision_id,s.spread AS floating_spread,
     (SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) AS projection_contracts,
     (SELECT array_agg(p.weight ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) AS projection_weights,
@@ -318,6 +335,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  private SwapWriteRequest Terms(PreviewData data,JsonElement row,Guid snapshot)
  {
+  if(row.OptionalId("scheduled_first_id") is not null)return ScheduledTerms(row,snapshot);
   var custom=row.GetProperty("custom_projection");
   var observation=row.GetProperty("observation_schedule");
   if(row.GetProperty("observation_schedule_id").ValueKind!=JsonValueKind.Null&&observation.ValueKind==JsonValueKind.Null)
@@ -368,10 +386,18 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var rows=await Rows(connection,tradeId,ct);if(rows.IsEmpty)throw Error("swap_trade","This trade is unavailable in the selected context.");
   var selected=revision??rows.Max(r=>int.Parse(r.Text("revision"),CultureInfo.InvariantCulture));
   var row=One(rows.Where(r=>r.Number("revision")==ExactDecimal.Parse(selected.ToString(CultureInfo.InvariantCulture))));
+  var settlement=await SettlementState(connection,tradeId,ct);
+  if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
+  {
+   if(selected!=int.Parse(rows[^1].Text("revision"),CultureInfo.InvariantCulture))throw Error("settlement_revision","Select the effective trade head or its original certified historical context.");
+   var lifecycle=await EvaluateLifecycle(connection,data,frame,row,Terms(data,row,frame.Id),settlement,ct);
+   return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=(object?)null,
+    settlementValuation=LifecycleValue(lifecycle.Value),settlement,catalog=await Catalog(connection,data,frame,ct,Terms(data,row,frame.Id)),lifecycleEligible=false};
+  }
   var terms=Terms(data,row,frame.Id);var value=await Price(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
-  ValidateProjections(value,row);
-  return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=Value(value),catalog=await Catalog(connection,data,frame,ct,terms),
-   lifecycleEligible=frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
+  if(terms.Scheduled is null)ValidateProjections(value,row);
+  return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=Value(value),quantityInputs=terms.Scheduled is null?null:await RetainedQuantityInputs(connection,row,ct),catalog=await Catalog(connection,data,frame,ct,terms),
+   lifecycleEligible=terms.Scheduled is not null?ScheduledAmendmentEligible(ResolveScheduled((await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct)).Data,terms,row.Id("instrument_id")).Instrument,frame.At):frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
  }
  private static object? CanonicalFloating(SwapFloatingInput? side)=>side is null?null:new{
   curve=Required(side.Curve),index=Required(side.Index),currency=Required(side.Currency),from=Date(side.DeliveryFrom),to=Date(side.DeliveryTo),
@@ -393,6 +419,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  public async Task<object> Preview(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {
+  if(body.Scheduled is not null)return await PreviewScheduled(connection,data,frame,body,ct);
   body=await BookingTerms(connection,frame,body,ct);
   RequireWriteRules(data,body);
   await TradeAnnotations.Validate(connection,manifest.CatalogId,body.TraderId,body.TraderRevision,body.Memo,SchedulePreview.ParseAt(body.ExecutedAt),ct);
@@ -423,6 +450,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  public async Task<JsonElement> Save(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {
+  if(body.Scheduled is not null)return await SaveScheduled(connection,data,frame,body,ct);
   RequireSideKinds(body);
   if(body.FirstFloating is not null||body.Floating?.Spread is {} spread&&ExactDecimal.Parse(Required(spread))!=default)return await SaveComposed(connection,data,frame,body,ct);
   if(body.KnowledgeMode!="current"||body.OperationId==Guid.Empty||body.Discounting is null||body.Fixed is null||body.Floating is null)
@@ -446,9 +474,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
     var selected=One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));
     source=selected.Data;sourceFrame=selected.Frame;
    }
-   var fixings=Resolve(source,body).Instrument.Floating.Fixings.Select(f=>f.Series).ToHashSet();
-   actualPins=source.Snapshot(sourceFrame).Selections.Where(p=>p.Input.Use==InputUse.FrozenFact&&p.Observation.Role==ObservationRole.IndexFixing&&fixings.Contains(p.Input.Series))
-    .Select(p=>p.Observation.Key.Id).Order().ToArray();
+   actualPins=SideComponents.ActualFixingPins(source.Snapshot(sourceFrame),[Resolve(source,body).Instrument.Floating]).ToArray();
   }
   var arguments=new List<object>{manifest.CatalogId,body.OperationId,body.TradeId is {} trade?trade:DBNull.Value,body.ExpectedRevision is {} expected?expected:DBNull.Value,
    body.BookId,body.DefinitionRevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,Required(b.Curve),Required(b.Index),Required(a.Currency),Required(b.Currency),
@@ -479,7 +505,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
   await using var command=ScheduleStore.Command(connection,sql,arguments.ToArray());
   return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
  }
- private async Task ValidateBookingPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
+ private async Task ValidateBookingPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct) =>
+  _ = await WithBookingRead(connection,frame,(selected,pinned)=>Price(connection,selected,pinned,body,null,null,null,ct),ct);
+ private async Task<T> WithBookingRead<T>(NpgsqlConnection connection,InputFrame frame,Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct)
  {
   // Current-knowledge booking explicitly resolves a certified pricing view.
   // Its temporary read binding must not turn the ensuing write into a historical write.
@@ -493,7 +521,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
     await trading.ExecuteNonQueryAsync(ct);
    var pinned=frame with{ContextId=context.ContextId};
    var selected=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
-   await Price(connection,selected,pinned,body,null,null,null,ct);
+   return await read(selected,pinned);
   }
   finally
   {
@@ -521,42 +549,89 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var unvalued=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),string>();
   var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();
   var unvaluedRows=ImmutableArray.CreateBuilder<(JsonElement Row,string Reason)>();
+  // A scheduled swap, or one whose settlement lifecycle is under way, is valued for its own binding.
+  var bindingValuations=0;
   foreach(var row in rows)
   {
    var terms=Terms(data,row,frame.Id);var id=row.Id("instrument_id");
    var source=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?data:One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId)).Data;
-   if(!identities.TryGetValue(id,out var identity))
+   var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
+   SidedInstrument instrument;HeldValue held;
+   // D216: a position-specific failure leaves the position unvalued at the close, with that code; any other failure fails the read.
+   var settlement=await SettlementState(connection,row.Id("trade_id"),ct);
+   if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
    {
-    var resolved=Resolve(source,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id")).Instrument;
-    identity=((resolved.EconomicIdentity,resolved.PricingBindingIdentity,id),resolved);identities.Add(id,identity);
+    bindingValuations++;LifecycleEvaluation? lifecycle=null;string? reason=null;
+    try{lifecycle=await EvaluateLifecycle(connection,data,frame,row,terms,settlement,ct);}
+    catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
+    instrument=lifecycle?.Instrument??ResolveAny(source,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id")).Instrument;
+    held=lifecycle is null?new(null,null,reason,"Active",null):new(Exact(lifecycle.Value.RemainingValue),null,null,"Active",LifecycleValue(lifecycle.Value));
    }
-   var key=identity.Key;
-   // D216: a position-specific failure leaves the unit, and each position holding it, unvalued at the
-   // close; any other failure fails the read.
-   if(!values.ContainsKey(key)&&!unvalued.ContainsKey(key))
-    try{values.Add(key,await Evaluate(connection,data,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,markets));}
-    catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){unvalued.Add(key,error.Code);}
-   FinancialSwapValue? value=null;
-   if(values.TryGetValue(key,out var unitValue))
+   else if(terms.Scheduled is not null)
    {
-    if(unitValue.Instrument.InstrumentId!=id)throw Error("instrument_identity","Equivalent retained terms cannot silently replace an exact published instrument identity.");
-    value=Scale(unitValue,terms);ValidateProjections(value,row);
+    bindingValuations++;FinancialSwapValue? value=null;string? reason=null;
+    try{value=await ScheduledPrice(connection,data,frame,terms,id,ct);}
+    catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
+    instrument=ResolveScheduled(source,terms,id).Instrument;
+    held=value is null?new(null,null,reason,"Projection",null):new(Exact(value.ExactPresentValue),null,null,"Projection",null);
    }
-   else unvaluedRows.Add((row,unvalued[key]));
-   var instrument=identity.Instrument;var quantity=new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),instrument.UnitQuantity.Specification);
-   // A mark is the floating side's one reset price; an averaged side has several and so no mark.
-   var mark=value?.Sides[1].Payments[0].Cashflow.Prices is {Length:1} resets?resets[0].ExactPrice:null;
-   var currency=One(data.References["currencies"].Where(c=>c.Text("code")==instrument.Currency.Code));
-   var specification=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quantity.Specification.Code));
-   var unit=One(data.References["units"].Where(u=>u.Text("code")==specification.Text("unit_code")));var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
-   result.Add(Json(new{booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),traderId=row.Id("booker_id"),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentId=row.Id("instrument_id"),instrumentReference=TradingReference.Instrument(row),bindingId=row.Id("binding_id"),
-    revision=row.Text("revision"),bookId=row.Id("book_id"),book=book.Text("name"),portfolioId=book.Id("portfolio_id"),portfolio=book.Text("portfolio"),instrumentType="financial_swap",definitionRevisionId=row.Id("definition_revision_id"),
-    contractId=row.Id("instrument_id"),contractIdentityKind="swap_instrument",curve=row.Text("curve_code"),commodity=source.Commodity(row.Text("curve_code")),direction=Direction(instrument),deliveryFrom=row.Text("floating_from"),deliveryTo=row.Text("floating_to"),
-    quoteMultiplier=instrument.Floating.Quote.Multiplier.ToString(),lots=(string?)null,quantity=quantity.Amount.ToString(),unit=unit.Text("symbol"),quantitySpecification=quantity.Specification,currencyReference=instrument.Currency,
-    executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=row.OptionalText("fixed_price"),mark=mark is null?null:ExactPrice(mark),markMinusPrice=MarkMinusPrice(instrument,mark),executionPnl=(string?)null,
-    presentValue=value is null?null:Exact(value.ExactPresentValue),currency=currency.Text("display_code"),settlement="Projection",unavailableReason=unvalued.GetValueOrDefault(key)}));
+   else
+   {
+    if(!identities.TryGetValue(id,out var identity))
+    {
+     var resolved=Resolve(source,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id")).Instrument;
+     identity=((resolved.EconomicIdentity,resolved.PricingBindingIdentity,id),resolved);identities.Add(id,identity);
+    }
+    var key=identity.Key;instrument=identity.Instrument;
+    // A position-specific failure leaves the unit, and each position holding it, unvalued.
+    if(!values.ContainsKey(key)&&!unvalued.ContainsKey(key))
+     try{values.Add(key,await Evaluate(connection,data,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,markets));}
+     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){unvalued.Add(key,error.Code);}
+    if(values.TryGetValue(key,out var unitValue))
+    {
+     if(unitValue.Instrument.InstrumentId!=id)throw Error("instrument_identity","Equivalent retained terms cannot silently replace an exact published instrument identity.");
+     var value=Scale(unitValue,terms);ValidateProjections(value,row);
+     // A mark is the floating side's one reset price; an averaged side has several and so no mark.
+     held=new(Exact(value.ExactPresentValue),value.Sides[1].Payments[0].Cashflow.Prices is {Length:1} resets?resets[0].ExactPrice:null,null,"Projection",null);
+    }
+    else held=new(null,null,unvalued[key],"Projection",null);
+   }
+   var holding=HoldingRow(source,row,book,terms,instrument,held);
+   if(held.Reason is {} unvaluedReason)unvaluedRows.Add((row,unvaluedReason));
+   result.Add(holding);
   }
-  // Request-local work: each unique unit valuation attempted, whether or not the close could value it.
-  return new(result.ToArray(),values.Count+unvalued.Count,markets.IsEmpty?0:1,unvaluedRows.ToImmutable());
+  // Request-local work: each valuation attempted, whether or not the close could value it.
+  return new(result.ToArray(),values.Count+unvalued.Count+bindingValuations,markets.IsEmpty?0:1,unvaluedRows.ToImmutable());
+ }
+ // What a held swap's valuation at the close states: its value, its mark when it has one curve price, or the position-specific
+ // reason the close cannot value it; whether it is valued as a projection or by its settlement lifecycle, and that lifecycle's measures.
+ private sealed record HeldValue(string? PresentValue,ExactUnitPrice? Mark,string? Reason,string Settlement,object? Lifecycle);
+ // A held swap's Blotter row: its booked facts from its retained terms and resolved instrument, and what its valuation states.
+ // A scheduled swap states no single quantity or mark, a fixed price only when every fixed period shares it, its delivery as the
+ // envelope of its periods and, when its periods project from several curves, those markets together. A swap valued by its
+ // settlement lifecycle states no curve mark.
+ private JsonElement HoldingRow(PreviewData source,JsonElement row,JsonElement book,SwapWriteRequest terms,SidedInstrument instrument,HeldValue held)
+ {
+  var scheduled=terms.Scheduled;
+  var plans=instrument.Sides.SelectMany(s=>((SidePaymentSchedule)s.Side.GenerateSchedule()).Payments).ToArray();
+  var fixedPrices=((SidePaymentSchedule)instrument.Sides[0].Side.GenerateSchedule()).Payments.SelectMany(p=>p.Prices).Select(p=>p.FixedPrice).Distinct().ToArray();
+  var commonFixedPrice=fixedPrices.Length==1?fixedPrices[0]?.Value.ToString():null;
+  var projectionCurves=scheduled is null?null:new[]{scheduled.First,scheduled.Second}.SelectMany(s=>s.Periods).Select(p=>p.Floating?.Curve).OfType<string>().Distinct().Order(StringComparer.Ordinal).ToArray();
+  var marketKey=projectionCurves is {Length:>1}?JsonSerializer.Serialize(projectionCurves):null;
+  var marketLabel=marketKey is null?null:string.Join(" / ",projectionCurves!.Select(code=>One(source.Definitions["curves"].Where(c=>c.Text("code")==code)).Text("name")));
+  var quote=SideComponents.Floating(instrument.Sides[1].Side).First().Quote;
+  // A scheduled swap's binding holds its first side's canonical total, which is no single quantity of the trade.
+  var quantity=scheduled is null?new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),instrument.UnitQuantity.Specification).Amount.ToString():null;
+  var currency=One(source.References["currencies"].Where(c=>c.Text("code")==instrument.Currency.Code));
+  var specification=One(source.References["quantity_specifications"].Where(q=>q.Text("code")==instrument.UnitQuantity.Specification.Code));
+  var unit=One(source.References["units"].Where(u=>u.Text("code")==specification.Text("unit_code")));
+  return Json(new{booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),traderId=row.Id("booker_id"),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentId=row.Id("instrument_id"),instrumentReference=TradingReference.Instrument(row),bindingId=row.Id("binding_id"),
+   revision=row.Text("revision"),bookId=row.Id("book_id"),book=book.Text("name"),portfolioId=book.Id("portfolio_id"),portfolio=book.Text("portfolio"),instrumentType="financial_swap",definitionRevisionId=row.Id("definition_revision_id"),
+   contractId=row.Id("instrument_id"),contractIdentityKind=scheduled is null?"swap_instrument":"scheduled_swap_instrument",curve=row.Text("curve_code"),marketKey,marketLabel,projectionCurves,commodity=source.Commodity(row.Text("curve_code")),direction=Direction(instrument),
+   deliveryFrom=scheduled is null?row.Text("floating_from"):Date(plans.Min(p=>p.DeliveryFrom)),deliveryTo=scheduled is null?row.Text("floating_to"):Date(plans.Max(p=>p.DeliveryTo)),
+   quoteMultiplier=quote.Multiplier.ToString(),lots=(string?)null,quantity,unit=unit.Text("symbol"),quantitySpecification=instrument.UnitQuantity.Specification,currencyReference=instrument.Currency,
+   executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=scheduled is null?row.OptionalText("fixed_price"):commonFixedPrice,
+   mark=held.Mark is null?null:ExactPrice(held.Mark),markMinusPrice=MarkMinusPrice(instrument,held.Mark),executionPnl=(string?)null,
+   presentValue=held.PresentValue,currency=currency.Text("display_code"),settlement=held.Settlement,lifecycle=held.Lifecycle,unavailableReason=held.Reason});
  }
 }

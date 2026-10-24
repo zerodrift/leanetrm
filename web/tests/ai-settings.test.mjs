@@ -64,8 +64,15 @@ test('audit and schedule labels come only from known actions and revisions',()=>
 });
 
 const facts=['outputLimit','reasoning','identifierStability','acceptedServed','tools','streaming'];
-const capability=(changes={})=>({outputLimit:'64000',efforts:['low','high'],served:'',onlyOwn:true,
+const capability=(changes={})=>({identifierPolicy:'fixed',outputLimit:'64000',efforts:['low','high'],served:'',onlyOwn:true,
   sources:Object.fromEntries(facts.map(f=>[f,'https://example.invalid/'+f])),checkedOn:Object.fromEntries(facts.map(f=>[f,'2026-10-01'])),...changes});
+
+test('capabilities require an explicit fixed or alias identifier policy',()=>{
+  for(const identifierPolicy of ['fixed','alias'])
+    assert.equal(capabilityRequest(capability({identifierPolicy})).identifierPolicy,identifierPolicy);
+  for(const identifierPolicy of [undefined,null,'','any','ALIAS'])
+    assert.throws(()=>capabilityRequest(capability({identifierPolicy})),/identifier policy/);
+});
 
 test('a capability request names every fact with its source and date, exactly as entered',()=>{
   const request=capabilityRequest(capability());
@@ -73,7 +80,7 @@ test('a capability request names every fact with its source and date, exactly as
   assert.deepEqual(request.reasoningEfforts,['low','high']);
   assert.deepEqual(request.acceptedServed,[]);
   for(const f of facts){assert.equal(request[f+'Source'],'https://example.invalid/'+f);assert.equal(request[f+'CheckedOn'],'2026-10-01');}
-  assert.equal(Object.keys(request).length,3+2*facts.length);
+  assert.equal(Object.keys(request).length,4+2*facts.length);
   // Identifiers hold no spaces or commas, so either separates them; the server owns their form.
   assert.deepEqual(capabilityRequest(capability({onlyOwn:false,served:' model-a,\nmodel-b  model-a '})).acceptedServed,['model-a','model-b','model-a']);
   assert.equal(capabilityRequest(capability({sources:{...capability().sources,tools:' https://example.invalid/tools'}})).toolsSource,' https://example.invalid/tools');
@@ -120,12 +127,15 @@ test('the attestation statement names the key and terms version it binds, or say
 });
 
 test('capability rows show each fact with its value, source and checked date',()=>{
-  const sourced=Object.fromEntries(facts.flatMap(f=>[[f+'Source','https://example.invalid/'+f],[f+'CheckedOn','2026-10-01']]));
+  const sourced={identifierPolicy:'fixed',...Object.fromEntries(facts.flatMap(f=>[[f+'Source','https://example.invalid/'+f],[f+'CheckedOn','2026-10-01']]))};
   const rows=capabilityRows({outputLimit:64000,reasoningEfforts:['low','max'],acceptedServed:[],...sourced});
   assert.deepEqual(rows.map(r=>r.slice(0,2)),[['Output limit','64,000 tokens'],['Reasoning efforts','low, max'],['Identifier','Not repointed'],
     ['Served identifiers','Only its own'],['Tool calling','Confirmed'],['Streaming','Confirmed']]);
   assert.deepEqual(rows[3].slice(2),['https://example.invalid/acceptedServed','2026-10-01']);
   assert.equal(capabilityRows({outputLimit:1,reasoningEfforts:['low'],acceptedServed:['model-a','model-b'],...sourced})[3][1],'model-a, model-b');
+  assert.equal(capabilityRows({outputLimit:1,reasoningEfforts:['low'],acceptedServed:[],...sourced,identifierPolicy:'alias'})[2][1],'Provider alias approved');
+  for(const identifierPolicy of [undefined,null,'','unknown'])
+    assert.throws(()=>capabilityRows({outputLimit:1,reasoningEfforts:['low'],acceptedServed:[],...sourced,identifierPolicy}),/inconsistent/);
 });
 
 const reported=count=>({count,source:'reported'});

@@ -17,6 +17,14 @@ The utility selects no precision or financial policy and has no floating-point
 intermediate. Checks compare signed fractions with an independent decimal oracle
 and cover 300-digit half ties and unsupported inputs.
 
+## Exact positive ratios
+
+`Numerics.ExactRatio` reduces positive integer fractions, retains immutable
+numerators/denominators and bounds them to 4096 bits. It composes/adds ratios
+without decimal rounding. Unit conversion and independently normalized financial
+swap memberships share this utility. Financial owners supply units, conventions
+and structured domain errors; the utility chooses none.
+
 ## Temporal payloads
 
 | Type | Contract |

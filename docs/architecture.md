@@ -46,11 +46,22 @@ and cell drill-through remain work.
 Swap entry offers financial fixed/floating and floating/floating composition.
 Floating sides retain independent index fixings, explicit projection references,
 payment rules and fixed spreads; opposite coefficients express pay/receive.
-Blank fixed prices can be solved by Price under a selected par-rate precision
+The ticket explicitly chooses agreed fixed pricing or par calculation. Agreed
+pricing requires an entered price, including supported zero and negative values.
+Par calculation alone submits a blank draft price under a selected precision
 policy, reviewed as a concrete quote, then used unchanged by Risk and booking.
 This uses the connected valuation pipeline, including selected actual fixings,
 custom projections and discount inputs. Migration 0101 adds the persisted side
 relationships and generated/existing-close evidence without rewriting retained events.
+
+The scheduled financial swap version (D214) composes independent monthly side
+plans with explicit period quantities, calendar-day rates, declared contract-total
+allocation or integrated MW delivery intervals. Each SideSchedule supplies the
+quantity/payment records consumed by PV; exact rational membership size and one
+external binding preserve normalized pricing. Existing one-period economics stay
+versioned. See [financial swap quantities](financial-swap-quantities.md) for
+persistence, replay, supported combinations and lifecycle limits. Standalone
+physical gas/power is a separate delivery-obligation plan.
 
 Swap entry follows Trade → Instrument → Sides (D210). Visual instrument choices
 apply a visible, managed starting template to empty side controls; all submitted
@@ -59,6 +70,11 @@ and unit choices independently, within the current same-commodity swap model.
 New Trade also links to the existing PPA booking workflow.
 
 ## 1. Product purpose
+
+The authorized [financial swap settlement MVP](swap-settlement.md) (D215) builds
+trade-owned determinations, payments and reconciliation before futures margining
+or physical settlement. Its explicit policies apply only to enrolled swaps;
+pure instrument pricing and existing physical policy contracts remain separate.
 
 Build an ETRM that an AI can use as a complete application. People, internal
 agents and external agents operate through the same business capabilities.
@@ -1872,6 +1888,13 @@ and streamGenerateContent for five vendors (D211), with separately versioned usa
 mappings. Their synthetic qualification does not establish real-account/model
 availability. Credentials, account attestations and model enablement remain
 installation administration.
+
+Model capability versions distinguish fixed identifiers from explicitly approved
+provider aliases (D213). Both retain an exact allowed set of served identifiers;
+an alias approval does not change provider routing, capability facts or effective
+prices. Calls retain the requested identifier, capability/price versions and the
+reported served identifier. Reporting an alias does not prove an underlying
+snapshot or deterministic language-model output.
 
 The model-provider boundary normalizes messages, structured tool requests,
 streaming, cancellation, usage and error categories. Provider-specific SDK types

@@ -18,7 +18,7 @@ const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof
 function commodity(group:PivotGroup){const named=group.commodity as {code?:unknown;name?:unknown}|undefined;if(typeof named?.code!=='string'||typeof named.name!=='string')throw Error('A pivot group did not name its commodity.');return named as {code:string;name:string};}
 function identity(group:PivotGroup,dimension:string){return dimension==='instrumentType'?group.instrumentType:dimension==='market'?group.market:dimension==='commodity'?commodity(group).code:group[dimension+'Id'];}
 /** How a pivot group names its place on a dimension. */
-export function groupLabel(group:PivotGroup,dimension:string){return dimension==='contract'?deliveryLabel(String(group.deliveryFrom),String(group.deliveryTo)):dimension==='market'?curveName(group.market):dimension==='instrumentType'?friendly(String(group.instrumentType)):dimension==='commodity'?commodity(group).name:String(group[dimension]??'');}
+export function groupLabel(group:PivotGroup,dimension:string){return dimension==='contract'?deliveryLabel(String(group.deliveryFrom),String(group.deliveryTo)):dimension==='market'?String(group.marketLabel??curveName(group.market)):dimension==='instrumentType'?friendly(String(group.instrumentType)):dimension==='commodity'?commodity(group).name:String(group[dimension]??'');}
 export function pivotMatrix(groups:PivotGroup[],dimensions:string[],splitBy:string[],measures:string[]){
   if(!splitBy.length||!dimensions.some(d=>!splitBy.includes(d))||splitBy.some(d=>!dimensions.includes(d))||new Set(dimensions).size!==dimensions.length)throw Error('Choose separate row and column dimensions.');
   const rowsBy=dimensions.filter(d=>!splitBy.includes(d));

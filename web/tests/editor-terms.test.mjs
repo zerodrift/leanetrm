@@ -233,9 +233,9 @@ test('a swap\'s own revision must hold the position\'s instrument, and an earlie
 });
 
 // The words above a swap's schedules are the same wherever they are drawn, in the form of an amendment and in the read view of its terms.
-test('a swap\'s valuation line and each side\'s line state the amounts the caller formats, in the currency and unit of the index they are priced from',()=>{
+test('a swap\'s valuation line states its PV and its notional, applied once to each side\'s delivery period, and each side\'s line its unit amounts, as the caller formats them in the currency and unit of the index they are priced from',()=>{
  const text=(value,kind,role)=>`${role??'trade'}.${kind}:${value}`,index={currency:'USD',unit:'MWh'},value=details.swap.valuation;
- assert.equal(valuationLine(value,index,text),`Trade PV: trade.money:${value.presentValue} USD · instrument unit PV: trade.money:${value.instrumentPresentValue} USD/MWh · trade quantity: trade.quantity:${value.quantity} MWh. Side values below are per normalized unit.`);
+ assert.equal(valuationLine(value,index,text),`Trade PV: trade.money:${value.presentValue} USD · notional: trade.quantity:${value.quantity} MWh total for each side’s delivery period.`);
  const side=value.sides[0];
  assert.equal(sideLine(side,index,text),`Side unit PV: ${side.kind}.money:${side.presentValue} USD/MWh; signed contribution: ${side.kind}.money:${side.contribution} USD/MWh.`);
 });
