@@ -5,3 +5,6 @@ const knownRejections=new Set(['trade_operation_conflict','futures_revision_conf
 export function knownTradeRejection(code:string|undefined):boolean{
   return !!code&&(code.startsWith('swap_')&&!code.endsWith('outcome_unknown')||knownRejections.has(code));
 }
+
+/** What the page says of a request whose outcome it does not know: which request it is, and what can be done about it. */
+export const retainedText=(command:{label?:string})=>`${command.label??'A trade request'} · its outcome is not known. The identical request is retained: check its committed outcome or retry it before entering another booking.`;

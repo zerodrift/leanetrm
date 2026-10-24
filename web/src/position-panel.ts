@@ -87,7 +87,11 @@ export function openCurveTarget(h:Holding,row:DeskRow,shape:CurveShape|string|un
 
 /** What the Terms and History tabs show of one trade revision, drawn from its editor read: titled lists of exact facts. */
 export type TermSection={title:string;rows:readonly (readonly [string,string])[]};
-export type DetailView={terms:TermSection[];history:TermSection[]};
+export type DetailView={
+  terms:TermSection[];history:TermSection[];
+  /** Draws more of a revision into the Terms tab after its sections, as a swap's valuation and schedules are; returns what takes it down again. */
+  schedules?:(host:HTMLElement)=>()=>void;
+};
 /** Whether the editor can amend the revision, and why not when it cannot. */
 export type AmendState={allowed:true;reason:null}|{allowed:false;reason:string};
 /** An editor read of a trade revision: its amendment state, and the views drawn from it in the person's time zone. */
@@ -142,8 +146,11 @@ export function setupPositionPanel(shell:SidePanel,o:{
   openCurve:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
 }){
   let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
-  // Whether the last drawing found the position's amendment open, and whether it put its form in the tab panel.
-  let amending=false,formShown=false,reading:{key:string;done:Promise<unknown>}|undefined;
+  // Whether the last drawing found the position's amendment open, and whether the person has just opened it, which takes focus into it.
+  let amending=false,focusOnOpen=false,reading:{key:string;done:Promise<unknown>}|undefined;
+  // What the Terms tab drew beyond its sections, which is taken down whenever the tab is drawn again or the panel is cleared.
+  let drawnSchedules:(()=>void)|undefined;
+  const takeDownSchedules=()=>{drawnSchedules?.();drawnSchedules=undefined;};
   const view=()=>shell.element('view');
   const key=(at:PositionInput)=>JSON.stringify([at.holding.tradeId,at.holding.revision,o.context()]);
   function status(text:string,className='side-panel-status'){const p=el('p',className,text);p.setAttribute('role','status');return p;}
@@ -201,17 +208,19 @@ export function setupPositionPanel(shell:SidePanel,o:{
     }
     const read=detail.read.view(o.zone());
     drawSections(host,tab==='terms'?read.terms:read.history);
+    if(tab==='terms'&&read.schedules)drawnSchedules=read.schedules(host);
   }
-  // The first control of the amendment's form, which takes focus when the form opens.
+  // The first control of the amendment's form, which takes focus when the person opens it, and only then.
   function focusForm(){shell.element('form').querySelector<HTMLElement>('select:enabled,input:enabled:not([type=hidden]),textarea:enabled')?.focus({preventScroll:true});}
   function drawBody(at:PositionInput,now:PositionSummary){
     const host=view();
     if(chart){clearChart(chart);chart=undefined;}
-    host.replaceChildren();
-    // The amendment's form is the Terms tab's content while it is open: the other tabs keep it, and its edits, out of sight.
-    const form=tab==='terms'&&amending,opened=form&&!formShown;
-    formShown=form;shell.form(form);
-    if(form){if(opened){shell.reveal();focusForm();}return;}
+    takeDownSchedules();host.replaceChildren();
+    // The amendment's form is the Terms tab's content while it is open: the other tabs keep it, and its edits, out of sight. Travelling
+    // along the tabs back to it is not opening it, so only an Amend press takes focus into it.
+    const form=tab==='terms'&&amending;
+    shell.form(form);
+    if(form){if(focusOnOpen){focusOnOpen=false;shell.reveal();focusForm();}return;}
     if(tab==='curve')drawCurve(host,at,now);
     else if(tab==='risk')host.append(status(riskEmpty));
     else drawDetail(host,at);
@@ -244,8 +253,8 @@ export function setupPositionPanel(shell:SidePanel,o:{
     const keep=focused()??held;
     try{const now=positionSummary(input.holding,input.row,input.formats);amending=o.amendment.shown(input.holding);drawHead(input,now);drawBody(input,now);}
     catch(error){
-      actions=undefined;formShown=false;if(chart){clearChart(chart);chart=undefined;}
-      shell.form(false);shell.element('head').replaceChildren();view().replaceChildren(status(failure(error,'The position could not be shown.'),'side-panel-status side-panel-error'));
+      actions=undefined;if(chart){clearChart(chart);chart=undefined;}
+      takeDownSchedules();shell.form(false);shell.element('head').replaceChildren();view().replaceChildren(status(failure(error,'The position could not be shown.'),'side-panel-status side-panel-error'));
     }
     sync();
     held=keep;refocus();
@@ -273,7 +282,7 @@ export function setupPositionPanel(shell:SidePanel,o:{
     if(!input||!actions)return;
     const at=input,editing=o.amendment.shown(at.holding);
     // The amendment opened or closed, by the panel's own button or by the page: Terms shows its form, or its read view again.
-    if(editing!==amending){if(editing){tab='terms';tabs?.mark('terms');}paint();return;}
+    if(editing!==amending){if(editing){tab='terms';tabs?.mark('terms');focusOnOpen=true;}paint();return;}
     const revision=detail?.state==='ready'&&detail.key===key(at)?detail.read.amend:undefined;
     const control=amendControl({accountCanAmend:o.canAmend(),revision,editing});
     if(o.busy())held=focused()??held;
@@ -306,9 +315,9 @@ export function setupPositionPanel(shell:SidePanel,o:{
     },
     /** Forgets the position: the panel is closed or left, or the reads it was drawn from no longer stand. */
     clear(){
-      input=undefined;actions=undefined;detail=undefined;held=undefined;tabs=undefined;amending=formShown=false;generation++;
+      input=undefined;actions=undefined;detail=undefined;held=undefined;tabs=undefined;amending=focusOnOpen=false;generation++;
       if(chart){clearChart(chart);chart=undefined;}
-      view().replaceChildren();shell.element('head').replaceChildren();shell.element('tabs').replaceChildren();shell.element('body').removeAttribute('aria-labelledby');
+      takeDownSchedules();view().replaceChildren();shell.element('head').replaceChildren();shell.element('tabs').replaceChildren();shell.element('body').removeAttribute('aria-labelledby');
     },
     sync,
   };

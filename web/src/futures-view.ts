@@ -5,7 +5,7 @@ import {setupSwapEditor,readSwapView} from './swap-editor.js';
 import {setupTradeEditor,readTradeView} from './trade-editor.js';
 import {futuresContractDescription,futuresContractKey,type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
-import {knownTradeRejection} from './trade-requests.js';
+import {knownTradeRejection,retainedText} from './trade-requests.js';
 import {setupRisk,riskDenied} from './risk-view.js';
 import {futuresInstrumentEditor} from './futures-instrument-editor.js';
 import {createTableWorkspace} from './table-workspace.js';
@@ -21,7 +21,7 @@ import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from '
 import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,pvChartPanels,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
 import {askLeave,liveRefreshPlan,panelPlacement,sameMode,setupSidePanel,type PanelMode} from './side-panel.js';
 import {setupPositionPanel,type PositionInput} from './position-panel.js';
-import {setupDeskPanel,tradeIndex} from './desk-panel.js';
+import {followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile} from './desk-view.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
@@ -56,7 +56,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const workspace=createTableWorkspace(get('blotter-workspace'),{
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
-    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Shocks'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>reread(load),
+    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Shocks'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(load),
     lead:get('desk'),overview:get('desk-charts'),aside:get('side-panel'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),
   });
   // Existing booking controls share the table toolbar.
@@ -67,7 +67,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const pricedCatalog=()=>catalog?.kind==='priced_contracts'?catalog:undefined;
   const pending=new PendingCommand();
   const annotations=tradeAnnotations('futures',options.zone);
-  const instrument=futuresInstrumentEditor(get('futures-instrument'),{contract:'futures-contract',lots:'futures-lots',price:'futures-execution',terms:'futures-contract-terms'});
+  const instrument=futuresInstrumentEditor(get('futures-instrument'),{contract:'futures-contract',lots:'futures-lots',price:'futures-execution',terms:'futures-contract-terms'},{edited:()=>bookingEdits.mark()});
   const draft=draftValuation(get('futures-draft-valuation'),{product:'futures',api,act,busy,denied:clear,key:()=>JSON.stringify(readContext()),draft:async()=>{
     const c=pricedCatalog()?.contracts.find(c=>contractKey(c)===field('futures-contract').value);if(!c)throw Error('Choose an exact dated futures contract.');
     return{context:readContext(),curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
@@ -92,25 +92,29 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }});
   get('blotter-risk').onclick=()=>void act(risk.open);
   function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};}
-  const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),
-    queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);},
-    retry:()=>get<HTMLButtonElement>('futures-retry').click(),reconcile:()=>get<HTMLButtonElement>('futures-reconcile').click()});
+  const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),
+    queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
-  const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),
+  const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The side panel beside the positions: a position's curve, terms, risk and history, and the form of its amendment. Opening a row
   // opens it; Amend puts the amendment's form in the Terms tab, and a new swap has the whole panel.
   const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
+  const editing=()=>editor.unsaved()||swapEditor.unsaved();
   const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
   // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
   // Mark, for as long as its columns do not fit the room it has left.
   const dockedGiveUp=()=>panel.current()!==null&&docked()?[curveColumn,markColumn]:[];
   const panel=setupSidePanel(get('side-panel'),{
     // What the panel holds that switching would lose: an amendment of its position in progress.
-    unsaved:()=>editor.unsaved()||swapEditor.unsaved(),confirmLeave:askLeave(get('side-panel')),docked,
+    unsaved:editing,confirmLeave:askLeave(get('side-panel')),docked,
     // On a phone the panel is a sheet over the page, which stays out of reach while it is open, unless the Blotter has been left.
     sheet:()=>phone.matches&&!get('futures-page').hidden,
-    changed:()=>{table?.fitColumns(dockedGiveUp());modeChanged();},closed:()=>deskPanel.closed()});
+    changed:()=>{table?.fitColumns(dockedGiveUp());modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
+  // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
+  // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
+  const retained=get('futures-pending');
+  function placeRetained(){const slot=get(panel.current()!==null?'side-panel-retained':'futures-retained');if(retained.parentElement!==slot)slot.append(retained);}
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
   // held edits), and the page says what it now reports.
   let formsFor:PanelMode=null;
@@ -126,19 +130,19 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;panel.place();}}).observe(main);
   new MutationObserver(()=>panel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
-    read:(h,formats)=>h.instrumentType==='financial_swap'?readSwapView(api,readContext(),h,formats):readTradeView(api,readContext(),h,formats),
+    read:(h,formats)=>h.instrumentType==='financial_swap'?readSwapView(api,readContext(),h,formats,busy):readTradeView(api,readContext(),h,formats),
     amendment:{
       open:h=>void act(()=>h.instrumentType==='financial_swap'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision))),
       // A future's form is open for its binding, a swap's for its instrument.
       shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return !!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
-      close:async()=>{if(!await panel.leave())return;editor.reset();swapEditor.reset();options.reported();},
+      close:async()=>{await leave();},
     },
-    openCurve:(curve,contractId)=>void act(()=>options.openCurve(curve,contractId))});
+    openCurve:(curve,contractId)=>guarded(()=>options.openCurve(curve,contractId))});
   const deskPanel=setupDeskPanel({shell:panel,position,holdings:()=>holdings?.holdings,input:positionInput,grid:()=>table,notice:options.notice});
   const kindDialog=get<HTMLDialogElement>('trade-kind');
   get('trade-kind-close').onclick=()=>kindDialog.close();
-  get('trade-kind-ppa').onclick=()=>{kindDialog.close();void act(options.newPpa);};
-  get('trade-kind-future').onclick=()=>{kindDialog.close();reread(async()=>{await load('priced_contracts');get('futures-booking').hidden=false;bookingEdits.clear();field('futures-book').focus();});};
+  get('trade-kind-ppa').onclick=()=>{kindDialog.close();guarded(options.newPpa);};
+  get('trade-kind-future').onclick=()=>{kindDialog.close();guarded(async()=>{await load('priced_contracts');get('futures-booking').hidden=false;bookingEdits.clear();field('futures-book').focus();});};
   get('trade-kind-swap').onclick=()=>{kindDialog.close();get('futures-booking').hidden=true;void openNewSwap();};
   // A new swap is booked in the panel, which it takes whole. What the panel held, and a booking already begun, are left only when
   // the person says so, which is asked before the page is busy, not while it is.
@@ -153,10 +157,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(sameMode(panel.current(),newSwap))panel.form(true);
     });
   }
-  // An action of the person's that reads the Blotter again closes the panel, so it asks first about the edits the panel holds, before
-  // the page is busy: a question asked then would be asked of a page with every control disabled.
-  // `kept` hears that the person kept them, for a control that has already changed.
-  function reread(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await panel.leave())await act(work);else kept?.();})();}
+  // Asks whether to give up what the panel holds unsaved, when it holds any, and closes its form once the person agrees: false means they
+  // kept it. The panel asks for a switch of its own mode; this is the question every other way out of the form asks too.
+  async function leave(){if(!await panel.leave())return false;editor.reset();swapEditor.reset();options.reported();return true;}
+  // An action of the person's that gives the panel's form up, by reading the Blotter again, which closes the panel, or by leaving it,
+  // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
+  // control disabled. `kept` hears that the person kept them, for a control that has already changed.
+  function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
   const selected=(id:string)=>Array.from(get<HTMLSelectElement>(id).selectedOptions,o=>o.value);
   function choices(id:string,rows:{id:string;name:string}[],ids:string[]){
     const select=get<HTMLSelectElement>(id);select.replaceChildren(...rows.map(r=>new Option(publicText(r.name),r.id,false,ids.includes(r.id))),...ids.filter(id=>!rows.some(r=>r.id===id)).map(id=>new Option('Unavailable saved selection',id,false,true)));
@@ -216,7 +223,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     renderRiskTile(get('desk-tile-risk'),{state:risk.shown()?'results':get('risk-card').hidden?'none':'open',denial:options.canRunRisk()?null:riskDenied,busy:busy()},
       ()=>{if(get('risk-card').hidden)void act(risk.open);else get('risk-card').scrollIntoView({block:'start'});});
   }
-  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();panel.place();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();panel.place();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
   function clear(){instrument.clear();generation++;chartState=undefined;drawn=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;table=undefined;deskPanel.reset();lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
   function reset(){selectedContract='';clear();restore();forgetViews();viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
@@ -345,7 +352,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([readView()]))[0];const source=options.source();
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
     if(snapshot!==source.snapshotId){if(!live){get<HTMLFormElement>('futures-form').reset();selectedContract='';}snapshot=source.snapshotId;}
-    if(live){generation++;risk.reset();}else clear();
+    if(live)generation++;else clear();
     const started=generation,scope=JSON.stringify([options.profile(),source]);
     const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
     try{
@@ -418,7 +425,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(!panels.length){host.classList.add('chart-empty');text('blotter-chart','No values available for the selected books and portfolios.');}
     for(const spec of panels){
       const panel=document.createElement('div');panel.className='chart';host.append(panel);
-      renderChart(panel,{...spec,kind:view.chart.kind,exportImage:download=>void act(async()=>{try{await api('trading/blotter',request);}catch(error){clear();throw error;}download();})});
+      renderChart(panel,{...spec,kind:view.chart.kind,exportImage:download=>void act(async()=>{try{await api('trading/blotter',request);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}download();})});
     }
   }
   get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.onclick=()=>{if(busy())return;view.chart.kind=button.dataset.plotKind as BlotterView['chart']['kind'];field('blotter-chart-kind').value=view.chart.kind;renderChartPanels();});
@@ -428,9 +435,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(command.path==='futures/amend')editor.reset();
     if(command.path.startsWith('swaps/')){swapEditor.reset();if(panel.current()?.kind==='new')panel.reset();}
   }
+  // What the backend says of a trade request it has committed: the trade, and the binding the request left it with.
+  type Receipt={tradeId?:string;bindingId?:string};
   async function send(command:RequestCommand){
     const retrying=uncertain;uncertain=true;store();
-    try{await api(command.path,{...command.body,operationId:command.operationId});}
+    let receipt:Receipt|undefined;
+    try{receipt=await api<Receipt>(command.path,{...command.body,operationId:command.operationId});}
     catch(error){
       // A rejected retry says nothing about the original uncertain outcome.
       if(!retrying&&knownTradeRejection((error as {code?:string}).code)){pending.clear();uncertain=false;store();}
@@ -441,31 +451,34 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // What was sent is no longer an edit: the read that follows closes the form without asking.
     done(command);
     pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load();
-    await follow(amended);
+    await follow(amended,receipt);
   }
   // The position the panel shows of the trade an amendment was made to, if it shows it.
   function amendedPosition(command:RequestCommand){const h=deskPanel.shown();return command.path.endsWith('/amend')&&h?.tradeId===command.body.tradeId?h:undefined;}
-  // The panel returns to that position at the revision the new read holds, on its terms; a new read closes the panel otherwise.
-  async function follow(h:Holding|undefined){
-    const index=h?holdings?.holdings.findIndex(r=>r.tradeId===h.tradeId&&r.bindingId===h.bindingId&&r.instrumentType===h.instrumentType)??-1:-1;
-    if(index>=0)await deskPanel.open(index,'terms');
+  // The panel returns to the trade at the revision the new read holds, on its terms, at the binding the amendment produced, which is
+  // another when it changed the trade's instrument. A new read closes the panel, so what it cannot find again it says it closed.
+  async function follow(h:Holding|undefined,receipt?:Receipt){
+    if(!h||!holdings)return;
+    const found=followedPosition(holdings.holdings,h,receipt);
+    if(found.index!==null)await deskPanel.open(found.index,'terms');
+    if(found.note)options.notice(found.note);
   }
-  get<HTMLFormElement>('futures-form').onsubmit=event=>{event.preventDefault();reread(async()=>{
+  get<HTMLFormElement>('futures-form').onsubmit=event=>{event.preventDefault();guarded(async()=>{
     const priced=pricedCatalog();if(!priced?.canBook)throw Error('Return to current inputs with trading authority before booking.');
     const c=priced.contracts.find(c=>contractKey(c)===field('futures-contract').value);if(!c)throw Error('Choose the exact dated contract.');
     const body={...annotations.read(),snapshotId:options.source().snapshotId,convention:options.source().convention,knowledgeMode:'current',bookId:field('futures-book').value,curve:c.curve,contractId:c.id,
       lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
-    const command=pending.begin('futures/book',body);store();sync();await send(command);
+    const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);
   });};
-  get('futures-retry').onclick=()=>reread(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
-  get('futures-reconcile').onclick=()=>reread(async()=>{
+  get('futures-retry').onclick=()=>guarded(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
+  get('futures-reconcile').onclick=()=>guarded(async()=>{
     if(!pending.command)throw Error('No retained booking to reconcile.');
     try{
-      const result=await api<{tradeId?:string}>(pending.command.path.startsWith('swaps/')?'swaps/status':'futures/status',{operationId:pending.command.operationId});
+      const result=await api<Receipt>(pending.command.path.startsWith('swaps/')?'swaps/status':'futures/status',{operationId:pending.command.operationId});
       if(!result.tradeId)throw Error('No committed outcome is visible yet. Retry the original request with the same identity.');
       const amended=amendedPosition(pending.command);
       pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load();
-      await follow(amended);
+      await follow(amended,result);
     }catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}
   });
   get('futures-new').onclick=()=>{if(busy()||!catalog)return;kindDialog.showModal();};
@@ -477,16 +490,16 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const shown=view.rowGroup;captureLayout();view.rowGroup=(field('blotter-row-group').value||null) as RowGroup;
     try{render();}catch(error){view.rowGroup=shown;field('blotter-row-group').value=shown??'';throw error;}
   });
-  get('blotter-apply').onclick=()=>reread(load);
-  get('blotter-save').onclick=()=>reread(async()=>{
+  get('blotter-apply').onclick=()=>guarded(load);
+  get('blotter-save').onclick=()=>guarded(async()=>{
     const draft=readView();const next=parseBlotterViews(JSON.stringify([{...draft,name:field('blotter-name').value}]))[0];
     const saved=await layoutApi<{version:string;layout:BlotterView}>('table-views/blotter',{layout:next,expectedVersion:draftBase?.name===next.name?draftBase.version:versions.get(next.name)??null});
     versions.set(next.name,saved.version);draftBase={name:next.name,version:saved.version};savedViews=[...savedViews.filter(v=>v.name!==next.name),saved.layout];earlierViews=earlierViews.filter(name=>name!==next.name);
     view=structuredClone(saved.layout);viewControls();field('blotter-saved').value=next.name;text('blotter-view-note','Saved to your account. Dates and market inputs are selected separately.');table=undefined;workspace.closeMenus();await load();
   });
   // An earlier-format view is named so it can be saved again under its name, and explained as a notice, not an error.
-  field('blotter-saved').onchange=()=>reread(async()=>{const name=field('blotter-saved').value;if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}const saved=savedViews.find(v=>v.name===name);if(!saved)return;draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;viewControls();workspace.closeMenus();await load();},()=>{field('blotter-saved').value=draftBase?.name??'';});
-  get('blotter-views-reload').onclick=()=>reread(async()=>{
+  field('blotter-saved').onchange=()=>guarded(async()=>{const name=field('blotter-saved').value;if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}const saved=savedViews.find(v=>v.name===name);if(!saved)return;draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;viewControls();workspace.closeMenus();await load();},()=>{field('blotter-saved').value=draftBase?.name??'';});
+  get('blotter-views-reload').onclick=()=>guarded(async()=>{
     const name=field('blotter-saved').value;
     await loadViews();
     const saved=savedViews.find(v=>v.name===name);
@@ -504,7 +517,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const shown=pivot?{headers:table.headers(),rows:table.visibleRows(),numeric:table.numeric()}:tradeExport(table);
     const csv=guardedCsv(metadata)+guardedCsv([shown.headers,...shown.rows],shown.numeric);void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv('leanetrm-blotter.csv',csv);});
   };
-  get('futures-refresh').onclick=()=>reread(load);
+  get('futures-refresh').onclick=()=>guarded(load);
   field('futures-contract').onchange=()=>{selectedContract=field('futures-contract').value;terms();};
   // A Blotter view a navigation target names, applied as Apply applies the view's controls.
   async function show(selection:BlotterSelection){
@@ -514,31 +527,43 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(view.mode!==next.mode||JSON.stringify([view.groupBy,view.splitBy,view.measures])!==JSON.stringify([next.groupBy,next.splitBy,next.measures]))relayout(next);
     view=next;viewControls();await load();
   }
-  // The trade the panel shows, as the page reports it: its position at the revision the Blotter holds.
+  // The trade the panel shows, as the page reports it: its position, at the revision the Blotter holds, or at the one its form shows
+  // while its form is open, which can be an earlier one.
   function shownTrade():TradeShown|null{
     const h=deskPanel.shown();
-    return h?{tradeId:h.tradeId,instrumentType:h.instrumentType==='financial_swap'?'financial_swap':'future',revision:Number(h.revision),reference:h.tradeReference}:null;
+    if(!h)return null;
+    const form=editor.displayedRevision()??swapEditor.displayedRevision();
+    return {tradeId:h.tradeId,instrumentType:h.instrumentType==='financial_swap'?'financial_swap':'future',revision:form??Number(h.revision),reference:h.tradeReference};
   }
   return {load,reset,sync,show,
     // A live correction reads the desk again, the panel with it unless the person has edits in it, and clears a risk run with a note.
     async liveRefresh(){
-      const plan=liveRefreshPlan({panel:panel.current(),unsaved:editor.unsaved()||swapEditor.unsaved(),riskRun:risk.shown()});
+      const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:risk.shown()});
+      // What the risk card holds belongs to the inputs the correction changed. It is cleared before the read, with the note when a run's
+      // results were on it, so that a read that then fails leaves the note, which says what is gone, as it leaves the desk it had.
+      risk.reset();
+      if(plan.clearRisk)options.notice(plan.note!);
       await load(catalog?.kind??'directory',true);
-      if(plan.note)options.notice(plan.note);
       await draft.liveRefresh();
-      if(plan.reloadPanel){await position.reload();await editor.liveRefresh();await swapEditor.liveRefresh();}
+      if(plan.reloadPanel){await position.reload();await swapEditor.liveRefresh();}
     },
     refresh(){risk.refresh();draft.reset();editor.refresh();swapEditor.refresh();annotations.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
     async openTrade(tradeId:string,instrumentType:'future'|'financial_swap',revision:number|null){
+      requireTradeRows(field('blotter-mode').value);
       if(!holdings)throw Error('Choose a market date to read the Blotter, then open the trade.');
       const index=tradeIndex(holdings.holdings,{tradeId,instrumentType}),h=holdings.holdings[index];
       await deskPanel.open(index,'terms');
-      if(revision!==null&&revision!==Number(h.revision))options.notice(`Revision ${revision} of ${h.tradeReference} has been amended since. The panel shows revision ${h.revision}, its latest; the earlier revisions are in History.`);
+      const note=revisionNote(h.tradeReference,revision,Number(h.revision));
+      if(note)options.notice(note);
     },
+    // What a target for a trade needs of the Blotter, checked before the page moves for it: the person's view is never changed to fit it.
+    requireTradeRows:()=>requireTradeRows(field('blotter-mode').value),
     // What the Blotter shows: its risk results, the trade in its panel, or the view its last read applied.
     report:()=>({risk:!get('risk-card').hidden,trade:shownTrade(),
       view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]}}),
     // A booking or editor with edits not yet sent, or a trade request or risk job whose outcome is unconfirmed.
-    unsaved:()=>!!pending.command||!get('futures-booking').hidden&&bookingEdits.edited()||editor.unsaved()||swapEditor.unsaved()||risk.unconfirmed()};
+    unsaved:()=>!!pending.command||!get('futures-booking').hidden&&bookingEdits.edited()||editing()||risk.unconfirmed(),
+    // Whether the panel holds an amendment with edits, and the question asked before it is given up: false means the person kept it.
+    editing,leave};
 }

@@ -177,6 +177,7 @@
     </details>
   </section>
   <section id="futures-page" hidden>
+    <div id="futures-retained"><div id="futures-pending" class="profile-note retained-request" role="status" hidden><p id="futures-pending-text"></p><div class="schedule-actions"><button id="futures-reconcile" type="button" class="secondary">Check status</button><button id="futures-retry" type="button" class="secondary">Retry original request</button></div></div></div>
     <div id="blotter-workspace"></div>
     <div id="desk" class="desk" hidden>
       <div class="desk-tiles" role="group" aria-label="Book summary at this close">
@@ -197,6 +198,7 @@
     <aside id="side-panel" class="side-panel" aria-label="Position" tabindex="-1" hidden>
       <div class="side-panel-frame">
         <div id="side-panel-prompt" class="side-panel-prompt" role="alertdialog" aria-label="Unsaved changes" hidden></div>
+        <div id="side-panel-retained" class="side-panel-retained"></div>
         <button id="side-panel-close" type="button" class="icon-button side-panel-close" aria-label="Close the panel">×</button>
         <div id="side-panel-head" class="side-panel-head"></div>
         <div id="side-panel-tabs" class="side-panel-tabs" role="tablist"></div>
@@ -232,7 +234,7 @@
       <section id="futures-trade-terms" class="trade-booking-terms"></section>
       <section id="futures-instrument"></section><section id="futures-draft-valuation"></section>
       <p class="field-help">Booking facts are assigned by the server. The selected market date supplies the separate pricing effective time.</p><button id="futures-book-submit" type="submit" class="secondary">Book future</button>
-    </fieldset></form><div id="futures-pending" class="profile-note" hidden><p>A trade request is retained. Check its committed outcome or retry the identical request before entering another booking.</p><div class="schedule-actions"><button id="futures-reconcile" type="button" class="secondary">Check trade status</button><button id="futures-retry" type="button" class="secondary">Retry original request</button></div></div></section>
+    </fieldset></form></section>
   </section>
   <section id="jobs-page" hidden>
     <div class="card"><div class="card-heading"><div><h2>Jobs &amp; Infrastructure</h2><p id="jobs-scope"></p></div><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>
@@ -425,7 +427,6 @@
     <button id="trade-preview" type="submit">Preview amendment</button>
   </fieldset></form>
   <div id="trade-preview-result" class="profile-note" hidden><p id="trade-preview-values"></p><label><input id="trade-confirm" type="checkbox"> Apply this amendment at the displayed working As of time</label><button id="trade-submit" type="button" disabled>Submit amendment</button></div>
-  <div id="trade-editor-pending" class="profile-note" hidden><p>The amendment outcome needs reconciliation. The original command is retained.</p><button id="trade-editor-reconcile" type="button" class="secondary">Check status</button><button id="trade-editor-retry" type="button" class="secondary">Retry original amendment</button></div>
   <div id="trade-amount-format"></div>
 </div>
 </div>

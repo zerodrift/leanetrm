@@ -119,7 +119,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await press('ArrowRight','ArrowRight',39);
   await wait("!!document.querySelector('#side-panel-view .side-panel-section')");
   await check('History lists the trade\'s revisions one by one, each with its facts, from the same read, and in the width of the panel',
-    `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').at(-1).data,view=document.querySelector('#side-panel-view'),sections=[...view.querySelectorAll('.side-panel-section')];return document.activeElement.id==='side-panel-tabs-history'&&sections.length===read.history.length&&sections.every((section,i)=>section.querySelector('h3').textContent===\`Revision \${read.history[i].revision} · \${read.history[i].kind==='booked'?'Booked':'Amended'}\`&&[...section.querySelectorAll('dt')].map(n=>n.textContent).join()==='Effective,Recorded,Book,Lots,Execution price,Trader ID,Memo,Trade date,Legal entity,Counterparty,Reason')&&!view.querySelector('table')&&view.scrollWidth<=view.clientWidth&&${editorReads}===${reads}+1;})()`,
+    `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').at(-1).data,view=document.querySelector('#side-panel-view'),sections=[...view.querySelectorAll('.side-panel-section')];return document.activeElement.id==='side-panel-tabs-history'&&sections.length===read.history.length&&sections.every((section,i)=>section.querySelector('h3').textContent===\`Revision \${read.history[i].revision} · \${read.history[i].kind==='booked'?'Booked':'Amended'}\`&&[...section.querySelectorAll('dt')].map(n=>n.textContent).join()==='Effective,Recorded,Book,Instrument,Lots,Execution price,Trader ID,Memo,Trade date,Legal entity,Counterparty,Reason')&&!view.querySelector('table')&&view.scrollWidth<=view.clientWidth&&${editorReads}===${reads}+1;})()`,
     `[${editorReads},${reads},document.querySelector('#side-panel-view').innerText.slice(0,300)]`);
   await press('ArrowRight','ArrowRight',39);
   await check('the arrow keys wrap from the last tab to the first, which draws the curve again',`document.activeElement.id==='side-panel-tabs-curve'&&!!document.querySelector('#side-panel-body .chart canvas')`);
@@ -225,7 +225,10 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     if(await evaluate("document.querySelector('#trade-editing').hidden"))await click('#side-panel-amend');
     await wait("!document.querySelector('#trade-editing').hidden");
   };
-  const answer=async index=>{await evaluate(`${prompt}.querySelectorAll('button')[${index}].click()`);await wait(`${prompt}.hidden`);};
+  // Answers the question that is asked; the check before it says whether one was.
+  const answer=async index=>{await evaluate(`${prompt}.querySelectorAll('button')[${index}]?.click()`);await wait(`${prompt}.hidden`);};
+  // A route that asks shows its question at once; one that does not is told by the check that follows, and not by a timeout.
+  const asks=()=>evaluate(`new Promise(resolve=>{const start=Date.now(),poll=()=>{if(!${prompt}.hidden||Date.now()-start>1500)resolve();else setTimeout(poll,25);};poll();})`);
   await amend(0,refA);
   await evaluate(`${futures}[1].click()`);await wait(`${panelReference}===${JSON.stringify(refB)}`);
   await check('a form with no edits is left at once: another row opens its position, nothing is asked, and the first position\'s form is gone',
@@ -272,6 +275,93 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await click('#futures-refresh');await wait(`!${prompt}.hidden`);await answer(1);
   await wait(`${panel}.hidden&&${redrawn(idle)}`);
   await check('and discarding them lets the read happen: the panel closes with its form, and the desk is drawn again',`${panel}.hidden&&document.querySelector('#trade-editing').hidden&&document.querySelector('#error').hidden&&window.__futuresResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsBefore}`);
+
+  // Every route that would give the form up asks first, as a switch of position does: the sidebar, a new As of date, Open curve, the
+  // sidebar's own Blotter and the header's time controls. A form with no edits is left by each of them without a question.
+  const title="document.querySelector('#page-title').textContent",editing="!document.querySelector('#trade-editing').hidden";
+  const back=async()=>{await click('#nav-futures');await wait(`${title}==='Blotter'&&${redrawn(idle)}`);};
+  const workspaceReads="window.__futuresResponses.filter(r=>r.path==='/api/trading/workspace').length";
+  await amend(1,refB);
+  await click('#nav-market');
+  await check('the sidebar leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='Curves & prices'`,`[${prompt}.hidden,${title}]`);
+  await back();
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await click('#nav-market');await asks();
+  await check('the sidebar asks before it leaves a form with edits, and nothing moves while it does',
+    `${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&!${panel}.hidden&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
+  await answer(0);
+  await check('keeping the edits leaves the page and the form as they were',`${title}==='Blotter'&&${editing}&&document.querySelector('#trade-lots').value==='5'&&!${panel}.hidden`);
+  await click('#nav-market');await asks();await answer(1);await wait(`${title}==='Curves & prices'&&${idle}`);
+  await check('discarding them goes to the page chosen',`${title}==='Curves & prices'`);
+  await back();
+  await check('and the Blotter comes back without the form: it starts fresh',`${panel}.hidden&&document.querySelector('#trade-editing').hidden`);
+  // The sidebar's own Blotter, pressed on the Blotter, reads it again and closes the panel.
+  await amend(1,refB);
+  await click('#nav-futures');await wait(`${panel}.hidden&&${redrawn(idle)}`);
+  await check('the sidebar\'s Blotter, pressed on the Blotter, reads it again without a question when the form holds no edits',`${panel}.hidden&&${prompt}.hidden&&${title}==='Blotter'`);
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  const readsBeforeBlotter=await evaluate(workspaceReads);
+  await click('#nav-futures');await asks();
+  await check('and asks first when it does, before it reads anything',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${workspaceReads}===${readsBeforeBlotter}&&${title}==='Blotter'`,`[${workspaceReads},${readsBeforeBlotter}]`);
+  await answer(1);await wait(`${panel}.hidden&&${redrawn(idle)}`);
+  await check('discarding them reads the Blotter again, which closes the panel with its form',`${panel}.hidden&&document.querySelector('#trade-editing').hidden&&${workspaceReads}>${readsBeforeBlotter}`);
+  // A new As of date.
+  const closes=await evaluate("[...document.querySelector('#snapshot').options].map(o=>o.value).filter(Boolean)"),closeNow=await evaluate("document.querySelector('#snapshot').value"),closeOther=closes.find(close=>close!==closeNow);
+  if(!closeOther)throw Error('The As of checks need a second close.');
+  await amend(1,refB);
+  await set('#snapshot',closeOther);await wait(`${redrawn(idle)}&&${panel}.hidden`);
+  await check('another As of date is taken without a question when the form holds no edits',`${prompt}.hidden&&document.querySelector('#snapshot').value===${JSON.stringify(closeOther)}`);
+  await set('#snapshot',closeNow);await wait(redrawn(idle));
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await set('#snapshot',closeOther);await asks();
+  await check('a new As of date asks before it discards a form with edits',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent]`);
+  const readsBeforeClose=await evaluate(workspaceReads);
+  await answer(0);
+  await check('keeping them puts the As of date back as it was, and reads nothing',`document.querySelector('#snapshot').value===${JSON.stringify(closeNow)}&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforeClose}`,`[document.querySelector('#snapshot').value,${workspaceReads},${readsBeforeClose}]`);
+  await set('#snapshot',closeOther);await asks();await answer(1);await wait(`${panel}.hidden&&${redrawn(idle)}`);
+  await check('and discarding them takes the new date: the Blotter is read at it, and the panel is closed with its form',`document.querySelector('#snapshot').value===${JSON.stringify(closeOther)}&&document.querySelector('#trade-editing').hidden&&${workspaceReads}>${readsBeforeClose}`);
+  await set('#snapshot',closeNow);await wait(redrawn(idle));
+  // Open curve.
+  await amend(0,refA);
+  await click('#side-panel-open-curve');
+  await check('Open curve leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='Curves & prices'`,`[${prompt}.hidden,${title}]`);
+  await back();
+  await amend(0,refA);await typeInto('#trade-lots','5');
+  await click('#side-panel-open-curve');await asks();
+  await check('Open curve asks before it leaves a form with edits, and keeping them leaves everything as it was',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${editing}&&document.querySelector('#trade-lots').value==='5'`);
+  await answer(0);
+  await click('#side-panel-open-curve');await asks();await answer(1);await wait(`${title}==='Curves & prices'&&${idle}`);
+  await check('and discarding them opens the curve',`${title}==='Curves & prices'`);
+  await back();
+  // The header's time controls.
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await click('#date-context>summary');await asks();
+  await check('opening the time controls, which change the context the Blotter is read in, asks first, and keeping the edits leaves them closed',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#date-context').open&&${editing}`);
+  await answer(0);
+  await check('the form is as it was',`${editing}&&document.querySelector('#trade-lots').value==='5'&&!document.querySelector('#date-context').open`);
+  await click('#side-panel-amend');await asks();await answer(1);
+  // New trade for a PPA leaves the Blotter for the PPA bookings page.
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await click('#futures-new');await click('#trade-kind-ppa');await asks();
+  await check('New trade for a PPA, which leaves the Blotter, asks first, and keeping the edits leaves the Blotter and the form as they were',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
+  await answer(0);
+  await click('#side-panel-amend');await asks();await answer(1);
+
+  // Escape inside a calendar closes only the calendar, and travel along the tabs is not an opening of the form: focus stays on the tab.
+  await amend(0,refA);
+  await click('#trade-contract-date');
+  await evaluate("document.querySelector('#trade-contract-date').focus()");await press('Escape','Escape',27);
+  await check('Escape inside a calendar closes only the calendar: the panel and its form stay open',`!document.querySelector('#trade-contract-date').parentElement.open&&!${panel}.hidden&&${editing}&&${prompt}.hidden`);
+  await amend(0,refA);await typeInto('#trade-lots','17');
+  await click('#side-panel-tabs-curve');await evaluate("document.querySelector('#side-panel-tabs-curve').focus()");await press('ArrowRight','ArrowRight',39);
+  await check('arrow keys travelling to Terms leave focus on the tab, and the form keeps what it held',`document.activeElement.id==='side-panel-tabs-terms'&&!document.querySelector('#side-panel-form').hidden&&document.querySelector('#trade-lots').value==='17'`,`[document.activeElement.id,document.querySelector('#trade-lots').value]`);
+  await click('#trade-reload');await asks();
+  await check('Reload latest revision, which replaces what the form holds, asks first as every other route does',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#trade-lots').value==='17'`,`[${prompt}.textContent,document.querySelector('#trade-lots').value]`);
+  await answer(0);
+  await check('keeping the edits leaves the form as it was',`${editing}&&document.querySelector('#trade-lots').value==='17'`);
+  await click('#trade-reload');await asks();await answer(1);await wait(idle);
+  await check('and discarding them reloads the revision: the form shows the position\'s lots again',`${editing}&&document.querySelector('#trade-lots').value!=='17'`,`document.querySelector('#trade-lots').value`);
+  await click('#side-panel-close');await wait(`${panel}.hidden`);
 
   // A phone: the sheet fills the window, the page does not scroll sideways because of it, and nothing behind it can take focus.
   await settle(760,900);

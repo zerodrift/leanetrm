@@ -678,6 +678,10 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .side-panel-prompt{padding:10px 44px 10px 16px;background:var(--warn-soft);border-bottom:1px solid var(--warn-border);font-size:12.5px;color:var(--text)}
 .side-panel-prompt p{margin:0 0 8px}
 .side-panel-prompt-actions{display:flex;flex-wrap:wrap;gap:8px}
+/* A request whose outcome is not known is kept in a card nobody can miss: above the Blotter, or above whatever the open panel shows. */
+.retained-request{margin:0 0 12px;padding:10px 16px;background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius-sm);font-size:12.5px;color:var(--text)}
+.retained-request p{margin:0 0 8px}
+.side-panel-retained .retained-request{margin:0;padding-right:44px;border-width:0 0 1px;border-radius:0}
 .side-panel-head{padding:14px 16px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);min-width:0}
 .side-panel-head:empty{display:none}
 /* The close button sits over the head's top right corner, so only the lines beside it keep clear of it. */

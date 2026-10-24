@@ -7,6 +7,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await setupTradingReplies(evaluate);
   await evaluate(`(()=>{const send=window.fetch;window.__editorReplies=[];window.__amendCommands=[];window.fetch=async(input,init)=>{
     const path=typeof input==='string'?input:input.url;
+    if(path==='/api/futures/editor'&&window.__failEditor){window.__failEditor=false;return new Response('Synthetic outage',{status:503});}
     if(path==='/api/futures/editor'&&window.__denyEditor){window.__denyEditor=false;return new Response(JSON.stringify({code:'access_denied'}),{status:403});}
     if(path==='/api/futures/amend')window.__amendCommands.push(JSON.parse(init.body));
     let response=await send(input,init);
@@ -44,6 +45,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(await evaluate("document.querySelector('#trade-editing').hidden"))await click('#side-panel-amend');
     await wait(`(()=>{const state=window.__editorReplies.filter(r=>r.path==='/api/futures/editor').at(-1)?.data.state;return !document.querySelector('#trade-editing').hidden&&state?.tradeId===${JSON.stringify(bookedTrade)}&&state.revision===${revision};})()`);
   }
+  // The question a form with unsaved edits asks, and what keystrokes are: trusted input, which is what counts as an edit.
+  const prompt="document.querySelector('#side-panel-prompt')";
+  const asks=()=>evaluate(`new Promise(resolve=>{const start=Date.now(),poll=()=>{if(!${prompt}.hidden||Date.now()-start>1500)resolve();else setTimeout(poll,25);};poll();})`);
+  const answer=async index=>{await evaluate(`${prompt}.querySelectorAll('button')[${index}]?.click()`);await wait(`${prompt}.hidden&&`+idle);};
+  const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
   await open();
   await check('the desk shows each trade by its readable reference and offers instrument and revision columns',"[...document.querySelectorAll('#desk-positions .desk-reference')].every(n=>n.textContent.startsWith('TR-'))&&!!document.querySelector('#blotter-column-choices input[value=instrumentReference]')&&!!document.querySelector('#blotter-column-choices input[value=revision]')&&document.querySelector('#trade-editor-reference').textContent.includes('TR-')&&document.querySelector('#trade-editor-reference').textContent.includes('IN-')");
   await check('Amend puts the form in the panel\'s Terms tab in place of its read view, with no dialog on the page',"(()=>{const form=document.querySelector('#side-panel-form'),root=document.querySelector('#trade-editing');return form.contains(root)&&!form.hidden&&document.querySelector('#side-panel-view').hidden&&document.querySelector('#side-panel-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#side-panel-amend').textContent==='Close editor'&&!document.querySelector('dialog[open]')&&!document.querySelector('#trade-editor')&&!document.querySelector('#swap-editor');})()");
@@ -53,10 +59,18 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('managed preview displays separate quantity units and monetary currency',"!document.querySelector('#trade-preview-result').hidden&&document.querySelector('#trade-preview-values').textContent.includes('USD')&&document.querySelector('#trade-preview-values').textContent.includes('MMBtu (IT)')&&document.querySelector('#trade-submit').disabled");
   await evaluate("window.__loseAmend=true");await click('#trade-confirm');await click('#trade-submit');
   await check('uncertain amendment retains original command and closes stale editor, and the panel is on its position\'s read view again',"document.querySelector('#trade-editing').hidden&&!document.querySelector('#futures-pending').hidden&&!document.querySelector('#side-panel').hidden&&!document.querySelector('#side-panel-view').hidden&&document.querySelector('#side-panel-form').hidden&&document.querySelector('#side-panel-amend').textContent==='Amend'");
-  // The retained request keeps its Check status and Retry inside the panel: Amend shows them in the form, which waits for the request.
+  // The retained request is reachable whatever the panel shows, and says which request it is and which trade it belongs to.
+  const retained=`(()=>{const card=document.querySelector('#futures-pending');return !card.hidden&&card.getClientRects().length>0&&card.textContent.includes(${JSON.stringify(tradeReference)})&&card.textContent.includes('Futures amendment')&&!document.querySelector('#futures-reconcile').disabled&&!document.querySelector('#futures-retry').disabled;})()`;
+  await check('the retained amendment is named in the panel by what it is and the trade it belongs to, with Check status and Retry',`document.querySelector('#side-panel').contains(document.querySelector('#futures-pending'))&&${retained}`,"document.querySelector('#futures-pending').outerHTML");
   await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
-  await check('a retained amendment is reconciled or retried from the panel\'s form, which waits for it',"(()=>{const pending=document.querySelector('#trade-editor-pending'),form=document.querySelector('#side-panel-form');return form.contains(pending)&&!pending.hidden&&pending.getClientRects().length>0&&document.querySelector('#trade-amend-fields').disabled&&!document.querySelector('#trade-editor-retry').disabled&&!document.querySelector('#trade-editor-reconcile').disabled;})()");
-  await click('#trade-editor-retry');
+  await check('the form of the retained amendment waits for it, and the card is still in the panel',`document.querySelector('#side-panel').contains(document.querySelector('#futures-pending'))&&document.querySelector('#trade-amend-fields').disabled&&${retained}`);
+  await click('#side-panel-tabs-history');
+  await check('and on another tab',`document.querySelector('#side-panel').contains(document.querySelector('#futures-pending'))&&${retained}`);
+  await click('#side-panel-close');await wait("document.querySelector('#side-panel').hidden");
+  await check('with the panel closed the retained request is on the page, where it can still be checked or retried',`!document.querySelector('#futures-retained').closest('#side-panel')&&document.querySelector('#futures-retained').contains(document.querySelector('#futures-pending'))&&${retained}`);
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel').hidden");
+  await check('and it is back in the panel when a position is opened',`document.querySelector('#side-panel').contains(document.querySelector('#futures-pending'))&&${retained}`);
+  await click('#futures-retry');
   await check('amendment retry preserves exact operation and economics',"window.__amendCommands.length===2&&JSON.stringify(window.__amendCommands[0])===JSON.stringify(window.__amendCommands[1])&&document.querySelector('#futures-pending').hidden");
   await wait("!!document.querySelector('#side-panel-view .side-panel-section')&&"+idle);
   await check('the desk shows the new revision, and the panel returns to the amended position at it, on its Terms, with no form open',`(()=>{const h=window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)});return h.revision==='2'&&h.lots==='38'&&!document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(tradeReference)}&&document.querySelector('#side-panel-head .side-panel-meta').textContent.startsWith('Revision 2')&&document.querySelector('#side-panel-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#trade-editing').hidden&&!document.querySelector('#side-panel-view').hidden&&document.querySelector('#desk-positions .open-row .desk-reference')?.textContent===${JSON.stringify(tradeReference)};})()`,"document.querySelector('#side-panel-head').innerText");
@@ -65,9 +79,18 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#side-panel-tabs-history');await wait("!!document.querySelector('#side-panel-view .side-panel-section')&&"+idle);
   await check('and its immutable event history, in the panel\'s own width, in the History tab',"(()=>{const view=document.querySelector('#side-panel-view'),titles=[...view.querySelectorAll('h3')].map(n=>n.textContent),panel=document.querySelector('#side-panel').getBoundingClientRect();return titles.join()==='Revision 1 · Booked,Revision 2 · Amended'&&view.textContent.includes('Synthetic editor correction')&&!view.querySelector('table')&&view.scrollWidth<=view.clientWidth&&[...view.querySelectorAll('*')].every(n=>n.getBoundingClientRect().right<=panel.right+1)&&!document.querySelector('#trade-editing').hidden;})()","document.querySelector('#side-panel-view').innerText");
   await click('#side-panel-tabs-terms');
-  await set('#trade-revision','1');await wait(idle);
+  await typeInto('#trade-lots','40');
+  await set('#trade-revision','1');await asks();
+  await check('choosing another revision with unsaved edits asks first, and keeping them leaves the form on its revision with them',`${prompt}.querySelectorAll('button').length===2&&document.querySelector('#trade-editor-reference').textContent.endsWith('Revision 2')&&document.querySelector('#trade-lots').value==='40'`,`[${prompt}.textContent,document.querySelector('#trade-editor-reference').textContent,document.querySelector('#trade-lots').value]`);
+  await answer(0);
+  await check('the revision selector is back on the revision the form shows',"document.querySelector('#trade-revision').value==='2'&&document.querySelector('#trade-lots').value==='40'&&!document.querySelector('#trade-editing').hidden");
+  await set('#trade-revision','1');await asks();await answer(1);await wait(idle);
   await check('earlier revision is inspectable but cannot be edited',"document.querySelector('#trade-lots').value==='37'&&document.querySelector('#trade-amend-fields').disabled&&document.querySelector('#trade-editor-mode').textContent.includes('earlier trade revision')");
   await click('#trade-reload');await check('reload explicitly retrieves latest revision',"document.querySelector('#trade-revision').value==='2'&&!document.querySelector('#trade-amend-fields').disabled");
+  // A revision that cannot be read says so, in the page's own message: the form does not vanish unexplained.
+  await evaluate("window.__failEditor=true");await set('#trade-revision','1');await wait(idle);
+  await check('a revision that cannot be read reports the failure and closes the form it replaced, and does not swallow the error',"!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.length>0&&document.querySelector('#trade-editing').hidden","[document.querySelector('#error').hidden,document.querySelector('#error').textContent,document.querySelector('#trade-editing').hidden]");
+  await open(2);
   await shot('trade-editor');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   // The panel is placed again when the window's width has changed, a frame after it does.
@@ -81,6 +104,37 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate("window.__holdPreview=true;document.querySelector('#trade-amend-form').requestSubmit()");await wait('!!window.__releaseEditor');
   await evaluate("document.querySelector('#side-panel').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));window.__releaseEditor()");await wait(idle);
   await check('late preview cannot restore cleared economics or prepared amendment',"document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-preview-result').hidden&&document.querySelector('#trade-preview-values').textContent===''&&document.querySelector('#trade-effective').textContent===''");
+  // An amendment that changes the instrument, here the delivery month, gives the trade another binding. The panel follows the trade to it
+  // and says so; the earlier revisions, of the first instrument, stay readable, each naming its own, and cannot be amended from here.
+  const eventually=expression=>evaluate(`new Promise(resolve=>{const start=Date.now(),poll=()=>{let ok=false;try{ok=!!(${expression});}catch{}if(ok||Date.now()-start>4000)resolve();else setTimeout(poll,50);};poll();})`);
+  const bindingOf=()=>evaluate(`window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).bindingId`);
+  await open(2);
+  const bindingBefore=await bindingOf(),contractBefore=await evaluate("document.querySelector('#trade-contract').value");
+  await click('#trade-contract-date');
+  const month=await evaluate(`(()=>{const calendar=document.querySelector('#trade-contract-date').parentElement;for(let n=0;n<24;n++){const cell=[...calendar.querySelectorAll('[data-date]:not(:disabled)')].find(b=>b.getAttribute('aria-pressed')!=='true');if(cell){cell.click();return cell.dataset.date;}const next=calendar.querySelector('[aria-label="Next month with data"]');if(next.disabled)return null;next.click();}return null;})()`);
+  if(month===null)throw Error('The instrument-changing amendment needs a second delivery month.');
+  // What a calendar sets for the person is an edit: this contract-only amendment asks before a row switch, and keeping it changes nothing.
+  await set('#blotter-filters .table-search','');
+  await evaluate(`[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].find(row=>row.querySelector('.desk-reference').textContent!==${JSON.stringify(tradeReference)}).click()`);await asks();
+  await check('a contract-only amendment asks before a row switch: a delivery month chosen in the calendar is an edit',`${prompt}.querySelectorAll('button').length===2&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(tradeReference)}&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-contract').value!==${JSON.stringify(contractBefore)}`,`[${prompt}.textContent,document.querySelector('#trade-contract').value,${JSON.stringify(contractBefore)}]`);
+  await answer(0);await set('#blotter-filters .table-search',tradeReference);
+  // The month chosen offers its contract, which the person then chooses, as a booking does.
+  const monthContract=await evaluate("document.querySelector('#trade-contract').options[1]?.value");
+  if(!monthContract)throw Error('The delivery month chosen offers no contract.');
+  await set('#trade-contract',monthContract);
+  await set('#trade-reason','Synthetic delivery month correction');await submit('#trade-amend-form');
+  await check('the preview of an amendment of the delivery month alone is offered for confirmation',`document.querySelector('#trade-contract').value!==${JSON.stringify(contractBefore)}&&!document.querySelector('#trade-preview-result').hidden`,"[document.querySelector('#trade-error').textContent,document.querySelector('#error').textContent]");
+  await click('#trade-confirm');await click('#trade-submit');
+  await eventually("!document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-meta')?.textContent.startsWith('Revision 3')");
+  const bindingAfter=await bindingOf();
+  await check('the amendment gave the trade another binding, at its third revision',`${JSON.stringify(bindingAfter)}!==${JSON.stringify(bindingBefore)}&&window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).revision==='3'`);
+  await check('the panel follows the trade to that binding, on its Terms with no form open, and says that it has',`(()=>{return !document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(tradeReference)}&&document.querySelector('#side-panel-head .side-panel-meta').textContent.startsWith('Revision 3')&&document.querySelector('#side-panel-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#trade-editing').hidden&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(tradeReference+' now holds another instrument')});})()`,"[document.querySelector('#side-panel').hidden,document.querySelector('#side-panel-head').innerText,document.querySelector('#notice').textContent]");
+  await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
+  await set('#trade-revision','1');await wait(idle);
+  await check('an earlier revision of another instrument is read as it is: it names its instrument, and the form of this position cannot amend it',`(()=>{const read=window.__editorReplies.filter(r=>r.path==='/api/futures/editor').at(-1).data;return read.state.revision===1&&read.state.bindingId!==${JSON.stringify(bindingAfter)}&&document.querySelector('#error').hidden&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-revision').value==='1'&&document.querySelector('#trade-amend-fields').disabled&&document.querySelector('#trade-editor-reference').textContent.includes(read.state.instrumentReference);})()`,"[document.querySelector('#error').textContent,document.querySelector('#trade-error').textContent,document.querySelector('#trade-revision').value,document.querySelector('#trade-editor-reference').textContent]");
+  await click('#side-panel-tabs-history');await eventually("document.querySelectorAll('#side-panel-view .side-panel-section').length===3");
+  await check('and the History tab lists the three revisions, each naming the instrument it was of',`(()=>{const sections=[...document.querySelectorAll('#side-panel-view .side-panel-section')],instruments=sections.map(section=>[...section.querySelectorAll('.side-term')].find(row=>row.children[0].textContent==='Instrument')?.children[1].textContent);return sections.map(section=>section.querySelector('h3').textContent).join()==='Revision 1 · Booked,Revision 2 · Amended,Revision 3 · Amended'&&instruments.every(Boolean)&&instruments[0]!==instruments[2]&&instruments[0]===instruments[1];})()`,"[...document.querySelectorAll('#side-panel-view .side-panel-section')].map(s=>s.innerText)");
+  await click('#side-panel-close');await wait("document.querySelector('#side-panel').hidden");
   await evaluate("window.__denyEditor=true");await click('#desk-positions .tabulator-row:not(.tabulator-group)');await click('#side-panel-amend');
   await check('denied editor clears prior business names and all trade surfaces',"document.querySelector('#trade-book').options.length===0&&document.querySelector('#trade-contract').options.length===0&&document.querySelector('#trade-revision').options.length===0&&document.querySelector('#desk-positions').children.length===0&&document.querySelector('#side-panel').hidden");
   // The panel's Terms read is the editor's read: when the account may not make it, the page is cleared as for the editor.

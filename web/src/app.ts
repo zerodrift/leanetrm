@@ -10,6 +10,7 @@ import {setupJobs} from './jobs-view.js';
 import {setupReferenceEditor} from './reference-editor.js';
 import {setupPartyEditors} from './party-view.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
+import {withNotice} from './notice-text.js';
 import {setupUnitConverter} from './units-view.js';
 import {renderChart,clearChart} from './chart-view.js';
 import {setupFutures} from './futures-view.js';
@@ -62,7 +63,7 @@ let prefs:Preferences=newPreferences(Intl.DateTimeFormat().resolvedOptions().tim
 let marketDateGeneration=0,marketDatesLoaded=false;
 // The workspace's newest close (D213): the last availability read for the whole workspace, the newest date it had when
 // the close now shown was selected, whether a newer-close check is due and whether one is running.
-let workspaceCloses:MarketDates|undefined,closeBasis:{close:string;newest:string}|undefined,closeCheckDue=false,checkingCloses=false;
+let workspaceCloses:MarketDates|undefined,closeBasis:{close:string;newest:string}|undefined,closeCheckDue=false,checkingCloses=false,shownClose='';
 const data=()=>{if(!workspace)throw Error('Market data is still loading.');return workspace;};
 const directory=()=>{if(!navigation)throw Error('Market navigation is still loading.');return navigation;};
 const frame=()=>{const found=directory().frames.find(f=>f.id===select('snapshot').value);if(!found)throw Error('Choose a market date above.');return found;};
@@ -74,7 +75,7 @@ const row=(table:string,key:string,value:string,reference=false)=>exactRow((refe
 const observation=(id:string)=>exactRow(data().observations,'id',id);
 const instant=(value:string)=>displayInstant(value,prefs.timeZone);
 const unit=(quote:string)=>quoteUnit(quote,data());
-function notice(message:string){text('notice',message);$('notice').hidden=false;}
+function notice(message:string){const shown=$('notice');text('notice',withNotice(shown.hidden?'':shown.textContent??'',publicText(message)));shown.hidden=false;}
 function persist(){try{savePreferences(localStorage,(exampleId==='baseline'?currentProfile:exampleId+':'+currentProfile),prefs);}catch{notice('Your changes work for this visit, but this browser could not save your preferences.');}}
 function loadProfile(){clearTableFilters();try{prefs=loadPreferences(localStorage,(exampleId==='baseline'?currentProfile:exampleId+':'+currentProfile),Intl.DateTimeFormat().resolvedOptions().timeZone);}catch{prefs=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);notice('Your saved profile could not be loaded. This visit uses your browser’s time zone. You can save your preferences in Profile.');}}
 function syncControls(){
@@ -123,6 +124,17 @@ async function act(work:()=>Promise<void>){
   catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');}
   finally{busy=false;syncControls();if(closeCheckDue){closeCheckDue=false;void recheckNewestClose();}}
 }
+// A move of the person's that would give up the amendment the Blotter's panel holds, as another page, another context or another close
+// does, asks first, in the panel, whether to; and it asks before the page is busy, because every control, the question's own included,
+// is disabled while it is. `modal` is a dialog open over the page, which keeps the panel out of reach, and is closed for the question.
+// false means the person kept the amendment.
+async function mayLeave(modal?:HTMLDialogElement){
+  if(page!=='futures')return true;
+  if(modal?.open&&futures.editing())modal.close();
+  return futures.leave();
+}
+// Runs `work` as an action, once the person has agreed to leave what the Blotter holds; `kept` hears that they did not.
+function leaving(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy)return;if(await mayLeave())await act(work);else kept?.();})();}
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][]){
@@ -547,7 +559,7 @@ function setHostMode(mode:string){
 const bootstrapPath='bootstrap?includeFrames=false';
 const startupBootstrapPath=bootstrapPath+'&includeAccess=true';
 async function profileChoices(initial?:ProfileChoices){const boot=initial??await api<ProfileChoices>(bootstrapPath);setHostMode(boot.mode);$('preview-access').hidden=hostedPilot;$('sign-out').hidden=!hostedPilot;choose('profile',[...boot.profiles,...boot.customProfiles.filter(p=>!boot.profiles.some(base=>base.id===p.id))].map(p=>({value:p.id,name:p.name})),currentProfile);const name=select('profile').selectedOptions[0]?.textContent??'Current user';text('profile-label',name);text('profile-avatar',name.slice(0,1));text('profile-title',name);text('profile-access','Current permissions: '+(permissions.length?permissions.map(p=>friendly(p.replace(/([a-z])([A-Z])/g,'$1 $2'))).join(', '):'No workspace access'));$('profile-open').setAttribute('aria-label','Profile · '+name);}
-$('sign-out').onclick=()=>void act(async()=>{await api('logout',{});location.assign('/auth');});
+$('sign-out').onclick=()=>void (async()=>{if(busy||!await mayLeave($<HTMLDialogElement>('profile-dialog')))return;await act(async()=>{await api('logout',{});location.assign('/auth');});})();
 async function loadIdentity(initialAccess?:unknown){
   $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('no-access-page').hidden=true;
@@ -578,17 +590,17 @@ async function loadIdentity(initialAccess?:unknown){
   }
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
 }
-$('open').onclick=()=>void profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});
+$('open').onclick=()=>void (async()=>{if(busy||!await mayLeave($<HTMLDialogElement>('profile-dialog')))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
 function closeChanged(){
-  closeBasis=undefined;
+  shownClose=select('snapshot').value;closeBasis=undefined;
   marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset();clearPrices();
 }
 async function loadSelectedClose(){
   if(!select('snapshot').value)return;
   if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'&&curve)await build();
 }
-$('snapshot').onchange=()=>void act(async()=>{closeChanged();await loadSelectedClose();});
+$('snapshot').onchange=()=>leaving(async()=>{closeChanged();await loadSelectedClose();},()=>{select('snapshot').value=shownClose;});
 $('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await build();});
 $('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').onchange=()=>void act(async()=>updateFilters());
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];updateFilters();}));
@@ -604,6 +616,14 @@ $('profile-dialog').addEventListener('close',agentGrants.hide);
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
 const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile);
 $('date-context').addEventListener('input',dirtyContext);
+// Opening the time controls is how a person starts to change the context the Blotter is read in, which clears it as the first change is made:
+// so it asks first, as every other way out of an amendment does, and the controls stay closed when the person keeps the amendment.
+$<HTMLElement>('date-context').querySelector('summary')!.addEventListener('click',event=>{
+  const controls=$<HTMLDetailsElement>('date-context');
+  if(controls.open||page!=='futures'||!futures.editing())return;
+  event.preventDefault();
+  void mayLeave().then(agreed=>{if(agreed)controls.open=true;});
+});
 async function applyContext(){
   jobs.contextChanged();
   const context=await dateEditor.context();
@@ -614,11 +634,11 @@ async function viewContext(snapshot:{context:Context}){
   text('environment-context-note','Historical view · working snapshots use the latest known corrections; stored closes retain their original inputs. Changes are disabled.');
 }
 $('close-view-context').onclick=()=>{$<HTMLDetailsElement>('date-context').open=false;};
-$('apply-view-context').onclick=()=>void act(async()=>{await applyContext();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
+$('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
 async function currentInputs(){jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();unitConverter.reset();futures.reset();power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');text('environment-context-note','Current workspace · exact selected inputs');}
-$('current-view-context').onclick=()=>void act(async()=>{await currentInputs();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
-$('return-working').onclick=()=>void act(async()=>{await currentInputs();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
-$('follow-live').onclick=()=>void act(async()=>{
+$('current-view-context').onclick=()=>leaving(async()=>{await currentInputs();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
+$('return-working').onclick=()=>leaving(async()=>{await currentInputs();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
+$('follow-live').onclick=()=>leaving(async()=>{
  const selected=await api<LiveContextUpdate>('market/live',{snapshotId:frame().id,policy:'selected_facts_latest_committed_corrections_v1'});
  if(navigation){navigation.context=selected.context;navigation.live=selected.live;}
  contextDirty=false;connectLive(selected.live);lastLiveUpdate=selected;liveUpdates?.offer({...selected,generation:selected.live.generation});
@@ -630,7 +650,7 @@ const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScop
 const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  zone:()=>prefs.timeZone,busy:()=>busy,enabled:()=>!!navigation&&can('ReadMarketData')&&!contextDirty,
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
- open:()=>void act(()=>openMarketCalendar()),newer:()=>void act(openNewestClose),select:id=>{select('snapshot').value=id;select('snapshot').dispatchEvent(new Event('change',{bubbles:true}));}
+ open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose),select:id=>{select('snapshot').value=id;select('snapshot').dispatchEvent(new Event('change',{bubbles:true}));}
 });
 const deliveryPrices=setupPowerImports({api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
@@ -676,7 +696,7 @@ async function showPage(next:string){
 }
 // Pages that read the selected historical view apply a changed one before they open.
 const readsContext=['market','custom-curves','delivery','reference','configuration','parties','futures'];
-const navigate=(next:string)=>()=>void act(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);});
+const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);});
 for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures','ppa'])
   $('nav-'+name).onclick=navigate(name);
 $('curve-power').onclick=navigate('power');
@@ -757,6 +777,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       await setPage('parties');select('party-kind').value=kind;await parties.load();return;
     }
     case 'blotter':
+      if(selection.view==='trade')futures.requireTradeRows();
       await setPage('futures');futures.reset();
       if(selection.view==='trade'){
         if(select('snapshot').value)await futures.load();

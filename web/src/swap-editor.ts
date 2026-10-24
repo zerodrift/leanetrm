@@ -4,7 +4,7 @@ import {linkedValue,quantityChoice,filterSwapIndices,deliveryChoices} from './sw
 import {createAvailableDatePicker} from './available-date-picker.js';
 import {draftValuation} from './draft-valuation.js';
 import {mountSwapSideEditor,mountFirstFloatingEditor} from './swap-side-editor.js';
-import {dealFormatEditor} from './deal-format-editor.js';
+import {dealFormatEditor,dealFormats,type DealFormats} from './deal-format-editor.js';
 import {tradeAnnotations,bookingRows,historyBooking,type PartyCatalog,type Trader,type Annotation} from './trade-annotations.js';
 import {createScheduleDatePicker} from './schedule-date-picker.js';
 import type {Context} from './date-editor.js';
@@ -35,10 +35,17 @@ export const sideTitle=(side:{slot:number;kind:string;coefficient:string},floati
  `${side.kind==='fixed'?'Fixed':floatingPair?(side.slot===0?'First floating':'Second floating'):'Floating'} side · ${side.coefficient==='-1'?'Pay':side.coefficient==='1'?'Receive':`coefficient ${side.coefficient}`}`;
 const swapTypeLabels:Readonly<Record<string,string>>={financial_fixed_floating:'Fixed for floating',financial_floating_floating:'Floating for floating'};
 const discountingLabels:Readonly<Record<Discounting,string>>={[Discounting.CurrencyDefault]:'Currency default curve',[Discounting.None]:'Explicitly undiscounted'};
-/** The revisions of a swap as the History tab lists them: each with when it took effect and was recorded, and its facts. */
-export function swapHistory(detail:Detail,zone:string):TermSection[]{
+/**
+ * The revisions of a swap as the History tab lists them: each with the instrument it was of, when it took effect and was recorded, and
+ * its facts, its quantity written as Terms writes it and in the unit of that revision's own terms.
+ */
+export function swapHistory(detail:Detail,zone:string,formats:HoldingFormats):TermSection[]{
  const labels=timeLabels(detail.history.flatMap(s=>[s.effectiveAt,s.recordedAt]),zone);
- return detail.history.map((s,i)=>({title:`Revision ${s.revision} · ${friendly(s.kind)}`,rows:[['Effective',labels[2*i]],['Recorded',labels[2*i+1]],['Quantity',s.quantity],...historyBooking(s),['Reason',s.reason]]}));
+ const quantity=(s:State)=>{
+  const index=detail.catalog.indices.find(i=>i.definitionRevisionId===s.terms.definitionRevisionId&&i.curve===s.terms.floating.curve&&i.index===s.terms.floating.index);
+  return `${minus(formats.quantity(s.quantity))} ${index?.unit??'· unit unavailable: the index of this revision is not in the catalog'}`;
+ };
+ return detail.history.map((s,i)=>({title:`Revision ${s.revision} · ${friendly(s.kind)}`,rows:[['Effective',labels[2*i]],['Recorded',labels[2*i+1]],['Instrument',s.instrumentReference],['Quantity',quantity(s)],...historyBooking(s),['Reason',s.reason]]}));
 }
 const choiceLabel=(choices:Choice[],value:string)=>choices.find(c=>c.value===value)?.label??friendly(value);
 // A payment schedule's terms, in the words of the catalog's own payment choices.
@@ -81,8 +88,8 @@ export function swapTerms(detail:Detail,zone:string,formats:HoldingFormats):Term
   ...sides,
  ];
 }
-/** What the position panel's Terms and History tabs show of a swap revision: the same read the editor makes. */
-export const swapDetailView=(detail:Detail,zone:string,formats:HoldingFormats):DetailView=>({terms:swapTerms(detail,zone,formats),history:swapHistory(detail,zone)});
+/** What the position panel's Terms and History tabs show of a swap revision: the same read the editor makes, and its schedules when it has them. */
+export const swapDetailView=(detail:Detail,zone:string,formats:HoldingFormats,schedules?:(host:HTMLElement)=>()=>void):DetailView=>({terms:swapTerms(detail,zone,formats),history:swapHistory(detail,zone,formats),...(schedules?{schedules}:{})});
 export const swapAmendState=(detail:Detail):AmendState=>detail.canAmend?{allowed:true,reason:null}:{allowed:false,reason:detail.amendUnavailableReason??'Read-only revision'};
 /**
  * A swap's editor state names its instrument, not its binding, so an editor read must hold the instrument the position is in: a
@@ -91,14 +98,79 @@ export const swapAmendState=(detail:Detail):AmendState=>detail.canAmend?{allowed
 export function holdsInstrument(detail:Detail,h:Pick<Holding,'contractId'>){
  if(detail.state.instrumentId!==h.contractId)throw Error('The editor read holds another instrument of the trade than the position.');
 }
-/** The editor's read for a position of the Blotter, which must hold the instrument that position is in. */
-export async function readSwapView(api:Api,context:Record<string,unknown>,h:Pick<Holding,'tradeId'|'contractId'|'revision'>,formats:HoldingFormats):Promise<DetailRead>{
+const anotherInstrument="This revision belongs to another instrument of the trade than this position, so only the position's current revision can be amended.";
+/**
+ * What a revision read for a position may be used for. The position's own revision must be of its instrument, and a read of another is
+ * refused. An earlier revision may be of another instrument, which an amendment of its price, dates or payment terms gives a trade, and
+ * is read as it is; only the position's instrument can be amended from the position.
+ */
+export function swapAtPosition(detail:Detail,position:Pick<Holding,'contractId'|'revision'>,requested:number|null):Detail{
+ if(requested===null||requested===Number(position.revision))holdsInstrument(detail,position);
+ return detail.state.instrumentId===position.contractId?detail:{...detail,canAmend:false,amendUnavailableReason:detail.amendUnavailableReason??anotherInstrument};
+}
+
+type AmountText=(value:string,kind:'money'|'price'|'quantity'|'factor',role?:string)=>string;
+type Priced={currency:string;unit:string;quoteMultiplier:string};
+/** What a swap's schedules are drawn with: how its sides are priced and its amounts written, and the zone and busy state of the page. */
+type ScheduleContext={pair:boolean;index:Priced|undefined;sourceOf:(side:{kind:string;slot:number})=>Priced|undefined;text:AmountText;zone:string;busy:()=>boolean};
+const unitOf=(i:Pick<Priced,'currency'|'unit'>|undefined)=>`${i?.currency??''}/${i?.unit??''}`;
+/** The line above a swap's schedules: its present value, per instrument unit and in all, and its quantity, as the caller writes them. */
+export function valuationLine(value:Valuation,index:Pick<Priced,'currency'|'unit'>|undefined,text:AmountText){
+ return `Trade PV: ${text(value.presentValue,'money')} ${index?.currency??''} · instrument unit PV: ${text(value.instrumentPresentValue,'money')} ${unitOf(index)} · trade quantity: ${text(value.quantity,'quantity')} ${index?.unit??''}. Side values below are per normalized unit.`;
+}
+/** The line above one side's schedule: its present value per normalized unit and what it contributes. */
+export function sideLine(side:Valuation['sides'][number],index:Pick<Priced,'currency'|'unit'>|undefined,text:AmountText){
+ return `Side unit PV: ${text(side.presentValue,'money',side.kind)} ${unitOf(index)}; signed contribution: ${text(side.contribution,'money',side.kind)} ${unitOf(index)}.`;
+}
+/**
+ * Draws each side's schedule of a valuation into `host`: its payments in a chart and a table, the observation behind each, the price
+ * lookups of each reset and the evidence under them. Returns the widgets that hold charts, for the caller to dispose.
+ */
+function renderSchedules(host:HTMLElement,value:Valuation,c:ScheduleContext){
+ const i=c.index,widgets:ReturnType<typeof mountIntervalDataWidget>[]=[];
+ for(const side of value.sides){
+  const section=document.createElement('section');section.className='swap-schedule';const title=document.createElement('h3');title.textContent=sideTitle(side,c.pair);
+  const sum=document.createElement('p');sum.className='field-help';sum.textContent=sideLine(side,i,c.text);
+  const payments=document.createElement('div');payments.className='table-wrap';section.append(title,sum,payments);
+  const chart=document.createElement('div');section.insertBefore(chart,payments);host.append(section);
+  const widget=mountIntervalDataWidget({table:payments,chart,key:`swap-${side.slot}-payments`,busy:c.busy});widgets.push(widget);
+  widget.show(sideScheduleData(side.payments,JSON.stringify(side),unitOf(i),(amount,kind)=>c.text(amount,kind,side.kind)));
+  const source=c.sourceOf(side),price=`${source?.currency}/${source?.unit}${source?.quoteMultiplier==='1'?'':' × '+source?.quoteMultiplier}`;
+  side.payments.forEach((payment,n)=>{if(payment.observationSchedule)renderSwapObservationInspection(section,payment.observationSchedule,payment.paymentDate,`swap-${side.slot}-${n}`,c.zone,{price,cash:unitOf(i),quantity:source?.unit??''},c.busy);});
+  const resets=document.createElement('details'),label=document.createElement('summary'),table=document.createElement('div');label.textContent=`${side.payments.flatMap(p=>p.resets).length} ${side.kind==='fixed'?'fixed price row':'reset rows'} · inspect price lookups`;table.className='table-wrap';resets.append(label,table);section.append(resets);
+  renderRegularTable(table,`swap-${side.slot}-resets`,JSON.stringify(side.payments),['Observation start','Observation end · exclusive',`Price · ${price}`,'Weight',`Cash · ${unitOf(i)}`,'State'],side.payments.flatMap(p=>p.resets.map(r=>[r.from,r.to,r.price,r.weight,r.cashContribution,r.fixingState])),[2,3,4],c.busy,{displayRows:side.payments.flatMap(p=>p.resets.map(r=>[r.from,r.to,c.text(r.price,'price',side.kind),c.text(r.weight,'quantity',side.kind),c.text(r.cashContribution,'money',side.kind),r.fixingState]))});
+  const evidence=document.createElement('details'),evidenceLabel=document.createElement('summary'),evidenceBody=document.createElement('pre');evidenceLabel.textContent='Exact price lookups, observation lineage and discount inputs';evidenceBody.className='swap-evidence';evidenceBody.textContent=JSON.stringify(side.payments.map(p=>({paymentDate:p.paymentDate,discountMappingId:p.discountMappingId,discountCurve:p.discountCurve,discountPolicy:p.discountPolicy,pillars:p.pillars,resets:p.resets.map(r=>({from:r.from,to:r.to,spread:r.spread,lookup:r.lookup,lineage:r.lineage,fixingState:r.fixingState,fixing:r.fixing}))})),null,2);evidence.append(evidenceLabel,evidenceBody);section.append(evidence);
+ }
+ return widgets;
+}
+/**
+ * The valuation and schedules of a swap revision as the position panel's read view shows them, in `host` after its terms, in the
+ * deal's own display formats. Returns what takes them down.
+ */
+function renderValuation(host:HTMLElement,detail:Detail,deal:DealFormats,zone:string,busy:()=>boolean):()=>void{
+ const terms=detail.state.terms,catalog=detail.catalog,pair=terms.swapType==='financial_floating_floating',index=retainedIndex(catalog,terms,terms.floating);
+ const c:ScheduleContext={pair,index,sourceOf:side=>side.kind==='floating'&&pair&&side.slot===0?retainedIndex(catalog,terms,terms.firstFloating!):index,text:deal.text,zone,busy};
+ const section=document.createElement('section'),heading=document.createElement('h3'),line=document.createElement('p'),schedules=document.createElement('div');
+ section.className='side-panel-section';heading.textContent='Valuation & schedules';line.className='field-help';line.textContent=publicText(valuationLine(detail.valuation,index,c.text));
+ section.append(heading,line,schedules);host.append(section);
+ const widgets=renderSchedules(schedules,detail.valuation,c);
+ return()=>{for(const widget of widgets)widget.dispose();};
+}
+/**
+ * The editor's read for a position of the Blotter, which must hold the instrument that position is in, with the display formats of its
+ * deal, which its valuation and schedules are written in.
+ */
+export async function readSwapView(api:Api,context:Record<string,unknown>,h:Pick<Holding,'tradeId'|'contractId'|'revision'>,formats:HoldingFormats,busy:()=>boolean):Promise<DetailRead>{
  const detail=await readSwapDetail(api,context,h.tradeId,Number(h.revision));
  holdsInstrument(detail,h);
- return {amend:swapAmendState(detail),view:zone=>swapDetailView(detail,zone,formats)};
+ const deal=dealFormats(api);deal.use(await deal.read(h.tradeId,{...context,convention}));
+ await deal.prepare(detail.valuation);for(const side of detail.valuation.sides)await deal.prepare(side,side.kind);
+ return {amend:swapAmendState(detail),view:zone=>swapDetailView(detail,zone,formats,host=>renderValuation(host,detail,deal,zone,busy))};
 }
 type Position=Pick<Holding,'tradeId'|'contractId'|'revision'>;
-export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;onDenied:()=>void;host:()=>HTMLElement}){
+export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;onDenied:()=>void;host:()=>HTMLElement;
+ /** Asks whether to give up what the panel holds unsaved, when it holds any: false means the person kept it. */
+ leave:()=>Promise<boolean>}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
  const text=(id:string,value:string)=>get(id).textContent=publicText(value);
@@ -113,7 +185,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const display=dealFormatEditor(get('swap-amount-format'),{api:options.api,act:options.act,busy:options.busy,changed:async()=>{if(visibleValuation){await prepare(visibleValuation);valuation(visibleValuation);}}});
  async function prepare(value:Valuation){await display.prepare(value);for(const side of value.sides)await display.prepare(side,side.kind);}
  let catalog:Catalog|undefined,detail:Detail|undefined,prepared:RequestCommand|undefined,generation=0,previewGeneration=0;
- const dates=createScheduleDatePicker(get('swap-date-tools'),{id:'swap-date-lookup',api:options.api,run:work=>options.act(()=>safe(work)),context:()=>catalog?.context,zone:options.zone,busy:options.busy,enabled:()=>!options.pending()&&!!catalog&&(!detail?!!catalog:detail.canAmend),targets:['fixed','first','floating'].flatMap(side=>['from','to'].map(suffix=>({input:get<HTMLInputElement>(`swap-${side}-${suffix}`),available:()=>!!field('swap-type').value&&activeSides().includes(side),acceptsDate:date=>sideDateChoices(side)[suffix==='from'?'starts':'ends'].includes(date),label:`${side==='fixed'?'Fixed':side==='first'?'First floating':'Floating'} side · delivery ${suffix==='from'?'start':'end (exclusive)'}`})))});
+ const dates=createScheduleDatePicker(get('swap-date-tools'),{id:'swap-date-lookup',api:options.api,run:work=>options.act(()=>safe(work)),context:()=>catalog?.context,zone:options.zone,busy:options.busy,enabled:()=>!options.pending()&&!!catalog&&(!detail?!!catalog:detail.canAmend),targets:['fixed','first','floating'].flatMap(side=>['from','to'].map(suffix=>({input:get<HTMLInputElement>(`swap-${side}-${suffix}`),available:()=>!!field('swap-type').value&&activeSides().includes(side),acceptsDate:date=>sideDateChoices(side)[suffix==='from'?'starts':'ends'].includes(date),label:`${side==='fixed'?'Fixed':side==='first'?'First floating':'Floating'} side · delivery ${suffix==='from'?'start':'end (exclusive)'}`}))),edited:()=>edits.mark()});
  const key=()=>JSON.stringify(options.context());
  const context=()=>({...options.context(),convention});
  const indexKey=(i:Pick<Index,'definitionRevisionId'|'curve'|'index'>)=>JSON.stringify([i.definitionRevisionId,i.curve,i.index]);
@@ -143,7 +215,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  function dateReady(side:string){const source=side==='fixed'?'floating':side,mode=selectedSampling(source);return !!selectedIndex(source)&&!!mode&&(!mode.requiresObservationCalendar||!!observations[source].calendar())&&!!observationOptions[source];}
  const deliveryPickers=['fixed','first','floating'].flatMap(side=>['from','to'].map(suffix=>{
   const input=get<HTMLInputElement>(`swap-${side}-${suffix}`),host=document.createElement('div');input.hidden=true;input.required=false;input.after(host);
-  const picker=createAvailableDatePicker(host,{id:input.id+'-calendar',label:`${side==='first'?'First floating':side==='fixed'?'Fixed':'Floating'} delivery ${suffix==='from'?'start':'end (exclusive)'}`,busy:()=>options.busy()||!!options.pending()||!catalog||!!detail&&!detail.canAmend||!activeSides().includes(side)||!dateReady(side),onChange:date=>{input.value=date;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));}});
+  const picker=createAvailableDatePicker(host,{id:input.id+'-calendar',label:`${side==='first'?'First floating':side==='fixed'?'Fixed':'Floating'} delivery ${suffix==='from'?'start':'end (exclusive)'}`,busy:()=>options.busy()||!!options.pending()||!catalog||!!detail&&!detail.canAmend||!activeSides().includes(side)||!dateReady(side),onChange:date=>{input.value=date;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));edits.mark();}});
   const retained=document.createElement('p');retained.className='field-help';retained.hidden=true;host.append(retained);return{side,suffix,input,picker,retained};
  }));
  function syncDeliveryDates(clear=false,source?:string){let changed=false;
@@ -270,18 +342,10 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  }
  function valuation(value:Valuation){
   visibleValuation=value;
-  const i=selectedIndex();text('swap-pv',`Trade PV: ${display.text(value.presentValue,'money')} ${i?.currency??''} · instrument unit PV: ${display.text(value.instrumentPresentValue,'money')} ${i?.currency??''}/${i?.unit??''} · trade quantity: ${display.text(value.quantity,'quantity')} ${i?.unit??''}. Side values below are per normalized unit.`);
-  const host=get('swap-schedules');clearSchedules();
-  for(const side of value.sides){const section=document.createElement('section');section.className='swap-schedule';const title=document.createElement('h3');title.textContent=sideTitle(side,floatingPair());const sum=document.createElement('p');sum.className='field-help';sum.textContent=`Side unit PV: ${display.text(side.presentValue,'money',side.kind)} ${i?.currency??''}/${i?.unit??''}; signed contribution: ${display.text(side.contribution,'money',side.kind)} ${i?.currency??''}/${i?.unit??''}.`;const payments=document.createElement('div');payments.className='table-wrap';section.append(title,sum,payments);
-   const chart=document.createElement('div');section.insertBefore(chart,payments);host.append(section);
-   const widget=mountIntervalDataWidget({table:payments,chart,key:`swap-${side.slot}-payments`,busy:options.busy});scheduleWidgets.push(widget);
-   widget.show(sideScheduleData(side.payments,JSON.stringify(side),`${i?.currency}/${i?.unit}`,(amount,kind)=>display.text(amount,kind,side.kind)));
-   const source=side.kind==='floating'&&floatingPair()&&side.slot===0?selectedIndex('first'):i;
-   side.payments.forEach((payment,n)=>{if(payment.observationSchedule)renderSwapObservationInspection(section,payment.observationSchedule,payment.paymentDate,`swap-${side.slot}-${n}`,options.zone(),{price:`${source?.currency}/${source?.unit}${source?.quoteMultiplier==='1'?'':' × '+source?.quoteMultiplier}`,cash:`${i?.currency}/${i?.unit}`,quantity:source?.unit??''},options.busy);});
-   const resets=document.createElement('details'),label=document.createElement('summary'),table=document.createElement('div');label.textContent=`${side.payments.flatMap(p=>p.resets).length} ${side.kind==='fixed'?'fixed price row':'reset rows'} · inspect price lookups`;table.className='table-wrap';resets.append(label,table);section.append(resets);
-   renderRegularTable(table,`swap-${side.slot}-resets`,JSON.stringify(side.payments),['Observation start','Observation end · exclusive',`Price · ${source?.currency}/${source?.unit}${source?.quoteMultiplier==='1'?'':' × '+source?.quoteMultiplier}`,'Weight',`Cash · ${i?.currency}/${i?.unit}`,'State'],side.payments.flatMap(p=>p.resets.map(r=>[r.from,r.to,r.price,r.weight,r.cashContribution,r.fixingState])),[2,3,4],options.busy,{displayRows:side.payments.flatMap(p=>p.resets.map(r=>[r.from,r.to,display.text(r.price,'price',side.kind),display.text(r.weight,'quantity',side.kind),display.text(r.cashContribution,'money',side.kind),r.fixingState]))});
-   const evidence=document.createElement('details'),evidenceLabel=document.createElement('summary'),evidenceBody=document.createElement('pre');evidenceLabel.textContent='Exact price lookups, observation lineage and discount inputs';evidenceBody.className='swap-evidence';evidenceBody.textContent=JSON.stringify(side.payments.map(p=>({paymentDate:p.paymentDate,discountMappingId:p.discountMappingId,discountCurve:p.discountCurve,discountPolicy:p.discountPolicy,pillars:p.pillars,resets:p.resets.map(r=>({from:r.from,to:r.to,spread:r.spread,lookup:r.lookup,lineage:r.lineage,fixingState:r.fixingState,fixing:r.fixing}))})),null,2);evidence.append(evidenceLabel,evidenceBody);section.append(evidence);
-  }
+  const i=selectedIndex(),first=selectedIndex('first');
+  const c:ScheduleContext={pair:floatingPair(),index:i,sourceOf:side=>side.kind==='floating'&&floatingPair()&&side.slot===0?first:i,text:(amount,kind,role)=>display.text(amount,kind,role),zone:options.zone(),busy:options.busy};
+  text('swap-pv',valuationLine(value,i,c.text));
+  clearSchedules();scheduleWidgets.push(...renderSchedules(get('swap-schedules'),value,c));
   get('swap-result').hidden=false;
  }
  function renderDetail(value:Detail){detail=value;catalog={...value.catalog,context:value.context,asOf:value.asOf};dates.invalidate();populateCatalog();const state=value.state,t=state.terms;field('swap-type').value=t.swapType;typeControls();for(const side of ['floating','first'])field(observationId(side,'commodity')).value=t.commodity;commodityControls();text('swap-template-note','Retained trade terms. Each side shows its saved values.');
@@ -300,8 +364,8 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   prepared=undefined;get('swap-confirmation').hidden=true;valuation(value.valuation);sync();
  }
  async function openNew(){reset();const started=generation,source=key();await safe(async()=>{const response=await options.api<Catalog>('swaps/catalog',context());if(started!==generation||source!==key())return;catalog=response;populateCatalog();await refreshObservations();if(started!==generation||source!==key())return;text('swap-mode','Choose a swap type and enter each independent side.');typeControls();get<HTMLInputElement>('swap-reason').required=false;sync();mount();});}
- /** Opens a position's swap at one of its revisions, the latest for none, in the host. The read must hold the position's instrument. */
- async function open(at:Position,revision:number|null){reset();position=at;const started=++generation,source=key();invalidate();await safe(async()=>{const response=await readSwapDetail(options.api,options.context(),at.tradeId,revision);if(started!==generation||source!==key())return;holdsInstrument(response,at);await display.load(response.state.tradeId,context(),response.canAmend,response.state.terms.firstFloating?['trade','floating']:['trade','fixed','floating']);await prepare(response.valuation);if(started!==generation||source!==key())return;renderDetail(response);await refreshObservations();if(started!==generation||source!==key())return;mount();});}
+ /** Opens a position's swap at one of its revisions, the latest for none, in the host. Its own revision must hold the position's instrument; an earlier one is read as it is. */
+ async function open(at:Position,revision:number|null){reset();position=at;const started=++generation,source=key();invalidate();await safe(async()=>{const read=await readSwapDetail(options.api,options.context(),at.tradeId,revision);if(started!==generation||source!==key())return;const response=swapAtPosition(read,at,revision);await display.load(response.state.tradeId,context(),response.canAmend,response.state.terms.firstFloating?['trade','floating']:['trade','fixed','floating']);await prepare(response.valuation);if(started!==generation||source!==key())return;renderDetail(response);await refreshObservations();if(started!==generation||source!==key())return;mount();});}
  field('swap-quantity-unit').onchange=quantityUnitLabel;
  get('swap-type-choices').querySelectorAll<HTMLButtonElement>('button').forEach(button=>button.onclick=()=>{field('swap-type').value=button.dataset.swapType!;field('swap-type').dispatchEvent(new Event('change',{bubbles:true}));});
  field('swap-type').onchange=()=>{invalidate();typeControls();applyEntryTemplate();dates.sync();};
@@ -322,15 +386,22 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   const {context:unused,quantity:entered,parRatePolicy,...terms}=instrument;
   const body={...context(),...annotations.read(),...terms,knowledgeMode:'current',bookId:field('swap-book').value,quantity:priced.quantity.amount,fixed:instrument.fixed?{...instrument.fixed,price:priced.resolvedFixedPrice??instrument.fixed.price}:null,
    ...(detail?{tradeId:detail.state.tradeId,expectedRevision:detail.state.revision,effectiveAt:detail.asOf,reason:field('swap-reason').value}:{})};
-  if(!Object.values(Discounting).includes(field('swap-discounting').value as Discounting))throw Error('Choose discounting explicitly.');const command={operationId:crypto.randomUUID(),path:detail?'swaps/amend':'swaps/book',body};
+  if(!Object.values(Discounting).includes(field('swap-discounting').value as Discounting))throw Error('Choose discounting explicitly.');const command:RequestCommand={operationId:crypto.randomUUID(),path:detail?'swaps/amend':'swaps/book',label:detail?`Swap amendment of ${detail.state.tradeReference}`:'New swap',body};
   const response=await options.api<{valuation:Valuation}>('swaps/preview',{...body,operationId:command.operationId});if(started!==generation||preview!==previewGeneration||source!==key())return;
   await prepare(response.valuation);if(started!==generation||preview!==previewGeneration||source!==key())return;prepared=command;valuation(response.valuation);get('swap-confirmation').hidden=false;get<HTMLInputElement>('swap-confirm').checked=false;text('swap-submit',detail?'Submit amendment':'Book financial swap');sync();
  }));};
  get<HTMLInputElement>('swap-confirm').onchange=sync;
  get('swap-submit').onclick=()=>void options.act(()=>safe(async()=>{if(!prepared||!get<HTMLInputElement>('swap-confirm').checked)throw Error('Validate schedules and confirm the exact terms first.');await options.queue(prepared);}));
- field('swap-revision').onchange=()=>{if(position)void options.act(()=>open(position!,Number(field('swap-revision').value)));};get('swap-latest').onclick=()=>{if(position)void options.act(()=>open(position!,null));};
+ // Another revision replaces what the form holds, which is asked about first, before the page is busy, as every other way out of it is.
+ function replacing(revision:()=>number|null){
+  if(!position||options.busy())return;
+  const at=position;
+  void (async()=>{if(await options.leave())await options.act(()=>open(at,revision()));else field('swap-revision').value=String(detail?.state.revision??'');})();
+ }
+ field('swap-revision').onchange=()=>replacing(()=>Number(field('swap-revision').value));get('swap-latest').onclick=()=>replacing(()=>null);
  return{open,openNew,reset,sync,async liveRefresh(){const requested=failedLiveSelection??(mounted()&&detail&&position?{position,revision:Number(field('swap-revision').value)}:undefined);if(requested){try{await open(requested.position,requested.revision);}catch(error){if((error as {code?:string}).code!=='access_denied')failedLiveSelection=requested;throw error;}}else if(mounted()){catalog=await options.api<Catalog>('swaps/catalog',context());await refreshObservations();previewGeneration++;prepared=undefined;get('swap-result').hidden=true;get('swap-confirmation').hidden=true;dates.invalidate();dates.sync();await draft.liveRefresh();sync();}},refresh(){annotations.refresh();dates.invalidate();dates.sync();invalidate();},
   // The position whose amendment form is in the host (none for a new swap), and booking or amendment edits not yet sent.
   shown:()=>mounted()?position:undefined,
+  displayedRevision:()=>mounted()?detail?.state.revision:undefined,
   unsaved:()=>mounted()&&edits.edited()};
 }

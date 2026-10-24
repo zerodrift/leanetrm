@@ -4,7 +4,9 @@ import {createAvailableDatePicker} from './available-date-picker.js';
 
 // Product-specific presentation shared by booking and amendment. Catalog terms
 // and computed quantities/prices originate in the managed operations.
-export function futuresInstrumentEditor(host:HTMLElement,ids:{contract:string;lots:string;price:string;terms:string}){
+export function futuresInstrumentEditor(host:HTMLElement,ids:{contract:string;lots:string;price:string;terms:string},
+ /** Hears that the person chose a delivery month in its calendar, which sets the contract for them. */
+ o:{edited?:()=>void}={}){
  const heading=document.createElement('h3');heading.textContent='Futures instrument';
  function field(id:string,label:string,input:boolean){const wrap=document.createElement('div'),caption=document.createElement('label');caption.htmlFor=id;caption.textContent=label;const control=document.createElement(input?'input':'select');control.id=id;control.required=true;wrap.append(caption,control);return{wrap,control};}
  const contract=field(ids.contract,'Pricing curve for delivery date',false),lots=field(ids.lots,'Quantity · signed lots',true),price=field(ids.price,'Execution price · quote units',true);
@@ -13,7 +15,7 @@ export function futuresInstrumentEditor(host:HTMLElement,ids:{contract:string;lo
  const dateHost=document.createElement('div');
  let catalog:FuturesContract[]=[],locked=false;
  const select=contract.control as HTMLSelectElement;
- const date=createAvailableDatePicker(dateHost,{id:ids.contract+'-date',label:'Delivery starts',busy:()=>locked,onChange:()=>{refresh();changed();}});
+ const date=createAvailableDatePicker(dateHost,{id:ids.contract+'-date',label:'Delivery starts',busy:()=>locked,onChange:()=>{refresh();changed();o.edited?.();}});
  function choose(control:HTMLSelectElement,rows:{value:string;name:string}[],selected:string){control.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(publicText(r.name),r.value)));control.value=rows.some(r=>r.value===selected)?selected:'';control.disabled=!rows.length;}
  function refresh(){
   const c=commodity.control as HTMLSelectElement,e=exchange.control as HTMLSelectElement,p=product.control as HTMLSelectElement;

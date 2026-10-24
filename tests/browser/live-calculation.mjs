@@ -1,6 +1,6 @@
 import {sideSession} from './side-session.mjs';
 
-export async function run({command,evaluate,wait,click,persona,set,check,shot,idle,url}){
+export async function run({command,evaluate,wait,click,persona,set,submit,check,shot,idle,url}){
  await command('Runtime.enable');await command('Page.enable');await command('Network.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.liveResponses=[];window.liveRequests=[];window.liveTasks=[];new PerformanceObserver(list=>window.liveTasks.push(...list.getEntries().map(e=>e.duration))).observe({type:'longtask',buffered:true});{const fetch=window.fetch;window.fetch=async(path,init)=>{window.liveRequests.push(String(path));if(window.holdShapes&&String(path)==='/api/market/curve-shapes'){window.holdShapes=false;await new Promise(resolve=>window.releaseShapes=resolve);}if(window.failLiveWorkspace&&String(path)==='/api/trading/workspace'){window.failLiveWorkspace=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}if((window.failLivePreview&&String(path)==='/api/custom-curves/preview')||(window.failLiveEditor&&['/api/swaps/editor','/api/futures/editor'].includes(String(path)))){window.failLivePreview=false;window.failLiveEditor=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}let response=await fetch(path,init);if(window.refuseDesk&&String(path)==='/api/trading/workspace'&&response.ok){window.refuseDesk=false;const data=await response.json(),market=data.summaries[3],swap=market.groups.find(g=>g.instrumentType==='financial_swap');market.groups.push({...swap,quantitySpecification:{...swap.quantitySpecification,code:'other_quantity'},unit:'other unit'});for(const group of data.summaries[0].groups)if(group.instrumentType==='future')group.executionPnl='4242.5';for(const holding of data.blotter.holdings)if(holding.instrumentType==='future')holding.executionPrice='9.995';response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}if(response.headers.get('content-type')?.includes('application/json'))window.liveResponses.push({path:String(path),data:await response.clone().json()});return response;};}`});
@@ -61,6 +61,14 @@ export async function run({command,evaluate,wait,click,persona,set,check,shot,id
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
  await check('a read the desk refuses leaves the desk it had whole, with no new totals or rows beside its old charts',`${deskNow}===${JSON.stringify(deskBefore)}&&!document.querySelector('#desk').textContent.includes('4,242.500')&&!document.querySelector('#desk-positions').textContent.includes('9.995')`,deskNow);
  await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
+ // A swap's Terms are read in the live context too, with its valuation and schedules, as a form of its amendment would be read in working data.
+ const swapReference=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>h.instrumentType==='financial_swap').tradeReference");
+ await set('#blotter-filters .table-search',swapReference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
+ await click('#side-panel-tabs-terms');await wait("!!document.querySelector('#side-panel-view .side-panel-section')&&"+idle);
+ await check('a swap\'s Terms are read in a live context: its structure, each side, and its valuation and schedules, with no error',
+  `(()=>{const titles=[...document.querySelectorAll('#side-panel-view .side-panel-section>h3')].map(n=>n.textContent);return titles[0]==='Trade'&&titles[1]==='Structure'&&titles.includes('Valuation & schedules')&&document.querySelectorAll('#side-panel-view .swap-schedule').length>=1&&!document.querySelector('#side-panel-view .side-panel-error')&&document.querySelector('#error').hidden;})()`,
+  "[document.querySelector('#side-panel-view').innerText.slice(0,300),document.querySelector('#error').textContent]");
+ await click('#side-panel-close');await set('#blotter-filters .table-search','');
  // A position in a market Curves & prices lists, so that its Open curve is available to hold focus below.
  const reference=await evaluate("(async()=>{const listed=new Set((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>c.code));return window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>listed.has(h.curve)).tradeReference;})()");
  await set('#blotter-filters .table-search',reference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
@@ -104,5 +112,21 @@ export async function run({command,evaluate,wait,click,persona,set,check,shot,id
  await check('while focus that is elsewhere stays there: a refresh does not take it back to the panel',
   "document.activeElement.id==='page-title'",
   "[document.activeElement.id,document.activeElement.tagName]");
+ // A risk run belongs to the inputs it was made on: a live correction clears it and says so, and a refresh that then fails keeps the note.
+ const riskNote='Risk results cleared · live corrections changed the inputs';
+ const runRisk=async()=>{
+  await click('#desk-risk-run');
+  const factor=await evaluate("(()=>{const c=window.liveResponses.filter(r=>r.path==='/api/portfolio/risk/catalog').at(-1).data,source=c.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01');return c.scenarioTargets.find(t=>t.id===source.id&&JSON.stringify(t.factor)===JSON.stringify(source.factor)).id;})()");
+  await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait("document.querySelector('#risk-results .tabulator-row')");
+ };
+ await runRisk();
+ await correct('base','3.371');
+ await wait("document.querySelector('#live-status').dataset.state==='live'&&!document.querySelector('#risk-results .tabulator-row')&&"+idle);
+ await check('a live correction clears a risk run, whose inputs it changed, and the page says so',`!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})&&document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Not run at this close'`,"[document.querySelector('#notice').textContent,document.querySelector('#desk-tile-risk').textContent]");
+ await runRisk();
+ await evaluate('window.failLiveWorkspace=true');await correct('base','3.372');
+ await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
+ await check('a refresh that fails after it cleared a risk run keeps the note that says so',`!document.querySelector('#risk-results .tabulator-row')&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})`,"[document.querySelector('#notice').hidden,document.querySelector('#notice').textContent,!!document.querySelector('#risk-results .tabulator-row')]");
+ await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  console.log('LIVE browser synthetic workload:',JSON.stringify(await evaluate("({requests:window.liveRequests.length,longTasks:window.liveTasks.length,maxLongTaskMilliseconds:Math.max(0,...window.liveTasks),heapBytes:performance.memory?.usedJSHeapSize})")));
 }

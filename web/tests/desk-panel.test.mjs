@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
-import {positionMode,positionIndex,tradeIndex,setupDeskPanel} from '../dist/desk-panel.js';
+import {positionMode,positionIndex,tradeIndex,followedPosition,requireTradeRows,revisionNote,setupDeskPanel} from '../dist/desk-panel.js';
 import {sameMode} from '../dist/side-panel.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -147,4 +147,33 @@ test('a panel that moved to another mode forgets its position and its row, and l
  assert.deepEqual(state.log,[['position.clear'],['grid.select',null]]);
  state.log.length=0;state.controller.closed();
  assert.deepEqual(state.log,[['position.clear'],['grid.select',null]],'it was not closed from a row, so there is none to return to');
+});
+
+test('a trade opens from the trade rows: a pivot refuses it in words that name the view it needs, and a view of trade rows does not',()=>{
+ assert.doesNotThrow(()=>requireTradeRows('trades'));
+ assert.throws(()=>requireTradeRows('pivot'),{message:"That trade opens from the Blotter's Individual trades view. Set Display to Individual trades, apply it, and ask again."});
+});
+
+test('a target for another revision than the Blotter holds says which way it differs, and says nothing about the revision it holds',()=>{
+ assert.equal(revisionNote('TR-1',null,3),null);
+ assert.equal(revisionNote('TR-1',3,3),null);
+ assert.equal(revisionNote('TR-1',2,3),'Revision 2 of TR-1 has been amended since. The panel shows revision 3, its latest; the earlier revisions are in History.');
+ assert.equal(revisionNote('TR-1',4,3),'Revision 4 of TR-1 is newer than this Blotter read, which holds revision 3. Refresh the Blotter to read it.');
+});
+
+// A trade that an amendment moved to another instrument is another binding: the panel follows the trade, not the binding it had.
+const amended={tradeId:other.tradeId,instrumentType:other.instrumentType,bindingId:other.bindingId,tradeReference:other.tradeReference};
+const produced={...other,bindingId:'b0000000-0000-0000-0000-0000000000b9',revision:'2'};
+test('after an amendment the panel follows the trade to the position the amendment produced, and says so when that is another binding',()=>{
+ assert.deepEqual(followedPosition([first,produced],amended,{bindingId:produced.bindingId}),{index:1,note:`${other.tradeReference} now holds another instrument, so the panel follows the trade to the position the amendment produced.`});
+ assert.deepEqual(followedPosition([first,produced],amended),{index:1,note:`${other.tradeReference} now holds another instrument, so the panel follows the trade to the position the amendment produced.`},'the only position the read holds of the trade, when the receipt names none');
+ assert.deepEqual(followedPosition([first,{...other,revision:'2'}],amended,{bindingId:other.bindingId}),{index:1,note:null},'the same binding at its new revision is the same position');
+});
+
+test('a trade the amendment left no single position of is not guessed: the panel is closed and says why',()=>{
+ assert.deepEqual(followedPosition([first],amended,{bindingId:produced.bindingId}),{index:null,note:`${other.tradeReference} is not in this Blotter read after its amendment, so the panel was closed.`});
+ const two=[{...produced},{...produced,bindingId:'b0000000-0000-0000-0000-0000000000ba'}];
+ assert.deepEqual(followedPosition(two,amended),{index:null,note:`${other.tradeReference} holds several positions in this read, so the panel cannot tell which one the amendment produced.`});
+ assert.equal(followedPosition(two,amended,{bindingId:two[1].bindingId}).index,1,'a receipt that names one of them settles it');
+ assert.deepEqual(followedPosition([{...produced,instrumentType:other.instrumentType==='future'?'financial_swap':'future'}],amended),{index:null,note:`${other.tradeReference} is not in this Blotter read after its amendment, so the panel was closed.`},'the same id of another kind is another trade');
 });
