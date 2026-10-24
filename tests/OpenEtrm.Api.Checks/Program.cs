@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--swap-settlement-agent",var settlementAgentFixture]){await SwapSettlementAgentChecks.Run(settlementAgentFixture);return;}
 if(args is ["--reference-intake"]){await ReferenceCaptureChecks.Run();await ReferenceImportChecks.Run();return;}
 if(args is ["--reference-import-plan",var referenceOutput]){await ReferenceImportChecks.Run(referenceOutput);return;}
 if(args is ["--legacy-swap-editor"]){await LegacySwapEditorChecks.Run();return;}

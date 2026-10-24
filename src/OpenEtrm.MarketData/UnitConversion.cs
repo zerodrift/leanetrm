@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
@@ -13,20 +14,11 @@ public sealed class UnitConverter
     public const string Implementation = "consistent_exact_unit_ratios_v1";
     private readonly ImmutableDictionary<ReferenceKey, UnitDefinition> units;
     private readonly ImmutableDictionary<ReferenceKey, QuantitySpecification> quantities;
-    private readonly Dictionary<ReferenceKey, (ReferenceKey Root, Ratio Scale)> scales = [];
-    private readonly record struct Ratio
+    private readonly Dictionary<ReferenceKey, (ReferenceKey Root, ExactRatio Scale)> scales = [];
+    private static ExactRatio Multiply(ExactRatio left,ExactRatio right)
     {
-        public BigInteger Numerator { get; }
-        public BigInteger Denominator { get; }
-        public Ratio(BigInteger numerator, BigInteger denominator)
-        {
-            if (numerator <= 0 || denominator <= 0) throw Invalid();
-            var gcd = BigInteger.GreatestCommonDivisor(numerator, denominator);
-            Numerator = numerator / gcd; Denominator = denominator / gcd;
-            if (Numerator.GetBitLength() > 4096 || Denominator.GetBitLength() > 4096) throw Invalid();
-        }
-        public Ratio Times(Ratio other) => new(Numerator * other.Numerator, Denominator * other.Denominator);
-        public Ratio Inverse() => new(Denominator, Numerator);
+        try{return left.Times(right);}
+        catch(ArgumentOutOfRangeException){throw Invalid();}
     }
     private static MarketDataException Invalid() => new("unit_conversion", "Unit definitions require coherent exact revisions, positive ratios and consistent conversion paths.");
     public UnitConverter(ImmutableArray<UnitDefinition> definitions, ImmutableArray<UnitConversion> conversions,
@@ -36,7 +28,7 @@ public sealed class UnitConverter
             quantitySpecifications.IsDefault || definitions.Any(u=>u is null) || conversions.Any(c=>c is null) || quantitySpecifications.Any(q=>q is null) || definitions.Select(u => u.Key).Distinct().Count() != definitions.Length ||
             quantitySpecifications.Select(q => q.Key).Distinct().Count() != quantitySpecifications.Length) throw Invalid();
         units = definitions.ToImmutableDictionary(u => u.Key); quantities = quantitySpecifications.ToImmutableDictionary(q => q.Key);
-        var edges = definitions.ToDictionary(u => u.Key, _ => new List<(ReferenceKey To, Ratio Scale)>());
+        var edges = definitions.ToDictionary(u => u.Key, _ => new List<(ReferenceKey To, ExactRatio Scale)>());
         foreach (var unit in definitions)
         {
             Money.RequireKey(unit.Key); Money.RequireKey(unit.Dimension);
@@ -51,7 +43,8 @@ public sealed class UnitConverter
         {
             if (!units.TryGetValue(conversion.From, out var from) || !units.TryGetValue(conversion.To, out var to) ||
                 from.Dimension != to.Dimension || conversion.From == conversion.To) throw Invalid();
-            var ratio = new Ratio(conversion.Numerator.ScaledValue, conversion.Denominator.ScaledValue);
+            if(conversion.Numerator.CompareTo(default)<=0||conversion.Denominator.CompareTo(default)<=0)throw Invalid();
+            var ratio = new ExactRatio(conversion.Numerator.ScaledValue, conversion.Denominator.ScaledValue);
             edges[from.Key].Add((to.Key, ratio)); edges[to.Key].Add((from.Key, ratio.Inverse()));
         }
         foreach (var root in definitions.Select(u => u.Key).OrderBy(k => k.Code, StringComparer.Ordinal))
@@ -61,7 +54,7 @@ public sealed class UnitConverter
             while (queue.TryDequeue(out var at))
                 foreach (var edge in edges[at])
                 {
-                    var expected = scales[at].Scale.Times(edge.Scale);
+                    var expected = Multiply(scales[at].Scale,edge.Scale);
                     if (scales.TryGetValue(edge.To, out var prior)) { if (prior.Scale != expected) throw Invalid(); }
                     else { scales.Add(edge.To, (root, expected)); queue.Enqueue(edge.To); }
                 }
@@ -70,15 +63,15 @@ public sealed class UnitConverter
     public QuantitySpecification Specification(ReferenceKey key) => quantities.TryGetValue(key, out var value) ? value :
         throw new MarketDataException("missing_reference", "The exact quantity specification is unavailable in this unit catalog.");
     public string Symbol(ReferenceKey specification) => units[Specification(specification).Unit].Symbol;
-    private Ratio Between(ReferenceKey from, ReferenceKey to)
+    private ExactRatio Between(ReferenceKey from, ReferenceKey to)
     {
         var source = Specification(from); var target = Specification(to);
         if (source.Commodity != target.Commodity || source.MeasurementBasis != target.MeasurementBasis || source.Dimension != target.Dimension ||
             scales[source.Unit].Root != scales[target.Unit].Root)
             throw new MarketDataException("quantity_conversion", "Conversion requires the same exact commodity, measurement basis, dimension and a declared unit path.");
-        return scales[target.Unit].Scale.Times(scales[source.Unit].Scale.Inverse());
+        return Multiply(scales[target.Unit].Scale,scales[source.Unit].Scale.Inverse());
     }
-    private static ExactDecimal Scale(ExactDecimal value, Ratio ratio, AmountFormat? rounding)
+    private static ExactDecimal Scale(ExactDecimal value, ExactRatio ratio, AmountFormat? rounding)
     {
         var numerator = value.ScaledValue * ratio.Numerator;
         if (rounding is not null) return rounding.RoundFraction(numerator, ratio.Denominator * ExactDecimal.WorkingScale);

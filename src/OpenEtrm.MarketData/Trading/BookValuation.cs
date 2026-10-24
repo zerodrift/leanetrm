@@ -15,6 +15,7 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     // while selecting different retained discounting terms.
     public IntervalValuationInputs? Interval{get;init;}
     public ImmutableDictionary<Guid,ISideDiscounting> InstrumentDiscounting{get;init;}=ImmutableDictionary<Guid,ISideDiscounting>.Empty;
+    public ImmutableDictionary<MeasureBinding,SwapBindingValuation> Settlements{get;init;}=ImmutableDictionary<MeasureBinding,SwapBindingValuation>.Empty;
 }
 
 public sealed class UnitValuationContext
@@ -62,11 +63,11 @@ public sealed class UnitValuationContext
             throw new MarketDataException("valuation_binding","Futures pricing requires its exact qualified market definition authority.");
         return binding;
     }
-    internal SideValuationContext SideContext()
+    internal SideValuationContext SideContext(ISideDiscounting? selected=null)
     {
         if(pricing is null||declaration is null)
             throw new MarketDataException("side_context","Supply the declared market and explicit payment discount inputs.");
-        var provider=Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id);
+        var provider=selected??Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id);
         return pricing.Context(provider,declaration.Dependencies,cancellation);
     }
 }
@@ -151,7 +152,7 @@ public sealed class Book
     }
 }
 
-public sealed record UnitValuationScope(Instrument Instrument,DeliveryCoverage? Coverage);
+public sealed record UnitValuationScope(Instrument Instrument,DeliveryCoverage? Coverage,MeasureBinding? Settlement=null);
 
 public sealed class ValuationPortfolio
 {
@@ -203,13 +204,20 @@ public sealed class ValuationPortfolio
         }
         if(Positions.Select(p=>p.ValuationId).Distinct().Count()!=Instruments.Length)
             throw Error("risk_contract","Every unit instrument must have a held consumer.");
-        Scopes=Positions.Select(p=>(p.ValuationId,p.Coverage)).Distinct().OrderBy(s=>s.ValuationId)
+        if(Setup.Settlements is null || Setup.Settlements.Any(s=>s.Value is null || s.Value.Discounting is null ||
+            !Positions.Any(p=>new MeasureBinding(p.TradeId,p.BindingId)==s.Key && p.Quantity==s.Value.Settlement.Quantity &&
+                p.TradeId==s.Value.Settlement.TradeId && p.BindingId==s.Value.Settlement.BindingId && Instruments[indexes[p.ValuationId]] is SidedInstrument)))
+            throw Error("settlement_scope","Every settlement input must belong to its exact held trade binding and booked quantity.");
+        Scopes=Positions.Select(ScopeKey).Distinct().OrderBy(s=>s.ValuationId)
             .ThenBy(s=>s.Coverage?.From).ThenBy(s=>s.Coverage?.To)
-            .Select(s=>new UnitValuationScope(Instruments[indexes[s.ValuationId]],s.Coverage)).ToImmutableArray();
-        var scopeIndexes=Scopes.Select((s,n)=>(s,n)).ToDictionary(x=>(x.s.Instrument.Id,x.s.Coverage),x=>x.n);
+            .ThenBy(s=>s.Settlement?.TradeId).ThenBy(s=>s.Settlement?.BindingId)
+            .Select(s=>new UnitValuationScope(Instruments[indexes[s.ValuationId]],s.Coverage,s.Settlement)).ToImmutableArray();
+        var scopeIndexes=Scopes.Select((s,n)=>(s,n)).ToDictionary(x=>(x.s.Instrument.Id,x.s.Coverage,x.s.Settlement),x=>x.n);
         Books=Positions.Select((p,n)=>(p,n)).GroupBy(x=>x.p.BookId).OrderBy(g=>g.Key)
-            .Select(g=>new Book(g.Key,g.Select(x=>(x.n,scopeIndexes[(x.p.ValuationId,x.p.Coverage)])).ToImmutableArray(),Positions)).ToImmutableArray();
+            .Select(g=>new Book(g.Key,g.Select(x=>(x.n,scopeIndexes[ScopeKey(x.p)])).ToImmutableArray(),Positions)).ToImmutableArray();
     }
+    private (Guid ValuationId,DeliveryCoverage? Coverage,MeasureBinding? Settlement) ScopeKey(RiskPosition p) =>
+        (p.ValuationId,p.Coverage,Setup.Settlements.ContainsKey(new(p.TradeId,p.BindingId))?new(p.TradeId,p.BindingId):null);
     public ImmutableArray<BookRiskFactors> RiskFactors(CurveModel model,MarketSnapshot snapshot,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -226,17 +234,17 @@ public sealed class ValuationPortfolio
         {
             cancellation.ThrowIfCancellationRequested();
             var unitContext=context.For(declarations[n],scope.Coverage);
-            var supplied=scope.Instrument.MarketFactors(unitContext);
+            var supplied=scope.Settlement is null?scope.Instrument.MarketFactors(unitContext):unitContext.ResolveFactors(declarations[n].Dependencies);
             var expected=unitContext.ResolveFactors(declarations[n].Dependencies);
             if(supplied.IsDefault||supplied.Any(f=>f is null)||supplied.Select(f=>f.Input).Distinct().Count()!=supplied.Length||
                 !supplied.ToHashSet().SetEquals(expected))
                 throw Error("risk_contract","An instrument's factor list must match its complete declared inputs in this exact context.");
-            return (Key:(scope.Instrument.Id,scope.Coverage),Factors:supplied);
+            return (Key:(scope.Instrument.Id,scope.Coverage,scope.Settlement),Factors:supplied);
         }).ToDictionary(p=>p.Key,p=>p.Factors);
         return Books.Select(book=>
         {
             cancellation.ThrowIfCancellationRequested();
-            var supplied=Positions.Where(p=>p.BookId==book.Id).Select(p=>(p.ValuationId,p.Coverage)).Distinct()
+            var supplied=Positions.Where(p=>p.BookId==book.Id).Select(ScopeKey).Distinct()
                 .SelectMany(id=>byScope[id]).DistinctBy(f=>f.Input).OrderBy(f=>f.Input.Series.Id).ToImmutableArray();
             return new BookRiskFactors(book.Id,supplied);
         }).ToImmutableArray();
@@ -244,10 +252,16 @@ public sealed class ValuationPortfolio
     public ImmutableArray<UnitPricingContract> Declare(MarketSnapshot snapshot)
     {
         var context=new UnitValuationContext(snapshot,Setup);
+        var lifecycleInstruments=Scopes.Where(s=>s.Settlement is not null).Select(s=>s.Instrument.Id).ToHashSet();
         return Scopes.Select(scope=>
         {
             var instrument=scope.Instrument;
             var c=instrument.Declare(context.ForCoverage(scope.Coverage));
+            // Receipts identify a model by instrument, including mixed enrollment.
+            // Declare the dispatcher for every scope of a lifecycle-enabled instrument;
+            // the retained binding scope still selects the pure or settlement branch.
+            if(c is not null && lifecycleInstruments.Contains(instrument.Id))
+                c=c with{ModelVersion="swap_binding_dispatch_v1/"+c.ModelVersion};
             if(c is null||c.Id!=instrument.Id||string.IsNullOrWhiteSpace(c.ModelVersion)||c.Dependencies.IsDefault||
                 c.Dependencies.Distinct().Count()!=c.Dependencies.Length||c.Quantity!=instrument.UnitQuantity.Specification||
                 c.Currency!=instrument.Currency||instrument.UnitQuantity.Amount!=ExactDecimal.Parse("1"))
@@ -280,7 +294,10 @@ public sealed class ValuationPortfolio
             if(contract.Id!=Scopes[n].Instrument.Id)throw Error("risk_contract","Declaration ordering must match exact instrument identities.");
             var affected=baseMarket is null||!market.Unchanged(baseMarket,contract.Dependencies,ct);
             var unitContext=context.For(contract,Scopes[n].Coverage);
-            var value=affected?Scopes[n].Instrument.Value(unitContext):baseValue!.UnitValues[n];
+            var scope=Scopes[n];
+            var value=affected?(scope.Settlement is {} binding
+                ?Setup.Settlements[binding].Settlement.UnitValue((SidedInstrument)scope.Instrument,unitContext.SideContext(Setup.Settlements[binding].Discounting))
+                :scope.Instrument.Value(unitContext)):baseValue!.UnitValues[n];
             if(baseValue is null && unitContext.Measures is {} companion)
                 measures.Add((contract.Id,Scopes[n].Coverage),companion);
             if(value.Currency!=contract.Currency)throw Error("risk_currency","An instrument must retain its declared output currency.");

@@ -48,6 +48,13 @@ public sealed record PaymentDiscount
         private readonly Dictionary<DateOnly, PaymentDiscount> resolved = [];
 
         internal PaymentDiscount Resolve(ReferenceKey currency, DateOnly paymentDate)
+            =>Resolve(currency,paymentDate,false);
+        internal PaymentDiscount Resolve(SidePaymentKey payment)
+        {
+            payment.RequireUndue(snapshot);
+            return Resolve(payment.Currency,DateOnly.FromDateTime(payment.PaymentAt.UtcDateTime),!discounting);
+        }
+        private PaymentDiscount Resolve(ReferenceKey currency, DateOnly paymentDate,bool allowSameDay)
         {
             if (snapshot is null || currency.Revision.CatalogId == Guid.Empty || currency.Revision.RevisionId == Guid.Empty ||
                 string.IsNullOrWhiteSpace(currency.Code) || snapshot.Id == Guid.Empty ||
@@ -56,7 +63,8 @@ public sealed record PaymentDiscount
                 snapshot.MarketCutoff > snapshot.ValuationAt || snapshot.Selections.IsDefault ||
                 snapshot.SelectionPolicy != InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering ||
                 snapshot.ValuationAt.Year is < 1901 or > 2199 || paymentDate.Year is < 1901 or > 2199 ||
-                paymentDate <= DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime))
+                paymentDate < DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime) ||
+                !allowSameDay && paymentDate == DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime))
                 throw new MarketDataException("discount_context", "An exact supported currency/context and future UTC payment date are required.");
             if (!discounting) return new(false, ExactDecimal.Parse("1"), currency, null, paymentDate, snapshot, []);
             if (currencyDefault is null)
@@ -117,7 +125,7 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
         Snapshot=snapshot;
         foreach(var payment in payments)payment.RequireUndue(snapshot);
         var resolver=new PaymentDiscount.Resolver(discounting,snapshot,currencyDefault);
-        Inputs=payments.ToImmutableDictionary(p=>p,p=>resolver.Resolve(p.Currency,DateOnly.FromDateTime(p.PaymentAt.UtcDateTime)));
+        Inputs=payments.ToImmutableDictionary(p=>p,p=>resolver.Resolve(p));
         factorsBySide=Inputs.GroupBy(p=>p.Key.SideId).ToImmutableDictionary(g=>g.Key,
             g=>g.Select(p=>Factor(p.Key,p.Value)).ToImmutableArray());
     }
@@ -214,34 +222,70 @@ public static class FinancialSwapValuation
             throw new MarketDataException("swap_par_rate","Par fixed pricing requires a fixed/floating swap and explicit decimal precision with ties to even.");
         return SolveParRate(fixedSide,Evaluate(instrument,valuation,bindings,authority,currencyDefault,cancellation),rounding);
     }
+    public static ParSwapRate ParRate(ScheduledFinancialSwap instrument,ImmutableArray<DiscountedSideValuation> sides,AmountFormat rounding)
+    {
+        if(instrument?.First.IsFixed!=true||sides.IsDefault||sides.Length!=2||rounding is null||rounding.TieRule!=CashTieRule.ToEven||
+            sides.Where((s,n)=>s.Contribution.SideId!=instrument.Sides[n].Side.Id).Any())
+            throw new MarketDataException("swap_par_rate","Scheduled par pricing requires the exact fixed/floating evaluation and explicit precision with ties to even.");
+        var unit=((FixedSide)instrument.First.Periods[0]).Price.Unit;
+        return SolveScheduledPar(sides,unit,rounding);
+    }
+    public static ParSwapRate ParRate(FinancialSwapValue value,AmountFormat rounding)
+    {
+        if(value is null||rounding is null)throw new MarketDataException("swap_par_rate","An exact fixed/floating valuation and explicit precision are required.");
+        var sides=value.Sides;
+        if(sides.Length!=2||sides[0].Payments.IsEmpty||sides[0].Payments.SelectMany(p=>p.Cashflow.Prices).Any(p=>p.Term.FixedPrice is null)||rounding.TieRule!=CashTieRule.ToEven)
+            throw new MarketDataException("swap_par_rate","A common par price requires an exact fixed/floating payment valuation and explicit precision.");
+        var unit=sides[0].Payments[0].Cashflow.Prices[0].ExactPrice.Unit;
+        return SolveScheduledPar(sides,unit,rounding);
+    }
+    private static ParSwapRate SolveScheduledPar(ImmutableArray<DiscountedSideValuation> sides,PriceUnit unit,AmountFormat rounding)
+    {
+        var annuity=sides[0].Payments.Select(p=>p.Cashflow.Plan.AllocatedQuantity.Times(new UnitPrice(ExactDecimal.Parse("1"),unit)).Scale(p.Discount.Factor)).Aggregate((a,b)=>a.Add(b)).Scale(sides[0].Contribution.QuantityRatio);
+        return QuotientRate(sides[1].Contribution.Value.PresentValue.Scale(sides[1].Contribution.QuantityRatio),annuity,unit,rounding);
+    }
+    private static ParSwapRate QuotientRate(ExactMoney value,ExactMoney coefficient,PriceUnit unit,AmountFormat rounding)
+    {
+        var numerator=System.Numerics.BigInteger.Parse(value.Numerator,System.Globalization.CultureInfo.InvariantCulture)*System.Numerics.BigInteger.Parse(coefficient.Denominator,System.Globalization.CultureInfo.InvariantCulture);
+        var denominator=System.Numerics.BigInteger.Parse(value.Denominator,System.Globalization.CultureInfo.InvariantCulture)*System.Numerics.BigInteger.Parse(coefficient.Numerator,System.Globalization.CultureInfo.InvariantCulture);
+        var gcd=System.Numerics.BigInteger.GreatestCommonDivisor(System.Numerics.BigInteger.Abs(numerator),denominator);numerator/=gcd;denominator/=gcd;
+        var price=new UnitPrice(ExactDecimal.Parse(new AmountFormat(rounding.DecimalPlaces,rounding.TieRule,false,true).FormatFraction(numerator,denominator)),unit);
+        return new(price,numerator.ToString(System.Globalization.CultureInfo.InvariantCulture),denominator.ToString(System.Globalization.CultureInfo.InvariantCulture),ParRatePolicy,rounding.DecimalPlaces,rounding.TieRule);
+    }
     private static ParSwapRate SolveParRate(FixedSide fixedSide,FinancialSwapEvaluation value,AmountFormat rounding)
     {
         var coefficient=ExactMoney.FromMoney(new UnitPrice(ExactDecimal.Parse("1"),fixedSide.Price.Unit).Times(fixedSide.UnitQuantity))
             .Scale(value.Sides[0].Payments.Single().Discount.Factor);
         var floating=value.Sides[1].Contribution.Value.PresentValue;
-        var numerator=System.Numerics.BigInteger.Parse(floating.Numerator,System.Globalization.CultureInfo.InvariantCulture)*System.Numerics.BigInteger.Parse(coefficient.Denominator,System.Globalization.CultureInfo.InvariantCulture);
-        var denominator=System.Numerics.BigInteger.Parse(floating.Denominator,System.Globalization.CultureInfo.InvariantCulture)*System.Numerics.BigInteger.Parse(coefficient.Numerator,System.Globalization.CultureInfo.InvariantCulture);
-        var gcd=System.Numerics.BigInteger.GreatestCommonDivisor(System.Numerics.BigInteger.Abs(numerator),denominator);numerator/=gcd;denominator/=gcd;
-        var price=new UnitPrice(ExactDecimal.Parse(new AmountFormat(rounding.DecimalPlaces,rounding.TieRule,false,true).FormatFraction(numerator,denominator)),fixedSide.Price.Unit);
-        return new(price,numerator.ToString(System.Globalization.CultureInfo.InvariantCulture),denominator.ToString(System.Globalization.CultureInfo.InvariantCulture),ParRatePolicy,rounding.DecimalPlaces,rounding.TieRule);
+        return QuotientRate(floating,coefficient,fixedSide.Price.Unit,rounding);
     }
 
-    public static CurrencyDefaultDiscounting CreateDiscounting(FinancialSwapInstrument instrument,MarketSnapshot snapshot,CurrencyDiscountCurve? currencyDefault)
+    public static CurrencyDefaultDiscounting CreateDiscounting(FinancialSwapInstrument instrument,MarketSnapshot snapshot,CurrencyDiscountCurve? currencyDefault)=>
+        CreateDiscounting(instrument,instrument?.Discounting,snapshot,currencyDefault);
+    private static CurrencyDefaultDiscounting CreateDiscounting(SidedInstrument? instrument,bool? enabled,MarketSnapshot snapshot,CurrencyDiscountCurve? currencyDefault)
     {
-        if(instrument is null)throw new MarketDataException("swap_context","An explicit instrument is required.");
-        return new(Schedules(instrument),snapshot,instrument.Discounting,currencyDefault);
+        if(instrument is null||enabled is null)throw new MarketDataException("swap_context","An explicit instrument is required.");
+        return new(Schedules(instrument),snapshot,enabled.Value,currencyDefault);
     }
     public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
         Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
     public static FinancialSwapEvaluation Evaluate(MonthlyFinancialSwap instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
         Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
+    public static CurrencyDefaultDiscounting CreateDiscounting(ScheduledFinancialSwap instrument,MarketSnapshot snapshot,CurrencyDiscountCurve? currencyDefault)=>CreateDiscounting(instrument,instrument?.Discounting,snapshot,currencyDefault);
+    public static FinancialSwapEvaluation Evaluate(ScheduledFinancialSwap instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault)=>Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
+    public static FinancialSwapEvaluation Evaluate(ScheduledFinancialSwap instrument,ConnectedValuation valuation,
+        ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,CurrencyDiscountCurve? currencyDefault,CancellationToken cancellation=default)=>
+        EvaluateConnected(instrument,instrument?.Discounting,valuation,bindings,authority,currencyDefault,cancellation);
     public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,ConnectedValuation valuation,
-        ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,CurrencyDiscountCurve? currencyDefault,CancellationToken cancellation=default)
+        ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,CurrencyDiscountCurve? currencyDefault,CancellationToken cancellation=default)=>
+        EvaluateConnected(instrument,instrument?.Discounting,valuation,bindings,authority,currencyDefault,cancellation);
+    private static FinancialSwapEvaluation EvaluateConnected(SidedInstrument? instrument,bool? enabled,ConnectedValuation valuation,
+        ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,CurrencyDiscountCurve? currencyDefault,CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
         if(instrument is null||valuation is null||authority is null)
             throw new MarketDataException("swap_context","An exact instrument, prepared connected valuation and qualified lifecycle authority are required.");
-        var inputs=CreateDiscounting(instrument,valuation.Snapshot,currencyDefault);
+        var inputs=CreateDiscounting(instrument,enabled,valuation.Snapshot,currencyDefault);
         return Result(valuation.PV(instrument,bindings,authority,inputs,cancellation),inputs);
     }
     private static FinancialSwapEvaluation Evaluate(SidedInstrument? instrument,CurveBuild market,bool discounting,

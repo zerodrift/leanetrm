@@ -27,7 +27,7 @@ public abstract record Side
     }
 }
 
-public sealed record SideMembership(Side Side, ExactDecimal Coefficient);
+public sealed record SideMembership(Side Side, ExactDecimal Coefficient, OpenEtrm.Shared.Numerics.ExactRatio? QuantityRatio = null);
 // Keep quote scaling and quantity multiplication deferred until the final sum.
 public sealed record WeightedPrice(UnitPrice Price, ExactDecimal Weight);
 public sealed record InstrumentSideValue
@@ -101,6 +101,8 @@ public abstract record SidedInstrument : Instrument
     {
         if (id == Guid.Empty || sides.IsDefaultOrEmpty || sides.Any(m => m is null || m.Side is null))
             throw new MarketDataException("instrument_definition", "An instrument requires an exact identity and at least one valid side membership.");
+        if(sides.Any(m=>m.QuantityRatio is not null)&&this is not ScheduledFinancialSwap)
+            throw new MarketDataException("instrument_definition","Quantity-ratio memberships require the scheduled swap contract version.");
         Sides = sides;
     }
 
@@ -123,6 +125,8 @@ public abstract record SidedInstrument : Instrument
 
     protected Money Value(ImmutableArray<InstrumentSideValue> values, ImmutableArray<ExactDecimal> quantities)
     {
+        if (Sides.Any(s=>s.QuantityRatio is not null))
+            throw new MarketDataException("instrument_contribution","Rational quantity memberships require schedule-based PV valuation.");
         if (values.IsDefault || values.Length != Sides.Length ||
             values.Where((v, i) => v is null || v.SideId != Sides[i].Side.Id).Any())
             throw new MarketDataException("instrument_contribution", "Every membership requires a value in the exact instrument currency and per-unit quantity basis.");

@@ -54,6 +54,15 @@ This uses the connected valuation pipeline, including selected actual fixings,
 custom projections and discount inputs. Migration 0101 adds the persisted side
 relationships and generated/existing-close evidence without rewriting retained events.
 
+The scheduled financial swap version (D214) composes independent monthly side
+plans with explicit period quantities, calendar-day rates, declared contract-total
+allocation or integrated MW delivery intervals. Each SideSchedule supplies the
+quantity/payment records consumed by PV; exact rational membership size and one
+external binding preserve normalized pricing. Existing one-period economics stay
+versioned. See [financial swap quantities](financial-swap-quantities.md) for
+persistence, replay, supported combinations and lifecycle limits. Standalone
+physical gas/power is a separate delivery-obligation plan.
+
 Swap entry follows Trade → Instrument → Sides (D210). Visual instrument choices
 apply a visible, managed starting template to empty side controls; all submitted
 terms remain explicit. Floating-side commodity choices filter index, projection
@@ -61,6 +70,11 @@ and unit choices independently, within the current same-commodity swap model.
 New Trade also links to the existing PPA booking workflow.
 
 ## 1. Product purpose
+
+The authorized [financial swap settlement MVP](swap-settlement.md) (D215) builds
+trade-owned determinations, payments and reconciliation before futures margining
+or physical settlement. Its explicit policies apply only to enrolled swaps;
+pure instrument pricing and existing physical policy contracts remain separate.
 
 Build an ETRM that an AI can use as a complete application. People, internal
 agents and external agents operate through the same business capabilities.

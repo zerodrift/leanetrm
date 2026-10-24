@@ -63,7 +63,7 @@ public static partial class CustomCurves
         if(frame.ContextId!=exact.ContextId||snapshot.Id!=frame.Id||snapshot.ValuationAt!=frame.At||
             snapshot.Definitions!=data.DefinitionRevision)
             throw Invalid("Connected pricing requires the exact retained financial and market context.");
-        var custom=instruments.OfType<FinancialSwapInstrument>().SelectMany(i=>i.Sides.Select(m=>m.Side)).OfType<FloatingSide>()
+        var custom=instruments.OfType<SidedInstrument>().SelectMany(i=>i.Sides.SelectMany(m=>SideComponents.Floating(m.Side)))
             .Where(s=>s.CustomProjection is not null).SelectMany(s=>s.Projections.Select(p=>new{Binding=s.CustomProjection!,Original=p.Market}))
             .Distinct().ToArray();
         var aliases=custom.ToDictionary(p=>p.Binding.Request(p.Original),p=>p.Original);
