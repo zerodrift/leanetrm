@@ -802,7 +802,9 @@ The tool set is fixed; each tool is switched on per agent version.
 - The input limit is checked before each attempt against input that earlier attempts
   reported; nothing is estimated, so the crossing attempt completes and is billed. An
   earlier unknown or unrecognized input ends the turn with `limit_input_unverifiable`
-  before the next tool-loop call. Input is known zero only for a transport failure
+  before the next tool-loop call. The panel identifies this as a provider usage
+  verification failure, not a conversation-length limit or a request to start over.
+  Input is known zero only for a transport failure
   before any byte was sent or a not-billed error status before any stream event.
 - **Runtime set**: versioned, shipped with the application, recorded on each turn,
   never host configuration. Workspace concurrency; agent pool sizes; retry backoff;

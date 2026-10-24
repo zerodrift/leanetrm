@@ -156,12 +156,22 @@ sealed class ResponsesAdapter(string vendor,HttpMessageHandler handler,ModelTran
             var uncached=input is {} i&&read is {} r&&write is {} w&&(decimal)r+w<=i?i-r-w:(long?)null;
             var recognized=billingRecognized&&uncached is not null&&output is not null&&total is not null&&input is not null&&(decimal)input+output==total
                 &&!(reasoning>output)&&Named(u,"input_tokens","input_tokens_details","output_tokens","output_tokens_details","total_tokens")
-                &&Named(details,vendor=="openai"?["cached_tokens","cache_write_tokens"]:["cached_tokens"])
+                &&Named(details,vendor=="openai"?["cached_tokens","cache_write_tokens","cache_write_tokens_details"]:["cached_tokens"])
+                &&(vendor!="openai"||StandardCacheWrites(details,write))
                 &&(outDetails.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null||Named(outDetails,"reasoning_tokens"))
                 &&(Get(outDetails,"reasoning_tokens").ValueKind is JsonValueKind.Undefined or JsonValueKind.Null||reasoning is not null)
                 &&Standard(response,"service_tier","default");
             return new(Mapping,recognized?UsageStatus.Recognized:UsageStatus.Unrecognized,Tokens(uncached),Tokens(read),
                 vendor=="openai"?Tokens(write):TokenCount.NotBilled,Tokens(output),Tokens(reasoning));
+        }
+        // Requests pin 30-minute retention. A supplied lifetime breakdown must account for
+        // every write at that lifetime; longer-lived writes need a different pricing contract.
+        static bool StandardCacheWrites(JsonElement details,long? write)
+        {
+            var lifetimes=Get(details,"cache_write_tokens_details");
+            return lifetimes.ValueKind==JsonValueKind.Undefined
+                ||write is {} count&&Count(lifetimes,"ttl_30m_tokens")==count&&Count(lifetimes,"ttl_12h_tokens")==0
+                    &&Named(lifetimes,"ttl_30m_tokens","ttl_12h_tokens");
         }
     }
 }

@@ -17,6 +17,7 @@ def recording(vendor, model, served=None):
              'output_tokens_details': {'reasoning_tokens': 3}, 'total_tokens': 110}
     if vendor == 'openai':
         usage['input_tokens_details']['cache_write_tokens'] = 10
+        usage['input_tokens_details']['cache_write_tokens_details'] = {'ttl_30m_tokens': 10, 'ttl_12h_tokens': 0}
     return (event('response.created', {'type': 'response.created', 'response': {'id': 'resp_synthetic', 'model': model, 'status': 'in_progress'}})
             + event('response.output_text.delta', {'type': 'response.output_text.delta', 'delta': 'ready'})
             + event('response.completed', {'type': 'response.completed', 'response': {'id': 'resp_synthetic', 'model': served,
@@ -84,6 +85,12 @@ def run_checks(query, manifest, fake, trap, admin):
         headers = dict(request['headers'])
         assert headers.get('x-goog-api-key') == 'sk-synthetic-adapter-google-key' if vendor == 'google' else headers['authorization'] == 'Bearer sk-synthetic-adapter-'+vendor+'-key'
         assert admin.call('settings/ai/providers/test', body) == result and len(fake.received) == sent+1
+        if vendor == 'openai':
+            unsupported = recording(vendor, identifier).replace('"ttl_30m_tokens":10,"ttl_12h_tokens":0',
+                                                               '"ttl_30m_tokens":9,"ttl_12h_tokens":1')
+            fake.respond(stream(unsupported))
+            refused = admin.call('settings/ai/providers/test', body | {'operationId': str(uuid4())})
+            assert refused['outcome'] == 'usage_unrecognized' and refused['cost']['status'] != 'priced', refused
         fake.respond(stream(recording(vendor, identifier, 'model-synthetic-wrong-served')))
         wrong = admin.call('settings/ai/providers/test', body | {'operationId': str(uuid4())})
         assert wrong['outcome'] == 'model_mismatch' and wrong['served'] == 'model-synthetic-wrong-served', wrong

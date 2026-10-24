@@ -57,6 +57,12 @@ is never returned or logged. A bounded HTTP 400 body can identify the documented
 
 Usage is taken from the final Responses object or Google's last chunk. OpenAI
 subtracts cache reads and writes from input; xAI and Meta subtract cache reads.
+When OpenAI supplies `cache_write_tokens_details`, its 30-minute count must equal
+all reported writes and its 12-hour count must be zero, matching the requested
+retention. Missing breakdown members, inconsistent totals, malformed counts and
+nonzero unsupported lifetimes remain unrecognized. The breakdown is validated,
+not added to writes a second time. Legacy responses without the breakdown retain
+the existing aggregate-write contract.
 Their output already includes reasoning. Google subtracts cached content from
 prompt tokens and adds candidate and thought tokens for output. Reasoning remains
 an informational subset. Google text-modality breakdowns must agree with their
