@@ -21,7 +21,11 @@ factor identity, units, domains, live-input eligibility and the explicit
 convention before rebuilding affected nodes. The parent retains its snapshot,
 observed facts and computation results. Scenario identities include the base
 pins and ordered ancestry; a snapshot ID alone cannot identify a stressed value.
-The managed core permits up to 64 layers; the first HTTP/UI consumer permits 16.
+Actual-aware base scenario identity also retains the fixing context, knowledge
+cutoff and canonically ordered exact fixing contents, including correction
+lineage and price units. Projection-only contexts retain their original identity
+contract. The managed core permits up to 64 layers; the first HTTP/UI consumer
+permits 16.
 
 Risk under a stress uses that stressed scenario as the base of its symmetric
 up/down evaluations. Reported shock P&L is relative to that base. Observed quote
@@ -29,9 +33,9 @@ values in input receipts remain the original observations. The receipt includes
 the stress layers separately. Returning to a parent or clearing a stress does
 not mutate market data or booked trades.
 
-Current factor families are live commodity quotes. Frozen fixings, relative
-shifts, direct output-curve shocks, rate/volatility shocks and arbitrary contract
-attribute changes are unsupported. A future valuation regime must have a typed,
+Current factor families are live commodity quotes. Shocks to resolved actual
+fixings, relative shifts, direct output-curve shocks, rate/volatility shocks and
+arbitrary contract attribute changes are unsupported. A future valuation regime must have a typed,
 versioned contract and a consuming model. Date rolls require explicit lifecycle
 semantics; they cannot be implemented as an arbitrary date property override.
 

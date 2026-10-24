@@ -926,3 +926,25 @@ fixing migrations. The public
 verification runner includes the fixing branch; calculations remain synthetic
 and use owned disposable stock PostgreSQL resources. No deployment or settlement
 posting qualification follows from these checks.
+
+
+### Bundled workflow verification
+
+On 2026-10-23, the complete `tools/check_all.py` workflow passed locally with
+Node 24.22.0, SDK 10.0.402, stock PostgreSQL 16.14 and Chrome 156.0.8078.47.
+This includes 295 managed core checks, 52 rate checks, 141 frontend checks,
+shared/API checks, schema/security checks and all owned preview branches:
+standard, parties/power, fixings, units, exchange futures, hosted authentication,
+inactive reference import, sourced futures admission, durable risk and mixed
+periods. The standard browser run passed 284 checks; the isolated fixing and
+risk runs passed 11 and 29 respectively.
+
+Additional regression checks distinguish scenario identities when fixing price,
+context or knowledge cutoff changes, preserve identity under fixing-input
+permutation, and count reused nodes from the last stress baseline exactly once.
+The nested example retains seven baseline nodes and four in each risk direction,
+for fifteen reused nodes. A browser check changes the display zone and confirms
+that retained-job market times and their label both follow that zone.
+
+These results qualify this local synthetic tree. Integration with newer branch
+history, deployment and production capacity are separate qualifications.
