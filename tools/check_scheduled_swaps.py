@@ -160,6 +160,7 @@ def run_checks(url,query=None,manifest=None):
     if query:
         assert query(f"SELECT count(*)::text FROM trading.swap_power_quantity_intervals WHERE trade_id='{power_saved['tradeId']}';").strip()=='2930'
     lineage=c.call('swaps/quantity-schedule',dict(context=context,tradeId=power_saved['tradeId'],revision=1))
+    assert [q['slot'] for q in lineage['quantityInputs']]==[0,1] and lineage['intervals'][0]['slot']==0 and lineage['intervals'][0]['period']==0
     assert len(lineage['intervals'])==2930 and lineage['quantityInputs'][0]['periods'][0]['deliveryHours']=='745'
     assert retained['quantityInputs'][1]['periods'][1]['deliveryHours']=='720'
     new_york=next(q['reference'] for q in catalog['scheduledOptions']['clocks'] if q['reference']['code']=='synthetic_new_york')

@@ -138,3 +138,6 @@ Arbitrary interval-varying MW profiles, interval-price cash settlement, zero-wei
 observation conventions, stubs, other payment frequencies, bank dispatch and physical delivery booking remain
 unsupported. The enrolled swap lifecycle supports manual cash recording;
 standalone physical gas/power remains later scope.
+
+Standalone physical gas/power booking is planned separately in the
+[physical booking plan](physical-energy-booking-plan.md).
