@@ -167,17 +167,14 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
   const currencies=currencyLabels(groups),markets=rowGroup==='market'?marketLabels(groups):undefined;
   const keyOf=(g:PivotGroup)=>rowGroup==='book'?text(g,'bookId'):rowGroup==='market'?marketKey(text(g,'market'),text(g,'definitionRevisionId')):text(g,'instrumentType');
   const labelOf=(g:PivotGroup)=>rowGroup==='book'?text(g,'book'):rowGroup==='market'?markets!.get(keyOf(g))!:instrument(g.instrumentType).plural;
-  const headers=new Map<string,GroupHeader>(),held=new Map<string,{units:Set<string>;currencies:Set<string>}>();
+  const headers=new Map<string,GroupHeader>();
   for(const group of groups){
     const key=keyOf(group),{measure,label}=instrument(group.instrumentType),total=amount(group,measure),excluded=excludedPositions(group.unvaluedPositions);
-    if(rowGroup==='market'){
-      // The market summary keeps quantity specifications and currencies apart. A market held in more than one has no one
-      // subtotal per measure to state, so it is refused, as the charts refuse a market they would draw as two bars of one name.
-      const entry=held.get(key)??{units:new Set<string>(),currencies:new Set<string>()};held.set(key,entry);
-      entry.units.add(referenceKey(group.quantitySpecification));entry.currencies.add(referenceKey(group.currencyReference));
-      if(entry.units.size>1||entry.currencies.size>1)throw Error(inconsistent);
-    }
     const header=headers.get(key)??{key,label:labelOf(group),positions:0,subtotals:[]};
+    // The market summary keeps quantity specifications and currencies apart (D98), so a measure of a market that appears twice is
+    // one instrument type held in more than one of them, and the header would state that measure twice. That is refused, as the
+    // charts refuse a market they would draw as two bars of one name. A market's futures and swaps are two measures and may differ in both.
+    if(rowGroup==='market'&&header.subtotals.some(s=>s.measure===label))throw Error(inconsistent);
     header.subtotals.push({measure:label,amount:total,currency:currencies.get(referenceKey(group.currencyReference))!,excluded,note:totalNote(total,excluded)});headers.set(key,header);
   }
   const keys=holdings.map(h=>rowGroup==='book'?h.bookId:rowGroup==='market'?marketKey(h.curve,h.definitionRevisionId):h.instrumentType);

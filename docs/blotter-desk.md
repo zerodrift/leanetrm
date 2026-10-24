@@ -210,9 +210,11 @@ by** offers Book (default), Market, Instrument type and None (a flat list); it
 sits in the heading row above the table, with the row search, the **Column
 filters** toggle (its panel opens under that row) and the row count. Columns,
 pivot, scope, views and export stay in the toolbar, and pivot views keep their
-configurable analytics chart, restyled. Grouping by market refuses a market held
-in more than one quantity specification or currency, because its header would
-have no single subtotal per measure to state.
+configurable analytics chart, restyled. Grouping by market refuses a market whose
+futures, or whose swaps, are held in more than one quantity specification or
+currency, because its header would state that measure twice. A market whose
+futures and swaps differ in unit or currency is not refused: its header states
+PV and P&L once each.
 
 Saved views move to a new format that records the desk grouping. Following
 project practice, there is no migration. Views saved in the earlier format show

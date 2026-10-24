@@ -299,12 +299,15 @@ characters for a market's definition revision and for a currency's or unit's ref
 Positions group by book, market and definition revision, instrument type, or not at all, under
 the subtotals of the matching summary; a header says "N of M positions" when row filters hide some
 of its positions, and opens and closes from the keyboard. The market summary keeps quantity
-specifications and currencies apart, so a market held in more than one has no single subtotal per
-measure and grouping by market refuses it, as the charts refuse a market they would draw as two
-bars of one name. A grouping the read cannot show is refused in the error banner and the grouping on
-screen stays. The desk selects everything it shows from a read (tiles, rows, group headers and both
-charts) before it draws anything, so a read it refuses, such as a live refresh, leaves the desk on
-screen and the read it was drawn from whole. The grid's row search reads the words
+specifications and currencies apart, so a market whose futures, or whose swaps, are held in more
+than one would state that measure twice in its header, and grouping by market refuses it, as the
+charts refuse a market they would draw as two bars of one name. A market whose futures and swaps
+differ in unit or currency is not refused: its header states PV and P&L once each, and its long and
+short bars sit in the panels of their own units. A grouping the read cannot show is refused in the
+error banner and the grouping on screen stays. The desk selects everything it shows from a read
+(tiles, rows, group headers and both charts) before it draws anything, so a read it refuses, such as
+a live refresh, leaves the desk on screen and the read it was drawn from whole. The grid's row
+search reads the words
 its cells draw, such as the delivery month, the instrument kind, the direction, the unit and the
 value's measure and currency, beside the exact amounts. Price and Mark each state the price unit
 they are in (the currency per quantity unit, with the quote multiplier when it is not one), and a

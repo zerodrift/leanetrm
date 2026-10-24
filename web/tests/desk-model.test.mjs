@@ -189,20 +189,30 @@ test('a colliding market label names its revision by the shortest start of its i
   assert.deepEqual(deskGroups('market',twin,held).headers.map(h=>h.label),['Gas forward · gas_forward','Gas forward · gas_forward_b']);
  }finally{setCurveNames(fixture.curveNames);}
 });
-test('a market held in more than one quantity specification or currency has no one subtotal per measure, so its header is refused with the desk\'s message',()=>{
+test('one instrument type of a market held in more than one quantity specification or currency would state its measure twice, so its header is refused with the desk\'s message',()=>{
  const message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
- const otherUnit={...fixture.summaries[3].groups[0].quantitySpecification,code:'other_quantity'};
- const twoUnits=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],quantitySpecification:otherUnit,presentValue:'3'}]);
- assert.throws(()=>deskGroups('market',twoUnits,fixture.holdings),{message});
- const otherCurrency={...fixture.summaries[3].groups[0].currencyReference,code:'other'};
- const twoCurrencies=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],currencyReference:otherCurrency,currency:'OTH',presentValue:'3'}]);
- assert.throws(()=>deskGroups('market',twoCurrencies,fixture.holdings),{message});
+ const [swap,future]=fixture.summaries[3].groups;
+ const otherUnit={...swap.quantitySpecification,code:'other_quantity'},otherCurrency={...swap.currencyReference,code:'other'};
+ const heldAgain=(group,change)=>changed(fixture.summaries,3,groups=>[...groups,{...group,...change}]);
+ const inUnit={quantitySpecification:otherUnit},inCurrency={currencyReference:otherCurrency,currency:'OTH'};
+ // Swaps and futures alike: the market summary keeps units and currencies apart, so a second group of one type is a second subtotal of its measure.
+ for(const group of [swap,future])for(const change of [inUnit,inCurrency])assert.throws(()=>deskGroups('market',heldAgain(group,change),fixture.holdings),{message});
  // Books and instrument types read the money totals, which add one currency across units: they are not affected.
- assert.equal(deskGroups('book',twoUnits,fixture.holdings).headers.length,2);
- assert.equal(deskGroups('instrumentType',twoUnits,fixture.holdings).headers.length,2);
- // One market held by futures and swaps in the one unit and currency keeps its two subtotals.
- const both=changed(fixture.summaries,3,groups=>[...groups,{...groups[1],market:groups[0].market}]);
- assert.deepEqual(deskGroups('market',both,fixture.holdings).headers.find(h=>h.label==='Gas forward').subtotals.map(s=>[s.measure,s.amount,s.currency]),[['PV','-10','USD'],['P&L','-37.5','USD']]);
+ assert.equal(deskGroups('book',heldAgain(swap,inUnit),fixture.holdings).headers.length,2);
+ assert.equal(deskGroups('instrumentType',heldAgain(swap,inUnit),fixture.holdings).headers.length,2);
+});
+test('a market whose futures and swaps sit in different units or currencies states each measure once in its header, and its long and short bars panel by unit',()=>{
+ const [swap,future]=fixture.summaries[3].groups,colors=commodityColors(['test_gas','test_power']);
+ const futuresOf=change=>changed(fixture.summaries,3,groups=>[...groups,{...future,market:swap.market,...change}]);
+ const subtotals=summaries=>deskGroups('market',summaries,fixture.holdings).headers.find(h=>h.label==='Gas forward').subtotals.map(s=>[s.measure,s.amount,s.currency]);
+ // The futures in the swaps' unit and currency, in another unit, and in another currency.
+ assert.deepEqual(subtotals(futuresOf({})),[['PV','-10','USD'],['P&L','-37.5','USD']]);
+ const inUnit=futuresOf({unit:'therm',quantitySpecification:{...future.quantitySpecification,code:'other_quantity'}});
+ assert.deepEqual(subtotals(inUnit),[['PV','-10','USD'],['P&L','-37.5','USD']]);
+ assert.deepEqual(subtotals(futuresOf({currency:'OTH',currencyReference:{...future.currencyReference,code:'other'}})),[['PV','-10','USD'],['P&L','-37.5','OTH']]);
+ // The charts take the same market: the futures' bar and the swaps' bar are in the panels of their own units.
+ assert.deepEqual(positionChartPanels(inUnit,fixture.holdings,colors,format).map(p=>p.unit),['MMBtu (IT)','MWh','therm']);
+ assert.deepEqual(pvChartPanels(inUnit,colors,format).map(p=>p.title),['EUR · bar right = gain','USD · bar right = gain']);
 });
 test('a group header states how many positions the group holds, so a filtered count can be shown against it',()=>{
  assert.deepEqual(deskGroups('book',fixture.summaries,fixture.holdings).headers.map(h=>[h.label,h.positions]),[['Book A',2],['Book B',4]]);
