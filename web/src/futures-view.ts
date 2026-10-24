@@ -48,7 +48,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Whether Curves & prices lists a market, and opens it with one of its contracts' price history shown when a contract is named.
   curveListed:(curve:string)=>boolean;openCurve:(curve:string,contractId:string|null)=>Promise<void>;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}};
   // What the page reports of itself has changed: the panel moved to another mode, or its form was closed.
-  reported:()=>void}){
+  reported:()=>void;
+  // The panel's form started or stopped holding unsaved edits.
+  unsavedChanged:()=>void}){
   const {api,act,busy}=options;
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -92,10 +94,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }});
   get('blotter-risk').onclick=()=>void act(risk.open);
   function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};}
-  const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),
+  const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
-  const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),
+  const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The side panel beside the positions: a position's curve, terms, risk and history, and the form of its amendment. Opening a row
   // opens it; Amend puts the amendment's form in the Terms tab, and a new swap has the whole panel.
@@ -550,15 +552,16 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     refresh(){risk.refresh();draft.reset();editor.refresh();swapEditor.refresh();annotations.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
     async openTrade(tradeId:string,instrumentType:'future'|'financial_swap',revision:number|null){
-      requireTradeRows(field('blotter-mode').value);
+      requireTradeRows(view.mode);
       if(!holdings)throw Error('Choose a market date to read the Blotter, then open the trade.');
       const index=tradeIndex(holdings.holdings,{tradeId,instrumentType}),h=holdings.holdings[index];
       await deskPanel.open(index,'terms');
       const note=revisionNote(h.tradeReference,revision,Number(h.revision));
       if(note)options.notice(note);
     },
-    // What a target for a trade needs of the Blotter, checked before the page moves for it: the person's view is never changed to fit it.
-    requireTradeRows:()=>requireTradeRows(field('blotter-mode').value),
+    // What a target for a trade needs of the Blotter, checked before the page moves for it, against the view its last read applied and
+    // not a Display choice not yet applied: the person's view is never changed to fit it.
+    requireTradeRows:()=>requireTradeRows(view.mode),
     // What the Blotter shows: its risk results, the trade in its panel, or the view its last read applied.
     report:()=>({risk:!get('risk-card').hidden,trade:shownTrade(),
       view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]}}),

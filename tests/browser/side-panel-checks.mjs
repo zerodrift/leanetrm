@@ -30,7 +30,7 @@ export async function deltaInkCheck({evaluate,wait,click,set,check,idle},{what,r
   await set('#blotter-filters .table-search','');
 }
 
-export async function sidePanelChecks({command,evaluate,wait,click,set,check,idle,press,settle,rowsRead}){
+export async function sidePanelChecks({command,evaluate,wait,click,set,check,idle,press,settle,rowsRead,persona}){
   const held=reference=>`${rowsRead}.find(h=>h.tradeReference===${JSON.stringify(reference)})`;
   const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/curve-shapes').length";
   const editorReads="window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').length";
@@ -303,7 +303,9 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   const readsBeforeBlotter=await evaluate(workspaceReads);
   await click('#nav-futures');await asks();
   await check('and asks first when it does, before it reads anything',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${workspaceReads}===${readsBeforeBlotter}&&${title}==='Blotter'`,`[${workspaceReads},${readsBeforeBlotter}]`);
-  await answer(1);await wait(`${panel}.hidden&&${redrawn(idle)}`);
+  await answer(0);
+  await check('and keeping them reads nothing: the panel, its form and the edits stay',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforeBlotter}`);
+  await click('#nav-futures');await asks();await answer(1);await wait(`${panel}.hidden&&${redrawn(idle)}`);
   await check('discarding them reads the Blotter again, which closes the panel with its form',`${panel}.hidden&&document.querySelector('#trade-editing').hidden&&${workspaceReads}>${readsBeforeBlotter}`);
   // A new As of date.
   const closes=await evaluate("[...document.querySelector('#snapshot').options].map(o=>o.value).filter(Boolean)"),closeNow=await evaluate("document.querySelector('#snapshot').value"),closeOther=closes.find(close=>close!==closeNow);
@@ -321,6 +323,22 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await set('#snapshot',closeOther);await asks();await answer(1);await wait(`${panel}.hidden&&${redrawn(idle)}`);
   await check('and discarding them takes the new date: the Blotter is read at it, and the panel is closed with its form',`document.querySelector('#snapshot').value===${JSON.stringify(closeOther)}&&document.querySelector('#trade-editing').hidden&&${workspaceReads}>${readsBeforeClose}`);
   await set('#snapshot',closeNow);await wait(redrawn(idle));
+  // Open sample prices selects its close without anyone choosing it from the As of control. Keeping an amendment puts the control back on the
+  // close the Blotter shows, which that one is, and not on the close that was chosen before it.
+  await click('#nav-market');await click('#example');
+  const sampleClose=await evaluate("document.querySelector('#snapshot').value");
+  const [chosenBefore,chosenAfter]=closes.filter(close=>close!==sampleClose);
+  if(!chosenAfter)throw Error('The sample prices check needs three closes.');
+  await set('#snapshot',chosenBefore);await wait(idle);await click('#example');
+  await check('Open sample prices selects the sample close, whichever close was chosen before it',`document.querySelector('#snapshot').value===${JSON.stringify(sampleClose)}`);
+  await back();
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await set('#snapshot',chosenAfter);await asks();
+  await check('another As of date, over the sample close, asks before it discards a form with edits',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent]`);
+  await answer(0);
+  await check('and keeping them puts the control back on the close the Blotter shows, the sample\'s, and not on the one chosen before it',`document.querySelector('#snapshot').value===${JSON.stringify(sampleClose)}&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[document.querySelector('#snapshot').value,${JSON.stringify(sampleClose)},${JSON.stringify(chosenBefore)}]`);
+  await click('#side-panel-amend');await asks();await answer(1);
+  await set('#snapshot',closeNow);await wait(redrawn(idle));
   // Open curve.
   await amend(0,refA);
   await click('#side-panel-open-curve');
@@ -334,24 +352,91 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('and discarding them opens the curve',`${title}==='Curves & prices'`);
   await back();
   // The header's time controls.
-  await amend(1,refB);await typeInto('#trade-lots','5');
+  await amend(1,refB);
+  await click('#date-context>summary');
+  await check('the time controls open without a question when the form holds no edits, and the form stays',`${prompt}.hidden&&document.querySelector('#date-context').open&&${editing}`);
+  await click('#date-context>summary');
+  await typeInto('#trade-lots','5');
   await click('#date-context>summary');await asks();
   await check('opening the time controls, which change the context the Blotter is read in, asks first, and keeping the edits leaves them closed',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#date-context').open&&${editing}`);
   await answer(0);
   await check('the form is as it was',`${editing}&&document.querySelector('#trade-lots').value==='5'&&!document.querySelector('#date-context').open`);
+  await click('#date-context>summary');await asks();await answer(1);
+  await check('and agreeing opens them and gives the form up',`document.querySelector('#date-context').open&&document.querySelector('#trade-editing').hidden&&${prompt}.hidden`);
+  // Open already, the controls ask before each change of theirs, and put what they held back when the amendment is kept.
+  const contextInputs="[document.querySelector('#date-context-on').value,document.querySelector('#date-context-view').value]",contextNote="document.querySelector('#environment-context-note').textContent";
+  const inputsBefore=await evaluate(contextInputs),noteBefore=await evaluate(contextNote),otherDate=inputsBefore[0]==='2020-12-16'?'2020-12-15':'2020-12-16';
+  const positionsShown="document.querySelectorAll('#desk-positions .tabulator-row').length";
+  // A change of context clears the Blotter and its As of choice: this reads the working context again and chooses the close it showed.
+  const restoreBlotter=async()=>{await click('#current-view-context');await set('#snapshot',closeNow);await wait(redrawn(idle));};
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await evaluate("document.querySelector('#date-context-on').focus()");
+  await set('#date-context-on',otherDate);await asks();
+  await check('a date typed in the open time controls asks before it clears the Blotter, and nothing has changed while it does',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${contextNote}===${JSON.stringify(noteBefore)}&&${positionsShown}>0`,`[${prompt}.textContent,${contextNote},${positionsShown}]`);
+  await answer(0);
+  await check('keeping the edits puts the controls back exactly as they were, and leaves the Blotter and the form',`JSON.stringify(${contextInputs})===${JSON.stringify(JSON.stringify(inputsBefore))}&&${contextNote}===${JSON.stringify(noteBefore)}&&document.querySelector('#date-context').open&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${positionsShown}>0`,`[${contextInputs},${contextNote},${positionsShown}]`);
+  await set('#date-context-on',otherDate);await asks();await answer(1);
+  await check('agreeing lets the change through: the context is changed, the Blotter is cleared and the form is given up',`document.querySelector('#date-context-on').value===${JSON.stringify(otherDate)}&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden&&${positionsShown}===0`,`[${contextInputs},${contextNote},${positionsShown}]`);
+  await restoreBlotter();
+  // Use current knowledge changes the context as well. A date entered without an event, as a browser's autofill enters one, lets it run here.
+  const knowledgeReads="window.__futuresResponses.filter(r=>r.path==='/api/date-schedules/context').length";
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await evaluate("document.querySelector('#date-context-on').value='2020-12-16'");
+  const knowledgeBefore=await evaluate(knowledgeReads);
+  await click('#date-context-latest');await asks();
+  await check('Use current knowledge asks before it changes the context, and has read nothing while it does',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${knowledgeReads}===${knowledgeBefore}`,`[${prompt}.textContent,${knowledgeReads},${knowledgeBefore}]`);
+  await answer(0);
+  await check('keeping the edits leaves the form, the date and the context as they were',`${editing}&&document.querySelector('#trade-lots').value==='5'&&document.querySelector('#date-context-on').value==='2020-12-16'&&${knowledgeReads}===${knowledgeBefore}&&${contextNote}===${JSON.stringify(noteBefore)}`);
+  await click('#date-context-latest');await asks();await answer(1);await wait(idle);
+  await check('and agreeing runs it: the context is read, and the form is given up',`${knowledgeReads}>${knowledgeBefore}&&document.querySelector('#trade-editing').hidden`,`[${knowledgeReads},${knowledgeBefore},${contextNote}]`);
+  await restoreBlotter();
+  // Return to current inputs reads the working context again.
+  const currentReads="window.__futuresResponses.filter(r=>r.path==='/api/market/current').length";
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  const currentBefore=await evaluate(currentReads);
+  await click('#current-view-context');await asks();
+  await check('Return to current inputs asks before it reads the working context again, and has read nothing while it does',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${currentReads}===${currentBefore}`,`[${prompt}.textContent,${currentReads},${currentBefore}]`);
+  await answer(0);
+  await check('keeping the edits leaves the form and reads nothing',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${currentReads}===${currentBefore}`);
+  await click('#current-view-context');await asks();await answer(1);await wait(idle);
+  await check('and agreeing reads the working context again and gives the form up',`${currentReads}>${currentBefore}&&document.querySelector('#trade-editing').hidden&&document.querySelector('#snapshot').value===''`,`[${currentReads},${currentBefore},document.querySelector('#snapshot').value]`);
+  await set('#snapshot',closeNow);await wait(redrawn(idle));
+  // While the page is busy a question cannot be answered, so the controls stay closed and nothing is asked.
+  await click('#close-view-context');
+  await amend(1,refB);await typeInto('#trade-lots','5');await typeInto('#trade-reason','Synthetic busy check');
+  await evaluate("document.querySelector('#trade-amend-form').requestSubmit();document.querySelector('#date-context>summary').click()");await wait(idle);
+  await check('opening the time controls while the page is busy asks nothing and leaves them closed',`${prompt}.hidden&&!document.querySelector('#date-context').open&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#date-context').open]`);
+  // A change made while the page is busy cannot be asked about either, so it is not made: the control goes back as it was.
+  await evaluate("document.querySelector('#trade-amend-form').requestSubmit();const date=document.querySelector('#date-context-on');date.value='2020-12-16';date.dispatchEvent(new Event('input',{bubbles:true}));date.dispatchEvent(new Event('change',{bubbles:true}))");await wait(idle);
+  await check('a change in the time controls while the page is busy is not made: nothing can be asked, so the control goes back and the form stays',`${prompt}.hidden&&document.querySelector('#date-context-on').value===${JSON.stringify(inputsBefore[0])}&&${contextNote}===${JSON.stringify(noteBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#date-context-on').value,${contextNote}]`);
   await click('#side-panel-amend');await asks();await answer(1);
+  // A form with no edits is given up by a change of context without a question.
+  await amend(1,refB);
+  await click('#date-context>summary');
+  await set('#date-context-on',otherDate);
+  await check('a change in the open time controls is made without a question when the form holds no edits',`${prompt}.hidden&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden`,`[${prompt}.textContent,${contextNote}]`);
+  await restoreBlotter();await click('#close-view-context');
   // New trade for a PPA leaves the Blotter for the PPA bookings page.
+  await amend(1,refB);
+  await click('#futures-new');await click('#trade-kind-ppa');
+  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='PPA bookings'`,`[${prompt}.textContent,${title}]`);
+  await back();
   await amend(1,refB);await typeInto('#trade-lots','5');
   await click('#futures-new');await click('#trade-kind-ppa');await asks();
   await check('New trade for a PPA, which leaves the Blotter, asks first, and keeping the edits leaves the Blotter and the form as they were',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
   await answer(0);
-  await click('#side-panel-amend');await asks();await answer(1);
+  await click('#futures-new');await click('#trade-kind-ppa');await asks();await answer(1);await wait(idle);
+  await check('and agreeing opens the PPA bookings page',`${title}==='PPA bookings'`,title);
+  await back();
+  await check('the Blotter comes back without the form: it starts fresh',`${panel}.hidden&&document.querySelector('#trade-editing').hidden`);
 
   // Escape inside a calendar closes only the calendar, and travel along the tabs is not an opening of the form: focus stays on the tab.
   await amend(0,refA);
   await click('#trade-contract-date');
   await evaluate("document.querySelector('#trade-contract-date').focus()");await press('Escape','Escape',27);
   await check('Escape inside a calendar closes only the calendar: the panel and its form stay open',`!document.querySelector('#trade-contract-date').parentElement.open&&!${panel}.hidden&&${editing}&&${prompt}.hidden`);
+  await click('#trade-reload');await wait(idle);
+  await check('Reload latest revision reloads a form with no edits without a question',`${prompt}.hidden&&${editing}`);
   await amend(0,refA);await typeInto('#trade-lots','17');
   await click('#side-panel-tabs-curve');await evaluate("document.querySelector('#side-panel-tabs-curve').focus()");await press('ArrowRight','ArrowRight',39);
   await check('arrow keys travelling to Terms leave focus on the tab, and the form keeps what it held',`document.activeElement.id==='side-panel-tabs-terms'&&!document.querySelector('#side-panel-form').hidden&&document.querySelector('#trade-lots').value==='17'`,`[document.activeElement.id,document.querySelector('#trade-lots').value]`);
@@ -362,6 +447,57 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await click('#trade-reload');await asks();await answer(1);await wait(idle);
   await check('and discarding them reloads the revision: the form shows the position\'s lots again',`${editing}&&document.querySelector('#trade-lots').value!=='17'`,`document.querySelector('#trade-lots').value`);
   await click('#side-panel-close');await wait(`${panel}.hidden`);
+
+  // Leaving the page altogether, by a reload, closing the tab or going back, is asked about by the browser while the form holds edits: its
+  // question is the page's answer to an event the browser sends, and the check sends the event.
+  const unloadAsks="(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()";
+  await amend(1,refB);
+  await check('leaving the page asks nothing of the browser while the form holds no edits',`!${unloadAsks}`);
+  await typeInto('#trade-lots','5');
+  await check('and asks it to confirm while the form holds edits',unloadAsks);
+  await click('#side-panel-amend');await asks();await answer(1);
+  await check('and no longer once they are given up',`!${unloadAsks}`);
+  // Save preferences reads the Blotter again, which closes the panel.
+  const savePreferences=async()=>{await click('#profile-open');await evaluate("document.querySelector('#preferences-form').requestSubmit()");};
+  await amend(1,refB);
+  const readsBeforeNoEdits=await evaluate(workspaceReads);
+  await savePreferences();await wait(`${redrawn(idle)}&&${workspaceReads}>${readsBeforeNoEdits}`);
+  await check('Save preferences reads the Blotter again without a question when the form holds no edits',`${prompt}.hidden&&${workspaceReads}>${readsBeforeNoEdits}&&!document.querySelector('#profile-dialog').open`);
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  const readsBeforePreferences=await evaluate(workspaceReads);
+  await savePreferences();await asks();
+  await check('Save preferences asks before it reads the Blotter again over a form with edits, and the dialog has made way for the question',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#profile-dialog').open&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforePreferences}`,`[${prompt}.textContent,document.querySelector('#profile-dialog').open,${workspaceReads},${readsBeforePreferences}]`);
+  await answer(0);
+  await check('keeping the edits saves nothing and leaves the form',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforePreferences}`);
+  await savePreferences();await asks();await answer(1);await wait(`${redrawn(idle)}&&${workspaceReads}>${readsBeforePreferences}`);
+  await check('and agreeing saves them: the Blotter is read again, and the form is given up',`${workspaceReads}>${readsBeforePreferences}&&document.querySelector('#trade-editing').hidden&&!document.querySelector('#profile-dialog').open`);
+  // A newer close arriving while a form is open is offered, and taking it asks first. The calendar's newest date is held back until the window is
+  // focused again, as a close that becomes available during a session is.
+  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const path=typeof input==='string'?input:input.url;let response=await send(input,init);
+    if(window.__hideNewestDate&&path.endsWith('/market/dates')&&response.ok&&JSON.parse(init.body).curve===null){const data=await response.json();data.dates.pop();data.maxDate=data.dates.at(-1)?.date??null;response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
+    return response;};})()`);
+  await evaluate('window.__hideNewestDate=true');await persona('trader');await wait(redrawn(idle));
+  const olderClose=await evaluate("document.querySelector('#snapshot').value");
+  await evaluate("window.__hideNewestDate=false;window.dispatchEvent(new Event('focus'))");
+  await wait("!!document.querySelector('#market-date-badge button')");
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await click('#market-date-badge button');await asks();
+  await check('Newer close available asks before it changes the close, and the close is the one it was',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#snapshot').value===${JSON.stringify(olderClose)}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#snapshot').value,${JSON.stringify(olderClose)}]`);
+  await answer(0);
+  await check('keeping the edits leaves the close, the form and the offer as they were',`${editing}&&document.querySelector('#snapshot').value===${JSON.stringify(olderClose)}&&document.querySelector('#trade-lots').value==='5'&&!!document.querySelector('#market-date-badge button')`);
+  await click('#market-date-badge button');await asks();await answer(1);await wait(redrawn(idle));
+  await check('and agreeing selects the newest close and gives the form up',`document.querySelector('#snapshot').value===${JSON.stringify(closeNow)}&&document.querySelector('#trade-editing').hidden`,`[document.querySelector('#snapshot').value,${JSON.stringify(closeNow)}]`);
+  // Another user is another workspace: the profile dialog makes way for the question, as it does for Save preferences.
+  const userName="document.querySelector('#profile-label').textContent",profileCalls="window.__futuresResponses.filter(r=>r.path==='/api/profile').length";
+  const userBefore=await evaluate(userName),profilesBefore=await evaluate(profileCalls);
+  await amend(1,refB);await typeInto('#trade-lots','5');
+  await click('#profile-open');await set('#profile','risk');await click('#open');await asks();
+  await check('switching to another user asks before it discards a form with edits, and the dialog has made way for the question',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#profile-dialog').open&&${userName}===${JSON.stringify(userBefore)}&&${editing}&&${profileCalls}===${profilesBefore}`,`[${prompt}.textContent,${userName},${profileCalls},${profilesBefore}]`);
+  await answer(0);
+  await check('keeping the edits leaves the user and the form as they were',`${userName}===${JSON.stringify(userBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${profileCalls}===${profilesBefore}`);
+  await click('#profile-open');await set('#profile','risk');await click('#open');await asks();await answer(1);await wait(idle);
+  await check('and agreeing switches to the other user and gives the form up',`${userName}!==${JSON.stringify(userBefore)}&&${profileCalls}>${profilesBefore}&&document.querySelector('#trade-editing').hidden`,`[${userName},${profileCalls},${profilesBefore}]`);
+  await persona('trader');await wait(redrawn(idle));
 
   // A phone: the sheet fills the window, the page does not scroll sideways because of it, and nothing behind it can take focus.
   await settle(760,900);

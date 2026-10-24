@@ -12,3 +12,13 @@ test('a form is edited by the person\'s own input and by a picker that sets a va
  edits.clear();
  assert.equal(edits.edited(),false);
 });
+
+test('the owner hears when a form starts and stops holding edits, once for each, and not for what changes nothing',()=>{
+ const form=new EventTarget(),heard=[],edits=trackEdits(form,[],()=>heard.push(edits.edited()));
+ edits.clear();
+ assert.deepEqual(heard,[],'a form that holds nothing is cleared without a word');
+ edits.mark();edits.mark();
+ assert.deepEqual(heard,[true],'it starts holding edits once, however many follow');
+ edits.clear();edits.clear();
+ assert.deepEqual(heard,[true,false],'and stops holding them once');
+});

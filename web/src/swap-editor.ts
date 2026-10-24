@@ -170,12 +170,14 @@ export async function readSwapView(api:Api,context:Record<string,unknown>,h:Pick
 type Position=Pick<Holding,'tradeId'|'contractId'|'revision'>;
 export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;onDenied:()=>void;host:()=>HTMLElement;
  /** Asks whether to give up what the panel holds unsaved, when it holds any: false means the person kept it. */
- leave:()=>Promise<boolean>}){
+ leave:()=>Promise<boolean>;
+ /** Hears each time the form starts or stops holding unsaved edits. */
+ unsavedChanged:()=>void}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
  const text=(id:string,value:string)=>get(id).textContent=publicText(value);
  // The form is kept on the page's shelf until a host takes it, and goes back there when it is reset.
- const root=get('swap-editing'),shelf=root.parentElement!,edits=trackEdits(get('swap-form'));
+ const root=get('swap-editing'),shelf=root.parentElement!,edits=trackEdits(get('swap-form'),[],options.unsavedChanged);
  const mounted=()=>root.parentElement!==shelf;
  const mount=()=>{options.host().append(root);root.hidden=false;};
  mountSwapSideEditor('fixed');mountSwapSideEditor('floating');mountFirstFloatingEditor();

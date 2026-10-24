@@ -3,6 +3,9 @@ import {setupTradingReplies} from './trading-responses.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
   await command('Page.enable');await command('Runtime.enable');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+  // A second market example on offer, whose address differs from the page's by a fragment alone: choosing it is a page load that, here, leaves the
+  // page itself in place, so that what it asked before it, and what it did, can be read from the address.
+  await command('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const path=typeof input==='string'?input:input.url;const response=await send(input,init);if(path==='/api/examples'&&response.ok){const data=await response.json();return new Response(JSON.stringify([...data,{id:'second',name:'Second example',url:'/#second-example'}]),{status:200,headers:{'Content-Type':'application/json'}});}return response;};})()`});
   await command('Page.navigate',{url});await wait(idle);
   await setupTradingReplies(evaluate);
   await evaluate(`(()=>{const send=window.fetch;window.__editorReplies=[];window.__amendCommands=[];window.fetch=async(input,init)=>{
@@ -55,7 +58,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Amend puts the form in the panel\'s Terms tab in place of its read view, with no dialog on the page',"(()=>{const form=document.querySelector('#side-panel-form'),root=document.querySelector('#trade-editing');return form.contains(root)&&!form.hidden&&document.querySelector('#side-panel-view').hidden&&document.querySelector('#side-panel-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#side-panel-amend').textContent==='Close editor'&&!document.querySelector('dialog[open]')&&!document.querySelector('#trade-editor')&&!document.querySelector('#swap-editor');})()");
   await check('trade terms keep immutable booking facts above an instrument-owned quantity',"['trader','trade-date','executed'].every(id=>document.getElementById('trade-'+id).readOnly)&&!document.querySelector('#trade-trade-terms #trade-lots')&&document.querySelector('#trade-instrument #trade-lots')&&Boolean(document.querySelector('#trade-trade-terms').compareDocumentPosition(document.querySelector('#trade-instrument'))&Node.DOCUMENT_POSITION_FOLLOWING)");
   await check('filtered blotter row opens its exact trade revision and instrument terms',"document.querySelector('#trade-lots').value==='37'&&document.querySelector('#trade-revision').value==='1'&&!document.querySelector('#trade-amend-fields').disabled&&document.querySelector('#trade-side-fields').textContent.includes('per lot')");
-  await set('#trade-lots','38');await set('#trade-reason','Synthetic editor correction');await submit('#trade-amend-form');
+  // The edit is typed, which is what counts as one: leaving the page then asks the browser to confirm, until the amendment has been sent.
+  const unloadAsks="(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()";
+  await typeInto('#trade-lots','38');await set('#trade-reason','Synthetic editor correction');
+  await check('leaving the page asks the browser to confirm while the form holds the edit',unloadAsks);
+  await submit('#trade-amend-form');
   await check('managed preview displays separate quantity units and monetary currency',"!document.querySelector('#trade-preview-result').hidden&&document.querySelector('#trade-preview-values').textContent.includes('USD')&&document.querySelector('#trade-preview-values').textContent.includes('MMBtu (IT)')&&document.querySelector('#trade-submit').disabled");
   await evaluate("window.__loseAmend=true");await click('#trade-confirm');await click('#trade-submit');
   await check('uncertain amendment retains original command and closes stale editor, and the panel is on its position\'s read view again',"document.querySelector('#trade-editing').hidden&&!document.querySelector('#futures-pending').hidden&&!document.querySelector('#side-panel').hidden&&!document.querySelector('#side-panel-view').hidden&&document.querySelector('#side-panel-form').hidden&&document.querySelector('#side-panel-amend').textContent==='Amend'");
@@ -74,6 +81,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('amendment retry preserves exact operation and economics',"window.__amendCommands.length===2&&JSON.stringify(window.__amendCommands[0])===JSON.stringify(window.__amendCommands[1])&&document.querySelector('#futures-pending').hidden");
   await wait("!!document.querySelector('#side-panel-view .side-panel-section')&&"+idle);
   await check('the desk shows the new revision, and the panel returns to the amended position at it, on its Terms, with no form open',`(()=>{const h=window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)});return h.revision==='2'&&h.lots==='38'&&!document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(tradeReference)}&&document.querySelector('#side-panel-head .side-panel-meta').textContent.startsWith('Revision 2')&&document.querySelector('#side-panel-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#trade-editing').hidden&&!document.querySelector('#side-panel-view').hidden&&document.querySelector('#desk-positions .open-row .desk-reference')?.textContent===${JSON.stringify(tradeReference)};})()`,"document.querySelector('#side-panel-head').innerText");
+  // Once the amendment has been sent the form holds nothing, and leaving the page asks nothing of the browser.
+  await check('and the browser is asked nothing when the page is left, because the form holds nothing now',`!${unloadAsks}`);
   await open(2);
   await check('accepted amendment exposes the current revision in the editor',"document.querySelector('#trade-revision').value==='2'&&document.querySelector('#trade-lots').value==='38'");
   await click('#side-panel-tabs-history');await wait("!!document.querySelector('#side-panel-view .side-panel-section')&&"+idle);
@@ -90,6 +99,16 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // A revision that cannot be read says so, in the page's own message: the form does not vanish unexplained.
   await evaluate("window.__failEditor=true");await set('#trade-revision','1');await wait(idle);
   await check('a revision that cannot be read reports the failure and closes the form it replaced, and does not swallow the error',"!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.length>0&&document.querySelector('#trade-editing').hidden","[document.querySelector('#error').hidden,document.querySelector('#error').textContent,document.querySelector('#trade-editing').hidden]");
+  await open(2);
+  // Another market example is another page load, which gives up what the panel holds: it asks first, and keeping the edits puts the select back.
+  await typeInto('#trade-lots','40');
+  await set('#example-dataset','second');await asks();
+  await check('choosing another market example, which loads another page, asks first about the edits the panel holds',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='40'&&location.hash===''`,`[${prompt}.textContent,location.hash]`);
+  await answer(0);
+  await check('keeping the edits puts the select back on the example the page is, and the page and its form stay',`document.querySelector('#example-dataset').value==='baseline'&&location.hash===''&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='40'`,`[document.querySelector('#example-dataset').value,location.hash,document.querySelector('#trade-lots').value]`);
+  await set('#example-dataset','second');await asks();await answer(1);
+  await check('and agreeing loads the other example, and the form is given up',`location.hash==='#second-example'&&document.querySelector('#trade-editing').hidden`,`[location.hash,document.querySelector('#trade-editing').hidden]`);
+  await evaluate("history.replaceState(null,'',location.pathname);document.querySelector('#example-dataset').value='baseline'");
   await open(2);
   await shot('trade-editor');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});

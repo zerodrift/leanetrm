@@ -2,10 +2,11 @@
 // away from the page and make the panel ask before it is left. Only the person's own input marks the form, outside the fields
 // `except` names, which only read with what it holds. A picker that sets a value for the person, as a calendar or the date lookup
 // does, dispatches events a form cannot tell from a script's, so it marks the form itself. The form's owner clears the mark
-// whenever it fills, resets or saves the form.
-export function trackEdits(form:HTMLElement,except:HTMLElement[]=[]){
+// whenever it fills, resets or saves the form, and `changed` hears each time the form starts or stops holding edits.
+export function trackEdits(form:HTMLElement,except:HTMLElement[]=[],changed:()=>void=()=>{}){
   let edited=false;
-  const onEdit=(event:Event)=>{if(event.isTrusted&&!except.some(field=>field.contains(event.target as Node)))edited=true;};
+  const hold=(next:boolean)=>{if(edited===next)return;edited=next;changed();};
+  const onEdit=(event:Event)=>{if(event.isTrusted&&!except.some(field=>field.contains(event.target as Node)))hold(true);};
   form.addEventListener('input',onEdit);form.addEventListener('change',onEdit);
-  return {edited:()=>edited,mark(){edited=true;},clear(){edited=false;}};
+  return {edited:()=>edited,mark(){hold(true);},clear(){hold(false);}};
 }

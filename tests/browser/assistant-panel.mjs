@@ -215,7 +215,23 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('a trade the assistant names is refused in a pivot, in words that name the view it needs, and the view stays as it was',
     `!${q('#error')}.hidden&&${q('#error')}.textContent.includes('Individual trades')&&${q('#blotter-mode')}.value==='pivot'&&${q('#side-panel')}.hidden&&${q('#page-title')}.textContent==='Blotter'`,`[${q('#error')}.textContent,${q('#blotter-mode')}.value,${q('#side-panel')}.hidden]`);
   await check('and nothing says the trade was shown: its notice still offers Go',`!${notice}.textContent.startsWith('Took you to')&&${buttons}==='Go'`,`[${notice}?.textContent,${buttons}]`);
-  await set('#blotter-mode','trades');await click('#blotter-apply');await wait(`${q('#blotter-table-title')}.textContent.startsWith('Positions')&&${idle}`);
+  // The view is the one the Blotter has applied: a Display choice that has not been applied neither refuses a trade nor allows one, and the
+  // control is left as the person set it.
+  const trade14={view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId,instrumentType:'future',revision:null};
+  await set('#blotter-mode','trades');
+  await script({tools:[['toolu_panel_15','read_trades',trade14]]},{tools:[['toolu_panel_16','navigate',{page:null,target:'n1'}]]},{text:'That is the trade, still.'});
+  await ask('Open that trade, though Display shows trade rows that are not applied.');await wait(finished);
+  await pause(300);
+  await check('a Display choice that has not been applied does not allow a trade: the pivot is the view, the trade is refused, and the control stays as it was set',
+    `!${q('#error')}.hidden&&${q('#error')}.textContent.includes('Individual trades')&&${q('#blotter-mode')}.value==='trades'&&${q('#side-panel')}.hidden&&${q('#blotter-table-title')}.textContent==='Pivot summary'`,`[${q('#error')}.textContent,${q('#blotter-mode')}.value,${q('#blotter-table-title')}.textContent]`);
+  await click('#blotter-apply');await wait(`${q('#blotter-table-title')}.textContent.startsWith('Positions')&&${idle}`);
+  await set('#blotter-mode','pivot');
+  await script({tools:[['toolu_panel_17','read_trades',trade14]]},{tools:[['toolu_panel_18','navigate',{page:null,target:'n1'}]]},{text:'That is the trade, again.'});
+  await ask('Open that trade, though Display shows a pivot that is not applied.');await wait(finished);
+  await pause(300);
+  await check('and one that has not been applied does not refuse it: the trade rows are the view, and the trade opens',
+    `${q('#error')}.hidden&&!${q('#side-panel')}.hidden&&${q('#side-panel-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}`,`[${q('#error')}.textContent,${q('#side-panel')}.hidden,${q('#side-panel-head .side-panel-reference')}?.textContent]`);
+  await click('#side-panel-close');await set('#blotter-mode','trades');
 
   // A page the assistant does not read (§7.3).
   await click('#nav-delivery');
@@ -371,7 +387,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await click('#assistant-history-open');await wait(`document.querySelectorAll('#assistant-history-list button').length>0`);
   // Every question of this run went to one conversation with the guide.
   await evaluate(`[...document.querySelectorAll('#assistant-history-list button')].find(b=>b.textContent.includes(${JSON.stringify(guide)})).click()`);
-  await wait(`document.querySelectorAll('#assistant-turns > li').length===16&&!!${latest}.querySelector('.assistant-usage')`);
+  await wait(`document.querySelectorAll('#assistant-turns > li').length===18&&!!${latest}.querySelector('.assistant-usage')`);
   await check('at 390 px the panel covers the width as a sheet that fits it, showing the conversation without identifiers',
     `${q('#assistant-panel')}.getBoundingClientRect().width===document.documentElement.clientWidth&&${fitsWidth}`
     +`&&!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(${q('#assistant-panel')}.innerText)&&${q('#assistant-agent')}.value===${JSON.stringify(guideChoice)}`,

@@ -41,15 +41,18 @@ export function revisionNote(reference:string,target:number|null,held:number):st
 
 /**
  * Where the panel follows a trade once an amendment of it is made. An amendment of the instrument gives the trade another binding, so
- * the trade is found by its id and kind: by the binding the amendment produced when its receipt names one, and otherwise as the only
- * position the read holds of it. Where it is not found, or not told apart, the panel closes and says why; a move to another binding
- * is said too.
+ * the trade is found by its id and kind: by the binding the amendment produced when its receipt names one, which a read that does not
+ * hold it is never answered for with another position of the trade, and otherwise as the only position the read holds of it. Where it
+ * is not found, or not told apart, the panel closes and says why; a move to another binding is said too.
  */
 export function followedPosition(holdings:readonly Pick<Holding,'tradeId'|'bindingId'|'instrumentType'>[],amended:Pick<Holding,'tradeId'|'bindingId'|'instrumentType'|'tradeReference'>,receipt?:{bindingId?:string}):{index:number;note:string|null}|{index:null;note:string}{
   const of=holdings.flatMap((h,i)=>h.tradeId===amended.tradeId&&h.instrumentType===amended.instrumentType?[i]:[]);
-  const produced=of.find(i=>receipt?.bindingId!==undefined&&holdings[i].bindingId===receipt.bindingId)??(of.length===1?of[0]:undefined);
+  const named=receipt?.bindingId!==undefined;
+  const produced=named?of.find(i=>holdings[i].bindingId===receipt.bindingId):of.length===1?of[0]:undefined;
   if(produced!==undefined)return {index:produced,note:holdings[produced].bindingId===amended.bindingId?null:`${amended.tradeReference} now holds another instrument, so the panel follows the trade to the position the amendment produced.`};
-  return {index:null,note:of.length?`${amended.tradeReference} holds several positions in this read, so the panel cannot tell which one the amendment produced.`:`${amended.tradeReference} is not in this Blotter read after its amendment, so the panel was closed.`};
+  return {index:null,note:!of.length?`${amended.tradeReference} is not in this Blotter read after its amendment, so the panel was closed.`
+    :named?`${amended.tradeReference} is not in this Blotter read at the binding the amendment produced, so the panel was closed.`
+    :`${amended.tradeReference} holds several positions in this read, so the panel cannot tell which one the amendment produced.`};
 }
 
 /**

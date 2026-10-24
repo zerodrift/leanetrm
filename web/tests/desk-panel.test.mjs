@@ -170,6 +170,14 @@ test('after an amendment the panel follows the trade to the position the amendme
  assert.deepEqual(followedPosition([first,{...other,revision:'2'}],amended,{bindingId:other.bindingId}),{index:1,note:null},'the same binding at its new revision is the same position');
 });
 
+test('a receipt that names a binding the read does not hold is never answered with another position of the trade',()=>{
+ const elsewhere={...produced,bindingId:'b0000000-0000-0000-0000-0000000000c1'};
+ const absent={index:null,note:`${other.tradeReference} is not in this Blotter read at the binding the amendment produced, so the panel was closed.`};
+ assert.deepEqual(followedPosition([first,elsewhere],amended,{bindingId:produced.bindingId}),absent,'the only position the read holds of the trade is another binding than the one the receipt names');
+ assert.deepEqual(followedPosition([elsewhere,{...elsewhere,bindingId:'b0000000-0000-0000-0000-0000000000ca'}],amended,{bindingId:produced.bindingId}),absent,'and so are several');
+ assert.equal(followedPosition([first,elsewhere],amended).index,1,'the receipt that names none leaves the trade\'s only position');
+});
+
 test('a trade the amendment left no single position of is not guessed: the panel is closed and says why',()=>{
  assert.deepEqual(followedPosition([first],amended,{bindingId:produced.bindingId}),{index:null,note:`${other.tradeReference} is not in this Blotter read after its amendment, so the panel was closed.`});
  const two=[{...produced},{...produced,bindingId:'b0000000-0000-0000-0000-0000000000ba'}];

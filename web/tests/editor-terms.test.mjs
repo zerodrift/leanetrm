@@ -31,28 +31,38 @@ test('a future\'s executed time follows the user\'s zone, and a contract the cat
 test('a future\'s revisions are listed one by one with their instrument and facts, each as Terms states it, and what a revision lacks is said so',()=>{
  const amended=clone(details.future);
  amended.history.push({...clone(details.future.history[0]),revision:2,kind:'amended',instrumentReference:'IN-000002',lots:'-3',executionPrice:'2.975',memo:'Synthetic note',reason:'Synthetic correction',traderCode:null,booking:{...details.future.history[0].booking,legalEntity:null,tradeDate:null}});
- const history=tradeHistory(amended,'UTC',formats,unit);
+ const history=tradeHistory(amended,'UTC',formats);
  assert.deepEqual(history.map(entry=>entry.title),['Revision 1 · Booked','Revision 2 · Amended']);
  assert.deepEqual(Object.fromEntries(history[0].rows),{Effective:'Dec 15, 2020, 4:00 PM',Recorded:'Oct 24, 2026, 5:53 AM',Book:'Book A',Instrument:'IN-000001',Lots:'2','Execution price':'p:2.95 USD/MMBtu (IT)','Trader ID':'trader',Memo:'None','Trade date':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Reason:'Initial booking'});
  assert.deepEqual(Object.fromEntries(history[1].rows),{Effective:'Dec 15, 2020, 4:00 PM',Recorded:'Oct 24, 2026, 5:53 AM',Book:'Book A',Instrument:'IN-000002',Lots:'−3','Execution price':'p:2.975 USD/MMBtu (IT)','Trader ID':'None',Memo:'Synthetic note','Trade date':'Not recorded','Legal entity':'None',Counterparty:'Synthetic party 1',Reason:'Synthetic correction'});
  assert.equal(Object.fromEntries(tradeTerms(amended,'UTC',formats,unit)[1].rows).Lots,'2','Terms and History write a number alike');
 });
 
+test('a future\'s revisions each state their price in the unit of their own contract, and say so when the catalog does not hold it',()=>{
+ const moved=clone(details.future);
+ moved.catalog.contracts.push({...moved.catalog.contracts[0],curve:'other_future',id:'50000000-0000-0000-0000-0000000000b2',unit:'MWh',quoteMultiplier:'100'});
+ moved.history.push({...clone(details.future.history[0]),revision:2,kind:'amended',curve:'other_future',contractId:'50000000-0000-0000-0000-0000000000b2',executionPrice:'41.5'});
+ const prices=sections=>sections.map(section=>Object.fromEntries(section.rows)['Execution price']);
+ assert.deepEqual(prices(tradeHistory(moved,'UTC',formats)),['p:2.95 USD/MMBtu (IT)','p:41.5 USD/MWh × 100'],'an amendment can move a trade to another curve of the same currency: neither revision borrows the other\'s unit, or the position\'s');
+ moved.catalog.contracts.pop();
+ assert.deepEqual(prices(tradeHistory(moved,'UTC',formats)),['p:2.95 USD/MMBtu (IT)','p:41.5 · unit unavailable: the contract of this revision is not in the catalog'],'a contract the catalog does not hold leaves the unit unstated, never assumed');
+});
+
 test('a revision of a book the catalog no longer holds says so, and an hour the clock repeats is told apart',()=>{
  const gone=clone(details.future);gone.catalog.books=[];
- assert.equal(Object.fromEntries(tradeHistory(gone,'UTC',formats,unit)[0].rows).Book,'Unavailable book');
+ assert.equal(Object.fromEntries(tradeHistory(gone,'UTC',formats)[0].rows).Book,'Unavailable book');
  // Clocks in Chicago show 1:30 a.m. twice on 1 November 2026: once in daylight time, once an hour later in standard time.
  const repeated=clone(details.future);
  repeated.history[0].recordedAt='2026-11-01T06:30:00+00:00';
  repeated.history.push({...clone(repeated.history[0]),revision:2,kind:'amended',recordedAt:'2026-11-01T07:30:00+00:00'});
- const [first,second]=tradeHistory(repeated,'America/Chicago',formats,unit).map(entry=>Object.fromEntries(entry.rows).Recorded);
+ const [first,second]=tradeHistory(repeated,'America/Chicago',formats).map(entry=>Object.fromEntries(entry.rows).Recorded);
  assert.notEqual(first,second,'the same clock time at two instants is not given one label');
 });
 
 test('the view of a future joins its terms and revisions, and its amendment state is its own',()=>{
  const view=tradeDetailView(details.future,'UTC',formats,unit);
  assert.deepEqual(Object.keys(view),['terms','history']);
- assert.deepEqual(view.terms,tradeTerms(details.future,'UTC',formats,unit));assert.deepEqual(view.history,tradeHistory(details.future,'UTC',formats,unit));
+ assert.deepEqual(view.terms,tradeTerms(details.future,'UTC',formats,unit));assert.deepEqual(view.history,tradeHistory(details.future,'UTC',formats));
  assert.deepEqual(tradeAmendState(details.future),{allowed:true,reason:null});
  const locked={...details.future,canAmend:false,amendUnavailableReason:'Settlement has been processed.'};
  assert.deepEqual(tradeAmendState(locked),{allowed:false,reason:'Settlement has been processed.'});
