@@ -31,12 +31,32 @@ internal static class FuturesChecks
         ImmutableArray<FuturesHolding> Price(ImmutableArray<FuturesTrade> holdings, MarketSnapshot snapshot) =>
             FuturesHoldings.Price(holdings, snapshot, f.Model().Build(snapshot, [side.Market]), FuturesMarketBinding.Implementation);
         var snapshot = Mark("3.2");
+        Check("nested futures risk counts original and intermediate market preparation",()=>
+        {
+            var bump=new QuoteBump(new(f.S(1),InputUse.Variable),quote.Key,PriceUnit.FromQuote(quote),ExactDecimal.Parse("0.1"),QuoteBump.Convention);
+            var shift=new QuoteShift(bump.Input,bump.Quote,bump.Unit,ExactDecimal.Parse("0.2"),QuoteShift.Convention);
+            var result=FuturesRisk.Calculate(trades,snapshot,f.Model(),[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy,
+                stress:[shift,shift with{Size=ExactDecimal.Parse("-0.05")}]);
+            // One leaf market, built once originally, once per stress layer and twice for risk.
+            Equal(result.Work.RebuiltCurveNodes,5);Equal(result.Work.ReusedCurveNodes,0);
+            Equal(result.Work.ScenarioCount,3);Equal(result.Work.UnitPricerCalls,3);
+            Equal(result.Work.PreparationScenarioCount,2);
+        });
         Check("a simple future is a leaf instrument with pricing selected outside its identity", () =>
         {
             Instrument common = instrument.Instrument;
             Equal(common is SidedInstrument, false);
             Equal(common.Id, ContractIdentity.Futures(series.Key));
             Equal(instrument.Market, side.Market);
+        });
+        Check("unknown first-trading time requires explicit eligibility outside instrument identity", () =>
+        {
+            var terms=series with{FirstTradingAt=null};var shared=new FuturesContract(terms);
+            Reject("futures_definition",()=>new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,quote,"cash",FuturesMarketBinding.Implementation,shared));
+            var bound=new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,quote,"cash",FuturesMarketBinding.Implementation,shared,eligibleFrom:first);
+            var later=new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,quote,"cash",FuturesMarketBinding.Implementation,shared,eligibleFrom:first.AddDays(1));
+            Equal(bound.EligibleFrom,first);Equal(later.EligibleFrom,first.AddDays(1));
+            Equal(ReferenceEquals(bound.Instrument,later.Instrument),true);
         });
         Check("unit side contribution, instrument lot size and booked lots apply once at their own levels", () =>
         {
@@ -322,6 +342,21 @@ internal static class FuturesChecks
         {
             var context = new SideValuationContext(f.Snapshot(), new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted));
             Reject("futures_pv_unsupported", () => instrument.Instrument.PV(context));
+        });
+        Check("book-only futures risk nets exact cash before bounded holding output",()=>
+        {
+            var wide=quote with{Maximum=ExactDecimal.Parse("999999999999999999999999")};
+            var bound=new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,series,wide,"cash",FuturesMarketBinding.Implementation);
+            var inputs=Mark("900000000000000000000000");
+            var model=new CurveModel(f.Revision,f.Reference,[f.Quantities[0]],[wide],[contract],[f.Curves[0]],[series],[],[new(f.S(1),contract.Key,wide.Key,null)]);
+            inputs=inputs with{Selections=[inputs.Selections.Single(s=>s.Input.Series==f.S(1))]};
+            FuturesTrade Offset(string lots)=>new(Guid.NewGuid(),bookA,[new(Guid.NewGuid(),bound,ExactDecimal.Parse(lots),new UnitPrice(default,wide),inputs.ValuationAt,FuturesSettlementState.Unprocessed)]);
+            var held=ImmutableArray.Create(Offset("1"),Offset("-1"));
+            var bump=new QuoteBump(new(f.S(1),InputUse.Variable),wide.Key,PriceUnit.FromQuote(wide),ExactDecimal.Parse("0.01"),QuoteBump.Convention);
+            var risk=FuturesRisk.Calculate(held,inputs,model,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
+            var total=risk.Factors[0].Totals.Single();
+            Equal(total.Base.Amount.ToString(),"0");Equal(total.Delta.Value.ToString(),"0");Equal(total.Gamma.Value.ToString(),"0");
+            Reject("numeric_range",()=>FuturesRisk.Calculate(held,inputs,model,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy));
         });
         Console.WriteLine($"{count} futures checks passed."); return count;
     }

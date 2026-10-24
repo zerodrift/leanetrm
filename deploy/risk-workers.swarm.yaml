@@ -1,0 +1,46 @@
+version: "3.8"
+
+# Deploy only after provisioning the narrow worker login and qualifying the
+# database/network boundary. This stack contains workers, not a database.
+services:
+  risk-worker:
+    image: ${RISK_WORKER_IMAGE:?Use the exact image digest running the API}
+    entrypoint: [dotnet, /opt/openetrm/api/OpenEtrm.Api.dll]
+    command: [--risk-worker, serve]
+    environment:
+      OPENETRM_RISK_WORKER_CONFIG: /run/secrets/risk-worker-settings
+    secrets:
+      - source: worker_settings
+        target: risk-worker-settings
+      - source: worker_connection
+        target: risk-worker-connection
+    networks: [risk_database]
+    read_only: true
+    stop_grace_period: 30s
+    deploy:
+      mode: replicated
+      replicas: ${RISK_WORKER_REPLICAS:?Choose an explicit worker count}
+      placement:
+        constraints: [node.labels.openetrm.risk == true]
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        order: stop-first
+
+secrets:
+  worker_settings:
+    external: true
+    name: ${RISK_WORKER_SETTINGS_SECRET:?}
+  worker_connection:
+    external: true
+    name: ${RISK_WORKER_CONNECTION_SECRET:?}
+networks:
+  risk_database:
+    external: true
+    name: ${RISK_WORKER_DATABASE_NETWORK:?}

@@ -36,11 +36,16 @@ public sealed record SchedulePriceTerm
     public ExactDecimal Weight { get; }
     public UnitPrice? FixedPrice { get; }
     public IndexPriceLookup? Lookup { get; }
-    internal SchedulePriceTerm(ExactDecimal weight, UnitPrice? fixedPrice, IndexPriceLookup? lookup)
+    public UnitPrice? Spread { get; }
+    public IndexFixingRequirement? Fixing { get; }
+    internal SchedulePriceTerm(ExactDecimal weight, UnitPrice? fixedPrice, IndexPriceLookup? lookup,UnitPrice? spread=null,IndexFixingRequirement? fixing=null)
     {
         if (weight.CompareTo(default) <= 0 || (fixedPrice is null) == (lookup is null))
             throw new MarketDataException("schedule_price", "A price term requires a positive weight and exactly one fixed price or exact index lookup.");
-        Weight = weight; FixedPrice = fixedPrice; Lookup = lookup;
+        if(spread is not null&&(lookup is null||spread.Unit!=PriceUnit.FromQuote(lookup.Quote)))throw new MarketDataException("swap_spread","A fixed spread belongs to a floating lookup in the same exact price unit.");
+        if(fixing is not null&&(lookup is null||fixing.Index!=lookup.Index||fixing.Quote!=lookup.Quote||fixing.From!=lookup.Contract.DeliveryFrom||fixing.To!=lookup.Contract.DeliveryTo))
+            throw new MarketDataException("index_fixing_rule","A fixing requirement must match its exact projected index observation.");
+        Weight = weight; FixedPrice = fixedPrice; Lookup = lookup; Spread=spread;Fixing=fixing;
     }
 }
 
@@ -73,13 +78,17 @@ public sealed record SidePaymentPlan
     }
 }
 
+public enum SchedulePriceKind { Fixed=1,Projected,Actual }
+
 public sealed record ResolvedSchedulePrice
 {
     public SchedulePriceTerm Term { get; }
+    public IndexFixingObservation? Fixing { get; }
+    public SchedulePriceKind Kind=>Fixing is not null?SchedulePriceKind.Actual:Term.FixedPrice is not null?SchedulePriceKind.Fixed:SchedulePriceKind.Projected;
     public UnitPrice Price { get; }
     public ImmutableHashSet<ObservationKey> Lineage { get; }
-    internal ResolvedSchedulePrice(SchedulePriceTerm term, UnitPrice price, ImmutableHashSet<ObservationKey> lineage)
-    { Term = term; Price = price; Lineage = lineage; }
+    internal ResolvedSchedulePrice(SchedulePriceTerm term, UnitPrice price, ImmutableHashSet<ObservationKey> lineage,IndexFixingObservation? fixing=null)
+    { Term = term; Price = price; Lineage = lineage; Fixing=fixing; }
 }
 
 // No instrument, direction or trade quantity is available to a side valuation.
@@ -88,17 +97,22 @@ public sealed class SideValuationContext
 {
     private readonly CurveBuild? market;
     private readonly IReadOnlyDictionary<CurveRequest, BuiltValue> prices;
+    private readonly ImmutableHashSet<CurveRequest>? permitted;
     public MarketSnapshot Snapshot { get; }
     public ISideDiscounting Discounting { get; }
     public string CurveNumericalPolicy => CurveModel.NumericalPolicy;
     public SideValuationContext(MarketSnapshot snapshot, ISideDiscounting discounting)
+    {
+        Validate(snapshot,discounting);
+        Snapshot = snapshot; Discounting = discounting; prices = ImmutableDictionary<CurveRequest, BuiltValue>.Empty;
+    }
+    internal static void Validate(MarketSnapshot snapshot,ISideDiscounting discounting)
     {
         if (snapshot is null || snapshot.Id == Guid.Empty || snapshot.Definitions.CatalogId == Guid.Empty ||
             snapshot.Definitions.RevisionId == Guid.Empty || !TradingInstant.IsSupported(snapshot.ValuationAt) ||
             !TradingInstant.IsSupported(snapshot.MarketCutoff) || snapshot.MarketCutoff > snapshot.ValuationAt ||
             snapshot.SelectionPolicy != InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering || !snapshot.HasCoherentSelections() || discounting is null)
             throw new MarketDataException("side_context", "An exact supported snapshot and explicit side discounting operation are required.");
-        Snapshot = snapshot; Discounting = discounting; prices = ImmutableDictionary<CurveRequest, BuiltValue>.Empty;
     }
     public SideValuationContext(CurveBuild market, ISideDiscounting discounting)
         : this(market?.Snapshot ?? throw new MarketDataException("swap_context", "A built market scenario is required."), discounting)
@@ -107,15 +121,31 @@ public sealed class SideValuationContext
             throw new MarketDataException("side_context", "Use the exact supported curve numerical policy.");
         this.market = market; prices = market.Values.ToDictionary(v => v.Request);
     }
+    // The portfolio owns this already validated scenario and shared lookup.
+    // A unit receives only its declared access fence, without rebuilding or
+    // rescanning the entire scenario for every instrument.
+    internal SideValuationContext(CurveBuild market,ISideDiscounting discounting,
+        IReadOnlyDictionary<CurveRequest,BuiltValue> prices,ImmutableArray<CurveRequest> dependencies)
+    {
+        this.market=market;Snapshot=market.Snapshot;Discounting=discounting;
+        this.prices=prices;permitted=dependencies.ToImmutableHashSet();
+    }
     internal ResolvedSchedulePrice Resolve(SchedulePriceTerm term)
     {
         if (term.FixedPrice is { } fixedPrice) return new(term, fixedPrice, []);
+        if(term.Fixing is {} requirement&&Snapshot.ValuationAt>=requirement.FixingAt)
+        {
+            var actual=requirement.Resolve(Snapshot);
+            return new(term,term.Spread is {} fixingSpread?actual.Price.Add(fixingSpread):actual.Price,[],actual);
+        }
         if (market is null) throw new MarketDataException("side_market_inputs", "This side requires its declared built commodity market inputs.");
         var lookup = term.Lookup!;
         market.Model.RequireIndexProjection(lookup.Market, lookup.Contract, lookup.Index, lookup.Quote);
+        if (permitted is not null && !permitted.Contains(lookup.Market))
+            throw new MarketDataException("risk_dependency", "A side requested an undeclared market input.");
         if (!prices.TryGetValue(lookup.Market, out var value) || value.Quote != lookup.Quote.Key)
             throw new MarketDataException("missing_observation", "Every exact scheduled index projection is required in the selected market scenario.");
-        return new(term, value.Price, value.Lineage);
+        return new(term, term.Spread is {} spread?value.Price.Add(spread):value.Price, value.Lineage);
     }
 }
 

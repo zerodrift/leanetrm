@@ -41,9 +41,13 @@ def run_checks(pg_bin, dotnet, browser, *, run=subprocess.run):
                '--dotnet', str(dotnet), '--no-build', '--check']
     check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)])
     check('isolated party maintenance and power browser', [*preview, '--party-check', '--browser-check', '--browser', str(browser)])
+    check('isolated fixing resolution and replay browser', [*preview, '--fixing-check', '--browser-check', '--browser', str(browser)])
     check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     check('isolated exchange futures browser', [*preview, '--exchange-check', '--browser-check', '--browser', str(browser)])
     check('isolated hosted authentication and browser', [*preview, '--hosted-check', '--browser-check', '--browser', str(browser)])
+    check('isolated inactive reference import', [*preview, '--reference-import-check'])
+    check('isolated sourced futures admission', [*preview, '--pilot-check'])
+    check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)])
     check('mixed-period preview', [*preview, '--example', 'mixed-gas'])
     print('All synthetic verification suites passed.', flush=True)
 

@@ -25,3 +25,8 @@ export const sectionGroups=[
   {name:'Pricing & delivery conventions',description:'Clocks, delivery patterns, settlement rules and price conventions.',sections:setupSections}
 ];
 export function dataSections(available:string[]){return sectionGroups.map(group=>({...group,sections:group.sections.filter(section=>available.includes(section.value))})).filter(group=>group.sections.length);}
+// Supplemental reference catalogs replace matching tables, exactly as the viewer does.
+export function populatedDataSections(references:Record<string,readonly unknown[]>,supplement:Record<string,readonly unknown[]>={}){
+ const tables={...references,...supplement};
+ return dataSections(Object.keys(tables).filter(key=>tables[key].length>0));
+}

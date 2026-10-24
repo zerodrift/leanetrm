@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using OpenEtrm.MarketData.Risk;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -12,6 +13,7 @@ public abstract record Side
 {
     public Guid Id { get; }
     public abstract ImmutableArray<CurveRequest> Dependencies { get; }
+    public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>Dependencies;
     public abstract SidePaymentSchedule GenerateSchedule();
     public abstract SideValuation PV(SideValuationContext context);
 
@@ -62,6 +64,13 @@ public abstract record Instrument
     public abstract ReferenceKey Currency { get; }
     public abstract Quantity UnitQuantity { get; }
     public abstract InstrumentValuation PV(SideValuationContext context);
+    public virtual UnitPricingContract Declare(UnitValuationContext context)=>
+        throw new MarketDataException("risk_contract","This instrument has no supported valuation dependency declaration.");
+    // Implementers own the declaration. Curve-consuming instruments can use
+    // this common resolver; other supported models may override the method.
+    public virtual ImmutableArray<QuoteFactor> MarketFactors(UnitValuationContext context)=>
+        context.ResolveFactors(Declare(context).Dependencies);
+    public virtual ExactMoney Value(UnitValuationContext context)=>PV(context.SideContext()).PresentValue;
     protected Instrument(Guid id)
     {
         if (id == Guid.Empty) throw new MarketDataException("instrument_definition", "An instrument requires an exact identity.");
@@ -76,12 +85,18 @@ public abstract record SidedInstrument : Instrument
     public ImmutableArray<CurveRequest> Dependencies =>
         Sides.SelectMany(m => m.Side.Dependencies).Distinct().ToImmutableArray();
 
+    public ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>
+        Sides.SelectMany(m=>m.Side.DependenciesAt(snapshot)).Distinct().ToImmutableArray();
+
     protected SidedInstrument(Guid id, ImmutableArray<SideMembership> sides) : base(id)
     {
         if (id == Guid.Empty || sides.IsDefaultOrEmpty || sides.Any(m => m is null || m.Side is null))
             throw new MarketDataException("instrument_definition", "An instrument requires an exact identity and at least one valid side membership.");
         Sides = sides;
     }
+
+    public override UnitPricingContract Declare(UnitValuationContext context)=>
+        new(Id,"independent_side_unit_pv_v1",DependenciesAt(context.Snapshot),UnitQuantity.Specification,Currency);
 
     // The instrument delegates valuation; it never interprets a side's cashflows.
     public override InstrumentValuation PV(SideValuationContext context)

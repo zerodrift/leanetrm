@@ -77,6 +77,7 @@ public static class PowerPreview
     public static object Catalog(PreviewData data,InputFrame frame,ProductSet set)
     {
         var products=set.Available;
+        var powerCommodities=data.Definitions["curves"].Where(c=>PerMwhOutright(data,c)).Select(c=>c.Text("commodity_code")).ToHashSet(StringComparer.Ordinal);
         return new
         {
             products=products.Select(p=>new {p.Code,p.Name,p.Version,clock=p.Clock.Code}),
@@ -99,7 +100,7 @@ public static class PowerPreview
                         id=k.Contract.Key.Id,from=k.Contract.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),to=k.Contract.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
                         holidayCalendar=Calendar(data,Index(data,k.Index!)).Text("code")}).ToArray()}).Where(c=>c.contracts.Length>0),
             weekdays=new[]{"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"},
-            quantityChoices=data.References["quantity_specifications"].Where(q=>q.Text("commodity_code")=="test_power" && q.Text("unit_code") is "megawatt" or "megawatt_hour")
+            quantityChoices=data.References["quantity_specifications"].Where(q=>powerCommodities.Contains(q.Text("commodity_code")) && q.Text("unit_code") is "megawatt" or "megawatt_hour")
                 .Select(q=>new{basis=q.Text("unit_code")=="megawatt"?"flat_power":"total_energy",
                     label=(q.Text("unit_code")=="megawatt"?"Flat MW over selected hours":"Total MWh for the delivery period")+" · "+q.Text("basis_code").Replace('_',' '),
                     specification=new ReferenceKey(data.ReferenceRevision,q.Text("code"))}),

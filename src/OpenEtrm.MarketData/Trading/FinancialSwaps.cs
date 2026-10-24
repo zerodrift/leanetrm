@@ -12,6 +12,8 @@ public sealed record SwapProjection(CurveRequest Market, MarketContract Contract
 public sealed record FloatingObservation(DateOnly From, DateOnly To, Quantity? AveragingQuantity);
 [EconomicDefinition("floating_projection_binding_v1")]
 public sealed record FloatingProjectionBinding([property: IdentityField] ImmutableArray<SwapProjection> Projections);
+[EconomicDefinition("swap_projection_bindings_v1")]
+public sealed record SwapProjectionBindings([property: IdentityField] ImmutableArray<FloatingProjectionBinding> Sides);
 public sealed record SwapObservationCalendar(ReferenceKey Key, DateSet BusinessDays);
 
 [EconomicDefinition("FixedSide_v3")]
@@ -70,8 +72,8 @@ public sealed record FixedSide : Side
     public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 }
 
-[EconomicDefinition("FloatingSide_v3")]
-public sealed record FloatingSide : Side
+[EconomicDefinition("FloatingSide_v4")]
+public record FloatingSide : Side
 {
     public const string Implementation = "prefixing_index_projection_v1";
     public const int MaximumDeliveryDays = 366;
@@ -103,18 +105,20 @@ public sealed record FloatingSide : Side
     public ImmutableArray<SwapProjection> Projections => PricingBinding.Projections;
     [IdentityField]
     public SwapObservationCalendar? Calendar { get; }
+    [IdentityField]
+    public UnitPrice? Spread { get; }
     private readonly ImmutableArray<ExactDecimal> weights;
     public override ImmutableArray<CurveRequest> Dependencies => Projections.Select(p => p.Market).ToImmutableArray();
 
     public FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
         DateOnly deliveryFrom, DateOnly deliveryTo, DateTimeOffset firstFixingAt, DateTimeOffset paymentAt,
         FloatingAveraging averaging, ImmutableArray<SwapProjection> projections, string implementation,
-        SwapObservationCalendar? calendar = null)
-        : this(id,index,quote,unitQuantity,deliveryFrom,deliveryTo,firstFixingAt,paymentAt,averaging,projections,implementation,calendar,false) { }
+        SwapObservationCalendar? calendar = null,UnitPrice? spread=null)
+        : this(id,index,quote,unitQuantity,deliveryFrom,deliveryTo,firstFixingAt,paymentAt,averaging,projections,implementation,calendar,false,spread) { }
     public FloatingSide(Guid id,ReferenceKey index,QuoteSpecification quote,Quantity unitQuantity,
         DateOnly deliveryFrom,DateOnly deliveryTo,DateTimeOffset firstFixingAt,PaymentRule paymentSchedule,
-        FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,string implementation,SwapObservationCalendar? calendar=null)
-        : this(id,index,quote,unitQuantity,deliveryFrom,deliveryTo,firstFixingAt,FixedSide.PaymentBoundary(paymentSchedule,deliveryFrom,deliveryTo),averaging,projections,implementation,calendar,true)
+        FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,string implementation,SwapObservationCalendar? calendar=null,UnitPrice? spread=null)
+        : this(id,index,quote,unitQuantity,deliveryFrom,deliveryTo,firstFixingAt,FixedSide.PaymentBoundary(paymentSchedule,deliveryFrom,deliveryTo),averaging,projections,implementation,calendar,true,spread)
     {
         if(paymentSchedule.Calendar is {} dates&&dates.Key.Revision!=quote.Currency.Revision)
             throw new MarketDataException("payment_calendar","The payment calendar must use the side's exact reference revision.");
@@ -122,7 +126,7 @@ public sealed record FloatingSide : Side
     }
     private FloatingSide(Guid id,ReferenceKey index,QuoteSpecification quote,Quantity unitQuantity,
         DateOnly deliveryFrom,DateOnly deliveryTo,DateTimeOffset firstFixingAt,DateTimeOffset paymentAt,
-        FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,string implementation,SwapObservationCalendar? calendar,bool scheduled) : base(id)
+        FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,string implementation,SwapObservationCalendar? calendar,bool scheduled,UnitPrice? spread) : base(id)
     {
         Money.RequireKey(index);
         if (quote is null || unitQuantity is null || implementation != Implementation ||
@@ -139,6 +143,8 @@ public sealed record FloatingSide : Side
             projections.Select(p => p.Market.Curve).Distinct().Count() != 1)
             throw new MarketDataException("swap_definition", "A floating side requires explicit coherent index, quote, unit, delivery, fixing, payment and exact projection contracts.");
         _ = PriceUnit.FromQuote(quote);
+        if(spread is not null&&spread.Unit!=PriceUnit.FromQuote(quote))throw new MarketDataException("swap_spread","A floating spread requires the side's exact price unit.");
+        Spread=spread;
         weights = ResolveWeights(averaging, projections, calendar, quote, deliveryFrom, deliveryTo);
         Index = index; Quote = quote; UnitQuantity = unitQuantity; DeliveryFrom = deliveryFrom;
         DeliveryTo = deliveryTo; FirstFixingAt = firstFixingAt; PaymentAt = paymentAt;
@@ -210,7 +216,7 @@ public sealed record FloatingSide : Side
     public override SidePaymentSchedule GenerateSchedule() => new(new(Id, DeliveryFrom, DeliveryTo, PaymentAt,
         Quote.Currency, UnitQuantity, FirstFixingAt, Averaging, Calendar,
         Projections.Select((p, n) => new SchedulePriceTerm(weights[n], null,
-            new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity))).ToImmutableArray(), Implementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
+            new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity),Spread)).ToImmutableArray(), Implementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
     public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 
 }
@@ -223,22 +229,30 @@ public sealed record FinancialSwapInstrument : SidedInstrument
     public const string Undiscounted = "explicitly_undiscounted_v1";
     [IdentityField]
     public bool Discounting { get; }
-    public DefinitionIdentity PricingBindingIdentity => DefinitionIdentity.For(Floating.PricingBinding);
-    public FixedSide Fixed => (FixedSide)Sides[0].Side;
+    public DefinitionIdentity PricingBindingIdentity => DefinitionIdentity.For(new SwapProjectionBindings(Sides.Select(s=>s.Side).OfType<FloatingSide>().Select(s=>s.PricingBinding).ToImmutableArray()));
+    public Side First => Sides[0].Side;
+    public FixedSide Fixed => First as FixedSide??throw new MarketDataException("swap_par_rate","A fixed rate requires a fixed/floating swap.");
     public FloatingSide Floating => (FloatingSide)Sides[1].Side;
-    public override ReferenceKey Currency => Fixed.Price.Unit.Currency;
-    public override Quantity UnitQuantity => Fixed.UnitQuantity;
+    public override ReferenceKey Currency => Floating.Quote.Currency;
+    public override Quantity UnitQuantity => Floating.UnitQuantity;
 
     public FinancialSwapInstrument(Guid id, ImmutableArray<SideMembership> sides, string implementation, bool discounting) : base(id, sides)
     {
         Discounting = discounting;
         var one = ExactDecimal.Parse("1"); var minusOne = ExactDecimal.Parse("-1");
-        if (implementation != Implementation || sides.Length != 2 || sides[0].Side is not FixedSide a ||
-            sides[1].Side is not FloatingSide b || a.Id == b.Id ||
+        if (implementation != Implementation || sides.Length != 2 || sides[0].Side is not (FixedSide or FloatingSide) ||
+            sides[1].Side is not FloatingSide b ||
             !(sides[0].Coefficient == one && sides[1].Coefficient == minusOne ||
-                sides[0].Coefficient == minusOne && sides[1].Coefficient == one) ||
-            a.Price.Unit.Currency != b.Quote.Currency || a.UnitQuantity != b.UnitQuantity || a.Price.Unit.Quantity != b.Quote.Quantity)
-            throw new MarketDataException("swap_instrument", "A financial swap requires fixed and floating sides normalized to the same currency and quantity basis, with opposite explicit unit coefficients.");
+                sides[0].Coefficient == minusOne && sides[1].Coefficient == one))
+            throw new MarketDataException("swap_instrument", "A financial swap requires two independent compatible sides, at least one floating, with opposite explicit unit coefficients.");
+        var (currency,quantity)=sides[0].Side switch
+        {
+            FixedSide fixedSide=>(fixedSide.Price.Unit.Currency,fixedSide.UnitQuantity),
+            FloatingSide floatingSide=>(floatingSide.Quote.Currency,floatingSide.UnitQuantity),
+            _=>throw new MarketDataException("swap_instrument","The selected first side is unsupported.")
+        };
+        if(currency!=b.Quote.Currency||quantity!=b.UnitQuantity)
+            throw new MarketDataException("swap_instrument","Both sides must be normalized to the same exact currency and quantity basis.");
     }
 
     public override InstrumentValuation PV(SideValuationContext context)
@@ -261,7 +275,7 @@ public sealed record FinancialSwapInstrument : SidedInstrument
             Discounting != (valuationPolicy == Discounted) ||
             valuationPolicy == Undiscounted && paymentFactor != ExactDecimal.Parse("1"))
             throw new MarketDataException("swap_valuation", "Choose explicit discounted or undiscounted valuation with a positive payment factor; undiscounted requires one.");
-        if (valuationPolicy == Discounted && Fixed.PaymentAt != Floating.PaymentAt)
+        if (valuationPolicy == Discounted && First.GenerateSchedule().Payments.Single().PaymentAt != Floating.PaymentAt)
             throw new MarketDataException("swap_valuation", "Independent payment dates require per-side payment discount factors.");
         var context = new SideValuationContext(market, new ExplicitDiscounting(paymentFactor,
             valuationPolicy == Undiscounted ? DiscountFactorSource.Undiscounted : DiscountFactorSource.Explicit));

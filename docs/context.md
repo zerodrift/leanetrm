@@ -269,6 +269,15 @@ The same token flows from API operations to domain methods and every lazy/paged
 read. Shared scenarios are overlays on this context's market snapshot; they do not
 refresh inputs from current data. Jobs retain the resolved token when queued.
 
+The risk UI uses this same header context. Its temporary scenario stack derives
+immutable children with explicit parent-relative quote shifts. Popping a child
+resumes its parent without restoring mutable data. Each durable risk occurrence
+retains the resolved context, selected books, exact observation/definition pins,
+scenario contract and engine fingerprint. A worker never follows a later UI
+selection or an unresolved "current" date. Current execution authority is checked
+separately, including revocation since admission. Recurring date-selection rules
+and future valuation regimes require supported typed contracts before execution.
+
 Pure schedule resolution may be shared when its relevant inputs agree, but
 context-dependent lifecycle decisions and quantities remain pinned. Calculation
 keys include the actual economic state and context dependencies. Cache hits must

@@ -1,12 +1,21 @@
 import {publicText} from './market-view.js';
+import {compareDecimalStrings} from './analytics-model.js';
 
 type Cell=string|HTMLElement;
 type Filters={scope:string;query:string;columns:(string|null)[];expanded:boolean};
 const filters=new Map<string,Filters>();
 const clean=(value:string)=>publicText(value).toLocaleLowerCase('en').trim();
-export function matchesTableRow(cells:string[],query:string,columns:(string|null)[]){
+export function validNumericFilter(filter:string){return filter===''||/^\s*(?:<=|>=|!=|=|<|>)?\s*-?\d+(?:\.\d+)?\s*$/.test(filter);}
+function matchesNumericFilter(value:string,filter:string){
+  if(filter==='')return value==='';
+  const parsed=/^\s*(<=|>=|!=|=|<|>)?\s*(-?\d+(?:\.\d+)?)\s*$/.exec(filter);
+  if(!parsed||!value)return false;
+  const compared=compareDecimalStrings(value,parsed[2]);
+  switch(parsed[1]??'='){case '<':return compared<0;case '<=':return compared<=0;case '>':return compared>0;case '>=':return compared>=0;case '!=':return compared!==0;default:return compared===0;}
+}
+export function matchesTableRow(cells:string[],query:string,columns:(string|null)[],numeric:number[]=[]){
   const shown=cells.map(publicText),values=shown.map(clean),terms=clean(query).split(/\s+/).filter(Boolean);
-  return terms.every(term=>values.some(value=>value.includes(term)))&&columns.every((term,i)=>term===null||shown[i]===term);
+  return terms.every(term=>values.some(value=>value.includes(term)))&&columns.every((term,i)=>term===null||(numeric.includes(i)?matchesNumericFilter(shown[i]??'',term):shown[i]===term));
 }
 export const columnValues=(values:string[])=>[...new Set(values.map(publicText))];
 export function clearTableFilters(){filters.clear();}

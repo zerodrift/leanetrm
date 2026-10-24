@@ -83,7 +83,11 @@ def run_checks(url, query, manifest):
         state = c.call('swaps/editor', {'context': context, 'tradeId': booked['tradeId'], 'revision': None})['state']
         assert state['terms']['discounting'] is expected
     columns = query("SELECT array_agg(a.attname ORDER BY k.n)::text FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,n) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid='trading.swap_floating_sides'::regclass AND c.conname='swap_floating_economic_key';")
-    assert columns == '{catalog_id,definition_revision_id,curve_code,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id}'
+    assert columns == '{catalog_id,definition_revision_id,curve_code,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id,spread,fixing_schedule_id}'
+    spread = c.call('swaps/book',{**body,'operationId':str(uuid4()),'floating':{**body['floating'],'spread':'0.1'}})
+    assert spread['instrumentId'] != plain['instrumentId'], 'A contractual floating spread must distinguish economics.'
+    zero_again = c.call('swaps/book',{**body,'operationId':str(uuid4())})
+    assert zero_again['instrumentId'] == plain['instrumentId'], 'Legacy no-spread admission must not reuse a spread-bearing side.'
     floating = query("SELECT floating_side_id FROM trading.swap_instruments WHERE instrument_id='"+plain['instrumentId']+"';")
     query(f"ALTER TABLE trading.swap_reset_projections DISABLE TRIGGER immutable_record; UPDATE trading.swap_reset_projections SET ordinal=1 WHERE side_id='{floating}'; ALTER TABLE trading.swap_reset_projections ENABLE TRIGGER immutable_record;")
     try:

@@ -77,6 +77,14 @@ def run_checks(url):
     selected=c.call('select-observation',{'snapshotId':new,'observationId':obs})
     replay=c.call('evaluate',{'snapshotId':selected['frame']['id'],'curve':'local_power'})
     check('prior revision can be explicitly selected',replay['points'][0]['value']=='29.1')
+    # The full market read and the pin-filtered financial read must resolve
+    # identical selected correction values, while retaining the earlier frame.
+    c.call('profile',{'profile':'trader'})
+    for snapshot in (old,new):
+        full=c.call('evaluate',{'snapshotId':snapshot,'curve':'future'})
+        narrow=c.call('futures/catalog',{'snapshotId':snapshot,'convention':'fixed_total_cash_execution_pnl_v1','knowledgeMode':'current'})
+        by_id={x['contractId']:x['value'] for x in full['points']}
+        check('filtered financial read equals full selected-pin calculation',all(x['mark']==by_id[x['id']] for x in narrow['contracts']))
     c.call('profile',{'profile':'viewer'})
     c.call('corrections',{'snapshotId':new,'observationId':changed['observationId'],'value':'3.2'},expected=403);check('identity switch applies current permissions')
     other=Client();other.bootstrap();other.call('profile',{'profile':'viewer'})

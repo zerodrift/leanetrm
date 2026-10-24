@@ -157,7 +157,7 @@ internal static class SwapChecks
     }
 }
 
-internal sealed record DailyFixture(DateOnly From,DateOnly To,ImmutableArray<SwapProjection> Projections,CurveBuild Market)
+internal sealed record DailyFixture(DateOnly From,DateOnly To,ImmutableArray<SwapProjection> Projections,CurveBuild Market,CurveModel Model)
 {
     public static DailyFixture Create(Fixture f,QuoteSpecification quote,string[] prices)
     {
@@ -168,6 +168,6 @@ internal sealed record DailyFixture(DateOnly From,DateOnly To,ImmutableArray<Swa
         var model=new CurveModel(f.Revision,f.Reference,f.Quantities,[quote],contracts,[definition],[],[],series);
         var snapshot=f.Snapshot() with {Selections=series.Select((s,n)=>new SelectedObservation(new(s.Key,InputUse.Variable),new(new(f.Revision.CatalogId,Guid.NewGuid()),s.Key,f.R("source"),ObservationRole.TraderMark,PublicationState.Final,Fixture.Utc("2040-12-18T00:00:00Z"),ExactDecimal.Parse(prices[n])))).ToImmutableArray()};
         var projections=contracts.Select(c=>new SwapProjection(new(curve,c.Key),c)).ToImmutableArray();
-        return new(from,from.AddDays(prices.Length),projections,model.Build(snapshot,projections.Select(p=>p.Market).ToImmutableArray()));
+        return new(from,from.AddDays(prices.Length),projections,model.Build(snapshot,projections.Select(p=>p.Market).ToImmutableArray()),model);
     }
 }

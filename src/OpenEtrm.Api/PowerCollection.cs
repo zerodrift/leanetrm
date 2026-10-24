@@ -21,6 +21,8 @@ public static class PowerCollection
         if(settings.TimeoutSeconds is <1 or >2700 || settings.Providers.Select(p=>p.Provider).Distinct().Count()!=settings.Providers.Length)throw new InvalidOperationException("Explicit bounded collection settings are required.");
         await using var connection=new NpgsqlConnection(HostedConfiguration.Connection(settings.ConnectionFile).ConnectionString);
         await connection.OpenAsync();
+        await using(var boundary=ScheduleStore.Command(connection,"SELECT NOT EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname='openetrm_reference_importer' AND pg_has_role(current_user,r.oid,'MEMBER'))"))
+            if(!Equals(await boundary.ExecuteScalarAsync(),true))throw new InvalidOperationException("Collection credentials cannot execute reference imports.");
         await using(var gate=ScheduleStore.Command(connection,"SELECT power_data.worker_lock()"))
             if(!Equals(await gate.ExecuteScalarAsync(),true)){Console.WriteLine("COLLECTION_BUSY");return 0;}
         foreach(var provider in settings.Providers)

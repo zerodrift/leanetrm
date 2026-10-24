@@ -24,6 +24,10 @@ export async function run({command,evaluate,wait,check,shot,idle,url}){
  await wait("document.querySelector('#gesture-grid .tabulator-tableholder').scrollLeft>0");
  await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
  await check('horizontal scrolling keeps column headers aligned with cells',"(()=>{const c=document.querySelector('#gesture-grid .tabulator-row [tabulator-field=c1]').getBoundingClientRect(),h=document.querySelector('#gesture-grid [role=columnheader][tabulator-field=c1]').getBoundingClientRect();return Math.abs(c.left-h.left)<2;})()");
+ await evaluate("document.querySelector('#gesture-grid .column-filter-toggle').click();const f=document.querySelector('#gesture-grid input[aria-label=\"Filter Exact amount\"]');f.value='> 100000000000000000';f.dispatchEvent(new Event('input',{bubbles:true}));");
+ await check('numeric grid filters compare exact amounts beyond browser number precision',"document.querySelector('#gesture-grid .table-row-count').textContent==='100 of 100 rows'&&window.__grid.visibleRows().length===100");
+ await evaluate("(()=>{const f=document.querySelector('#gesture-grid input[aria-label=\"Filter Exact amount\"]');f.value='<= 100000000000000000';f.dispatchEvent(new Event('input',{bubbles:true}));})();");
+ await check('numeric filters retain exact inequalities in exports and filter state',"document.querySelector('#gesture-grid .table-row-count').textContent==='0 of 100 rows'&&window.__grid.visibleRows().length===0&&window.__grid.state().columns[2]==='<= 100000000000000000'");
  await shot('table-gestures');
  await evaluate("window.__grid.destroy();document.querySelector('#gesture-grid').remove()");
 }

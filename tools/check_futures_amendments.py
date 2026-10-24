@@ -148,7 +148,7 @@ def run_checks(url, query, manifest, psql, environment):
     edited = details()['state']
     check('contract replacement retains trade reference and changes only instrument reference', edited['tradeReference'] == initial['state']['tradeReference'] and edited['instrumentReference'] != initial['state']['instrumentReference'])
     check('contract replacement creates a new binding without changing the shared original', fourth['revision'] == 4 and edited['instrumentId'] != initial['state']['instrumentId'] and next(h for h in c.call('futures/holdings', context)['holdings'] if h['tradeId'] == other['tradeId'])['instrumentId'] == initial['state']['instrumentId'])
-    risk_catalog = analyst.call('futures/risk/catalog', analyst_context)
+    risk_catalog = analyst.call('futures/risk/catalog', {'context': analyst_context, 'bookIds': [], 'portfolioIds': []})
     factor = next(f for f in risk_catalog['factors'] if f['contractId'] == february['id'] and 'future' in f['curves'])
     risk = analyst.call('futures/risk', {'context': analyst_context, 'bookIds': [], 'portfolioIds': [], 'bumps': [{'seriesId': factor['seriesId'], 'quote': factor['quote'], 'size': '0.1', 'convention': risk_catalog['bumpConvention']}], 'convention': risk_catalog['convention'], 'numericalPolicy': risk_catalog['numericalPolicy']})
     pinned = next(r for r in risk['inputs']['positions'] if r['tradeId'] == trade['tradeId'])

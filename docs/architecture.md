@@ -33,7 +33,9 @@ an unmodified relational database, not a database fork or a private platform SDK
 A private pilot may be hosted at leanetrm.com under the separately approved
 deployment procedure. Automatic image updates use attested GitHub Release bundles
 and a pinned local pull operator; schema and infrastructure changes require a
-separate qualified baseline (D135). Hosted authentication and collection boundaries are described
+separate qualified baseline (D135). A private managed operator can retain source-backed
+placeholder futures definitions and exact native-key aliases without activating
+trading or publishing a market revision (D137). An exact operator-qualified candidate revision can separately admit generated-mark sample pricing (D138); this preserves native dates, source versions and instrument identity while keeping settlement processing unavailable. Hosted authentication and collection boundaries are described
 in [hosted pilot operations](hosted-pilot.md); the synthetic local preview stays isolated.
 
 ## 2. Application structure and deployment
@@ -77,17 +79,56 @@ local clock times must remain distinguishable, for example by showing an offset
 only when needed. Internal GUIDs, database fields and numerical implementation
 labels are not user-visible column names or calculation receipts.
 
+Selection controls narrow the authorized catalog before showing exact choices.
+Futures use commodity, exchange, product and a calendar of served delivery dates;
+swap indices and units follow their exact quote references. A unique applicable
+choice may populate visibly; ambiguous financial choices remain unset. Changing a
+parent selection removes incompatible downstream choices and invalidates results.
+Empty market/reference categories and unsupported power preset combinations are
+omitted. Presentation filters do not create permissions or pricing fallbacks.
+
+The market calendar groups retained observations by the user's display-zone day,
+then exposes exact times and correction identities within that day. Calendars gray
+out dates absent from the consuming operation's availability catalog. Collected
+power-price dates use the same certified knowledge cutoff as subsequent reads and
+current market/reference authority. Contractual delivery and operating dates remain
+date-only values; user-zone conversion applies to instants, including risk job
+receipts. Knowledge cutoffs remain continuous temporal coordinates rather than
+being limited to dates when observations happened to arrive. Schedule-authoring
+calendars create future definitions and are not restricted to existing price dates.
+
 Ordinary table screens share the table renderer and a reusable table workspace
 for column, filter, pivot and named-view controls. Blotter displays the table
 immediately; optional configuration opens from its toolbar. Pivot arithmetic
-remains a managed operation supplied by the consuming screen. Row/column pivots
+remains a managed operation supplied by the consuming screen. Blotter prices offer
+explicit minimum, maximum and arithmetic-average measures, partitioned by exact
+currency, quantity specification and quote multiplier. Averages require
+`arithmetic_price_mean_to_even_18_v1`: exact sum/count with one final 18-place
+ties-to-even boundary. A group with any unavailable price has no corresponding
+price statistic; unavailable values are never zero or an inferred partial average. Row/column pivots
 reshape those exact returned groups without browser aggregation. The shared grid
-retains exact decimal strings for sorting and export. A shared chart component
+retains exact decimal strings for sorting, comparison filters and export. Blotter
+quantity, price, P&L and PV cells contain only formatted numbers; quantity units,
+price units (including quote multipliers) and currency have separate columns.
+Numeric column filters support explicit =, !=, <, <=, > and >= comparisons without
+converting financial values to browser binary numbers. A shared chart component
 uses approximate numbers for pixel coordinates and exact strings for tooltips;
 it keeps display labels separate from category identities and preserves gaps.
 Account layouts retain grid, pivot and chart presentation choices independently
 of financial contexts. Exports recheck current authority through the pinned
 consuming operation.
+
+The blotter pivot builder assigns dimensions to rows or columns and selects
+explicit measures. Column groups display their measures under a shared heading;
+exports keep the complete column labels. Visual analysis uses the same pivot axes
+and pinned financial context, with grouped bars, line plots or a heatmap. Each
+instrument type, exact quantity specification, currency and applicable quote
+multiplier retains its own panel. Plot style changes only presentation; missing
+cells remain unavailable and exact server strings supply tooltips. Charts cover
+the selected books/portfolios before table row filters. Version 3 account layouts
+retain plot style and measure; older layouts retain their prior choices and acquire
+the former bar presentation. Hierarchical subtotals and cell drill-through remain
+unimplemented.
 
 Navigation and curve-list side panels and their menu groups can collapse as
 remembered user layout choices. Ordinary tables support display-only search and
@@ -263,7 +304,7 @@ permissions are separate from trade access; broader party attributes remain work
 Trade editors render common Trade Terms, then a product-specific instrument
 editor and its independent side editors where needed. The common header exposes
 book, parties and memo, with read-only booking facts. Futures booking/amendment
-share their product widget; swaps mount separate fixed/floating side widgets.
+share their product widget; swaps mount separate fixed or floating side widgets for the selected composition.
 Each instrument binding owns its quantity. There is no editable trade-wide total
 quantity. The bounded operations currently book one instrument binding per trade;
 modular presentation does not imply multi-instrument booking is implemented.
@@ -432,17 +473,29 @@ contributions. `FuturesContract` directly implements its supported behavior with
 composition; futures PV rejects unsupported settlement state explicitly. The
 current futures consumer remains execution P&L and open mark sensitivity.
 
-Financial swaps combine one fixed and one floating membership with opposite
-explicit pay/receive coefficients. Each side independently controls its delivery,
+Financial swaps combine either a fixed and a floating side or two floating sides,
+with opposite explicit pay/receive membership coefficients. Each floating side can
+retain its own typed fixed spread, applied to its projected observations before
+that side values its payment. Zero explicitly selects no spread in new floating/
+floating entry. Spread terms enter side identity, never market dependencies. Each side independently controls its delivery,
 observation and payment terms. The first bounded model normalizes side PVs to
 one currency and quantity basis and uses positive total trade quantity. Sampling and averaging are selected
 financial terms: monthly index, equal calendar-day or business-day observations,
 preceding/following-observation calendar weighting, or supplied quantity weights.
 Calendar-dependent rules retain exact calendar references and resolved date sets.
 Daily rules require the matching dated daily projections. Observations and their
-weights remain separate from payment discounting. The current projection model
-requires valuation before the first fixing; later valuation needs retained actual
-fixings and cannot silently continue forecasting.
+weights remain separate from payment discounting. The retained
+`prefixing_index_projection_v1` model requires valuation before the first fixing.
+The independently versioned `index_actual_projected_v1` model resolves each due
+observation from its declared source and explicit fixing boundary. It selects the
+latest eligible final revision published by valuation time and certified as known
+at the selected context's knowledge cutoff. Missing due fixings fail; projected
+marks never substitute for actuals. Later-context valuations can accept final
+corrections, while replay of an original context preserves its fixing and result.
+Ordinary market-risk scenarios freeze those resolved actuals. Immutable valuation
+and risk receipts retain exact fixing revisions and their correction lineage.
+Accepting a correction during valuation never updates posted invoices or settlements;
+posting and settlement correction remain separate, unimplemented operations.
 
 Contractual payment dates are generated from each side's payment convention,
 not authored as payment timestamps. New entry chooses monthly payment frequency,
@@ -467,7 +520,22 @@ daily rows retain exact contracts and cash allocations before monthly aggregatio
 Other pure-core averaging strategies are not yet booking choices. Storage uses
 immutable typed side definitions, exact reset references and explicit membership
 slots. The shared blotter separates projected swap PV from futures execution P&L.
-Swap risk, actual fixing events and recurring payment strips are not implemented.
+Managed swap risk and actual/projected fixing resolution are implemented for this
+bounded contract. Recurring payment strips remain unimplemented.
+
+The ticket explicitly selects agreed fixed pricing or par calculation. Agreed
+pricing requires a price, including explicit zero or a supported negative price.
+Par calculation submits an empty draft price with an explicit decimal-place and
+ties-to-even policy (`par_fixed_price_to_even_v1`); an empty price alone fails.
+The managed operation retains the exact rational rate and proposed decimal quote:
+floating-side unit PV divided by fixed-side unit cash per price point and its
+payment discount factor. Floating spreads, quote multipliers and independent
+payment dates remain included. The UI displays the concrete fixed price for
+review; booking submits that price. Risk freezes it across scenarios, so it never
+re-solves a par rate under each shock. Explicit zero is a specified price. No
+blank price is admitted by booking, and no monetary PV rounding is introduced.
+The par suggestion is an unbooked calculation; the retained trade owns the reviewed
+concrete fixed quote rather than a moving par-price instruction.
 
 The currency's configured default supplies the discount curve unless the
 instrument explicitly selects discounting=false. Calculation inputs retain the
@@ -482,7 +550,8 @@ once to those completed side PVs, and trade scaling happens afterward. A side PV
 may require more decimal places or a larger range than the final Money format;
 never round or reject it prematurely when exact aggregation/scaling yields a
 representable trade value. The final conversion enforces the selected monetary
-policy. Quantity scalability remains an explicit product capability.
+policy. Unit-level valuation and external trade quantities are mandatory for
+every instrument (D146).
 
 FixedSide and FloatingSide now implement independent GenerateSchedule and PV
 operations. Each currently generates one payment; their delivery/payment dates
@@ -501,19 +570,51 @@ contexts also reject conflicting contents under one observation identity. Rate-b
 valuation retains each side's exact currency-default mapping/curve definition,
 used pillar dates/rates/factors and interpolation policy. An explicit scalar
 common-factor convenience operation remains limited to identical payment dates;
-independent dates require per-side factors. Recurring periods, actual fixings,
-durable swap storage and the browser inspector remain work. Futures execution
+independent dates require per-side factors. Durable swap storage, the browser
+inspector and versioned actual fixings are implemented; recurring periods remain
+work. Futures execution
 P&L remains a separate implemented operation; generic futures PV/schedules reject
 without the required retained variation-margin/settlement lifecycle state.
 
-Instrument side editors display each side as a vertical field column with
-corresponding fields aligned across columns. Delivery start/end and currency are
-the first fields eligible for carry-over between sides during entry: populate
-only unset counterpart fields, leave each populated value visible/editable, and
-never overwrite another side during later edits. No copy button is exposed.
-Ongoing links require an explicit contract rather than inferred synchronization.
+The swap ticket orders product/commodity, independent side delivery periods,
+notional amount/unit/application, direction/pricing, observation/payment rules,
+ownership/parties and valuation/booking. Side delivery dates are entered separately;
+there is no inferred common schedule or automatic copying. Price fields and spread
+amounts are cleared when their exact quote unit becomes incompatible. An incompatible
+notional unit stays unresolved against its retained amount until explicitly selected.
+
+Fixed-side delivery date entry is independent of projected-market coverage. Native
+date inputs and the schedule helper submit literal dates; the managed fixed-side
+and payment-rule contracts validate the interval. Floating-side calendars still
+require exact observation definitions and priced coverage for projected resets;
+due resets require eligible final fixings. This permits independently dated
+fixed and floating sides without manufacturing a fixed-side curve dependency.
+
+The supported swap notional is a total for each side's own delivery period
+(`total_per_side_delivery_period_v1` in valuation responses). Each side uses the
+full notional even when the sides' delivery or payment dates differ. This describes
+the retained `independent_side_financial_swap_v2` economics; it introduces no new
+allocation or stored economic choice. Daily price observations are averaged, not
+quantity occurrences. Each current side generates one settlement payment. Booking
+converts a compatible entered unit to the exact quote quantity specification and
+stores that canonical amount outside the reusable instrument. Reopening and
+amendments retain the canonical unit and total-per-side meaning; original entry-unit
+spelling is not retained. Neither MW integration, daily-rate quantity nor allocation
+across recurring settlements is supported by swap booking.
+
+Managed valuation responses expose resolved period quantities, membership-signed
+trade cash and PV for each side payment. Those rows apply the trade quantity and
+membership coefficient once to the normalized payment; their exact sum reconciles
+to trade PV. The ticket leads with trade rows and puts normalized calculations and
+technical lineage in expandable details. Financial edits invalidate the displayed
+valuation and prepared confirmation, including selection-only change events and
+asynchronous formatting responses. Display settings cannot revive an old preview.
+
 The futures editor selects a shared contract and keeps trade booking/pricing terms
-separate. The current swap editor exposes its independent fixed/floating sides.
+separate. New trade offers Futures and Swaps. Swap entry explicitly chooses financial
+fixed/floating or financial floating/floating and exposes the corresponding
+independent sides. The bounded persisted composition uses one exact market
+definition revision and compatible currency/quantity references across both sides.
 
 The proposed minimal interfaces are:
 
@@ -652,6 +753,13 @@ for these relationships; no free-text or arbitrary JSON reference substitutes.
 See [reference-data.md](reference-data.md) for futures accuracy, public placeholders,
 settlement semantics, provenance and the initial immutable revision schema.
 
+Exchange reference acquisition now has a bounded managed command that captures
+CME product/contract enumeration and operator-supplied ICE expiry CSV/PDF files
+into private evidence packages (D136). Provider identifiers and native source
+facts stop at this intake boundary. Packages cannot enter calculations or enable
+trading; exact-version relational qualification, authorized publication and
+real-product activation remain separate work.
+
 A primitive risk factor is an independently shockable market input. Its identity
 includes the market definition, actual dated contract or delivery bucket, quote
 kind and units. Observations retain source, observation time, availability
@@ -761,7 +869,7 @@ The execution sequence is:
 3. Construct the base scenario and sparse up/down overlays on primitive factors.
 4. Rebuild affected dependent values in dependency order under each scenario.
 5. Invoke each affected unique valuation computation against those values.
-6. Apply eligible instrument quantities held by trades and membership coefficients.
+6. Apply external instrument quantities held by trades and membership coefficients.
 7. Aggregate by authorized book/portfolio/currency and persist a result receipt.
 8. Recheck current access before returning or exporting results.
 
@@ -782,6 +890,62 @@ portfolio result.
 The initial engine supports trusted built-in operators. An extension interface
 does not authorize tenants or agents to load arbitrary executable code.
 
+The required portfolio boundary is `Book.PV(context)`, returning typed values
+keyed by trade/instrument binding as well as book and currency (D145). The book
+delegates through its trades to the common `Instrument.PV(context)` contract;
+each instrument owns its pricing methodology, including delegation to a selected
+internal pricer. The risk calculator creates immutable base/up/down market
+scenarios, asks the book for values under each context, and compares matching
+holding results. It does not inspect instrument subclasses, schedules, strikes
+or settlement formulas, or reconstruct holding values from execution bases.
+Quantity application, lifecycle state and unit-value reuse belong to the
+valuation path. Declared dependencies support planning and reuse without
+exposing product-specific formulas to risk. Every instrument is unit-level;
+there is no optional quantity-scaling capability or alternative trade layout.
+
+The common valuation declaration identifies the exact market dependencies for
+the selected context. Dependencies include the
+transitive inputs consumed through derived curves; frozen inputs remain pinned.
+An explicitly market-independent value can declare an empty set. Missing or
+incomplete declarations are errors, not evidence that a valuation is unaffected.
+Zero observed sensitivity does not remove a declared dependency.
+
+The book's valuation planner can reuse a base value when a scenario changes none
+of its declared inputs. Within an authorized run it can also share a unit
+calculation when complete economics, pricing bindings, model versions, numerical
+policy, selected measure, lifecycle inputs and scenario context match. Holding
+quantity never enters this unit calculation or its cache key. Resolve each shared
+instrument once in that context, value it once per scenario, then apply each
+trade binding's quantity outside the instrument. Conflicting resolutions for one
+instrument/context are errors. Separate trade/binding results remain traceable,
+and reuse never establishes access permission.
+
+The managed `ValuationPortfolio` is the authorized projection of persisted
+trade/instrument quantity bindings. Its scenario valuation calls each affected
+`Instrument.Value(context)` once; the default delegates to `Instrument.PV`, while
+the futures override accepts only explicitly selected execution P&L. `Book.PV`
+applies holding bases/quantities and returns values by binding and currency.
+Book-only detail compiles exact net quantities and costs by book/unit once, then
+applies scenario unit values to those groups. Detailed output retains independent
+holding results. The generic risk calculator only compares these returned values.
+Full futures settlement PV, variation margin and lifecycle transitions remain
+unsupported; execution P&L does not substitute for those measures.
+
+Each instrument also implements the common `MarketFactors(context)` method.
+Its immutable `QuoteFactor` results identify exact dated series/use, contract,
+quote/unit, selected observation and source. The base implementation resolves the
+implementer's complete declared curve inputs through a shared context helper;
+models can override the method. The book validates and deduplicates returned
+references, rather than inspecting instrument subclasses. A hedge or locally zero
+delta never removes a factor. Discovery currently covers live commodity quotes;
+rates remain fixed and other factor families require explicit supported contracts.
+
+Policy `exact_18_fractional_book_repricing_v2` retains rational cash and quantities
+until the selected holding or book output, which must be exactly representable in
+the working decimal range. Summary output can therefore succeed when oversized or
+recurring individual holding projections cancel exactly. A detailed request still
+rejects unrepresentable holding results. No rounding is silently introduced.
+
 Reports consume the same authorized calculations as screens and agent operations.
 A day-over-day P&L request identifies its books/portfolio, opening and closing
 market/effective instants, both knowledge contexts, reporting currency policy and
@@ -800,8 +964,20 @@ affected base-plan reuse, restricted black-box unit pricers and exact central
 differences. Its current trading consumer measures unprocessed futures execution
 P&L/open sensitivity, rather than full futures PV. See the qualified boundaries in
 [implemented scope](implementation.md#shared-quote-input-scenarios-and-open-futures-sensitivity).
-Durable jobs/receipts, broader shock conventions and integration of full
-instrument PV into risk remain design requirements below.
+Generic side-based instrument PV is exercised through the shared path in managed
+checks. The persisted portfolio API currently consumes futures execution P&L.
+Nested quote stresses and durable futures risk runs extend this path; broader
+shock families remain work. See [risk scenarios and durable runs](risk-engine.md).
+
+The root financial context is the same resolved environment selected in the UI
+header, including its effective/knowledge coordinates and selected market frame.
+Interactive requests and background jobs use the same authorized operations.
+Parent-relative scenario layers inherit that environment without changing the
+header selection, observations, dates, retained versions or contractual state.
+The initial supported composition is an explicit signed absolute quote shift;
+same-factor child shifts add to the parent's effective value and rebuild affected
+curves. Risk under stress evaluates symmetric bumps around the selected parent.
+Dates and future regimes require their own supported, versioned derivations.
 
 Apply a factor shock once per scenario, independent of how many computations
 consume it. This does not imply that every different pricer can share one
@@ -814,7 +990,7 @@ same shocked market. This separation is essential.
 Zero observed delta does not mean that a computation lacks a dependency. A future
 option or optimizer may respond only to larger or one-sided changes.
 
-### 5.2 Quantity scaling
+### 5.2 Unit instruments and external quantities
 
 Keep three concepts separate:
 
@@ -822,9 +998,9 @@ Keep three concepts separate:
 | --- | --- |
 | Dependency | A factor or derived input can affect a computation |
 | Market linearity | Value responds linearly to a specified market input under specified assumptions |
-| Quantity scalability | Changing a trade's instrument quantity scales value without changing the unit computation |
+| Unit-level valuation | Every instrument values one unit; its holding quantity is external and multiplies that value |
 
-For an eligible composition:
+For every trade, with side aggregation where the instrument is composed:
 
 ```text
 InstrumentUnitValue(instrument, scenario) =
@@ -836,9 +1012,12 @@ TradeValue(scenario) = sum over Trade's bindings of
 ```
 
 The normalized shape, contractual terms and valuation context belong to the unit
-calculation. Quantity is factored out only when the pricer's contract guarantees
-this relationship for the requested quantity basis and domain. Validate this
-property with tests; do not infer it from a product label.
+calculation. Every trade stores instrument references with external quantities:
+`trade_1 -> [instrument_1: qty1, instrument_2: qty2]` and
+`trade_2 -> [instrument_2: qty3]`. In one shared context, instrument_2 is evaluated
+once for the base scenario and once for each up/down scenario. Its result is
+reused for both references; the book/trade valuation path applies qty2 and qty3
+independently. This is a mandatory instrument contract, not a capability flag.
 
 For each instrument, every `UnitSideValue` is expressed per the same instrument
 quantity basis and in the same output currency. Sides may retain different native
@@ -883,15 +1062,15 @@ direction. The descriptive membership role does not apply another sign. Nested
 composition coefficients obey the same rule; do not apply pay/receive direction
 again from a label or side kind.
 
-The baseline enables quantity scaling for supported linear products. Future
-nonlinear market payoffs may also be quantity scalable: a holding of identical
-ordinary options can scale by contract count even though its market response is
-nonlinear. This does not make options at different strikes equivalent.
+Future nonlinear market payoffs obey the same unit-level contract: a holding of
+identical ordinary options multiplies one unit value by external contract count,
+even though the response to market prices is nonlinear. Options at different
+strikes remain different instrument definitions.
 
-Minimum fees, quantity tiers, capacity constraints, market impact and other
-size-dependent rules can invalidate simple scaling. Fixed cash amounts are
-separate components. Do not force them into a unit multiplier or silently reuse a
-result outside its declared domain.
+Fixed fees and cash amounts require explicit components and external quantities.
+Behavior that cannot satisfy unit-level valuation remains unsupported until it
+has a compatible explicit model; it does not introduce another trade layout or
+pass the booked holding quantity into an instrument's unit calculation.
 
 ### 5.3 Sensitivities, scenario P&L and explain
 
@@ -1219,8 +1398,8 @@ Optimize duplicate work and data movement before distributing services:
 
 A cache key includes the pricer and schema version, normalized contractual terms,
 normalized schedule, relevant dependency content/versions, valuation context,
-scenario definition and numerical policy. It includes quantity where scaling is
-not valid. Cache identity must not depend on a mutable alias alone.
+scenario definition and numerical policy. Booked quantity is always excluded
+from the unit-valuation key. Cache identity must not depend on a mutable alias alone.
 
 Begin with safe within-run reuse. Cross-run reuse is introduced only after
 dependency completeness, invalidation and authorization are demonstrated.
@@ -1364,6 +1543,16 @@ terminal result only after its transaction succeeds.
 Pure calculation work can be retried against the same manifest. External
 side effects need their own idempotency/reconciliation contract. A retry does not
 implicitly refresh market data, upgrade a model or restore a revoked permission.
+
+The initial risk worker consumes complete pinned futures runs through a narrow
+PostgreSQL claim/lease/publication interface. It loads under a fresh scoped
+authority context, commits the read transaction, then calculates without holding
+database locks. Submission pins the actual managed engine binaries as well as the
+financial inputs. Multiple replicas distribute independent runs; one run retains
+shared curve/unit valuation and exact book aggregation in its worker. An optional
+Swarm definition places worker replicas on additional nodes. Single-run sharding,
+distributed aggregation and recurring date-rule scheduling remain future work;
+no hosted deployment or multi-node capacity qualification is implied.
 
 Cancellation is cooperative and bounded where supported. A cancellation request
 is not proof that running work has stopped. Resource accounting continues until

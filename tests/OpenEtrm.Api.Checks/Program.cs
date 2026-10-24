@@ -4,6 +4,11 @@ using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
+if(args is ["--futures-admission"]){FuturesAdmissionChecks.Run();return;}
+if(args is ["--reference-capture"]){await ReferenceCaptureChecks.Run();return;}
+if(args is ["--reference-import"]){await ReferenceImportChecks.Run();return;}
+if(args is ["--reference-import-plan",var referenceOutput]){await ReferenceImportChecks.Run(referenceOutput);return;}
+
 if (args is ["--hosted-access"])
 {
     HostedAccessChecks.Run();
@@ -17,6 +22,9 @@ if (args is ["--power-imports"])
 
 if (args is ["--schedules"])
 {
+    FuturesAdmissionChecks.Run();
+    await ReferenceCaptureChecks.Run();
+    await ReferenceImportChecks.Run();
     HostedAccessChecks.Run();
     PowerImportChecks.Run();
     SchedulePreviewChecks.Run();
@@ -25,6 +33,7 @@ if (args is ["--schedules"])
     return;
 }
 
+SwapSelectionChecks.Run();
 TradePartyChecks.Run();
 AmountJsonChecks.Run();
 TableViewChecks.Run();
@@ -59,6 +68,7 @@ if(args.Length==1)
         {
             CultureInfo.CurrentCulture=CultureInfo.GetCultureInfo(culture);
             var data=new PreviewData(realManifest,definitions,references,observations);
+            SwapSelectionChecks.Coverage(data,frame);
             var result=data.Build(frame,"local_power");
             if(result.Values[0].Price.Value.ToString()!="29.1" || data.Definitions["contracts"].Any(c=>c.Text("delivery_from").Length!=10))throw new Exception("Culture changed adapter values");
             Console.WriteLine($"PASS full PostgreSQL adapter fixture under {culture}");passed++;
@@ -77,6 +87,11 @@ if(args.Length==1)
     var catalog=JsonSerializer.SerializeToElement(PowerPreview.Catalog(mixed,frame,new([],[])));
     var listed=catalog.GetProperty("curves").EnumerateArray().Select(c=>c.GetProperty("code").GetString()).ToArray();
     if(listed.Contains("local_power_all_in") || listed.Length==0)throw new Exception("Unsupported power curve hid or polluted the catalog");
+    JsonElement RenameCommodity(JsonElement row)=>JsonSerializer.Deserialize<JsonElement>(row.GetRawText().Replace("\"test_power\"","\"electricity\"",StringComparison.Ordinal));
+    var namedPower=new PreviewData(realManifest,definitions.ToDictionary(p=>p.Key,p=>p.Value.Select(RenameCommodity).ToImmutableArray()),references.ToDictionary(p=>p.Key,p=>p.Value.Select(RenameCommodity).ToImmutableArray()),observations);
+    var namedCatalog=JsonSerializer.SerializeToElement(PowerPreview.Catalog(namedPower,frame,new([],[])));
+    if(namedCatalog.GetProperty("quantityChoices").GetArrayLength()==0)throw new Exception("Power quantity choices depend on a fixture commodity code");
+    Console.WriteLine("PASS power catalog derives amount choices from the curve commodity instead of fixture names");passed++;
     Console.WriteLine("PASS power catalog lists only single-index curves without failing the rest");passed++;
 }
 Console.WriteLine($"{passed} preview adapter checks passed.");

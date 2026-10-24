@@ -37,3 +37,18 @@ test('older saved profiles acquire only presentation layout defaults',()=>{const
 test('collapsed sidebar library and menus persist independently per persona',()=>{const entries=new Map(),storage={getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,v)},prefs={...newPreferences('UTC'),sidebarCollapsed:true,libraryCollapsed:true,collapsedMenus:['settings-menu'],collapsedCurveGroups:['commodity|Gas']};savePreferences(storage,'viewer',prefs);assert.deepEqual(loadPreferences(storage,'viewer','UTC'),prefs);assert.deepEqual(loadPreferences(storage,'editor','UTC').collapsedMenus,[]);});
 test('invalid and unbounded layout preferences are rejected',()=>{for(const patch of [{sidebarCollapsed:'true'},{libraryCollapsed:1},{collapsedMenus:['unknown']},{collapsedMenus:['market-menu','market-menu']},{collapsedCurveGroups:['x'.repeat(129)]},{collapsedCurveGroups:Array.from({length:65},(_,i)=>String(i))}])assert.throws(()=>parsePreferences(JSON.stringify({...newPreferences('UTC'),...patch})));});
 test('curve names come from the served directory and are never invented from codes',()=>{setCurveNames([{code:'future',name:'Synthetic futures'},{code:'rates',name:'Synthetic rates'},{code:'split',name:'One'},{code:'split',name:'Two'}]);assert.equal(curveName('future'),'Synthetic futures');assert.equal(curveName('rates'),'Synthetic rates');assert.throws(()=>curveName('missing_curve'),/missing or inconsistent/);assert.throws(()=>curveName('split'),/missing or inconsistent/);setCurveNames([]);assert.throws(()=>curveName('future'),/missing or inconsistent/);});
+
+test('market navigation omits curves without data in the selected frame',async()=>{
+ const {availableMarketCurves}=await import('../dist/market-view.js');
+ const w={...workspace,frames:[{id:'a',observationIds:['o'],curveContracts:{future:['f'],base_forward:[],local_power:['p']}},{id:'b',observationIds:['q'],curveContracts:{future:[],base_forward:['g']}}],observations:[]};
+ assert.deepEqual(availableMarketCurves(w,'a').map(c=>c.code),['future','local_power']);
+ assert.deepEqual(availableMarketCurves(w,'b').map(c=>c.code),['base_forward']);
+ assert.deepEqual(availableMarketCurves(w,'missing'),[]);
+ assert.deepEqual(availableMarketCurves(w).map(c=>c.code),['future','base_forward','local_power']);
+});
+test('empty reference categories are omitted while populated supplements stay available',async()=>{
+ const {populatedDataSections}=await import('../dist/data-sections.js');
+ const groups=populatedDataSections({units:[],currencies:[{code:'USD'}],locations:[]},{units:[{code:'energy'}]});
+ assert.deepEqual(groups.flatMap(g=>g.sections.map(s=>s.value)),['units','currencies']);
+ assert.deepEqual(populatedDataSections({units:[],locations:[]}),[]);
+});

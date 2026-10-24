@@ -717,3 +717,212 @@ original rows and certified facts. The stored-name migration still refuses
 populated unnamed catalogs, so these checks do not qualify an automatic upgrade
 of such retained installations. Runtime deployment is separate from this source
 integration.
+
+
+## Common book valuation and factor discovery checkpoint
+
+On 2026-10-19, 277 managed core checks passed, including an independent Release
+run during adversarial review. New checks cover shared unit values across books,
+exact summary netting beyond intermediate range, futures validation without
+holding-P&L projection, restricted side inputs, invalid-context parity,
+pre-cancelled base construction, typed instrument factor declarations and rejection
+of omitted/extra/altered factor metadata. The multilevel basis oracle independently
+checks actual swap PV, hedges, all-in independence and MWh/kWh cash/risk dimensions.
+Existing schedule checks retain 23/24/25-hour and fractional interval coverage.
+
+The owned stock-PostgreSQL preview integration suite passed with scoped relevant
+factor catalogs, 17-factor streamed book summaries, detailed/summary reconciliation,
+retained historical inputs, cancellation/authority boundaries and existing booking,
+amendment, swap, schedule and storage checks. The managed API checks and 107 frontend
+checks passed. API/web builds completed without errors. No existing database or
+production runtime was used. The [Release benchmark](risk-benchmark.md) separately
+records 50,000-position workload, unit/scenario counts, memory and measured phase
+costs. Service capacity, durable runs and complete futures settlement PV remain
+unqualified. Changes remain local pending publication approval.
+
+## Nested scenarios and durable risk checkpoint
+
+On 2026-10-21, 284 managed core checks, 107 frontend checks and 26 verification
+runner/tool checks passed. The API built without warnings or errors; existing
+schedule/date adapter checks also passed. New scenario checks independently
+rebuild changed quote inputs, exercise nonlinear mixed-factor terms, preserve
+parents/siblings under concurrent children and errors, and reconcile complete
+market-preparation work counts.
+
+The isolated `--risk-jobs-check --browser-check` suite passed on stock PostgreSQL
+18.1, .NET SDK 10.0.402, Node 24.22.0 and Chrome 156. It reconciled interactive and
+background reports exactly after changing the user's UI dates, completed distinct
+runs in two independent worker processes, and checked idempotency, owner-only
+results, current permission revocation and revoke/restore invalidation. Database
+checks cover one-row concurrent claims, incompatible-engine exclusion, expired
+lease recovery, stale publication rejection, cancellation/finish ordering,
+expired matching cancellation acknowledgment, read-only worker privileges,
+service-permission expiry during reads and oversized-result rejection.
+
+All 28 risk browser checks passed, including nested parent restoration, retained
+context and input receipts, current-authority exports, uncertain network/server
+submission reconciliation, recent-job inspection after date changes, and delayed
+status responses after cancellation or context reset. Desktop/mobile screenshots
+were inspected; controls remained usable without page-wide overflow. Owned
+database, API, worker and browser processes were removed after verification.
+
+The optional Swarm worker definition passed `docker stack config` validation.
+No Swarm deployment, multi-node capacity benchmark or production qualification
+was performed. These results cover complete independent futures execution-P&L
+runs; single-run distributed reduction, broader factor families, full futures
+settlement PV and confirmation of crashed-worker termination remain outside
+this implementation. Source changes remain local pending publication approval.
+
+
+## Numeric blotter and financial swap composition
+
+Verified locally on 2026-10-22 using the pinned .NET 10.0.402 SDK, stock
+PostgreSQL 16.14, Node 24.7.0 and isolated owned browser/database resources:
+
+- Frontend build and 115 checks passed, including exact numeric comparisons,
+  saved price-pivot layouts, quote-multiplier partitions and backend formatting.
+- 285 managed core checks and 51 rate checks passed. Independent oracles cover
+  price extrema/means, decimal ties, oversized intermediate sums, par quotes with
+  independent payment factors, floating spreads and reusable opposite memberships.
+- API amount/layout/adapter checks passed.
+- The standard HTTP/database preview checks passed, including legacy fixed-price
+  admission, exact economic keys, retained histories, current reference authority,
+  payment rules and all 31 swap-storage checks.
+- The focused draft/browser command passed 110 browser checks plus the new
+  composition HTTP checks. These cover numeric-only blotter cells, comparison
+  filters and exports, explicit price statistics, par-price review, frozen draft
+  risk, both financial swap types, spread amendments and canonical request replay.
+- The units/precision browser suite passed its 14 checks with separate numeric
+  cells and unit columns.
+
+Reproduction uses `npm test --prefix web`, the MarketData/Rates/API check projects,
+and `tools/run_preview.py --check`, `--draft-check --browser-check` and
+`--unit-check --browser-check`, with the documented SDK, PostgreSQL and browser
+arguments. Every preview allocates and removes its own synthetic database.
+
+The broader browser run stopped at the existing Profile-dialog close/alert
+assertion in `tests/browser/profile-dialog.mjs`; that whole browser run is not
+recorded as passing. No publication, hosted upgrade or production qualification
+was performed. Independent adversarial review remains a publication gate.
+
+## Pivot workspace and linked plots
+
+Verified locally on 2026-10-22 with the same pinned SDK, stock PostgreSQL and
+Node versions above. `npm test --prefix web` passed 121 checks; the API build
+completed without warnings and its layout/adapter checks passed. The focused
+`--draft-check --browser-check` preview command passed 117 browser checks
+(62 futures, 48 swaps and 7 grid interactions), plus draft/composition HTTP checks.
+
+Coverage includes grouped pivot column headings, swapping row/column axes,
+charts following the selected pivot grouping and retained context, bar/line/
+heatmap switching without repricing, exact safe tooltips, unavailable cells,
+price-unit partitions, explicit managed mean policies, version 3 account layouts,
+legacy layout upgrades and reauthorized table/image exports. Desktop and
+390-pixel mobile screenshots were inspected. The mobile plot and style controls
+stay within the page; short plots hide redundant zoom controls and quantity
+units appear above large axis labels.
+
+All test databases and browser processes were disposed. This qualification does
+not add hierarchical subtotals, cell drill-through, chart filtering by table row
+filters or production deployment. Changes remain local and unpublished.
+
+## Linked selection and availability calendars
+
+The selector changes passed 137 frontend behavior checks, the API build, and the
+isolated standard HTTP/storage/temporal/booking checks. Managed adapter checks
+cover reset-specific swap periods, missing pinned observations, and preservation
+of structural errors. Calendar checks include missing days, leap days, user-local
+snapshot grouping, exact correction identities and repeated DST clocks.
+
+The isolated collection checks qualify migration 0038's source/date availability:
+empty sources, dates beyond the certified cutoff and sources without current
+reference authority are excluded. Managed range checks preserve gaps and the
+31-operating-day request bound. Availability reads recheck current authority after
+certification and retain the cutoff for subsequent price reads.
+
+Targeted browser checks passed all 53 swap scenarios and 13 unit/precision
+scenarios, including paired calendar dates, invalid-input clearing, read-only
+historical terms, independent side values and user-zone timestamp rendering.
+Desktop and mobile screenshots were inspected locally. These checks use synthetic
+data and disposable stock PostgreSQL resources; they do not qualify deployment.
+
+The exchange fixture passed its HTTP checks and all nine browser checks over the
+commodity/exchange/product/calendar selector, including physical and cash-settled
+contracts, dated power lot sizes and independently quoted basis contracts.
+
+The complete standard owned browser run passed 270 checks, including market
+context, profile, administration, power, parties, futures, risk, amendments, swaps,
+tables and units. The standard API/storage suite also passed independently.
+
+A managed regression also verifies that availability dates remain ISO Gregorian
+strings under an `ar-SA` server culture. The combined runner reuses its established
+HTTP test session after identity-administration checks; explicit trader/risk
+profile switches and ordinary authorization/CSRF enforcement remain in place.
+
+The combined standard command subsequently completed successfully, including all
+270 browser checks, the post-browser composition/authority checks and owned
+resource cleanup. The draft-only runner branch also completed successfully.
+
+### Financial swap ticket quantity and review
+
+Local synthetic qualification on macOS arm64 used .NET SDK 10.0.402, stock
+PostgreSQL 16 and an owned headless Chrome session. The API build completed with
+zero warnings/errors. Frontend tests passed 139 checks; managed core tests passed
+285 checks and rate tests passed 51 checks. The standard disposable API/storage
+runner passed, including 20 swap HTTP checks, 10 schedule-booking checks and
+31 swap-storage checks, plus legacy migration/replay and temporal/authority checks.
+
+The draft/browser branch passed 135 checks: 66 financial swap, 62 futures and
+7 table-interaction checks. The 66 swap checks also passed in a focused owned
+session after the presentation refactor. Desktop 1440×1100 and narrow 390×844
+renders were inspected for delivery entry, quantity/basis, pricing, payment rules
+and trade review. Narrow review exposes signed cash, date, quantity, DF and PV
+without horizontal scrolling for those fields.
+
+Independent exact-fraction/decimal oracles verify signed cashflow-to-PV
+reconciliation, independent delivery months/payment dates, one application of
+notional despite 31 daily observations, supported negative agreed prices and
+compatible unit conversions. Browser checks cover explicit par versus missing
+agreed price, fixed dates outside floating projection coverage, booking/reopening,
+amendments, historical read-only terms, stale selection-only changes, asynchronous
+preview completion, display reload and incompatible-unit/quote edits. Existing
+high-precision valuation oracles remain unchanged. Independent adversarial review
+of the numerical projection, invalidation and historical boundaries found no
+remaining actionable issues.
+
+No booked MW integration, daily quantity rates, recurring settlement allocation,
+physical gas/power booking or actual-fixing valuation is qualified by this work.
+The quantity application response label describes the existing versioned swap
+contract; booked quantities, events and financial identities are not migrated.
+
+### Fixing-aware swap increment
+
+The managed core passed 295 checks, including ten fixing checks with independent
+mixed-period and fully fixed arithmetic, exact cutoff replay, zero-lag payment
+preservation, missing/ineligible fixing failures and frozen actuals under shared
+market scenarios. All 52 rate checks passed, including an independent actual-cash/payment-discount
+oracle with no commodity projection inputs. Frontend checks passed
+141 cases, including explicit fixing-entry parsing and missing-boundary failures.
+
+The disposable `--fixing-check` branch qualifies source revision idempotency,
+immutable correction lineage, certified historical cutoffs, exact retained decimal
+prices/multipliers, valuation/risk receipt pins, partially fixed pricing and risk,
+fully fixed commodity risk, booking/reopening/amendments, reused-side SQL fences,
+legacy-versus-fixing-aware identity separation and current authority. An explicit
+January 2 frame exercises expired actual observation contracts alongside thirty
+live projected observations. At quantity 31, fixed price 3 and thirty projected
+prices 3.02 through 3.31, actual prices 10, 16 and 19 independently produce trade
+PVs 11.95, 17.95 and 20.95 without discounting. Earlier context and receipt replay
+retain their earlier result. A fully fixed monthly price 10 gives PV 217 and no
+live commodity factors under the selected rates-held-fixed risk policy.
+
+Eleven fixing-aware browser checks pass over version/source/boundary restoration,
+actual/projected review, source-edit invalidation, missing times, quantity
+amendments, earlier read-only revisions, receipt visibility, metadata clearing
+and fixed-side panels without inapplicable empty space.
+Desktop and 390-pixel-wide renders are inspected locally. The standard disposable
+API/storage suite and 135 existing browser checks also passed with the additive
+fixing migrations. The public
+verification runner includes the fixing branch; calculations remain synthetic
+and use owned disposable stock PostgreSQL resources. No deployment or settlement
+posting qualification follows from these checks.

@@ -3,7 +3,7 @@ import {renderRegularTable} from './regular-table.js';
 import {curveName,deliveryLabel,publicText} from './market-view.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-export type DraftPrice={context:{contextId:string};canRunDealRisk:boolean;unbooked:boolean;measure:string;currency:string;executionPnl?:string;valuation?:{presentValue:string};quantity?:{amount:string;specification:unknown};bumpPolicy:string;numericalPolicy:string};
+export type DraftPrice={valuationReceiptId?:string|null;context:{contextId:string};canRunDealRisk:boolean;unbooked:boolean;measure:string;currency:string;executionPnl?:string;valuation?:{presentValue:string};quantity?:{amount:string;specification:unknown};bumpPolicy:string;numericalPolicy:string;resolvedFixedPrice?:string;parRate?:{price:{value:string};decimalPlaces:number;policy:string}|null};
 type Draft={context:Record<string,unknown>;[key:string]:unknown};
 type Risk={measure:string;currency:string;factors:{factor:{curves:string[];deliveryFrom:string;deliveryTo:string};bump:string;basePv:string;upPnl:string;downPnl:string;delta:string;gamma:string;deltaUnit:string;gammaUnit:string}[]};
 
@@ -24,13 +24,15 @@ export function draftValuation(host:HTMLElement,o:{product:'futures'|'swaps';api
   const pv=result.valuation?.presentValue??result.executionPnl;if(pv===undefined)throw Error('The draft valuation is incomplete.');
   summary.textContent=`${result.measure==='present_value'?'PV':'Execution P&L'}: ${amountText(pv,'money')} ${result.currency}`;
   note.textContent=result.measure==='present_value'?'Unbooked estimate. Risk uses ±one tick per price factor; interest rates stay fixed.':'Unbooked execution P&L and open-price exposure. Margin and settlement PV are not processed.';
-  retained={draft:{...draft,context:{...draft.context,knowledgeMode:'retained',contextId:result.context.contextId}},bumpPolicy:result.bumpPolicy,numericalPolicy:result.numericalPolicy};canRisk=result.canRunDealRisk;
+  const resolved=result.resolvedFixedPrice!==undefined&&draft.fixed?{...draft,fixed:{...(draft.fixed as Record<string,unknown>),price:result.resolvedFixedPrice},parRatePolicy:null}:draft;
+  retained={draft:{...resolved,context:{...draft.context,knowledgeMode:'retained',contextId:result.context.contextId}},bumpPolicy:result.bumpPolicy,numericalPolicy:result.numericalPolicy};canRisk=result.canRunDealRisk;
   await o.priced?.(result);if(started===generation&&key===o.key())sync();
  }));
  risk.onclick=()=>void o.act(()=>safe(async()=>{
   if(!retained)throw Error('Price the current instrument first.');const started=generation,key=o.key();rows.replaceChildren();
   const result=await o.api<Risk>(o.product+'/draft-risk',retained);if(started!==generation||key!==o.key())return;
   await prepareAmountDisplay(result,body=>o.api<string[]>('amounts/display',body));if(started!==generation||key!==o.key())return;
+  if(result.factors.length===0)note.textContent='No live projected commodity factors. Actual fixings and interest rates stay fixed in this risk calculation.';
   const raw=result.factors.map(r=>[r.factor.curves.map(curveName).join(' / '),deliveryLabel(r.factor.deliveryFrom,r.factor.deliveryTo),r.delta,r.deltaUnit,r.gamma,r.gammaUnit,r.basePv,r.upPnl,r.downPnl]);
   const display=raw.map((values,i)=>[...values.slice(0,2),amountText(result.factors[i].delta,'factor'),values[3],amountText(result.factors[i].gamma,'factor'),values[5],amountText(result.factors[i].basePv,'money'),amountText(result.factors[i].upPnl,'money'),amountText(result.factors[i].downPnl,'money')]);
   renderRegularTable(rows,o.product+'-draft-risk',key,['Market factor','Contract','Exposure','Exposure unit','Gamma','Gamma unit',`Base (${result.currency})`,`Up change (${result.currency})`,`Down change (${result.currency})`],raw,[2,4,6,7,8],o.busy,{displayRows:display});

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
 
 internal static class RiskChecks
 {
@@ -63,14 +64,16 @@ internal static class RiskChecks
             Reject("price_domain",()=>model.BuildScenarios(snapshot,[power],[Bump(size:"999")]));
             Reject("risk_bump",()=>model.BuildScenarios(snapshot,[power],[Bump(),Bump()]));
         });
-        var contract=new UnitPricingContract(Guid.NewGuid(),"test_power_mark_v1",[power],f.R("power_quantity"),f.R("currency"),QuantityBehavior.Scalable);
+        var contract=new UnitPricingContract(Guid.NewGuid(),"test_power_mark_v1",[power],f.R("power_quantity"),f.R("currency"));
         var pricer=new TestPricer(contract,inputs=>inputs.Price(power).Times(new Quantity(ExactDecimal.Parse("1"),f.R("power_quantity"))));
         var bookA=Guid.NewGuid();var bookB=Guid.NewGuid();
         RiskPosition Position(Guid book,string quantity,string basis="0")=>new(Guid.NewGuid(),Guid.NewGuid(),book,contract.Id,
             new(ExactDecimal.Parse(quantity),contract.Quantity),new(new Money(default,contract.Currency),contract.Quantity),new(ExactDecimal.Parse(basis),contract.Currency));
         var positions=ImmutableArray.Create(Position(bookA,"10000","200000"),Position(bookB,"-2000","-40000"));
-        RiskRun Run(ImmutableArray<RiskPosition>? held=null,ImmutableArray<IUnitPricer>? pricers=null,QuoteBump? bump=null)=>
-            RiskEngine.Calculate(model,snapshot,pricers??[pricer],held??positions,[bump??Bump()],RiskEngine.NumericalPolicy);
+        ValuationPortfolio Portfolio(ImmutableArray<Instrument> items,ImmutableArray<RiskPosition> held)=>
+            new(items,held,new(ValuationMeasure.ExecutionPnl,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+        RiskRun Run(ImmutableArray<RiskPosition>? held=null,ImmutableArray<Instrument>? pricers=null,QuoteBump? bump=null)=>
+            RiskEngine.Calculate(model,snapshot,Portfolio(pricers??[pricer],held??positions),[bump??Bump()],RiskEngine.NumericalPolicy);
         Check("black-box repricing gives the independent 7000 cash shock oracle with quantity applied once",()=>
         {
             var run=Run();var factor=run.Factors.Single();var a=factor.Positions.Single(p=>p.BookId==bookA);
@@ -104,9 +107,9 @@ internal static class RiskChecks
         {
             var hidden=new TestPricer(contract,inputs=>inputs.Price(future).Times(new Quantity(ExactDecimal.Parse("1"),f.R("gas_quantity"))));
             Reject("risk_dependency",()=>Run(pricers:[hidden]));
-            Reject("risk_scaling",()=>Run(pricers:[new TestPricer(contract with{QuantityBehavior=(QuantityBehavior)0},_=>new(default,contract.Currency))]));
+            Reject("risk_contract",()=>Run(pricers:[new TestPricer(contract with{Dependencies=default},_=>new(default,contract.Currency))]));
             Reject("risk_contract",()=>Run(pricers:[pricer,pricer]));
-            Reject("risk_policy",()=>RiskEngine.Calculate(model,snapshot,[pricer],positions,[Bump()],""));
+            Reject("risk_policy",()=>RiskEngine.Calculate(model,snapshot,Portfolio([pricer],positions),[Bump()],""));
         });
         Check("invalid position identity, currency and quantity cannot enter shared calculations",()=>
         {
@@ -148,7 +151,7 @@ internal static class RiskChecks
         });
         Check("multiple factors have independent overlays and reuse the same pinned base",()=>
         {
-            var run=RiskEngine.Calculate(model,snapshot,[pricer],positions,[Bump(),Bump(5,quote:"power_basis")],RiskEngine.NumericalPolicy);
+            var run=RiskEngine.Calculate(model,snapshot,Portfolio([pricer],positions),[Bump(),Bump(5,quote:"power_basis")],RiskEngine.NumericalPolicy);
             Equal(run.Work.ScenarioCount,5);Equal(run.Work.UnitPricerCalls,5);
             Equal(run.Factors[1].Positions.Single(p=>p.BookId==bookA).UpPnl.Amount.ToString(),"1000");
             Equal(run.Factors[1].UpWork.RebuiltCurveNodes,2);
@@ -171,7 +174,7 @@ internal static class RiskChecks
         Check("cancelled execution returns no partial successful result",()=>
         {
             using var cancel=new CancellationTokenSource();cancel.Cancel();
-            try{RiskEngine.Calculate(model,snapshot,[pricer],positions,[Bump()],RiskEngine.NumericalPolicy,cancel.Token);}
+            try{RiskEngine.Calculate(model,snapshot,Portfolio([pricer],positions),[Bump()],RiskEngine.NumericalPolicy,cancel.Token);}
             catch(OperationCanceledException){return;}throw new Exception("Expected cancellation.");
         });
         Check("position-scale derivatives retain exact quotients that unit-scale division could not represent",()=>
@@ -185,14 +188,22 @@ internal static class RiskChecks
         {
             using var cancel=new CancellationTokenSource();var calls=0;
             var interrupted=new TestPricer(contract,i=>{if(++calls==2)cancel.Cancel();return i.Price(power).Times(new Quantity(ExactDecimal.Parse("1"),contract.Quantity));});
-            try{RiskEngine.Calculate(model,snapshot,[interrupted],positions,[Bump()],RiskEngine.NumericalPolicy,cancel.Token);}
+            try{RiskEngine.Calculate(model,snapshot,Portfolio([interrupted],positions),[Bump()],RiskEngine.NumericalPolicy,cancel.Token);}
             catch(OperationCanceledException){Equal(calls,2);return;}throw new Exception("Expected mid-run cancellation.");
         });
         Console.WriteLine($"{count} risk checks passed.");return count;
     }
-    internal sealed class TestPricer(UnitPricingContract contract,Func<PricingInputs,Money> evaluate):IUnitPricer
+    [EconomicDefinition("synthetic_unit_pricer_v1")]
+    internal sealed record TestPricer:Instrument
     {
-        public UnitPricingContract Contract{get;}=contract;
-        public ExactMoney Evaluate(PricingInputs inputs)=>ExactMoney.FromMoney(evaluate(inputs));
+        [IdentityField] public UnitPricingContract Contract{get;}
+        private readonly Func<PricingInputs,Money> evaluate;
+        public override ReferenceKey Currency=>Contract.Currency;
+        public override Quantity UnitQuantity=>new(ExactDecimal.Parse("1"),Contract.Quantity);
+        public TestPricer(UnitPricingContract contract,Func<PricingInputs,Money> evaluate):base(contract.Id)
+        {Contract=contract;this.evaluate=evaluate;}
+        public override UnitPricingContract Declare(UnitValuationContext context)=>Contract;
+        public override ExactMoney Value(UnitValuationContext context)=>ExactMoney.FromMoney(evaluate(context.Inputs));
+        public override InstrumentValuation PV(SideValuationContext context)=>throw new MarketDataException("test_context","Select the declared synthetic unit valuation context.");
     }
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {compareDecimalStrings,pivotMatrix} from '../dist/analytics-model.js';
+import * as analytics from '../dist/analytics-model.js';
 import {chartOptions} from '../dist/chart-view.js';
 
 test('numeric grid ordering preserves decimal strings beyond browser precision',()=>{
@@ -41,4 +42,56 @@ test('position bars use a zero baseline while price lines can scale to their ran
  const spec={title:'Positions',axis:'delivery',unit:'EA',series:[{name:'A',points:[{x:'Jan',y:'440'}]}]};
  assert.equal(chartOptions({...spec,kind:'bar'}).yAxis.scale,false);
  assert.equal(chartOptions({...spec,kind:'line'}).yAxis.scale,true);
+});
+
+test('short plots avoid redundant zoom controls and units stay above large axis labels',()=>{
+ const spec={title:'Positions',axis:'category',unit:'MWh',kind:'bar',series:[{name:'Book A',points:[{x:'a',y:'4000000'}]}]};
+ const option=chartOptions(spec);assert.equal(option.yAxis.nameLocation,'end');assert.equal(option.dataZoom[1].show,false);
+ const long=chartOptions({...spec,series:[{name:'Book A',points:Array.from({length:12},(_,i)=>({x:String(i),y:'1'}))}]});
+ assert.equal(long.dataZoom[1].show,true);
+});
+
+test('price pivot matrices preserve quote multiplier partitions without merging prices',()=>{
+ const unit={code:'energy',revision:{catalogId:'catalog',revisionId:'revision'}},currency={...unit,code:'usd'};
+ const rows=['1','100'].map((quoteMultiplier,i)=>({bookId:'book-a',book:'Book A',instrumentType:'future',quantitySpecification:unit,currencyReference:currency,unit:'MWh',currency:'USD',quoteMultiplier,priceUnit:'USD/MWh × '+quoteMultiplier,executionPriceMean:String(i+1)}));
+ const result=pivotMatrix(rows,['book','instrumentType'],['instrumentType'],['executionPriceMean']);
+ assert.equal(result.rows.length,2);assert.ok(result.columns.some(c=>c.key==='priceUnit'));
+ assert.equal(result.rows[0].priceUnit,'USD/MWh × 1');assert.equal(result.rows[1].priceUnit,'USD/MWh × 100');
+});
+
+test('pivot measure headers share an exact column group while export labels remain complete',()=>{
+ const groups=[{bookId:'a',book:'Book A',contractId:'jan',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',unit:'EA',currency:'TST',quantitySpecification:{code:'q'},currencyReference:{code:'c'},quantity:'3',executionPnl:'4'}];
+ const result=pivotMatrix(groups,['book','contract'],['contract'],['quantity','executionPnl']);
+ const measures=result.columns.filter(c=>c.numeric);
+ assert.ok(measures[0].groupKey);assert.equal(measures[0].groupKey,measures[1].groupKey);
+ assert.equal(measures[0].groupTitle,'Jan 2021');assert.equal(measures[0].measureTitle,'Quantity');
+ assert.equal(measures[1].title,'Jan 2021 · Execution P&L');
+});
+
+test('pivot charts use the selected row and column axes, preserve gaps and exact values',()=>{
+ const base={instrumentType:'future',quantitySpecification:{code:'q'},currencyReference:{code:'c'},unit:'EA',currency:'TST',bookId:'a',book:'Same book label'};
+ const jan={contractId:'jan',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'},feb={contractId:'feb',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'};
+ const groups=[{...base,...jan,quantity:'9007199254740993.000000000000000001'},{...base,...feb,quantity:null},{...base,...jan,bookId:'b',quantity:'2'}];
+ const [panel]=analytics.pivotChartPanels(groups,['book','contract'],['contract'],'quantity');
+ assert.equal(panel.axis,'delivery');assert.equal(panel.series.length,2);
+ assert.notEqual(panel.series[0].id,panel.series[1].id);
+ assert.deepEqual(panel.series[0].points.map(p=>p.y),['9007199254740993.000000000000000001',null]);
+ assert.equal(panel.series[1].points[1].y,null);
+ assert.throws(()=>analytics.pivotChartPanels([...groups,groups[0]],['book','contract'],['contract'],'quantity'));
+});
+
+test('price charts keep exact reference and quote multiplier partitions separate',()=>{
+ const base={instrumentType:'financial_swap',bookId:'a',book:'Book A',unit:'MWh',currency:'USD',quantitySpecification:{code:'q',revision:'one'},currencyReference:{code:'usd'},fixedPriceMean:'2.500000000000000001'};
+ const panels=analytics.pivotChartPanels([{...base,quoteMultiplier:'1',priceUnit:'USD/MWh'},{...base,quoteMultiplier:'100',priceUnit:'USD/MWh × 100'},{...base,quantitySpecification:{code:'q',revision:'two'},quoteMultiplier:'1',priceUnit:'USD/MWh'}],['book'],[],'fixedPriceMean');
+ assert.equal(panels.length,3);assert.equal(panels[1].unit,'USD/MWh × 100');
+ assert.ok(panels.every(p=>p.series[0].points[0].y==='2.500000000000000001'));
+});
+
+test('heatmaps preserve missing cells and show exact safe tooltip values',()=>{
+ const option=chartOptions({title:'Pivot',axis:'delivery',unit:'TST',kind:'heatmap',series:[{id:'a',name:'<Book A>',points:[{x:'jan',label:'Jan',y:'-0.000000000000000001'},{x:'feb',label:'Feb',y:null}]},{id:'b',name:'Book B',points:[{x:'jan',label:'Jan',y:'2'},{x:'feb',label:'Feb',y:'0'}]}]});
+ assert.equal(option.series[0].type,'heatmap');assert.equal(option.yAxis.type,'category');
+ assert.deepEqual(option.series[0].data.map(d=>d.slice(0,2)),[[0,0],[0,1],[1,1]]);
+ const tooltip=option.tooltip.formatter({value:option.series[0].data[0]});
+ assert.ok(tooltip.includes('-0.000000000000000001'));assert.ok(!tooltip.includes('<Book A>'));
+ assert.equal(option.visualMap.min,-option.visualMap.max);
 });

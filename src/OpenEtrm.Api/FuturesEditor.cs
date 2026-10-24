@@ -61,7 +61,7 @@ public sealed partial class FuturesStore
         var selected=body.Revision??rows.Max(Revision);
         var state=One(rows.Where(r=>Revision(r)==selected));
         var side=Binding(data,state.Text("curve_code"),state.Id("contract_id"),state.Id("side_id"),state.Text("implementation"));
-        var lifecycleEligible=state.Text("settlement_state")=="unprocessed"&&side.FirstTrading<=frame.At&&frame.At<side.Contract.Expiry&&frame.At>=state.Instant("revision_effective_at");
+        var lifecycleEligible=state.Text("settlement_state")=="unprocessed"&&side.EligibleFrom<=frame.At&&frame.At<side.Contract.Expiry&&frame.At>=state.Instant("revision_effective_at");
         return new{lifecycleEligible,state=State(state),history=rows.OrderBy(Revision).Select(State),catalog=await Catalog(connection,data,frame,ct),amendmentConvention=AmendmentConvention};
     }
 
@@ -86,7 +86,7 @@ public sealed partial class FuturesStore
         var side=Binding(data,Text(body.Curve),body.ContractId,body.ContractId,body.Convention!);
         var prior=before.Instruments[0];
         body=body with{ExecutedAt=Instant(prior.ExecutedAt),TraderId=current.OptionalId("trader_id"),TraderRevision=current.OptionalText("trader_revision") is {} traderVersion?int.Parse(traderVersion,System.Globalization.CultureInfo.InvariantCulture):null,TradeDate=current.OptionalText("trade_date")??current.Text("booking_date")};
-        if(frame.At<prior.MarketBinding.FirstTrading||frame.At>=prior.MarketBinding.Contract.Expiry||side.Quote.Currency!=prior.MarketBinding.Quote.Currency)
+        if(frame.At<prior.MarketBinding.EligibleFrom||frame.At>=prior.MarketBinding.Contract.Expiry||side.Quote.Currency!=prior.MarketBinding.Quote.Currency)
             throw Error("futures_amendment","Amendments require live unprocessed states in the same exact currency definition.");
         var same=side.Market==prior.MarketBinding.Market;
         var binding=same?prior.MarketBinding:side;

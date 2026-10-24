@@ -170,7 +170,16 @@ Standalone physical forward booking, option products and VaR/covariance remain
 unimplemented; their agreed design is recorded in architecture/plan.
 
 Trading opens a shared Blotter with individual futures trade bindings, managed
-pivots, account-saved layouts, exact exports and shared charts. Eight synthetic
+pivots, account-saved layouts, exact exports and shared charts. The pivot builder
+has separate row/column/value areas, grouped measure headers and an explicit axis
+summary. Bar, line and heatmap plots follow those axes using a managed report in
+the same retained financial context. Charts expose all supported measures,
+including PV and the explicitly defined price statistics, with separate exact
+unit/currency/quote-multiplier panels and gaps for unavailable values. Table row
+filters do not change charts; the scope is labeled. Plot styles switch without
+repricing and persist in version 3 account layouts. Older layouts retain their
+choices and acquire the previous bar style. Subtotals and cell drill-through
+remain unimplemented. Eight synthetic
 weekday bookings exercise cumulative holdings across the four standard frames.
 Leaf futures contracts retain exact market terms; composed instruments retain nonempty immutable side memberships.
 Pricing reports typed gross execution P&L and open quote sensitivity; it does not
@@ -269,9 +278,9 @@ below. Swap risk and fee capture/calculation/reconciliation remain deferred;
 current futures execution-P&L diagnostics are gross and exclude fees.
 
 The futures editor separates trade inputs from a vertical side panel populated
-from actual selected contract metadata. The financial swap editor has aligned
-fixed/floating columns and initializes only unset counterpart delivery/currency
-fields. No copy button is present; later edits remain independent.
+from actual selected contract metadata. The financial swap editor groups product, independent delivery periods, notional
+quantity, side pricing and observation/payment rules in business order. It no
+longer initializes peer delivery dates: each side is entered independently.
 
 ## Business scenario coverage and permanent browser regressions
 
@@ -1137,3 +1146,177 @@ sensitivities. The UI formats those results through backend amount formatting,
 clears them when terms/context change, and never books a trade as a side effect.
 Swap drafts report PV; futures drafts report execution P&L and open exposure.
 Variation-margin processing and full futures settlement PV remain unimplemented.
+
+
+## Shared quote-input scenarios and open futures sensitivity
+
+The managed risk path now uses a `ValuationPortfolio` projection of trade-owned
+instrument quantities. Common `Instrument.Value` delegates to instrument PV;
+futures explicitly select execution P&L. The book owns holding arithmetic and
+exact net quantity/cost compilation for book-only reports. Repeated instruments
+share one unit value per affected scenario, including across books. The risk
+engine compares returned values without inspecting pricing methods.
+
+`Instrument.MarketFactors(context)` returns immutable exact quote-factor metadata.
+Books ask each unique instrument once, validate its complete pinned factors and
+union those references. Curve consumers use a common context resolver for explicit
+transitive recipes; no upstream factor is inferred for an independently marked
+all-in curve. API discovery respects selected books/portfolios. Bumps stay explicit;
+manual available-factor scenarios remain possible. Book summaries support up to
+4096 factors; holding-detail requests retain the 16-factor response bound.
+
+Synthetic gas and ERCOT curve checks exercise real unit swap PV through four and
+two basis edges, respectively, across multiple maturities. The independent oracle
+uses explicit signed quote incidence, including a Waha/HSC hedge and an independent
+Waha all-in control. Unit checks cover MWh/kWh price/quantity invariance, derivative
+dimensions and wrong-basis rejection; existing power checks cover 23/24/25-hour
+energy, TOU and exact fractional interval allocation. These checks do not qualify
+exchange data or establish physical-energy equivalence between gas and power.
+
+The [benchmark](risk-benchmark.md) reports 50,000-position calculation work and
+memory. It excludes production reads/transport and does not lift booking database
+bounds or implement generic booked-swap/rate/volatility risk. Full futures PV and
+variation margin remain unsupported. Core policy and futures convention have new
+v2 identifiers; older calculation artifacts retain their original meaning.
+
+## Nested stress and background risk
+
+The futures risk operation accepts up to sixteen signed absolute quote stresses
+in parent order. Immutable managed scenarios retain the original snapshot and
+derive a distinct identity for each child; removing a child leaves its parent
+usable. Up/down risk is measured around that stressed base. Work receipts include
+market preparation, shared unit evaluations and book quantity applications.
+
+The header's resolved effective/knowledge context and exact market frame feed
+both immediate calculations and queued jobs. Migration 0036 retains authorized
+request identities, exact context/book/observation/curve-membership references,
+financial choices and the engine fingerprint. The UI supports queueing, truthful
+cancellation status, uncertain-submit reconciliation, recent owned jobs and
+retained downloads. Inspecting an older job displays its captured dates.
+
+Dedicated read-only workers claim one complete run at a time. They renew leases,
+load retained inputs under fresh scoped authority, calculate outside database
+transactions and publish behind current authorization and attempt-token checks.
+Multiple processes distribute independent jobs; book aggregation stays within
+each shared calculation. The optional Swarm worker definition is configuration,
+not evidence of a deployed or capacity-qualified cluster. Single-run sharding,
+cross-run caching and process-death confirmation for an unacknowledged
+cancellation remain unsupported. See [risk engine](risk-engine.md) for contracts,
+worker provisioning, limits and the isolated verification entry point.
+
+### Applicable selectors and data-backed calendars
+
+Futures entry narrows its authorized priced catalog by commodity, exchange,
+product, delivery start and exact pricing curve. Swap selectors expose searchable
+commodity-linked indices, explicit quote-unit defaults and reset-specific delivery
+periods whose pinned market inputs can actually be priced. Missing observations
+remove choices; structural errors remain failures. Parent changes clear
+incompatible selections and draft results. Power product/hour/grid choices come
+from executable presets; empty reference categories and unavailable market curves
+are omitted.
+
+Market-date calendars use the user's zone and retain exact observation/correction
+identities in the selected day's time list. Swap/futures delivery dates remain
+contractual dates. Migration `0038_available_delivery_dates.sql` supplies certified,
+scoped collected-price dates; the managed service also supplies contiguous range
+limits. The browser filters these supplied values without deriving financial
+calendars. Historical knowledge cutoffs and schedule authoring retain their
+separate semantics. No deployment or publication is implied by these local changes.
+
+
+### Financial swap notional and trade review
+
+The ticket labels its sole supported quantity basis as **Total for each side’s
+delivery period**. Compatible units are available from the authorized commodity
+catalog before an exact projection curve is selected. The amount is converted by
+`Quantity.ConvertTo` into the selected quote’s exact quantity specification;
+booking persists that canonical external trade quantity. The original entry unit
+is not stored. Fixed and floating sides remain reusable unit definitions. Daily
+observations average prices into one payment; each side's independent delivery
+month receives the full total even when the periods differ. No schedule duration
+or reset count multiplies notional. The existing instrument/side implementation
+versions retain this meaning; no booked economics or financial schema changes.
+
+Managed Price, booking Preview and Editor responses now identify the application
+basis and return resolved quantity, signed trade cash and signed trade payment PV.
+Those fields scale exact normalized payment values by the membership coefficient
+and external trade quantity once. Primary review shows those rows, contractual
+prices and fixed/projected states. Normalized quantities/weights and technical
+lineage stay expandable. Narrow screens show complete payment summaries without
+requiring horizontal scrolling for cash, date, DF or PV.
+
+Agreed fixed pricing requires an entered price. Explicit par mode alone requires
+calculation precision and submits the existing versioned par policy; booking
+retains the reviewed concrete price. Negative agreed prices remain supported.
+Fixed-side observation placeholders are removed. Ownership and exact-version
+parties are grouped before valuation review. Financial input and selection changes
+invalidate prepared confirmation and displayed valuation; asynchronous formatting
+cannot restore stale results. Incompatible units remain unresolved until explicit
+selection, and incompatible quote-unit changes clear affected price/spread inputs.
+
+Recurring settlements, daily notional rates, MW integration, physical gas/power
+booking remain unsupported by this ticket. Actual/projected fixing valuation is
+implemented under its separate version described below. The unsaved
+power interval preview and futures lot entry retain their separate contracts.
+
+
+Fixed-side delivery date entry is independent of projected-market coverage. Native
+date inputs and the schedule helper submit literal dates; the managed fixed-side
+and payment-rule contracts validate the interval. Floating-side calendars still
+require exact definitions and prices for projected observations; due observations
+require eligible final fixings. This permits independently dated
+fixed and floating sides without manufacturing a fixed-side curve dependency.
+
+### Actual/projected financial swap observations
+
+The separate side implementation `index_actual_projected_v1` resolves each
+observation against a declared UTC fixing boundary and an exact index/source/
+quote/interval identity. The selected policy is
+`latest_eligible_final_by_context_v1`: among final revisions published by valuation
+time and known at the certified cutoff, select the latest eligible revision.
+Preliminary corrections do not replace a final fixing. Due observations without
+an eligible final fixing fail explicitly; they never fall back to forward marks.
+Future observations retain their own projected prices and averaging weights.
+
+Index fixings have their own immutable identities and correction chains in the
+existing commit-certified market knowledge stream. They are not forward-mark
+series. `index-fixings/import` admits source event/revision identities with working
+import authority, exact reference foreign keys and idempotent conflict checks.
+Reads use an explicit retained context and recheck current market/reference
+access. Each resolved actual retains publication time, certified knowledge time,
+revision, predecessor and source identity.
+
+Price, preview and editor results retain immutable valuation receipts containing
+contract terms, result schema/policy, exact market-observation pins and fixing
+revision lineage through exact foreign keys. Receipt reads recheck current
+trading, market and reference authority. Historical replay selects the original
+eligible revision; later-context valuations can change after a final correction.
+Ordinary risk uses the same immutable actual inputs and shocks only remaining
+projected quote factors. Fully fixed swaps have an exact base valuation and zero
+live commodity factors under the explicitly selected commodity-only risk policy;
+interest rates remain fixed. Risk results also retain fixing-aware receipts.
+
+The ticket explicitly chooses projection-only or actual/projected resolution.
+Actual/projected entry requires a source and every observation boundary; loading
+managed observation intervals leaves fixing times blank. Quantity, averaging and
+payment terms stay independent. Actual/projected prices and retained lineage
+are inspectable, source/boundary edits invalidate confirmation, and amendments
+cannot change a due observation's identity or boundary. Repeated memberships of
+one reusable side are checked independently. Generated zero-lag payment rules
+retain their original semantics.
+
+Legacy `prefixing_index_projection_v1` definitions retain their first-fixing
+rejection and original economics. Their SQL lookup cannot reuse a fixing-aware
+side merely because visible projection/payment terms coincide. New fixing terms
+have typed schedule/boundary relationships and explicit implementation identity;
+no old definitions, events or quantities are rewritten. Catalogs distinguish
+legacy priced delivery availability from fixing-aware definition intervals, so
+an expired observation contract can still supply an explicitly resolved actual
+without allowing an expired projected source to price.
+
+Valuation receipt retention never posts or corrects invoices, settlements,
+payments or banked cash. Those lifecycle operations remain separate and
+unimplemented. This increment supports one full delivery month per side with
+monthly-index or calendar-day arithmetic observations. Recurring contracts,
+quantity-rate/allocation entry and booked MW schedules are subsequent increments,
+not physical-booking prerequisites.

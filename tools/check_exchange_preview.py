@@ -87,7 +87,7 @@ def run_checks(url,query=None,manifest=None):
     assert example['summary']['hours']=='320' and example['summary']['energy']=='1' and example['holidays']==['2026-11-26'] and example['holidayCalendar']=='ept_published_peak'
     assert Decimal(example['summary']['amount'])==Decimal(power_contract['mark']).quantize(Decimal('0.01'))
     print('PASS power example: exact indexed futures reference feeds a typed one-MWh peak allocation without inferring official hourly prices.',flush=True)
-    risk_catalog=c.call('futures/risk/catalog',context)
+    risk_catalog=c.call('futures/risk/catalog',{'context': context, 'bookIds': [], 'portfolioIds': []})
     held={v['contract']['id']:v for v in expected.values()}
     factors=[v for v in risk_catalog['factors'] if v['contractId'] in held]
     bumps=[{'seriesId':v['seriesId'],'quote':v['quote'],'size':'0.01','convention':risk_catalog['bumpConvention']} for v in factors]

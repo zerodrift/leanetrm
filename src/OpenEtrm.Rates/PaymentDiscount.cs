@@ -153,11 +153,31 @@ public sealed record FinancialSwapEvaluation
 
 public static class FinancialSwapValuation
 {
+    public const string ParRatePolicy="par_fixed_price_to_even_v1";
+    public sealed record ParSwapRate(UnitPrice Price,string Numerator,string Denominator,string Policy,int DecimalPlaces,CashTieRule TieRule);
+    public static ParSwapRate ParRate(FinancialSwapInstrument instrument,CurveBuild market,CurrencyDiscountCurve? currencyDefault,AmountFormat rounding)
+    {
+        if(instrument?.First is not FixedSide fixedSide||rounding is null||rounding.TieRule!=CashTieRule.ToEven)
+            throw new MarketDataException("swap_par_rate","Par fixed pricing requires a fixed/floating swap and explicit decimal precision with ties to even.");
+        var value=Evaluate(instrument,market,instrument.Discounting,currencyDefault);
+        var coefficient=ExactMoney.FromMoney(new UnitPrice(ExactDecimal.Parse("1"),fixedSide.Price.Unit).Times(fixedSide.UnitQuantity))
+            .Scale(value.Sides[0].Payments.Single().Discount.Factor);
+        var floating=value.Sides[1].Contribution.Value.PresentValue;
+        var numerator=System.Numerics.BigInteger.Parse(floating.Numerator,System.Globalization.CultureInfo.InvariantCulture)*System.Numerics.BigInteger.Parse(coefficient.Denominator,System.Globalization.CultureInfo.InvariantCulture);
+        var denominator=System.Numerics.BigInteger.Parse(floating.Denominator,System.Globalization.CultureInfo.InvariantCulture)*System.Numerics.BigInteger.Parse(coefficient.Numerator,System.Globalization.CultureInfo.InvariantCulture);
+        var gcd=System.Numerics.BigInteger.GreatestCommonDivisor(System.Numerics.BigInteger.Abs(numerator),denominator);numerator/=gcd;denominator/=gcd;
+        var price=new UnitPrice(ExactDecimal.Parse(new AmountFormat(rounding.DecimalPlaces,rounding.TieRule,false,true).FormatFraction(numerator,denominator)),fixedSide.Price.Unit);
+        return new(price,numerator.ToString(System.Globalization.CultureInfo.InvariantCulture),denominator.ToString(System.Globalization.CultureInfo.InvariantCulture),ParRatePolicy,rounding.DecimalPlaces,rounding.TieRule);
+    }
     public static FinancialSwapEvaluation Evaluate(FinancialSwapInstrument instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault)
     {
         if(instrument is null||market is null)throw new MarketDataException("swap_context","An explicit instrument and built market scenario are required.");
         if(discounting!=instrument.Discounting)throw new MarketDataException("swap_valuation","Discounting must match the immutable instrument definition.");
-        var inputs=new CurrencyDefaultDiscounting(instrument.Sides.Select(m=>m.Side.GenerateSchedule()),market.Snapshot,discounting,currencyDefault);
+        var sides=instrument.Sides.Select(m=>m.Side).ToArray();
+        if(sides.GroupBy(s=>s.Id).Any(group=>group.Select(DefinitionIdentity.For).Distinct().Count()!=1||
+            group.OfType<FloatingSide>().Select(s=>DefinitionIdentity.For(s.PricingBinding)).Distinct().Count()>1))
+            throw new MarketDataException("side_definition","One side identity cannot resolve to conflicting economic terms or pricing bindings.");
+        var inputs=new CurrencyDefaultDiscounting(sides.DistinctBy(s=>s.Id).Select(s=>s.GenerateSchedule()),market.Snapshot,discounting,currencyDefault);
         var value=instrument.PV(new SideValuationContext(market,inputs));
         return new(value,value.Sides.Select(s=>new DiscountedSideValuation(s,s.Value.Payments.Select(p=>new DiscountedSidePayment(p,inputs.Inputs[p.Plan.Key],value.Snapshot)).ToImmutableArray())).ToImmutableArray());
     }

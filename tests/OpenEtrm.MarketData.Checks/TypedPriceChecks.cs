@@ -157,6 +157,17 @@ internal static class TypedPriceChecks
             var built = f.Model(curves).Build(f.Snapshot(), [new(f.C("hub_power"), f.K(4))]);
             Equal(built.Values[0].Price.Value.ToString(), "4.00033");
         });
+        Check("price pivot extrema and arithmetic means preserve units and explicit rounding", () =>
+        {
+            UnitPrice P(string value)=>new(ExactDecimal.Parse(value),PriceUnit.FromQuote(gas));
+            Equal(PriceStatistics.Aggregate([P("100000000000000000.01"),P("100000000000000000.02")],PriceStatistic.Minimum,null).Value.ToString(),"100000000000000000.01");
+            Equal(PriceStatistics.Aggregate([P("100000000000000000.01"),P("100000000000000000.02")],PriceStatistic.Maximum,null).Value.ToString(),"100000000000000000.02");
+            Equal(PriceStatistics.Aggregate([P("999999999999999999999999"),P("999999999999999999999999")],PriceStatistic.ArithmeticMean,PriceStatistics.MeanPolicy).Value.ToString(),"999999999999999999999999");
+            Equal(PriceStatistics.Aggregate([P("0.000000000000000001"),P("0.000000000000000002")],PriceStatistic.ArithmeticMean,PriceStatistics.MeanPolicy).Value.ToString(),"0.000000000000000002");
+            Equal(PriceStatistics.Aggregate([P("0"),P("0.000000000000000001")],PriceStatistic.ArithmeticMean,PriceStatistics.MeanPolicy).Value.ToString(),"0");
+            Reject("price_statistics",()=>PriceStatistics.Aggregate([P("1"),P("2")],PriceStatistic.ArithmeticMean,null));
+            Reject("price_statistics",()=>PriceStatistics.Aggregate([P("1"),new UnitPrice(ExactDecimal.Parse("2"),power)],PriceStatistic.Minimum,null));
+        });
         Console.WriteLine($"{passed} typed price checks passed.");
         return passed;
     }

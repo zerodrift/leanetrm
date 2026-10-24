@@ -20,3 +20,20 @@ test('new trade layouts expose stable references and revision without changing e
  const legacy={...view,columns:['book','lots','executionPnl']};
  assert.deepEqual(parseBlotterViews(JSON.stringify([legacy]))[0].columns,legacy.columns);
 });
+
+test('price pivot layouts retain explicit statistics, units and exact arithmetic filters',()=>{
+ const view={...newBlotterView(),mode:'pivot',groupBy:['book'],measures:['fixedPriceMean'],columns:['book','fixedPriceMean','unit','currency','priceUnit'],columnFilters:{fixedPriceMean:'>= 3.000000000000000001'}};
+ assert.deepEqual(parseBlotterViews(JSON.stringify([view]))[0],view);
+ assert.throws(()=>parseBlotterViews(JSON.stringify([{...view,columns:view.columns.filter(k=>k!=='priceUnit')}])));
+ assert.throws(()=>parseBlotterViews(JSON.stringify([{...newBlotterView(),columns:['fixedPriceMean']}])));
+});
+
+test('chart layouts retain plot style and measures while older views upgrade presentation only',()=>{
+ const view={...newBlotterView(),version:3,chart:{visible:true,measure:'presentValue',kind:'heatmap'}};
+ assert.deepEqual(parseBlotterViews(JSON.stringify([view]))[0],view);
+ const legacy={...view,version:2,chart:{visible:true,measure:'executionPnl'}};
+ const restored=parseBlotterViews(JSON.stringify([legacy]))[0];
+ assert.deepEqual(restored.chart,{visible:true,measure:'executionPnl',kind:'bar'});
+ assert.deepEqual(restored.bookIds,legacy.bookIds);assert.equal(restored.version,3);
+ for(const chart of [{...view.chart,measure:'guessed'},{...view.chart,kind:'pie'}])assert.throws(()=>parseBlotterViews(JSON.stringify([{...view,chart}])));
+});

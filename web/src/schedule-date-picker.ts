@@ -4,7 +4,7 @@ import type {Context} from './date-editor.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Receipt={expression:string;date:string;source:{kind?:string;name?:string;symbol?:string;version?:number;occurrence?:number;context:Context}};
 type Reference={symbol:string;name:string;version:number;selection:string};
-type Target={input:HTMLInputElement;label:string};
+type Target={input:HTMLInputElement;label:string;available?:()=>boolean;acceptsDate?:(date:string)=>boolean};
 
 /** One-time authoring helper. The backend resolves all date semantics; applying
  * a reviewed receipt sets a literal date, not a live relationship on a trade. */
@@ -25,7 +25,7 @@ export function createScheduleDatePicker(host:HTMLElement,options:{id:string;api
  let generation=0,receipt:Receipt|undefined,retainedContext='',retainedTarget='';
  const stamp=()=>JSON.stringify(options.context());
  const clear=()=>{generation++;receipt=undefined;retainedContext='';retainedTarget='';description.textContent='';result.hidden=true;};
- function sync(){const c=options.context();context.textContent=c?`Business date ${displayDate(c.effectiveOn)} · known ${c.knownAt?displayInstant(c.knownAt,options.zone()):'unavailable'} · ${options.zone()}`:'';for(const control of [target,expression,resolve,apply])control.disabled=!options.enabled()||options.busy();if(!options.enabled())clear();}
+ function sync(){const c=options.context();context.textContent=c?`Business date ${displayDate(c.effectiveOn)} · known ${c.knownAt?displayInstant(c.knownAt,options.zone()):'unavailable'} · ${options.zone()}`:'';for(const control of [target,expression,resolve,apply])control.disabled=!options.enabled()||options.busy();const prior=target.value;target.replaceChildren(new Option('Choose a side date…',''),...options.targets.filter(t=>t.available?.()!==false).map(t=>new Option(t.label,t.input.id)));target.value=prior;if(!target.value&&prior)clear();if(!options.enabled())clear();}
  panel.addEventListener('toggle',()=>{if(!panel.open){clear();return;}void options.run(async()=>{
   sync();if(!options.enabled())return;const started=generation,source=stamp();
   const library=await options.api<{references:Reference[]}>('date-schedules/catalog',{context:options.context()});if(started!==generation||source!==stamp()||!options.enabled())return;
@@ -35,17 +35,18 @@ export function createScheduleDatePicker(host:HTMLElement,options:{id:string;api
  target.onchange=clear;expression.oninput=clear;
  resolve.onclick=()=>void options.run(async()=>{
   clear();if(!options.enabled())return;
-  if(!target.value||!expression.value.trim())throw Error('Choose a side date and enter a schedule reference first.');
+  if(!target.value||!expression.value.trim()||options.targets.find(t=>t.input.id===target.value)?.available?.()===false)throw Error('Choose an available side date and enter a schedule reference first.');
   const c=options.context();if(!c?.contextId||!c.knownAt)throw Error('Reload the editor to obtain its exact date context.');
   const started=generation,source=stamp(),to=target.value,query=expression.value;
   const value=await options.api<Receipt>('date-schedules/resolve',{expression:query,context:c});
   if(started!==generation||source!==stamp()||to!==target.value||query!==expression.value||!options.enabled())return;
+  if(options.targets.find(t=>t.input.id===to)?.acceptsDate?.(value.date)===false)throw Error('The resolved date has no available data for the selected side and delivery period.');
   receipt=value;retainedContext=source;retainedTarget=to;
   description.textContent=publicText(`${value.expression} → ${value.date}${value.source.version?` · ${value.source.name} · v${value.source.version} · occurrence ${value.source.occurrence}`:' · literal date'}`);result.hidden=false;
  });
  apply.onclick=()=>{
   if(options.busy()||!options.enabled()||!receipt||retainedContext!==stamp()||retainedTarget!==target.value){clear();return;}
-  const chosen=options.targets.find(t=>t.input.id===retainedTarget);if(!chosen){clear();return;}
+  const chosen=options.targets.find(t=>t.input.id===retainedTarget);if(!chosen||chosen.available?.()===false||chosen.acceptsDate?.(receipt.date)===false){clear();return;}
   chosen.input.value=receipt.date;chosen.input.dispatchEvent(new Event('input',{bubbles:true}));chosen.input.dispatchEvent(new Event('change',{bubbles:true}));clear();
  };
  return{sync,invalidate:clear,reset(){clear();panel.open=false;target.value='';expression.value='';list.replaceChildren();context.textContent='';availability.textContent='';sync();}};

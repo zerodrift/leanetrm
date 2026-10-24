@@ -18,6 +18,12 @@ public sealed class PowerClock
         Zone=zone; Rules=zone.ToSerializedString();
         Fingerprint=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Rules))).ToLowerInvariant();
     }
+    public DateTimeOffset StartOfDay(DateOnly date)
+    {
+        var local=date.ToDateTime(TimeOnly.MinValue,DateTimeKind.Unspecified);
+        if(Zone.IsInvalidTime(local)||Zone.IsAmbiguousTime(local))throw new MarketDataException("clock_rule","The selected day has no unambiguous midnight in the pinned clock.");
+        return new(local,Zone.GetUtcOffset(local));
+    }
     public static PowerClock Capture(TimeZoneInfo zone) => new(zone ?? throw new ArgumentNullException(nameof(zone)));
     // A reference clock rule: an exact fixed offset .NET can represent, or an installed IANA
     // zone file whose tzdb release equals the declared one before and after loading it.

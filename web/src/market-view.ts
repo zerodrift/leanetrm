@@ -39,8 +39,17 @@ export function marketType(curve:Row,workspace:Workspace):MarketType {
   if([...kinds].every(k=>k==='future'||k==='forward'))return 'mixed';
   throw Error('This contract type is not supported yet.');
 }
-export function marketGroups(workspace:Workspace,by:'commodity'|'marketType',commodity:string,type:string){
-  const curves=allCurves(workspace).filter(c=>(commodity==='all'||marketCategory(c)===commodity)&&(type==='all'||marketType(c,workspace)===type));
+export function availableMarketCurves(workspace:Workspace,frameId?:string){
+  const frames=frameId?workspace.frames.filter(f=>f.id===frameId):workspace.frames;
+  return allCurves(workspace).filter(c=>frames.some(f=>{
+    if(!f.observationIds.length)return false;
+    if(typeof c.interest_rate_code!=='string')return (f.curveContracts[String(c.code)]?.length??0)>0;
+    const series=new Set((workspace.definitions.rate_curve_points??[]).filter(p=>p.curve_code===c.code).map(p=>p.series_id));
+    return workspace.observations.some(o=>f.observationIds.includes(String(o.id))&&series.has(o.series_id));
+  }));
+}
+export function marketGroups(workspace:Workspace,by:'commodity'|'marketType',commodity:string,type:string,available=allCurves(workspace)){
+  const curves=available.filter(c=>(commodity==='all'||marketCategory(c)===commodity)&&(type==='all'||marketType(c,workspace)===type));
   const groups=new Map<string,Row[]>();
   for(const curve of curves){const name=by==='commodity'?categoryName(marketCategory(curve),workspace):marketTypeName(marketType(curve,workspace));if(!groups.has(name))groups.set(name,[]);groups.get(name)!.push(curve);}
   return [...groups.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([name,curves])=>({name,curves}));

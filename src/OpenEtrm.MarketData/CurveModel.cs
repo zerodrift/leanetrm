@@ -56,7 +56,7 @@ public sealed partial class CurveModel
             throw new MarketDataException("futures_definition", "The exact futures-series primary key is unavailable.");
         return contractInstruments.GetOrAdd(key, _ => new(terms));
     }
-    public FuturesMarketBinding BindFutures(Guid bindingId, CurveRequest request, string settlementMethod,string implementation)
+    public FuturesMarketBinding BindFutures(Guid bindingId, CurveRequest request, string settlementMethod,string implementation,DateTimeOffset? eligibleFrom=null)
     {
         var instrument = FuturesContract(request.Contract);
         if (!curves.TryGetValue(request.Curve, out var curve))
@@ -64,7 +64,7 @@ public sealed partial class CurveModel
         var quote = Quote(curve);
         RequireFuturesDefinition(request, contracts[request.Contract], instrument.Series, quote);
         return new(bindingId, request, contracts[request.Contract], instrument.Series, quote,
-            settlementMethod, implementation, instrument);
+            settlementMethod, implementation, instrument,eligibleFrom);
     }
 
     private static ImmutableDictionary<K, V> Unique<K, V>(IEnumerable<V> values, Func<V, K> key) where K : notnull
@@ -173,8 +173,7 @@ public sealed partial class CurveModel
                 }
                 if (!quantities.ContainsKey(spec.QuoteQuantity) || !quantities.TryGetValue(spec.LotQuantity, out var lot) ||
                     spec.SettlementMethod is not ("cash" or "physical") || !Positive(spec.ContractSize) || !Positive(spec.Multiplier) || !Positive(spec.TradingTick) ||
-                    spec.FirstTradingAt.Offset != TimeSpan.Zero || spec.FirstTradingAt.Ticks % 10 != 0 ||
-                    spec.FirstTradingAt >= spec.LastTradingAt ||
+                    spec.FirstTradingAt is {} first&&(first.Offset != TimeSpan.Zero || first.Ticks % 10 != 0 || first>=spec.LastTradingAt) ||
                     lot.Commodity != quantities[spec.QuoteQuantity].Commodity ||
                     contract.DeliveryFrom != spec.DeliveryFrom || contract.DeliveryTo != spec.DeliveryTo || contract.Expiry != spec.LastTradingAt)
                     Fail("futures_specification", "Dated contract conflicts with its authoritative futures specification.");
@@ -197,7 +196,7 @@ public sealed partial class CurveModel
                 if (contracts[member].FuturesSeries is { } series)
                 {
                     var spec = futures[series];
-                    if (curve.Rule != CurveRule.Direct || curve.DirectRole != ObservationRole.DailySettlement ||
+                    if (curve.Rule != CurveRule.Direct || curve.DirectRole is not (ObservationRole.DailySettlement or ObservationRole.TraderMark) ||
                         curve.Settlement.Kind != SettlementKind.FutureSeries || output.Kind != (spec.BasisSettlement is null?QuoteKind.Outright:QuoteKind.Basis) ||
                         output.Quantity != spec.QuoteQuantity || output.Currency != spec.Currency || output.Multiplier != spec.Multiplier ||
                         output.TradingTick != spec.TradingTick || curve.Location != spec.Location || curve.DeliveryProfile != spec.DeliveryProfile)
@@ -316,18 +315,19 @@ public sealed partial class CurveModel
         return spec;
     }
 
-    public CurveBuild Build(MarketSnapshot snapshot, ImmutableArray<CurveRequest> requests)
-        => Build(snapshot,requests,null,[],default);
+    public CurveBuild Build(MarketSnapshot snapshot, ImmutableArray<CurveRequest> requests,CancellationToken cancellation=default)
+        => Build(snapshot,requests,null,[],cancellation);
     private CurveBuild Build(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,Risk.QuoteShock? shock,
-        ImmutableArray<CurveEvaluation> reusable,CancellationToken cancellation)
+        ImmutableArray<CurveEvaluation> reusable,CancellationToken cancellation,Risk.QuoteScenario? scenario=null)
     {
+        cancellation.ThrowIfCancellationRequested();
         EnumValue(snapshot.SelectionPolicy);
         if (snapshot.Id == Guid.Empty || snapshot.Definitions != revision)
             Fail("snapshot_pin", "Snapshot must name this exact definition revision.");
         if (snapshot.ValuationAt.Offset != TimeSpan.Zero || snapshot.MarketCutoff.Offset != TimeSpan.Zero ||
             snapshot.MarketCutoff > snapshot.ValuationAt || snapshot.ValuationAt >= End || snapshot.Selections.IsDefault)
             Fail("snapshot_context", "Explicit UTC valuation/cutoff context and selected inputs are required.");
-        if (requests.IsDefaultOrEmpty || requests.Distinct().Count() != requests.Length)
+        if (requests.IsDefault || requests.Distinct().Count() != requests.Length)
             Fail("request", "Supply distinct explicit output requests.");
         var inputs = Unique(snapshot.Selections, s => s.Input);
         foreach (var group in inputs.Values.GroupBy(s => s.Observation.Key))
@@ -367,7 +367,7 @@ public sealed partial class CurveModel
                 Fail("frozen_fact", "First frozen-input subset requires final contract settlement.");
         }
         var result = requests.Select(r => Evaluate(r, InputUse.Variable)).ToImmutableArray();
-        return new CurveBuild(this, snapshot, NumericalPolicy, result, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock);
+        return new CurveBuild(this, snapshot, NumericalPolicy, result, memo.Count-reusable.Length, evaluations.ToImmutable(),reusable.Length,shock,scenario);
 
         BuiltValue Evaluate(CurveRequest request, InputUse use)
         {
@@ -394,7 +394,7 @@ public sealed partial class CurveModel
                     throw new MarketDataException("selection_mismatch", "Selected quote, source, role or finality is incompatible.");
                 if (use == InputUse.FrozenFact && (contract.Kind != ContractKind.Future || obs.ObservedAt < contract.Expiry))
                     throw new MarketDataException("frozen_fact", "Final future settlement must be observed at or after its explicit expiry.");
-                var scenarioValue=shock is not null && key==shock.Bump.Input ? obs.Value+shock.AppliedSize : obs.Value;
+                var scenarioValue=obs.Value+(scenario?.Offset(key)??default);
                 value = new BuiltValue(request, quote, new UnitPrice(scenarioValue, quote), ImmutableHashSet.Create(obs.Key));
             }
             else

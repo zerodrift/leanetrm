@@ -9,6 +9,8 @@ public sealed record ExactQuantity
 {
  private readonly BigInteger numerator,denominator;
  public ReferenceKey Specification { get; }
+ internal BigInteger NumeratorValue=>numerator;
+ internal BigInteger DenominatorValue=>denominator;
  public string Numerator=>numerator.ToString(CultureInfo.InvariantCulture);
  public string Denominator=>denominator.ToString(CultureInfo.InvariantCulture);
  internal ExactQuantity(BigInteger numerator,BigInteger denominator,ReferenceKey specification)

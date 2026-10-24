@@ -237,6 +237,73 @@ be replaced with plausible defaults or zeros.
 
 ## Accuracy and maintenance
 
+### Implemented source capture boundary
+
+The managed API executable also provides an operator command for private source
+acquisition. It accepts no application/database credentials and does not mutate a
+database. All paths are absolute; the credential file and output directory require
+owner-only Unix permissions. Existing output files are never overwritten.
+
+```sh
+dotnet OpenEtrm.Api.dll --capture-reference cme-products CONFIG OUTPUT
+dotnet OpenEtrm.Api.dll --capture-reference cme-contracts CONFIG SELECTION OUTPUT
+dotnet OpenEtrm.Api.dll --capture-reference ice-files MANIFEST OUTPUT
+```
+
+`CONFIG` is private JSON with explicit `clientId`, `clientSecret`, `pageSize`,
+`maximumRequests`, `minimumRequestSpacingMilliseconds`, `maximumResponseBytes`
+and `maximumCaptureBytes`. Token and reference origins are fixed to official CME
+HTTPS endpoints. Redirects are disabled. Requests use client-credentials OAuth;
+tokens and provider error bodies are excluded from packages and diagnostics.
+Pagination must retain consistent totals and return every exact expected page;
+changed scope, duplicate identities, missing pages and resource limits reject the
+whole capture. Retries require a new explicit invocation; there is no silent
+partial-success or provider fallback.
+
+`SELECTION` is an array of exact `{ "productId": "...", "exchange": "..." }`
+source identities. Product names and trading symbols are not identifiers. The
+selected product must report `securityType=FUT`; each instrument must link back
+to that exact product on the selected clearing exchange. Discovery output also
+contains non-futures and test products; it is not a tradable-product list.
+
+The ICE manifest supplies `maximumDocumentBytes`, `maximumCaptureBytes` and
+`files`. Each file requires `productId`, `exchange` (the supported IFED namespace),
+`kind` (`expiry_csv` or `specification_pdf`), absolute `file`, exact official
+download `url`, `retrievedAtUtc` and matching `sha256`. Local file evidence is
+explicitly labelled `operator_reported_download`: its URL and retrieval time are
+operator assertions, rather than an HTTP response observed by this process.
+PDF content is retained as evidence without automatic financial interpretation.
+
+The supported ICE CSV contract has `CONTRACT SYMBOL,FTD,LTD,FND,LND,FDD,LDD,FSD`
+and optional `MWHS`. Gas exports may append one unnamed empty field to data rows;
+nonempty unnamed values reject the report. The known Excel text wrapper around a
+contract symbol is decoded as text, without evaluating formulas. Native dates
+remain dates, blank cells remain unknown, and an empty report does not establish
+absence of listings. Published MWh values use the existing exact source-capture
+bound (at most 18 fractional digits, magnitude below 1e24); they acquire no
+approved unit-reference binding and enter no calculation at intake. No hours,
+delivery periods, UTC cutoffs, ticks or missing maturities are generated.
+
+`exchange_reference_capture_v1` retains raw source bytes, hashes, source record
+identities and capture start/end times. CME documents identify observed HTTP
+responses; ICE documents identify operator-supplied files. All packages explicitly
+say `state=unqualified`, `tradingEnabled=false`, `pointInTimeSnapshot=false`.
+An enumeration can span provider updates, even when totals remain stable.
+Hashes prove retained byte identity, not exchange authenticity, economic approval,
+listing completeness, data-use permission or certified historical knowledge.
+
+Source identities are intake keys, not replacements for the existing exact-version
+futures product/series primary keys. Qualification must explicitly map them to
+retained relational references before UI, imports or agents can book or price.
+No production reference import/activation operation is implemented by this command.
+
+Run the synthetic protocol/filesystem checks with the API checks project's
+`--reference-capture` argument. The normal `--schedules` verification path runs
+them as well. Real source documents and private connection files stay outside
+the public repository.
+
+### Qualification and publication
+
 Accuracy is a controlled process, not a permanent claim about a static seed file:
 
 1. Import an entitled source or an authorized manual entry into a new draft.
@@ -302,3 +369,42 @@ These storage checks do not qualify the economic model or the temporal resolver.
 Further acceptance covers holiday exceptions, date-only versus instant deadlines,
 unit/tick economics, pending verification, conflicting sources, expired permissions,
 history replay and futures P&L/settlement reconciliation.
+
+
+## Private inactive source import
+
+`--import-reference CONFIG CAPTURE` validates retained source bytes through the
+managed parser before connecting with a dedicated trusted operator login.
+Configuration explicitly supplies separate authenticator/operator connection
+files, service identity, tenant, workspace, catalog, stable operation UUID,
+product/location mappings and any exact MWh quantity reference. Files are private
+installation inputs; neither credentials nor real catalogs belong in this tree.
+The application runtime cannot execute this import function. The operator login
+cannot issue identities, own database objects or bypass row security. Scoped
+capabilities still identify the service actor and require current reference read,
+write and seal authority before and after the operation.
+
+`imported_product_keys` and `imported_series_keys` retain native composite primary
+keys, with unique foreign-key mappings to canonical product and series primary
+keys in the same revision. Exact native-key lookups therefore retrieve the same
+canonical definition without symbol searches or duplicate per-trade objects.
+Source documents retain bytes, hashes, acquisition method and the original
+retrieval timestamp. PostgreSQL retrieval instants explicitly floor submicrosecond
+precision; the original timestamp remains evidence. Source-native calendar dates
+remain dates. Unknown delivery periods and cutoff clocks stay unknown.
+Published MWh amounts use exact `Quantity` values pinned to the explicitly selected
+sealed electricity/energy/MWh specification. No MW/hour schedule is inferred.
+
+The import freezes a new revision atomically and records the server actor/time.
+All imported products and series remain non-executable placeholders. A repeated
+operation with identical input returns its receipt; changed input under the same
+operation or a duplicate payload under a different operation rejects. Existing
+financial data, market revisions, marks and trade state are not changed. Historical
+reads apply the existing exact revision visibility policy to aliases and evidence,
+including visibility of their quantity references.
+
+An empty daily expiry download retains an incomplete product with no series.
+It does not establish an empty exchange listing and does not authorize invented
+maturities. Exchange enumeration is evidence, not certification of current trading
+eligibility, data entitlements or executable economics. No automatic recurring
+reference schedule or real futures activation is implemented by this command.

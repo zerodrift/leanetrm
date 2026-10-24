@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
 
 // In-process synthetic qualification. Fixture/model construction, database and
 // transport are excluded; each measured run starts with empty valuation caches.
@@ -12,10 +13,10 @@ internal static class RiskBenchmark
     public static void Run(string output)
     {
         var results=new List<object>();
-        foreach(var (name,bindings,unique,factors) in new[]{("repeated",10000,1,1),("shared_fanout",10000,128,3),("distinct",1000,1000,1)})
+        foreach(var (name,bindings,unique,factors) in new[]{("repeated",50000,1,1),("shared_fanout",50000,128,3),("distinct",50000,5000,1)})
         {
             var fixture=new Workload(bindings,unique,factors);
-            RiskRun Optimized()=>RiskEngine.Calculate(fixture.Model,fixture.Snapshot,fixture.Pricers,fixture.Positions,fixture.Bumps,RiskEngine.NumericalPolicy);
+            RiskRun Optimized()=>RiskEngine.Calculate(fixture.Model,fixture.Snapshot,new ValuationPortfolio(fixture.Pricers,fixture.Positions,new(ValuationMeasure.ExecutionPnl,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)),fixture.Bumps,RiskEngine.NumericalPolicy);
             var warm=Optimized();var expected=fixture.Reference();Compare(warm,expected);
             var fast=Measure(()=>{var r=Optimized();Compare(r,expected);return r;});
             var slow=Measure(()=>{var r=fixture.Reference();Compare(warm,r);return r;});
@@ -25,12 +26,52 @@ internal static class RiskBenchmark
                 optimized=fast,fullReprice=slow});
             Console.WriteLine($"{name}: {bindings} bindings / {unique} held contracts / {1+2*factors} scenarios; median {fast.MedianMilliseconds:F2} ms; {warm.Work.UnitPricerCalls} unit calls; reference {slow.MedianMilliseconds:F2} ms.");
         }
-        var report=new{schema="synthetic_shared_risk_benchmark_v1",numericalPolicy=RiskEngine.NumericalPolicy,
+        foreach(var months in new[]{1,24})
+        {
+            var fixture=new BasisRiskFixture(months);var portfolio=fixture.Portfolio(50000);
+            RiskRun Run()=>RiskEngine.Calculate(fixture.Model,fixture.Snapshot,portfolio,fixture.Bumps,RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
+            var warm=Run();fixture.Verify(warm,portfolio);
+            var preparation=Measure(()=>new ValuationPortfolio(fixture.Instruments,portfolio.Positions,portfolio.Setup));
+            var timing=Measure(Run);
+            results.Add(new{name="multilevel_basis_books",bindings=50000,months,heldContracts=fixture.Instruments.Length,
+                primitivePriceInputs=fixture.Bumps.Length,dependencyNodes=fixture.Nodes,factors=fixture.Bumps.Length,
+                bookCount=portfolio.Books.Length,bookInstrumentGroups=portfolio.Positions.Select(p=>(p.BookId,p.ValuationId)).Distinct().Count(),
+                scenarios=1+2*fixture.Bumps.Length,optimizedWork=warm.Work,optimized=timing,planPreparation=preparation,
+                validation="Independent closed-form signed quote incidence and book totals; real fixed/floating unit swap PV. Oracle runs outside timing."});
+            Console.WriteLine($"multilevel basis: 50000 bindings / {fixture.Instruments.Length} units / {fixture.Bumps.Length} factors; median {timing.MedianMilliseconds:F2} ms; {warm.Work.UnitPricerCalls} unit calls.");
+        }
+        results.Add(FuturesWorkload());
+        var report=new{schema="synthetic_shared_risk_benchmark_v2",numericalPolicy=RiskEngine.NumericalPolicy,
             environment=new{framework=RuntimeInformation.FrameworkDescription,os=RuntimeInformation.OSDescription,architecture=RuntimeInformation.ProcessArchitecture.ToString(),
                 processors=Environment.ProcessorCount,configuration=DebugBuild?"Debug":"Release",stopwatchFrequency=Stopwatch.Frequency},
-            protocol="One warm-up per workload; five samples, fresh within-run caches, sequential single-threaded runs. Model/input/position construction excluded. Each timed run includes per-position result reconciliation against a separately prepared reference. No database, serialization, persistence, authorization or service throughput is measured.",
+            protocol="One warm-up per workload; five samples, fresh within-run caches, sequential single-threaded runs. Model/input/position construction excluded. The first three workloads include per-position reconciliation against a separately prepared full-repricing reference; multilevel basis and futures validate independent expected values outside timing. Basis portfolios are prepared before timing; mark workloads construct the portfolio in each timed run; futures includes holdings validation and portfolio preparation. No database, serialization, persistence, authorization or service throughput is measured.",
             memory="Allocated bytes are current-thread total allocations during each run including validation; retained/peak native memory is not measured.",results};
         File.WriteAllText(output,JsonSerializer.Serialize(report,new JsonSerializerOptions{WriteIndented=true})+"\n");
+    }
+    private static object FuturesWorkload()
+    {
+        var f=new Fixture();var quote=f.Quotes[0];var contract=f.Contracts[0];var snapshot=f.Snapshot();
+        var series=new FuturesSeriesSpecification(f.R("future_jan"),quote.Quantity,quote.Currency,quote.Multiplier,quote.TradingTick,
+            f.R("location"),f.R("uniform"),contract.DeliveryFrom,contract.DeliveryTo,contract.Expiry,quote.Quantity,ExactDecimal.Parse("40"),LotBasis.FixedTotal,
+            Fixture.Utc("2040-01-01T00:00:00Z"),"cash");
+        var binding=new FuturesMarketBinding(Guid.NewGuid(),new(f.C("future"),f.K(1)),contract,series,quote,"cash",FuturesMarketBinding.Implementation);
+        var trades=Enumerable.Range(0,50000).Select(n=>new FuturesTrade(BasisRiskFixture.Id(1000000+n),BasisRiskFixture.Id(10+n%4),
+            [new(BasisRiskFixture.Id(2000000+n),binding,ExactDecimal.Parse(n%3==0?"-2":"3"),new UnitPrice(ExactDecimal.Parse("2.5"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)])).ToImmutableArray();
+        var bump=new QuoteBump(new(f.S(1),InputUse.Variable),quote.Key,PriceUnit.FromQuote(quote),ExactDecimal.Parse("0.01"),QuoteBump.Convention);
+        var model=f.Model();
+        RiskRun Run()=>FuturesRisk.Calculate(trades,snapshot,model,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
+        var warm=Run();
+        foreach(var total in warm.Factors[0].Totals)
+        {
+            var quantity=trades.Where(t=>t.BookId==total.BookId).Select(t=>t.Instruments[0].Lots*ExactDecimal.Parse("40")).Aggregate((a,b)=>a+b);
+            if(total.Delta.Value!=quantity||total.Base.Amount!=quantity*ExactDecimal.Parse("0.5")||total.Gamma.Value!=default)
+                throw new Exception("Futures benchmark independent lot/mark oracle failed.");
+        }
+        if(warm.Work.UnitPricerCalls!=3)throw new Exception("A repeated future must value only once per scenario.");
+        var timing=Measure(Run);
+        Console.WriteLine($"futures: 50000 bindings / 1 contract / 1 factor; median {timing.MedianMilliseconds:F2} ms; {warm.Work.UnitPricerCalls} unit calls.");
+        return new{name="futures_books",bindings=50000,heldContracts=1,primitivePriceInputs=1,factors=1,scenarios=3,
+            optimizedWork=warm.Work,optimized=timing,validation="Independent lot-scaled execution-P&L and signed exposure totals."};
     }
     private const bool DebugBuild=
 #if DEBUG
@@ -62,7 +103,7 @@ internal static class RiskBenchmark
     {
         public CurveModel Model{get;}
         public MarketSnapshot Snapshot{get;}
-        public ImmutableArray<IUnitPricer> Pricers{get;}
+        public ImmutableArray<Instrument> Pricers{get;}
         public ImmutableArray<RiskPosition> Positions{get;}
         public ImmutableArray<QuoteBump> Bumps{get;}
         private readonly ImmutableArray<CurveRequest> requests;
@@ -89,10 +130,10 @@ internal static class RiskBenchmark
             Snapshot=new(Id(5),revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,series.Select((s,n)=>
                 new SelectedObservation(new(s.Key,InputUse.Variable),new(new(revision.CatalogId,Id(30000+n)),s.Key,R("source"),ObservationRole.TraderMark,PublicationState.Final,at,ExactDecimal.Parse(n==0?"3":"0.2")))).ToImmutableArray());
             requests=members.Select(k=>new CurveRequest(C("output"),k)).ToImmutableArray();
-            Pricers=requests.Select((r,n)=>(IUnitPricer)new RiskChecks.TestPricer(new(Id(40000+n),"synthetic_mark_v1",[r],quantity.Key,quote.Currency,QuantityBehavior.Scalable),
+            Pricers=requests.Select((r,n)=>(Instrument)new RiskChecks.TestPricer(new(Id(40000+n),"synthetic_mark_v1",[r],quantity.Key,quote.Currency),
                 i=>i.Price(r).Times(new Quantity(one,quantity.Key)))).ToImmutableArray();
-            markets=Pricers.ToDictionary(p=>p.Contract.Id,p=>p.Contract.Dependencies.Single());
-            Positions=Enumerable.Range(0,count).Select(n=>new RiskPosition(Id(50000+n),Id(70000+n),Id(n%2==0?8:9),Pricers[n%unique].Contract.Id,
+            markets=Pricers.ToDictionary(p=>p.Id,p=>((RiskChecks.TestPricer)p).Contract.Dependencies.Single());
+            Positions=Enumerable.Range(0,count).Select(n=>new RiskPosition(Id(50000+n),Id(70000+n),Id(n%2==0?8:9),Pricers[n%unique].Id,
                 new Quantity(ExactDecimal.Parse(n%3==0?"-2":"3"),quantity.Key),new(new Money(ExactDecimal.Parse("3"),quote.Currency),quantity.Key),new(default,quote.Currency)))
                 .OrderBy(p=>p.TradeId).ThenBy(p=>p.BindingId).ToImmutableArray();
             Bumps=Enumerable.Range(0,factors).Select(n=>new QuoteBump(new(S(n),InputUse.Variable),n==0?quote.Key:spread.Key,PriceUnit.FromQuote(n==0?quote:spread),ExactDecimal.Parse("0.1"),QuoteBump.Convention)).ToImmutableArray();

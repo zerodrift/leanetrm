@@ -36,7 +36,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         "exchanges", "clearing_houses", "exchange_clearing_houses",
         "interest_rate_definitions", "price_index_definitions", "sources", "product_evidence",
         "delivery_profiles", "settlement_targets", "cash_rounding_conventions",
-        "futures_products", "futures_series", "futures_milestones", "futures_lot_resolutions", "futures_product_terms", "futures_basis_settlements"];
+        "futures_products", "futures_series", "futures_execution_admissions", "futures_milestones", "futures_lot_resolutions", "futures_product_terms", "futures_basis_settlements"];
     private static readonly string[] DefinitionTables = ["revisions", "contracts", "curves", "series", "curve_members", "curve_inputs", "constituent_mappings", "rate_curves", "rate_curve_points", "revision_periods"];
 
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
@@ -110,6 +110,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         {
             await using var command=entry.Source.CreateCommand("""
 SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_role(current_user,$1,'MEMBER') AND NOT pg_has_role(current_user,$2,'MEMBER') AND NOT pg_has_role(current_user,'openetrm_security_owner','MEMBER') AND current_setting('track_commit_timestamp')='on'
+ AND NOT EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname='openetrm_reference_importer' AND pg_has_role(current_user,r.oid,'MEMBER'))
  AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,c.relowner,'MEMBER'))
  AND NOT EXISTS(SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,n.nspowner,'MEMBER'))
  AND NOT EXISTS(SELECT 1 FROM pg_database d WHERE d.datname=current_database() AND pg_has_role(current_user,d.datdba,'MEMBER')) FROM pg_roles WHERE rolname=current_user
@@ -119,10 +120,17 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         }
     }
 
-    public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null)
+    public Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null,IReadOnlyCollection<Guid>? observationIds=null)
     {
         if(selectedRevision is {} requested&&requested!=Manifest.RevisionId&&!(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==requested))throw new PreviewDeniedException();
         var selectedManifest=selectedRevision is {} id?Manifest with {RevisionId=id}:Manifest;
+        return ReadPinned(connection,selectedManifest,ct,sharedReferences,observationIds);
+    }
+
+    // Both request and worker paths load through the same bound temporal/RLS context.
+    internal static async Task<PreviewData> ReadPinned(NpgsqlConnection connection,PreviewManifest selectedManifest,CancellationToken ct,
+        PreviewData? sharedReferences=null,IReadOnlyCollection<Guid>? observationIds=null)
+    {
         var definitions = new Dictionary<string, ImmutableArray<JsonElement>>();
         foreach (var table in DefinitionTables)
         {
@@ -143,7 +151,9 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             foreach(var table in ReferenceTables)loaded[table]=await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{table} WHERE catalog_id=$1 AND revision_id=$2)t",[selectedManifest.ReferenceCatalogId,selectedManifest.ReferenceRevisionId],ct);
             references=loaded;
         }
-        var observations = await Rows(connection, "SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.observations WHERE catalog_id=$1 AND definition_revision_id=$2 ORDER BY observed_at,received_at,id) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
+        var observations = observationIds is null
+            ?await Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT * FROM market_data.observations WHERE catalog_id=$1 AND definition_revision_id=$2 ORDER BY observed_at,received_at,id)t",[selectedManifest.CatalogId,selectedManifest.RevisionId],ct)
+            :await Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT * FROM market_data.observations WHERE catalog_id=$1 AND definition_revision_id=$2 AND id=ANY($3::uuid[]) ORDER BY observed_at,received_at,id)t",[selectedManifest.CatalogId,selectedManifest.RevisionId,observationIds.ToArray()],ct);
         return new PreviewData(selectedManifest, definitions, references, observations);
     }
 
@@ -222,6 +232,7 @@ public sealed class PreviewData
     private readonly PreviewManifest manifest;
     public ImmutableDictionary<string, ImmutableArray<JsonElement>> Definitions { get; }
     public ImmutableDictionary<string, ImmutableArray<JsonElement>> References { get; }
+    public FuturesAdmission Admission { get; }
     public ImmutableArray<JsonElement> Observations { get; }
     public CurveModel Model { get; }
     public ImmutableArray<MarketContract> Contracts { get; }
@@ -238,7 +249,7 @@ public sealed class PreviewData
         IReadOnlyDictionary<string, ImmutableArray<JsonElement>> references, ImmutableArray<JsonElement> observations)
     {
         RequireBundlePin(manifest,Single(definitions["revisions"]));
-        this.manifest=manifest; Definitions=definitions.ToImmutableDictionary(); References=references.ToImmutableDictionary(); Observations=observations;
+        this.manifest=manifest; Definitions=definitions.ToImmutableDictionary(); References=references.ToImmutableDictionary(); Admission=new(References); Observations=observations;
         revision=new(manifest.CatalogId,manifest.RevisionId); reference=new(manifest.ReferenceCatalogId,manifest.ReferenceRevisionId);
         var quantities=references["quantity_specifications"].Select(q => new QuantitySpecification(R(q.Text("code")),R(q.Text("commodity_code")),R(q.Text("basis_code")),R(q.Text("unit_code")),R(q.Text("dimension_code")))).ToImmutableArray();
         var quotes=Quotes=references["quote_specifications"].Select(q => new QuoteSpecification(R(q.Text("code")),q.Text("kind") switch {"outright"=>QuoteKind.Outright,"basis"=>QuoteKind.Basis,_=>throw Unsupported()},R(q.Text("currency_code")),R(q.Text("quantity_code")),q.Number("multiplier"),q.Number("trading_tick"),q.Number("clearing_increment"),q.Number("minimum"),q.Number("maximum"))).ToImmutableArray();
@@ -283,7 +294,7 @@ public sealed class PreviewData
             FuturesBasisSettlement? basisSettlement=basis.ValueKind==JsonValueKind.Undefined?null:new(R(basis.Text("index_code")),R(basis.Text("benchmark_series_code")),basis.Text("implementation"));
             return new FuturesSeriesSpecification(c.FuturesSeries!.Value,Quantity(product.Text("quote_unit_code")),R(product.Text("quote_currency_code")),product.Number("quote_multiplier"),product.Number("outright_tick_size"),R(product.Text("location_code")),R(terms.Text("profile_code")),
                 DateOnly.ParseExact(series.Text("delivery_from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),DateOnly.ParseExact(series.Text("delivery_to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),SchedulePreview.RequiredMilestoneInstant(expiry),Quantity(product.Text("lot_unit_code")),product.Number("contract_size"),
-                product.Text("lot_basis") switch {"fixed_total"=>LotBasis.FixedTotal,"per_delivery_day"=>LotBasis.PerDeliveryDay,"per_delivery_hour"=>LotBasis.PerDeliveryHour,_=>throw Unsupported()},SchedulePreview.RequiredMilestoneInstant(first),product.Text("settlement_method"),resolved,basisSettlement);
+                product.Text("lot_basis") switch {"fixed_total"=>LotBasis.FixedTotal,"per_delivery_day"=>LotBasis.PerDeliveryDay,"per_delivery_hour"=>LotBasis.PerDeliveryHour,_=>throw Unsupported()},first.OptionalText("event_at") is null?null:SchedulePreview.RequiredMilestoneInstant(first),product.Text("settlement_method"),resolved,basisSettlement);
         }).ToImmutableArray();
         var valueSpecs=references["value_specifications"].Select(v=>new ValueSpecification(R(v.Text("code")),v.Text("kind") switch {"quantity_ratio"=>NumericKind.QuantityRatio,"dimensionless"=>NumericKind.Dimensionless,_=>throw Unsupported()},v.OptionalText("numerator_quantity_code") is {} a?R(a):null,v.OptionalText("denominator_quantity_code") is {} b?R(b):null,v.Number("minimum"),v.Number("maximum"))).ToImmutableArray();
         var seriesDefinitions=definitions["series"].Select(s=>new MarketSeries(S(s.Id("id")),s.OptionalId("contract_id") is {} id?K(id):null,s.OptionalText("quote_code") is {} q?R(q):null,s.OptionalText("value_specification_code") is {} v?R(v):null)).ToImmutableArray();

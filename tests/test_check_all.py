@@ -47,8 +47,12 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--browser-check' in command for command in commands))
         # Party race/revocation checks allocate their own disposable session pool.
         self.assertTrue(any('--party-check' in command and '--browser-check' in command for command in commands))
+        self.assertTrue(any('--fixing-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--unit-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--exchange-check' in command and '--browser-check' in command for command in commands))
+        self.assertTrue(any('--reference-import-check' in command for command in commands))
+        self.assertTrue(any('--pilot-check' in command for command in commands))
+        self.assertTrue(any('--risk-jobs-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('mixed-gas' in command for command in commands))
         self.assertTrue(any('--hosted-check' in command and '--browser-check' in command for command in commands))
 

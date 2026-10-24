@@ -47,7 +47,7 @@ public sealed record FuturesSeriesSpecification(
     ExactDecimal Multiplier, ExactDecimal TradingTick, ReferenceKey Location,
     ReferenceKey DeliveryProfile, DateOnly DeliveryFrom, DateOnly DeliveryTo,
     DateTimeOffset LastTradingAt, ReferenceKey LotQuantity,
-    ExactDecimal ContractSize, LotBasis LotBasis, DateTimeOffset FirstTradingAt, string SettlementMethod,FuturesLotResolution? LotResolution=null,FuturesBasisSettlement? BasisSettlement=null);
+    ExactDecimal ContractSize, LotBasis LotBasis, DateTimeOffset? FirstTradingAt, string SettlementMethod,FuturesLotResolution? LotResolution=null,FuturesBasisSettlement? BasisSettlement=null);
 
 // Identity mapping is the first supported delivery mapping. Explicitly named
 // pairs are required even where source and target delivery periods are equal.
@@ -106,14 +106,22 @@ public sealed record MarketSnapshot(
     DateTimeOffset MarketCutoff, InputSelectionPolicy SelectionPolicy,
     ImmutableArray<SelectedObservation> Selections)
 {
+    public Guid? FixingContextId { get; init; }
+    public DateTimeOffset? FixingKnowledgeCutoff { get; init; }
+    public ImmutableArray<Trading.IndexFixingObservation> IndexFixings { get; init; } = [];
+
     public bool HasCoherentSelections() => !Selections.IsDefault &&
         Selections.All(s => s is not null && s.Observation is not null) &&
+        !IndexFixings.IsDefault && IndexFixings.All(f=>f is not null) &&
+        IndexFixings.Select(f=>f.Key).Distinct().Count()==IndexFixings.Length &&
         Selections.Select(s => s.Input).Distinct().Count() == Selections.Length &&
         Selections.GroupBy(s => s.Observation.Key).All(g => g.Select(s => s.Observation).Distinct().Count() == 1);
 
     public bool HasSameInputs(MarketSnapshot? other) => other is not null &&
         Id == other.Id && Definitions == other.Definitions && ValuationAt == other.ValuationAt && MarketCutoff == other.MarketCutoff &&
-        SelectionPolicy == other.SelectionPolicy && !Selections.IsDefault && !other.Selections.IsDefault &&
+        SelectionPolicy == other.SelectionPolicy && FixingContextId==other.FixingContextId && FixingKnowledgeCutoff==other.FixingKnowledgeCutoff &&
+        !IndexFixings.IsDefault && !other.IndexFixings.IsDefault && IndexFixings.Length==other.IndexFixings.Length &&
+        IndexFixings.ToHashSet().SetEquals(other.IndexFixings) && !Selections.IsDefault && !other.Selections.IsDefault &&
         Selections.Length == other.Selections.Length && Selections.ToHashSet().SetEquals(other.Selections);
 }
 
@@ -145,11 +153,13 @@ public sealed record CurveBuild
     public ImmutableArray<CurveEvaluation> Evaluations { get; }
     public int ReusedConstituents { get; }
     public Risk.QuoteShock? Shock { get; }
+    public Risk.QuoteScenario Scenario { get; }
     internal CurveBuild(CurveModel model,MarketSnapshot snapshot,string numericalPolicy,ImmutableArray<BuiltValue> values,
-        int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,int reusedConstituents=0,Risk.QuoteShock? shock=null)
+        int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,int reusedConstituents=0,Risk.QuoteShock? shock=null,
+        Risk.QuoteScenario? scenario=null)
     {
         Model=model; Snapshot=snapshot; NumericalPolicy=numericalPolicy; Values=values;
         EvaluatedConstituents=evaluatedConstituents; Evaluations=evaluations;
-        ReusedConstituents=reusedConstituents; Shock=shock;
+        ReusedConstituents=reusedConstituents; Shock=shock; Scenario=scenario??Risk.QuoteScenario.Base(snapshot);
     }
 }

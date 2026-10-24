@@ -1,4 +1,6 @@
-import {deliveryLabel,curveName} from './market-view.js';
+import {isPriceMeasure,priceMeasureChoices} from './blotter-layout.js';
+import {deliveryLabel,curveName,friendly} from './market-view.js';
+import type {ChartSpec} from './chart-view.js';
 /** Ordering and reshaping displayed values only; no pricing or aggregation. */
 export function compareDecimalStrings(a:string,b:string):number{
   const parts=(value:string)=>{if(!/^-?\d+(\.\d+)?$/.test(value))throw Error('A numeric column requires exact decimal strings.');const [integer,fraction='']=value.replace(/^-/,'').split('.');const whole=integer.replace(/^0+(?=\d)/,'');const decimal=fraction.replace(/0+$/,'');return {negative:value.startsWith('-')&&(whole!=='0'||decimal!==''),whole,decimal};};
@@ -9,28 +11,58 @@ export function compareDecimalStrings(a:string,b:string):number{
   const length=Math.max(x.decimal.length,y.decimal.length),xf=x.decimal.padEnd(length,'0'),yf=y.decimal.padEnd(length,'0');return xf===yf?0:(xf<yf?-1:1)*sign;
 }
 export type PivotGroup=Record<string,unknown>;
-export type MatrixColumn={key:string;title:string;numeric:boolean;measure?:string};
-const labels:Record<string,string>={instrumentType:'Instrument type',presentValue:'PV',portfolio:'Portfolio',book:'Book',market:'Market',contract:'Contract',unit:'Units',currency:'Currency',tradeCount:'Trades',lots:'Lots',quantity:'Quantity',executionPnl:'Execution P&L'};
+export type MatrixColumn={key:string;title:string;numeric:boolean;measure?:string;groupKey?:string;groupTitle?:string;measureTitle?:string};
+const labels:Record<string,string>={instrumentType:'Instrument type',presentValue:'PV',portfolio:'Portfolio',book:'Book',market:'Market',contract:'Contract',unit:'Units',currency:'Currency',tradeCount:'Trades',lots:'Lots',quantity:'Quantity',executionPnl:'Execution P&L',priceUnit:'Price units',...Object.fromEntries(priceMeasureChoices)};
 const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
 function identity(group:PivotGroup,dimension:string){return dimension==='instrumentType'?group.instrumentType:dimension==='market'?group.market:group[dimension+'Id'];}
-function label(group:PivotGroup,dimension:string){return dimension==='contract'?deliveryLabel(String(group.deliveryFrom),String(group.deliveryTo)):dimension==='market'?curveName(group.market):String(group[dimension]??'');}
+function label(group:PivotGroup,dimension:string){return dimension==='contract'?deliveryLabel(String(group.deliveryFrom),String(group.deliveryTo)):dimension==='market'?curveName(group.market):dimension==='instrumentType'?friendly(String(group.instrumentType)):String(group[dimension]??'');}
 export function pivotMatrix(groups:PivotGroup[],dimensions:string[],splitBy:string[],measures:string[]){
   if(!splitBy.length||!dimensions.some(d=>!splitBy.includes(d))||splitBy.some(d=>!dimensions.includes(d))||new Set(dimensions).size!==dimensions.length)throw Error('Choose separate row and column dimensions.');
   const rowsBy=dimensions.filter(d=>!splitBy.includes(d));
   const splits=new Map<string,{title:string;ids:unknown[];sortKey:string}>();
   for(const group of groups){const ids=splitBy.map(d=>identity(group,d));if(ids.some(v=>v===null||v===undefined))throw Error('A pivot dimension identity is missing.');splits.set(canonical(ids),{title:splitBy.map(d=>label(group,d)).join(' / '),ids,sortKey:canonical(splitBy.map(d=>d==='contract'?[group.deliveryFrom,group.deliveryTo]:label(group,d)))});}
   const ordered=[...splits.entries()].sort(([a,x],[b,y])=>x.sortKey.localeCompare(y.sortKey)||a.localeCompare(b));
-  const columns:MatrixColumn[]=[...new Set([...rowsBy,...(groups.some(g=>g.instrumentType!==undefined)?['instrumentType']:[]),'unit','currency'])].map(key=>({key,title:labels[key],numeric:false}));
-  for(const [key,split] of ordered)for(const measure of measures)columns.push({key:'pivot:'+canonical([key,measure]),title:split.title+' · '+labels[measure],numeric:true,measure});
+  const columns:MatrixColumn[]=[...new Set([...rowsBy,...(groups.some(g=>g.instrumentType!==undefined)?['instrumentType']:[]),'unit','currency',...(groups.some(g=>g.priceUnit!==undefined)?['priceUnit']:[])])].map(key=>({key,title:labels[key],numeric:false}));
+  for(const [key,split] of ordered)for(const measure of measures)columns.push({key:'pivot:'+canonical([key,measure]),title:split.title+' · '+labels[measure],numeric:true,measure,groupKey:key,groupTitle:split.title,measureTitle:labels[measure]});
   if(columns.length>128)throw Error('Choose fewer pivot columns; this view supports up to 128 columns.');
   const rows=new Map<string,Record<string,string|null>>(),filled=new Set<string>();
   for(const group of groups){
     if(!group.quantitySpecification||!group.currencyReference)throw Error('A pivot needs exact quantity and currency partitions.');
-    const key=canonical([rowsBy.map(d=>identity(group,d)),group.instrumentType,group.quantitySpecification,group.currencyReference]);
+    const key=canonical([rowsBy.map(d=>identity(group,d)),group.instrumentType,group.quantitySpecification,group.currencyReference,group.quoteMultiplier??null]);
     const split=canonical(splitBy.map(d=>identity(group,d)));const cell=canonical([key,split]);
     if(filled.has(cell))throw Error('Duplicate pivot cells cannot be combined in the browser.');filled.add(cell);
-    let row=rows.get(key);if(!row){row=Object.fromEntries(columns.map(c=>[c.key,null]));for(const d of rowsBy)row[d]=label(group,d);if(group.instrumentType!==undefined)row.instrumentType=String(group.instrumentType);row.unit=String(group.unit);row.currency=String(group.currency);rows.set(key,row);}
+    let row=rows.get(key);if(!row){row=Object.fromEntries(columns.map(c=>[c.key,null]));for(const d of rowsBy)row[d]=label(group,d);if(group.instrumentType!==undefined)row.instrumentType=friendly(String(group.instrumentType));row.unit=String(group.unit);row.currency=String(group.currency);if(group.priceUnit!==undefined)row.priceUnit=String(group.priceUnit);rows.set(key,row);}
     for(const measure of measures){const value=group[measure];if(value===undefined)throw Error('A selected pivot measure is missing.');row['pivot:'+canonical([split,measure])]=value===null?null:String(value);}
   }
   return {columns,rows:[...rows.values()]};
+}
+
+/** Project backend pivot cells into plots. No browser aggregation or conversion. */
+export function pivotChartPanels(groups:PivotGroup[],dimensions:string[],splitBy:string[],measure:string):ChartSpec[]{
+  const categoriesBy=splitBy.length?splitBy:dimensions,seriesBy=splitBy.length?dimensions.filter(d=>!splitBy.includes(d)):[];
+  if(!categoriesBy.length||splitBy.some(d=>!dimensions.includes(d)))throw Error('Choose chart dimensions from the pivot axes.');
+  const id=(group:PivotGroup,keys:string[])=>{const values=keys.map(d=>identity(group,d));if(values.some(v=>v===null||v===undefined))throw Error('A chart dimension identity is missing.');return canonical(values);};
+  const partitions=new Map<string,PivotGroup[]>();
+  for(const group of groups){
+    if(!group.quantitySpecification||!group.currencyReference)throw Error('A chart needs exact quantity and currency partitions.');
+    const key=canonical([group.instrumentType,group.quantitySpecification,group.currencyReference,isPriceMeasure(measure)?group.quoteMultiplier:null]);
+    const rows=partitions.get(key)??[];rows.push(group);partitions.set(key,rows);
+  }
+  return [...partitions.values()].map(rows=>{
+    const categories=[...new Map(rows.map(g=>[id(g,categoriesBy),g])).entries()].sort(([a,x],[b,y])=>{
+      const sort=(g:PivotGroup)=>canonical(categoriesBy.map(d=>d==='contract'?[g.deliveryFrom,g.deliveryTo]:label(g,d)));
+      return sort(x).localeCompare(sort(y))||a.localeCompare(b);
+    });
+    const series=new Map<string,Map<string,PivotGroup>>();
+    for(const row of rows){
+      const key=id(row,seriesBy),cells=series.get(key)??new Map<string,PivotGroup>(),category=id(row,categoriesBy);
+      if(cells.has(category))throw Error('Duplicate chart cells cannot be combined in the browser.');
+      if(row[measure]===undefined)throw Error('The selected chart measure is missing.');
+      cells.set(category,row);series.set(key,cells);
+    }
+    const first=rows[0],unit=isPriceMeasure(measure)?String(first.priceUnit):measure==='quantity'?String(first.unit):measure==='tradeCount'?'Trades':measure==='lots'?'Lots':String(first.currency);
+    return {title:labels[measure],subtitle:[friendly(String(first.instrumentType??'')),String(first.unit),String(first.currency),isPriceMeasure(measure)?String(first.priceUnit):''].filter(Boolean).join(' · '),
+      axis:categoriesBy.length===1&&categoriesBy[0]==='contract'?'delivery':'category',categoryTitle:categoriesBy.map(d=>labels[d]).join(' / '),unit,
+      series:[...series.entries()].map(([key,cells])=>{const first=cells.values().next().value!;return {id:key,name:seriesBy.length?seriesBy.map(d=>label(first,d)).join(' / '):labels[measure],points:categories.map(([x,row])=>({x,label:categoriesBy.map(d=>label(row,d)).join(' / '),y:cells.has(x)&&cells.get(x)![measure]!==null?String(cells.get(x)![measure]):null}))};})};
+  });
 }

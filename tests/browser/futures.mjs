@@ -1,4 +1,13 @@
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
+export async function run({command,evaluate,wait,click,set:rawSet,submit,persona,check,shot,idle,url}){
+  const set=async(selector,value)=>{
+    if(selector==='#futures-contract'){
+      const c=await evaluate(`window.__futuresResponses.filter(r=>r.path==='/api/futures/catalog').at(-1).data.contracts.find(c=>JSON.stringify([c.curve,c.id])===${JSON.stringify(value)})`);
+      for(const key of ['commodity','exchange','product'])await rawSet('#futures-contract-'+key,c[key]);
+      await click('#futures-contract-date');
+      await evaluate(`(()=>{const p=document.querySelector('#futures-contract-date').parentElement;for(let i=0;i<240&&!p.querySelector('[data-date="${c.deliveryFrom}"]');i++)p.querySelector('[aria-label="Next month with data"]').click();p.querySelector('[data-date="${c.deliveryFrom}"]').click();})()`);
+    }
+    await rawSet(selector,value);
+  };
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});
@@ -10,7 +19,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await check('server-owned booking contract does not restore incompatible legacy commands',"document.querySelector('#futures-pending').hidden&&!document.querySelector('#futures-new').disabled");
-  await check('Trader opens scoped futures booking with explicit contract terms',"!document.querySelector('#futures-page').hidden&&document.querySelector('#futures-contract').options.length===7&&document.querySelector('#futures-book').options.length===3&&document.querySelector('#futures-form').checkValidity()===false");
+  await check('Trader opens scoped futures booking with explicit contract terms',"!document.querySelector('#futures-page').hidden&&document.querySelector('#futures-contract').options.length===1&&document.querySelector('#futures-contract-commodity').options.length===2&&document.querySelector('#futures-contract-exchange').disabled&&document.querySelector('#futures-book').options.length===3&&document.querySelector('#futures-form').checkValidity()===false");
   await check('blotter starts with trade rows and booking is a toolbar action',"document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#futures-booking').hidden&&document.querySelector('#blotter-mode').value==='trades'");
   await check('table opens directly with a reusable toolbar and optional configuration',"document.querySelector('#futures-page').firstElementChild.id==='blotter-workspace'&&document.querySelector('.table-workspace [role=grid]').getBoundingClientRect().top<420&&!document.querySelector('#blotter-settings').open&&!document.querySelector('#blotter-pivot').open&&!document.querySelector('.table-totals').open");
   await wait("document.querySelector('#futures-holdings .tabulator-row')&&!document.querySelector('#blotter-export').disabled");
@@ -25,7 +34,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#blotter-mode','pivot');await menu('blotter-settings');await set('#blotter-name','Incomplete pivot');await click('#blotter-save');
   await check('invalid unsaved pivot cannot relabel or replace displayed trade data',"!document.querySelector('#error').hidden&&document.querySelector('#blotter-table-title').textContent==='Individual trades'");await menu('blotter-pivot');await set('#blotter-mode','trades');
   await click('#futures-new');await click('#trade-kind-future');
-  const contract=await evaluate("document.querySelector('#futures-contract').options[1].value");
+  const contract=await evaluate("JSON.stringify((c=>[c.curve,c.id])(window.__futuresResponses.filter(r=>r.path==='/api/futures/catalog').at(-1).data.contracts[0]))");
   const book=await evaluate("document.querySelector('#futures-book').options[1].value");
   const before=await evaluate("window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data.holdings.length");
   await set('#futures-contract',contract);await set('#futures-book',book);await set('#futures-lots','2');
@@ -36,7 +45,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
   await check('booking adds a holding with its independent execution price',`window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data.holdings.length===${before+1}&&document.querySelector('#futures-holdings').textContent.includes('2.9')&&document.querySelector('#error').hidden`);
   await check('holdings show execution P&L and explicitly unprocessed settlement',"document.querySelector('#futures-holdings').textContent.includes('Unprocessed')&&document.querySelector('#futures-page').textContent.includes('Execution P&L')");
-  await click('#futures-new');await click('#trade-kind-future');await evaluate('window.__loseBooking=true');
+  await click('#futures-new');await click('#trade-kind-future');await set('#futures-contract',contract);await set('#futures-book',book);await evaluate('window.__loseBooking=true');
   await set('#futures-lots','-1');await set('#futures-execution','3.1');await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
   await check('unknown booking response retains its original command',"!document.querySelector('#futures-pending').hidden&&!document.querySelector('#error').hidden");
   await evaluate('window.__denyReconcile=true');await click('#futures-reconcile');
@@ -48,16 +57,17 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('retry uses the original operation and economics exactly once',`(()=>{const r=window.__futuresRequests;return JSON.stringify(r.at(-1))===JSON.stringify(r.at(-2))&&window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data.holdings.length===${before+2}&&document.querySelector('#futures-pending').hidden;})()`);
   await check('all same-contract bookings retain one shared contract and pricing binding',"(()=>{const rows=window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data.holdings;return new Set(rows.map(r=>r.instrumentId)).size===1&&new Set(rows.map(r=>r.pricingBindingId)).size===1;})()");
   await evaluate('window.__duplicateContract=true');await click('#futures-refresh');
-  const alternate=await evaluate("document.querySelector('#futures-contract').options[7].value");
-  await check('same-product contract choices show their distinct curve names',"document.querySelector('#futures-contract').options[7].textContent.includes('Second Future')&&document.querySelector('#futures-contract').options[1].textContent!==document.querySelector('#futures-contract').options[7].textContent");
+  const alternate=await evaluate("JSON.stringify((c=>[c.curve,c.id])(window.__futuresResponses.filter(r=>r.path==='/api/futures/catalog').at(-1).data.contracts.at(-1)))");
+  await set('#futures-contract',alternate);
+  await check('same-product contract choices show their distinct curve names',"document.querySelector('#futures-contract').options.length===3&&document.querySelector('#futures-contract').options[2].textContent.includes('Second Future')&&document.querySelector('#futures-contract').options[1].textContent!==document.querySelector('#futures-contract').options[2].textContent");
   await click('#futures-new');await click('#trade-kind-future');await set('#futures-contract',alternate);await set('#futures-book',book);await set('#futures-lots','1');await set('#futures-execution','2.9');await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
   await check('shared dated contract selection preserves the exact curve binding',"window.__futuresRequests.at(-1).curve==='second_future'&&!document.querySelector('#error').hidden&&document.querySelector('#futures-pending').hidden");
   await evaluate('window.__duplicateContract=false');await click('#futures-refresh');
   await menu('blotter-scope');await evaluate(`(()=>{for(const o of document.querySelector('#blotter-books').options)o.selected=o.value===${JSON.stringify(book)};})()`);await click('#blotter-scope-apply');
   await check('book slicing scopes both rows and backend totals',"(()=>{const d=window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data;return d.holdings.every(r=>r.bookId===document.querySelector('#blotter-books').value)&&d.totals.length===1;})()");
+  await check('blotter numeric cells show numbers without unit suffixes',"[...document.querySelectorAll('#futures-holdings .grid-number span')].every(n=>!n.textContent||/^-?[\\d,]+(?:\\.\\d+)?$/.test(n.textContent))");
   await click('#futures-holdings .column-filter-toggle');
-  const executionFilter=await evaluate("(()=>{const s=document.querySelector('#futures-holdings select[aria-label=\"Filter Execution price\"]');return [...s.options].find(o=>o.textContent==='2.9').value;})()");
-  await set('#futures-holdings select[aria-label="Filter Execution price"]',executionFilter);
+  await set('#futures-holdings input[aria-label="Filter Execution price"]','= 2.9');
   await menu('blotter-columns');await click('#blotter-column-choices input[value="executionPrice"]');
   await check('column selection preserves active hidden-column filters',"(()=>{const rows=window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data.holdings;return document.querySelector('#futures-holdings .table-row-count').textContent.startsWith(rows.filter(h=>h.executionPrice==='2.9').length+' of ');})()");
   await check('column selection hides chosen fields without removing trades',"[...document.querySelectorAll('#futures-holdings [role=columnheader]')].find(n=>n.textContent.trim()==='Execution price').style.display==='none'");
@@ -99,11 +109,22 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await menu('blotter-pivot');await click('#blotter-pivot button[aria-label="Move Dated contract to columns"]');await click('#blotter-apply');
   await wait("document.querySelector('#futures-holdings .tabulator-row')&&!document.querySelector('#blotter-export').disabled");
   await check('cross-tab places contract measures in columns with exact backend totals',"document.querySelector('#blotter-table-title').textContent==='Pivot table'&&document.querySelector('#blotter-split-dimensions input[value=contract]').checked&&!document.querySelector('#blotter-dimensions input[value=contract]').checked&&document.querySelector('#futures-holdings .tabulator-header').textContent.includes('Jan 2021')&&document.querySelector('#error').hidden");
+  await check('pivot uses grouped measure headers and a visible row column and value definition',"document.querySelector('#futures-holdings .pivot-column-group .tabulator-col-group-cols')&&document.querySelector('#blotter-definition').textContent.includes('Rows')&&document.querySelector('#blotter-definition').textContent.includes('Columns')");
+  await menu('blotter-pivot');await click('#blotter-swap-axes');
+  await check('swap axes preserves dimensions while exchanging their row and column roles',"document.querySelector('#blotter-dimensions input[value=contract]').checked&&document.querySelector('#blotter-split-dimensions input[value=book]').checked&&!document.querySelector('#blotter-dimensions input[value=book]').checked");
+  await click('#blotter-swap-axes');
   await menu('blotter-chart-settings');await click('#blotter-show-chart');await click('#blotter-chart-apply');
   await check('position chart uses a backend pivot in the same retained financial context',"(()=>{const reads=window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter');return !document.querySelector('#blotter-chart-card').hidden&&document.querySelector('#blotter-chart canvas')&&JSON.stringify(reads.at(-1).data.context)===JSON.stringify(reads.at(-2).data.context)&&document.querySelector('#error').hidden;})()");
+  await check('chart follows the actual pivot grouping rather than a separate fixed report',"(()=>{const reads=window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter');return JSON.stringify(reads.at(-1).data.view.groupBy)===JSON.stringify(reads.at(-2).data.view.groupBy);})()");
+  const plotReads=await evaluate("window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').length");
+  await click('[data-plot-kind=line]');await check('line plot changes presentation without repricing',`document.querySelector('#blotter-chart .chart').dataset.chartKind==='line'&&window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').length===${plotReads}`);
+  await click('[data-plot-kind=heatmap]');await check('heatmap renders the same cells with an accessible selected style',"document.querySelector('#blotter-chart .chart').dataset.chartKind==='heatmap'&&document.querySelector('#blotter-chart canvas')&&document.querySelector('[data-plot-kind=heatmap]').getAttribute('aria-pressed')==='true'&&document.querySelector('#blotter-chart-kind').value==='heatmap'");
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});await evaluate('document.querySelector("#blotter-chart-card").scrollIntoView()');
+  await check('mobile chart controls and plot remain within the page width',"document.documentElement.scrollWidth<=innerWidth+1&&document.querySelector('#blotter-chart .standard-chart-plot').getBoundingClientRect().width>200&&document.querySelector('[data-plot-kind=heatmap]').getBoundingClientRect().right<=innerWidth");await shot('pivot-mobile-chart');
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});await evaluate('window.scrollTo(0,0)');
   await menu('blotter-settings');await set('#blotter-name','Contract cross-tab');await click('#blotter-save');
   await wait("!document.querySelector('#blotter-export').disabled");
-  await check('account view persists explicit cross-tab grid and chart choices',"(()=>{const saved=window.__futuresResponses.filter(r=>r.path==='/api/table-views/blotter'&&r.data.layout).at(-1).data.layout;return saved.version===2&&saved.splitBy[0]==='contract'&&saved.chart.visible&&saved.grid.order.length>0;})()");
+  await check('account view persists explicit cross-tab grid and chart choices',"(()=>{const saved=window.__futuresResponses.filter(r=>r.path==='/api/table-views/blotter'&&r.data.layout).at(-1).data.layout;return saved.version===3&&saved.splitBy[0]==='contract'&&saved.chart.visible&&saved.chart.kind==='heatmap'&&saved.grid.order.length>0;})()");
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1320,deviceScaleFactor:1,mobile:false});await evaluate('window.scrollTo(0,0)');await shot('pivot-desktop');
   await menu('blotter-pivot');await shot('pivot-fields');await click('#blotter-pivot>summary');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await evaluate(`(()=>{const create=URL.createObjectURL;URL.createObjectURL=b=>{window.__snapshotBlob=b;return create(b);};const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download==='leanetrm-blotter.csv')return;return click.call(this);};})()`);await wait("!document.querySelector('#blotter-export').disabled");await click('#blotter-export');
@@ -135,7 +156,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('viewer');
   await check('switching preview identity updates profile label and clears header result metadata',"document.querySelector('#profile-label').textContent==='Viewer'&&document.querySelector('#header-calculation-time').textContent===''");
   await check('market-only viewer sees no trading navigation or cached holdings',"document.querySelector('#nav-futures').hidden&&document.querySelector('#futures-page').hidden&&document.querySelector('#futures-holdings').children.length===0");
-  await evaluate(`(()=>{const send=window.fetch;window.__futuresRequests=[];window.__futuresResponses=[];window.fetch=async(input,init)=>{if(input==='/api/futures/book')window.__futuresRequests.push(JSON.parse(init.body));const response=await send(input,init);if(input==='/api/trading/blotter')window.__futuresResponses.push({path:input,data:await response.clone().json()});return response;};})()`);
+  await evaluate(`(()=>{const send=window.fetch;window.__futuresRequests=[];window.__futuresResponses=[];window.fetch=async(input,init)=>{if(input==='/api/futures/book')window.__futuresRequests.push(JSON.parse(init.body));const response=await send(input,init);if(input==='/api/trading/blotter'||input==='/api/futures/catalog')window.__futuresResponses.push({path:input,data:await response.clone().json()});return response;};})()`);
   await persona('trader');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await click('#profile-open');await set('#zone','America/Chicago');await submit('#preferences-form');
   await click('#futures-new');await click('#trade-kind-future');await set('#futures-contract',contract);await set('#futures-book',book);await set('#futures-lots','1');
@@ -143,4 +164,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('booking facts are read-only and omitted from financial commands',"!('executedAt' in window.__futuresRequests.at(-1))&&!('tradeDate' in window.__futuresRequests.at(-1))&&document.querySelector('#futures-executed').readOnly&&document.querySelector('#futures-trader').readOnly&&document.querySelector('#futures-trade-date').readOnly&&document.querySelector('#error').hidden&&document.querySelector('label[for=futures-executed]').textContent.includes('America/Chicago')");
   await menu('blotter-columns');if(!await evaluate("document.querySelector('#blotter-column-choices input[value=executed]').checked"))await click('#blotter-column-choices input[value="executed"]');
   await check('the blotter renders the server persistence instant in the selected user clock',"(()=>{const row=window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data.holdings.at(-1);const clock=new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'}).format(new Date(row.executedAt));return document.querySelector('#futures-holdings').textContent.includes(clock);})()");
+  await menu('blotter-pivot');await set('#blotter-mode','pivot');
+  await evaluate("(()=>{for(const n of document.querySelectorAll('#blotter-dimensions input'))n.checked=n.value==='book';for(const n of document.querySelectorAll('#blotter-split-dimensions input'))n.checked=false;for(const n of document.querySelectorAll('#blotter-measures input'))n.checked=['executionPriceMin','executionPriceMax','executionPriceMean'].includes(n.value);})()");await click('#blotter-apply');
+  await check('price pivots request explicit arithmetic means and display their separate quote units',"(()=>{const r=window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data;return r.view.priceNumericalPolicy==='arithmetic_price_mean_to_even_18_v1'&&r.groups.every(g=>g.executionPriceMin!==null&&g.executionPriceMax!==null&&g.executionPriceMean!==null&&g.priceUnit)&&document.querySelector('#futures-holdings').textContent.includes('Arithmetic average execution price')&&document.querySelector('#futures-holdings').textContent.includes('USD/MMBtu');})()");
+  await click('#futures-holdings .column-filter-toggle');await set('#futures-holdings input[aria-label="Filter Arithmetic average execution price · 18 decimal places, ties to even"]','>= 0');
+  await check('arithmetic filters apply to managed price pivot values',"document.querySelector('#futures-holdings .table-row-count').textContent.startsWith(window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data.groups.length+' of ')");
+  await menu('blotter-chart-settings');await evaluate("document.querySelector('#blotter-show-chart').checked=true");await set('#blotter-chart-measure','executionPriceMean');await click('#blotter-chart-apply');
+  await check('price plots consume the explicit managed mean with separate quote units',"(()=>{const r=window.__futuresResponses.filter(r=>r.path==='/api/trading/blotter').at(-1).data;return r.view.priceNumericalPolicy==='arithmetic_price_mean_to_even_18_v1'&&r.view.measures[0]==='executionPriceMean'&&[...document.querySelectorAll('#blotter-chart .chart')].every(p=>r.groups.some(g=>g.priceUnit===p.dataset.chartUnit))&&document.querySelector('#blotter-chart canvas')&&document.querySelector('#error').hidden;})()");
+  await menu('blotter-pivot');await set('#blotter-mode','trades');await click('#blotter-apply');
+
 }

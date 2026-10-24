@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
 
@@ -8,6 +9,18 @@ public sealed record PowerHistoryRequest(Guid SourceId,string From,string To,str
 public sealed record PowerHistoryPeriodRequest(Guid SourceId,string FromDate,string ThroughDate,string KnownAt);
 public static class PowerHistory
 {
+    public static Dictionary<string,string> SelectableThrough(DateOnly[] available)
+    {
+        var dates=available.ToHashSet();var ranges=new Dictionary<string,string>();
+        foreach(var first in dates.Order())
+        {
+            var through=first;
+            for(var offset=1;offset<PowerImportProtocol.MaximumOperatingDays&&dates.Contains(first.AddDays(offset));offset++)through=first.AddDays(offset);
+            ranges.Add(first.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),through.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture));
+        }
+        return ranges;
+    }
+
     public static async Task<object> Catalog(NpgsqlConnection connection,CancellationToken ct)
     {
         async Task<JsonElement[]> Rows(string sql)
@@ -15,7 +28,11 @@ public static class PowerHistory
             await using var command=ScheduleStore.Command(connection,sql);await using var reader=await command.ExecuteReaderAsync(ct);var rows=new List<JsonElement>();
             while(await reader.ReadAsync(ct))rows.Add(JsonSerializer.Deserialize<JsonElement>(reader.GetString(0)));return rows.ToArray();
         }
-        return new {sources=await Rows("SELECT row_to_json(s)::text FROM power_data.sources s ORDER BY provider,market,name"),jobs=await Rows("SELECT row_to_json(j)::text FROM (SELECT id,name,provider,enabled,schedule_enabled,cron,schedule_zone FROM power_data.jobs)j"),attempts=await Rows("SELECT row_to_json(a)::text FROM (SELECT job_id,started_at,finished_at,state,error_code,from_date,through_date FROM power_data.attempts ORDER BY started_at DESC LIMIT 50)a"),knownAt=DateTimeOffset.UtcNow};
+        var cutoff=DateTimeOffset.UtcNow;
+        await using var availability=ScheduleStore.Command(connection,"SELECT power_data.available_dates($1)::text",cutoff);
+        var sources=JsonNode.Parse((string)(await availability.ExecuteScalarAsync(ct))!)!.AsArray();
+        foreach(var source in sources)source!["availableThrough"]=JsonSerializer.SerializeToNode(SelectableThrough(source["availableDates"]!.Deserialize<DateOnly[]>()!));
+        return new {sources,jobs=await Rows("SELECT row_to_json(j)::text FROM (SELECT id,name,provider,enabled,schedule_enabled,cron,schedule_zone FROM power_data.jobs)j"),attempts=await Rows("SELECT row_to_json(a)::text FROM (SELECT job_id,started_at,finished_at,state,error_code,from_date,through_date FROM power_data.attempts ORDER BY started_at DESC LIMIT 50)a"),knownAt=cutoff};
     }
     public static async Task<object> Period(NpgsqlConnection connection,PowerHistoryPeriodRequest request,CancellationToken ct)
     {

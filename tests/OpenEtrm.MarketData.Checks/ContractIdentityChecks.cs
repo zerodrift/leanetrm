@@ -62,9 +62,12 @@ internal static class ContractIdentityChecks
         var trades=ImmutableArray.Create(new FuturesTrade(Guid.NewGuid(),book,[Position(a)]),new FuturesTrade(Guid.NewGuid(),book,[Position(b)]));
         var holdings=FuturesHoldings.Price(trades,snapshot,dual.Build(snapshot,[a.Market,b.Market]),FuturesMarketBinding.Implementation);
         if(string.Join(",",holdings.Select(h=>h.ExecutionPnl.Amount))!="8,40")throw new Exception("One contract's distinct explicit pricing bindings were conflated.");
-        var run=FuturesRisk.Calculate(trades,snapshot,dual,[new(new(f.S(1),InputUse.Variable),q.Key,PriceUnit.FromQuote(q),ExactDecimal.Parse("0.1"),QuoteBump.Convention)],FuturesRisk.Implementation,RiskEngine.NumericalPolicy);
-        if(run.Work.UniqueValuations!=2 || run.Factors[0].Positions.Single(p=>p.ValuationId==b.Id).UpPnl.Amount.ToString()!="0")
-            throw new Exception("Risk work must include the explicit pricing binding as well as the instrument.");
+        var bump=new QuoteBump(new(f.S(1),InputUse.Variable),q.Key,PriceUnit.FromQuote(q),ExactDecimal.Parse("0.1"),QuoteBump.Convention);
+        try{FuturesRisk.Calculate(trades,snapshot,dual,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy);throw new Exception("Conflicting prices for one instrument/context were accepted.");}
+        catch(MarketDataException e)when(e.Code=="valuation_binding"){}
+        var run=FuturesRisk.Calculate([trades[1]],snapshot,dual,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy);
+        if(run.Work.UniqueValuations!=1||run.Factors[0].Positions.Single().UpPnl.Amount.ToString()!="0")
+            throw new Exception("A separately selected pricing context must retain its exact independent factor.");
         try{Position(a,Guid.Empty);throw new Exception("Empty retained alias accepted.");}catch(MarketDataException e)when(e.Code=="futures_execution"){}
         var otherTerms=terms with {Key=f.R("other_future")};
         var otherMember=member with {FuturesSeries=otherTerms.Key};
