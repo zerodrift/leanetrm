@@ -38,9 +38,54 @@ def check_directory_upgrade(query, migration):
                  ('GRANT EXECUTE ON FUNCTION assistant.provider_state(uuid) TO openetrm_runtime;', 'assistant.provider_state(uuid)')))
 
 
+def check_identifier_policy_upgrade(query, migration):
+    check_guard(query, migration, '0105', 'model_identifier_policy',
+                (("ALTER FUNCTION assistant.model_state(uuid) SET work_mem='64kB';", 'model_state'),
+                 ('GRANT EXECUTE ON FUNCTION assistant.model_state(uuid) TO openetrm_runtime;', 'model_state'),
+                 ("ALTER FUNCTION assistant.edit_model(uuid,uuid,integer,integer,text,date,text[],text,date,text,date,text[],text,date,text,date,text,date) SET work_mem='64kB';", 'edit_model')))
+    tenant, workspace, actor, provider, model, operation = (str(uuid4()) for _ in range(6))
+    # Retained facts and a fixed-only command outcome exist before the schema change.
+    # These rows are synthetic and the complete upgrade experiment rolls back.
+    source, date = "'https://example.invalid/identifier-upgrade'", "'2026-10-01'"
+    columns = ['model_id', 'version', 'provider_id', 'vendor', 'mapping', 'output_limit', 'reasoning_efforts',
+               'accepted_served', 'recorded_by', 'recorded_at']
+    values = [f"'{model}'", '1', f"'{provider}'", "'xai'", "'xai_responses_v1'", '1024', "ARRAY['low']",
+              'ARRAY[]::text[]', f"'{actor}'", 'clock_timestamp()']
+    for fact in ('output_limit', 'reasoning', 'identifier_stability', 'accepted_served', 'tools', 'streaming'):
+        columns += [fact+'_source', fact+'_checked_on']
+        values += [source, date]
+    query(f"""BEGIN;
+      INSERT INTO security.tenants VALUES('{tenant}','synthetic_identifier_upgrade');
+      INSERT INTO security.workspaces VALUES('{tenant}','{workspace}','synthetic_identifier_upgrade');
+      INSERT INTO security.principals VALUES('{actor}','human',true);
+      INSERT INTO security.workspace_memberships VALUES('{tenant}','{workspace}','{actor}','synthetic_upgrade','Synthetic upgrade administrator',true,1);
+      INSERT INTO assistant.providers(id,tenant_id,workspace_id,vendor,version) VALUES('{provider}','{tenant}','{workspace}','xai',1);
+      INSERT INTO assistant.models(id,tenant_id,workspace_id,provider_id,identifier,display_name,version)
+        VALUES('{model}','{tenant}','{workspace}','{provider}','model-synthetic-upgrade','Synthetic upgrade model',2);
+      INSERT INTO assistant.model_versions({','.join(columns)}) VALUES({','.join(values)});
+      INSERT INTO assistant.administration_audit(tenant_id,workspace_id,operation_id,actor_id,action,provider_id,request,after_state,recorded_at,model_id)
+        VALUES('{tenant}','{workspace}','{operation}','{actor}','edit_model','{provider}',
+          '{{"action":"edit_model","expectedVersion":1}}',assistant.model_state('{model}'),clock_timestamp(),'{model}');
+      CREATE TEMP TABLE prior_identifier_version AS SELECT to_jsonb(v) value FROM assistant.model_versions v WHERE model_id='{model}';
+      CREATE TEMP TABLE prior_identifier_audit AS SELECT to_jsonb(a) value FROM assistant.administration_audit a WHERE operation_id='{operation}';
+      {migration_body(migration)}
+      DO $$ BEGIN
+        IF (SELECT to_jsonb(v)-'identifier_policy' FROM assistant.model_versions v WHERE model_id='{model}')
+             IS DISTINCT FROM(SELECT value FROM prior_identifier_version)
+          OR (SELECT to_jsonb(a) FROM assistant.administration_audit a WHERE operation_id='{operation}')
+             IS DISTINCT FROM(SELECT value FROM prior_identifier_audit)
+          OR (SELECT identifier_policy FROM assistant.model_versions WHERE model_id='{model}')<>'fixed'
+          OR assistant.model_state('{model}')#>>'{{capability,identifierPolicy}}'<>'fixed'
+        THEN RAISE EXCEPTION 'Identifier upgrade changed retained capability facts or replay outcome';END IF;
+      END $$;
+      {expect(f"UPDATE assistant.model_versions SET identifier_policy='alias' WHERE model_id='{model}';", '55000')}
+      ROLLBACK;""")
+    print('PASS migration 0105 preserves retained capability facts and exact audit/replay outcomes, labels existing versions fixed and keeps them immutable', flush=True)
+
+
 def capabilities(model, expected, **changes):
     """A complete, synthetic capability version; each source is an explicitly invalid domain."""
-    facts = {'outputLimit': 64000, 'reasoningEfforts': ['low', 'medium', 'high'], 'acceptedServed': ['model-synthetic-capable-served']}
+    facts = {'identifierPolicy': 'fixed', 'outputLimit': 64000, 'reasoningEfforts': ['low', 'medium', 'high'], 'acceptedServed': ['model-synthetic-capable-served']}
     for fact in FACTS:
         facts[f'{fact}Source'] = f'https://example.invalid/synthetic/{fact}'
         facts[f'{fact}CheckedOn'] = '2026-10-01'
@@ -250,7 +295,9 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
         return f"INSERT INTO assistant.model_versions({','.join(values)}) VALUES({','.join(values.values())});"
     query(f'BEGIN;{version_row()}ROLLBACK;')
     seventeen = 'ARRAY[' + ','.join(f"'model-synthetic-{n}'" for n in range(17)) + ']'
-    for statement in (version_row(output_limit='0'), version_row(output_limit='10000001'), version_row(reasoning_efforts='ARRAY[]::text[]'),
+    query(expect(version_row(identifier_policy='NULL'), '23502'))
+    for statement in (version_row(identifier_policy="'unknown'"),
+                      version_row(output_limit='0'), version_row(output_limit='10000001'), version_row(reasoning_efforts='ARRAY[]::text[]'),
                       version_row(reasoning_efforts="ARRAY['low','low']"), version_row(reasoning_efforts="ARRAY[['low']]"),
                       version_row(reasoning_efforts="ARRAY['turbo']"), version_row(accepted_served="ARRAY['bad identifier']"),
                       version_row(accepted_served="ARRAY['model-synthetic-x','model-synthetic-x']"),

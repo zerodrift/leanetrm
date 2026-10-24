@@ -173,6 +173,9 @@ def main():
         else:
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if (args.assistant_check or args.provider_adapters_check) and migration.name=='0105_model_identifier_policy.sql':
+                from check_model_versions import check_identifier_policy_upgrade
+                check_identifier_policy_upgrade(query,migration.read_text())
             if args.connected_portfolio_check and migration.name in ('0080_connected_recipe_weights.sql','0081_connected_risk_axes.sql'):
                 from check_curve_cutover import run_checks as check_curve_cutover
                 check_curve_cutover(query,[reference,market,security],manifest,migration.read_text(),migration.name[:4])

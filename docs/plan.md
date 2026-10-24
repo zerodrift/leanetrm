@@ -941,6 +941,12 @@ authorization and retained-version boundaries.
 
 ## Milestone 5 — AI-operated application
 
+The bounded model-administration extension D213 adds explicit fixed/alias policy
+on immutable capability versions. Alias support keeps exact served-identifier
+checks and existing pricing, authorization and credential gates. It requires
+migration 0105 and matching application/UI assets; local synthetic checks do not
+qualify a hosted release or real-account availability.
+
 D211 adds the other four [provider adapters](provider-adapters.md), retaining
 per-vendor usage mappings, explicit continuation handling and the existing
 administration/worker gates. Real-provider task outcomes and hosted rollout

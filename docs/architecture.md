@@ -1875,6 +1875,13 @@ mappings. Their synthetic qualification does not establish real-account/model
 availability. Credentials, account attestations and model enablement remain
 installation administration.
 
+Model capability versions distinguish fixed identifiers from explicitly approved
+provider aliases (D213). Both retain an exact allowed set of served identifiers;
+an alias approval does not change provider routing, capability facts or effective
+prices. Calls retain the requested identifier, capability/price versions and the
+reported served identifier. Reporting an alias does not prove an underlying
+snapshot or deterministic language-model output.
+
 The model-provider boundary normalizes messages, structured tool requests,
 streaming, cancellation, usage and error categories. Provider-specific SDK types
 and response IDs remain outside domain contracts. Capability negotiation handles

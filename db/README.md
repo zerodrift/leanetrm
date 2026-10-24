@@ -1336,3 +1336,12 @@ retain both spread and observation-schedule identity with per-slot fixing eviden
 Before applying this separately qualified schema change, stop write admission and
 drain requests. General observation windows and interval pricing remain separate
 contracts.
+
+Migration `0105_model_identifier_policy.sql` adds `fixed`/`alias` policy to
+immutable model capability versions. Existing versions and the original command
+retain their fixed-only contract, including the exact stored request/outcome used
+by legacy retries. The extended command records an explicit policy in its audit
+payload; changing it appends a capability version. Both policies use the existing
+exact served-identifier checks and pinned price revisions. Deploy matching API
+and web assets only after separately qualifying the schema update. No provider,
+key, account attestation, model enablement or token price is supplied.
