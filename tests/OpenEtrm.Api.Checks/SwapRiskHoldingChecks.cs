@@ -141,7 +141,7 @@ internal static class SwapRiskHoldingChecks
         });
         await Read(async(connection,data,ct)=>
         {
-            // D214: a portfolio risk run leaves out exactly the positions it lists, each a distinct held position of its
+            // D216: a portfolio risk run leaves out exactly the positions it lists, each a distinct held position of its
             // scope with a position-specific reason. Anything else it is asked to leave out is refused.
             var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct);
             var row=holdings[0].Row;

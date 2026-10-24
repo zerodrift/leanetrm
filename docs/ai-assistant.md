@@ -1383,7 +1383,7 @@ publication recheck and is hidden as text is (§7.3, §8).
 a curve or its observations by Curves & prices' curve and tab, power hours on Power TOUs
 once a frame is chosen and TOU products before, and Blotter rows without their grouping,
 totals with it, the trade open in the side panel at its revision, which is the one its form
-shows while it is open (D215: the panel is not modal, so the assistant is asked while it is
+shows while it is open (D217: the panel is not modal, so the assistant is asked while it is
 open; a target for a trade is refused in a pivot), a new trade being entered there by its
 product (`blotter_new_future`, `blotter_new_swap`, or `blotter_new_trade` before one is
 chosen), which it does not read, and risk results as `blotter_risk`;

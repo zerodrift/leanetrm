@@ -163,7 +163,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
   // control disabled. `kept` hears that the person kept them, for a control that has already changed.
   function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
-  // New trade (D215) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
+  // New trade (D217) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
   const newTrade:PanelMode={kind:'new',product:null};
@@ -288,7 +288,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,...fields}=h;
     return {...fields,priceUnit:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
-  // What a trade row's value cell says when the close cannot value it, on screen and in exports (D214).
+  // What a trade row's value cell says when the close cannot value it, on screen and in exports (D216).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
   // Trade columns a desk view can add beside its own; the fields its own present are always on.
   const tradeColumns=blotterColumns.filter(([key])=>key!=='tradeCount'&&!isPriceMeasure(key));
@@ -365,7 +365,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const pivotKeys=pivotColumns(view.groupBy,view.measures);
     const columns=blotterColumns.filter(([key])=>pivotKeys.includes(key));
     tableColumns=columns.map(c=>c[0]);
-    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D214).
+    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D216).
     const counted=read.groups.some(g=>excludedPositions(g.unvaluedPositions)>0);
     const rows:Record<string,string|null>[]=read.groups.map(g=>({...Object.fromEntries(columns.map(([key])=>[key,groupLabel(g,key)])),unvaluedPositions:String(excludedPositions(g.unvaluedPositions))}));
     const required=['instrumentType','unit','currency','priceUnit'];

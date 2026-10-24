@@ -2,7 +2,7 @@ import {closesOnDate,uniqueClose,type MarketDates} from './market-calendar.js';
 
 type Availability=Pick<MarketDates,'dates'|'maxDate'>;
 
-// What opening on the newest close does (D213). A date with one close selects it. A date with several closes or
+// What opening on the newest close does (D215). A date with one close selects it. A date with several closes or
 // correction versions asks, and nothing is selected for it (D162). No available date selects nothing.
 export type CloseChoice={kind:'single';closeId:string;date:string}|{kind:'choose';date:string}|{kind:'none'};
 // What the As-of control tells the person about the close it shows: the latest, an earlier one with nothing newer

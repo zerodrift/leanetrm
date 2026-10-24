@@ -531,7 +531,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
     identity=((resolved.EconomicIdentity,resolved.PricingBindingIdentity,id),resolved);identities.Add(id,identity);
    }
    var key=identity.Key;
-   // D214: a position-specific failure leaves the unit, and each position holding it, unvalued at the
+   // D216: a position-specific failure leaves the unit, and each position holding it, unvalued at the
    // close; any other failure fails the read.
    if(!values.ContainsKey(key)&&!unvalued.ContainsKey(key))
     try{values.Add(key,await Evaluate(connection,data,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,markets));}
