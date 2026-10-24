@@ -23,6 +23,10 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   const toggle=el('button','Column filters');toggle.type='button';toggle.className='secondary column-filter-toggle';toggle.setAttribute('aria-expanded','false');
   const clear=el('button','Clear filters');clear.type='button';clear.className='text-button table-filter-clear';
   const count=el('span');count.className='table-row-count';count.setAttribute('aria-live','polite');toolbar.append(search,toggle,clear,count);
+  // The open row, when the filters hide it, is said so with the way to show it: the position a panel is opened on by a booking or by the assistant is
+  // not one the person pressed in the rows, which they could not have pressed had its row been hidden.
+  const hiddenNote=el('p','The position open in the panel is hidden by this table’s row search or column filters. ');hiddenNote.className='table-open-note';hiddenNote.setAttribute('role','status');hiddenNote.hidden=true;
+  const showHidden=el('button','Clear filters');showHidden.type='button';showHidden.className='text-button';hiddenNote.append(showHidden);
   const filterPanel=el('div');filterPanel.className='grid-column-filters';filterPanel.hidden=true;filterPanel.id='column-filters-'+key;toggle.setAttribute('aria-controls',filterPanel.id);
   const selects:(HTMLSelectElement|HTMLInputElement)[]=[];
   headers.forEach((header,i)=>{
@@ -36,7 +40,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     choices.forEach((value,index)=>select.append(new Option(value||'(Blank)',String(index))));select.value=state.columns[i]===null?'':String(choices.indexOf(state.columns[i]!));
     select.onchange=()=>{if(!current())return;state.columns[i]=select.value===''?null:choices[Number(select.value)];apply();};label.append(select);filterPanel.append(label);selects.push(select);
   });
-  const container=el('div');container.className='standard-data-grid';host.replaceChildren(...(options.toolbarHost?[]:[toolbar]),filterPanel,container);options.toolbarHost?.replaceChildren(toolbar);
+  const container=el('div');container.className='standard-data-grid';host.replaceChildren(...(options.toolbarHost?[]:[toolbar]),filterPanel,hiddenNote,container);options.toolbarHost?.replaceChildren(toolbar);
   let alive=true,ready=false;
   const current=()=>alive&&host.isConnected&&container.parentElement===host&&!isBusy();
   // A pointer gesture belongs to one row. Selection, dragging and scrolling
@@ -120,7 +124,11 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   });
   const searched=(cells:string[],index:number)=>options.searchText?[...cells,options.searchText[index]]:cells;
   function matches(row:Record<string,string>){return matchesTableRow(searched(headers.map((_,i)=>row[field(i)]),Number(row.__sourceIndex)),state.query,state.columns,options.visible,numeric);}
-  function update(){const shown=values.filter((row,index)=>matchesTableRow(searched(row,index),state.query,state.columns,options.visible,numeric)).length;count.textContent=`${shown} of ${values.length} rows`;clear.hidden=!state.query&&!state.columns.some(v=>v!==null);}
+  const matchesSource=(index:number)=>matchesTableRow(searched(values[index],index),state.query,state.columns,options.visible,numeric);
+  function update(){
+    const shown=values.filter((_,index)=>matchesSource(index)).length;count.textContent=`${shown} of ${values.length} rows`;clear.hidden=!state.query&&!state.columns.some(v=>v!==null);
+    hiddenNote.hidden=opened===null||values[opened]===undefined||matchesSource(opened);
+  }
   function apply(){update();if(ready&&alive)table.setFilter(matches);}
   function layout():GridLayout{return {order:table.getColumns().map(c=>options.keys[Number(c.getField().slice(1))]),widths:Object.fromEntries(table.getColumns().map(c=>[options.keys[Number(c.getField().slice(1))],Math.max(40,Math.min(3000,Math.round(c.getWidth()||120)))])),sort:table.getSorters().map(s=>({key:options.keys[Number(s.field.slice(1))],direction:s.dir}))};}
   // fitDataFill refits every column without a definition width whenever the
@@ -130,7 +138,14 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   for(const event of ['columnMoved','columnResized','dataSorted'])table.on(event,()=>{if(ready&&current())options.onLayout(layout());});
   search.oninput=()=>{if(!current())return;state.query=search.value;apply();};
   toggle.onclick=()=>{if(!current())return;filterPanel.hidden=!filterPanel.hidden;toggle.setAttribute('aria-expanded',String(!filterPanel.hidden));};
-  clear.onclick=()=>{if(!current())return;state.query='';state.columns=state.columns.map(()=>null);search.value='';selects.forEach(s=>{s.value='';if(s instanceof HTMLInputElement){s.setCustomValidity('');s.removeAttribute('aria-invalid');}});apply();};
+  function clearFilters(){state.query='';state.columns=state.columns.map(()=>null);search.value='';selects.forEach(s=>{s.value='';if(s instanceof HTMLInputElement){s.setCustomValidity('');s.removeAttribute('aria-invalid');}});apply();}
+  clear.onclick=()=>{if(!current())return;clearFilters();};
+  // Showing the hidden row clears the filters, and brings the row into view with focus on it once the grid has drawn it.
+  showHidden.onclick=()=>{
+    if(!current())return;
+    const index=opened;clearFilters();
+    if(index!==null)whenDrawn(index,row=>{row.getElement().scrollIntoView({block:'nearest'});row.getElement().focus({preventScroll:true});});
+  };
   update();
   const visibleIndices=()=>table.getColumns().map(c=>Number(c.getField().slice(1))).filter(i=>options.visible?.[i]!==false);
   // Once the grid has drawn, which a grid that has only just been made has not when it is asked, the row of a source index is scrolled to within the grid and then `use`d.
@@ -159,8 +174,8 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       if(next.length===order.length&&next.every((index,at)=>index===order[at]))return;
       order=next;fit();
     },
-    /** Marks the row of a source index as the open one (null: none), and keeps it marked as the grid draws its rows again. */
-    selectRow(index:number|null){opened=index;if(ready&&alive)for(const row of table.getRows())markOpen(row);},
+    /** Marks the row of a source index as the open one (null: none), and keeps it marked as the grid draws its rows again; says so when the filters hide it. */
+    selectRow(index:number|null){opened=index;update();if(ready&&alive)for(const row of table.getRows())markOpen(row);},
     /**
      * Moves focus to the row of a source index, scrolling it into view first, once the grid has drawn again: a change of the
      * grid's width, such as a closing panel's, redraws its rows in the frame after it, which would take focus from a row focused sooner.

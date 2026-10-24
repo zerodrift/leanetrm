@@ -740,15 +740,17 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .side-panel-form .available-date-calendar{width:min(21rem,100%)}
 .side-panel-form select,.side-panel-form input:not([type=checkbox]),.side-panel-form textarea{width:100%}
 /* New trade (blotter-desk.md, Side panel). Under the toolbar, why New trade is not offered; in the panel's head, the switch of the product, a segmented
-   control with none of its two choices made for the person, and the note that a form's choices are from before a live correction. */
+   control with none of its two choices made for the person. */
 .table-workspace-note{margin:0;padding:8px 16px;border-top:1px solid var(--border);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
+/* Above the rows, that the open position's row is hidden by the table's own filters, with the way to show it. */
+.table-open-note{margin:0 0 8px;padding:8px 12px;border:1px solid var(--warn-border);border-radius:var(--radius-sm);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
+.table-open-note .text-button{margin-left:6px}
 .product-switch{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
 .product-switch button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
 .product-switch button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
 .product-switch button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
 .new-trade-head .side-panel-title{margin-top:0}
 .new-trade-head .side-panel-note{margin:8px 0 0}
-.new-trade-stale{padding:6px 8px;border:1px solid var(--warn-border);border-radius:var(--radius-sm);background:var(--warn-soft);color:var(--text)}
 /* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
 .draft-valuation{margin:20px 0 12px;padding-top:14px;border-top:1px solid var(--border)}
 .draft-title{margin:0 0 8px;font-size:15px}

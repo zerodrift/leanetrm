@@ -1,10 +1,13 @@
-import {newTrade,startNewTrade} from './new-trade.mjs';
+import {chooseProduct,newTrade,startNewTrade} from './new-trade.mjs';
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
+  // A panel left on the choice of a product: asking for one, with neither chosen, and with no form of either in it.
+  const choice="(()=>{const panel=document.querySelector('#side-panel');return !panel.hidden&&panel.dataset.mode==='new'&&panel.getAttribute('aria-label')==='New trade'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.getAttribute('aria-pressed')==='false')&&document.querySelector('#side-panel-form').hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#swap-editing').hidden&&document.querySelector('#side-panel-view').textContent.includes('Choose Future or Swap');})()";
   await command('Page.enable');await command('Runtime.enable');await command('Page.navigate',{url});
   await wait(idle+"&&document.querySelectorAll('.curve-button').length>0");
   await evaluate(`(()=>{const send=window.fetch;window.__loadingOriginalFetch=send;window.__loadingReads=[];window.fetch=async(input,init)=>{
     if(String(input)!=='/api/trading/workspace')return send(input,init);
     const body=JSON.parse(init.body);window.__loadingReads.push({body});
+    if(body.bookingCatalog==='priced_contracts'&&window.__failFullBooking){window.__failFullBooking=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}
     if(body.bookingCatalog==='priced_contracts'&&window.__denyFullBooking){window.__denyFullBooking=false;return new Response(JSON.stringify({code:'access_denied'}),{status:403,headers:{'Content-Type':'application/json'}});}
     const response=await send(input,init),data=await response.clone().json();
     if(body.bookingCatalog==='priced_contracts'&&window.__holdFullBooking){window.__holdFullBooking=false;await new Promise(resolve=>{window.__releaseFullBooking=resolve;});}
@@ -31,9 +34,15 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     await set('#snapshot',selected);await wait(idle);
     await click('#futures-refresh');await newTrade({click,wait},'futures');await click('#futures-refresh');
     await check('refresh returns to directory mode and discards prior booking choices, closing the panel and its form',"window.__loadingReads.at(-1).body.bookingCatalog==='directory'&&document.querySelector('#futures-contract').options.length===1&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#side-panel').hidden");
+    // A futures catalog that cannot be read leaves the panel on the choice of a product, as a swap's does, and never on a product with nothing in it.
+    await evaluate('window.__failFullBooking=true');await startNewTrade({click,wait});await click('#new-trade-futures');
+    await check('a futures catalog that cannot be read leaves the panel asking for a product, with the failure said, and never an empty New future',`!document.querySelector('#error').hidden&&${choice}`,"[document.querySelector('#side-panel').dataset.mode,document.querySelector('#error').textContent,document.querySelector('#side-panel-view').textContent]");
+    await chooseProduct({click,wait},'futures');
+    await check('and the product can then be chosen again',"document.querySelector('#side-panel-title').textContent==='New future'&&!document.querySelector('#futures-new-trade').hidden&&document.querySelector('#error').hidden");
+    await click('#futures-refresh');
     await evaluate('window.__mismatchFullBooking=true');await startNewTrade({click,wait});await click('#new-trade-futures');
-    await check('mismatched full booking context clears rows and keeps the form closed',"!document.querySelector('#error').hidden&&document.querySelector('#desk-positions').children.length===0&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#side-panel').hidden&&document.querySelector('#futures-contract').options.length===1");
+    await check('mismatched full booking context clears rows, keeps the form closed and leaves the panel on the choice of a product',`!document.querySelector('#error').hidden&&document.querySelector('#desk-positions').children.length===0&&document.querySelector('#futures-contract').options.length===1&&${choice}`);
     await click('#futures-refresh');await evaluate('window.__denyFullBooking=true');await startNewTrade({click,wait});await click('#new-trade-futures');
-    await check('revoked full booking read clears both workspace data and booking controls',"!document.querySelector('#error').hidden&&document.querySelector('#desk-positions').children.length===0&&document.querySelector('#futures-form').hidden&&document.querySelector('#futures-new').disabled&&document.querySelector('#side-panel').hidden");
+    await check('revoked full booking read clears both workspace data and booking controls, and leaves the panel on the choice of a product',`!document.querySelector('#error').hidden&&document.querySelector('#desk-positions').children.length===0&&document.querySelector('#futures-form').hidden&&document.querySelector('#futures-new').disabled&&${choice}`);
   }finally{await evaluate('window.fetch=window.__loadingOriginalFetch');}
 }

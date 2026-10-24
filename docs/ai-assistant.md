@@ -1373,7 +1373,7 @@ its curve and a trade read the trade at the revision it read, and the curve dire
 Blotter rows each curve or trade they list, as handles numbered across the turn within
 the result bounds, so the runtime set changes; the worker holds a turn's issued targets
 in memory and stores only the target a Navigate step issues, in its event; Navigate's
-input names `page` or `target`, the other null; page targets are the seven pages the
+input names `page` or `target`, the other null; page targets are the eight pages the
 assistant reads, each checked by its reads' accesses and permissions under the turn's
 grant, a page that does not open adding nothing to the source set; there is no
 separate context target; and a `navigation` event follows its step under the

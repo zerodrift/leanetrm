@@ -241,10 +241,21 @@ test('a swap\'s valuation line and each side\'s line state the amounts the calle
 });
 
 // Price before booking marks the delivery of each market the draft is for on that market's curve.
-test('a futures draft is for the market of its contract and the contract\'s delivery period, and for none until a contract is chosen',()=>{
- const contract=details.future.catalog.contracts[0];
- assert.deepEqual(futuresDraftMarkets(contract),[{curve:contract.curve,deliveryFrom:contract.deliveryFrom,deliveryTo:contract.deliveryTo}]);
- assert.deepEqual(futuresDraftMarkets(undefined),[]);
+test('a futures draft is for the market of the contract it was priced with, found by that contract\'s identity, whichever contract the form offers first',()=>{
+ const contracts=[{id:'c1',curve:'future',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'},{id:'c2',curve:'future',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}];
+ assert.deepEqual(futuresDraftMarkets(contracts,{curve:'future',contractId:'c2'}),[{curve:'future',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}]);
+ assert.deepEqual(futuresDraftMarkets(contracts,{curve:'future',contractId:'c1'}),[{curve:'future',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'}]);
+});
+
+test('a contract is told apart by its curve as well as its id: two curves may number a contract alike',()=>{
+ const contracts=[{id:'c1',curve:'a',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'},{id:'c1',curve:'b',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}];
+ assert.deepEqual(futuresDraftMarkets(contracts,{curve:'b',contractId:'c1'}),[{curve:'b',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}]);
+});
+
+test('a draft whose contract the catalog does not hold has no market to mark, and says so rather than marking another contract\'s',()=>{
+ const contracts=[{id:'c1',curve:'a',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'}];
+ assert.throws(()=>futuresDraftMarkets(contracts,{curve:'a',contractId:'c9'}),/not in the catalog/);
+ assert.throws(()=>futuresDraftMarkets([],{curve:'a',contractId:'c1'}),/not in the catalog/);
 });
 
 test('a swap draft is for the market of each floating side, with that side\'s delivery, in the revision it was entered against',()=>{

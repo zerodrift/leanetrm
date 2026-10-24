@@ -905,6 +905,8 @@ api.MapPost("/table-views/blotter/delete",(HttpContext c,DeleteTableView body)=>
 var futuresStore=new FuturesStore(database.Manifest);
 // Working data, the only editable view: current knowledge captured for this read over a working frame.
 bool Working(PreviewSession session,FuturesReadRequest body)=>session.MarketContext is null&&body is {KnowledgeMode:"current",ContextId:null};
+// What a view that is not working data is called when it is said to be read-only, so that the way back is the right one: a live selection, or a historical context.
+string ReadOnlyView(PreviewSession session)=>session.Live is not null?"Live view":"Historical view";
 // Trading pages name their knowledge: current knowledge, captured now at the working frame's date;
 // a context captured earlier, re-read over a working frame; or the selected historical view's own.
 async Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,FuturesReadRequest body,InputFrame frame,CancellationToken ct)
@@ -951,7 +953,7 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
         {
             json["canAmendTrades"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct));
             json["bookingUnavailableReason"]=JsonSerializer.SerializeToNode(!working
-                ?"Historical view is read-only. Return to working data, then select an As of date."
+                ?$"{ReadOnlyView(session)} is read-only. Return to working data, then select an As of date."
                 :!await PreviewDatabase.HasPermission(connection,"BookTrade",ct)?"Your current role does not have Book Trade permission.":null);
         }
         if(headTrade is not null)
@@ -961,7 +963,7 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
             var canAmend=working&&currentHead==selectedRevision&&lifecycleEligible&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct);
             if(amendmentPreview&&!canAmend)throw new MarketDataException(expectedConvention==SwapStore.Convention?"swap_revision_conflict":"futures_revision_conflict","Reload the latest eligible trade revision before amending.");
             json["canAmend"]=JsonSerializer.SerializeToNode(canAmend);
-            json["amendUnavailableReason"]=JsonSerializer.SerializeToNode(!working?"Historical view is read-only. Return to working data to amend."
+            json["amendUnavailableReason"]=JsonSerializer.SerializeToNode(!working?$"{ReadOnlyView(session)} is read-only. Return to working data to amend."
                 :currentHead!=selectedRevision?"This is an earlier trade revision. Open the latest revision at its working As of date."
                 :!lifecycleEligible?"This retained state is outside the supported live, unprocessed futures lifecycle. Settlement must be handled separately."
                 :!canAmend?"Your current role does not have Amend Trade permission.":null);

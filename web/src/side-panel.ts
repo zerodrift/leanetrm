@@ -37,13 +37,12 @@ export function modeLabel(mode:NonNullable<PanelMode>):string{
 
 const riskClearedNote='Risk results cleared · live corrections changed the inputs';
 /**
- * What a live correction (D188) does to the panel and to a risk run. An open position is read again, unless it holds unsaved
- * edits, which a refresh never takes from the person. A new trade's form is refreshed whether or not it holds edits, which it keeps:
- * its choices and its price before booking come from the inputs the correction changed. A risk run is cleared, with a note, because
- * its results belong to those inputs too.
+ * What a live correction (D188) does to the panel and to a risk run. An open panel is read again, unless it holds unsaved edits,
+ * which a refresh never takes from the person; and a risk run is cleared, with a note, because its results belong to inputs that
+ * have changed.
  */
-export function liveRefreshPlan(state:{panel:PanelMode;unsaved:boolean;riskRun:boolean}):{reloadPanel:boolean;refreshForm:boolean;clearRisk:boolean;note:string|null}{
-  return {reloadPanel:state.panel?.kind==='position'&&!state.unsaved,refreshForm:state.panel?.kind==='new'&&state.panel.product!==null,clearRisk:state.riskRun,note:state.riskRun?riskClearedNote:null};
+export function liveRefreshPlan(state:{panel:PanelMode;unsaved:boolean;riskRun:boolean}):{reloadPanel:boolean;clearRisk:boolean;note:string|null}{
+  return {reloadPanel:state.panel!==null&&!state.unsaved,clearRisk:state.riskRun,note:state.riskRun?riskClearedNote:null};
 }
 
 /** The tab an arrow, Home or End key moves to from `current`, wrapping at the ends; null for any other key. */

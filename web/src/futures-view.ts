@@ -7,7 +7,7 @@ import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {knownTradeRejection,retainedText} from './trade-requests.js';
 import {setupRisk,riskDenied} from './risk-view.js';
 import {setupFuturesBooking} from './futures-booking.js';
-import {draftShapes,readCurveShapes} from './curve-shapes.js';
+import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
 import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
 import {createTableWorkspace} from './table-workspace.js';
 import {renderDataGrid} from './data-grid.js';
@@ -72,8 +72,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Price before booking draws the curve of each market the draft is for: from the desk's own read when it holds the curve, and otherwise
   // from one read of that curve, kept until the desk reads again.
   const drafts=draftShapes({
-    desk:async()=>{await shapesRead;return shapes&&'curves' in shapes?shapes.curves:undefined;},
-    revision:()=>{try{return options.definitionRevision();}catch{return '';}},
+    desk:async()=>{await shapesRead;return shapes&&'curves' in shapes?shapes:undefined;},
+    revision:()=>{try{return options.definitionRevision();}catch{return undefined;}},
     read:async curve=>{
       let source;try{source=options.source();}catch{return 'Curve shape unavailable · the market selection changed';}
       return (await readCurveShapes(api,source,[curve])).get(curve)??'Curve shape unavailable';
@@ -174,30 +174,37 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // A product's form takes the panel's place, scrolled to so that it has the window's height.
   function showForm(){panel.form(true);panel.reveal();}
-  // The panel never holds a product it has nothing to show for: when a product's form could not be opened, it asks for a product again.
-  async function toChoice(failed:PanelMode){if(sameMode(panel.current(),failed))await panel.show(newTrade);}
-  // A product is chosen: its form opens once what it needs has been read, in one action with the question asked first, so that a read that
-  // fails, or a page that is busy, leaves the panel as it was and never an empty New trade.
+  // Where the person is: the account and market selection a read is made for. A product whose read failed leaves them on the choice of a product,
+  // but only while they are still where they were.
+  const whereAmI=()=>{try{return JSON.stringify([options.profile(),options.source()]);}catch{return undefined;}};
+  // Each product opens its form once what it needs has been read, and says whether it did: a swap's reset, or a change of selection while it was read, leaves it closed.
+  async function openFuture(next:PanelMode){
+    // The priced contracts come with a new read of the whole Blotter, which closes the panel and the forms it held.
+    await load('priced_contracts');
+    const control=bookingControl();
+    if(!control.enabled)throw Error(control.reason);
+    await panel.show(next);booking.populate();booking.open();
+    return true;
+  }
+  async function openSwap(next:PanelMode){
+    // The person has said what the panel held may go: its forms are given up before the panel moves, which would otherwise ask again of a busy page.
+    resetForms();
+    await panel.show(next);
+    return swapEditor.openNew();
+  }
+  // A product is chosen: its form opens once what it needs has been read, in one action with the question asked first. The panel never holds a
+  // product it has nothing to show for: when a product's form could not be opened it asks for a product again, with the failure said, whichever
+  // product it was, and a page that is busy leaves the panel as it was.
   async function chooseProduct(product:NewProduct){
     const next:PanelMode={kind:'new',product};
     if(busy()||sameMode(panel.current(),next))return;
     if(!await panel.leave())return;
-    let ran=false,opened=false;
+    const at=whereAmI();let ran=false,opened=false;
     await act(async()=>{
       ran=true;
-      if(product==='futures'){
-        // The priced contracts come with a new read of the whole Blotter, which closes the panel and the forms it held.
-        await load('priced_contracts');
-        const control=bookingControl();
-        if(!control.enabled)throw Error(control.reason);
-        await panel.show(next);booking.populate();booking.open();showForm();opened=true;
-        return;
-      }
-      // The person has said what the panel held may go: its forms are given up before the panel moves, which would otherwise ask again of a busy page.
-      resetForms();
-      await panel.show(next);
-      try{if(await swapEditor.openNew()){showForm();opened=true;return;}}catch(error){await toChoice(next);throw error;}
-      await toChoice(next);
+      try{opened=product==='futures'?await openFuture(next):await openSwap(next);}
+      catch(error){if(at!==undefined&&whereAmI()===at)await panel.show(newTrade);throw error;}
+      if(opened)showForm();else if(sameMode(panel.current(),next))await panel.show(newTrade);
     });
     // A page that became busy while the person was asked does nothing: the panel is as it was, and the person is told, not left to wonder.
     if(!ran)options.notice(`${newTradeProducts.find(([key])=>key===product)![1]} was not opened because the page was busy. Choose it again.`);
@@ -343,7 +350,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function shapeOf(h:Holding):CurveShape|string|undefined{
     if(!shapes)return undefined;
     if('unavailable' in shapes)return shapes.unavailable;
-    if(h.definitionRevisionId!==shapes.revision)return 'Curve shape unavailable · this market is defined in another revision than the curves of this close';
+    if(h.definitionRevisionId!==shapes.revision)return otherRevision;
     return shapes.curves.get(h.curve)??'Curve shape unavailable';
   }
   // The position at a row of the read on screen, as the side panel draws it; nothing while the desk draws no positions.
@@ -387,10 +394,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(required.includes(n.value)){n.checked=true;n.disabled=true;}});
   }
 
+  // A cleared source cannot receive the old result: where the person is then is nowhere, which no read was made for.
   function requireCurrentRead(started:number,scope:string){
-    let current:string|undefined;
-    try{current=JSON.stringify([options.profile(),options.source()]);}catch{/* A cleared source cannot receive the old result. */}
-    if(started!==generation||current!==scope)throw Error('The account or market selection changed. Reload the Blotter before continuing.');
+    if(started!==generation||whereAmI()!==scope)throw Error('The account or market selection changed. Reload the Blotter before continuing.');
   }
   async function load(bookingCatalog:BookingCatalog='directory',live=false){
     restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([readView()]))[0];const source=options.source();
@@ -464,12 +470,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.onclick=()=>{if(busy())return;view.chart.kind=button.dataset.plotKind as BlotterView['chart']['kind'];field('blotter-chart-kind').value=view.chart.kind;renderChartPanels();});
   // The form a request came from is done with it once what it held was sent, or is kept by the retained request: it is never offered again, so that
-  // a booking of the same request is not offered twice. A new future that was refused for good keeps its form, which the person corrects. A new
-  // trade has nothing but its form, so the panel it was in is closed with it.
+  // a booking of the same request is not offered twice. A new trade has nothing but its form, so the panel it was in is closed with it. A booking
+  // that was refused for good is kept by nothing: its form stays for the person to correct, and a swap's has to be prepared again.
   function done(command:RequestCommand){
+    const isBooking=command.path==='futures/book'||command.path==='swaps/book',isSwap=command.path.startsWith('swaps/');
+    if(isBooking&&!pending.command){if(isSwap)swapEditor.unprepare();return;}
     if(command.path==='futures/amend')editor.reset();
-    if(command.path==='futures/book'&&pending.command)closeNew();
-    if(command.path.startsWith('swaps/')){swapEditor.reset();closeNew();}
+    if(isSwap)swapEditor.reset();
+    if(isBooking)closeNew();
   }
   // What the backend says of a trade request it has committed: the trade, and the binding the request left it with.
   type Receipt={tradeId?:string;bindingId?:string};
@@ -574,22 +582,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
   function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
   return {load,reset,sync,show,
-    // A live correction reads the desk again, the position the panel shows with it unless the person has edits in it, and clears a risk run
-    // with a note. A new trade's form keeps what the person typed, whether or not it is an edit, and its choices and its price before booking
-    // are read again; until they have been, the panel says they are from the inputs before the correction.
+    // A live correction reads the desk again, the panel with it unless the person has edits in it, and clears a risk run with a note. No live
+    // view can book, so no form of a new trade is held while corrections arrive.
     async liveRefresh(){
       const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:risk.shown()});
       // What the risk card holds belongs to the inputs the correction changed. It is cleared before the read, with the note when a run's
       // results were on it, so that a read that then fails leaves the note, which says what is gone, as it leaves the desk it had.
       risk.reset();
       if(plan.clearRisk)options.notice(plan.note!);
-      entry.stale(plan.refreshForm);
       await load(catalog?.kind??'directory',true);
-      if(plan.refreshForm){
-        const mode=panel.current();
-        await (mode?.kind==='new'&&mode.product==='futures'?booking.liveRefresh():swapEditor.liveRefresh());
-        entry.stale(false);
-      }
       if(plan.reloadPanel){await position.reload();await swapEditor.liveRefresh();}
     },
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},

@@ -13,9 +13,15 @@ type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 /** What the form of a new future needs of the Blotter's catalog: the people and books to book for, and, once the priced catalog is read, the contracts. */
 export type FuturesBookingCatalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];canBook:boolean}&({kind:'directory'}|{kind:'priced_contracts';contracts:FuturesContract[]});
 
-/** The market a futures draft is for: the one of its contract, with that contract's delivery period; none until a contract is chosen. */
-export function futuresDraftMarkets(contract:Pick<FuturesContract,'curve'|'deliveryFrom'|'deliveryTo'>|undefined):DraftMarket[]{
-  return contract?[{curve:contract.curve,deliveryFrom:contract.deliveryFrom,deliveryTo:contract.deliveryTo}]:[];
+/**
+ * The market a priced futures draft is for: the one of the contract it was priced with, with that contract's delivery period. The contract
+ * is found in the catalog by the identity the draft carries (its curve and id), not by what the form offers now, which the person can have
+ * changed since the price was made; one the catalog does not hold has no delivery period to mark, and is said so.
+ */
+export function futuresDraftMarkets(contracts:readonly Pick<FuturesContract,'id'|'curve'|'deliveryFrom'|'deliveryTo'>[],draft:{curve:string;contractId:string}):DraftMarket[]{
+  const contract=contracts.find(c=>c.curve===draft.curve&&c.id===draft.contractId);
+  if(!contract)throw Error('The contract this price was made for is not in the catalog.');
+  return [{curve:contract.curve,deliveryFrom:contract.deliveryFrom,deliveryTo:contract.deliveryTo}];
 }
 
 /**
@@ -47,7 +53,7 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
  const chosen=()=>priced()?.contracts.find(c=>futuresContractKey(c)===field('futures-contract').value);
  const annotations=tradeAnnotations('futures',options.zone);
  const instrument=futuresInstrumentEditor(get('futures-instrument'),{contract:'futures-contract',lots:'futures-lots',price:'futures-execution',terms:'futures-contract-terms'},{edited:()=>edits.mark()});
- const draft=draftValuation(get('futures-draft-valuation'),{product:'futures',api:options.api,act:options.act,busy:options.busy,denied:options.onDenied,key:()=>JSON.stringify(options.context()),shape:options.shape,markets:()=>futuresDraftMarkets(chosen()),
+ const draft=draftValuation(get('futures-draft-valuation'),{product:'futures',api:options.api,act:options.act,busy:options.busy,denied:options.onDenied,key:()=>JSON.stringify(options.context()),shape:options.shape,markets:made=>futuresDraftMarkets(priced()?.contracts??[],made),
   draft:async()=>{
    const c=chosen();if(!c)throw Error('Choose an exact dated futures contract.');
    return {context:options.context(),curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
@@ -93,8 +99,6 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
   sync,
   /** The time zone changed: the form's times are written again, and its price, which they were written beside, is cleared. */
   refresh(){annotations.refresh();draft.reset();},
-  /** A live correction changed the inputs the price before booking was made from: it is made again. */
-  liveRefresh:()=>draft.liveRefresh(),
   /** Whether the form is in the panel, and has edits that have not been sent. */
   unsaved:()=>mounted()&&edits.edited(),
   mounted,

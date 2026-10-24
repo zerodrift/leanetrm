@@ -1071,7 +1071,7 @@ amounts as the page does, each amount once, by the last walk that reaches it. Th
 check that each read issues its own selection as a target and then each curve or trade
 it lists as a record target, a trade at the revision read, under handles numbered from
 the turn's next, each a page report its page reads, labeled with the page and what it
-shows; that a page target names one of the seven pages the assistant reads, checked by
+shows; that a page target names one of the eight pages the assistant reads, checked by
 the accesses and permissions that page's reads all run under; that a target's event
 keeps the turn's pinned mode, context and frame, and Navigate answers with the
 target's page, kind and label; that Navigate's schema offers exactly those pages and

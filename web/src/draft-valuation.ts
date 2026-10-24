@@ -38,17 +38,23 @@ export function draftValuation<D extends Draft>(host:HTMLElement,o:{product:'fut
   await o.priced?.(result);if(started!==generation||key!==o.key())return;
   await drawCurves(draft,started,key);if(started===generation&&key===o.key())sync();
  }
- // The curve of each market the draft is for, with the draft's delivery period marked on it. A curve that cannot be drawn says why, and never fails the price.
+ // The curve of each market the draft is for, with the draft's delivery period marked on it. A curve that cannot be drawn says why beside the price, and never fails it.
  async function drawCurves(draft:D,started:number,key:string){
-  for(const market of o.markets(draft)){
-   const shape=await o.shape(market);if(started!==generation||key!==o.key())return;
-   const view=typeof shape==='string'?{state:'unavailable' as const,reason:shape}:curveChart(shape,{market:curveName(market.curve),delivery:deliveryLabel(market.deliveryFrom,market.deliveryTo),deliveryFrom:market.deliveryFrom,deliveryTo:market.deliveryTo});
-   if(view.state==='unavailable'){curves.append(line(view.reason));continue;}
-   const plot=document.createElement('div');plot.className='chart draft-chart';curves.append(plot);
-   try{renderChart(plot,view.spec);}catch(error){plot.remove();curves.append(line(error instanceof Error?error.message:'The curve could not be drawn.'));continue;}
-   if(!view.marked)curves.append(line('The delivery period is not on the curve at this close.'));
+  const current=()=>started===generation&&key===o.key();
+  let markets:DraftMarket[];
+  try{markets=o.markets(draft);}catch(error){curves.append(line(whyNot(error)));return;}
+  for(const market of markets){
+   try{
+    const shape=await o.shape(market);if(!current())return;
+    const view=typeof shape==='string'?{state:'unavailable' as const,reason:shape}:curveChart(shape,{market:curveName(market.curve),delivery:deliveryLabel(market.deliveryFrom,market.deliveryTo),deliveryFrom:market.deliveryFrom,deliveryTo:market.deliveryTo});
+    if(view.state==='unavailable'){curves.append(line(view.reason));continue;}
+    const plot=document.createElement('div');plot.className='chart draft-chart';curves.append(plot);
+    try{renderChart(plot,view.spec);}catch(error){plot.remove();throw error;}
+    if(!view.marked)curves.append(line('The delivery period is not on the curve at this close.'));
+   }catch(error){if(!current())return;curves.append(line(whyNot(error)));}
   }
  }
+ const whyNot=(error:unknown)=>`Curve could not be drawn · ${error instanceof Error?error.message:'it failed for a reason not given'}`;
  function line(text:string){const p=document.createElement('p');p.className='field-help';p.textContent=publicText(text);return p;}
  price.onclick=()=>void o.act(()=>safe(priceCurrent));
  risk.onclick=()=>void o.act(()=>safe(async()=>{

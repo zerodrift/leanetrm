@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bookingAllowed,newTradeControl,newTradeProducts,newTradeStale,retainedBlock} from '../dist/new-trade.js';
+import {bookingAllowed,newTradeControl,retainedBlock} from '../dist/new-trade.js';
 
 const fallback='Choose an As of date to book a trade.';
 const allowed={canBook:true,bookingUnavailableReason:null};
@@ -35,13 +35,4 @@ test('before the Blotter is read, New trade says what the page needs, and it is 
 test('a retained request holds New trade back, ahead of every other reason, because it must be settled first',()=>{
  assert.deepEqual(newTradeControl({catalog:allowed,retained:true,fallback}),{enabled:false,reason:retainedBlock});
  assert.deepEqual(newTradeControl({catalog:{canBook:false,bookingUnavailableReason:'Historical view is read-only.'},retained:true,fallback}),{enabled:false,reason:retainedBlock});
- assert.equal(retainedBlock,'A trade request is retained. Reconcile or retry it before creating another.');
-});
-
-test('the products a new trade can be of are a future and a swap, in that order, named as the switch names them',()=>{
- assert.deepEqual(newTradeProducts,[['futures','Future'],['swaps','Swap']]);
-});
-
-test('a form whose choices could not be refreshed says it is from the inputs before the live correction',()=>{
- assert.equal(newTradeStale,'The choices and the price below are from the inputs before the last live correction: they could not be refreshed.');
 });

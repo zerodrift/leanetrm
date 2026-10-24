@@ -257,35 +257,25 @@ test('while the person is being asked, leaving is refused too, and a reset answe
 });
 
 const note='Risk results cleared · live corrections changed the inputs';
-const open={kind:'position',tradeId:'t',bindingId:'b',revision:1};
-const nothing={reloadPanel:false,refreshForm:false,clearRisk:false,note:null};
 test('a live correction leaves a panel with unsaved edits alone and clears a risk run with a note',()=>{
- assert.deepEqual(liveRefreshPlan({panel:open,unsaved:true,riskRun:true}),{...nothing,clearRisk:true,note});
- assert.deepEqual(liveRefreshPlan({panel:open,unsaved:false,riskRun:true}),{...nothing,reloadPanel:true,clearRisk:true,note});
+ const open={kind:'position',tradeId:'t',bindingId:'b',revision:1};
+ assert.deepEqual(liveRefreshPlan({panel:open,unsaved:true,riskRun:true}),{reloadPanel:false,clearRisk:true,note});
+ assert.deepEqual(liveRefreshPlan({panel:open,unsaved:false,riskRun:true}),{reloadPanel:true,clearRisk:true,note});
 });
 
-test('a live correction reloads the open position, and says nothing about a risk run there was none of',()=>{
- assert.deepEqual(liveRefreshPlan({panel:open,unsaved:false,riskRun:false}),{...nothing,reloadPanel:true});
- assert.deepEqual(liveRefreshPlan({panel:open,unsaved:true,riskRun:false}),nothing);
-});
-
-test('a live correction refreshes the form of a new trade whether or not it holds edits, which it never takes from the person',()=>{
- for(const product of ['futures','swaps'])for(const unsaved of [false,true])
-  assert.deepEqual(liveRefreshPlan({panel:{kind:'new',product},unsaved,riskRun:false}),{...nothing,refreshForm:true},`a new ${product} trade with${unsaved?'':'out'} edits`);
- assert.deepEqual(liveRefreshPlan({panel:{kind:'new',product:'swaps'},unsaved:true,riskRun:true}),{...nothing,refreshForm:true,clearRisk:true,note});
-});
-
-test('a new trade with no product chosen has no form to refresh, and neither has a risk report',()=>{
- assert.deepEqual(liveRefreshPlan({panel:{kind:'new',product:null},unsaved:false,riskRun:false}),nothing);
- assert.deepEqual(liveRefreshPlan({panel:{kind:'risk'},unsaved:false,riskRun:false}),nothing);
+test('a live correction reloads the open panel, and says nothing about a risk run there was none of',()=>{
+ const open={kind:'position',tradeId:'t',bindingId:'b',revision:1};
+ assert.deepEqual(liveRefreshPlan({panel:open,unsaved:false,riskRun:false}),{reloadPanel:true,clearRisk:false,note:null});
+ assert.deepEqual(liveRefreshPlan({panel:open,unsaved:true,riskRun:false}),{reloadPanel:false,clearRisk:false,note:null});
+ for(const mode of [{kind:'new',product:'swaps'},{kind:'risk'}])assert.equal(liveRefreshPlan({panel:mode,unsaved:false,riskRun:false}).reloadPanel,true,`${mode.kind} mode reloads too`);
 });
 
 test('a live correction has no panel to reload when none is open, whatever the edits say, and still clears a risk run',()=>{
- assert.deepEqual(liveRefreshPlan({panel:null,unsaved:false,riskRun:false}),nothing);
- assert.deepEqual(liveRefreshPlan({panel:null,unsaved:true,riskRun:true}),{...nothing,clearRisk:true,note});
+ assert.deepEqual(liveRefreshPlan({panel:null,unsaved:false,riskRun:false}),{reloadPanel:false,clearRisk:false,note:null});
+ assert.deepEqual(liveRefreshPlan({panel:null,unsaved:true,riskRun:true}),{reloadPanel:false,clearRisk:true,note});
 });
 
 test('a mode is named for the person and for assistive technology: a position, a new trade with or without its product, a risk report',()=>{
- assert.equal(modeLabel(open),'Position');assert.equal(modeLabel({kind:'risk'}),'Risk report');
+ assert.equal(modeLabel({kind:'position',tradeId:'t',bindingId:'b',revision:1}),'Position');assert.equal(modeLabel({kind:'risk'}),'Risk report');
  assert.equal(modeLabel({kind:'new',product:null}),'New trade');assert.equal(modeLabel({kind:'new',product:'futures'}),'New future');assert.equal(modeLabel({kind:'new',product:'swaps'}),'New swap');
 });

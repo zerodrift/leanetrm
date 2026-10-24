@@ -10,8 +10,6 @@ export type NewMode=Extract<PanelMode,{kind:'new'}>;
 export const newTradeProducts:readonly (readonly [NewProduct,string])[]=[['futures','Future'],['swaps','Swap']];
 /** What holds New trade back while a request of the person's has no known outcome: it is settled before another is entered. */
 export const retainedBlock='A trade request is retained. Reconcile or retry it before creating another.';
-/** What a form says of its choices and its price when a live correction changed the inputs they came from and they could not be read again. */
-export const newTradeStale='The choices and the price below are from the inputs before the last live correction: they could not be refreshed.';
 const noReason='Booking is not available in this view, and the backend did not say why.';
 
 type Control={enabled:true;reason:null}|{enabled:false;reason:string};
@@ -40,21 +38,21 @@ function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?
 }
 
 /**
- * The panel's head and body for a new trade: the title, the switch of its product, a line on the product, the way to PPA bookings and
- * the note that its choices are from before a live correction. `choose` hears the product the person chose, `ppa` the wish to book a PPA.
- * The form of the product is the page's to put in the panel's form part.
+ * The panel's head and body for a new trade: the title, the switch of its product, a line on the product and the way to PPA bookings.
+ * `choose` hears the product the person chose, `ppa` the wish to book a PPA. The form of the product is the page's to put in the
+ * panel's form part.
  */
 export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>void;ppa:()=>void;busy:()=>boolean}){
   const head=shell.element('head'),body=shell.element('body');
-  const root=el('div','new-trade-head'),title=el('h2','side-panel-title'),switcher=el('div','product-switch'),note=el('p','field-help side-panel-note'),stale=el('p','field-help side-panel-note new-trade-stale',newTradeStale);
+  const root=el('div','new-trade-head'),title=el('h2','side-panel-title'),switcher=el('div','product-switch'),note=el('p','field-help side-panel-note');
   const buttons=new Map<NewProduct,HTMLButtonElement>(newTradeProducts.map(([product,label])=>{
     const button=el('button',undefined,label);button.type='button';button.id=`new-trade-${product}`;button.onclick=()=>o.choose(product);return [product,button] as const;
   }));
   title.id='side-panel-title';switcher.id='new-trade-product';switcher.setAttribute('role','group');switcher.setAttribute('aria-label','Product');switcher.append(...buttons.values());
-  note.id='new-trade-note';stale.id='new-trade-stale';stale.setAttribute('role','status');stale.hidden=true;
+  note.id='new-trade-note';
   const ppaLine=el('p','field-help side-panel-note'),ppa=el('button','text-button','Open PPA bookings');ppa.type='button';ppa.id='new-trade-ppa';ppa.onclick=()=>o.ppa();
   ppaLine.append('Booking a power purchase agreement? ',ppa);
-  root.append(title,switcher,note,stale,ppaLine);
+  root.append(title,switcher,note,ppaLine);
   function sync(){for(const button of [...buttons.values(),ppa])button.disabled=o.busy();}
   return {
     /**
@@ -64,7 +62,7 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
     show(mode:NewMode,state:'choose'|'loading'){
       const label=modeLabel(mode);
       if(head.firstElementChild!==root)head.replaceChildren(root);
-      title.textContent=label;stale.hidden=true;
+      title.textContent=label;
       for(const [product,button] of buttons)button.setAttribute('aria-pressed',String(mode.product===product));
       note.textContent=aboutLine(mode.product);
       body.setAttribute('role','group');body.setAttribute('aria-label',label);
@@ -73,7 +71,5 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
       sync();
     },
     sync,
-    /** Says, or stops saying, that the form's choices and price are from before a live correction. */
-    stale(on:boolean){stale.hidden=!on;},
   };
 }
