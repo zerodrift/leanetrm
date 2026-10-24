@@ -209,6 +209,7 @@ public sealed partial class SwapStore
          """,[manifest.CatalogId,row.Id("trade_id"),int.Parse(row.Text("revision"),CultureInfo.InvariantCulture)],ct);
         return rows.Select(row=>{
             var result=System.Text.Json.Nodes.JsonNode.Parse(row.GetRawText())!.AsObject();
+            result["slot"]=int.Parse(row.Text("slot"),CultureInfo.InvariantCulture);
             foreach(var period in result["periods"]!.AsArray())
                 if(period!["durationTicks"] is {} ticks)period["deliveryHours"]=new AmountFormat(18,CashTieRule.ToEven,false,true).FormatFraction(BigInteger.Parse(ticks.GetValue<string>(),CultureInfo.InvariantCulture),TimeSpan.TicksPerHour);
             return JsonSerializer.SerializeToElement(result);
@@ -234,7 +235,9 @@ public sealed partial class SwapStore
          FROM trading.swap_power_quantity_intervals p JOIN trading.swap_quantity_amounts q ON(q.catalog_id,q.trade_id,q.revision,q.slot,q.ordinal)=(p.catalog_id,p.trade_id,p.revision,p.slot,p.period_ordinal)
          WHERE(p.catalog_id,p.trade_id,p.revision)=($1,$2,$3) ORDER BY p.slot,p.period_ordinal,p.ordinal
          """,[manifest.CatalogId,trade,selected],ct);
-        return new{tradeId=trade,revision=selected,quantityInputs=await RetainedQuantityInputs(connection,row,ct),intervals};
+        return new{tradeId=trade,revision=selected,quantityInputs=await RetainedQuantityInputs(connection,row,ct),
+            intervals=intervals.Select(p=>new{slot=int.Parse(p.Text("slot"),CultureInfo.InvariantCulture),period=int.Parse(p.Text("period"),CultureInfo.InvariantCulture),ordinal=int.Parse(p.Text("ordinal"),CultureInfo.InvariantCulture),
+                start=p.Text("start"),end=p.Text("end"),operatingDate=p.Text("operatingDate"),energyNumerator=p.Text("energyNumerator"),energyDenominator=p.Text("energyDenominator"),energyQuantity=p.Text("energyQuantity")})};
     }
     public static object ScheduledPeriods(SwapScheduledPeriodsRequest body)
     {
