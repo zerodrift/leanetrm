@@ -6,12 +6,14 @@ export const blotterColumns=[['portfolio','Portfolio'],['book','Book'],['market'
 export const groupChoices=[['instrumentType','Instrument type'],['commodity','Commodity'],['portfolio','Portfolio'],['book','Book'],['market','Market'],['contract','Dated contract']] as const;
 export const measureChoices=[['presentValue','PV'],['tradeCount','Trades'],['lots','Lots · group by dated contract'],['quantity','Quantity'],['executionPnl','Execution P&L'],...priceMeasureChoices] as const;
 /** The only layout version this release saves and reads. Layouts of an earlier version are never migrated. */
-export const blotterVersion=4 as const;
+const blotterVersion=4 as const;
+/** The trade fields the desk's Trade, Market, Position, Price, Mark and Value columns present; a desk view always shows them. */
+export const deskFields=['instrumentType','tradeReference','commodity','market','contract','lots','quantity','unit','executionPrice','fixedPrice','mark','executionPnl','presentValue'] as const;
 /** How the desk groups trade rows; `null` is a flat list. Pivot views group by their own dimensions. */
 export const rowGroups=['book','market','instrumentType'] as const;
 export type RowGroup=typeof rowGroups[number]|null;
 export type BlotterView={version:typeof blotterVersion;name:string;mode:'trades'|'pivot';rowGroup:RowGroup;columns:string[];bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[];query:string;columnFilters:Record<string,string>;splitBy:string[];grid:GridLayout;chart:{visible:boolean;measure:string;kind:'bar'|'line'|'heatmap'}};
-export const newBlotterView=():BlotterView=>({version:blotterVersion,name:'Trade rows',mode:'trades',rowGroup:'book',columns:['instrumentType','tradeReference','instrumentReference','revision','book','market','contract','lots','quantity','unit','priceUnit','executionPrice','mark','fixedPrice','presentValue','executionPnl','currency','settlement'],bookIds:[],portfolioIds:[],groupBy:[],measures:[],query:'',columnFilters:{},splitBy:[],grid:{order:['tradeReference','instrumentType'],widths:{},sort:[]},chart:{visible:false,measure:'quantity',kind:'bar'}});
+export const newBlotterView=():BlotterView=>({version:blotterVersion,name:'Trade rows',mode:'trades',rowGroup:'book',columns:[...deskFields],bookIds:[],portfolioIds:[],groupBy:[],measures:[],query:'',columnFilters:{},splitBy:[],grid:{order:['tradeReference','instrumentType'],widths:{},sort:[]},chart:{visible:false,measure:'quantity',kind:'bar'}});
 /** The columns a pivot of these row dimensions and measures can show, each once, in display order. */
 export const pivotColumns=(groupBy:readonly string[],measures:readonly string[])=>[...new Set([...groupBy,...measures,'instrumentType','unit','currency',...(measures.some(isPriceMeasure)?['priceUnit']:[])])];
 const isEarlierFormat=(layout:unknown)=>{const version=(layout as {version?:unknown}|null)?.version;return typeof version==='number'&&Number.isInteger(version)&&version>=1&&version<blotterVersion;};

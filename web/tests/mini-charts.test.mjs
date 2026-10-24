@@ -64,3 +64,8 @@ test('a zero scale or a zero value draws no bar',()=>{
  assert.deepEqual(divergingBar('0.000','284',100),{x:50,width:0,direction:'none'});
  assert.deepEqual(divergingBar('-0','284',100),{x:50,width:0,direction:'none'});
 });
+test('an exact rational amount places its bar by its ratio, as an exact decimal would',()=>{
+ assert.deepEqual(divergingBar('1/4','1/2',100),divergingBar('0.25','0.5',100));
+ assert.deepEqual(divergingBar('-1/3','1',90),{x:30,width:15,direction:'loss'});
+ for(const bad of ['1/0','1/-2','1/','/2','1/2/3'])assert.throws(()=>divergingBar(bad,'1',100),/exact/);
+});

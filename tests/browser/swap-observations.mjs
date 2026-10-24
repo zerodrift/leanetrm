@@ -19,8 +19,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  }
  async function bookingParties(){for(const id of ['swap-book','swap-legal-entity','swap-counterparty'])await change('#'+id,await evaluate(`document.querySelector('#${id}').options[1].value`));}
  async function book(){await click('#swap-confirm');await click('#swap-submit');await wait("!document.querySelector('#swap-editor').open");return evaluate(`(()=>{const id=${last('swaps/book')}.data.tradeId;const data=window.observationCalls.filter(row=>row.path==='/api/trading/workspace'||row.path==='/api/trading/blotter').at(-1).data;return (data.blotter??data).holdings.find(row=>row.tradeId===id).tradeReference;})()`);}
- async function reopen(reference){await change('#futures-holdings .table-search',reference);await evaluate("document.querySelector('#futures-holdings .tabulator-row').scrollIntoView({block:'center'})");
-  const point=await evaluate("(()=>{const rect=document.querySelector('#futures-holdings .tabulator-row .tabulator-cell').getBoundingClientRect();return {x:rect.left+12,y:rect.top+rect.height/2};})()");
+ async function reopen(reference){await change('#desk-positions .table-search',reference);await evaluate("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)').scrollIntoView({block:'center'})");
+  // The grid ignores a press that a scroll interrupts, and the desk is tall enough for this to scroll: let it settle first.
+  await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+  const point=await evaluate("(()=>{const rect=document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) .tabulator-cell').getBoundingClientRect();return {x:rect.left+12,y:rect.top+rect.height/2};})()");
   await command('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});await wait("document.querySelector('#swap-editor').open&&"+idle);
  }
  let index=await start();

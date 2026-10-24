@@ -44,7 +44,7 @@ export async function run({command,evaluate,wait,click,persona,set,check,shot,id
  await persona('risk');await click('#example');await click('#nav-futures');await click('#follow-live');
  await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  const reference=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>h.instrumentType==='financial_swap').tradeReference");
- await set('#futures-holdings .table-search',reference);await click('#futures-holdings .tabulator-row');await wait("document.querySelector('#swap-editor').open");
+ await set('#desk-positions .table-search',reference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#swap-editor').open");
  await evaluate('window.failLiveEditor=true');await correct('base','3.4');
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);await click('#live-retry');
  await wait("document.querySelector('#swap-editor').open&&document.querySelector('#live-status').dataset.state==='live'&&"+idle);

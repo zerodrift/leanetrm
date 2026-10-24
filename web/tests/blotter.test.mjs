@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseBlotterViews,readSavedViews,newBlotterView,pivotColumns,withoutColumns} from '../dist/blotter-layout.js';
+import {parseBlotterViews,readSavedViews,newBlotterView,pivotColumns,withoutColumns,deskFields} from '../dist/blotter-layout.js';
 import {guardedCsv} from '../dist/csv-export.js';
 test('named views retain layout and filters without retaining market inputs or permissions',()=>{
  const view={...newBlotterView(),name:'Book review',columns:['book','contract','executionPnl'],query:'Jan',columnFilters:{book:'Book A'}};
@@ -15,11 +15,13 @@ test('snapshot export retains exact decimal strings and guards textual spreadshe
  const csv=guardedCsv([['Book','Quantity','Execution P&L'],['=untrusted','-40','0.000000000000000001'],['A,"B"','80','-4']],[1,2]);
  assert.ok(csv.includes("\"'=untrusted\""));assert.ok(csv.includes('"-40","0.000000000000000001"'));assert.ok(csv.includes('"A,""B""","80","-4"'));
 });
-test('new trade layouts expose stable references and revision without changing existing saved layouts',()=>{
+test('a new trade view shows the desk columns, and instrument references and revision stay optional columns (D91)',()=>{
  const view=newBlotterView();
- for(const key of ['tradeReference','instrumentReference','revision'])assert.ok(view.columns.includes(key));
- const legacy={...view,columns:['book','lots','executionPnl']};
- assert.deepEqual(parseBlotterViews(JSON.stringify([legacy]))[0].columns,legacy.columns);
+ assert.deepEqual(view.columns,[...deskFields]);assert.ok(view.columns.includes('tradeReference'));
+ const detailed={...view,columns:[...deskFields,'instrumentReference','revision','counterparty']};
+ assert.deepEqual(parseBlotterViews(JSON.stringify([detailed]))[0].columns,detailed.columns);
+ const chosen={...view,columns:['book','lots','executionPnl']};
+ assert.deepEqual(parseBlotterViews(JSON.stringify([chosen]))[0].columns,chosen.columns);
 });
 
 test('price pivot layouts retain explicit statistics, units and exact arithmetic filters',()=>{

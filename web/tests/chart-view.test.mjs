@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {chartOptions,palette} from '../dist/chart-view.js';
+import {chartOptions,palette,polarity} from '../dist/chart-view.js';
 const css=readFileSync(new URL('../dist/app.css',import.meta.url),'utf8');
 const token=name=>css.match(new RegExp(`${name}:\\s*([^;}]+)`))?.[1].trim();
 // A series without its own color takes the palette entry for its index, as ECharts does.
@@ -37,4 +37,51 @@ test('shared table header text meets AA contrast on its own background',()=>{
  assert.ok(Object.keys(sharedHeader).length,'the shared th rule is missing');
  const ratio=contrast(resolved(sharedHeader.color),resolved(sharedHeader.background));
  assert.ok(ratio>=4.5,`th text contrast is ${ratio.toFixed(2)}:1`);
+});
+test('sign-colored horizontal bars mark gains and losses',()=>{
+ const o=chartOptions({title:'PV',axis:'category',unit:'USD',kind:'bar',orientation:'horizontal',colorBySign:true,series:[{name:'PV',points:[{x:'waha',y:'271'},{x:'chi',y:'-284'}]}]});
+ assert.equal(o.yAxis.type,'category');assert.equal(o.xAxis.type,'value');
+ assert.deepEqual(o.series[0].data.map(d=>d.itemStyle.color),['#1f8a5b','#d6453d']);
+});
+test('horizontal bars list categories top down, and their texts in a column beside the bars, toned by sign',()=>{
+ const o=chartOptions({title:'PV',axis:'category',unit:'USD',kind:'bar',orientation:'horizontal',colorBySign:true,series:[{name:'PV',points:[{x:'a',y:'271',text:'+271.00'},{x:'b',y:'-284',text:'−284.00'},{x:'c',y:'0',text:'0.00'}]}]});
+ const [categories,texts]=o.yAxis;
+ assert.deepEqual(categories.data,['a','b','c']);assert.equal(categories.inverse,true);
+ assert.equal(texts.position,'right');assert.deepEqual(texts.data,['a','b','c']);assert.equal(texts.inverse,true);
+ assert.deepEqual(['a','b','c'].map(texts.axisLabel.formatter),['{gain|+271.00}','{loss|−284.00}','0.00']);
+ assert.deepEqual(o.series[0].data.map(d=>d.value),[271,-284,0]);
+ assert.equal(o.series[0].data[2].itemStyle.color,'#68776f','a zero is neither a gain nor a loss');
+});
+test('a horizontal chart that lists its values beside its bars needs no value-axis labels, and one that does not keeps them',()=>{
+ const spec=text=>({title:'t',axis:'category',unit:'USD',kind:'bar',orientation:'horizontal',series:[{name:'s',points:[{x:'a',y:'3',...(text?{text:'+3.00'}:{})}]}]});
+ assert.equal(chartOptions(spec(true)).xAxis.axisLabel.show,false);
+ assert.notEqual(chartOptions(spec(false)).xAxis.axisLabel.show,false);
+});
+test('bar colors are the polarity tokens of the shared stylesheet',()=>{
+ assert.deepEqual([polarity.gain,polarity.loss,polarity.none],[token('--gain'),token('--loss'),token('--text-3')]);
+});
+test('a bar takes the color its point names, and a category label carries the marker its point names',()=>{
+ const o=chartOptions({title:'Long and short',axis:'category',unit:'MWh',kind:'bar',orientation:'horizontal',series:[{name:'Quantity',points:[{x:'p',label:'Power',y:'100',color:'#2a78d6',marker:'#2a78d6'},{x:'g',label:'Gas',y:'-50',color:'#eb6834'}]}]});
+ assert.deepEqual(o.series[0].data.map(d=>d.itemStyle.color),['#2a78d6','#eb6834']);
+ assert.equal(o.yAxis.axisLabel.formatter('p'),'{m0|●} Power');assert.equal(o.yAxis.axisLabel.formatter('g'),'Gas');
+ assert.equal(o.yAxis.axisLabel.rich.m0.color,'#2a78d6');
+});
+test('an unsigned amount whose direction is stated apart is drawn on that side, while its tooltip keeps the exact amount',()=>{
+ const spec={title:'Long and short',axis:'category',unit:'MWh',kind:'bar',orientation:'horizontal',series:[{name:'Quantity',points:[{x:'s',label:'Swap',y:'50',direction:'negative',text:'50 receive fixed'}]}]};
+ const o=chartOptions(spec);
+ assert.equal(o.series[0].data[0].value,-50);assert.equal(o.yAxis[1].axisLabel.formatter('s'),'50 receive fixed');
+ assert.equal(o.tooltip.formatter([{seriesIndex:0,dataIndex:0}]),'Swap · Quantity: 50 MWh · 50 receive fixed');
+ assert.throws(()=>chartOptions({...spec,series:[{name:'Quantity',points:[{x:'s',y:'-50',direction:'negative'}]}]}),{message:'A chart point with a stated direction needs an unsigned amount.'});
+});
+test('heatmaps shade with the shared palette family: a diverging ramp from loss to gain, else a single-hue ramp',()=>{
+ const spec=y=>({title:'t',axis:'category',unit:'USD',kind:'heatmap',series:[{name:'a',points:[{x:'1',y}]}]});
+ assert.deepEqual(chartOptions(spec('-3')).visualMap.inRange.color,['#d6453d','#f7f8f7','#1f8a5b']);
+ assert.deepEqual(chartOptions(spec('3')).visualMap.inRange.color,['#eaf3ee','#8cc0a8','#2f8a66']);
+});
+test('a diverging axis keeps zero in the middle between round ends',()=>{
+ const o=chartOptions({title:'PV',axis:'category',unit:'USD',kind:'bar',orientation:'horizontal',colorBySign:true,series:[{name:'PV',points:[{x:'a',y:'369019.597'},{x:'b',y:'-51610623.41849047'}]}]});
+ const range={min:-51610623.41849047,max:369019.597};
+ assert.deepEqual([o.xAxis.min(range),o.xAxis.max(range)],[-60000000,60000000]);
+ assert.deepEqual([o.xAxis.min({min:0,max:4000000}),o.xAxis.max({min:0,max:4000000})],[-4000000,4000000]);
+ assert.deepEqual([o.xAxis.min({min:-2.5,max:1}),o.xAxis.max({min:-2.5,max:1})],[-2.5,2.5]);
 });

@@ -2,13 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from '../dist/valuation-status.js';
 
-test('each position-specific status reads in plain words',()=>{
- assert.equal(valuationReason('source_expired'),'Contract expired · awaiting settlement');
- assert.equal(valuationReason('missing_observation'),'Missing price at this close');
+test('each position-specific status reads in plain words for the instrument it concerns',()=>{
+ assert.equal(valuationReason('source_expired','future'),'Contract expired · awaiting settlement');
+ assert.equal(valuationReason('source_expired','financial_swap'),'Past marking cutoff');
+ for(const instrumentType of ['future','financial_swap'])assert.equal(valuationReason('missing_observation',instrumentType),'Missing price at this close');
 });
-test('a status the Blotter does not define is refused, never shown as valued or as another reason',()=>{
+test('a status or instrument the Blotter does not define is refused, never shown as valued or as another reason',()=>{
  for(const code of ['index_fixing_missing','','toString','__proto__',undefined,null])
-  assert.throws(()=>valuationReason(code),{message:'The Blotter returned an unknown valuation status.'});
+  assert.throws(()=>valuationReason(code,'future'),{message:'The Blotter returned an unknown valuation status.'});
+ for(const instrumentType of ['option','','toString',undefined])
+  assert.throws(()=>valuationReason('source_expired',instrumentType),{message:'The Blotter returned an unknown instrument type.'});
 });
 test('a total says how many positions the close leaves out',()=>{
  assert.equal(valuationNote(0),null);

@@ -9,4 +9,5 @@ export class TabulatorFull {
  getSorters():{field:string;dir:'asc'|'desc'}[];
  setSort(sort:{column:string;dir:'asc'|'desc'}[]):void;
  redraw(force?:boolean):void;
+ getRows():{getData():Record<string,string>;getCell(field:string):{setValue(value:string):void}|false}[];
 }

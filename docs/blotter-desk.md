@@ -166,10 +166,12 @@ currencies:
 4. Risk: **Not run at this close** with a run button. After a run it shows the
    largest move, the shock count and small bars per position.
 
-Not-valued positions are excluded and noted as above. Tile values come from
-backend pivots (`trading/blotter` with the `trading_blotter_totals_v1`
-convention, grouped by book). The commodity mix needs a commodity dimension or
-an explicit commodity on each row from the backend.
+Not-valued positions are excluded and noted as above. Tile totals and their
+per-book splits come from money-totals pivots (`trading_blotter_money_totals_v1`,
+D216) grouped by instrument type and by book, which add money of one currency
+across quantity units. The position mix comes from the backend's commodity and
+instrument-type pivot (`trading_blotter_totals_v1`). All of them are summaries of
+the Blotter's own read.
 
 **Charts** (shared chart component and theme):
 

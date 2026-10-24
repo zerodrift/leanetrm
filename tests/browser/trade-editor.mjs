@@ -16,7 +16,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
       const other=report.holdings.find(row=>row.tradeId!==booked);if(other)other.tradeReference='TR-990037';
       response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
     }
-    if((path==='/api/trading/workspace'||path==='/api/trading/blotter')&&window.__revisionSort&&response.ok){const data=await response.json(),report=path==='/api/trading/workspace'?data.blotter:data;report.holdings=report.holdings.slice(0,2).map((h,i)=>({...h,revision:i===0?'10':'2'}));response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
+    if((path==='/api/trading/workspace'||path==='/api/trading/blotter')&&window.__revisionSort&&response.ok){const data=await response.json(),report=path==='/api/trading/workspace'?data.blotter:data;report.holdings=report.holdings.map((h,i)=>({...h,revision:i===0?'10':'2'}));response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
     if((path==='/api/futures/editor'&&window.__holdEditor)||(path==='/api/futures/amend-preview'&&window.__holdPreview)){
       window.__holdEditor=false;window.__holdPreview=false;await new Promise(resolve=>window.__releaseEditor=resolve);window.__releaseEditor=null;
     }
@@ -36,13 +36,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const tradeReference=await evaluate(`window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).tradeReference`);
   await check('row targeting distinguishes the booked quantity from a competing reference containing 37',`(()=>{const rows=window.__tradingReports(window.__editorReplies).at(-1).data.holdings;return rows.some(row=>row.tradeId!==${JSON.stringify(bookedTrade)}&&row.tradeReference==='TR-990037')&&rows.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).lots==='37';})()`);
   async function open(revision=1){
-    await set('#futures-holdings .table-search',tradeReference);
-    await wait(`(()=>{const rows=[...document.querySelectorAll('#futures-holdings .tabulator-row')].filter(row=>row.getClientRects().length);return ${idle}&&rows.length===1&&[...rows[0].querySelectorAll('.tabulator-cell')].some(cell=>cell.textContent.trim()===${JSON.stringify(tradeReference)});})()`);
-    await click('#futures-holdings .tabulator-row');
+    await set('#desk-positions .table-search',tradeReference);
+    await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(row=>row.getClientRects().length);return ${idle}&&rows.length===1&&rows[0].querySelector('.desk-reference')?.textContent===${JSON.stringify(tradeReference)};})()`);
+    await click('#desk-positions .tabulator-row:not(.tabulator-group)');
     await wait(`(()=>{const state=window.__editorReplies.filter(r=>r.path==='/api/futures/editor').at(-1)?.data.state;return document.querySelector('#trade-editor').open&&state?.tradeId===${JSON.stringify(bookedTrade)}&&state.revision===${revision};})()`);
   }
   await open();
-  await check('blotter exposes readable trade instrument and revision columns',"document.querySelector('#futures-holdings').textContent.includes('Trade ID')&&document.querySelector('#futures-holdings').textContent.includes('Instrument ID')&&document.querySelector('#trade-editor-reference').textContent.includes('TR-')&&document.querySelector('#trade-editor-reference').textContent.includes('IN-')");
+  await check('the desk shows each trade by its readable reference and offers instrument and revision columns',"[...document.querySelectorAll('#desk-positions .desk-reference')].every(n=>n.textContent.startsWith('TR-'))&&!!document.querySelector('#blotter-column-choices input[value=instrumentReference]')&&!!document.querySelector('#blotter-column-choices input[value=revision]')&&document.querySelector('#trade-editor-reference').textContent.includes('TR-')&&document.querySelector('#trade-editor-reference').textContent.includes('IN-')");
   await check('trade terms keep immutable booking facts above an instrument-owned quantity',"['trader','trade-date','executed'].every(id=>document.getElementById('trade-'+id).readOnly)&&!document.querySelector('#trade-trade-terms #trade-lots')&&document.querySelector('#trade-instrument #trade-lots')&&Boolean(document.querySelector('#trade-trade-terms').compareDocumentPosition(document.querySelector('#trade-instrument'))&Node.DOCUMENT_POSITION_FOLLOWING)");
   await check('filtered blotter row opens its exact trade revision and instrument terms',"document.querySelector('#trade-lots').value==='37'&&document.querySelector('#trade-revision').value==='1'&&!document.querySelector('#trade-amend-fields').disabled&&document.querySelector('#trade-side-fields').textContent.includes('per lot')");
   await set('#trade-lots','38');await set('#trade-reason','Synthetic editor correction');await submit('#trade-amend-form');
@@ -67,16 +67,23 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate("window.__holdPreview=true;document.querySelector('#trade-amend-form').requestSubmit()");await wait('!!window.__releaseEditor');
   await evaluate("document.querySelector('#trade-editor').dispatchEvent(new Event('cancel'));window.__releaseEditor()");await wait(idle);
   await check('late preview cannot restore cleared economics or prepared amendment',"!document.querySelector('#trade-editor').open&&document.querySelector('#trade-preview-result').hidden&&document.querySelector('#trade-preview-values').textContent===''&&document.querySelector('#trade-effective').textContent===''");
-  await evaluate("window.__denyEditor=true");await click('#futures-holdings .tabulator-row');
-  await check('denied editor clears prior business names and all trade surfaces',"document.querySelector('#trade-book').options.length===0&&document.querySelector('#trade-contract').options.length===0&&document.querySelector('#trade-revision').options.length===0&&document.querySelector('#futures-holdings').children.length===0");
+  await evaluate("window.__denyEditor=true");await click('#desk-positions .tabulator-row:not(.tabulator-group)');
+  await check('denied editor clears prior business names and all trade surfaces',"document.querySelector('#trade-book').options.length===0&&document.querySelector('#trade-contract').options.length===0&&document.querySelector('#trade-revision').options.length===0&&document.querySelector('#desk-positions').children.length===0");
   await click('#futures-refresh');await click('#date-context>summary');await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
   await check('historical mode visibly explains disabled booking and offers working return',"document.querySelector('#workspace-mode-label').textContent.includes('Historical view')&&!document.querySelector('#return-working').hidden&&document.querySelector('#futures-new').disabled&&document.querySelector('#futures-book-submit').disabled&&document.querySelector('#futures-booking-availability').textContent.includes('Historical view')");
+  // Reading a historical close, the desk reads its curves in that same context and draws them beside the positions.
+  await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].filter(o=>o.value).at(-1).value"));await wait(idle);await click('#futures-refresh');
+  await wait("!!document.querySelector('#desk-positions .tabulator-row')&&document.querySelectorAll('#desk-positions .sparkline-loading').length===0");
+  await check('under a historical context the desk reads its curves in that context and draws them',"(()=>{const shapes=window.__editorReplies.filter(r=>r.path==='/api/market/curve-shapes').at(-1),report=window.__tradingReports(window.__editorReplies).at(-1).data;return !!shapes&&shapes.data.context.contextId===report.context.contextId&&document.querySelectorAll('#desk-positions svg.sparkline:not(.sparkline-unavailable)').length>0;})()");
   await click('#return-working');
   await check('return to working does not silently select a market date',"document.querySelector('#workspace-mode-label').textContent.includes('Working data')&&document.querySelector('#snapshot').value===''&&document.querySelector('#futures-new').disabled");
   await persona('risk');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await check('draft entry stays available while booking permission is explained',"!document.querySelector('#futures-new').disabled&&document.querySelector('#futures-book-submit').disabled&&document.querySelector('#futures-booking-availability').textContent.includes('Book Trade permission')");
   await evaluate("window.__revisionSort=true");await click('#futures-refresh');
-  await evaluate("[...document.querySelectorAll('#futures-holdings [role=columnheader]')].find(n=>n.textContent.trim()==='Revision').click()");
-  await check('revision column sorts numerically across multiple digits',"(()=>{const field=[...document.querySelectorAll('#futures-holdings [role=columnheader]')].find(n=>n.textContent.trim()==='Revision').getAttribute('tabulator-field');return JSON.stringify([...document.querySelectorAll('#futures-holdings .tabulator-row')].map(row=>row.querySelector('[tabulator-field='+field+']').textContent.trim()))===JSON.stringify(['2','10']);})()");
+  // Revisions sort as numbers in a flat list: grouping would order the rows by book first.
+  await set('#blotter-row-group','');await wait(idle);await click('#blotter-columns>summary');await click('#blotter-column-choices input[value="revision"]');await click('#blotter-columns>summary');
+  await evaluate("[...document.querySelectorAll('#desk-positions [role=columnheader]')].find(n=>n.textContent.trim()==='Revision').click()");
+  // Every row stays, one at revision 10 and the rest at 2: the desk refuses rows its summaries do not describe. Ascending, the first is 2 as a number, 10 as text.
+  await check('revision column sorts numerically across multiple digits',"(()=>{const field=[...document.querySelectorAll('#desk-positions [role=columnheader]')].find(n=>n.textContent.trim()==='Revision').getAttribute('tabulator-field');const shown=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].map(row=>row.querySelector('[tabulator-field='+field+']').textContent.trim());return window.__tradingReports(window.__editorReplies).at(-1).data.holdings.some(h=>h.revision==='10')&&shown.length>1&&shown[0]==='2';})()");
 
 }

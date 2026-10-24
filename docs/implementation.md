@@ -232,10 +232,12 @@ are then priced together in one build. Swaps catch the codes per unit valuation 
 outcome for every position holding that unit. Pivot groups, futures book totals and
 the report add only valued positions to PV, execution P&L and curve-price statistics,
 count every position in trades, lots, quantity and execution- and fixed-price
-statistics, and state `unvaluedPositions`. The Blotter table shows **Not valued** with
-the reason in plain words in a position's value cells, and the CSV export writes the same
-text there. A note under the summary counts the positions its totals exclude, as does the
-chart's scope line when it plots PV, execution P&L or a curve-price statistic. Pivots add
+statistics, and state `unvaluedPositions`. The Blotter desk shows a **Not valued** chip with
+the reason in plain words in place of a position's value: for a future's expired contract
+"Contract expired · awaiting settlement", for a swap's expired source "Past marking cutoff", and
+"Missing price at this close" for either. The CSV export writes the reason in the value cells.
+Each summary tile notes the positions its own total excludes, from its own group's count, as
+does a pivot chart's scope line when it plots PV, execution P&L or a curve-price statistic. Pivots add
 a **Not valued** count per group, beside each column group of a cross-tab, whenever a
 group leaves a position out; saved views do not keep that column. The export metadata
 states the report's count. Every other failure still fails the read.
@@ -265,8 +267,8 @@ latest revision. `markMinusPrice` is the exact mark less a future's executed pri
 fixed price, kept as an exact rational where the mark is one. It is null for a multi-side swap,
 for a position the close cannot value and for a swap whose floating side has no single mark.
 Commodity is also a pivot dimension, a column choice, a saved-view dimension and a grouping the
-assistant's Blotter read accepts; the Blotter table shows it as a column and in pivots, and does
-not yet show direction or mark minus price. `tools/run_preview.py --check --desk-fields-check`
+assistant's Blotter read accepts. The desk shows a position's commodity beside its market and its
+direction beside its size, and does not yet show mark minus price. `tools/run_preview.py --check --desk-fields-check`
 qualifies the fields on the seeded example, adding a receive-fixed swap, a floating/floating swap
 and an amendment that changes a direction.
 
@@ -280,6 +282,24 @@ pivot, and a view of other books or portfolios, or one that repeats a book or po
 refused with `blotter_view`, over an empty book too. Under either pivot convention, a pivot whose
 dimensions name a market or a contract keeps the definition revisions of one market apart, and each
 of its groups states its `definitionRevisionId`, so two groups of one market never look alike.
+
+The Blotter's trade rows are a desk (blotter-desk.md, Desk layout), drawn from one workspace
+read and its four summaries. Its tiles show swap PV and futures execution P&L per exact currency
+with a split per book, from the money totals; the number of positions read with their mix by
+commodity and instrument type; and whether a risk report has run at this close, which for now
+opens the risk report below the positions. Swap PV by market has a panel per currency, and long
+and short by market a panel per quantity unit. A swap's booked quantity is unsigned, so its bar
+takes the side the backend's direction states (pay fixed long, receive fixed short) where every
+swap of that market and unit shares one, and is otherwise not drawn. Positions group by book,
+market and definition revision, instrument type, or not at all, under the subtotals of the
+matching summary. The grid's row search reads the words its cells draw, such as the delivery month,
+the instrument kind, the direction, the unit and the value's measure and currency, beside the exact
+amounts. Each row draws its market's forward curve from `market/curve-shapes` after the
+rows render, at most 64 curves to a read, in the market context the positions were read in and
+only for markets of the close's own definition revision; a curve that cannot be drawn, or was read
+in another context, says why in its own row. Pivot views keep their table and
+configurable chart under the same tiles. Commodity colors are the design's identity colors for
+the two commodities of the synthetic reference catalog, and palette colors for any other.
 
 The desk's money totals come from a second pivot convention (D216). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

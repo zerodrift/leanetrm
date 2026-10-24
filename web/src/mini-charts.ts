@@ -1,6 +1,6 @@
 // Pixel geometry for the small inline charts (row sparklines and signed bars).
 // Exact server strings stay the values: they are read as numbers only to place
-// pixels, and a string that is not an exact decimal raises instead of drawing a
+// pixels, and a string that is not an exact decimal or rational raises instead of drawing a
 // guess. Callers render the result as SVG.
 export type ShapePoint={x:number;y:string|null;label:string};
 type Pixel={x:number;y:number};
@@ -9,9 +9,10 @@ type Placed=Pixel&{at:number;label:string};
 const inset=3;
 // Geometry is kept to 0.01px so path strings stay short and stable.
 const hundredths=(n:number)=>Math.round(n*100)/100;
+// An exact decimal or rational string (a backend total may be one), as a number for pixels only.
 function plotNumber(value:string){
-  const n=/^-?\d+(?:\.\d+)?$/.test(value)?Number(value):NaN;
-  if(!Number.isFinite(n))throw Error('A mini chart needs exact finite decimal strings.');
+  const [numerator,denominator='1']=value.split('/'),n=/^-?\d+(?:\.\d+|\/[1-9]\d*)?$/.test(value)?Number(numerator)/Number(denominator):NaN;
+  if(!Number.isFinite(n))throw Error('A mini chart needs exact finite decimal or rational strings.');
   return n;
 }
 /**
