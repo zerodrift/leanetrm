@@ -278,7 +278,7 @@ public sealed record SideApplicationValue
     {Application=application;Price=price;CashContribution=cash;}
 }
 
-public sealed record SidePaymentValue
+public record SidePaymentCash
 {
     public SidePaymentPlan Plan { get; }
     public ImmutableArray<ResolvedSchedulePrice> Prices { get; }
@@ -287,11 +287,9 @@ public sealed record SidePaymentValue
     public ImmutableArray<SideApplicationValue> Applications { get; }
     // The sum may exceed the entered-decimal range while its mean remains valid.
     public string ObservationWeightTotal { get; }
-    public SidePaymentFactor Discount { get; }
-    public ExactMoney PresentValue { get; }
-    internal SidePaymentValue(SidePaymentPlan plan, ImmutableArray<ResolvedSchedulePrice> prices, SidePaymentFactor discount)
+    internal SidePaymentCash(SidePaymentPlan plan, ImmutableArray<ResolvedSchedulePrice> prices)
     {
-        Plan = plan; Prices = prices; Discount = discount;
+        Plan = plan; Prices = prices;
         var weight = prices.Aggregate(System.Numerics.BigInteger.Zero, (sum, price) => sum + price.Term.Weight.ScaledValue);
         ObservationWeightTotal=new AmountFormat(18,CashTieRule.ToEven,false,true)
             .FormatFraction(weight,ExactDecimal.WorkingScale);
@@ -309,6 +307,17 @@ public sealed record SidePaymentValue
         Resets=prices.Select((price,n)=>new SideResetValue(price,Applications.Where(a=>a.Application.PriceOrdinal==n)
             .Select(a=>a.CashContribution).Aggregate((a,b)=>a.Add(b)))).ToImmutableArray();
         CashAmount=Applications.Select(a=>a.CashContribution).Aggregate((a,b)=>a.Add(b));
+    }
+}
+
+public sealed record SidePaymentValue : SidePaymentCash
+{
+    public SidePaymentFactor Discount { get; }
+    public ExactMoney PresentValue { get; }
+    internal SidePaymentValue(SidePaymentPlan plan, ImmutableArray<ResolvedSchedulePrice> prices, SidePaymentFactor discount)
+        : base(plan, prices)
+    {
+        Discount = discount;
         PresentValue = CashAmount.Scale(discount.DiscountFactor);
     }
 }
@@ -411,8 +420,9 @@ public sealed record SideContribution
     public ExactDecimal Coefficient { get; }
     public SideValuation Value { get; }
     public ExactMoney Contribution { get; }
-    internal SideContribution(ExactDecimal coefficient, SideValuation value)
-    { Coefficient = coefficient; Value = value; Contribution = value.PresentValue.Scale(coefficient); }
+    public OpenEtrm.Shared.Numerics.ExactRatio QuantityRatio { get; }
+    internal SideContribution(SideMembership membership, SideValuation value)
+    { Coefficient = membership.Coefficient; QuantityRatio=membership.QuantityRatio??OpenEtrm.Shared.Numerics.ExactRatio.One; Value = value; Contribution = value.PresentValue.Scale(QuantityRatio).Scale(Coefficient); }
 }
 
 public sealed record InstrumentValuation
@@ -450,7 +460,7 @@ public sealed record InstrumentValuation
             throw new MarketDataException("instrument_contribution", "Every membership requires its own exact side valuation in the instrument currency and unit basis.");
         if (values.Any(v => !ReferenceEquals(context, v.Context)))
             throw new MarketDataException("instrument_context", "All side PVs must belong to this valuation operation, including its exact scenario and discount inputs.");
-        Sides = values.Select((v, n) => new SideContribution(instrument.Sides[n].Coefficient, v)).ToImmutableArray();
+        Sides = values.Select((v, n) => new SideContribution(instrument.Sides[n], v)).ToImmutableArray();
         PresentValue = Sides.Select(s => s.Contribution).Aggregate((a, b) => a.Add(b));
     }
 }

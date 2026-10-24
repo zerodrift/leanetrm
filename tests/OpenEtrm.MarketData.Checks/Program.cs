@@ -18,6 +18,8 @@ if(args is ["--ppa-benchmark",var ppaOutput]){PpaBenchmark.Run(ppaOutput);return
 if(args is ["--book-valuation"]){BookValuationChecks.Run();return;}
 if(args is ["--independent-sides"]){IndependentSideChecks.Run();return;}
 if(args is ["--asset-volumes"]){Slice2AcceptanceChecks.Run();return;}
+if(args is ["--swap-settlement"]){SwapSettlementChecks.Run();SettlementDeterminationChecks.Run();SwapLifecycleChecks.Run();return;}
+if(args is ["--scheduled-swaps"]){ScheduledSwapChecks.Run();return;}
 if(args is ["--monthly-swaps"]){MonthlySwapChecks.Run();return;}
 if(args is ["--commodity-lookups"]){CommodityLookupChecks.Run();return;}
 if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();return;}
@@ -69,7 +71,7 @@ IntervalDataChecks.Run();
 PowerHoursChecks.Run();
 CustomCurveChecks.Run();
 ExactCurvePriceChecks.Run();
-var passed = PpaBenchmark.CheckWorkloads();
+var passed = PpaBenchmark.CheckWorkloads()+ScheduledSwapChecks.Run()+SwapSettlementChecks.Run()+SettlementDeterminationChecks.Run()+SwapLifecycleChecks.Run();
 void Check(string label, Action run) { run(); passed++; Console.WriteLine($"PASS {label}"); }
 void Equal<T>(T actual, T expected) where T : notnull
 {

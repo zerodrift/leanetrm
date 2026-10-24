@@ -6,6 +6,18 @@ The architecture is in [architecture.md](architecture.md); delivery scope is in
 
 ## Agreed requirements
 
+D215 authorizes the financial swap settlement MVP through S1–S6, with futures
+margining and physical settlement subsequent. The [swap settlement contract](swap-settlement.md)
+records explicit opt-in, gross occurrence rounding from pinned exact-currency
+minor units, corrections against prior rounded totals with explicitly supplied
+due instants, nominal due balances without interest/credit adjustments, and
+realization per completed final contractual period independently of payment.
+Completion is pinned under `financial_swap_period_completion_v1`: date-only
+exclusive ends use midnight UTC; clocked MW periods use retained final interval
+ends. Matching gross periods require both completion and finality. These policies
+do not supersede bounded physical contracts D202–D204. Implemented capability and
+remaining bounds are recorded with the executable consumers in the linked contract.
+
 | ID | Decision | Consequence |
 | --- | --- | --- |
 | D01 | Public project under Apache-2.0, with DCO sign-offs for contribution commits and an additional agreement for designated core contributors | Preserve license/attribution; review all published material. Casual contributors need no separate CLA. Core contributors retain copyright and grant additional rights under [agreement v1.2](../CLA.md); see the [contribution guide](../CONTRIBUTING.md) and [integration setup](contributing-setup.md). Live signing checks and merge enforcement require separate verification |
@@ -520,3 +532,30 @@ New UI submissions require a choice; the extended command rejects null or unknow
 policies. Existing versions stay immutable, and policy edits create a version so
 running agents retain the existing `model_changed` boundary. This local change
 does not authorize publishing, a hosted schema update or real-provider calls.
+
+## D214 — Explicit financial swap quantity schedules
+
+Agreed scope extends the fixing-capable monthly swap through explicit multi-month
+quantities and recurring payments, calendar-day rates and declared total-contract
+allocation, then MW integrated over selected delivery intervals. Physical gas and
+power obligations are planned separately and do not gate financial booking.
+
+Implement a new scheduled instrument/side version, preserving the original
+one-period definitions and events. Reuse primitive monthly price/fixing/payment
+plans; each SideSchedule owns the normalized quantity allocations used by PV.
+Normalize sides independently and retain cross-side size as an exact rational
+membership term. Apply the external first-side total once. Keep authored quantity
+meaning and interval/clock evidence in immutable trade-revision records, separate
+from reusable normalized pricing.
+
+The initial supported relationship explicitly multiplies period-average price by
+period quantity. It does not infer price weights from delivery power or allocate
+a total from a unit/curve. Monthly payment records and side ranges remain
+independent. Retained intervals and allocations support replay without current
+clock regeneration; current authority and certified cutoffs still apply.
+
+Migration 0106 adds exact typed relationships and explicit version boundaries.
+Existing booked PV is not rewritten. Scheduled amendments stop before any retained
+fixing/payment is due; due-payment processing, interval-price settlement and
+implicit legacy upgrades remain unsupported. See [quantity contracts and numerical
+checks](financial-swap-quantities.md). Standalone physical delivery remains later scope.

@@ -99,7 +99,9 @@ app.Use(async (context,next)=>
             // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
             PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
             PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
-            PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"The complete settlement preview requires compatible, final, certified evidence and explicit policies."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "settlement_version_conflict" or "settlement_operation_conflict" => (409,p.MessageText,"Reconcile the original operation or reload the settlement version."),
+            MarketDataException m when m.Code=="settlement_stale_preview" => (409,m.Code,m.Message),
+            PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"Settlement requires compatible, final, certified evidence and explicit policies."),
             CloseRiskInputsException c => (422,CloseRiskInputsException.Code,c.Message),
             AutomationException a => (422,a.Code,a.Message),
             OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
@@ -131,6 +133,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("risk_",StringComparison.Ordinal) => (422,p.MessageText,"The risk job does not meet its retained context, input or execution contract."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "swap_conflict" or "swap_revision_conflict" or "trade_operation_conflict" => (409,p.MessageText,"This trade or operation changed. Reconcile the original request or reload the latest revision."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("scheduled_",StringComparison.Ordinal) => (422,p.MessageText,"The scheduled swap requires complete, compatible quantity, delivery, observation and payment terms."),
             PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("payment_",StringComparison.Ordinal)||p.MessageText=="short_month") => (422,p.MessageText,"The generated payment date does not meet its explicit rule and calendar coverage."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("swap_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit side, reference, date or lifecycle terms."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_conflict" => (409,"futures_conflict","This trade request identity already has different economics or ownership."),
@@ -1010,11 +1013,52 @@ api.MapPost("/trading/workspace",(HttpContext c,TradingWorkspaceRequest body)=>
 api.MapPost("/trading/blotter",(HttpContext c,FuturesBlotterRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Blotter(connection,view,body.View,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/swaps/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,swapStore.Catalog,expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/settlement/preview",(HttpContext c,SwapSettlementPreviewRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("settlement_context","Supply the selected certified context."),
+ (connection,data,frame,ct)=>swapStore.SettlementPreview(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/settlement/inspect",(HttpContext c,SwapSettlementReadRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("settlement_context","Supply the selected certified context."),
+ (connection,data,frame,ct)=>swapStore.InspectSettlement(connection,data,frame,body,ct),headTrade:body.TradeId,expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/settlement/pnl",(HttpContext c,SwapPnlRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+{
+ if(body.Opening is null||body.Closing is null||body.Opening.Convention!=SwapStore.Convention||body.Closing.Convention!=SwapStore.Convention)
+  throw new MarketDataException("settlement_context","Supply both explicit swap contexts.");
+ var openingFrame=Frame(session,body.Opening.SnapshotId);var closingFrame=Frame(session,body.Closing.SnapshotId);
+ if(openingFrame.At>closingFrame.At)throw new MarketDataException("settlement_bridge","The closing instant must not precede the opening instant.");
+ var opening=await TradeView(connection,session,body.Opening,openingFrame,ct);var closing=await TradeView(connection,session,body.Closing,closingFrame,ct);
+ return Results.Ok(await new SwapSettlementOperations(database).Reconcile(connection,opening,closing,body,ct));
+},c.RequestAborted)));
+api.MapPost("/swaps/settlement/determine",(HttpContext c,SwapSettlementDetermineRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
+{
+ if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before determining cash.");
+ if(body.Preview?.Context is not {} context||context.Convention!=SwapStore.Convention)throw new MarketDataException("settlement_context","Supply the supported swap calculation context.");
+ c.Items["swap_attempted"]=true;
+ await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);
+ return Results.Ok(await swapStore.DetermineSettlement(connection,Frame(session,context.SnapshotId),body,ct));
+},c.RequestAborted)));
+api.MapPost("/swaps/settlement/payment",(HttpContext c,SwapCashRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
+{
+ if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before recording cash.");
+ if(body.Context is null)throw new MarketDataException("settlement_context","Supply the selected recording context.");
+ c.Items["swap_attempted"]=true;
+ await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);
+ return Results.Ok(await swapStore.RecordSwapCash(connection,Frame(session,body.Context.SnapshotId),body,ct));
+},c.RequestAborted)));
+api.MapPost("/swaps/settlement/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+{
+ if(body.OperationId==Guid.Empty)throw new MarketDataException("settlement_input","Supply the retained operation identity.");
+ await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.swap_operation_status($1,$2)::text",database.Manifest.CatalogId,body.OperationId);
+ return Results.Ok(JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!));
+},c.RequestAborted)));
 api.MapPost("/swaps/observation-options",(HttpContext c,SwapObservationOptionsRequest body)=>FuturesRead(c,
  body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
  (connection,data,frame,ct)=>swapStore.ObservationOptions(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/editor",(HttpContext c,SwapEditorRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("swap_context","Supply the selected context."),
  (connection,view,ct)=>tradeReads.SwapTrade(connection,view,body.TradeId,body.Revision,ct),headTrade:body.TradeId,expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/quantity-schedule",(HttpContext c,SwapEditorRequest body)=>TradingRead(c,body.Context,
+ (connection,view,ct)=>tradeReads.Read(connection,view,data=>swapStore.QuantitySchedule(connection,view.CalculationFrame,body.TradeId,body.Revision,ct),ct),headTrade:body.TradeId,expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/scheduled-periods",(HttpContext c,SwapScheduledPeriodsRequest body)=>FuturesRead(c,body.Context,
+ (connection,data,frame,ct)=>Task.FromResult(SwapStore.ScheduledPeriods(body)),expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/scheduled-price",(HttpContext c,SwapScheduledPriceRequest body)=>FuturesRead(c,new(body.Terms.SnapshotId,body.Terms.Convention,body.Terms.KnowledgeMode),
+ (connection,data,frame,ct)=>swapStore.ScheduledDraftPrice(connection,data,frame,body,ct),headTrade:body.Terms.TradeId,amendmentPreview:body.Terms.TradeId is not null,expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/preview",(HttpContext c,SwapWriteRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
  (connection,data,frame,ct)=>swapStore.Preview(connection,data,frame,body,ct),headTrade:body.TradeId,amendmentPreview:body.TradeId is not null,expectedConvention:SwapStore.Convention));
 Task<IResult> SaveSwap(HttpContext c,SwapWriteRequest body,bool amend)=>Locked(c,session=>database.WithIdentity(Profile(session),amend?"AmendTrade":"BookTrade",async(connection,ct)=>

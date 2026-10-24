@@ -369,7 +369,8 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           and plain(totals['result']['groups']) == pivoted['groups'] and len(pivoted['groups']) > 0 and 'holdings' not in totals['result']
           and plain(trade['result']) == {'instrumentType': 'future', 'state': detail['state'], 'history': detail['history']}
           and plain(swap_read['result']) == {'instrumentType': 'financial_swap', 'state': swapped['state'], 'history': swapped['history'],
-                                             'valuation': without(swapped['valuation'], 'snapshotId', 'asOf')}, (rows_read, totals, trade, swap_read))
+                                             'valuation': without(swapped['valuation'], 'snapshotId', 'asOf'),
+                                             'quantityInputs': swapped['quantityInputs']}, (rows_read, totals, trade, swap_read))
 
     # Each display is the one the page asks amounts/display for from its own inputs: a Blotter row's ticks and deal formats
     # (futures-view.ts), the viewer's precision for totals and a swap's terms, which a result shows by the default, a

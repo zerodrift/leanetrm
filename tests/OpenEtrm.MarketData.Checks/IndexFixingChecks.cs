@@ -209,14 +209,14 @@ internal static class IndexFixingChecks
         public DateOnly From { get; } = new(2041, 1, 1);
         public DateOnly To { get; }
         public DateTimeOffset Payment { get; } = Fixture.Utc("2041-02-18T00:00:00Z");
-        public FixingFixture(bool monthly = false)
+        public FixingFixture(bool monthly = false,bool delayedMonthlyPublication=false)
         {
             Quote = Base.Quotes[0];
             To = monthly ? From.AddMonths(1) : From.AddDays(3);
             var contracts = Enumerable.Range(0, monthly ? 1 : 3).Select(n =>
                 new MarketContract(new(Base.Revision, Guid.NewGuid()), ContractKind.Forward,
                     From.AddDays(n), monthly ? To : From.AddDays(n + 1),
-                    monthly ? Fixture.Utc("2040-12-31T00:00:00Z") : Fixture.Utc("2041-01-01T12:00:00Z").AddDays(n), null)).ToImmutableArray();
+                    monthly ? Fixture.Utc(delayedMonthlyPublication?"2041-02-02T00:00:00Z":"2040-12-31T00:00:00Z") : Fixture.Utc("2041-01-01T12:00:00Z").AddDays(n), null)).ToImmutableArray();
             Series = contracts.Select(c => new MarketSeries(new(Base.Revision, Guid.NewGuid()), c.Key, Quote.Key, null)).ToImmutableArray();
             var curve = Curve = new Curve(Base.C("fixing_projection"), Quote.Key, Base.R("location"), Base.R("uniform"),
                 new(SettlementKind.Index, Base.R("index"), null), CurveRule.Direct,
@@ -224,7 +224,7 @@ internal static class IndexFixingChecks
             Model = new(Base.Revision, Base.Reference, Base.Quantities, [Quote], contracts, [curve], [], [], Series);
             Projections = contracts.Select(c => new SwapProjection(new(curve.Key, c.Key), c)).ToImmutableArray();
             Fixings = contracts.Select((c, n) => new IndexFixing(Base.R("index"), Quote.Key, c.DeliveryFrom, c.DeliveryTo,
-                Fixture.Utc("2041-01-01T12:00:00Z").AddDays(n), Series[n].Key, Base.R("actual_source"), IndexFixing.SupportedImplementation)).ToImmutableArray();
+                Fixture.Utc(delayedMonthlyPublication?"2041-02-02T12:00:00Z":"2041-01-01T12:00:00Z").AddDays(n), Series[n].Key, Base.R("actual_source"), IndexFixing.SupportedImplementation)).ToImmutableArray();
         }
         public MarketSnapshot Snapshot(DateTimeOffset at, int actuals = 0) => Base.Snapshot() with
         {

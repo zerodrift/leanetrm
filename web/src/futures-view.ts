@@ -23,7 +23,7 @@ type Context={contextId:string;effectiveOn:string;knownAt:string};
 type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'retained';contextId?:string};
 type BookingCatalog='directory'|'priced_contracts';
 type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string;portfolio_id:string}[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;bookingUnavailableReason:string|null}&({kind:'directory'}|{kind:'priced_contracts';contracts:Contract[]});
-type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:{booking:Booking;priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;fixedPrice:string|null;presentValue:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;bookId:string;contractId:string;revision:string;book:string;portfolio:string;curve:string;lots:string;quantity:string;unit:string;executedAt:string;executionPrice:string;mark:string;executionPnl:string;currency:string;deliveryFrom:string;deliveryTo:string;settlement:string}[];totals:{book:string;currency:string;executionPnl:string}[]};
+type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:{marketLabel?:string|null;booking:Booking;priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;fixedPrice:string|null;presentValue:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;bookId:string;contractId:string;revision:string;book:string;portfolio:string;curve:string;lots:string;quantity:string;unit:string;executedAt:string;executionPrice:string;mark:string;executionPnl:string;currency:string;deliveryFrom:string;deliveryTo:string;settlement:string}[];totals:{book:string;currency:string;executionPnl:string}[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 
 export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}}}){
@@ -135,7 +135,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const pivot=view.mode==='pivot';
     const columns=blotterColumns.filter(([key])=>pivot?[...view.groupBy,...view.measures,'instrumentType','unit','currency',...(view.measures.some(isPriceMeasure)?['priceUnit']:[])].includes(key):key!=='tradeCount'&&!isPriceMeasure(key));
     tableColumns=columns.map(c=>c[0]);
-    const rows:Record<string,string|null>[]=pivot?holdings.groups.map(g=>Object.fromEntries(columns.map(([key])=>[key,key==='instrumentType'?friendly(g.instrumentType):key==='market'?curveName(g.market):key==='contract'?deliveryLabel(String(g.deliveryFrom),String(g.deliveryTo)):String(g[key]??'')]))):holdings.holdings.map(({booking,amountFormat,fixedAmountFormat,...h})=>({...h,priceUnit:`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`,tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)}));
+    const rows:Record<string,string|null>[]=pivot?holdings.groups.map(g=>Object.fromEntries(columns.map(([key])=>[key,key==='instrumentType'?friendly(g.instrumentType):key==='market'?String(g.marketLabel??curveName(g.market)):key==='contract'?deliveryLabel(String(g.deliveryFrom),String(g.deliveryTo)):String(g[key]??'')]))):holdings.holdings.map(({booking,amountFormat,fixedAmountFormat,...h})=>({...h,priceUnit:`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`,tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)}));
     const visible=columns.map(([key])=>view.columns.includes(key)||pivot&&['instrumentType','unit','currency','priceUnit'].includes(key));
     if(!visible.some(Boolean))visible[0]=true;
     const numeric=tableColumns.flatMap((key,i)=>(['tradeCount','lots','quantity','executionPrice','mark','executionPnl','fixedPrice','presentValue','revision'].includes(key)||isPriceMeasure(key))?[i]:[]);
@@ -220,9 +220,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     catch(error){
       // A rejected retry says nothing about the original uncertain outcome.
       if(!retrying&&knownTradeRejection((error as {code?:string}).code)){pending.clear();uncertain=false;store();}
-      if(command.path==='futures/amend')editor.reset();if(command.path.startsWith('swaps/'))swapEditor.reset();if((error as {code?:string}).code==='access_denied')clear();sync();throw error;
+      if(command.path==='futures/amend')editor.reset();if(command.path.startsWith('swaps/')&&!command.path.startsWith('swaps/settlement/'))swapEditor.reset();if((error as {code?:string}).code==='access_denied')clear();sync();throw error;
     }
-    pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load();
+    pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load('directory',command.path.startsWith('swaps/settlement/'));
   }
   get<HTMLFormElement>('futures-form').onsubmit=event=>{event.preventDefault();void act(async()=>{
     const priced=pricedCatalog();if(!priced?.canBook)throw Error('Return to current inputs with trading authority before booking.');
@@ -235,7 +235,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   get('futures-reconcile').onclick=()=>void act(async()=>{
     if(!pending.command)throw Error('No retained booking to reconcile.');
     try{
-      const result=await api<{tradeId?:string}>(pending.command.path.startsWith('swaps/')?'swaps/status':'futures/status',{operationId:pending.command.operationId});
+      const result=await api<{tradeId?:string}>(pending.command.path.startsWith('swaps/settlement/')?'swaps/settlement/status':pending.command.path.startsWith('swaps/')?'swaps/status':'futures/status',{operationId:pending.command.operationId});
       if(!result.tradeId)throw Error('No committed outcome is visible yet. Retry the original request with the same identity.');
       pending.clear();uncertain=false;store();get('futures-booking').hidden=true;await load();
     }catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}

@@ -16,7 +16,7 @@ public sealed record SwapDraftRequest(FuturesReadRequest Context,Guid Definition
     string? FixedCoefficient,[property:JsonRequired]bool Discounting,SwapFixedInput? Fixed,SwapFloatingInput Floating,
     SwapFloatingInput? FirstFloating=null,string? SwapType=null,string? FirstCoefficient=null,ParRateInput? ParRatePolicy=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record ParRateInput(string Implementation,int DecimalPlaces,string TieRule);
+public sealed record ParRateInput(string Implementation,[property:JsonRequired]int DecimalPlaces,string TieRule);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapDraftRiskRequest(SwapDraftRequest Draft,string BumpPolicy,string NumericalPolicy);
 

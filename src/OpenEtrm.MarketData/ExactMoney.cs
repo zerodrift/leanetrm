@@ -39,6 +39,7 @@ public sealed record ExactMoney
             denominator * (other.denominator / shared), Currency);
     }
     public ExactMoney Scale(ExactDecimal factor) => new(numerator * factor.ScaledValue, denominator * ExactDecimal.WorkingScale, Currency);
+    public ExactMoney Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(numerator*ratio.Numerator,denominator*ratio.Denominator,Currency);
     internal ExactMoney Scale(ExactQuantity quantity,ReferenceKey denominatorQuantity)
     {
         if(quantity.Specification!=denominatorQuantity)

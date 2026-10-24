@@ -164,6 +164,10 @@ public sealed class ConnectedValuation
                 new(authority,discounting,dependencies,request=>Price(request,cancellation),request=>Lineage(request,cancellation),NumericalPolicy,ScenarioId);
     }
 
+    public SideValuationContext PaymentContext(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,
+        ISideDiscounting discounting,CancellationToken cancellation=default) =>
+        Market(bindings,authority,cancellation).Context(discounting,bindings.Keys.ToImmutableArray(),cancellation);
+
     public InstrumentValuation PV(Instrument instrument,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
         ISideDiscounting? discounting=null,CancellationToken cancellation=default)
         =>PV(instrument,bindings,null,discounting,cancellation);

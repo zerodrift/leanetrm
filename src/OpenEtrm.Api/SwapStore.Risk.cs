@@ -9,8 +9,15 @@ namespace OpenEtrm.Api;
 
 public sealed partial class SwapStore
 {
-    internal sealed record ResolvedSwapHolding(JsonElement Row,FinancialSwapInstrument Instrument,Quantity Quantity,ISideDiscounting Discounting,
-        PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot);
+    internal sealed record ResolvedSwapHolding(JsonElement Row,SidedInstrument Instrument,Quantity Quantity,ISideDiscounting Discounting,
+        PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,SwapSettlementInputs? Settlement);
+
+    internal static ImmutableArray<PortfolioDiscountEvidence> DiscountEvidence(ImmutableArray<ResolvedSwapHolding> holdings) =>
+        holdings.SelectMany(h=>((CurrencyDefaultDiscounting)h.Discounting).Inputs
+            .OrderBy(p=>p.Key.SideId).ThenBy(p=>p.Key.Ordinal)
+            .Select(p=>new PortfolioDiscountEvidence(h.Instrument.Id,p.Key,p.Value)
+            { SettlementDeterminationId=h.Settlement?.Contributions.Any(c=>c.DiscountKey==p.Key)==true?p.Key.SideId:null }))
+            .Distinct().ToImmutableArray();
 
     internal async Task<ImmutableArray<ResolvedSwapHolding>> ReadRiskHoldings(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ImmutableArray<Guid> bookIds,CancellationToken ct,MarketSnapshot? snapshot=null,
@@ -45,19 +52,29 @@ public sealed partial class SwapStore
             if(selected.Length!=1)throw Error("swap_risk_model","Every held swap requires its exact explicitly retained market revision.");
             var market=selected[0];
             var terms=Terms(market.Data,row,market.Frame.Id);
-            var resolved=Resolve(market.Data,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"));
+            var resolved=ResolveAny(market.Data,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"));
             var instrument=identities.Retain(resolved.Instrument);
             if(instrument.Id!=row.Id("instrument_id"))
                 throw Error("instrument_identity","Equivalent retained terms cannot replace an exact published instrument identity.");
-            ValidateProjections(instrument.Floating.GenerateSchedule().Payments.SelectMany(payment=>payment.Prices),row);
-            if(row.OptionalId("first_floating_side_id") is not null)ValidateProjections(((SidePaymentSchedule)instrument.First.GenerateSchedule()).Payments.SelectMany(payment=>payment.Prices),row,"first_projection_contracts","first_projection_weights");
-            if(!providers.TryGetValue(instrument.Id,out var provider))
+            if(instrument is FinancialSwapInstrument primitive)ValidateProjections(primitive.Floating.GenerateSchedule().Payments.SelectMany(payment=>payment.Prices),row);
+            if(instrument is FinancialSwapInstrument primitiveFirst&&row.OptionalId("first_floating_side_id") is not null)ValidateProjections(((SidePaymentSchedule)primitiveFirst.First.GenerateSchedule()).Payments.SelectMany(payment=>payment.Prices),row,"first_projection_contracts","first_projection_weights");
+            var state=await SettlementState(connection,row.Id("trade_id"),ct);
+            var settlement=state.GetProperty("occurrences").GetArrayLength()==0?null:SettlementInputs(row,resolved.Quantity,instrument.Currency,state,await SettlementCompletions(connection,row,instrument,ct));
+            ISideDiscounting provider;
+            if(settlement is not null)
             {
-                var mapping=instrument.Discounting?await Discount(connection,market.Data,market.Frame,instrument.Currency,ct):null;
-                provider=FinancialSwapValuation.CreateDiscounting(instrument,market.Snapshot,mapping);
+                var enabled=terms.Discounting??throw Error("settlement_policy","Retain the explicit swap discount policy.");
+                var mapping=enabled?await Discount(connection,market.Data,market.Frame,instrument.Currency,ct):null;
+                provider=new CurrencyDefaultDiscounting(settlement.DiscountKeys(instrument,market.Snapshot),market.Snapshot,enabled,mapping);
+            }
+            else if(!providers.TryGetValue(instrument.Id,out provider!))
+            {
+                var enabled=instrument switch { FinancialSwapInstrument legacy=>legacy.Discounting,ScheduledFinancialSwap scheduled=>scheduled.Discounting,_=>throw Error("swap_definition","Unsupported swap version.") };
+                var mapping=enabled?await Discount(connection,market.Data,market.Frame,instrument.Currency,ct):null;
+                provider=instrument switch{FinancialSwapInstrument legacy=>FinancialSwapValuation.CreateDiscounting(legacy,market.Snapshot,mapping),ScheduledFinancialSwap scheduled=>FinancialSwapValuation.CreateDiscounting(scheduled,market.Snapshot,mapping),_=>throw Error("swap_definition","Unsupported swap version.")};
                 providers.Add(instrument.Id,provider);
             }
-            result.Add(new(row,instrument,resolved.Quantity,provider,market.Data,market.Frame,market.Snapshot));
+            result.Add(new(row,instrument,resolved.Quantity,provider,market.Data,market.Frame,market.Snapshot,settlement));
         }
         return result.MoveToImmutable();
     }

@@ -5,6 +5,7 @@ using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 using OpenEtrm.Shared.Temporal;
+using OpenEtrm.Shared.Numerics;
 
 internal static class MonthlySwapRateChecks
 {
@@ -64,6 +65,22 @@ internal static class MonthlySwapRateChecks
     public static int Run()
     {
         var passed = 0;
+        var two=new Fixture(2);var original=two.Swap(MonthlyQuantityBasis.PerMonth);
+        var intraday=new SidePaymentKey(Guid.NewGuid(),0,two.Snapshot.ValuationAt.AddHours(1),two.Quote.Currency);
+        var nominal=new CurrencyDefaultDiscounting([intraday],two.Snapshot,false,null);
+        Equal(nominal.Inputs[intraday].Factor,1m);passed++;
+        var scheduled=new ScheduledFinancialSwap(Guid.NewGuid(),[
+            new(new ScheduledSwapSide(Guid.NewGuid(),original.Fixed.Periods,[new(1,3),new(2,3)],ScheduledSwapSide.Implementation),D(-1),ExactRatio.One),
+            new(new ScheduledSwapSide(Guid.NewGuid(),original.Floating.Periods,[new(3,5),new(2,5)],ScheduledSwapSide.Implementation),D(1),new(5,6))],true,ScheduledFinancialSwap.Implementation);
+        var priced=FinancialSwapValuation.Evaluate(scheduled,two.Model.Build(two.Snapshot,scheduled.Dependencies),true,two.Mapping);
+        var par=FinancialSwapValuation.ParRate(scheduled,priced.Sides,new AmountFormat(6,CashTieRule.ToEven,false,true));
+        var expectedPar=decimal.Round((3.01m*0.6m*two.Factors[0]+3.02m*0.4m*two.Factors[1])*(5m/6m)/(two.Factors[0]/3m+two.Factors[1]*2m/3m),6,MidpointRounding.ToEven);
+        Equal(par.Price.Value,expectedPar);passed++;
+        var oracle=(-100m*3m+150m*3.01m)*two.Factors[0]+(-200m*3m+100m*3.02m)*two.Factors[1];
+        var exact=priced.Instrument.PresentValue.Scale(D(300));
+        Equal(exact.ToMoney(new AmountFormat(12,CashTieRule.ToEven,false,true)).Amount,decimal.Round(oracle,12,MidpointRounding.ToEven));passed++;
+        Console.WriteLine("PASS scheduled swap discount factors, unequal notionals and quantity-weighted par annuity");
+
         foreach (var months in new[] { 120, 360 })
         {
             var f = new Fixture(months);

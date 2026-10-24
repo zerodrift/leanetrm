@@ -31,7 +31,7 @@ public sealed record PortfolioTotal(string Measure,Guid BookId,ExactMoney Value)
 public sealed record PortfolioFactorRisk(string Measure,Guid BookId,ReferenceKey Currency,string Factor,
     ExactMoney Up,ExactMoney Down,ExactMoney UpPnl,ExactMoney DownPnl,ExactRiskDerivative Delta,ExactRiskDerivative Gamma);
 public sealed record PortfolioDiscountEvidence(Guid InstrumentId,SidePaymentKey Payment,PaymentDiscount Input)
-{public bool Ppa{get;init;}}
+{public bool Ppa{get;init;} public Guid? SettlementDeterminationId{get;init;}}
 public sealed record PortfolioConnectedScenario(DefinitionRevision Definitions,string ManifestId,string Id,string? ParentId,int Depth,GraphWork Work,ConnectedPreparationWork Preparation);
 public sealed record PortfolioHoldingValue(string Measure,ExactRiskPositionValue Position);
 public sealed record PortfolioHoldingRisk(string Measure,string Factor,ExactRiskPositionResult Position);
@@ -140,7 +140,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 h.Quantity,new(new Money(default,h.Instrument.Currency),h.Quantity.Specification),new(default,h.Instrument.Currency))).ToImmutableArray();
             var portfolio=new ValuationPortfolio(instruments.Select(h=>(Instrument)h.Instrument).ToImmutableArray(),positions,
                 new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
-                {InstrumentDiscounting=instruments.ToImmutableDictionary(h=>h.Instrument.Id,h=>h.Discounting)});
+                {InstrumentDiscounting=marketHoldings.Where(h=>h.Settlement is null).DistinctBy(h=>h.Instrument.Id).ToImmutableDictionary(h=>h.Instrument.Id,h=>h.Discounting),
+                 Settlements=marketHoldings.Where(h=>h.Settlement is not null).ToImmutableDictionary(h=>new MeasureBinding(h.Row.Id("trade_id"),h.Row.Id("binding_id")),h=>new SwapBindingValuation(h.Settlement!,h.Discounting))});
             var source=instruments[0];materialized.Add((source.Data,source.Frame,source.Snapshot,portfolio,SwapMeasure));
             var rows=marketHoldings.ToDictionary(h=>h.Row.Id("trade_id"),h=>h.Row);
             foreach(var position in positions)
@@ -166,8 +167,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         }
         if(retainedGraphs is not null&&retainedGraphs.Value.Length!=markets.Count)
             throw new MarketDataException("risk_graph_manifest","The admitted graph set differs from the held projection set.");
-        var discountInputs=swaps.DistinctBy(h=>h.Instrument.Id).SelectMany(h=>((CurrencyDefaultDiscounting)h.Discounting).Inputs
-            .OrderBy(p=>p.Key.SideId).ThenBy(p=>p.Key.Ordinal).Select(p=>new PortfolioDiscountEvidence(h.Instrument.Id,p.Key,p.Value))).ToImmutableArray();
+        var discountInputs=SwapStore.DiscountEvidence(swaps);
         return new(snapshot.Id,exact,policy,markets.ToImmutable(),evidence.ToImmutable(),discountInputs)
             {MaterializationWork=materializationWork,MaterializationScenarioCount=materializationScenarios};
     }
@@ -226,7 +226,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
             {QuantityApplications=work.Sum(w=>w.QuantityApplications),PreparationScenarioCount=work.Sum(w=>w.PreparationScenarioCount)+prepared.MaterializationScenarioCount};
         ct.ThrowIfCancellationRequested();
-        return new(prepared.SnapshotId,prepared.Context,prepared.Policy,groups.SelectMany(g=>g.Group.Contracts).ToImmutableArray(),prepared.Positions,
+        return new(prepared.SnapshotId,prepared.Context,prepared.Policy,ModelContracts(groups.SelectMany(g=>g.Group.Contracts)),prepared.Positions,
             bumps.Select(b=>new PortfolioFactor(runs.Single(r=>r.Market.Snapshot.Definitions==b.Axis.Market).Axes[b.Axis.Id],b.Size)).ToImmutableArray(),totals,totalsRisk.ToImmutable(),combined)
         {
             DiscountInputs=prepared.DiscountInputs,Detail=detail,
@@ -234,6 +234,15 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             BasePositions=groups.SelectMany(g=>g.Group.BasePositions.Select(p=>new PortfolioHoldingValue(g.Measure,p))).ToImmutableArray(),HoldingRisk=holdingRisk.ToImmutable()
         };
     }
+    internal static ImmutableArray<UnitPricingContract> ModelContracts(IEnumerable<UnitPricingContract> contracts) =>
+        contracts.GroupBy(c=>c.Id).Select(g=>
+        {
+            var first=g.First();
+            if(g.Any(c=>c.ModelVersion!=first.ModelVersion||c.Quantity!=first.Quantity||c.Currency!=first.Currency))
+                throw new MarketDataException("portfolio_model_receipt","One instrument receipt requires consistent model, quantity and currency lineage across every binding scope.");
+            return first with{Dependencies=g.SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray()};
+        }).ToImmutableArray();
+
     private sealed record GroupResult(ImmutableArray<UnitPricingContract> Contracts,ImmutableArray<BookCurrencyValue> BaseValues,
         ImmutableArray<ExactRiskPositionValue> BasePositions,ImmutableArray<FactorResult> Factors);
     private sealed record FactorResult(string AxisId,ImmutableArray<ExactRiskBookTotal> Totals,ImmutableArray<ExactRiskPositionResult> Positions);

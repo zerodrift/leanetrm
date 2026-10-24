@@ -83,14 +83,15 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
   var hasPrices=view.Measures.Any(PriceMeasures.ContainsKey);
   var dimensions=new Dictionary<string,string>{{"portfolio","portfolioId"},{"book","bookId"},{"market","curve"},{"contract","contractId"},{"instrumentType","instrumentType"}};
   var partitions=rows.OrderBy(r=>Text(r,"tradeId"),StringComparer.Ordinal).ThenBy(r=>Text(r,"bindingId"),StringComparer.Ordinal).GroupBy(r=>JsonSerializer.Serialize(new{
-   dimensions=view.GroupBy.Select(d=>Text(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=Key(r,"quantitySpecification"),currency=Key(r,"currencyReference"),
+   dimensions=view.GroupBy.Select(d=>d=="market"?Text(r,"marketKey")??Text(r,dimensions[d]):Text(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=Key(r,"quantitySpecification"),currency=Key(r,"currencyReference"),
    priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=view.GroupBy.Any(d=>d is "market" or "contract")?Text(r,"definitionRevisionId"):null}));
   foreach(var partition in partitions)
   {
    var first=partition.First();var group=new JsonObject();
    foreach(var d in view.GroupBy)
    {
-    var field=dimensions[d];group[field=="curve"?"market":field]=first[field]?.DeepClone();
+    var field=dimensions[d];group[field=="curve"?"market":field]=(field=="curve"?first["marketKey"]??first[field]:first[field])?.DeepClone();
+    if(d=="market"&&first["marketLabel"] is {} marketLabel)group["marketLabel"]=marketLabel.DeepClone();
     if(d is "portfolio" or "book")group[d]=first[d]?.DeepClone();
     if(d=="contract"){group["deliveryFrom"]=first["deliveryFrom"]?.DeepClone();group["deliveryTo"]=first["deliveryTo"]?.DeepClone();group["definitionRevisionId"]=first["definitionRevisionId"]?.DeepClone();}
    }

@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--live-calculation-check',action='store_true',help='Qualify committed live contexts and browser updates')
     parser.add_argument('--connected-portfolio-check',action='store_true',help='Qualify published custom curves in booked portfolio risk and jobs')
     parser.add_argument('--risk-jobs-check',action='store_true',help='Qualify nested risk and durable worker execution in a disposable database')
+    parser.add_argument('--scheduled-swap-check',action='store_true',help='Qualify explicit recurring financial swap quantity schedules')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
@@ -86,12 +87,12 @@ def main():
         args.ppa_bookings_check = True
     if args.ppa_http_benchmark:
         args.ppa_bookings_check = True
-    fixing_frames=args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
+    fixing_frames=args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
     if args.interval_series_benchmark or args.usage_benchmark:
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -297,6 +298,9 @@ def main():
         if args.interval_series_check:
             from check_interval_series_http import prepare_market as prepare_interval_series
             market=prepare_interval_series(market,manifest)
+        if args.scheduled_swap_check:
+            from check_scheduled_swaps import prepare as prepare_scheduled
+            market=prepare_scheduled(market,manifest)
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
@@ -621,6 +625,18 @@ def main():
             elif args.hosted_check:
                 from check_hosted_http import run_checks as check_hosted_http
                 check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id)
+            elif args.scheduled_swap_check:
+                from check_scheduled_swaps import run_checks as check_scheduled
+                settlement_fixture=check_scheduled(url,query,manifest)
+                from check_swap_settlement_agents import prepare as prepare_settlement_agent
+                agent_fixture=temporary/'settlement-agent.json'
+                agent_fixture.write_text(json.dumps(prepare_settlement_agent(query,settlement_fixture)))
+                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-settlement-agent',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--scheduled-swaps'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned scheduled-swap browser checks failed')
             elif args.draft_check:
                 from check_draft_pricing import run_checks as check_draft
                 check_draft(url,query,manifest)
