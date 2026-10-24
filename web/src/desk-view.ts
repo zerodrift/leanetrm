@@ -26,10 +26,18 @@ function largest(values:readonly string[]){
 export type Format=(value:string)=>string;
 
 function label(text:string,aside?:string){const row=node('div','desk-tile-label');row.append(node('span',undefined,text),...(aside?[space(),node('span',undefined,aside)]:[]));return row;}
+/**
+ * A figure and its unit. The figure is one token that never splits or is cut off (app.css): its length is stated for a desk too
+ * narrow to hold it at full size, and the unit may wrap beneath it.
+ */
+function kpi(figure:string,unit:string){
+  const element=node('p','kpi-value'),token=node('span','kpi-figure',figure);
+  token.style.setProperty('--figure-length',String(token.textContent!.length));
+  element.append(token,space(),node('small',undefined,unit));return element;
+}
 function amount(value:string|null,currency:string,money:Format){
   if(value===null)return node('p','kpi-value desk-not-valued','Not valued');
-  const figure=node('p','kpi-value',signedText(value,money));figure.dataset.sign=signOf(value);figure.title=`${value} ${currency}`;
-  figure.append(space(),node('small',undefined,currency));return figure;
+  const figure=kpi(signedText(value,money),currency);figure.dataset.sign=signOf(value);figure.title=`${value} ${currency}`;return figure;
 }
 function splitBar(value:string|null,max:string){
   const track=shape('svg',{class:'desk-split-bar',viewBox:'0 0 120 10',preserveAspectRatio:'none','aria-hidden':'true'});
@@ -62,7 +70,7 @@ export function renderMoneyTile(host:HTMLElement,title:string,word:string,tile:T
 
 /** The positions tile: the rows read, and one mix segment per backend commodity and instrument type group. */
 export function renderPositionsTile(host:HTMLElement,tile:PositionsTile,colors:ReadonlyMap<string,string>){
-  const figure=node('p','kpi-value',String(tile.count));figure.append(space(),node('small',undefined,tile.count===1?'position':'positions'));
+  const figure=kpi(String(tile.count),tile.count===1?'position':'positions');
   const bar=node('div','desk-mix'),legend=node('ul','desk-legend');bar.setAttribute('role','img');
   bar.setAttribute('aria-label',publicText(tile.segments.map(s=>`${s.label} ${trades(s.trades,'trade')}`).join(', ')||'No positions'));
   for(const segment of tile.segments){
@@ -114,11 +122,12 @@ export function clearDeskCharts(host:HTMLElement){host.querySelectorAll<HTMLElem
 export function groupHeader(header:GroupHeader,count:number,money:Format){
   const element=node('span','desk-group');
   const totals=node('span','desk-group-totals');totals.title='Totals of every position in this group at this close, before row filters';
-  for(const subtotal of header.subtotals){
+  const items=header.subtotals.map(subtotal=>{
     const item=node('span','desk-subtotal');item.append(node('span',undefined,subtotal.measure+' '));
     const figure=node('b',undefined,subtotal.amount===null?'not valued':signedText(subtotal.amount,money));if(subtotal.amount!==null){figure.dataset.sign=signOf(subtotal.amount);figure.title=`${subtotal.amount} ${subtotal.currency}`;}
-    item.append(figure,node('span',undefined,' '+subtotal.currency+(subtotal.excluded?` · ${subtotal.excluded} not valued`:'')));totals.append(item);
-  }
+    item.append(figure,node('span',undefined,' '+subtotal.currency+(subtotal.excluded?` · ${subtotal.excluded} not valued`:'')));return item;
+  });
+  totals.append(...items.flatMap((item,index)=>index?[space(),item]:[item]));
   // Row filters may hide some of the group's positions, while its subtotals are of all of them.
   const positions=count===header.positions?`${count} ${count===1?'position':'positions'}`:`${count} of ${header.positions} positions`;
   element.append(node('span','desk-group-label',header.label),node('span','desk-group-count',` · ${positions}`),space(),totals);
@@ -183,7 +192,6 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
         cell.append(exact(node('span','desk-figure',minus(formats.mark(index,row.mark))),row.mark),node('small','desk-sub',`Mark · ${row.priceUnit}`));return cell;}
       case 'presentValue':{
         if(row.unavailable!==null){cell.classList.add('desk-unvalued');cell.append(node('span','desk-chip','Not valued'),node('small','desk-sub',row.unavailable));return cell;}
-        if(row.value===null)return cell;
         const figure=exact(node('span','desk-figure desk-value',signedText(row.value,v=>formats.money(index,v))),row.value);figure.dataset.sign=signOf(row.value);
         cell.append(figure,node('small','desk-sub',`${row.measure} · ${row.currency}`));return cell;}
       case 'curve':{

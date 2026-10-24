@@ -180,10 +180,14 @@
     <div id="blotter-workspace"></div>
     <div id="desk" class="desk" hidden>
       <div class="desk-tiles" role="group" aria-label="Book summary at this close">
-        <section id="desk-tile-swapPv" class="desk-tile" aria-label="Swap PV"></section>
-        <section id="desk-tile-futuresPnl" class="desk-tile" aria-label="Futures execution P&amp;L"></section>
-        <section id="desk-tile-positions" class="desk-tile" aria-label="Open positions"></section>
-        <section id="desk-tile-risk" class="desk-tile desk-tile-risk" aria-label="Risk at this close"></section>
+        <div class="desk-tile-pair">
+          <section id="desk-tile-swapPv" class="desk-tile" aria-label="Swap PV"></section>
+          <section id="desk-tile-futuresPnl" class="desk-tile" aria-label="Futures execution P&amp;L"></section>
+        </div>
+        <div class="desk-tile-pair">
+          <section id="desk-tile-positions" class="desk-tile" aria-label="Open positions"></section>
+          <section id="desk-tile-risk" class="desk-tile desk-tile-risk" aria-label="Risk at this close"></section>
+        </div>
       </div>
       <div id="desk-charts" class="desk-charts">
         <section id="desk-chart-pv" class="desk-chart" aria-labelledby="desk-chart-pv-title"><h3 id="desk-chart-pv-title" class="desk-chart-title">Swap PV by market</h3></section>

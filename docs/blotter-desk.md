@@ -206,9 +206,13 @@ not reduce to one fixed and one floating side shows **Multi-side** in the table
 and each side's direction in the panel (designer's call).
 
 Clicking a row, or pressing Enter on it, opens it in the side panel. **Group
-by** offers Book (default), Market, Instrument type and None (a flat list).
-Columns, filters, pivot and export stay in the toolbar, and pivot views keep
-their configurable analytics chart, restyled.
+by** offers Book (default), Market, Instrument type and None (a flat list); it
+sits in the heading row above the table, with the row search, the **Column
+filters** toggle (its panel opens under that row) and the row count. Columns,
+pivot, scope, views and export stay in the toolbar, and pivot views keep their
+configurable analytics chart, restyled. Grouping by market refuses a market held
+in more than one quantity specification or currency, because its header would
+have no single subtotal per measure to state.
 
 Saved views move to a new format that records the desk grouping. Following
 project practice, there is no migration. Views saved in the earlier format show

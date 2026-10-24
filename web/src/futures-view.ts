@@ -169,22 +169,25 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
   // Trade columns a desk view can add beside its own; the fields its own present are always on.
   const tradeColumns=blotterColumns.filter(([key])=>key!=='tradeCount'&&!isPriceMeasure(key));
+  const money=(value:string)=>amountText(value,'money'),quantity=(value:string)=>amountText(value,'quantity');
   function render(){
     if(!catalog||!holdings||!summaries)return;
+    const pivot=view.mode==='pivot',colors=commodityColors(holdings.holdings.map(h=>h.commodity.code));
+    // Everything the desk shows is selected from the read before anything is drawn, so a read the desk refuses leaves the
+    // desk on screen whole, and never new tiles and rows beside the old charts. The tiles summarize the read in both display
+    // modes; the two charts and grouped positions are the trade-row desk.
+    const [swapPv,futuresPnl]=summaryTiles(summaries),mix=positionsTile(summaries,holdings.holdings.length,holdings.unvaluedPositions);
+    const plan=pivot?undefined:planDesk(colors);
     annotations.populate(catalog.bookingActor,catalog,annotations.read());
     choose('futures-book',catalog.books.map(b=>({id:b.id,name:`${b.portfolio} · ${b.name}`})),field('futures-book').value);
     instrument.populate(pricedCatalog()?.contracts??[],selectedContract);terms();
     if(pricedCatalog())selectedContract=field('futures-contract').value;
     const scope=options.profile()+':'+snapshot+':'+catalog.context.contextId;
-    const pivot=view.mode==='pivot';
-    const colors=commodityColors(holdings.holdings.map(h=>h.commodity.code));
-    // The tiles summarize the read in both display modes; the two charts and grouped positions are the trade-row desk.
-    const [swapPv,futuresPnl]=summaryTiles(summaries),money=(value:string)=>amountText(value,'money');
     get('desk').hidden=false;get('desk-charts').hidden=pivot;
     renderMoneyTile(get('desk-tile-swapPv'),'Swap PV','swap',swapPv,money);
     renderMoneyTile(get('desk-tile-futuresPnl'),'Futures execution P&L','future',futuresPnl,money);
-    renderPositionsTile(get('desk-tile-positions'),positionsTile(summaries,holdings.holdings.length,holdings.unvaluedPositions),colors);
-    if(pivot)renderPivot(scope);else renderDesk(scope,colors);
+    renderPositionsTile(get('desk-tile-positions'),mix,colors);
+    if(plan)renderDesk(scope,colors,plan);else renderPivot(scope);
     text('blotter-table-title',pivot?view.splitBy.length?'Pivot table':'Pivot summary':view.rowGroup===null?'Positions':`Positions · grouped by ${rowGroupLabel(view.rowGroup).toLowerCase()}`);
     workspace.describe(pivot?[
       {label:'Rows',values:view.groupBy.filter(d=>!view.splitBy.includes(d)).map(d=>groupChoices.find(c=>c[0]===d)![1])},
@@ -193,15 +196,21 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     ]:[]);
     text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();
   }
-  function renderDesk(scope:string,colors:ReadonlyMap<string,string>){
-    const read=holdings!,held=read.holdings,rows=positionRows(held),fields=held.map(tradeFields);
+  // What the trade rows' desk shows, selected from the read: its rows, their trade fields, its group headers and its two charts.
+  function planDesk(colors:ReadonlyMap<string,string>){
+    const held=holdings!.holdings;
+    return {rows:positionRows(held),fields:held.map(tradeFields),groups:deskGroups(view.rowGroup,summaries!,held),
+      pvPanels:pvChartPanels(summaries!,colors,money),positionPanels:positionChartPanels(summaries!,held,colors,quantity)};
+  }
+  function renderDesk(scope:string,colors:ReadonlyMap<string,string>,plan:ReturnType<typeof planDesk>){
+    const held=holdings!.holdings,{rows,fields,groups}=plan;
     // Every other trade column is present, shown when the view chooses it, so a filter on a hidden one stays active.
     const details=tradeColumns.filter(([key])=>!(deskFields as readonly string[]).includes(key));
     const columns=[...deskColumns,...details];
     tableColumns=columns.map(c=>c[0]);transientKeys=new Set(['curve']);
     const numeric=tableColumns.flatMap((key,i)=>i>=deskColumns.length?(numericFields.includes(key)?[i]:[]):['quantity','executionPrice','mark','presentValue'].includes(key)?[i]:[]);
     const values=rows.map((row,i)=>[row.reference,row.market,row.quantity,row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
-    const groups=deskGroups(view.rowGroup,summaries!,held),headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
+    const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
     const own=(i:number)=>held[i];
     const cells=deskCells(rows,colors,{
       money:(i,value)=>amountText(value,'money',undefined,own(i).amountFormat),
@@ -216,14 +225,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     });
     table=workspace.render('desk-positions',scope+JSON.stringify([view.mode,view.rowGroup,view.bookIds,view.portfolioIds,view.query,view.columnFilters]),columns.map(c=>c[1]),values,numeric,busy,{
       keys:tableColumns,cells,searchText:rows.map(row=>row.words),visual:[curveColumn],rowHeight:46,stretch:true,visible:columns.map(([key],i)=>i<deskColumns.length||view.columns.includes(key)),layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
-      group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>groupHeader(headers.get(key)!,count,value=>amountText(value,'money'))}:undefined,
+      group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>groupHeader(headers.get(key)!,count,money)}:undefined,
       initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
       onRowOpen:index=>{const row=held[index];if(row)void act(()=>row.instrumentType==='financial_swap'?swapEditor.open(row.tradeId,Number(row.revision)):editor.open(row.tradeId,Number(row.revision)));}});
     workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
       if(busy())return;captureLayout();view.columns=selected;render();
     },[...deskFields]);
-    renderDeskCharts(get('desk-chart-pv'),pvChartPanels(summaries!,colors,value=>amountText(value,'money')),'No swaps in the selected books');
-    renderDeskCharts(get('desk-chart-position'),positionChartPanels(summaries!,held,colors,value=>amountText(value,'quantity')),'No positions in the selected books');
+    renderDeskCharts(get('desk-chart-pv'),plan.pvPanels,'No swaps in the selected books');
+    renderDeskCharts(get('desk-chart-position'),plan.positionPanels,'No positions in the selected books');
   }
   function renderPivot(scope:string){
     const read=holdings!;
@@ -282,8 +291,11 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(combined.catalog.kind!==bookingCatalog||combined.catalog.kind==='directory'&&Object.hasOwn(combined.catalog,'contracts')||combined.catalog.kind==='priced_contracts'&&!Array.isArray(combined.catalog.contracts))throw Error('The trading workspace returned an inconsistent booking catalog. Refresh and try again.');
       if(!selected.contextId||selected.contextId!==reported.contextId||selected.effectiveOn!==reported.effectiveOn||selected.knownAt!==reported.knownAt||combined.catalog.asOf!==combined.blotter.asOf)throw Error('The trading workspace returned inconsistent market contexts. Refresh and try again.');
       if(!Array.isArray(combined.summaries)||combined.summaries.length!==summaryViews.length)throw Error('The trading workspace did not return the desk summaries. Refresh and try again.');
-      catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=undefined;viewControls();
-      const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;render();
+      // A read the desk refuses leaves the desk it had, and the read that desk was drawn from, as they were.
+      const previous={catalog,holdings,summaries,shapes,lastReadRequest};
+      catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=undefined;
+      const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;
+      try{viewControls();render();}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest}=previous);throw error;}
       if(view.mode==='trades')void loadShapes(started,scope,source);
       await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);workspace.closeMenus();
     }catch(error){

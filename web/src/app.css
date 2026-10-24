@@ -528,13 +528,13 @@ dialog label{margin-top:16px}
 
 /* Blotter: headline strip, compact toolbar and a dense, scannable grid. */
 .table-workspace{border-color:var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:clip}
-.table-workspace-toolbar{gap:4px;padding:8px 10px;background:var(--surface-2);border-bottom-color:var(--border)}
+.table-workspace-toolbar{gap:4px;padding:8px;background:var(--surface-2);border-bottom-color:var(--border)}
 .table-workspace-toolbar>select{min-height:32px;font-size:12px;font-weight:500;padding:5px 28px 5px 10px;border-radius:var(--radius-sm)}
 .table-menu>summary{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text-2);padding:7px 10px;border-radius:var(--radius-sm)}
 .table-menu>summary::after{content:'';width:6px;height:6px;margin-top:-3px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(45deg);opacity:.6}
 .table-menu[open]>summary::after{margin-top:3px;transform:rotate(-135deg)}
 .table-menu>summary:hover,.table-menu[open]>summary{background:var(--surface);border-color:var(--border);color:var(--text)}
-.table-workspace-actions{gap:6px;padding-left:8px;border-left:1px solid var(--border)}
+.table-workspace-actions{gap:4px;padding-left:6px;border-left:1px solid var(--border)}
 .table-workspace-actions button{font-size:12px;font-weight:500;padding:7px 12px;border-radius:var(--radius-sm)}
 .table-workspace-actions button:last-child{background:var(--accent);border-color:var(--accent);color:#fff}
 .table-workspace-actions button:last-child:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
@@ -572,23 +572,31 @@ dialog label{margin-top:16px}
 
 /* Blotter desk: summary tiles, market charts and grouped positions (blotter-desk.md, Desk layout). Every
    figure is a backend string; signs, bar direction and words always accompany gain, loss and commodity colors. */
-/* The saved views list gives way before the toolbar wraps to a second row. */
-.table-workspace-toolbar>select{flex:0 1 170px;min-width:120px}
+/* The saved views list takes the room the toolbar has left, up to a limit, so its label shows whole; it gives way before the toolbar wraps. */
+.table-workspace-toolbar>select{flex:1 1 150px;min-width:120px;max-width:260px}
 .table-workspace-heading{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;padding:9px 16px 7px}
 .table-workspace-heading .table-workspace-title{margin:0}
 .table-group-by{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:500;color:var(--text-2)}
 .table-group-by select{width:auto;max-width:170px;min-height:32px;font-size:12px;font-weight:500;padding:5px 28px 5px 10px}
 .table-workspace-filters{display:flex;flex:1 1 380px;justify-content:flex-end;min-width:0}
 .table-workspace-filters .table-filters{flex:1;justify-content:flex-end;margin:0;padding:0}
-/* The desk is the container its tiles are laid out in, so an open assistant panel narrows them as a small window does. */
+/* The desk is a size container: a figure that would not fit even a lone tile shrinks to its width (.kpi-figure below). */
 .table-workspace>.desk{container:desk/inline-size;display:grid;gap:12px;padding:14px 16px;background:var(--bg);border-bottom:1px solid var(--border)}
-.desk-tiles{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1.35fr) minmax(0,1fr) minmax(0,1.05fr);gap:12px}
-.desk-tile{display:flex;flex-direction:column;gap:4px;min-width:0;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+/* Tiles take the room their content needs. A row of them wraps before a figure or a split would be cut off: the money tiles
+   and the positions and risk tiles are two pairs, so a narrower desk shows two by two, and a narrower one still one by one. */
+.desk-tiles,.desk-tile-pair{display:flex;flex-wrap:wrap;gap:12px}
+.desk-tile-pair{flex:1 1 422px}.desk-tile-pair:first-child{flex:1.8 1 492px}
+.desk-tile{display:flex;flex:1 1 176px;flex-direction:column;gap:4px;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.desk-tile-pair:first-child .desk-tile{flex-basis:240px}
+#desk-tile-positions{flex-basis:200px}
 .desk-tile-label{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:550;color:var(--text-3)}
 .desk-tile-row{display:flex;flex-direction:column;gap:6px;min-width:0}
 .desk-tile-row+.desk-tile-row{padding-top:8px;border-top:1px solid var(--border)}
-.desk-tile .kpi-value{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.6px;overflow-wrap:anywhere}
+.desk-tile .kpi-value{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.6px}
 .desk-tile .kpi-value small{font-size:13px;font-weight:500;letter-spacing:0;color:var(--text-3)}
+/* A figure is one token: it never splits, and its currency wraps beneath it. A tile only gets narrower than its figure when the desk
+   itself is, and then the figure shrinks to the desk's width (about two thirds of its size per character, for the widest digits). */
+.desk-tile .kpi-figure{white-space:nowrap;font-size:min(1em,calc((100cqw - 30px)/(var(--figure-length)*.66)))}
 .desk-tile-several .kpi-value{font-size:20px}
 .desk-tile .desk-not-valued{font-size:20px;color:var(--text-3)}
 .desk-tile-currency{margin:0;font-size:11px;font-weight:600;color:var(--text-2)}
@@ -607,7 +615,7 @@ dialog label{margin-top:16px}
 .desk-legend{display:flex;flex-wrap:wrap;gap:1px 12px;margin:0;padding:0;list-style:none;font-size:11px;line-height:1.3;color:var(--text-2)}
 .desk-legend li{display:inline-flex;align-items:center;gap:5px}.desk-legend b{font-weight:600;font-variant-numeric:tabular-nums}
 .desk-swatch{display:inline-block;width:9px;height:9px;border-radius:3px}
-.desk-tile-risk{background:radial-gradient(120% 140% at 100% 0%,var(--accent-soft) 0%,var(--surface) 58%)}
+.desk-tile-risk{flex:1.05 1 210px;background:radial-gradient(120% 140% at 100% 0%,var(--accent-soft) 0%,var(--surface) 58%)}
 .desk-risk-state{margin:0;font-size:18px;font-weight:650;letter-spacing:-.3px}
 .desk-tile-hint{margin:0;font-size:11.5px;line-height:1.4;color:var(--text-2)}
 .desk-tile-risk button{align-self:flex-start;margin-top:auto;font-size:12px;padding:6px 12px}
@@ -651,14 +659,11 @@ dialog label{margin-top:16px}
 .sparkline{display:block;overflow:visible}.sparkline-line{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.sparkline-mark{stroke:var(--surface);stroke-width:1.5}
 .sparkline-unavailable line{stroke:var(--border-strong);stroke-dasharray:2 3}
 .sparkline-loading{display:block;width:84px;height:22px;border-radius:4px;background:var(--surface-2)}
-@container desk (max-width:900px){.desk-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@container desk (max-width:560px){.desk-tiles{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:760px){.table-workspace>.desk{padding:12px}.desk-charts{grid-template-columns:minmax(0,1fr)}.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}}
 
 /* Pivot builder and linked visual analysis */
-.table-workspace-toolbar>select{max-width:190px}
-.table-workspace-toolbar .table-menu>summary{padding:7px}
-.table-workspace-actions button{padding:7px 10px}
+.table-workspace-toolbar .table-menu>summary{padding:7px 6px}
+.table-workspace-actions button{padding:7px 9px}
 .table-menu[open]::details-content{display:contents}
 .table-menu>summary>svg,.plot-style-controls svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
 #blotter-pivot[open]>.table-menu-panel{width:100%;max-height:none;padding:20px;background:linear-gradient(135deg,#fbfdfb,#f5f8f6);border-color:#dce6df}

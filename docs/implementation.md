@@ -294,11 +294,17 @@ panel has a caption, bars about 20px tall, and its bars listed as text beside th
 booked quantity is unsigned, so its bar takes the side the backend's direction states (pay fixed
 long, receive fixed short) where every swap of that market and unit shares one, and is otherwise
 not drawn. Where two markets, currencies or units share a name, the label adds what identifies
-each, never an ordinal: the code, or the start of the definition or reference revision's id.
+each, never an ordinal: the code, or the start of the revision's id, the same eight or more
+characters for a market's definition revision and for a currency's or unit's reference revision.
 Positions group by book, market and definition revision, instrument type, or not at all, under
 the subtotals of the matching summary; a header says "N of M positions" when row filters hide some
-of its positions, and opens and closes from the keyboard. A grouping the read cannot show is
-refused in the error banner and the grouping on screen stays. The grid's row search reads the words
+of its positions, and opens and closes from the keyboard. The market summary keeps quantity
+specifications and currencies apart, so a market held in more than one has no single subtotal per
+measure and grouping by market refuses it, as the charts refuse a market they would draw as two
+bars of one name. A grouping the read cannot show is refused in the error banner and the grouping on
+screen stays. The desk selects everything it shows from a read (tiles, rows, group headers and both
+charts) before it draws anything, so a read it refuses, such as a live refresh, leaves the desk on
+screen and the read it was drawn from whole. The grid's row search reads the words
 its cells draw, such as the delivery month, the instrument kind, the direction, the unit and the
 value's measure and currency, beside the exact amounts. Price and Mark each state the price unit
 they are in (the currency per quantity unit, with the quote multiplier when it is not one), and a
@@ -313,10 +319,14 @@ and of the synthetic one (`test_gas`, `test_power`), and palette colors for any 
 
 The desk fits the screens it is used on. The toolbar is one row at 1440 pixels wide, and Group by
 sits with the positions heading, the grid's search and its row count on one line above the rows.
-The tiles are laid out by the width of the desk, not of the window, so an open assistant panel
-narrows them as a small window does; an amount is never cut off, and its currency drops beneath it
-when they do not fit side by side. The browser checks assert that, at 1440 by 900 and at 1280 by
-800, the first position starts above the fold, and at 1366 and 1280 that no money total is clipped.
+The tiles take the room their content needs, in two pairs (the money tiles, and the positions and
+risk tiles), so a narrower desk, or an open assistant panel, shows them two by two and then one by one.
+A figure is one token that never splits or is cut off: its currency drops beneath it when they do
+not fit side by side, a row of tiles wraps before the figure or a book's split would not fit, and on
+a desk too narrow even for a lone tile the figure shrinks to the desk's width. The saved views list
+shows its whole label wherever the toolbar has room for it. The browser checks assert that, at 1440
+by 900 and at 1280 by 800, the first position starts above the fold, at 1366 and 1280 that no money
+total is clipped, and at 1280 that a total of twenty characters or more stays on one line and whole.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

@@ -78,22 +78,24 @@ function shortIds(ids:Iterable<string>):Map<string,string>{
     return [id,id.slice(0,length)];
   }));
 }
-type Identity={label:string;code:string;revision:string};
+type Identity={label:string;code:string;revision:string;catalog?:string};
 /**
  * Distinct labels for distinct keys. Keys whose labels collide are told apart by what identifies them, never by a position
- * among them: their codes where these differ, and for one code in several revisions the start of each revision's id.
+ * among them: their codes where these differ, and for one code in several revisions the start of each revision's id. A revision
+ * id is its own: two references that share one are in different catalogs, and are named by the catalog's id and the revision's.
  */
 function distinct(entries:ReadonlyMap<string,Identity>,word:string):Map<string,string>{
   const sharing=new Map<string,string[]>();
   for(const [key,{label}] of entries)sharing.set(label,[...(sharing.get(label)??[]),key]);
   return new Map([...entries].map(([key,{label,code,revision}])=>{
     const colliding=sharing.get(label)!.map(k=>entries.get(k)!);if(colliding.length===1)return [key,label];
-    const short=shortIds(colliding.map(e=>e.revision));
-    return [key,[label,...(new Set(colliding.map(e=>e.code)).size>1?[code]:[]),...(colliding.filter(e=>e.code===code).length>1?[`${word} ${short.get(revision)}`]:[])].join(' · ')];
+    const own=new Set(colliding.map(e=>e.revision)).size===colliding.length,identity=(e:Identity)=>own?e.revision:`${e.catalog}:${e.revision}`;
+    const short=shortIds(colliding.map(identity));
+    return [key,[label,...(new Set(colliding.map(e=>e.code)).size>1?[code]:[]),...(colliding.filter(e=>e.code===code).length>1?[`${word} ${short.get(identity(entries.get(key)!))}`]:[])].join(' · ')];
   }));
 }
 // A reference is identified by its code in its catalog's revision; a key built from it has been validated by referenceKey.
-const referenceIdentity=(label:string,reference:unknown):Identity=>{const {code,revision}=reference as Reference;return {label,code,revision:`${revision.catalogId}:${revision.revisionId}`};};
+const referenceIdentity=(label:string,reference:unknown):Identity=>{const {code,revision}=reference as Reference;return {label,code,revision:revision.revisionId,catalog:revision.catalogId};};
 const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),referenceIdentity(text(g,'currency'),g.currencyReference)])),'revision');
 const unitLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.quantitySpecification),referenceIdentity(text(g,'unit'),g.quantitySpecification)])),'revision');
 const marketKey=(market:string,revision:string)=>`${market}|${revision}`;
@@ -165,9 +167,16 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
   const currencies=currencyLabels(groups),markets=rowGroup==='market'?marketLabels(groups):undefined;
   const keyOf=(g:PivotGroup)=>rowGroup==='book'?text(g,'bookId'):rowGroup==='market'?marketKey(text(g,'market'),text(g,'definitionRevisionId')):text(g,'instrumentType');
   const labelOf=(g:PivotGroup)=>rowGroup==='book'?text(g,'book'):rowGroup==='market'?markets!.get(keyOf(g))!:instrument(g.instrumentType).plural;
-  const headers=new Map<string,GroupHeader>();
+  const headers=new Map<string,GroupHeader>(),held=new Map<string,{units:Set<string>;currencies:Set<string>}>();
   for(const group of groups){
     const key=keyOf(group),{measure,label}=instrument(group.instrumentType),total=amount(group,measure),excluded=excludedPositions(group.unvaluedPositions);
+    if(rowGroup==='market'){
+      // The market summary keeps quantity specifications and currencies apart. A market held in more than one has no one
+      // subtotal per measure to state, so it is refused, as the charts refuse a market they would draw as two bars of one name.
+      const entry=held.get(key)??{units:new Set<string>(),currencies:new Set<string>()};held.set(key,entry);
+      entry.units.add(referenceKey(group.quantitySpecification));entry.currencies.add(referenceKey(group.currencyReference));
+      if(entry.units.size>1||entry.currencies.size>1)throw Error(inconsistent);
+    }
     const header=headers.get(key)??{key,label:labelOf(group),positions:0,subtotals:[]};
     header.subtotals.push({measure:label,amount:total,currency:currencies.get(referenceKey(group.currencyReference))!,excluded,note:totalNote(total,excluded)});headers.set(key,header);
   }
@@ -259,12 +268,14 @@ export function commodityColors(codes:Iterable<string>):Map<string,string>{
   return new Map([...new Set(codes)].sort(byText).map(code=>[code,Object.hasOwn(identity,code)?identity[code]:free[next++%free.length]]));
 }
 
+/** A position the close values states its value; one it cannot value states why, and has no value. */
+type Valuation={value:string;unavailable:null}|{value:null;unavailable:string};
 export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP';reference:string;
   market:string;commodity:string;commodityName:string;curve:string;delivery:string;deliveryFrom:string;deliveryTo:string;
   quantity:string;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
-  price:string|null;priceLabel:'Executed'|'Fixed';priceUnit:string;mark:string|null;markNote:string|null;value:string|null;measure:'P&L'|'PV';currency:string;unavailable:string|null;
+  price:string|null;priceLabel:'Executed'|'Fixed';priceUnit:string;mark:string|null;markNote:string|null;measure:'P&L'|'PV';currency:string;
   /** The words its cells draw beside their exact amounts, which the grid's row search reads. */
-  words:string};
+  words:string}&Valuation;
 /** The unit of a position's price and mark: its currency per quantity unit, with the quote multiplier when it is not one. */
 export const priceUnit=(h:{currency:string;unit:string;quoteMultiplier?:string})=>`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`;
 const sides:Readonly<Record<string,string>>={pay_fixed:'Pay fixed',receive_fixed:'Receive fixed',multi_side:'Multi-side'};
@@ -287,17 +298,21 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
       if(typeof h.direction!=='string'||!Object.hasOwn(sides,h.direction))throw Error('The Blotter returned a swap without its direction.');
       side=sides[h.direction];exposure=h.direction==='pay_fixed'?'long':h.direction==='receive_fixed'?'short':null;
     }
-    if(h.unavailableReason!==null&&(value!==null||h.mark!==null))throw Error('The Blotter returned a value for a position it cannot value.');
-    if(h.unavailableReason===null){
+    let valuation:Valuation;
+    if(h.unavailableReason!==null){
+      if(value!==null||h.mark!==null)throw Error('The Blotter returned a value for a position it cannot value.');
+      valuation={value:null,unavailable:valuationReason(h.unavailableReason,h.instrumentType)};
+    }else{
       if(value===null)throw Error('The Blotter returned a position without a value or a reason.');
       if(h.mark===null&&type===instruments.future)throw Error('The Blotter returned a valued future without its mark.');
+      valuation={value,unavailable:null};
     }
-    const price=h[type.price],unitOfPrice=priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo),unavailable=h.unavailableReason===null?null:valuationReason(h.unavailableReason,h.instrumentType);
-    const markNote=h.unavailableReason===null&&h.mark===null?'Several marks':null;
+    const price=h[type.price],unitOfPrice=priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo);
+    const markNote=valuation.unavailable===null&&h.mark===null?'Several marks':null;
     return {tradeId:h.tradeId,revision:h.revision,instrumentType:h.instrumentType,pill:type.pill,reference:h.tradeReference,
       market:curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
-      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark:h.mark,markNote,value,measure:type.label,currency:h.currency,unavailable,
-      words:[type.pill,delivery,h.unit,side,price===null?'No fixed price':`${type.priceLabel} · ${unitOfPrice}`,...(markNote?[markNote]:[]),unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${unavailable}`].join(' ')};
+      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark:h.mark,markNote,measure:type.label,currency:h.currency,...valuation,
+      words:[type.pill,delivery,h.unit,side,price===null?'No fixed price':`${type.priceLabel} · ${unitOfPrice}`,...(markNote?[markNote]:[]),valuation.unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${valuation.unavailable}`].join(' ')};
   });
 }
 

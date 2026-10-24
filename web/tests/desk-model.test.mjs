@@ -51,6 +51,17 @@ test('tile rows are keyed on the exact currency reference, never on its display 
  assert.deepEqual(pv.rows.filter(r=>r.total==='220'||r.total==='7').map(r=>r.total).sort(),['220','7']);
  assert.equal(new Set(pv.rows.map(r=>r.currency)).size,3,'two references that share a display code are labeled apart');
 });
+test('a currency or unit that collides names its reference revision by the same short id as a market label, not by its catalog and revision',()=>{
+ const catalogId='10000000-0000-0000-0000-000000000001',second='e5f6a7b8-0000-4000-8000-000000000002';
+ // The fixture's own references are in revision 20000000-...; these two share their codes with them and differ in the revision.
+ const currency={...fixture.summaries[0].groups[0].currencyReference,revision:{catalogId,revisionId:second}};
+ const tiles=summaryTiles(changed(changed(fixture.summaries,0,groups=>[...groups,{...groups[0],currencyReference:currency,presentValue:'7',tradeCount:1,unvaluedPositions:0}]),1,groups=>[...groups,{...groups[0],currencyReference:currency,presentValue:'7',tradeCount:1,unvaluedPositions:0}]));
+ assert.deepEqual(tiles[0].rows.map(r=>r.currency),['EUR','USD · revision 20000000','USD · revision e5f6a7b8']);
+ const unit={...fixture.summaries[2].groups[0].quantitySpecification,revision:{catalogId,revisionId:second}};
+ const mix=positionsTile(changed(fixture.summaries,2,groups=>[...groups,{...groups[0],quantitySpecification:unit,tradeCount:1}]),fixture.holdings.length,0);
+ assert.deepEqual(mix.segments.map(s=>s.label).filter(label=>/MMBtu/.test(label)),['Synthetic gas · Swaps · MMBtu (IT) · revision 20000000','Synthetic gas · Swaps · MMBtu (IT) · revision e5f6a7b8']);
+ for(const label of [...tiles[0].rows.map(r=>r.currency),...mix.segments.map(s=>s.label)])assert.doesNotMatch(label,/[0-9a-f]{8}-[0-9a-f]{4}-.*:/,'a catalog is not part of what names a revision');
+});
 test('a book without positions of a measure gets no split, and a book that values none says so',()=>{
  const tiles=summaryTiles(fixture.allUnvalued);
  assert.deepEqual(tiles[0].rows[0].byBook.map(b=>[b.book,b.value,b.excluded]),[['Book A',null,12]]);
@@ -177,6 +188,21 @@ test('a colliding market label names its revision by the shortest start of its i
   const held=[fixture.holdings[0],{...fixture.holdings[0],tradeId:'t8',bindingId:'b8',curve:'gas_forward_b'}];
   assert.deepEqual(deskGroups('market',twin,held).headers.map(h=>h.label),['Gas forward · gas_forward','Gas forward · gas_forward_b']);
  }finally{setCurveNames(fixture.curveNames);}
+});
+test('a market held in more than one quantity specification or currency has no one subtotal per measure, so its header is refused with the desk\'s message',()=>{
+ const message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
+ const otherUnit={...fixture.summaries[3].groups[0].quantitySpecification,code:'other_quantity'};
+ const twoUnits=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],quantitySpecification:otherUnit,presentValue:'3'}]);
+ assert.throws(()=>deskGroups('market',twoUnits,fixture.holdings),{message});
+ const otherCurrency={...fixture.summaries[3].groups[0].currencyReference,code:'other'};
+ const twoCurrencies=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],currencyReference:otherCurrency,currency:'OTH',presentValue:'3'}]);
+ assert.throws(()=>deskGroups('market',twoCurrencies,fixture.holdings),{message});
+ // Books and instrument types read the money totals, which add one currency across units: they are not affected.
+ assert.equal(deskGroups('book',twoUnits,fixture.holdings).headers.length,2);
+ assert.equal(deskGroups('instrumentType',twoUnits,fixture.holdings).headers.length,2);
+ // One market held by futures and swaps in the one unit and currency keeps its two subtotals.
+ const both=changed(fixture.summaries,3,groups=>[...groups,{...groups[1],market:groups[0].market}]);
+ assert.deepEqual(deskGroups('market',both,fixture.holdings).headers.find(h=>h.label==='Gas forward').subtotals.map(s=>[s.measure,s.amount,s.currency]),[['PV','-10','USD'],['P&L','-37.5','USD']]);
 });
 test('a group header states how many positions the group holds, so a filtered count can be shown against it',()=>{
  assert.deepEqual(deskGroups('book',fixture.summaries,fixture.holdings).headers.map(h=>[h.label,h.positions]),[['Book A',2],['Book B',4]]);
