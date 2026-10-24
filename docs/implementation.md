@@ -480,20 +480,21 @@ tabpanel belong to the tabs a position shows and go with them (`setupTabs`, `cle
 mode shows a tabpanel without a tablist. New trade is offered only where the backend allows booking:
 `newTradeControl` words the catalog's `canBook` and `bookingUnavailableReason` for the view and the
 account, a request whose outcome is not known coming first, and before any read the page's own
-reason. A historical view, a live view, which the backend says is live and not historical, and an
-account without Book Trade permission are told why in a line under the toolbar that the button
-points assistive technology at, never in a tooltip, and no field opens there; a new swap's catalog
-read is held to the same answer (`bookingAllowed`). Choosing a product reads what its form needs and
-opens it in one action: a future's form needs the priced futures catalog, which is a new read of the
-whole Blotter and closes what the panel held, and a swap's needs its catalog and observation
-choices. A question about unsaved edits is asked first, before the page is busy, and the panel keeps
-what it held until the form that replaces it is ready. A product whose read fails, whichever product
-it is and whichever read it was, leaves the panel asking for a product with the failure said, never
-a product with nothing in it, unless the person has been moved elsewhere in the meantime, as by a
-change of the market selection, in which case the panel stays as that left it; an answer that comes
-while the page is busy leaves the panel as it was and says that the product was not opened. A new
-trade starts empty, with no contract, book or price of the trade before it. The form of a new future
-is `futures-booking.ts`, which the page hosts as it hosts the forms of the amendments, and a form is
+reason, which names the view as the backend does (`bookingFallback`). A historical view, a live
+view, which the backend says is live and not historical, and an account without Book Trade
+permission are told why in a line under the toolbar that the button points assistive technology at,
+never in a tooltip, and no field opens there; a new swap's catalog read is held to the same answer
+(`bookingAllowed`). Choosing a product reads what its form needs and opens it in one action: a
+future's form needs the priced futures catalog, which is a new read of the whole Blotter and closes
+what the panel held, and a swap's needs its catalog and observation choices. A question about
+unsaved edits is asked first, before the page is busy, and the panel keeps what it held until the
+form that replaces it is ready. A product whose read fails, whichever product it is and whichever
+read it was, leaves the panel asking for a product with the failure said, never a product with
+nothing in it, unless the person has been moved elsewhere in the meantime, as by a change of the
+market selection, in which case the panel stays as that left it; an answer that comes while the page
+is busy leaves the panel as it was and says that the product was not opened. A new trade starts
+empty, with no contract, book or price of the trade before it. The form of a new future is
+`futures-booking.ts`, which the page hosts as it hosts the forms of the amendments, and a form is
 held by the panel as an amendment's is: what is typed in either is an edit, switching Future and
 Swap, closing the panel and every other way out ask first, and the browser asks before the page is
 left.
@@ -517,20 +518,22 @@ books selected; when a row search or a column filter of the table hides the row,
 above its rows and offers to clear the filter, which shows the row and moves focus to it. A booking
 whose outcome is not known is kept in the card that names it, its form and its panel are gone, and
 New trade is held back until it is settled, so that the same booking is never offered twice; a
-future or a swap the backend refused for good keeps its form, for the person to correct, and a
-swap's has to be prepared again. No live view can book, so no new-trade form is held while
-corrections arrive: the browser checks assert that New trade is not offered in a live view, and that
-it says the view is live. The assistant's page report names the new trade by its product, or by none
-while none is chosen (`blotter_new_future`, `blotter_new_swap`, `blotter_new_trade`, three more
-pages of the closed set that the assistant does not read), and its Looking at says so. The browser
-checks assert the switch, the roles, the form and the focus in it for each product, that neither the
-kind dialog nor the inline booking card exists, Price before booking and its curve with its delivery
-marked, no curve read twice and a curve that cannot be drawn leaving the price, the booked row
-selected in view with the panel on it, and the table's note when a filter hides it, a new trade that
-starts empty, the reason New trade is not offered to a historical view, a live view and a role
-without the permission, a product that cannot be read leaving the panel on the choice, a refused
-booking keeping its form, the retained booking and Check status, a question answered while the page
-is busy, and the questions asked before a new trade's edits are given up, each answered both ways.
+booking or an amendment, of a future or of a swap, that the backend refused for good keeps its form
+and the edits in it, with the reason, for the person to correct, and what was previewed or prepared
+for it is dropped, so that it is previewed or prepared again. No live view can book, so no new-trade
+form is held while corrections arrive: the browser checks assert that New trade is not offered in a
+live view, and that it says the view is live. The assistant's page report names the new trade by its
+product, or by none while none is chosen (`blotter_new_future`, `blotter_new_swap`,
+`blotter_new_trade`, three more pages of the closed set that the assistant does not read), and its
+Looking at says so. The browser checks assert the switch, the roles, the form and the focus in it
+for each product, that neither the kind dialog nor the inline booking card exists, Price before
+booking and its curve with its delivery marked, no curve read twice and a curve that cannot be drawn
+leaving the price, the booked row selected in view with the panel on it, and the table's note when a
+filter hides it, a new trade that starts empty, the reason New trade is not offered to a historical
+view, a live view and a role without the permission, a product that cannot be read leaving the panel
+on the choice, a refused booking or amendment keeping its form, the retained booking and Check
+status, a question answered while the page is busy, and the questions asked before a new trade's
+edits are given up, each answered both ways.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

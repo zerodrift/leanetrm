@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bookingAllowed,newTradeControl,retainedBlock} from '../dist/new-trade.js';
+import {bookingAllowed,bookingFallback,newTradeControl,retainedBlock} from '../dist/new-trade.js';
 
 const fallback='Choose an As of date to book a trade.';
 const allowed={canBook:true,bookingUnavailableReason:null};
@@ -30,6 +30,23 @@ test('a catalog the backend returned allows booking, or says why not in its own 
 
 test('before the Blotter is read, New trade says what the page needs, and it is not the backend that is asked',()=>{
  assert.deepEqual(newTradeControl({catalog:undefined,retained:false,fallback}),{enabled:false,reason:fallback});
+});
+
+// What the page says before it has read a catalog to ask the backend: the view the person is in, said as it is.
+test('before any read, the page names the view that cannot book: a live view is live and a historical one historical',()=>{
+ const state={contextDirty:false,canBook:true};
+ assert.equal(bookingFallback({...state,view:'historical'}),'Historical view is read-only. Return to working data to book or amend.');
+ assert.equal(bookingFallback({...state,view:'live'}),'Live view is read-only. Return to working data to book or amend.');
+});
+
+test('before any read, a view that cannot book is said before a role that cannot, and a changed context before either',()=>{
+ assert.equal(bookingFallback({contextDirty:false,view:'live',canBook:false}),'Live view is read-only. Return to working data to book or amend.');
+ assert.equal(bookingFallback({contextDirty:true,view:'live',canBook:false}),'Apply the changed historical context first.');
+});
+
+test('before any read, working data says what a role without Book Trade lacks, and otherwise what the person has yet to choose',()=>{
+ assert.equal(bookingFallback({contextDirty:false,view:'working',canBook:false}),'Your current role does not have Book Trade permission.');
+ assert.equal(bookingFallback({contextDirty:false,view:'working',canBook:true}),'Choose an As of date to book a trade.');
 });
 
 test('a retained request holds New trade back, ahead of every other reason, because it must be settled first',()=>{

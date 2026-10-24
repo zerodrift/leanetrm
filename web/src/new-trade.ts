@@ -27,6 +27,19 @@ export function newTradeControl(state:{catalog:{canBook:boolean;bookingUnavailab
   return state.catalog===undefined?{enabled:false,reason:state.fallback}:bookingAllowed(state.catalog);
 }
 
+/** The view a person is in, as the page knows it before it has read anything: working data, a historical context or a live selection. */
+export type ReadView='working'|'historical'|'live';
+/**
+ * Why booking is not offered before any catalog has been read, when the page has only what it knows of the view and the account to go on: a
+ * changed context not yet applied, a view that is not working data, which says which it is, a role without the permission, and otherwise
+ * what the person has yet to choose. Once a catalog is read the backend's own words stand (`bookingAllowed`).
+ */
+export function bookingFallback(state:{contextDirty:boolean;view:ReadView;canBook:boolean}):string{
+  if(state.contextDirty)return 'Apply the changed historical context first.';
+  if(state.view!=='working')return `${state.view==='live'?'Live':'Historical'} view is read-only. Return to working data to book or amend.`;
+  return state.canBook?'Choose an As of date to book a trade.':'Your current role does not have Book Trade permission.';
+}
+
 const about:Readonly<Record<NewProduct,string>>={futures:'an exchange contract with a defined expiry',swaps:'fixed or floating prices on independent sides'};
 // A line on the product chosen, or on both while none is: the person is told what each is, and none is chosen for them.
 const aboutLine=(product:NewProduct|null)=>product===null?`Future: ${about.futures}. Swap: ${about.swaps}.`:`${about[product][0].toUpperCase()}${about[product].slice(1)}.`;

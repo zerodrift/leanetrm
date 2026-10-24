@@ -470,14 +470,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.onclick=()=>{if(busy())return;view.chart.kind=button.dataset.plotKind as BlotterView['chart']['kind'];field('blotter-chart-kind').value=view.chart.kind;renderChartPanels();});
   // The form a request came from is done with it once what it held was sent, or is kept by the retained request: it is never offered again, so that
-  // a booking of the same request is not offered twice. A new trade has nothing but its form, so the panel it was in is closed with it. A booking
-  // that was refused for good is kept by nothing: its form stays for the person to correct, and a swap's has to be prepared again.
+  // the same request is not offered twice. A new trade has nothing but its form, so the panel it was in is closed with it. A request that was refused
+  // for good is kept by nothing, and what the person entered is not dropped unasked, a booking's or an amendment's: its form stays to be corrected,
+  // and what was prepared for it is dropped, so that it is prepared again.
   function done(command:RequestCommand){
-    const isBooking=command.path==='futures/book'||command.path==='swaps/book',isSwap=command.path.startsWith('swaps/');
-    if(isBooking&&!pending.command){if(isSwap)swapEditor.unprepare();return;}
+    const swap=command.path.startsWith('swaps/'),amendment=command.path.endsWith('/amend');
+    if(!pending.command){if(swap)swapEditor.unprepare();else if(amendment)editor.unprepare();return;}
     if(command.path==='futures/amend')editor.reset();
-    if(isSwap)swapEditor.reset();
-    if(isBooking)closeNew();
+    if(swap)swapEditor.reset();
+    if(!amendment)closeNew();
   }
   // What the backend says of a trade request it has committed: the trade, and the binding the request left it with.
   type Receipt={tradeId?:string;bindingId?:string};

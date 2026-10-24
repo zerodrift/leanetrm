@@ -151,5 +151,7 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   // The position whose amendment form is in the host, the revision that form shows, and amendment edits not yet sent.
   shown:()=>mounted()?selection?.position:undefined,
   displayedRevision:()=>mounted()?detail?.state.revision:undefined,
+  /** An amendment the backend refused for good: what was previewed for it is dropped, and the form, with the edits in it, is kept to be corrected and previewed again. */
+  unprepare:invalidate,
   unsaved:()=>mounted()&&amendEdits.edited()};
 }
