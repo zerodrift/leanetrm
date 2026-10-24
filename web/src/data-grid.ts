@@ -10,9 +10,10 @@ export const emptyGridLayout=():GridLayout=>({order:[],widths:{},sort:[]});
 // group: rows under headers, in the order given: each source row's group key and the header drawn for each key.
 // stretch: the last column fills the grid's remaining width.
 // toolbarHost: where the filter toolbar (search, column filters, row count) is drawn, when not above the table.
-// collapsed: columns, by index, the grid leaves out for now, as a consumer that takes room from it asks; `collapse` changes them while the grid stands.
+// giveUp: columns, by index, that the grid gives up in this order, one at a time, only while the columns it shows do not fit its width, as a
+// consumer that takes room from it asks; `fitColumns` changes them while the grid stands. A grid with room for all of them shows all.
 type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void;
-  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:{keys:string[];order:string[];header:(key:string,count:number)=>HTMLElement};rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;collapsed?:readonly number[]};
+  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:{keys:string[];order:string[];header:(key:string,count:number)=>HTMLElement};rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;giveUp?:readonly number[]};
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[],isBusy:()=>boolean,options:GridOptions){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=publicText(value);return n;};
   const values=rows.map(row=>row.map(cell=>publicText(typeof cell==='string'?cell:cell.textContent??'')));
@@ -50,9 +51,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   document.addEventListener('scroll',cancelGesture,true);
   const field=(i:number)=>'c'+i;
   const ordered=[...options.layout.order.filter(k=>options.keys.includes(k)),...options.keys.filter(k=>!options.layout.order.includes(k))];
-  // The columns left out now, and those the table has been drawn without: they differ until `applyCollapsed` has run.
-  let collapsed=new Set(options.collapsed),applied=collapsed;
-  const shown=(i:number)=>options.visible?.[i]!==false&&!collapsed.has(i);
+  // The columns the grid gives up in this order while they do not fit it, and those it has given up now.
+  let order:readonly number[]=options.giveUp??[],given=new Set<number>();
+  const shown=(i:number)=>options.visible?.[i]!==false&&!given.has(i);
   const definitions:Record<string,unknown>[]=[],groups=new Map<string,{columns:Record<string,unknown>[]} >();
   for(const key of ordered){
     const i=options.keys.indexOf(key),group=options.columnGroups?.[key],title=publicText(group?.measureTitle??headers[i]);
@@ -62,13 +63,25 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     let parent=groups.get(group.key);if(!parent){const title=publicText(group.title);parent={columns:[]};groups.set(group.key,parent);definitions.push({...parent,title,titleFormatter:()=>document.createTextNode(title),headerHozAlign:'center',cssClass:'pivot-column-group'});}
     parent.columns.push(definition);
   }
-  // Draws the table with the columns left out now, once it can be: a change asked for before it was built is made when it is.
-  function applyCollapsed(){
-    if(!ready||!alive||applied===collapsed)return;
-    applied=collapsed;
+  // Whether the columns the table shows are wider than the room it has: it would scroll sideways.
+  const overflows=()=>{const holder=container.querySelector<HTMLElement>('.tabulator-tableholder');return holder!==null&&holder.scrollWidth>holder.clientWidth+1;};
+  // Draws the table again with the columns of its view that are not given up, and measures against what it draws.
+  function lay(left:ReadonlySet<number>){
+    given=new Set(left);
     for(let i=0;i<headers.length;i++){const column=table.getColumn(field(i));if(column){if(shown(i))column.show();else column.hide();}}
     table.redraw(true);
   }
+  // Shows every column, then gives up those of `order`, from its first, for as long as the table still overflows. A table that
+  // fits shows them all, and one that fits only without them shows as many as it can.
+  function fit(){
+    if(!ready||!alive||!order.length&&!given.size)return;
+    const left=new Set<number>();lay(left);
+    for(const i of order){if(!overflows())break;left.add(i);lay(left);}
+  }
+  // The room a table has changes with its container's width, which is not the window's: it is fitted again when that changes.
+  let width=0;
+  const resizing=new ResizeObserver(()=>{if(!alive||container.clientWidth===width)return;width=container.clientWidth;fit();});
+  resizing.observe(container);
   // The row the consumer has open, which it names by source index: marked whenever its element is drawn.
   let opened:number|null=null;
   const sourceIndex=(row:GridRow)=>Number(row.getData().__sourceIndex);
@@ -113,7 +126,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // fitDataFill refits every column without a definition width whenever the
   // grid is redrawn for a new size, so a user's resize becomes that width.
   table.on('columnResized',(column:any)=>{column.getDefinition().width=column.getWidth();});
-  table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;applyCollapsed();apply();options.onReady?.();});
+  table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;fit();apply();options.onReady?.();});
   for(const event of ['columnMoved','columnResized','dataSorted'])table.on(event,()=>{if(ready&&current())options.onLayout(layout());});
   search.oninput=()=>{if(!current())return;state.query=search.value;apply();};
   toggle.onclick=()=>{if(!current())return;filterPanel.hidden=!filterPanel.hidden;toggle.setAttribute('aria-expanded',String(!filterPanel.hidden));};
@@ -133,11 +146,10 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
      * (Cell.setValue); a Tabulator upgrade has to keep that behavior, or this has to change with it.
      */
     redrawCells(column:number){if(ready&&alive)for(const row of table.getRows()){const cell=row.getCell(field(column));if(cell)cell.setValue(row.getData()[field(column)]);}},
-    /** Leaves out exactly these columns, showing again any it left out before that the view has not hidden. */
-    collapse(indices:readonly number[]){
-      const next=new Set(indices);
-      if(next.size===collapsed.size&&[...next].every(i=>collapsed.has(i)))return;
-      collapsed=next;applyCollapsed();
+    /** Gives up these columns instead of those it was given before, in this order, while the table does not fit its width. */
+    fitColumns(next:readonly number[]){
+      if(next.length===order.length&&next.every((index,at)=>index===order[at]))return;
+      order=next;fit();
     },
     /** Marks the row of a source index as the open one (null: none), and keeps it marked as the grid draws its rows again. */
     selectRow(index:number|null){opened=index;if(ready&&alive)for(const row of table.getRows())markOpen(row);},
@@ -152,6 +164,6 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
         return row?.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive)row.getElement().focus({preventScroll:true});});
       });
     },
-    destroy(){if(!alive)return;alive=false;gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }

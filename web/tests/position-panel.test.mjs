@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
-import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty} from '../dist/position-panel.js';
+import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,amendNote} from '../dist/position-panel.js';
 import {chartOptions} from '../dist/chart-view.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -46,7 +46,7 @@ test('the value carries its measure, sign and currency, and a position the close
 
 test('mark minus price is the backend row value, labeled by what the position was done at, and omitted when the backend has none',()=>{
  const swap=summary('TR-000001').markMinusPrice;
- assert.deepEqual([swap.label,swap.text,swap.exact,swap.sign,swap.unit],['Mark − fixed','−0.01','-0.01','negative','USD/MMBtu (IT)']);
+ assert.deepEqual([swap.label,swap.text,swap.exact,swap.unit],['Mark − fixed','−0.01','-0.01','USD/MMBtu (IT)']);
  assert.equal(summary('TR-000002').markMinusPrice.label,'Mark − executed');
  assert.equal(summary('TR-000004').markMinusPrice,null,'a multi-side swap has none');
  assert.equal(summary('TR-000003').markMinusPrice,null,'a position the close cannot value has none');
@@ -57,7 +57,16 @@ test('mark minus price is formatted from its exact string, a rational included, 
  const rational={...held['TR-000001'],markMinusPrice:'-1/3'},seen=[];
  const shown=positionSummary(rational,rows['TR-000001'],{...formats,markMinusPrice:v=>{seen.push(v);return '-0.333';}}).markMinusPrice;
  assert.deepEqual(seen,['-1/3']);
- assert.deepEqual([shown.text,shown.exact,shown.sign],['−0.333','-1/3','negative']);
+ assert.deepEqual([shown.text,shown.exact],['−0.333','-1/3']);
+});
+
+test('mark minus price is a price move, not a gain or a loss: it has its sign in its text and no tone of its own',()=>{
+ // Which way a move of the mark cuts depends on the position's direction, and the browser does not combine them into a gain.
+ for(const reference of ['TR-000001','TR-000002']){
+  const delta=summary(reference).markMinusPrice;
+  assert.deepEqual(Object.keys(delta).sort(),['exact','label','text','unit']);
+ }
+ assert.deepEqual(summary('TR-000001').value.amount.sign,'negative','the value keeps its tone');
 });
 
 test('a mark minus price on a position the close cannot value is a conflict the panel refuses',()=>{
@@ -134,4 +143,13 @@ test('Open curve names the curve and the one contract the position is in, or the
 test('the tabs are Curve, Terms, Risk and History, and the Risk tab says its results are not here yet',()=>{
  assert.deepEqual(positionTabs.map(([id,label])=>[id,label]),[['curve','Curve'],['terms','Terms'],['risk','Risk'],['history','History']]);
  assert.equal(riskEmpty,"A risk run's results for this position will show here.");
+});
+
+test('Amend says in words when the editor it opens is read-only: for the account, or for the revision',()=>{
+ assert.equal(amendNote(true,undefined),null,'before the editor has been read there is nothing against it');
+ assert.equal(amendNote(true,{allowed:true,reason:null}),null);
+ const account='This account cannot amend trades in this market context, so Amend opens the editor read-only.';
+ assert.equal(amendNote(false,undefined),account);
+ assert.equal(amendNote(false,{allowed:false,reason:'Settlement has been processed.'}),account,'the account is the first reason');
+ assert.equal(amendNote(true,{allowed:false,reason:'Settlement has been processed.'}),'Amend opens the editor read-only: Settlement has been processed.');
 });

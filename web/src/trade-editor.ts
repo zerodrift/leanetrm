@@ -6,8 +6,8 @@ import {publicText,displayInstant,timeLabels,curveName,deliveryLabel} from './ma
 import {futuresContractKey,type FuturesContract} from './futures-contract.js';
 import type {RequestCommand} from './pending-command.js';
 import {trackEdits} from './edit-tracking.js';
-import {minus,type HoldingFormats} from './desk-model.js';
-import type {DetailView,HistoryTable,TermSection} from './position-panel.js';
+import {minus,priceUnit,type Holding,type HoldingFormats} from './desk-model.js';
+import type {AmendState,DetailRead,DetailView,HistoryTable,TermSection} from './position-panel.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type TradeState=Annotation&{tradeReference:string;instrumentReference:string;tradeId:string;revision:number;bookId:string;bindingId:string;instrumentId:string;curve:string;contractId:string;lots:string;executionPrice:string;executedAt:string;effectiveAt:string;recordedAt:string;kind:string;reason:string;settlement:string};
 type Detail={state:TradeState;history:TradeState[];catalog:PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];contracts:FuturesContract[]};asOf:string;canAmend:boolean;amendUnavailableReason:string|null;amendmentConvention:string};
@@ -21,21 +21,27 @@ export function tradeHistoryTable(detail:Detail,zone:string):HistoryTable{
  return {headers:['Revision','Event','Effective','Recorded','Book','Lots','Execution price','Trader ID','Memo','Trade date','Legal entity','Counterparty','Reason'],numeric:[0,5,6],
   rows:detail.history.map((h,i)=>[String(h.revision),h.kind==='booked'?'Booked':'Amended',labels[2*i],labels[2*i+1],books.find(b=>b.id===h.bookId)?.name??'Unavailable book',h.lots,h.executionPrice,h.traderCode??'',h.memo??'',h.booking?.tradeDate??'',h.booking?.legalEntity??'',h.booking?.counterparty??'',h.reason])};
 }
-/** The terms of a trade revision as a read view lists them: its booking facts, its position, and its dated contract's terms. */
-export function tradeTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSection[]{
+/**
+ * The terms of a trade revision as a read view lists them: its booking facts, its position, with its price in `unit`, and its
+ * dated contract's terms.
+ */
+export function tradeTerms(detail:Detail,zone:string,formats:HoldingFormats,unit:string):TermSection[]{
  const s=detail.state,book=detail.catalog.books.find(b=>b.id===s.bookId),key=JSON.stringify([s.curve,s.contractId]),contract=detail.catalog.contracts.find(c=>futuresContractKey(c)===key);
  return [
   {title:'Trade',rows:[['Trade',`${s.tradeReference} · ${s.instrumentReference}`],['Revision',`${s.revision} · ${s.kind==='booked'?'Booked':'Amended'}`],['Book',book?`${book.portfolio} · ${book.name}`:'Unavailable book'],...bookingRows(s,zone)]},
-  {title:'Position',rows:[['Lots',minus(s.lots)],['Execution price',minus(formats.price(s.executionPrice))]]},
+  {title:'Position',rows:[['Lots',minus(s.lots)],['Execution price',`${minus(formats.price(s.executionPrice))} ${unit}`]]},
   {title:'Contract',rows:contract?futuresTermRows(contract,zone,value=>formats.mark(value)):[['Contract terms','Retained contract terms are unavailable in this selectable catalog.']]},
  ];
 }
 /** What the position panel's Terms and History tabs show of a trade revision: the same read the editor makes. */
-export const tradeDetailView=(detail:Detail,zone:string,formats:HoldingFormats):DetailView=>({terms:tradeTerms(detail,zone,formats),history:tradeHistoryTable(detail,zone),
- amend:{allowed:detail.canAmend,reason:detail.canAmend?null:detail.amendUnavailableReason??'Read-only trade revision'}});
-export async function readTradeView(api:Api,context:Record<string,unknown>,tradeId:string,revision:number,formats:HoldingFormats){
- const detail=await readTradeDetail(api,context,tradeId,revision);
- return (zone:string)=>tradeDetailView(detail,zone,formats);
+export const tradeDetailView=(detail:Detail,zone:string,formats:HoldingFormats,unit:string):DetailView=>({terms:tradeTerms(detail,zone,formats,unit),history:tradeHistoryTable(detail,zone)});
+export const tradeAmendState=(detail:Detail):AmendState=>detail.canAmend?{allowed:true,reason:null}:{allowed:false,reason:detail.amendUnavailableReason??'Read-only trade revision'};
+/** The editor's read for a position of the Blotter, which must hold the binding that position is: a trade's other bindings are other positions. */
+export async function readTradeView(api:Api,context:Record<string,unknown>,h:Pick<Holding,'tradeId'|'bindingId'|'revision'|'currency'|'unit'|'quoteMultiplier'>,formats:HoldingFormats):Promise<DetailRead>{
+ const detail=await readTradeDetail(api,context,h.tradeId,Number(h.revision));
+ if(detail.state.bindingId!==h.bindingId)throw Error('The editor read holds another binding of the trade than the position.');
+ const unit=priceUnit(h);
+ return {amend:tradeAmendState(detail),view:zone=>tradeDetailView(detail,zone,formats,unit)};
 }
 export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;retry:()=>void;reconcile:()=>void;onDenied:()=>void}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;

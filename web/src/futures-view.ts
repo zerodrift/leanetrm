@@ -21,6 +21,7 @@ import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from '
 import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,pvChartPanels,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
 import {askLeave,panelPlacement,setupSidePanel} from './side-panel.js';
 import {setupPositionPanel,type PositionInput} from './position-panel.js';
+import {setupDeskPanel} from './desk-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile} from './desk-view.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
@@ -97,25 +98,26 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The side panel beside the positions: a position's curve, terms, risk and history. Opening a row opens it; Amend still reaches
   // today's amend dialogs until amendment moves into the panel.
-  const main=document.querySelector('main')!;
+  const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
   const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
-  // The row the panel was opened from, which focus returns to when the person closes it.
-  let openedAt:number|undefined;
+  // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
+  // Mark, for as long as its columns do not fit the room it has left.
+  const dockedGiveUp=()=>panel.current()!==null&&docked()?[curveColumn,markColumn]:[];
   const panel=setupSidePanel(get('side-panel'),{
     // What the panel holds that switching would lose: an amendment of its position in progress.
     unsaved:()=>editor.unsaved()||swapEditor.unsaved(),confirmLeave:askLeave(get('side-panel')),docked,
-    // A docked panel takes the grid's width, so the grid leaves out the columns the panel shows for its position: its mark and curve.
-    changed:()=>table?.collapse(dockedColumns()),
-    closed:()=>{const row=openedAt;dropPosition();if(row!==undefined)table?.focusRow(row);}});
-  const dockedColumns=()=>panel.current()!==null&&docked()?[markColumn,curveColumn]:[];
+    // On a phone the panel is a sheet over the page, which stays out of reach while it is open, unless the Blotter has been left.
+    sheet:()=>phone.matches&&!get('futures-page').hidden,
+    changed:()=>table?.fitColumns(dockedGiveUp()),closed:()=>deskPanel.closed()});
   // The panel docks or overlays by the width the main area has: it is placed again when that changes, not when only its height does.
   let mainWidth=main.clientWidth;
   new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;panel.place();}}).observe(main);
   new MutationObserver(()=>panel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
-    read:(h,formats)=>h.instrumentType==='financial_swap'?readSwapView(api,readContext(),h.tradeId,Number(h.revision),formats):readTradeView(api,readContext(),h.tradeId,Number(h.revision),formats),
+    read:(h,formats)=>h.instrumentType==='financial_swap'?readSwapView(api,readContext(),h,formats):readTradeView(api,readContext(),h,formats),
     amend:h=>void act(()=>h.instrumentType==='financial_swap'?swapEditor.open(h.tradeId,Number(h.revision)):editor.open(h.tradeId,Number(h.revision))),
     openCurve:(curve,contractId)=>void act(()=>options.openCurve(curve,contractId))});
+  const deskPanel=setupDeskPanel({shell:panel,position,holdings:()=>holdings?.holdings,input:positionInput,grid:()=>table,notice:options.notice});
   const kindDialog=get<HTMLDialogElement>('trade-kind');
   get('trade-kind-close').onclick=()=>kindDialog.close();
   get('trade-kind-ppa').onclick=()=>{kindDialog.close();void act(options.newPpa);};
@@ -180,9 +182,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     renderRiskTile(get('desk-tile-risk'),{state:risk.shown()?'results':get('risk-card').hidden?'none':'open',denial:options.canRunRisk()?null:riskDenied,busy:busy()},
       ()=>{if(get('risk-card').hidden)void act(risk.open);else get('risk-card').scrollIntoView({block:'start'});});
   }
-  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();panel.place();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
-  function clear(){instrument.clear();generation++;chartState=undefined;drawn=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;table=undefined;panel.reset();dropPosition();lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
+  function clear(){instrument.clear();generation++;chartState=undefined;drawn=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;table=undefined;deskPanel.reset();lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
   function reset(){selectedContract='';clear();restore();forgetViews();viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   const contractKey=futuresContractKey;
@@ -221,7 +223,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       {label:'Columns',values:view.splitBy.map(d=>groupChoices.find(c=>c[0]===d)![1])},
       {label:'Values',values:view.measures.map(m=>measureChoices.find(c=>c[0]===m)![1])},
     ]:[]);
-    text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();syncPanel();
+    text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();deskPanel.sync();
   }
   // What the trade rows' desk shows, selected from the read: its rows, their trade fields, its group headers and its two charts.
   function planDesk(colors:ReadonlyMap<string,string>){
@@ -241,10 +243,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const formats=held.map(holdingFormats);
     const cells=deskCells(rows,colors,{money:(i,value)=>formats[i].money(value),quantity:(i,value)=>formats[i].quantity(value),price:(i,value)=>formats[i].price(value),mark:(i,value)=>formats[i].mark(value)},i=>shapeOf(held[i]));
     table=workspace.render('desk-positions',scope+JSON.stringify([view.mode,view.rowGroup,view.bookIds,view.portfolioIds,view.query,view.columnFilters]),columns.map(c=>c[1]),values,numeric,busy,{
-      keys:tableColumns,cells,searchText:rows.map(row=>row.words),visual:[curveColumn],collapsed:dockedColumns(),rowHeight:46,stretch:true,visible:columns.map(([key],i)=>i<deskColumns.length||view.columns.includes(key)),layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
+      keys:tableColumns,cells,searchText:rows.map(row=>row.words),visual:[curveColumn],giveUp:dockedGiveUp(),rowHeight:46,stretch:true,visible:columns.map(([key],i)=>i<deskColumns.length||view.columns.includes(key)),layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
       group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>groupHeader(headers.get(key)!,count,money)}:undefined,
       initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
-      onRowOpen:index=>void openPosition(index)});
+      onRowOpen:index=>void deskPanel.open(index)});
     workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
       if(busy())return;captureLayout();view.columns=selected;render();
     },[...deskFields]);
@@ -259,27 +261,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(h.definitionRevisionId!==shapes.revision)return 'Curve shape unavailable · this market is defined in another revision than the curves of this close';
     return shapes.curves.get(h.curve)??'Curve shape unavailable';
   }
-  // The position at a row of the read on screen, as the side panel draws it.
-  function positionInput(index:number):PositionInput{
-    const h=holdings!.holdings[index],row=drawn!.rows[index];
-    return {holding:h,row,formats:holdingFormats(h),shape:shapeOf(h),color:drawn!.colors.get(row.commodity)!};
-  }
-  async function openPosition(index:number){
-    const read=holdings,h=read?.holdings[index];
-    if(!read||!h||!drawn)return;
-    const opened=await panel.show({kind:'position',tradeId:h.tradeId,revision:Number(h.revision)});
-    // A read that replaced this one while the person was asked has taken the panel with it.
-    if(!opened||holdings!==read)return;
-    openedAt=index;position.show(positionInput(index));table?.selectRow(index);
-  }
-  function dropPosition(){position.clear();openedAt=undefined;table?.selectRow(null);}
-  // The panel follows each newer drawing of the read it was opened from, and closes, saying so, when the read no longer holds its position.
-  function syncPanel(){
-    const mode=panel.current();
-    if(mode?.kind!=='position')return;
-    const index=holdings?.holdings.findIndex(h=>h.tradeId===mode.tradeId&&Number(h.revision)===mode.revision)??-1;
-    if(index<0||!drawn){panel.reset();dropPosition();options.notice('The position the panel showed is not in this read, so the panel was closed.');return;}
-    openedAt=index;position.update(positionInput(index));table?.selectRow(index);
+  // The position at a row of the read on screen, as the side panel draws it; nothing while the desk draws no positions.
+  function positionInput(index:number):PositionInput|undefined{
+    const h=holdings?.holdings[index],row=drawn?.rows[index];
+    return h&&row&&drawn?{holding:h,row,formats:holdingFormats(h),shape:shapeOf(h),color:drawn.colors.get(row.commodity)!}:undefined;
   }
   function renderPivot(scope:string){
     const read=holdings!;drawn=undefined;
@@ -355,7 +340,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     }
   }
   // Every row's curve unavailable, with the reason.
-  function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};table?.redrawCells(curveColumn);syncPanel();}
+  function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};table?.redrawCells(curveColumn);deskPanel.sync();}
   // Sparklines follow the first render: the held curves of the close's definitions, at most 64 to a read, in the market
   // context the positions were read in. A failed read leaves each of its curves unavailable with the reason, and never
   // blanks the positions.
@@ -379,7 +364,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       }
       if(!current())return;
     }
-    shapes={revision,curves:found};table?.redrawCells(curveColumn);syncPanel();
+    shapes={revision,curves:found};table?.redrawCells(curveColumn);deskPanel.sync();
   }
   async function loadChart(reportRequest:{context:unknown;view:unknown},started:number,scope:string){
     // Trade rows have the desk's charts; a pivot keeps its configurable chart.

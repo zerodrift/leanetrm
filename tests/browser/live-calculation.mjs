@@ -63,8 +63,10 @@ export async function run({command,evaluate,wait,click,persona,set,check,shot,id
  await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  const reference=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>h.instrumentType==='financial_swap').tradeReference");
  await set('#blotter-filters .table-search',reference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
- // A risk analyst cannot amend, and reaches the swap's editor read-only through Amend, whose button says so.
- await check('an account that cannot amend still opens the editor from Amend, and the button says it will be read-only',"!document.querySelector('#side-panel-amend').disabled&&document.querySelector('#side-panel-amend').title.includes('opens read-only')");
+ // A risk analyst cannot amend, and reaches the swap's editor read-only through Amend, which the panel says in words, beside the button.
+ await check('an account that cannot amend still opens the editor from Amend, and the panel says in words that it will be read-only',
+  "!document.querySelector('#side-panel-amend').disabled&&(()=>{const note=document.querySelector('#side-panel-amend-note');return !note.hidden&&note.getClientRects().length>0&&note.textContent.includes('cannot amend')&&note.textContent.includes('read-only');})()",
+  "document.querySelector('#side-panel-head').innerText");
  await click('#side-panel-amend');await wait("document.querySelector('#swap-editor').open");
  const readsAtOpen=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length");
  await evaluate('window.failLiveEditor=true');await correct('base','3.4');

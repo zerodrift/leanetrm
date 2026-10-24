@@ -10,8 +10,8 @@ import {tradeAnnotations,bookingRows,type PartyCatalog,type Trader,type Annotati
 import {createScheduleDatePicker} from './schedule-date-picker.js';
 import type {Context} from './date-editor.js';
 import {PaymentDateRule,PaymentDayBasis,DateAdjustment,Discounting,type Choice,type PaymentInput,type PaymentOptions} from './swap-contract.js';
-import {minus,priceUnit,type HoldingFormats} from './desk-model.js';
-import type {DetailView,TermSection} from './position-panel.js';
+import {minus,priceUnit,type Holding,type HoldingFormats} from './desk-model.js';
+import type {AmendState,DetailRead,DetailView,TermSection} from './position-panel.js';
 import {trackEdits} from './edit-tracking.js';
 import {projectionReference,type CustomProjection,type ProjectionChoice} from './swap-projections.js';
 import {publicText,displayInstant,deliveryLabel,curveName,friendly} from './market-view.js';
@@ -24,7 +24,7 @@ type Index={definitionRevisionId:string;curve:string;index:string;commodity:stri
 type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];commodities:{code:string;name:string}[];paymentCalendars:{code:string}[];paymentOptions:PaymentOptions;entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean};
 type FloatingTerms={curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null;firstFixingAt?:string|null;customProjection?:CustomProjection|null;observationSchedule?:ObservationSchedule;resetFrequency:string;averagingMethod:string;spread:string};
 type Terms={swapType:string;firstCoefficient:string|null;firstFloating:FloatingTerms|null;commodity:string;definitionRevisionId:string;bookId:string;executedAt:string;quantity:string;fixedCoefficient:string;discounting:boolean;fixed:{price:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null}|null;floating:FloatingTerms};
-type State=Annotation&{tradeId:string;tradeReference:string;instrumentReference:string;revision:number;quantity:string;kind:string;reason:string;effectiveAt:string;recordedAt:string;terms:Terms};
+type State=Annotation&{tradeId:string;tradeReference:string;instrumentId:string;instrumentReference:string;revision:number;quantity:string;kind:string;reason:string;effectiveAt:string;recordedAt:string;terms:Terms};
 type Valuation={presentValue:string;instrumentPresentValue:string;quantity:string;sides:{slot:number;kind:string;coefficient:string;presentValue:string;contribution:string;payments:{deliveryFrom:string;deliveryTo:string;paymentDate:string;cashAmount:string;discountFactor:string;presentValue:string;discountMappingId:string|null;discountCurve:unknown;discountPolicy:string;pillars:unknown;observationSchedule:ObservationInspection|null;resets:{spread:string|null;lookup:unknown;lineage:unknown;from:string;to:string;price:string;weight:string;cashContribution:string;fixingState:string;fixing?:unknown}[]}[]}[]};
 type Detail={state:State;history:State[];catalog:Catalog;valuation:Valuation;canAmend:boolean;amendUnavailableReason:string|null;asOf:string;context:Context};
 export type SwapDetail=Detail;
@@ -49,10 +49,16 @@ function paymentRows(payment:PaymentInput,options:PaymentOptions):(readonly [str
   ...(payment.dayBasis?[['Day basis',choiceLabel(options.dayBases,payment.dayBasis)] as const]:[]),...(payment.shortMonth?[['Short months',choiceLabel(options.shortMonths,payment.shortMonth)] as const]:[]),
   ['Adjustment',choiceLabel(options.adjustments,payment.adjustment)],...(payment.calendar?[['Calendar',friendly(payment.calendar)] as const]:[])];
 }
+/** The exact index definition a retained swap's floating side names, which the catalog must still hold. */
+export function retainedIndex(catalog:Catalog,terms:Terms,side:{curve:string;index:string}){
+ const found=catalog.indices.find(i=>i.definitionRevisionId===terms.definitionRevisionId&&i.curve===side.curve&&i.index===side.index);
+ if(!found)throw Error('The retained exact index definition is unavailable.');
+ return found;
+}
 /** The terms of a swap revision as a read view lists them: its booking facts, its structure, and each of its sides with its own terms. */
 export function swapTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSection[]{
  const s=detail.state,t=s.terms,catalog=detail.catalog,book=catalog.books.find(b=>b.id===t.bookId),pair=t.swapType==='financial_floating_floating';
- const indexOf=(side:FloatingTerms)=>{const found=catalog.indices.find(i=>i.definitionRevisionId===t.definitionRevisionId&&i.curve===side.curve&&i.index===side.index);if(!found)throw Error('The retained exact index definition is unavailable.');return found;};
+ const indexOf=(side:FloatingTerms)=>retainedIndex(catalog,t,side);
  const currency=(code:string)=>catalog.indices.find(i=>i.currencyCode===code)?.currency??code;
  // Every price of a swap is per its instrument quantity unit, which is the unit of its second floating side's index.
  const quantityIndex=indexOf(t.floating),payments=(payment:PaymentInput|null)=>payment?paymentRows(payment,catalog.paymentOptions):[];
@@ -77,11 +83,16 @@ export function swapTerms(detail:Detail,zone:string,formats:HoldingFormats):Term
  ];
 }
 /** What the position panel's Terms and History tabs show of a swap revision: the same read the editor makes. */
-export const swapDetailView=(detail:Detail,zone:string,formats:HoldingFormats):DetailView=>({terms:swapTerms(detail,zone,formats),history:swapHistoryTable(detail,zone),
- amend:{allowed:detail.canAmend,reason:detail.canAmend?null:detail.amendUnavailableReason??'Read-only revision'}});
-export async function readSwapView(api:Api,context:Record<string,unknown>,tradeId:string,revision:number,formats:HoldingFormats){
- const detail=await readSwapDetail(api,context,tradeId,revision);
- return (zone:string)=>swapDetailView(detail,zone,formats);
+export const swapDetailView=(detail:Detail,zone:string,formats:HoldingFormats):DetailView=>({terms:swapTerms(detail,zone,formats),history:swapHistoryTable(detail,zone)});
+export const swapAmendState=(detail:Detail):AmendState=>detail.canAmend?{allowed:true,reason:null}:{allowed:false,reason:detail.amendUnavailableReason??'Read-only revision'};
+/**
+ * The editor's read for a position of the Blotter. A swap's editor state names its instrument, not its binding, so the read must
+ * hold the instrument that position is in: a trade's other positions are not shown from it.
+ */
+export async function readSwapView(api:Api,context:Record<string,unknown>,h:Pick<Holding,'tradeId'|'contractId'|'revision'>,formats:HoldingFormats):Promise<DetailRead>{
+ const detail=await readSwapDetail(api,context,h.tradeId,Number(h.revision));
+ if(detail.state.instrumentId!==h.contractId)throw Error('The editor read holds another instrument of the trade than the position.');
+ return {amend:swapAmendState(detail),view:zone=>swapDetailView(detail,zone,formats)};
 }
 export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;onDenied:()=>void}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -271,7 +282,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   for(const side of ['floating',...(floatingPair()?['first']:[])]){
    const terms=side==='first'?t.firstFloating!:t.floating;
    observations[side].restore(terms.observationSchedule);
-   const i=catalog.indices.find(i=>i.definitionRevisionId===t.definitionRevisionId&&i.curve===terms.curve&&i.index===terms.index);if(!i)throw Error('The retained exact index definition is unavailable.');
+   const i=retainedIndex(catalog,t,terms);
    restoreSelection(observationId(side,'index'),i.index,friendly(i.index));indexControls(side);restoreSelection(observationId(side,'reset-frequency'),terms.resetFrequency,friendly(terms.resetFrequency));restoreSelection(observationId(side,'projection'),indexKey(i),curveName(i.curve));restoreSelection(observationId(side,'averaging'),terms.averagingMethod,friendly(terms.averagingMethod));projectionControls(side);field(observationId(side,'spread')).value=terms.spread??'0';priceSourceControls(side,terms.customProjection??null);text(observationId(side,'legacy-fixing'),terms.firstFixingAt?`Retained legacy first fixing boundary: ${displayInstant(terms.firstFixingAt,options.zone())}. New pricing uses the selected index convention.`:'');get(observationId(side,'legacy-fixing')).hidden=!terms.firstFixingAt;
   }
   if(t.fixed)field('swap-price').value=t.fixed.price;

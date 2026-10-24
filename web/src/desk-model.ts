@@ -297,9 +297,6 @@ export const quantityText=(row:Pick<DeskRow,'instrumentType'|'quantity'>,format:
  * future its mark; a swap without one mark says so. A swap's bar side is its backend direction: pay fixed is long.
  */
 export function positionRows(holdings:readonly Holding[]):DeskRow[]{
-  // The side panel names a position by its trade and revision, so a read that holds one twice cannot be shown.
-  const named=new Set(holdings.map(h=>JSON.stringify([h.tradeId,h.revision])));
-  if(named.size!==holdings.length)throw Error('The Blotter returned the same trade revision more than once.');
   return holdings.map(h=>{
     const type=instrument(h.instrumentType),value=h[type.measure];
     let side:string,exposure:DeskRow['exposure'];

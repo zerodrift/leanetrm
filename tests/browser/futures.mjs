@@ -1,7 +1,7 @@
 import {chooseFutures} from './futures-selection.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
 import {swapPvCard,groupHeadersReadApart} from './desk-cards.mjs';
-import {sidePanelChecks} from './side-panel-checks.mjs';
+import {sidePanelChecks,deltaInkCheck} from './side-panel-checks.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url}){
   const rawSet=set;set=async(selector,value)=>{if(selector==='#futures-contract'){const c=await evaluate(`window.__tradingCatalogs(window.__futuresResponses).at(-1).data.contracts.find(c=>JSON.stringify([c.curve,c.id])===${JSON.stringify(value)})`);if(!c)throw Error('Missing selected futures contract');await chooseFutures({evaluate,set:rawSet,click},c);}else await rawSet(selector,value);};
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
@@ -190,6 +190,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('rejected retry preserves the original uncertain operation',"document.querySelector('#desk-positions').children.length===0&&!document.querySelector('#futures-pending').hidden");
   await click('#futures-refresh');await click('#futures-retry');
   await check('retry uses the original operation and economics exactly once',`(()=>{const r=window.__futuresRequests;return JSON.stringify(r.at(-1))===JSON.stringify(r.at(-2))&&window.__tradingReports(window.__futuresResponses).at(-1).data.holdings.length===${before+2}&&document.querySelector('#futures-pending').hidden;})()`);
+  // The short future just booked: its mark minus price is a price move, and the panel does not color it as the gain or loss it is not.
+  await deltaInkCheck({evaluate,wait,click,set,check,idle},{what:'a short future',reference:await evaluate(`${rowsRead}.find(h=>h.instrumentType==='future'&&h.lots==='-1').tradeReference`)});
   await check('all same-contract bookings retain one shared contract and pricing binding',"(()=>{const rows=window.__tradingReports(window.__futuresResponses).at(-1).data.holdings;return new Set(rows.map(r=>r.instrumentId)).size===1&&new Set(rows.map(r=>r.pricingBindingId)).size===1;})()");
   await evaluate('window.__duplicateContract=true');await click('#futures-refresh');
   await click('#futures-new');await click('#trade-kind-future');

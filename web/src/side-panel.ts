@@ -2,9 +2,9 @@
 // trade or a risk report. This shell owns what every mode shares: showing and hiding, docked or overlay placement, focus,
 // Escape, the tab strip and asking before unsaved edits are left. A mode draws its own content into the parts the shell hands out.
 
-/** What the panel holds: one position at a revision, a new trade of a product, a risk report, or nothing. */
+/** What the panel holds: one position (a trade's binding) at a revision, a new trade of a product, a risk report, or nothing. */
 export type PanelMode=
-  |{kind:'position';tradeId:string;revision:number}
+  |{kind:'position';tradeId:string;bindingId:string;revision:number}
   |{kind:'new';product:'futures'|'swaps'}
   |{kind:'risk'}
   |null;
@@ -18,7 +18,7 @@ export function panelPlacement(mainWidth:number,assistantOpen:boolean):'docked'|
 export function sameMode(a:PanelMode,b:PanelMode):boolean{
   if(a===null||b===null)return a===b;
   if(a.kind!==b.kind)return false;
-  if(a.kind==='position'&&b.kind==='position')return a.tradeId===b.tradeId&&a.revision===b.revision;
+  if(a.kind==='position'&&b.kind==='position')return a.tradeId===b.tradeId&&a.bindingId===b.bindingId&&a.revision===b.revision;
   if(a.kind==='new'&&b.kind==='new')return a.product===b.product;
   return true;
 }
@@ -65,20 +65,43 @@ export function setupTabs(list:HTMLElement,tabs:readonly (readonly [string,strin
 }
 
 /**
+ * Takes the page behind a panel that covers it out of reach: every node beside the panel, and beside each of its ancestors, becomes
+ * inert, so focus cannot leave the panel for what it hides. A dialog is left alone, being modal by itself, and so is anything that
+ * was inert already. Returns what gives the page back.
+ */
+export function isolate(host:HTMLElement):()=>void{
+  const made:HTMLElement[]=[];
+  for(let node:HTMLElement=host;node.parentElement;node=node.parentElement){
+    for(const sibling of Array.from(node.parentElement.children) as HTMLElement[]){
+      if(sibling===node||sibling.localName==='dialog'||sibling.inert)continue;
+      sibling.inert=true;made.push(sibling);
+    }
+  }
+  return ()=>{for(const node of made)node.inert=false;};
+}
+
+/**
  * The shell over the markup of `#side-panel`. `unsaved` says whether leaving the current mode would lose edits, and
  * `confirmLeave` asks the person; it hears `abandoned` aborted when the page resets the panel under its question.
- * `docked` says whether the page has room to dock the panel now, `closed` hears that the person closed it, and `changed` hears
- * every change of the panel's mode or placement, for a page that makes room for it.
+ * `docked` says whether the page has room to dock the panel now, and `sheet` whether the open panel covers the whole page, which
+ * is then out of reach until the panel is closed or stops covering it. `closed` hears that the person closed the panel, and
+ * `changed` hears every change of its mode or placement, for a page that makes room for it.
  */
-export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLeave:(abandoned:AbortSignal)=>Promise<boolean>;docked:()=>boolean;closed?:()=>void;changed?:()=>void}){
+export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLeave:(abandoned:AbortSignal)=>Promise<boolean>;docked:()=>boolean;sheet?:()=>boolean;closed?:()=>void;changed?:()=>void}){
   const part=(name:'close'|'head'|'tabs'|'body')=>host.querySelector<HTMLElement>('#side-panel-'+name)!;
   const element=(name:'head'|'tabs'|'body')=>part(name);
-  let mode:PanelMode=null,question:AbortController|undefined;
+  let mode:PanelMode=null,question:AbortController|undefined,release:(()=>void)|undefined;
+  /** The page behind a panel that covers it is out of reach while the panel is open, and only then. */
+  function contain(){
+    const covers=mode!==null&&(o.sheet?.()??false);
+    if(covers&&!release)release=isolate(host);
+    else if(!covers&&release){release();release=undefined;}
+  }
   /** Applies docked or overlay placement now: the page calls it whenever the room it has changes. */
-  function place(){host.dataset.placement=o.docked()?'docked':'overlay';o.changed?.();}
+  function place(){host.dataset.placement=o.docked()?'docked':'overlay';contain();o.changed?.();}
   function draw(){
     host.hidden=mode===null;host.dataset.mode=mode?.kind??'';
-    if(mode){host.setAttribute('aria-label',modeLabels[mode.kind]);place();}else o.changed?.();
+    if(mode){host.setAttribute('aria-label',modeLabels[mode.kind]);place();}else{contain();o.changed?.();}
   }
   /**
    * Switches the panel to `next`, asking first when it holds unsaved edits: false means the person kept them and the panel is as

@@ -8,6 +8,27 @@ const referenceOf=kind=>`document.querySelector(${JSON.stringify(rowSelector(kin
 const panelReference="document.querySelector('#side-panel-head .side-panel-reference').textContent";
 // A desk drawn again: its read is in, and its first position is on screen.
 const redrawn=idle=>`${idle}&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')`;
+// The desk's seven columns by field (Trade, Market, Position, Price, Mark, Value, Curve): whether the grid shows one, and which of them.
+const shows=field=>`document.querySelector('#desk-positions [role=columnheader][tabulator-field=${field}]').style.display!=='none'`;
+const shownColumns="['c0','c1','c2','c3','c4','c5','c6'].filter(f=>document.querySelector('#desk-positions [role=columnheader][tabulator-field='+f+']').style.display!=='none').join()";
+const gridFits="(()=>{const holder=document.querySelector('#desk-positions .tabulator-tableholder');return holder.scrollWidth<=holder.clientWidth+1;})()";
+const gridWidths="(()=>{const holder=document.querySelector('#desk-positions .tabulator-tableholder');return [holder.scrollWidth,holder.clientWidth];})()";
+
+/**
+ * The mark minus price is a price move: its sign is in its text, and its ink is the panel's own whichever way the position cuts,
+ * because the browser does not combine a price move with a direction into a gain or a loss. Opens the position of `reference`.
+ */
+export async function deltaInkCheck({evaluate,wait,click,set,check,idle},{what,reference}){
+  await set('#blotter-filters .table-search',reference);
+  await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(row=>row.getClientRects().length);return ${idle}&&rows.length===1&&rows[0].querySelector('.desk-reference')?.textContent===${JSON.stringify(reference)};})()`);
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');
+  await wait(`!${panel}.hidden&&${panelReference}===${JSON.stringify(reference)}`);
+  await check(`${what} shows its mark minus price, signed, in the panel's own ink and in neither a gain nor a loss color`,
+    `(()=>{const ink=value=>{const probe=document.createElement('i');probe.style.color=value;document.body.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color;},delta=document.querySelector('.side-panel-delta b');return !!delta&&/^[+−]/.test(delta.textContent)&&getComputedStyle(delta).color===ink('var(--text)')&&getComputedStyle(delta).color!==ink('var(--gain-ink)')&&getComputedStyle(delta).color!==ink('var(--loss-ink)');})()`,
+    "[document.querySelector('#side-panel-head').innerText,document.querySelector('.side-panel-delta b')&&getComputedStyle(document.querySelector('.side-panel-delta b')).color]");
+  await click('#side-panel-close');
+  await set('#blotter-filters .table-search','');
+}
 
 export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,settle,rowsRead}){
   const held=reference=>`${rowsRead}.find(h=>h.tradeReference===${JSON.stringify(reference)})`;
@@ -26,8 +47,26 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
   await check('with the panel docked at 1440 by 900 the first position is above the fold, and the grid fits its column without a horizontal scroll',
     `(()=>{const row=document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)'),holder=document.querySelector('#desk-positions .tabulator-tableholder');return row.getBoundingClientRect().top<innerHeight&&holder.scrollWidth<=holder.clientWidth+1;})()`,
     `[document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)').getBoundingClientRect().top,innerHeight,document.querySelector('#desk-positions .tabulator-tableholder').scrollWidth,document.querySelector('#desk-positions .tabulator-tableholder').clientWidth]`);
-  await check('while the panel is docked the grid leaves out the mark and curve columns, which the panel shows for its position',
-    `['c4','c6'].every(f=>document.querySelector('#desk-positions [role=columnheader][tabulator-field='+f+']').style.display==='none')&&['c0','c1','c2','c3','c5'].every(f=>document.querySelector('#desk-positions [role=columnheader][tabulator-field='+f+']').style.display!=='none')`);
+  // The panel shows a position's mark and curve, so a docked grid gives up its Curve column, and then its Mark column, one at a time and
+  // only while the columns it shows do not fit the room it has. How much room that takes depends on what the rows say, so these checks
+  // state the rule: the columns it keeps fit, Curve goes before Mark, and more room never shows fewer columns.
+  const narrow=await evaluate(shownColumns);
+  await check('with the navigation open at 1440 the grid has no room for all seven columns beside the docked panel: it gives up Curve, and what it keeps fits',
+    `!${shows('c6')}&&${gridFits}`,`[${shownColumns},${gridWidths}]`);
+  await click('#sidebar-toggle');await settle(1440,900);
+  await check('with the navigation collapsed the same window has room for Mark: the grid keeps it, and shows every column it showed before',
+    `${shows('c4')}&&${gridFits}&&${JSON.stringify(narrow)}.split(',').every(f=>${shownColumns}.split(',').includes(f))`,`[${shownColumns},${gridWidths}]`);
+  await click('#sidebar-toggle');await settle(1700,1000);
+  await check('in a window of about 1700 all seven columns fit beside the docked panel, so the grid gives up none',
+    `${shownColumns}==='c0,c1,c2,c3,c4,c5,c6'&&${gridFits}`,`[${shownColumns},${gridWidths}]`);
+  await settle(1440,900);
+  await check('and it takes them back down to the room it has, when the window narrows again',`${shownColumns}===${JSON.stringify(narrow)}&&${gridFits}`,`[${shownColumns},${gridWidths}]`);
+  await check('the panel\'s width is one token the stage and the panel both read, and it sizes the docked column',
+    `getComputedStyle(document.querySelector('.table-workspace-stage')).getPropertyValue('--panel-width').trim()==='340px'&&Math.round(${panel}.getBoundingClientRect().width)===340`,
+    `[getComputedStyle(document.querySelector('.table-workspace-stage')).getPropertyValue('--panel-width'),${panel}.getBoundingClientRect().width]`);
+  await evaluate("document.querySelector('.table-workspace').style.setProperty('--panel-width','400px')");
+  await check('a wider token makes a wider docked panel',`Math.round(${panel}.getBoundingClientRect().width)===400`,`${panel}.getBoundingClientRect().width`);
+  await evaluate("document.querySelector('.table-workspace').style.removeProperty('--panel-width')");
   await check('the row the panel shows is marked in the grid',
     `(()=>{const rows=[...document.querySelectorAll('#desk-positions .open-row')];return rows.length===1&&rows[0].getAttribute('aria-current')==='true'&&rows[0].querySelector('.desk-reference').textContent===${JSON.stringify(futureReference)};})()`);
   await check('the panel states the position\'s backend value and measure, and its mark minus price labeled by what it was done at',
@@ -55,8 +94,14 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
     `(()=>{const tabs=[...document.querySelectorAll('#side-panel-tabs [role=tab]')];return document.querySelector('#side-panel-tabs').getAttribute('role')==='tablist'&&tabs.map(t=>t.textContent).join()==='Curve,Terms,Risk,History'&&tabs.filter(t=>t.getAttribute('aria-selected')==='true').length===1&&document.activeElement.id==='side-panel-tabs-terms'&&document.activeElement.getAttribute('aria-selected')==='true'&&tabs.filter(t=>t.tabIndex===0).length===1&&document.querySelector('#side-panel-body').getAttribute('role')==='tabpanel'&&document.querySelector('#side-panel-body').getAttribute('aria-labelledby')==='side-panel-tabs-terms';})()`,
     `[document.activeElement.id,document.querySelector('#side-panel-body').getAttribute('aria-labelledby')]`);
   await check('Terms reads the trade revision once and lists its terms: the booking facts, the position and the dated contract',
-    `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor'),h=${held(futureReference)},terms=Object.fromEntries([...document.querySelectorAll('#side-panel-body .side-term')].map(r=>[r.children[0].textContent,r.children[1].textContent]));return read.length===${reads}+1&&read.at(-1).data.state.tradeReference===${JSON.stringify(futureReference)}&&terms.Lots===h.lots.replace('-','−')&&!!terms['Execution price']&&!!terms.Product&&terms.Trade.startsWith(${JSON.stringify(futureReference)})&&[...document.querySelectorAll('#side-panel-body h3')].map(n=>n.textContent).join()==='Trade,Position,Contract';})()`,
+    `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor'),h=${held(futureReference)},terms=Object.fromEntries([...document.querySelectorAll('#side-panel-body .side-term')].map(r=>[r.children[0].textContent,r.children[1].textContent]));return read.length===${reads}+1&&read.at(-1).data.state.tradeReference===${JSON.stringify(futureReference)}&&terms.Lots===h.lots.replace('-','−')&&terms['Execution price']?.endsWith(' '+h.currency+'/'+h.unit)&&!!terms.Product&&terms.Trade.startsWith(${JSON.stringify(futureReference)})&&[...document.querySelectorAll('#side-panel-body h3')].map(n=>n.textContent).join()==='Trade,Position,Contract';})()`,
     `[${editorReads},${reads},document.querySelector('#side-panel-body').innerText.slice(0,300)]`);
+  await click(rowSelector('fut'));await wait(`document.activeElement===${panel}`);
+  await check('pressing the row that is already open keeps the panel on its tab and its read: nothing is drawn or read again',
+    `document.querySelector('#side-panel-tabs-terms').getAttribute('aria-selected')==='true'&&!!document.querySelector('#side-panel-body .side-panel-section')&&${editorReads}===${reads}+1&&${panelReference}===${JSON.stringify(futureReference)}`,
+    `[document.querySelector('#side-panel-tabs [aria-selected=true]').textContent,${editorReads},${reads}]`);
+  // The tab strip's keys below start from Terms, whichever tab the press left the panel on.
+  await click('#side-panel-tabs-terms');await evaluate("document.querySelector('#side-panel-tabs-terms').focus()");
   await press('ArrowRight','ArrowRight',39);
   await check('Risk says its results will show here, without claiming a run',`document.activeElement.id==='side-panel-tabs-risk'&&document.querySelector('#side-panel-body').textContent==="A risk run's results for this position will show here."`);
   await press('ArrowRight','ArrowRight',39);
@@ -109,11 +154,13 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
   await check('while the desk is still reading the curves the panel says its curve is loading',
     `document.querySelector('#side-panel-body').textContent.startsWith('Loading curve shape')&&!document.querySelector('#side-panel-body .chart canvas')&&!document.querySelector('#side-panel-open-curve').disabled`);
   const shapeReadsHeld=await evaluate(shapeReads);
+  await evaluate("document.querySelector('#side-panel-amend').focus()");
   await evaluate('window.__releaseShapes()');
   await wait("!!document.querySelector('#side-panel-body .chart canvas')");
+  await check('the panel drawn again, as its curve arrives, keeps keyboard focus on the control it was on',`document.activeElement.id==='side-panel-amend'`,'[document.activeElement.id,document.activeElement.tagName]');
   // The held read is the desk's own, and completes when it is released: the panel adds none to it.
   await check('and draws it when it arrives, from the desk\'s read and no other',`${shapeReads}===${shapeReadsHeld}+1&&!document.querySelector('#side-panel-body').textContent.startsWith('Loading curve shape')`,`[${shapeReads},${shapeReadsHeld}]`);
-  await press('Escape','Escape',27);
+  await evaluate(`${panel}.focus()`);await press('Escape','Escape',27);
   await wait(`${panel}.hidden`);
 
   // Overlay: below the width that lets it dock the panel covers the positions' right edge, and never widens the page.
@@ -159,14 +206,34 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
     `(async()=>{const answer=await window.__scratch.pending,prompt=document.querySelector('#scratch-panel #side-panel-prompt');return answer===true&&prompt.hidden&&window.__scratch.shell.current().tradeId==='t2'&&document.activeElement===window.__scratch.host;})()`);
   await evaluate("window.__scratch.host.remove();delete window.__scratch");
 
-  // A phone: the sheet fills the window and the page does not scroll sideways because of it.
+  // A phone: the sheet fills the window, the page does not scroll sideways because of it, and nothing behind it can take focus.
   await settle(760,900);
   const phoneWidth=await evaluate('document.documentElement.scrollWidth');
   await open('fut');
   await check('at 760 the panel is a full-width sheet and the page does not scroll sideways',
     `${panel}.dataset.placement==='overlay'&&Math.round(${panel}.getBoundingClientRect().left)===0&&Math.round(${panel}.getBoundingClientRect().width)===innerWidth&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1&&document.documentElement.scrollWidth===${phoneWidth}`,
     `[${panel}.getBoundingClientRect().width,innerWidth,document.documentElement.scrollWidth,${phoneWidth}]`);
+  const behind="['#futures-refresh','#nav-futures','#page-title']";
+  await check('the sheet contains focus: the page behind it is inert and takes none, and its own controls do',
+    `(()=>{const nodes=${behind}.map(s=>document.querySelector(s));nodes.forEach(n=>n.focus());const amend=document.querySelector('#side-panel-amend');amend.focus();return nodes.every(n=>n.closest('[inert]')!==null)&&!${panel}.closest('[inert]')&&document.activeElement===amend;})()`,
+    `[${behind}.map(s=>!!document.querySelector(s).closest('[inert]')),document.activeElement.id]`);
+  await click('#side-panel-amend');await wait("document.querySelector('#trade-editor').open");
+  await check('Amend still opens its dialog over the sheet, and the dialog is not inert',`document.querySelector('#trade-editor').open&&!document.querySelector('#trade-editor').closest('[inert]')`);
+  await click('#trade-editor-close');
+  await check('and when the dialog closes the sheet is still open, still containing focus',`!${panel}.hidden&&document.querySelector('#futures-refresh').closest('[inert]')!==null`);
+  await click('#side-panel-close');
+  await wait(`${panel}.hidden`);
+  await check('closing the sheet gives the page back',`document.querySelectorAll('[inert]').length===0`,`document.querySelectorAll('[inert]').length`);
+  await settle(1100,900);await open('fut');
+  await check('a drawer that leaves the page usable beside it makes none of it inert',`${panel}.dataset.placement==='overlay'&&document.querySelectorAll('[inert]').length===0`);
   await press('Escape','Escape',27);
   await wait(`${panel}.hidden`);
+  await settle(760,900);await open('fut');
+  await click('#side-panel-open-curve');
+  await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#history-card').hidden");
+  await check('leaving the Blotter from the sheet leaves the page it opens usable, not inert',`document.querySelectorAll('[inert]').length===0&&!document.querySelector('#nav-market').closest('[inert]')`,`document.querySelectorAll('[inert]').length`);
+  await click('#nav-futures');
+  await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
+  await check('and the Blotter, read again, has no panel and nothing inert',`${panel}.hidden&&document.querySelectorAll('[inert]').length===0`);
   await settle(1440,1050);
 }

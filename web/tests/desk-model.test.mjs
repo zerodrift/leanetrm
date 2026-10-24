@@ -322,7 +322,9 @@ test('a size is signed for a future and unsigned for a swap, whose direction its
  assert.equal(quantityText({...rows[1],quantity:'0'},v=>v),'0');
 });
 
-test('a read that holds one trade revision twice is refused, because a panel names a position by trade and revision',()=>{
- assert.throws(()=>positionRows([fixture.holdings[0],{...fixture.holdings[0],bindingId:'another'}]),{message:'The Blotter returned the same trade revision more than once.'});
+test('a trade that holds several bindings is a position for each of them: the Blotter lists trade bindings, and none is refused',()=>{
+ const second={...fixture.holdings[0],bindingId:'b0000000-0000-0000-0000-0000000000b2',quantity:'250'};
+ const rows=positionRows([fixture.holdings[0],second]);
+ assert.deepEqual(rows.map(r=>[r.tradeId,r.revision,r.quantity]),[[fixture.holdings[0].tradeId,'1','1000'],[fixture.holdings[0].tradeId,'1','250']]);
  assert.equal(positionRows([fixture.holdings[0],{...fixture.holdings[0],revision:'2'}]).length,2,'two revisions of one trade are two positions');
 });

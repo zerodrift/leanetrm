@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {panelPlacement,sameMode,setupSidePanel,tabAfterKey} from '../dist/side-panel.js';
+import {isolate,panelPlacement,sameMode,setupSidePanel,tabAfterKey} from '../dist/side-panel.js';
 
 test('the panel docks beside the desk only when the main area is wide and the assistant is closed',()=>{
  assert.equal(panelPlacement(1200,false),'docked');
@@ -11,11 +11,12 @@ test('the panel docks beside the desk only when the main area is wide and the as
 });
 
 test('modes are the same when they name the same thing',()=>{
- const position={kind:'position',tradeId:'t1',revision:2};
+ const position={kind:'position',tradeId:'t1',bindingId:'b1',revision:2};
  assert.ok(sameMode(null,null));
  assert.ok(sameMode(position,{...position}));
  assert.ok(!sameMode(position,{...position,revision:3}));
  assert.ok(!sameMode(position,{...position,tradeId:'t2'}));
+ assert.ok(!sameMode(position,{...position,bindingId:'b2'}),'two bindings of one trade are two positions');
  assert.ok(!sameMode(position,null));
  assert.ok(!sameMode({kind:'new',product:'futures'},{kind:'new',product:'swaps'}));
  assert.ok(sameMode({kind:'risk'},{kind:'risk'}));
@@ -30,7 +31,7 @@ function markup(){
  const host={hidden:true,dataset:{},focused:0,labels:[],focus(){host.focused++;},setAttribute(name,value){if(name==='aria-label')host.labels.push(value);},addEventListener(type,handler){handlers[type]=handler;},querySelector:selector=>parts[selector.replace('#side-panel-','')]};
  return {host,parts,handlers};
 }
-const position=(tradeId,revision=1)=>({kind:'position',tradeId,revision});
+const position=(tradeId,revision=1,bindingId='b1')=>({kind:'position',tradeId,bindingId,revision});
 function panel({unsaved=false,answer=true,docked=true}={}){
  const {host,parts,handlers}=markup(),asked=[],closed=[];
  const shell=setupSidePanel(host,{unsaved:()=>unsaved,confirmLeave:async()=>{asked.push('asked');return answer;},docked:()=>docked,closed:()=>closed.push('closed')});
@@ -160,4 +161,50 @@ test('arrow keys move between tabs and wrap, Home and End go to the ends, other 
  assert.equal(tabAfterKey(ids,'terms','End'),'history');
  assert.equal(tabAfterKey(ids,'terms','Enter'),null);
  assert.equal(tabAfterKey(ids,'missing','ArrowRight'),null);
+});
+
+// A page as plain nodes: each has its parent, its children and what isolating a page reads and sets of them.
+function page(){
+ const node=(name,children=[],localName='div')=>{const n={name,children,parentElement:null,localName,inert:false};for(const child of children)child.parentElement=n;return n;};
+ const host=node('panel'),stage=node('stage',[host]),toolbar=node('toolbar'),workspace=node('workspace',[toolbar,stage]),
+  banner=node('banner'),editor=node('editor',[],'dialog'),main=node('main',[banner,workspace]),sidebar=node('sidebar'),root=node('body',[sidebar,main,editor]);
+ return {host,stage,toolbar,workspace,banner,editor,main,sidebar,root};
+}
+
+test('isolating a panel makes everything beside it and its ancestors inert, except dialogs, and gives it all back',()=>{
+ const {host,stage,toolbar,workspace,banner,editor,main,sidebar}=page();
+ const release=isolate(host);
+ assert.deepEqual([toolbar,banner,sidebar].map(n=>n.inert),[true,true,true]);
+ assert.deepEqual([host,stage,workspace,main,editor].map(n=>n.inert),[false,false,false,false,false],'the panel, the path to it and a dialog stay available');
+ release();
+ assert.deepEqual([toolbar,banner,sidebar].map(n=>n.inert),[false,false,false]);
+});
+
+test('isolating leaves alone what was inert already, and gives back only what it made inert',()=>{
+ const {host,banner,sidebar}=page();
+ sidebar.inert=true;
+ const release=isolate(host);release();
+ assert.equal(sidebar.inert,true);assert.equal(banner.inert,false);
+});
+
+test('a panel that covers the page, a sheet, leaves the page behind it out of reach while it is open',async()=>{
+ const tree=page(),state={sheet:true};
+ const {host}=markup();Object.assign(host,{parentElement:tree.stage,children:[],inert:false});tree.stage.children=[host];
+ const shell=setupSidePanel(host,{unsaved:()=>false,confirmLeave:async()=>true,docked:()=>false,sheet:()=>state.sheet});
+ assert.equal(tree.toolbar.inert,false,'a closed panel isolates nothing');
+ await shell.show({kind:'risk'});
+ assert.deepEqual([tree.toolbar.inert,tree.banner.inert,tree.sidebar.inert],[true,true,true]);
+ state.sheet=false;shell.place();
+ assert.deepEqual([tree.toolbar.inert,tree.banner.inert,tree.sidebar.inert],[false,false,false],'a panel that no longer covers the page gives it back');
+ state.sheet=true;shell.place();assert.equal(tree.toolbar.inert,true);
+ shell.reset();
+ assert.deepEqual([tree.toolbar.inert,tree.banner.inert,tree.sidebar.inert],[false,false,false],'closing it gives the page back');
+});
+
+test('a drawer that leaves the page usable beside it isolates nothing',async()=>{
+ const tree=page();
+ const {host}=markup();Object.assign(host,{parentElement:tree.stage,children:[],inert:false});tree.stage.children=[host];
+ const shell=setupSidePanel(host,{unsaved:()=>false,confirmLeave:async()=>true,docked:()=>false,sheet:()=>false});
+ await shell.show({kind:'risk'});
+ assert.equal(tree.toolbar.inert,false);
 });

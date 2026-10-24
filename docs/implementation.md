@@ -333,40 +333,57 @@ total is clipped, and at 1280 that a total of twenty characters or more stays on
 
 A row, or Enter on a focused row, opens its position in the desk's side panel (blotter-desk.md, Side
 panel), and Escape closes it and returns focus to the row. The panel shell (`side-panel.ts`) holds
-one mode at a time, here a position at a revision. It is docked beside the charts and the positions,
-under the tiles, when the main area is 1180 pixels wide or more and the assistant is closed;
-otherwise it is a drawer over the window's right edge, left of the assistant, and a full-width sheet
-at 760 pixels and below. Opening it moves focus into it and never moves the tiles. A docked panel
-takes the grid's width, so the grid leaves out its Mark and Curve columns, which the panel shows for
-the position, while it is docked. A switch of mode or position asks first, inside the panel, when it
-holds unsaved edits, which for now are an amendment in progress, tracked by the editors
-(`trackEdits`). The editors are still modal dialogs, so the application does not ask yet; the
-shell's question is qualified by its unit tests and a browser check on a copy of its markup.
+one mode at a time, here a position, which is a trade's binding at a revision: a trade can hold
+several bindings, the Blotter lists each, and each is its own position (`desk-panel.ts` finds the
+position in each read the desk draws, and opens the row asked for). The panel is docked beside the
+charts and the positions, under the tiles, when the main area is 1180 pixels wide or more and the
+assistant is closed; otherwise it is a drawer over the window's right edge, left of the assistant,
+and a full-width sheet at 760 pixels and below. Opening it moves focus into it and never moves the
+tiles. A docked panel takes the grid's width, so the grid gives up its Curve column, and then its
+Mark column, which the panel shows for the position, for as long as the columns it shows do not fit
+the room it has. It measures that room: at 1440 with the navigation open it gives up both, with the
+navigation collapsed only Curve, and in a window of about 1700 none. The sheet is the only part of
+the page in reach while it is open: everything behind it is inert, except dialogs, and the page is
+given back when the sheet closes, stops covering the page or the Blotter is left. A switch of mode
+or position asks first, inside the panel, when it holds unsaved edits, which for now are an
+amendment in progress, tracked by the editors (`trackEdits`). The editors are still modal dialogs,
+so the application does not ask yet; the shell's question is qualified by its unit tests and a
+browser check on a copy of its markup.
 
 The position view shows the instrument, trade reference, revision and book, the market, delivery,
 side and size, the value with its measure or the reason the close cannot value the position, and the
 backend's `markMinusPrice`, labeled `Mark − executed` or `Mark − fixed` and left out where the
-backend has none. Its tabs are a tablist that the arrow, Home and End keys move along. Curve draws
-the desk's own curve-shapes response for the position's market, which is never read again for the
-panel, with the delivery period's contracts marked and the trade's price as a dashed reference line
-when the curve is quoted in the price's unit; it says why when it is not, or when the curve cannot
-be shown. Terms and History come from one read of the amend editor's own endpoint (`futures/editor`
-or `swaps/editor`) in the desk's market context, made when either tab is first shown. Terms lists
-the booking facts, the position and the contract terms of a future, or the structure and each side
-of a swap, each side titled by its own direction; History is the editor's revisions table. Risk says
-that a risk run's results for the position will show there, and shows none yet.
+backend has none. The value is a gain or a loss and has its color; the mark minus price is a price
+move, which way it cuts depends on the position's direction, and the browser does not combine the
+two, so it has its sign in its text and the panel's own ink. Its tabs are a tablist that the arrow,
+Home and End keys move along. Curve draws the desk's own curve-shapes response for the position's
+market, which is never read again for the panel, with the delivery period's contracts marked and the
+trade's price as a dashed reference line when the curve is quoted in the price's unit; it says why
+when it is not, or when the curve cannot be shown. Terms and History come from one read of the amend
+editor's own endpoint (`futures/editor` or `swaps/editor`) in the desk's market context, made when
+either tab is first shown, and a read that holds another binding of the trade (a future's state
+names its binding) or another instrument of it (a swap's) than the position is refused. Terms lists
+the booking facts, the position, with a future's price in its unit, and the contract terms of a
+future, or the structure and each side of a swap, each side titled by its own direction; History is
+the editor's revisions table. Risk says that a risk run's results for the position will show there,
+and shows none yet.
 
 Amend opens the existing amend dialogs for the position until amendment moves into the panel (D215);
-they open read-only, and say why, for an account or a revision that cannot be amended. Open curve
-opens Curves & prices on the position's curve with the price history of its contract: a future's
-own, or a swap's when its delivery period holds exactly one. It is unavailable, and says why, for a
-market Curves & prices does not list. A new read, a change of context or an access denial closes the
-panel; a newer drawing of the same read, including a live refresh, redraws it, and closes it with a
-notice when the read no longer holds its position. The assistant's page report does not yet name the
-panel's position, and the new trade and risk report modes of the panel are not built. The browser
-checks assert the placement at 1440 by 900 (the first position above the fold, the tiles unmoved),
-at 1100, with the assistant open and at 760, the keyboard behavior, the tabs, the reads and Open
-curve; `--live-calculation-check` asserts that a live refresh draws the panel again.
+they open read-only for an account or a revision that cannot be amended, and the panel says so in
+words beside the button. Open curve opens Curves & prices on the position's curve with the price
+history of its contract: a future's own, or a swap's when its delivery period holds exactly one. It
+is unavailable, and says why, for a market Curves & prices does not list. A new read, a change of
+context or an access denial closes the panel; a newer drawing of the same read, including a live
+refresh or the arrival of the curves, redraws it where keyboard focus was, and closes it with a
+notice when the read no longer holds its position. Pressing the row that is already open leaves the
+panel as it is. The assistant's page report does not yet name the panel's position, and the new
+trade and risk report modes of the panel are not built. The browser checks assert the placement at
+1440 by 900 (the first position above the fold, the tiles unmoved), the columns the grid keeps at
+1440 with the navigation open and collapsed and at about 1700, the layout at 1100, with the assistant
+open and at 760 with the page behind the sheet out of reach, the keyboard behavior, the tabs, the
+reads, the ink of the mark minus price of a short future and of a receive-fixed swap, and Open
+curve of a future and of a swap; `--live-calculation-check` asserts that a live refresh draws the
+panel again.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

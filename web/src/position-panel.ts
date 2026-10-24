@@ -19,8 +19,11 @@ export type PositionSummary={
   pill:DeskRow['pill'];reference:string;revision:string;book:string;market:string;commodity:{code:string;name:string};subtitle:string;
   /** The position's value with its measure, or why the close cannot value it. */
   value:{label:string;currency:string}&({amount:Signed;unavailable:null}|{amount:null;unavailable:string});
-  /** The backend's mark less the price the position was done at, or nothing where the backend has none. */
-  markMinusPrice:(Signed&{label:string;unit:string})|null;
+  /**
+   * The backend's mark less the price the position was done at, or nothing where the backend has none. A price move has its sign in
+   * its text and no tone: which way it cuts depends on the position's direction, which the browser does not combine into a gain.
+   */
+  markMinusPrice:{text:string;exact:string;label:string;unit:string}|null;
   facts:{label:string;text:string;unit:string|null}[];
 };
 /** The settlement state as the Blotter's trade columns state it. */
@@ -34,7 +37,7 @@ export function positionSummary(h:Holding,row:DeskRow,formats:HoldingFormats):Po
   if(row.unavailable!==null&&h.markMinusPrice!==null)throw Error('The Blotter returned a mark minus price for a position it cannot value.');
   const label=row.measure==='PV'?'Present value':'Execution P&L';
   const value:PositionSummary['value']=row.unavailable===null?{label,currency:row.currency,amount:signed(row.value,formats.money),unavailable:null}:{label,currency:row.currency,amount:null,unavailable:row.unavailable};
-  const markMinusPrice=h.markMinusPrice===null?null:{...signed(h.markMinusPrice,formats.markMinusPrice),label:`Mark − ${row.priceLabel.toLowerCase()}`,unit:row.priceUnit};
+  const markMinusPrice=h.markMinusPrice===null?null:{text:signedText(h.markMinusPrice,formats.markMinusPrice),exact:h.markMinusPrice,label:`Mark − ${row.priceLabel.toLowerCase()}`,unit:row.priceUnit};
   const facts:PositionSummary['facts']=[
     {label:`${row.priceLabel} price`,text:row.price===null?'None':minus(formats.price(row.price)),unit:row.price===null?null:row.priceUnit},
     ...(row.mark!==null?[{label:'Mark',text:minus(formats.mark(row.mark)),unit:row.priceUnit}]:row.markNote!==null?[{label:'Mark',text:row.markNote,unit:null}]:[]),
@@ -86,7 +89,20 @@ export function openCurveTarget(h:Holding,row:DeskRow,shape:CurveShape|string|un
 /** What the Terms and History tabs show of one trade revision, drawn from its editor read. */
 export type TermSection={title:string;rows:readonly (readonly [string,string])[]};
 export type HistoryTable={headers:string[];rows:string[][];numeric:number[]};
-export type DetailView={terms:TermSection[];history:HistoryTable;amend:{allowed:boolean;reason:string|null}};
+export type DetailView={terms:TermSection[];history:HistoryTable};
+/** Whether the editor can amend the revision, and why not when it cannot. */
+export type AmendState={allowed:true;reason:null}|{allowed:false;reason:string};
+/** An editor read of a trade revision: its amendment state, and the views drawn from it in the person's time zone. */
+export type DetailRead={amend:AmendState;view:(zone:string)=>DetailView};
+
+/**
+ * What Amend says beside its button when the editor it opens is read-only: first that the account cannot amend, then why the
+ * revision cannot be, once the editor has been read. Nothing when the editor is not read-only.
+ */
+export function amendNote(accountCanAmend:boolean,revision:AmendState|undefined):string|null{
+  if(!accountCanAmend)return 'This account cannot amend trades in this market context, so Amend opens the editor read-only.';
+  return revision&&!revision.allowed?`Amend opens the editor read-only: ${revision.reason}`:null;
+}
 
 /** What the panel draws a position from: the workspace row and its desk row, how its amounts read, its market's curve shape and its commodity's color. */
 export type PositionInput={holding:Holding;row:DeskRow;formats:HoldingFormats;shape:CurveShape|string|undefined;color:string};
@@ -95,7 +111,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?
   const element=document.createElement(tag);if(className)element.className=className;if(text!==undefined)element.textContent=publicText(text);return element;
 }
 const failure=(error:unknown,fallback:string)=>error instanceof Error?error.message:fallback;
-type Detail={key:string}&({state:'loading'}|{state:'ready';render:(zone:string)=>DetailView}|{state:'error';message:string});
+type Detail={key:string}&({state:'loading'}|{state:'ready';read:DetailRead}|{state:'error';message:string});
 
 /**
  * The position view over the shell's head, tab strip and body. The Terms and History tabs read the trade revision once, when
@@ -107,10 +123,10 @@ export function setupPositionPanel(shell:SidePanel,o:{
   curveListed:(curve:string)=>boolean;
   /** The market context the desk reads in, as a key: a trade read belongs to one. */
   context:()=>string;
-  read:(h:Holding,formats:HoldingFormats)=>Promise<(zone:string)=>DetailView>;
+  read:(h:Holding,formats:HoldingFormats)=>Promise<DetailRead>;
   amend:(h:Holding)=>void;openCurve:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
 }){
-  let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement}|undefined;
+  let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement}|undefined;
   const body=()=>shell.element('body');
   const key=(at:PositionInput)=>JSON.stringify([at.holding.tradeId,at.holding.revision,o.context()]);
   function status(text:string,className='side-panel-status'){const p=el('p',className,text);p.setAttribute('role','status');return p;}
@@ -125,15 +141,15 @@ export function setupPositionPanel(shell:SidePanel,o:{
     }else figure.append(el('p','desk-chip','Not valued'),el('p','side-panel-reason',now.value.unavailable));
     value.append(figure);
     if(now.markMinusPrice){
-      const delta=el('div','side-panel-delta'),amount=el('b',undefined,now.markMinusPrice.text);amount.dataset.sign=now.markMinusPrice.sign;
+      const delta=el('div','side-panel-delta'),amount=el('b',undefined,now.markMinusPrice.text);
       delta.title=publicText(`${now.markMinusPrice.exact} ${now.markMinusPrice.unit}`);delta.append(el('span','side-panel-label',now.markMinusPrice.label),amount,el('small',undefined,now.markMinusPrice.unit));value.append(delta);
     }
-    const row=el('div','side-panel-actions'),amend=el('button',undefined,'Amend'),open=el('button','secondary','Open curve');
-    amend.type=open.type='button';amend.id='side-panel-amend';open.id='side-panel-open-curve';
+    const row=el('div','side-panel-actions'),amend=el('button',undefined,'Amend'),open=el('button','secondary','Open curve'),note=el('p','field-help side-panel-note');
+    amend.type=open.type='button';amend.id='side-panel-amend';open.id='side-panel-open-curve';note.id='side-panel-amend-note';note.hidden=true;
     amend.onclick=()=>o.amend(at.holding);
     open.onclick=()=>{const target=openCurveTarget(at.holding,at.row,at.shape);o.openCurve(target.curve,target.contractId);};
-    row.append(amend,open);actions={amend,open};
-    shell.element('head').replaceChildren(kicker,title,el('p','side-panel-sub',now.subtitle),value,row);
+    row.append(amend,open);actions={amend,open,note};
+    shell.element('head').replaceChildren(kicker,title,el('p','side-panel-sub',now.subtitle),value,row,note);
   }
   function drawCurve(host:HTMLElement,at:PositionInput,now:PositionSummary){
     const view=curveView(at.shape,at.holding,at.row,at.formats);
@@ -157,7 +173,6 @@ export function setupPositionPanel(shell:SidePanel,o:{
       for(const [label,value] of section.rows){const row=el('div','side-term');row.append(el('dt',undefined,label),el('dd',undefined,value));list.append(row);}
       const wrap=el('section','side-panel-section');wrap.append(el('h3',undefined,section.title),list);host.append(wrap);
     }
-    if(!view.amend.allowed)host.append(el('p','field-help side-panel-note',view.amend.reason??'Read-only trade revision'));
   }
   function drawHistory(host:HTMLElement,at:PositionInput,view:DetailView){
     const table=el('div','table-wrap');host.append(table);
@@ -167,10 +182,10 @@ export function setupPositionPanel(shell:SidePanel,o:{
     if(detail?.key!==key(at))void load();
     if(!detail||detail.state==='loading')return void host.append(status('Loading…'));
     if(detail.state==='error'){
-      const retry=el('button','secondary','Retry');retry.type='button';retry.onclick=()=>void load();
+      const retry=el('button','secondary','Retry');retry.type='button';retry.id='side-panel-retry';retry.onclick=()=>void load();
       return void host.append(status(detail.message,'side-panel-status side-panel-error'),retry);
     }
-    const view=detail.render(o.zone());
+    const view=detail.read.view(o.zone());
     if(tab==='terms')drawTerms(host,view);else drawHistory(host,at,view);
   }
   function drawBody(at:PositionInput,now:PositionSummary){
@@ -181,23 +196,30 @@ export function setupPositionPanel(shell:SidePanel,o:{
     else if(tab==='risk')host.append(status(riskEmpty));
     else drawDetail(host,at);
   }
+  // The control of the head or body that has keyboard focus, which a redraw gives back to its successor when there is one.
+  function focused(){
+    const active=document.activeElement;
+    return active instanceof HTMLElement&&active.id&&(shell.element('head').contains(active)||body().contains(active))?active.id:null;
+  }
   // A position the panel cannot draw says so in place of its content: the page never keeps a half-drawn panel.
   function paint(){
     if(!input)return;
+    const keep=focused();
     try{const now=positionSummary(input.holding,input.row,input.formats);drawHead(input,now);drawBody(input,now);}
     catch(error){
       actions=undefined;if(chart){clearChart(chart);chart=undefined;}
       shell.element('head').replaceChildren();body().replaceChildren(status(failure(error,'The position could not be shown.'),'side-panel-status side-panel-error'));
     }
     sync();
+    if(keep)document.getElementById(keep)?.focus({preventScroll:true});
   }
   async function load(){
     const at=input!,started=++generation,loading:Detail={key:key(at),state:'loading'};
     detail=loading;
     try{
-      const render=await o.read(at.holding,at.formats);
+      const read=await o.read(at.holding,at.formats);
       if(started!==generation)return;
-      detail={key:loading.key,state:'ready',render};
+      detail={key:loading.key,state:'ready',read};
     }catch(error){
       if(started!==generation)return;
       if((error as {code?:string}).code==='access_denied'){o.onDenied();return;}
@@ -208,11 +230,10 @@ export function setupPositionPanel(shell:SidePanel,o:{
   function sync(){
     if(!input||!actions)return;
     // Amend opens the trade's editor, which is read-only for an account or a revision that cannot be amended, and says why: so the
-    // button stays available to everyone who can open the position, and says beforehand what the editor will be.
-    let read:{allowed:boolean;reason:string|null}={allowed:true,reason:null};
-    try{if(detail?.state==='ready'&&detail.key===key(input))read=detail.render(o.zone()).amend;}catch{/* The tab says why the read cannot be shown. */}
+    // button stays available to everyone who can open the position, and the panel says beforehand, in words, what the editor will be.
+    const revision=detail?.state==='ready'&&detail.key===key(input)?detail.read.amend:undefined,note=amendNote(o.canAmend(),revision);
     actions.amend.disabled=o.busy();
-    actions.amend.title=!o.canAmend()?'This account cannot amend trades in this market context, so the editor opens read-only.':read.allowed?'':`The editor opens read-only: ${read.reason}`;
+    actions.note.hidden=note===null;actions.note.textContent=note===null?'':publicText(note);
     const listed=o.curveListed(input.holding.curve);
     actions.open.disabled=o.busy()||!listed;actions.open.title=listed?'':'Curves & prices does not list this position\'s market, so there is no curve to open.';
   }

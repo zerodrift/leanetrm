@@ -1,5 +1,6 @@
 import {setupTradingReplies} from './trading-responses.mjs';
 import {swapPvCard,groupHeadersReadApart} from './desk-cards.mjs';
+import {deltaInkCheck} from './side-panel-checks.mjs';
 export async function run({command,evaluate,wait,click,set:setValue,submit,persona,check,shot,idle,url}){
  const set=async(selector,value)=>{await setValue(selector,value);await wait(idle);};
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
@@ -188,6 +189,24 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  await check('and its terms show each floating side, paid or received, with its own spread',"(()=>{const titles=[...document.querySelectorAll('#side-panel-body h3')].map(n=>n.textContent),spreads=[...document.querySelectorAll('#side-panel-body .side-term')].filter(r=>r.children[0].textContent==='Spread').map(r=>r.children[1].textContent);return titles.join()==='Trade,Structure,First floating side · Pay,Second floating side · Receive'&&spreads.length===2&&spreads[0].startsWith('0.1 ')&&spreads[1].startsWith('0.2 ');})()","[...document.querySelectorAll('#side-panel-body h3')].map(n=>n.textContent)");
  await click('#side-panel-amend');await wait("document.querySelector('#swap-editor').open");
  await check('floating/floating booking reloads its subtype, sides and spreads',"document.querySelector('#swap-type').value==='financial_floating_floating'&&document.querySelector('#swap-first-spread').value==='0.1'&&document.querySelector('#swap-spread').value==='0.2'&&document.querySelector('#swap-pv').textContent.includes('10.000')");await click('#swap-close');
+
+ // A receive-fixed swap on a market Curves & prices lists. Its mark minus price is a price move, which the panel does not color as a
+ // gain or a loss, and its Open curve lands on the curve with the price history of the swap's one contract.
+ await start('base_forward','monthly');await fill('3','monthly','none');await set('#swap-direction','1');
+ await submit('#swap-form');await click('#swap-confirm');await click('#swap-submit');await wait("!document.querySelector('#swap-editor').open");
+ const receiveRef=await evaluate("(()=>{const id=window.__swaps.filter(r=>r.path==='/api/swaps/book').at(-1).data.tradeId;return window.__tradingReports(window.__swaps).at(-1).data.holdings.find(r=>r.tradeId===id).tradeReference;})()");
+ await deltaInkCheck({evaluate,wait,click,set,check,idle},{what:'a receive-fixed swap',reference:receiveRef});
+ await set('#blotter-filters .table-search',receiveRef);await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel').hidden");
+ await check('a receive-fixed swap opens as Receive fixed, with its Open curve available for the market Curves & prices lists',
+  "document.querySelector('.side-panel-sub').textContent.includes('Receive fixed')&&document.querySelector('.side-panel-delta .side-panel-label').textContent==='Mark − fixed'&&!document.querySelector('#side-panel-open-curve').disabled",
+  "document.querySelector('#side-panel-head').innerText");
+ const receiveMarket=await evaluate("document.querySelector('#side-panel-title').textContent");
+ await click('#side-panel-open-curve');
+ await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#history-card').hidden");
+ await check('a swap\'s Open curve lands on its curve with the price history of its contract, so the contract\'s point was found',
+  `document.querySelector('#curve-title').textContent===${JSON.stringify(receiveMarket)}&&!document.querySelector('#history-card').hidden&&document.querySelector('#history-title').textContent.includes('price history')&&document.querySelector('#error').hidden&&document.querySelector('#notice').hidden`,
+  "[document.querySelector('#curve-title').textContent,document.querySelector('#history-title').textContent,document.querySelector('#error').textContent,document.querySelector('#notice').textContent]");
+ await click('#nav-futures');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
 
  await start('daily_gas');await fill('3');await set('#swap-spread','0.1');
  await set('#swap-commodity',other.commodity);

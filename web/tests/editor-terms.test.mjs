@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {tradeTerms,tradeHistoryTable,tradeDetailView} from '../dist/trade-editor.js';
-import {swapTerms,swapHistoryTable,swapDetailView,sideTitle} from '../dist/swap-editor.js';
+import {tradeTerms,tradeHistoryTable,tradeDetailView,tradeAmendState,readTradeView} from '../dist/trade-editor.js';
+import {swapTerms,swapHistoryTable,swapDetailView,swapAmendState,readSwapView,retainedIndex,sideTitle} from '../dist/swap-editor.js';
 import {setCurveNames} from '../dist/market-view.js';
 const details=JSON.parse(readFileSync(new URL('./fixtures/trade-details.json',import.meta.url),'utf8'));
 setCurveNames([{code:'future',name:'Gas future'},{code:'daily_gas',name:'Daily gas'},{code:'daily_power',name:'Daily power'}]);
@@ -10,20 +10,22 @@ const clone=value=>structuredClone(value);
 // The backend's display text is the caller's: each kind is tagged so a test sees which one a row asked for.
 const formats={money:v=>`$:${v}`,quantity:v=>`q:${v}`,price:v=>`p:${v}`,mark:v=>`m:${v}`,markMinusPrice:v=>`d:${v}`};
 const rowsOf=(sections,title)=>Object.fromEntries(sections.find(s=>s.title===title).rows);
+// The price unit of the position a future's terms are read for: its currency per its quantity unit, as the desk row states it.
+const unit='USD/MMBtu (IT)';
 
-test('a future\'s terms are its booking facts, its position and the contract terms of the editor, each exact',()=>{
- const sections=tradeTerms(details.future,'UTC',formats);
+test('a future\'s terms are its booking facts, its position and the contract terms of the editor, each exact, and its price in its unit',()=>{
+ const sections=tradeTerms(details.future,'UTC',formats,unit);
  assert.deepEqual(sections.map(s=>s.title),['Trade','Position','Contract']);
  assert.deepEqual(rowsOf(sections,'Trade'),{Trade:'TR-000001 · IN-000001',Revision:'1 · Booked',Book:'Synthetic portfolio · Book A',Trader:'Synthetic trader','Trade date':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Executed:'Oct 24, 2026, 5:53 AM',Memo:'None'});
- assert.deepEqual(rowsOf(sections,'Position'),{Lots:'2','Execution price':'p:2.95'});
+ assert.deepEqual(rowsOf(sections,'Position'),{Lots:'2','Execution price':'p:2.95 USD/MMBtu (IT)'});
  const contract=rowsOf(sections,'Contract');
  assert.equal(contract.Product,'Synthetic fixed-lot gas future');assert.equal(contract['Contract size'],'40 MMBtu (IT) per lot');assert.equal(contract['Generated price'],'m:3');
 });
 
 test('a future\'s executed time follows the user\'s zone, and a contract the catalog no longer offers is said to be unavailable',()=>{
- assert.equal(rowsOf(tradeTerms(details.future,'America/Chicago',formats),'Trade').Executed,'Oct 24, 2026, 12:53 AM');
+ assert.equal(rowsOf(tradeTerms(details.future,'America/Chicago',formats,unit),'Trade').Executed,'Oct 24, 2026, 12:53 AM');
  const retained={...details.future,catalog:{...details.future.catalog,contracts:[]}};
- assert.deepEqual(rowsOf(tradeTerms(retained,'UTC',formats),'Contract'),{'Contract terms':'Retained contract terms are unavailable in this selectable catalog.'});
+ assert.deepEqual(rowsOf(tradeTerms(retained,'UTC',formats,unit),'Contract'),{'Contract terms':'Retained contract terms are unavailable in this selectable catalog.'});
 });
 
 test('a future\'s revisions are the editor\'s revisions table: every event, its lots and price exact, and the numeric columns named',()=>{
@@ -34,13 +36,33 @@ test('a future\'s revisions are the editor\'s revisions table: every event, its 
  assert.deepEqual(table.rows[0].filter((_,i)=>[0,1,4,5,6,7,8,9,10,11,12].includes(i)),['1','Booked','Book A','2','2.95','trader','','2026-10-24','Synthetic entity 1','Synthetic party 1','Initial booking']);
 });
 
-test('the view of a future joins its terms and revisions, and says when the revision cannot be amended and why',()=>{
- const view=tradeDetailView(details.future,'UTC',formats);
- assert.deepEqual(view.terms,tradeTerms(details.future,'UTC',formats));assert.deepEqual(view.history,tradeHistoryTable(details.future,'UTC'));
- assert.deepEqual(view.amend,{allowed:true,reason:null});
+test('the view of a future joins its terms and revisions, and its amendment state is its own',()=>{
+ const view=tradeDetailView(details.future,'UTC',formats,unit);
+ assert.deepEqual(Object.keys(view),['terms','history']);
+ assert.deepEqual(view.terms,tradeTerms(details.future,'UTC',formats,unit));assert.deepEqual(view.history,tradeHistoryTable(details.future,'UTC'));
+ assert.deepEqual(tradeAmendState(details.future),{allowed:true,reason:null});
  const locked={...details.future,canAmend:false,amendUnavailableReason:'Settlement has been processed.'};
- assert.deepEqual(tradeDetailView(locked,'UTC',formats).amend,{allowed:false,reason:'Settlement has been processed.'});
- assert.deepEqual(tradeDetailView({...locked,amendUnavailableReason:null},'UTC',formats).amend,{allowed:false,reason:'Read-only trade revision'});
+ assert.deepEqual(tradeAmendState(locked),{allowed:false,reason:'Settlement has been processed.'});
+ assert.deepEqual(tradeAmendState({...locked,amendUnavailableReason:null}),{allowed:false,reason:'Read-only trade revision'});
+});
+
+// What the desk row of each position says of it: the keys the position panel reads a trade revision by.
+const heldFuture=changes=>({tradeId:details.future.state.tradeId,bindingId:details.future.state.bindingId,contractId:details.future.state.contractId,revision:'1',currency:'USD',unit:'MMBtu (IT)',quoteMultiplier:'1',...changes});
+const heldSwap=changes=>({tradeId:details.swap.state.tradeId,bindingId:'b0000000-0000-0000-0000-0000000000b1',contractId:details.swap.state.instrumentId,revision:'1',currency:'USD',unit:'MMBtu (IT)',quoteMultiplier:'1',...changes});
+
+test('a future is read from its own trade revision and binding, and shows its price in the unit the desk row states',async()=>{
+ const seen=[],api=async(path,body)=>{seen.push([path,body]);return details.future;};
+ const read=await readTradeView(api,{market:'context'},heldFuture(),formats);
+ assert.deepEqual(seen,[['futures/editor',{context:{market:'context'},tradeId:details.future.state.tradeId,revision:1}]]);
+ assert.deepEqual(read.amend,{allowed:true,reason:null});
+ assert.equal(rowsOf(read.view('UTC').terms,'Position')['Execution price'],'p:2.95 USD/MMBtu (IT)');
+ const scaled=await readTradeView(api,{},heldFuture({quoteMultiplier:'100'}),formats);
+ assert.equal(rowsOf(scaled.view('UTC').terms,'Position')['Execution price'],'p:2.95 USD/MMBtu (IT) × 100','a quote multiplier is part of the unit');
+});
+
+test('the editor\'s read of a trade is never shown for another binding of it: the position names its binding, and the read must too',async()=>{
+ const api=async()=>details.future;
+ await assert.rejects(readTradeView(api,{},heldFuture({bindingId:'b0000000-0000-0000-0000-0000000000b2'}),formats),{message:'The editor read holds another binding of the trade than the position.'});
 });
 
 test('a swap\'s terms are its booking facts, its structure and one section for each side, titled as the editor titles them',()=>{
@@ -91,9 +113,28 @@ test('a swap\'s revisions are the editor\'s revisions table', ()=>{
  assert.deepEqual(table.rows[0].filter((_,i)=>[0,1,4,5,6,7,8,9,10].includes(i)),['1','booked','100','trader','','2026-10-24','Synthetic entity 1','Synthetic party 1','Initial booking']);
 });
 
-test('the view of a swap joins its terms and revisions and its amendment state',()=>{
+test('the view of a swap joins its terms and revisions, and its amendment state is its own',()=>{
  const view=swapDetailView(details.swap,'UTC',formats);
+ assert.deepEqual(Object.keys(view),['terms','history']);
  assert.deepEqual(view.terms,swapTerms(details.swap,'UTC',formats));assert.deepEqual(view.history,swapHistoryTable(details.swap,'UTC'));
- assert.deepEqual(view.amend,{allowed:true,reason:null});
- assert.deepEqual(swapDetailView({...details.swap,canAmend:false,amendUnavailableReason:'Only the latest eligible trade revision can be amended.'},'UTC',formats).amend,{allowed:false,reason:'Only the latest eligible trade revision can be amended.'});
+ assert.deepEqual(swapAmendState(details.swap),{allowed:true,reason:null});
+ assert.deepEqual(swapAmendState({...details.swap,canAmend:false,amendUnavailableReason:'Only the latest eligible trade revision can be amended.'}),{allowed:false,reason:'Only the latest eligible trade revision can be amended.'});
+ assert.deepEqual(swapAmendState({...details.swap,canAmend:false,amendUnavailableReason:null}),{allowed:false,reason:'Read-only revision'});
+});
+
+test('a swap is read from its own trade revision, and the read must hold the instrument the position is in',async()=>{
+ const seen=[],api=async(path,body)=>{seen.push([path,body]);return details.swap;};
+ const read=await readSwapView(api,{market:'context'},heldSwap(),formats);
+ assert.deepEqual(seen,[['swaps/editor',{context:{market:'context',convention:'independent_side_financial_swap_v2'},tradeId:details.swap.state.tradeId,revision:1}]]);
+ assert.deepEqual(read.amend,{allowed:true,reason:null});
+ assert.deepEqual(read.view('UTC').terms.map(s=>s.title),['Trade','Structure','Fixed side · Pay','Floating side · Receive']);
+ await assert.rejects(readSwapView(api,{},heldSwap({contractId:'c0000000-0000-0000-0000-0000000000c2'}),formats),{message:'The editor read holds another instrument of the trade than the position.'});
+});
+
+test('the retained index of a side is the catalog\'s index of the swap\'s own definition revision, curve and index, and its absence is said',()=>{
+ const terms=details.swap.state.terms,catalog=details.swap.catalog;
+ const found=retainedIndex(catalog,terms,terms.floating);
+ assert.deepEqual([found.curve,found.index,found.definitionRevisionId],[terms.floating.curve,terms.floating.index,terms.definitionRevisionId]);
+ assert.throws(()=>retainedIndex({...catalog,indices:[]},terms,terms.floating),{message:'The retained exact index definition is unavailable.'});
+ assert.throws(()=>retainedIndex(catalog,{...terms,definitionRevisionId:'another'},terms.floating),{message:'The retained exact index definition is unavailable.'});
 });
