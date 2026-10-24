@@ -35,9 +35,37 @@ def run_checks(query, manifest, fake, trap, admin):
         identifier = 'model-synthetic-adapter-'+vendor
         added = admin.call('settings/ai/models/add', {'operationId': str(uuid4()), 'vendor': vendor,
                           'identifier': identifier, 'displayName': 'Synthetic adapter '+vendor})
-        saved = admin.call('settings/ai/models/edit', capabilities(added['id'], 1, outputLimit=1024,
-                          reasoningEfforts=['low'], acceptedServed=[]))
+        initial = capabilities(added['id'], 1, outputLimit=1024, reasoningEfforts=['low'], acceptedServed=[])
+        if vendor == 'xai':
+            del initial['identifierPolicy']  # The original fixed-only HTTP contract.
+        saved = admin.call('settings/ai/models/edit', initial)
         assert saved['qualified'] and saved['capability']['mapping'] == mapping
+        if vendor == 'xai':
+            # Alias approval is an immutable capability fact, not permission for arbitrary
+            # served identifiers, new prices, or a different provider.
+            legacy = saved
+            alias = capabilities(added['id'], saved['version'], outputLimit=1024,
+                                 reasoningEfforts=['low'], acceptedServed=['model-synthetic-snapshot'],
+                                 identifierPolicy='alias')
+            saved = admin.call('settings/ai/models/edit', alias)
+            assert saved['qualified'] and saved['capability']['identifierPolicy'] == 'alias'
+            assert legacy['capability']['identifierPolicy'] == 'fixed'
+            assert admin.call('settings/ai/models/edit', alias) == saved
+            assert admin.call('settings/ai/models/edit', initial) == legacy
+            assert admin.call('settings/ai/models/edit', alias | {'hasIdentifierPolicy': False}, expected=400)['code'] == 'request_format'
+            conflict = admin.call('settings/ai/models/edit', alias | {'identifierPolicy': 'fixed'}, expected=409)
+            assert conflict['code'] == 'model_admin_conflict'
+            for invalid in (None, '', 'wildcard'):
+                bad = capabilities(added['id'], saved['version'], identifierPolicy=invalid)
+                assert admin.call('settings/ai/models/edit', bad, expected=422)['code'] == 'model_admin_input'
+            denied = admin.call('settings/ai/models/enable', {'operationId': str(uuid4()), 'modelId': added['id'],
+                                'expectedVersion': saved['version']}, expected=409)
+            assert denied['code'] == 'model_provider_disabled'
+            current = next(p for p in admin.call('settings/ai/providers')['providers'] if p['vendor'] == vendor)
+            admin.call('settings/ai/providers/enable', command(vendor, current['version']))
+            saved = admin.call('settings/ai/models/enable', {'operationId': str(uuid4()), 'modelId': added['id'],
+                               'expectedVersion': saved['version']})
+            assert saved['enabled'] and saved['capability']['identifierPolicy'] == 'alias'
         # Deliberately synthetic rates: the expected costs below are independent decimal amounts.
         admin.call('settings/ai/models/price', {'operationId': str(uuid4()), 'modelId': added['id'], 'expectedSequence': 0,
             'currency': {'catalogId': manifest['referenceCatalogId'], 'revisionId': manifest['referenceRevisionId'], 'code': 'usd'},
@@ -60,6 +88,16 @@ def run_checks(query, manifest, fake, trap, admin):
         wrong = admin.call('settings/ai/providers/test', body | {'operationId': str(uuid4())})
         assert wrong['outcome'] == 'model_mismatch' and wrong['served'] == 'model-synthetic-wrong-served', wrong
         assert wrong['usage']['status'] == 'unrecognized' and wrong['cost']['status'] != 'priced'
+        if vendor == 'xai':
+            # Announce the approved snapshot in the first event, before any text.
+            wire = recording(vendor, identifier).replace('"model":"'+identifier+'"',
+                                                       '"model":"model-synthetic-snapshot"')
+            fake.respond(stream(wire))
+            snapshot = admin.call('settings/ai/providers/test', body | {'operationId': str(uuid4())})
+            assert snapshot['outcome'] == 'succeeded' and snapshot['identifier'] == identifier
+            assert snapshot['served'] == 'model-synthetic-snapshot' and snapshot['cost']['amount'] == '0.00016'
+            assert snapshot['capabilityVersion'] == saved['capability']['version']
+            assert query(f"SELECT identifier_policy FROM assistant.model_versions WHERE model_id='{added['id']}' ORDER BY version;") == 'fixed\nalias'
         assert query(f"SELECT count(*) FROM assistant.model_calls c LEFT JOIN assistant.model_call_outcomes o ON o.call_id=c.id WHERE c.model_id='{added['id']}' AND o.call_id IS NULL;") == '0'
         print('PASS '+vendor+' HTTP Test: admitted mapping, endpoint, credential header, exact cost, replay and durable mismatch close', flush=True)
     assert trap.connections == 0

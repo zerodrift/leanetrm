@@ -11,7 +11,7 @@ type Dimension='uncachedInput'|'cacheRead'|'cacheWrite'|'output';
 type Rates=Record<Dimension,string|null>;
 type Price={sequence:number;kind:string;currency:CurrencyReference|null;rates:Rates|null;tier:{threshold:number;rates:Rates}|null;effectiveFrom:string;effectiveTo:string|null;recordedAt:string;recordedBy:string};
 type Segment={from:string;to:string|null;sequence:number|null;priced:boolean};
-type Capability={outputLimit:number;reasoningEfforts:string[];acceptedServed:string[]}&Record<`${Fact}Source`|`${Fact}CheckedOn`,string>;
+type Capability={identifierPolicy:'fixed'|'alias';outputLimit:number;reasoningEfforts:string[];acceptedServed:string[]}&Record<`${Fact}Source`|`${Fact}CheckedOn`,string>;
 type Model={id:string;vendor:string;identifier:string;displayName:string;version:number;priceSequence:number;cacheReadRequired:boolean;prices:Price[];schedule:Segment[];
   enabled:boolean;qualified:boolean;capability:(Capability&{version:number;mapping:string;recordedBy:string;recordedAt:string})|null};
 type Audit={at:string;actor:string;action:string;vendor:string;identifier?:string};
@@ -93,10 +93,11 @@ export const factNames:Record<Fact,string>={outputLimit:'the output limit',reaso
   acceptedServed:'the served identifiers',tools:'tool calling',streaming:'streaming'};
 const factLabels:Record<Fact,string>={outputLimit:'Output limit',reasoning:'Reasoning efforts',identifierStability:'Identifier',acceptedServed:'Served identifiers',
   tools:'Tool calling',streaming:'Streaming'};
-export type CapabilityEntry={outputLimit:string;efforts:string[];served:string;onlyOwn:boolean;sources:Record<Fact,string>;checkedOn:Record<Fact,string>};
+export type CapabilityEntry={identifierPolicy:string;outputLimit:string;efforts:string[];served:string;onlyOwn:boolean;sources:Record<Fact,string>;checkedOn:Record<Fact,string>};
 // Every fact is entered with the published source it came from and the date that source was checked;
 // nothing blank is inferred. Model identifiers hold no spaces or commas, so either separates them.
 export function capabilityRequest(entry:CapabilityEntry){
+  if(entry.identifierPolicy!=='fixed'&&entry.identifierPolicy!=='alias')throw Error('Choose a fixed or provider alias identifier policy.');
   const outputLimit=/^[0-9]+$/.test(entry.outputLimit)?Number(entry.outputLimit):NaN;
   if(!Number.isSafeInteger(outputLimit))throw Error('Enter the output limit as a whole number of tokens.');
   if(!entry.efforts.length)throw Error('Choose the reasoning efforts the model accepts.');
@@ -107,7 +108,7 @@ export function capabilityRequest(entry:CapabilityEntry){
     if(!entry.sources[fact])throw Error(`Enter the source for ${factNames[fact]}.`);
     if(!entry.checkedOn[fact])throw Error(`Enter the date the source for ${factNames[fact]} was checked.`);
   }
-  return {outputLimit,reasoningEfforts:entry.efforts,acceptedServed:served,
+  return {identifierPolicy:entry.identifierPolicy,outputLimit,reasoningEfforts:entry.efforts,acceptedServed:served,
     ...Object.fromEntries(facts.flatMap(fact=>[[fact+'Source',entry.sources[fact]],[fact+'CheckedOn',entry.checkedOn[fact]]]))};
 }
 export type TermsEntry={accountType:string;retention:string;retentionSource:string;retentionCheckedOn:string;training:string;trainingSource:string;trainingCheckedOn:string;
@@ -133,7 +134,9 @@ export function attestationStatement(provider:{name:string;credential:{version:n
   return provider.attestation?`${statement} This key and these terms are attested; a new key or new terms need a new attestation.`:statement;
 }
 export function capabilityRows(capability:Capability){
-  const values:Record<Fact,string>={outputLimit:`${grouped(capability.outputLimit)} tokens`,reasoning:capability.reasoningEfforts.join(', '),identifierStability:'Not repointed',
+  const policy=capability.identifierPolicy==='alias'?'Provider alias approved':capability.identifierPolicy==='fixed'?'Not repointed':undefined;
+  if(!policy)throw inconsistent();
+  const values:Record<Fact,string>={outputLimit:`${grouped(capability.outputLimit)} tokens`,reasoning:capability.reasoningEfforts.join(', '),identifierStability:policy,
     acceptedServed:capability.acceptedServed.length?capability.acceptedServed.join(', '):'Only its own',tools:'Confirmed',streaming:'Confirmed'};
   return facts.map(fact=>[factLabels[fact],values[fact],capability[`${fact}Source`],capability[`${fact}CheckedOn`]]);
 }
@@ -283,7 +286,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     renderRegularTable(get('ai-model-audit'),'ai-model-audit',options.identity(),['Saved','By','Model','Change'],models.audit.map(a=>[instant(a.at),a.actor,`${vendorName(a.vendor)} · ${a.identifier}`,aiChange(a.action)]),[],options.busy);
     const shown=model();get('ai-model-card').hidden=!shown;
     if(shown){
-      get('ai-model-title').textContent=publicText(shown.displayName);get('ai-model-facts').textContent=publicText(`${vendorName(shown.vendor)} · ${shown.identifier} · the identifier cannot change.`);
+      get('ai-model-title').textContent=publicText(shown.displayName);get('ai-model-facts').textContent=publicText(`${vendorName(shown.vendor)} · ${shown.identifier} · the saved API identifier cannot be edited.`);
       const scope=JSON.stringify([options.identity(),shown.id]);
       renderRegularTable(get('ai-price-history'),'ai-price-history',scope,['Revision','Applies to','Currency','Uncached input','Cache read','Cache write','Output','Effective from','Effective to','Recorded','By'],shown.prices.flatMap(p=>{
         const interval=[instant(p.effectiveFrom),p.effectiveTo?instant(p.effectiveTo):'Open-ended',instant(p.recordedAt),p.recordedBy];
@@ -451,7 +454,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
   });};
   form('ai-capability-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
     const m=current(),byFact=(prefix:string)=>Object.fromEntries(facts.map(fact=>[fact,input(prefix+fact).value])) as Record<Fact,string>;
-    const request=capabilityRequest({outputLimit:input('ai-capability-limit').value,efforts:efforts(),served:text('ai-capability-served'),onlyOwn:input('ai-capability-only-own').checked,
+    const request=capabilityRequest({identifierPolicy:choice('ai-identifier-policy'),outputLimit:input('ai-capability-limit').value,efforts:efforts(),served:text('ai-capability-served'),onlyOwn:input('ai-capability-only-own').checked,
       sources:byFact('ai-source-'),checkedOn:byFact('ai-checked-')});
     await change(pending,'settings/ai/models/edit',{modelId:m.id,expectedVersion:m.version,...request});
   });};

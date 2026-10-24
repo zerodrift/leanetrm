@@ -475,3 +475,25 @@ screens share a reusable table/plot widget with optional explicit refresh. Swap
 Side payment schedules also consume that widget, retaining exact table values
 and separate formatted displays alongside per-payment cash/PV plots.
 [Interval data](interval-data.md) records contracts, measured workloads and limits.
+
+## D213 — Explicit model alias approval
+
+Allow a model capability version to declare `fixed` or `alias` explicitly. This
+supersedes P27's blanket non-repointing requirement for an administrator-approved
+alias. The existing sourced identifier fields describe the selected policy. An
+alias is permission to request that vendor name as it evolves, not evidence of
+fixed model weights or permission to change provider, capability facts or prices.
+
+Both policies accept only the requested identifier and the exact served identifiers
+listed in that capability version. Unknown served identifiers fail before output;
+no wildcard, prefix match or automatic discovery changes the allowed set. Calls
+retain their requested identity, exact capability and price versions and the
+identifier actually reported by the provider. A reported alias cannot establish an
+underlying snapshot. Normal current-authority and account-attestation checks apply.
+
+Migration 0105 labels existing versions `fixed`; its compatibility default and the
+original command preserve the old fixed-only contract and exact retained retries.
+New UI submissions require a choice; the extended command rejects null or unknown
+policies. Existing versions stay immutable, and policy edits create a version so
+running agents retain the existing `model_changed` boundary. This local change
+does not authorize publishing, a hosted schema update or real-provider calls.

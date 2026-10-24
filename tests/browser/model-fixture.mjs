@@ -21,7 +21,7 @@ export async function pricedModel(side,{identifier,displayName,efforts}){
   const added=await side.call('settings/ai/models/add',{operationId:crypto.randomUUID(),vendor:'anthropic',identifier,displayName});
   const listed=async()=>(await side.call('settings/ai/models')).models.find(m=>m.id===added.id);
   const capabilities=async reasoningEfforts=>side.call('settings/ai/models/edit',{operationId:crypto.randomUUID(),modelId:added.id,expectedVersion:(await listed()).version,
-    outputLimit:4096,reasoningEfforts,acceptedServed:[],...Object.fromEntries(['outputLimit','reasoning','identifierStability','acceptedServed','tools','streaming'].flatMap(f=>sourced(f)))});
+    identifierPolicy:'fixed',outputLimit:4096,reasoningEfforts,acceptedServed:[],...Object.fromEntries(['outputLimit','reasoning','identifierStability','acceptedServed','tools','streaming'].flatMap(f=>sourced(f)))});
   await capabilities(efforts);
   const usd=(await side.call('settings/ai/models')).currencies.find(c=>c.code==='usd');
   await side.call('settings/ai/models/price',{operationId:crypto.randomUUID(),modelId:added.id,expectedSequence:(await listed()).priceSequence,

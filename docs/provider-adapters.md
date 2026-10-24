@@ -5,6 +5,16 @@ its exact installed usage mapping. Model names never select a provider. The
 existing key custody, account terms, administrator attestation, model capability
 versions, effective prices and enablement gates remain required.
 
+Capability versions explicitly choose `fixed` (a sourced non-repointing claim) or
+`alias` (administrator approval to follow the provider's name), under D213 and
+migration 0105. Identifier source/date fields describe that policy. New settings
+forms require a choice. Existing versions and legacy command retries retain the
+fixed-only contract. An alias still accepts only its requested name and exact
+listed served identifiers; it never accepts arbitrary snapshots or a new provider.
+The existing call record pins requested model, capability/price versions and
+reported served identifier. A returned alias cannot prove an underlying snapshot;
+administrators must review capabilities and prices when the provider changes it.
+
 | Provider | API | Usage mapping | Reasoning settings the mapping sends |
 | --- | --- | --- | --- |
 | Anthropic | Messages | `messages_v1` | low, medium, high, xhigh, max |
@@ -68,6 +78,15 @@ Owned HTTP checks exercise routing, exact synthetic costs, idempotent Test repla
 and durable mismatch closure on disposable stock PostgreSQL. They call no real
 provider. Account/model availability and real-provider task qualification remain
 open under O09.
+
+D213 local qualification uses `--provider-adapters-check` and `--assistant-check`
+with disposable stock PostgreSQL and a loopback fake provider. It covers a
+pre-0105 capability/audit upgrade, unchanged legacy replay outcomes, helper drift
+rejection, explicit alias approval and request-identity conflicts, invalid policy
+values, normal provider/model enablement gates, exact allowed snapshot reporting,
+unchanged synthetic token costs and durable rejection of unlisted served models.
+The managed provider conformance checks and all 324 web checks pass. These checks
+send no real provider request and do not install migration 0105 on a hosted system.
 
 Protocol sources checked on 2026-10-23:
 
