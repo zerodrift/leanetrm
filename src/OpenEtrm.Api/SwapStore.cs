@@ -166,10 +166,15 @@ public sealed partial class SwapStore(PreviewDatabase database)
   value.Scale(new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),value.Instrument.UnitQuantity.Specification));
  private async Task<FinancialSwapValue> Price(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrumentId,Guid? fixedId,Guid? floatingId,CancellationToken ct)=>
   Scale(await Evaluate(connection,data,frame,body,instrumentId,fixedId,floatingId,ct),body);
+ private static string QuantityText(ExactQuantity value)
+ {
+  try{return value.ToQuantity().Amount.ToString();}
+  catch(MarketDataException error)when(error.Code is "precision_loss" or "numeric_range"){return value.Numerator+"/"+value.Denominator;}
+ }
  private static object Value(FinancialSwapValue value)=>Value(value.Instrument,value.Sides,value.Quantity,Exact(value.ExactPresentValue),value.NumericalPolicy);
  private static object DraftValue(FinancialSwapEvaluation value,Quantity quantity)=>Value(value.Instrument,value.Sides,quantity,Exact(value.Instrument.PresentValue.Scale(quantity.Amount)),DealRisk.NumericalPolicy);
  private static object Value(InstrumentValuation instrument,ImmutableArray<DiscountedSideValuation> sides,Quantity quantity,string presentValue,string numericalPolicy)=>new{
-  presentValue=presentValue,currency=instrument.Currency,quantity=quantity.Amount.ToString(),
+  presentValue=presentValue,currency=instrument.Currency,quantity=quantity.Amount.ToString(),quantityApplication="total_per_side_delivery_period_v1",
   instrumentPresentValue=Exact(instrument.PresentValue),numericalPolicy=numericalPolicy,instrument.CurveNumericalPolicy,instrument.ScenarioId,
   snapshotId=instrument.Snapshot.Id,definitions=instrument.Snapshot.Definitions,asOf=instrument.Snapshot.ValuationAt,marketCutoff=instrument.Snapshot.MarketCutoff,
   marketInputs=instrument.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,s.Observation.Source,s.Observation.Role,s.Observation.ObservedAt,value=s.Observation.Value.ToString()}),
@@ -178,6 +183,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
    slot=instrument.Sides.IndexOf(s.Contribution),implementation=s.Contribution.Value.Schedule.Implementation,payments=s.Payments.Select(p=>new{
     ordinal=p.Cashflow.Plan.Key.Ordinal,deliveryFrom=Date(p.Cashflow.Plan.DeliveryFrom),deliveryTo=Date(p.Cashflow.Plan.DeliveryTo),paymentAt=p.Cashflow.Plan.PaymentAt,paymentDate=Date(p.Cashflow.Plan.PaymentDate),generatedDate=p.Cashflow.Plan.GeneratedDate,
     paymentConvention=p.Cashflow.Plan.PaymentConvention is {} rule?new{implementation=PaymentRule.Implementation,rule.Frequency,rule.Rule,rule.Days,rule.DayOfMonth,rule.DayBasis,rule.ShortMonthPolicy,rule.Adjustment,calendar=rule.Calendar?.Key,calendarFrom=rule.Calendar?.BusinessDays.From,calendarTo=rule.Calendar?.BusinessDays.To}:null,
+    resolvedQuantity=QuantityText(p.Cashflow.Plan.AllocatedQuantity.Scale(quantity.Amount)),
+    tradeCashAmount=Exact(p.Cashflow.CashAmount.Scale(s.Contribution.Coefficient).Scale(quantity.Amount)),
+    tradePresentValue=Exact(p.Cashflow.PresentValue.Scale(s.Contribution.Coefficient).Scale(quantity.Amount)),
     cashAmount=Exact(p.Cashflow.CashAmount),discountFactor=p.Discount.Factor.ToString(),presentValue=Exact(p.Cashflow.PresentValue),
     discountMappingId=p.Discount.MappingId,discountCurve=p.Discount.Curve,discountPolicy=p.Discount.InterpolationPolicy,pillars=p.Discount.Pillars,
     observationSchedule=ObservationInspection(p.Cashflow),

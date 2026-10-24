@@ -46,7 +46,9 @@ and cell drill-through remain work.
 Swap entry offers financial fixed/floating and floating/floating composition.
 Floating sides retain independent index fixings, explicit projection references,
 payment rules and fixed spreads; opposite coefficients express pay/receive.
-Blank fixed prices can be solved by Price under a selected par-rate precision
+The ticket explicitly chooses agreed fixed pricing or par calculation. Agreed
+pricing requires an entered price, including supported zero and negative values.
+Par calculation alone submits a blank draft price under a selected precision
 policy, reviewed as a concrete quote, then used unchanged by Risk and booking.
 This uses the connected valuation pipeline, including selected actual fixings,
 custom projections and discount inputs. Migration 0101 adds the persisted side

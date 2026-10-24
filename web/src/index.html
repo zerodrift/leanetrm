@@ -179,7 +179,7 @@
     <div class="table-workspace-footer"><p id="futures-summary" role="status">Choose a market date above.</p><details class="blotter-scope"><summary>Calculation scope</summary><p class="field-help">Futures show execution P&amp;L; financial swaps show projected PV. These are separate measures. Blank values are unavailable. Futures PV and daily settlement remain separate work. Values use the selected saved market inputs; no live feed is connected.</p></details></div>
     <section id="risk-card" class="card" hidden>
       <div class="card-heading"><div><h3>Risk under market scenarios</h3><p id="risk-scope" class="field-help">Selected books and portfolios before table row filters, using the financial context above. Revalue held instruments through connected market quotes and computed curve outputs. Results keep each valuation measure and currency separate; rates, actual fixings and futures settlement state stay fixed.</p></div><button id="risk-close" type="button" class="text-button">Close</button></div>
-      <details><summary>Recent risk jobs</summary><label for="risk-job-history">Job captured market time · UTC</label><select id="risk-job-history"><option value="">Choose a retained job…</option></select><button id="risk-job-return" type="button" class="text-button" hidden>Return to selected financial context</button></details>
+      <details><summary>Recent risk jobs</summary><label for="risk-job-history">Job captured market time · <span data-user-time-zone></span></label><select id="risk-job-history"><option value="">Choose a retained job…</option></select><button id="risk-job-return" type="button" class="text-button" hidden>Return to selected financial context</button></details>
       <form id="risk-form"><fieldset id="risk-fields" class="futures-fields">
         <div class="risk-scenario-editor"><div class="risk-scenario-heading"><div><span class="workbench-eyebrow">SCENARIO LAB</span><h4>Explore a market move</h4></div><p id="risk-scenario" class="field-help" role="status">Risk around the selected unchanged market.</p></div>
         <div class="risk-target-filters"><label>Coordinate<select id="risk-coordinate"><option value="all">All coordinates</option><option value="market_quote">Primitive market quote</option><option value="computed_output">Computed curve output</option></select></label><label>Target shape<select id="risk-target-kind"><option value="all">All target shapes</option><option value="contract">Exact contract</option><option value="points">Explicit points</option><option value="parallel">Whole curve</option><option value="delivery_bucket">Delivery bucket</option></select></label></div>
@@ -361,16 +361,19 @@
   <div id="swap-type-choices" class="instrument-choices" role="group" aria-label="Instrument type"><button type="button" data-swap-type="financial_fixed_floating" aria-pressed="false"><span class="choice-diagram" aria-hidden="true"><b>Fixed</b><span>⇄</span><b>Floating</b></span><strong>Fixed for floating</strong><span>A fixed price exchanged for an index price</span></button><button type="button" data-swap-type="financial_floating_floating" aria-pressed="false"><span class="choice-diagram" aria-hidden="true"><b>Floating</b><span>⇄</span><b>Floating</b></span><strong>Floating for floating</strong><span>Two independent indices, each with a fixed spread</span></button></div>
   <select id="swap-type" hidden aria-label="Selected instrument type"><option value=""></option><option value="financial_fixed_floating">Fixed for floating</option><option value="financial_floating_floating">Floating for floating</option></select>
   <p id="swap-template-note" class="field-help" role="status">Choose a structure to set up its sides.</p>
-  <div class="schedule-fields"><div><label for="swap-quantity">Instrument quantity · <span id="swap-unit"></span></label><input id="swap-quantity" required inputmode="decimal" maxlength="45"></div><div><label for="swap-quantity-unit">Quantity unit</label><select id="swap-quantity-unit" required></select></div></div>
-  <div class="schedule-fields"><div><label for="swap-discounting">Discounting</label><select id="swap-discounting" required><option value="">Choose…</option><option value="currency_default">Currency default curve</option><option value="none">Explicitly undiscounted</option></select></div></div>
-  <div id="swap-date-tools"></div>
-  <div class="entry-section-heading"><span class="entry-step">03</span><div><div class="eyebrow">SIDES</div><h3>Define each side</h3></div></div>
+  <section id="swap-delivery"><h3>Contract delivery terms</h3><p class="field-help">Choose each side independently. Delivery ends are exclusive.</p><div class="swap-term-columns"><section id="swap-fixed-delivery"><h4>Fixed side</h4></section><section id="swap-first-delivery" hidden><h4>First floating side</h4></section><section id="swap-floating-delivery"><h4>Floating side</h4></section></div><div id="swap-date-tools"></div></section>
+  <section id="swap-quantity-terms"><h3>Notional quantity</h3>
+  <div class="schedule-fields"><div><label for="swap-quantity">Amount · <span id="swap-unit"></span></label><input id="swap-quantity" required inputmode="decimal" maxlength="45"></div><div><label for="swap-quantity-unit">Quantity unit</label><select id="swap-quantity-unit" required></select></div></div>
+  <p><strong>Application basis · Total for each side’s delivery period</strong></p><p class="field-help">The full notional applies once to each side’s selected delivery period, even when dates differ. Daily observations average prices; they do not repeat the quantity. Each booked side has one settlement payment. Compatible energy units convert directly. Daily quantity rates, allocation across recurring settlements and MW levels are unavailable in this ticket.</p></section>
+  <div class="entry-section-heading"><span class="entry-step">03</span><div><div class="eyebrow">SIDES</div><h3>Direction &amp; side pricing</h3></div></div>
   <p id="swap-side-compatibility" class="field-help" hidden>Both floating sides must use the same commodity and compatible quantity units.</p>
   <div class="instrument-sides swap-sides" aria-label="Financial swap sides">
    <div id="swap-fixed-editor"></div><div id="swap-first-editor" hidden></div>
    <div id="swap-floating-editor"></div>
   </div>
 
+  <section id="swap-observations"><h3>Observation &amp; payment rules</h3><p class="field-help">Reset frequency selects price observations; averaging combines their prices. Fixing boundaries come from the exact index convention. Payment rules determine when cash is due, independently of observations and quantity.</p><div class="swap-term-columns"><section id="swap-fixed-observations"><h4>Fixed side payment</h4></section><section id="swap-first-observations" hidden><h4>First floating side</h4></section><section id="swap-floating-observations"><h4>Floating side</h4></section></div></section>
+  <h3>Valuation review &amp; booking</h3><div class="schedule-fields"><div><label for="swap-discounting">Discounting</label><select id="swap-discounting" required><option value="">Choose…</option><option value="currency_default">Currency default curve</option><option value="none">Explicitly undiscounted</option></select></div></div>
   <section id="swaps-draft-valuation"></section>
   </section>
   <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. The instrument quantity applies once after signed side PVs are summed. This model has one monthly payment per side. Each floating reset uses its index’s fixing convention and the selected market context; inspect its actual or projected state in the valued schedule.</p>
@@ -406,15 +409,15 @@
 <template id="swap-fixed-template">   <section class="instrument-side" aria-labelledby="swap-fixed-title" style="--side-rows:12"><h3 id="swap-fixed-title">Fixed side</h3><div class="fixed-side-description"><span class="eyebrow">FIXED PRICE</span><p class="field-help">A cash price in the instrument’s compatible units.</p></div>
     <div><label for="swap-direction">Direction</label><select id="swap-direction" required><option value="">Choose…</option><option value="-1">Pay fixed</option><option value="1">Receive fixed</option></select></div>
     <div><label for="swap-fixed-currency">Currency</label><select id="swap-fixed-currency" required></select></div>
-    <div><label for="swap-price">Fixed price · <span id="swap-price-unit">choose projection curve</span></label><input id="swap-price" placeholder="Blank: calculate par rate" inputmode="decimal" maxlength="45"><label for="swap-par-places">Par rate decimal places · ties to even</label><input id="swap-par-places" type="number" min="0" max="18" required><p id="swap-par-result" class="field-help"></p></div>
+    <div><label for="swap-price">Fixed price · <span id="swap-price-unit">choose projection curve</span></label><select id="swap-price-mode" required aria-label="Fixed pricing choice"><option value="">Choose fixed pricing…</option><option value="agreed">Enter agreed fixed price</option><option value="par">Calculate par fixed price</option></select><input id="swap-price" inputmode="decimal" maxlength="45" required><div id="swap-par-controls" hidden><label for="swap-par-places">Par rate decimal places · ties to even</label><input id="swap-par-places" type="number" min="0" max="18"><p id="swap-par-result" class="field-help"></p></div></div>
     <div><label for="swap-fixed-from">Delivery start</label><input id="swap-fixed-from" type="date" required></div>
     <div><label for="swap-fixed-to">Delivery end · exclusive</label><input id="swap-fixed-to" type="date" required></div>
 
 
-    <div><label>Price basis</label><p class="field-help">Fixed contractual price</p></div>
-    <div><label>Projection curve</label><p class="field-help">Not used by the fixed side.</p></div>
-    <div><label>Averaging</label><p class="field-help">Not applicable to the fixed price.</p></div>
-    <div><label>Fixing</label><p class="field-help">Price is specified on this side.</p></div>
+
+
+
+
     <div class="side-payment-rule"><h4>Payment schedule</h4>
      <label for="swap-fixed-payment-frequency">Payment frequency</label><select id="swap-fixed-payment-frequency" required></select>
      <label for="swap-fixed-payment-rule">Payment date rule</label><select id="swap-fixed-payment-rule" required></select>

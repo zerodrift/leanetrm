@@ -396,8 +396,10 @@ publication discipline below.
 Release migration order retains reference-intake storage as 0034, followed by
 durable jobs (0035) and Swarm infrastructure (0036). Pinned migration identities
 and independent executor authority are verified together (D141). The trusted
-reference capture/import runner and external source documents are outside this
-release; retained native facts remain non-executable until separately qualified.
+private managed reference capture/import commands replay retained source bytes
+into the existing inactive reference storage. External source documents and
+credentials remain outside the repository. Import does not activate trading,
+certify historical publication or replace exact execution-policy admission.
 
 The [bounded automation slice](automation.md) now implements durable UTC once/fixed-
 interval jobs, a separate .NET Worker Service, forced RLS/current identity checks,

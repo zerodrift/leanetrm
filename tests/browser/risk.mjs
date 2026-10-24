@@ -76,6 +76,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('recent jobs remain discoverable after context changes and identify their original dates',"document.querySelector('#risk-job-context').textContent.includes('2020-12-18')&&document.querySelector('#risk-scope').textContent.includes('captured financial context')&&document.querySelector('#risk-form').hidden&&document.querySelector('#risk-job-scenario').textContent.includes('original market')&&document.querySelector('#risk-fields').disabled&&!document.querySelector('#risk-job-return').hidden&&document.querySelector('#risk-results .tabulator-row')");
   await click('#risk-job-return');
   await check('returning from a retained job clears results before enabling the selected context',"!document.querySelector('#risk-form').hidden&&!document.querySelector('#risk-fields').disabled&&document.querySelector('#risk-results').children.length===0&&document.querySelector('#risk-job').hidden");
+  await click('#profile-open');await set('#zone','America/Chicago');await submit('#preferences-form');await click('#blotter-risk');
+  await set('#risk-job-history',retainedJob);await wait(idle);
+  await check('retained job timestamp labels follow the selected display zone',"document.querySelector('label[for=risk-job-history]').textContent.includes('America/Chicago')&&document.querySelector('#risk-job-history').selectedOptions[0].textContent.includes('10:00 AM')");
   await persona('trader');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await check('Trader permissions do not enable the scenario action',"document.querySelector('#blotter-risk').disabled&&document.querySelector('#risk-card').hidden");
   await persona('risk');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#futures-holdings .tabulator-row')&&!document.querySelector('#blotter-risk').disabled");

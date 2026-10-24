@@ -444,3 +444,25 @@ missing or repeated local midnight; minute-aligned offsets within fourteen hours
 of UTC define the supported proof range. Contract-sequence shortcuts use the
 selected execution policy to identify eligible contracts, while milestone receipts
 retain their actual known/unknown source facts.
+
+
+## Private managed reference intake
+
+`--capture-reference` acquires public API enumerations or replays operator-retained
+website download bytes into private, unqualified evidence packages. The public
+implementation uses synthetic observations in its checks; it includes no external
+source documents or credentials. Source identities, native date-only facts,
+content hashes and explicit unknown fields remain distinct from mapped terms.
+
+`--import-reference CONFIG CAPTURE` replays those retained bytes, verifies source
+integrity and explicit mappings, and uses separately provisioned authenticator
+and trusted-importer connections to write immutable inactive placeholders through
+migration 0034's authorized operation. `--import-reference inspect CONFIG CAPTURE`
+validates the plan before opening those connections. Private files require owner-only
+permissions. Exact retries preserve the original operation; changed payloads conflict.
+
+Runtime, collection, scheduler and pilot-runtime credentials must not carry the
+trusted-importer role. Import never grants data distribution rights or execution
+eligibility. Activation, certified reference publication and the selected futures
+execution policy retain their existing separate contracts. The complete synthetic
+runner covers managed intake and an owned PostgreSQL import/authority check.
