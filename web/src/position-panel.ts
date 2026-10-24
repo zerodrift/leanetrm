@@ -103,6 +103,8 @@ export function amendNote(accountCanAmend:boolean,revision:AmendState|undefined)
   if(!accountCanAmend)return 'This account cannot amend trades in this market context, so Amend opens the editor read-only.';
   return revision&&!revision.allowed?`Amend opens the editor read-only: ${revision.reason}`:null;
 }
+/** What Open curve says beside its button when there is no curve to open: for a market Curves & prices does not list. */
+export const curveNote=(listed:boolean)=>listed?null:"Curves & prices does not list this position's market, so there is no curve to open.";
 
 /** What the panel draws a position from: the workspace row and its desk row, how its amounts read, its market's curve shape and its commodity's color. */
 export type PositionInput={holding:Holding;row:DeskRow;formats:HoldingFormats;shape:CurveShape|string|undefined;color:string};
@@ -126,7 +128,7 @@ export function setupPositionPanel(shell:SidePanel,o:{
   read:(h:Holding,formats:HoldingFormats)=>Promise<DetailRead>;
   amend:(h:Holding)=>void;openCurve:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
 }){
-  let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement}|undefined;
+  let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
   const body=()=>shell.element('body');
   const key=(at:PositionInput)=>JSON.stringify([at.holding.tradeId,at.holding.revision,o.context()]);
   function status(text:string,className='side-panel-status'){const p=el('p',className,text);p.setAttribute('role','status');return p;}
@@ -144,12 +146,12 @@ export function setupPositionPanel(shell:SidePanel,o:{
       const delta=el('div','side-panel-delta'),amount=el('b',undefined,now.markMinusPrice.text);
       delta.title=publicText(`${now.markMinusPrice.exact} ${now.markMinusPrice.unit}`);delta.append(el('span','side-panel-label',now.markMinusPrice.label),amount,el('small',undefined,now.markMinusPrice.unit));value.append(delta);
     }
-    const row=el('div','side-panel-actions'),amend=el('button',undefined,'Amend'),open=el('button','secondary','Open curve'),note=el('p','field-help side-panel-note');
-    amend.type=open.type='button';amend.id='side-panel-amend';open.id='side-panel-open-curve';note.id='side-panel-amend-note';note.hidden=true;
+    const row=el('div','side-panel-actions'),amend=el('button',undefined,'Amend'),open=el('button','secondary','Open curve'),note=el('p','field-help side-panel-note'),openNote=el('p','field-help side-panel-note');
+    amend.type=open.type='button';amend.id='side-panel-amend';open.id='side-panel-open-curve';note.id='side-panel-amend-note';openNote.id='side-panel-open-curve-note';note.hidden=openNote.hidden=true;
     amend.onclick=()=>o.amend(at.holding);
     open.onclick=()=>{const target=openCurveTarget(at.holding,at.row,at.shape);o.openCurve(target.curve,target.contractId);};
-    row.append(amend,open);actions={amend,open,note};
-    shell.element('head').replaceChildren(kicker,title,el('p','side-panel-sub',now.subtitle),value,row,note);
+    row.append(amend,open);actions={amend,open,note,openNote};
+    shell.element('head').replaceChildren(kicker,title,el('p','side-panel-sub',now.subtitle),value,row,note,openNote);
   }
   function drawCurve(host:HTMLElement,at:PositionInput,now:PositionSummary){
     const view=curveView(at.shape,at.holding,at.row,at.formats);
@@ -196,22 +198,39 @@ export function setupPositionPanel(shell:SidePanel,o:{
     else if(tab==='risk')host.append(status(riskEmpty));
     else drawDetail(host,at);
   }
-  // The control of the head or body that has keyboard focus, which a redraw gives back to its successor when there is one.
+  // Keyboard focus. A control of the panel that has it when the page goes busy is disabled with the rest of the page, and the browser
+  // drops focus a moment later without a word; a redraw replaces the control that has it. So the id of the control that has focus is
+  // kept while the page is busy or the panel is drawn again, and focus goes back to the control of that id once it is enabled, if
+  // nothing else has taken focus by then.
+  const controlParts=()=>[shell.element('head'),shell.element('tabs'),body()];
+  let held:string|undefined;
+  const focusLost=()=>{const active=document.activeElement;return active===null||active===document.body||active===document.documentElement;};
+  // The control of the panel that has keyboard focus now.
   function focused(){
     const active=document.activeElement;
-    return active instanceof HTMLElement&&active.id&&(shell.element('head').contains(active)||body().contains(active))?active.id:null;
+    return active instanceof HTMLElement&&active.id&&controlParts().some(part=>part.contains(active))?active.id:undefined;
+  }
+  function refocus(){
+    if(held===undefined)return;
+    const control=document.getElementById(held);
+    // A control that is disabled while the page is busy is waited for; one that is gone, or focus that has moved, ends the wait.
+    if(control&&controlParts().some(part=>part.contains(control))&&focusLost()){
+      if((control as HTMLButtonElement).disabled)return;
+      control.focus({preventScroll:true});
+    }
+    held=undefined;
   }
   // A position the panel cannot draw says so in place of its content: the page never keeps a half-drawn panel.
   function paint(){
     if(!input)return;
-    const keep=focused();
+    const keep=focused()??held;
     try{const now=positionSummary(input.holding,input.row,input.formats);drawHead(input,now);drawBody(input,now);}
     catch(error){
       actions=undefined;if(chart){clearChart(chart);chart=undefined;}
       shell.element('head').replaceChildren();body().replaceChildren(status(failure(error,'The position could not be shown.'),'side-panel-status side-panel-error'));
     }
     sync();
-    if(keep)document.getElementById(keep)?.focus({preventScroll:true});
+    held=keep;refocus();
   }
   async function load(){
     const at=input!,started=++generation,loading:Detail={key:key(at),state:'loading'};
@@ -232,22 +251,28 @@ export function setupPositionPanel(shell:SidePanel,o:{
     // Amend opens the trade's editor, which is read-only for an account or a revision that cannot be amended, and says why: so the
     // button stays available to everyone who can open the position, and the panel says beforehand, in words, what the editor will be.
     const revision=detail?.state==='ready'&&detail.key===key(input)?detail.read.amend:undefined,note=amendNote(o.canAmend(),revision);
-    actions.amend.disabled=o.busy();
-    actions.note.hidden=note===null;actions.note.textContent=note===null?'':publicText(note);
+    if(o.busy())held=focused()??held;
+    actions.amend.disabled=o.busy();say(actions.note,actions.amend,note);
     const listed=o.curveListed(input.holding.curve);
-    actions.open.disabled=o.busy()||!listed;actions.open.title=listed?'':'Curves & prices does not list this position\'s market, so there is no curve to open.';
+    actions.open.disabled=o.busy()||!listed;say(actions.openNote,actions.open,curveNote(listed));
+    if(!o.busy())refocus();
+  }
+  // Shows a reason beside a button, and points the button at it for assistive technology; nothing shown and nothing pointed at for none.
+  function say(note:HTMLElement,control:HTMLElement,reason:string|null){
+    note.hidden=reason===null;note.textContent=reason===null?'':publicText(reason);
+    if(reason===null)control.removeAttribute('aria-describedby');else control.setAttribute('aria-describedby',note.id);
   }
   return {
     /** Shows a position the shell has just opened: on its Curve tab, with nothing read of it yet. */
     show(next:PositionInput){
-      input=next;tab='curve';detail=undefined;generation++;
+      input=next;tab='curve';detail=undefined;held=undefined;generation++;
       if(!tabs)tabs=setupTabs(shell.element('tabs'),positionTabs,{label:'Position details',panel:body(),selected:'curve',select:id=>{tab=id as PositionTab;paint();}});
       tabs.mark('curve');paint();
     },
     /** Draws the same position again from a newer read of the desk. */
     update(next:PositionInput){input=next;paint();},
     /** Forgets the position: the panel is closed, or the reads it was drawn from no longer stand. */
-    clear(){input=undefined;actions=undefined;detail=undefined;generation++;if(chart){clearChart(chart);chart=undefined;}body().replaceChildren();shell.element('head').replaceChildren();},
+    clear(){input=undefined;actions=undefined;detail=undefined;held=undefined;generation++;if(chart){clearChart(chart);chart=undefined;}body().replaceChildren();shell.element('head').replaceChildren();},
     sync,
   };
 }

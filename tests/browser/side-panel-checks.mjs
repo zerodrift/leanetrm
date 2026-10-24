@@ -67,6 +67,18 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
   await evaluate("document.querySelector('.table-workspace').style.setProperty('--panel-width','400px')");
   await check('a wider token makes a wider docked panel',`Math.round(${panel}.getBoundingClientRect().width)===400`,`${panel}.getBoundingClientRect().width`);
   await evaluate("document.querySelector('.table-workspace').style.removeProperty('--panel-width')");
+  // The room shrinks with a wider panel, so the same window shows how the grid gives its columns up as it has less: down to a width
+  // that holds neither Mark nor Curve, whatever the rows say. Curve goes first, a column given up stays given up, and what is kept fits.
+  const sweep=[];
+  for(const width of [340,420,500,580,660]){
+    await evaluate(`document.querySelector('.table-workspace').style.setProperty('--panel-width','${width}px')`);await settle(1440,900);
+    sweep.push(await evaluate(`[${width},${shows('c4')},${shows('c6')},${gridFits},${gridWidths}]`));
+  }
+  await evaluate("document.querySelector('.table-workspace').style.removeProperty('--panel-width')");await settle(1440,900);
+  const [last]=sweep.slice(-1);
+  await check('as the docked grid gets narrower it gives up Curve before Mark, never takes a column back, keeps what fits, and in the end has neither',
+    `${JSON.stringify(sweep.every(([,mark,curve])=>mark||!curve)&&sweep.every((step,at)=>at===0||(sweep[at-1][1]||!step[1])&&(sweep[at-1][2]||!step[2]))&&sweep.every(([,mark,curve,fits])=>fits||(!mark&&!curve))&&!last[1]&&!last[2])}`,
+    JSON.stringify(JSON.stringify(sweep)));
   await check('the row the panel shows is marked in the grid',
     `(()=>{const rows=[...document.querySelectorAll('#desk-positions .open-row')];return rows.length===1&&rows[0].getAttribute('aria-current')==='true'&&rows[0].querySelector('.desk-reference').textContent===${JSON.stringify(futureReference)};})()`);
   await check('the panel states the position\'s backend value and measure, and its mark minus price labeled by what it was done at',
@@ -190,8 +202,8 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
     const {setupSidePanel,askLeave}=await import('/side-panel.js');
     const host=document.querySelector('#side-panel').cloneNode(true);host.id='scratch-panel';host.hidden=true;document.body.append(host);
     const shell=setupSidePanel(host,{unsaved:()=>true,confirmLeave:askLeave(host),docked:()=>false});
-    window.__scratch={host,shell};await shell.show({kind:'position',tradeId:'t1',revision:1});
-    window.__scratch.pending=shell.show({kind:'position',tradeId:'t2',revision:1});
+    window.__scratch={host,shell};await shell.show({kind:'position',tradeId:'t1',bindingId:'b1',revision:1});
+    window.__scratch.pending=shell.show({kind:'position',tradeId:'t2',bindingId:'b2',revision:1});
   })()`);
   await wait("!document.querySelector('#scratch-panel #side-panel-prompt').hidden");
   await check('switching what a panel holds with unsaved edits asks inside the panel first, focused on the answer that keeps them',
@@ -199,7 +211,7 @@ export async function sidePanelChecks({evaluate,wait,click,set,check,idle,press,
   await press('Escape','Escape',27);
   await check('Escape keeps the edits: the panel stays on its position, the question closes, and the panel is still open',
     `(async()=>{const answer=await window.__scratch.pending,prompt=document.querySelector('#scratch-panel #side-panel-prompt');return answer===false&&prompt.hidden&&prompt.children.length===0&&window.__scratch.shell.current().tradeId==='t1'&&!window.__scratch.host.hidden;})()`);
-  await evaluate("window.__scratch.pending=window.__scratch.shell.show({kind:'position',tradeId:'t2',revision:1});0");
+  await evaluate("window.__scratch.pending=window.__scratch.shell.show({kind:'position',tradeId:'t2',bindingId:'b2',revision:1});0");
   await wait("!document.querySelector('#scratch-panel #side-panel-prompt').hidden");
   await evaluate("document.querySelector('#scratch-panel #side-panel-prompt').querySelectorAll('button')[1].click()");
   await check('Discard changes switches, closes the question and puts focus in the panel',

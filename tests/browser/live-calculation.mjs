@@ -76,5 +76,32 @@ export async function run({command,evaluate,wait,click,persona,set,check,shot,id
  await click('#swap-close');
  // The side panel behind the editor follows the live refresh: it shows its position from the newest read of the desk.
  await check('the side panel is drawn again from the newest read when a live correction refreshes the desk',`(()=>{const reads=window.liveResponses.filter(r=>r.path==='/api/trading/workspace'),h=reads.at(-1).data.blotter.holdings.find(h=>h.tradeReference===${JSON.stringify(reference)});return reads.length>${readsAtOpen}&&!document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(reference)}&&document.querySelector('.side-panel-value .kpi-value').title===h.presentValue+' '+h.currency;})()`);
+ // A live refresh holds the page busy, which disables Amend while the panel is drawn again: focus on the button comes back with it.
+ // The profile dialog of the persona switches may still be open, and it is modal: the panel can take focus once it is closed.
+ if(await evaluate("document.querySelector('#profile-dialog').open"))await click('#profile-close');
+ await evaluate("document.querySelector('#side-panel-amend').focus()");
+ const readsAtFocus=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length");
+ await correct('base','3.41');
+ await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsAtFocus}&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
+ await check('keyboard focus on Amend survives a live refresh, which disables the button while the page is busy and draws the panel again',
+  "document.activeElement.id==='side-panel-amend'&&!document.querySelector('#side-panel-amend').disabled",
+  "[document.activeElement.id,document.activeElement.tagName,document.querySelector('#side-panel-amend').disabled]");
+ await evaluate("document.querySelector('#side-panel-tabs-terms').focus()");
+ await correct('base','3.42');
+ await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsAtFocus}+1&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
+ await check('and so does keyboard focus on a tab of the panel',
+  "document.activeElement.id==='side-panel-tabs-terms'",
+  "[document.activeElement.id,document.activeElement.tagName]");
+ // Focus the person has moved off the panel is not taken back by a refresh.
+ await evaluate("(()=>{const title=document.querySelector('#page-title');title.tabIndex=-1;title.focus();})()");
+ await correct('base','3.43');
+ await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsAtFocus}+2&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
+ await check('while focus that is elsewhere stays there: a refresh does not take it back to the panel',
+  "document.activeElement.id==='page-title'",
+  "[document.activeElement.id,document.activeElement.tagName]");
+ // The panel's reason for a read-only editor is what Amend is described by, after every one of those refreshes too.
+ await check('Amend points assistive technology at the reason it opens the editor read-only, which is shown',
+  "(()=>{const amend=document.querySelector('#side-panel-amend'),note=document.getElementById(amend.getAttribute('aria-describedby'));return !!note&&note.id==='side-panel-amend-note'&&!note.hidden&&note.textContent.includes('read-only');})()",
+  "document.querySelector('#side-panel-amend').getAttribute('aria-describedby')");
  console.log('LIVE browser synthetic workload:',JSON.stringify(await evaluate("({requests:window.liveRequests.length,longTasks:window.liveTasks.length,maxLongTaskMilliseconds:Math.max(0,...window.liveTasks),heapBytes:performance.memory?.usedJSHeapSize})")));
 }

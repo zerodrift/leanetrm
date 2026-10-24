@@ -341,8 +341,10 @@ assistant is closed; otherwise it is a drawer over the window's right edge, left
 and a full-width sheet at 760 pixels and below. Opening it moves focus into it and never moves the
 tiles. A docked panel takes the grid's width, so the grid gives up its Curve column, and then its
 Mark column, which the panel shows for the position, for as long as the columns it shows do not fit
-the room it has. It measures that room: at 1440 with the navigation open it gives up both, with the
-navigation collapsed only Curve, and in a window of about 1700 none. The sheet is the only part of
+the room it has. It measures that room, so how much it gives up depends on what the rows say and on
+the width the navigation leaves: a window wide enough for all seven keeps all seven (about 1700),
+and a narrower one gives up Curve before Mark, never gives up a column it has room for, and takes
+a column back when the room returns. The sheet is the only part of
 the page in reach while it is open: everything behind it is inert, except dialogs, and the page is
 given back when the sheet closes, stops covering the page or the Blotter is left. A switch of mode
 or position asks first, inside the panel, when it holds unsaved edits, which for now are an
@@ -372,18 +374,23 @@ Amend opens the existing amend dialogs for the position until amendment moves in
 they open read-only for an account or a revision that cannot be amended, and the panel says so in
 words beside the button. Open curve opens Curves & prices on the position's curve with the price
 history of its contract: a future's own, or a swap's when its delivery period holds exactly one. It
-is unavailable, and says why, for a market Curves & prices does not list. A new read, a change of
+is unavailable for a market Curves & prices does not list, and says why beside the button. Each
+button points assistive technology at its reason (`aria-describedby`) while it has one. A new read, a change of
 context or an access denial closes the panel; a newer drawing of the same read, including a live
-refresh or the arrival of the curves, redraws it where keyboard focus was, and closes it with a
-notice when the read no longer holds its position. Pressing the row that is already open leaves the
+refresh or the arrival of the curves, redraws it, and closes it with a notice when the read no longer
+holds its position. A live refresh holds the page busy, and the page disables every control while it
+is, which drops keyboard focus from the one that had it; the panel keeps the id of the control that
+had focus when the page went busy (Amend, Open curve, a tab or Retry) and gives focus back once it
+is enabled, if nothing else has taken focus meanwhile. The page's other controls lose focus as before. Pressing the row that is already open leaves the
 panel as it is. The assistant's page report does not yet name the panel's position, and the new
 trade and risk report modes of the panel are not built. The browser checks assert the placement at
 1440 by 900 (the first position above the fold, the tiles unmoved), the columns the grid keeps at
-1440 with the navigation open and collapsed and at about 1700, the layout at 1100, with the assistant
-open and at 760 with the page behind the sheet out of reach, the keyboard behavior, the tabs, the
-reads, the ink of the mark minus price of a short future and of a receive-fixed swap, and Open
-curve of a future and of a swap; `--live-calculation-check` asserts that a live refresh draws the
-panel again.
+1440 with the navigation open and collapsed and at about 1700, and, as a wider panel narrows the
+grid, that Curve goes before Mark, down to neither; the layout at 1100, with the assistant open and
+at 760 with the page behind the sheet out of reach, the keyboard behavior, the tabs, the reads, the
+ink of the mark minus price of a short future and of a receive-fixed swap, and Open curve of a
+future and of a swap. `--live-calculation-check` asserts that a live refresh draws the panel again,
+keeps focus on Amend and on a tab, and leaves Amend described by its reason.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

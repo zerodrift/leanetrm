@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
-import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,amendNote} from '../dist/position-panel.js';
+import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,amendNote,curveNote} from '../dist/position-panel.js';
 import {chartOptions} from '../dist/chart-view.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -152,4 +152,9 @@ test('Amend says in words when the editor it opens is read-only: for the account
  assert.equal(amendNote(false,undefined),account);
  assert.equal(amendNote(false,{allowed:false,reason:'Settlement has been processed.'}),account,'the account is the first reason');
  assert.equal(amendNote(true,{allowed:false,reason:'Settlement has been processed.'}),'Amend opens the editor read-only: Settlement has been processed.');
+});
+
+test('Open curve says in words when there is no curve to open: for a market Curves & prices does not list',()=>{
+ assert.equal(curveNote(true),null);
+ assert.equal(curveNote(false),"Curves & prices does not list this position's market, so there is no curve to open.");
 });
