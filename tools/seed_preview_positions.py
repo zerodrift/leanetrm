@@ -18,14 +18,23 @@ NAMESPACE = UUID('e1000000-0000-0000-0000-000000000001')
 CONVENTION = 'fixed_total_cash_execution_pnl_v1'
 
 
-def seed_positions(url, run_id, owned_root):
+def execution_frames(workspace):
+    days = {row[0] for row in EXECUTIONS}
+    frames = [frame for frame in workspace['frames']
+              if frame['id'] in workspace['initialFrameIds'] and frame['at'][:10] in days]
+    if sorted(frame['at'][:10] for frame in frames) != [row[0] for row in EXECUTIONS] or any(frame['at'][11:19] != '16:00:00' for frame in frames):
+        raise ValueError('Weekday demo executions require the exact four supported original market frames.')
+    return frames
+
+
+def seed_positions(url, run_id, owned_root, client=None):
     root = Path(owned_root).resolve()
     if not (root/'data/postmaster.pid').is_file() or (root/'.openetrm-preview').read_text() != run_id:
         raise ValueError('Seeding requires the matching owner marker and live disposable database.')
     manifest = json.loads((root/'manifest.json').read_text())
     if (manifest.get('mode'), manifest.get('catalogId'), manifest.get('revisionId'), manifest.get('workspaceId'), manifest.get('example', {}).get('curve')) != ('local-synthetic-preview', CAT, REV, WORKSPACE, 'local_power'):
         raise ValueError('Only the explicitly supported standard synthetic example can be populated.')
-    client = PreviewClient(url)
+    client = client or PreviewClient(url)
     if client.call('health') != {'mode':'local-synthetic-preview','runId':run_id}:
         raise ValueError('The HTTP application does not match the owned preview.')
     boot = client.bootstrap()
@@ -33,9 +42,7 @@ def seed_positions(url, run_id, owned_root):
         raise ValueError('The synthetic workspace does not match the owned preview.')
     client.call('profile', {'profile':'trader'})
     workspace = client.call('workspace')
-    frames = [f for f in workspace['frames'] if f['id'] in workspace['initialFrameIds']]
-    if sorted(f['at'][:10] for f in frames) != [row[0] for row in EXECUTIONS] or any(f['at'][11:19] != '16:00:00' for f in frames):
-        raise ValueError('Weekday demo executions require the exact four supported original market frames.')
+    frames = execution_frames(workspace)
     contract = identity('5', 1)
     # Resolve every exact book/member before the first mutation. The business
     # command independently validates ticks, units, trading interval and authority.

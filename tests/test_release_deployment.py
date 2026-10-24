@@ -170,6 +170,59 @@ class PowerLoss(BaseException):
     pass
 
 
+class EgressFenceChecks(unittest.TestCase):
+    """The page assistant's egress fence (docs/hosted-pilot.md): its persisted file, its live rules and the bridge they name."""
+    HOOK = 'type filter hook forward priority -200; policy accept;'
+    RULES = ['iifname "br-0123456789ab" oifname != "br-0123456789ab" ct state established,related counter accept',
+             'iifname "br-0123456789ab" oifname != "br-0123456789ab" tcp dport 443 counter accept',
+             'iifname "br-0123456789ab" oifname != "br-0123456789ab" counter drop']
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.file = Path(self.temporary.name) / 'egress.nft'; self.file.write_text('synthetic persisted fence\n')
+        self.network = {'Id': '0123456789ab' + 'c' * 52, 'Options': {}}
+        self.live = ['table inet openetrm_egress {', 'chain api_egress {', self.HOOK,
+                     *(rule.replace(' counter ', ' counter packets 3 bytes 180 ') for rule in self.RULES), '}', '}']
+
+    def command(self, args, **kwargs):
+        if args == ['nft', 'list', 'chain', 'inet', 'openetrm_egress', 'api_egress']:
+            return '\n'.join(self.live).encode()
+        if args == ['docker', 'network', 'inspect', 'synthetic-ingress']:
+            return json.dumps([self.network]).encode()
+        self.fail('unexpected command: ' + repr(args))
+
+    def guarded(self, **changes):
+        settings = {'ingressNetwork': 'synthetic-ingress', 'egressGuard': {'file': str(self.file), 'sha256': digest(self.file.read_bytes()),
+                                                                          'bridge': 'br-0123456789ab', 'rules': self.RULES, **changes}}
+        with patch.object(deploy, 'command', self.command):
+            deploy.egress_fence(settings)
+
+    def test_recorded_rules_live_on_the_ingress_networks_bridge_pass(self):
+        self.guarded()
+
+    def test_a_recreated_network_changed_rules_or_file_are_refused(self):
+        self.network = {'Id': 'fedcba987654' + 'c' * 52, 'Options': {}}
+        with self.assertRaisesRegex(deploy.ReleaseError, 'another bridge'):
+            self.guarded()
+        self.network = {'Id': '0123456789ab' + 'c' * 52, 'Options': {}}
+        self.live[3] = self.live[3].replace('established,related', 'new')
+        with self.assertRaisesRegex(deploy.ReleaseError, 'live egress fence changed'):
+            self.guarded()
+        with self.assertRaisesRegex(deploy.ReleaseError, 'persisted egress fence changed'):
+            self.guarded(sha256='0' * 64)
+
+    def test_a_named_bridge_is_the_networks_configured_name(self):
+        self.network = {'Id': 'fedcba987654' + 'c' * 52, 'Options': {'com.docker.network.bridge.name': 'br-0123456789ab'}}
+        self.guarded()
+
+    def test_a_serving_api_naming_a_provider_check_endpoint_is_refused(self):
+        actual = {'Image': 'sha256:' + 'b' * 64, 'State': {'Running': True}, 'Config': {'User': '1654:1654', 'Env': [
+            'OPENETRM_HOSTED_CONFIG=/run/private/host.json', 'OPENETRM_PROVIDER_CHECK_ENDPOINT=http://127.0.0.1:9']}}
+        with self.assertRaisesRegex(deploy.ReleaseError, 'check endpoint'):
+            deploy.require_actual(actual, {}, actual['Image'])
+
+
 class StateMachineChecks(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -412,6 +465,46 @@ class StateMachineChecks(unittest.TestCase):
                 deploy.Deployment(self.settings).recover()
                 self.assertEqual(self.state()['phase'], 'idle')
                 self.assertEqual(deploy.environment(self.env)['API_IMAGE'], self.live_image)
+
+    def test_recovery_rejects_drifted_serving_boundaries(self):
+        original = deploy.inspect_container
+        for boundary in ['port', 'network', 'private_mount', 'user']:
+            with self.subTest(boundary=boundary):
+                state = {'phase': 'checking', 'targetCommit': COMMIT, 'targetImage': self.new_image,
+                         'previousImageId': self.old_image, 'previousImage': self.old_image, 'previousCommit': 'd' * 40}
+                deploy.atomic_json(self.root / 'state.json', state)
+                self.live_image = self.new_image
+                deploy.write_environment(self.env, {**self.values, 'API_IMAGE': self.new_image})
+
+                def drifted(name):
+                    value = original(name)
+                    if boundary == 'port':
+                        value['HostConfig']['PortBindings']['8080/tcp'][0]['HostIp'] = '0.0.0.0'
+                    elif boundary == 'network':
+                        value['NetworkSettings']['Networks']['unexpected-public-network'] = {}
+                    elif boundary == 'private_mount':
+                        value['Mounts'][0]['RW'] = True
+                    else:
+                        value['Config']['User'] = '0:0'
+                    return value
+
+                with patch.object(deploy, 'inspect_container', drifted):
+                    with self.assertRaises(deploy.ReleaseError):
+                        deploy.Deployment(self.settings).recover()
+                self.assertEqual(self.state(), state)
+                self.assertEqual(deploy.environment(self.env), {**self.values, 'API_IMAGE': self.new_image})
+
+    def test_recovery_rejects_drifted_environment(self):
+        state = {'phase': 'checking', 'targetCommit': COMMIT, 'targetImage': self.new_image,
+                 'previousImageId': self.old_image, 'previousImage': self.old_image, 'previousCommit': 'd' * 40}
+        deploy.atomic_json(self.root / 'state.json', state)
+        self.live_image = self.new_image
+        values = {**self.values, 'API_IMAGE': self.new_image, 'GATEWAY_ADDRESS': '0.0.0.0'}
+        deploy.write_environment(self.env, values)
+        with self.assertRaisesRegex(deploy.ReleaseError, 'environment drift'):
+            deploy.Deployment(self.settings).recover()
+        self.assertEqual(self.state(), state)
+        self.assertEqual(deploy.environment(self.env), values)
 
 
 class RetentionChecks(unittest.TestCase):

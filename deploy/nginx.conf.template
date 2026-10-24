@@ -15,17 +15,72 @@ server {
     resolver 127.0.0.11 valid=10s ipv6=off;
     client_max_body_size 32k;
     access_log off;
-    location / {
-        set $openetrm_backend ${UPSTREAM_ADDRESS}:${UPSTREAM_PORT};
-        proxy_pass http://$openetrm_backend;
-        proxy_set_header Host ${PUBLIC_HOST};
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Host "";
-        proxy_set_header Forwarded "";
-        proxy_hide_header X-Powered-By;
-        proxy_read_timeout 20s;
-        proxy_buffering off;
+    set $openetrm_backend ${UPSTREAM_ADDRESS}:${UPSTREAM_PORT};
+    proxy_set_header Host ${PUBLIC_HOST};
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header Forwarded "";
+    proxy_hide_header X-Powered-By;
+    proxy_read_timeout 20s;
+    proxy_buffering off;
+    add_header Cache-Control "no-store" always;
+    location = / {
+        root ${LANDING_ROOT};
+        try_files /index.html =404;
+        include ${LANDING_HEADERS};
         add_header Cache-Control "no-store" always;
+        limit_except GET HEAD { deny all; }
+    }
+    location = /_landing/site.css {
+        alias ${LANDING_ROOT}/site.css;
+        include ${LANDING_HEADERS};
+        add_header Cache-Control "public, max-age=300" always;
+        limit_except GET HEAD { deny all; }
+    }
+    location = /_landing/favicon.svg {
+        alias ${LANDING_ROOT}/favicon.svg;
+        include ${LANDING_HEADERS};
+        add_header Cache-Control "public, max-age=300" always;
+        limit_except GET HEAD { deny all; }
+    }
+    location ^~ /_landing/ { return 404; }
+    location = /app/ { return 308 /app$is_args$args; }
+    location = /app {
+        rewrite ^ / break;
+        proxy_pass http://$openetrm_backend;
+    }
+    location = /auth/login {
+        absolute_redirect off;
+        proxy_pass http://$openetrm_backend;
+        proxy_redirect ~^/$ /app;
+    }
+    location / {
+        proxy_pass http://$openetrm_backend;
+    }
+    # The API's body limits and its answer for a larger body (src/OpenEtrm.Api/Program.cs), so a page can tell
+    # that nothing was written.
+    location = /api {
+        error_page 413 = @request_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location /api/ {
+        error_page 413 = @request_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location = /api/interval-series/revise {
+        client_max_body_size 8m;
+        error_page 413 = @revision_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location @request_too_large {
+        types { }
+        default_type "application/json; charset=utf-8";
+        return 413 '{"code":"request_too_large","message":"The request body exceeds its 32 KiB limit."}';
+    }
+    location @revision_too_large {
+        types { }
+        default_type "application/json; charset=utf-8";
+        return 413 '{"code":"request_too_large","message":"The request body exceeds its 8192 KiB limit."}';
     }
 }

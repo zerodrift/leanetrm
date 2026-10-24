@@ -97,7 +97,8 @@ def run_checks(query,manifest,dotnet,root,environment):
     # Even a valid old commit timestamp cannot enter an already certified cutoff.
     stale=str(uuid4())
     reject_raw(f"""BEGIN;
-    INSERT INTO power_data.attempts SELECT '{stale}',job_id,generation,worker_pid,security_generation,from_date,through_date,started_at,state,finished_at,error_code FROM power_data.attempts WHERE state='succeeded' LIMIT 1;
+    INSERT INTO power_data.attempts(id,job_id,generation,worker_pid,security_generation,from_date,through_date,started_at,state,finished_at,error_code,catalog_id)
+    SELECT '{stale}',job_id,generation,worker_pid,security_generation,from_date,through_date,started_at,state,finished_at,error_code,catalog_id FROM power_data.attempts WHERE state='succeeded' LIMIT 1;
     INSERT INTO power_data.batches(id,catalog_id,publication_xid) SELECT '{stale}','{c}',publication_xid FROM power_data.batches ORDER BY sequence LIMIT 1;
     SELECT power_data.certify('{c}');COMMIT;""",'knowledge_clock')
     assert query('SELECT count(*) FROM power_data.batches;')=='3'

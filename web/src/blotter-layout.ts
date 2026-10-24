@@ -34,6 +34,3 @@ export function parseBlotterViews(raw:string):BlotterView[]{
  });
  if(new Set(result.map(v=>v.name)).size!==result.length)throw Error('Saved view names must be unique.');return result;
 }
-export function blotterCsv(rows:string[][],numeric:number[]=[]):string{
- return rows.map((row,r)=>row.map((v,i)=>{const value=r>0&&numeric.includes(i)&&/^-?\d+(\.\d+)?$/.test(v)?v:/^[\s=+\-@]/.test(v)?"'"+v:v;return '"'+value.replaceAll('"','""')+'"';}).join(',')).join('\r\n')+'\r\n';
-}

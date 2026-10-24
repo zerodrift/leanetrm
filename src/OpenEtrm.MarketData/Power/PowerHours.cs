@@ -21,7 +21,8 @@ public sealed class PowerClock
     public DateTimeOffset StartOfDay(DateOnly date)
     {
         var local=date.ToDateTime(TimeOnly.MinValue,DateTimeKind.Unspecified);
-        if(Zone.IsInvalidTime(local)||Zone.IsAmbiguousTime(local))throw new MarketDataException("clock_rule","The selected day has no unambiguous midnight in the pinned clock.");
+        if(Zone.IsInvalidTime(local)||Zone.IsAmbiguousTime(local))
+            throw new MarketDataException("clock_rule","The selected day needs an unambiguous midnight in the pinned clock.");
         return new(local,Zone.GetUtcOffset(local));
     }
     public static PowerClock Capture(TimeZoneInfo zone) => new(zone ?? throw new ArgumentNullException(nameof(zone)));
@@ -56,7 +57,10 @@ public sealed class PowerClock
 public sealed record ClockRule(string Code,string Kind,int? FixedOffsetSeconds,string? IanaZone,string? TzdbVersion);
 
 public sealed record PowerInterval(DateTimeOffset Start, DateTimeOffset End, DateOnly OperatingDate,
-    int HourBeginning, int HourEnding, int Minute, int OffsetMinutes, int Occurrence, bool Holiday);
+    int HourBeginning, int HourEnding, int Minute, int OffsetMinutes, int Occurrence, bool Holiday)
+{
+    public DeliveryInterval Delivery => new(Start, End, OperatingDate, HourBeginning, Minute, Occurrence);
+}
 
 public static class PowerHours
 {
@@ -80,23 +84,31 @@ public static class PowerHours
         var start=Midnight(from); var end=Midnight(to); var step=TimeSpan.FromMinutes(intervalMinutes);
         if((end-start).Ticks%step.Ticks!=0)
             throw new MarketDataException("power_clock","Clock transitions must align with the selected intervals.");
+        var grid=OpenEtrm.Shared.Temporal.UtcGrid.Uniform(start,end,step,int.MaxValue-1);
+        var selection=mask.Select(grid,clock,holidays);
         var closed=holidays.ToHashSet(); var intervals=new List<PowerInterval>();
         var occurrences=new Dictionary<(DateOnly,int,int),int>();
-        for(var at=start;at<end;at+=step)
+        for(int slot=0;slot<grid.Count;slot++)
         {
+            var at=grid.Start(slot);
             var local=TimeZoneInfo.ConvertTime(at,zone);
-            var last=TimeZoneInfo.ConvertTime(at+step-TimeSpan.FromTicks(1),zone);
-            // Reject transitions cutting through a cell; never stretch a local label.
-            if(local.Offset!=last.Offset || local.Minute%intervalMinutes!=0 || local.Second!=0)
-                throw new MarketDataException("power_clock","A clock transition cuts through a selected interval.");
             var day=DateOnly.FromDateTime(local.DateTime);
             var key=(day,local.Hour,local.Minute);
             var occurrence=occurrences.GetValueOrDefault(key)+1;occurrences[key]=occurrence;
             var holiday=closed.Contains(day);
-            if(mask.Contains(local.DateTime,holiday))
+            if(selection.Contains(slot))
                 intervals.Add(new(at,at+step,day,local.Hour,local.Hour+1,local.Minute,(int)local.Offset.TotalMinutes,occurrence,holiday));
         }
         return intervals.ToArray();
+    }
+
+    // A cell starts on a whole local minute that is a multiple of its length and lies inside one
+    // UTC offset. A clock transition cutting through it makes it no cell: a local label is never stretched.
+    internal static bool IsCell(TimeZoneInfo zone,DateTimeOffset start,TimeSpan step)
+    {
+        var local=TimeZoneInfo.ConvertTime(start,zone);
+        var last=TimeZoneInfo.ConvertTime(start+step-TimeSpan.FromTicks(1),zone);
+        return local.Offset==last.Offset && local.Minute%(int)step.TotalMinutes==0 && local.TimeOfDay.Ticks%TimeSpan.TicksPerMinute==0;
     }
 
     public static string Label(PowerInterval interval,bool hourEnding) =>

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "Npgsql": {
+        "type": "Transitive",
+        "resolved": "10.0.3",
+        "contentHash": "7nb5YzXuvWWJxB0J8DiyL3we+X4FOctZrt0fIBnucOIaIevFEEwGQVZKtiu9olXdlNAK1eNgqSral6r/jlhI4w=="
+      },
+      "openetrm.api": {
+        "type": "Project",
+        "dependencies": {
+          "Npgsql": "[10.0.3, )",
+          "OpenEtrm.Automation": "[1.0.0, )",
+          "OpenEtrm.MarketData": "[1.0.0, )",
+          "OpenEtrm.Rates": "[1.0.0, )",
+          "OpenEtrm.Shared": "[1.0.0, )"
+        }
+      },
+      "openetrm.automation": {
+        "type": "Project",
+        "dependencies": {
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "openetrm.marketdata": {
+        "type": "Project",
+        "dependencies": {
+          "OpenEtrm.Shared": "[1.0.0, )"
+        }
+      },
+      "openetrm.rates": {
+        "type": "Project",
+        "dependencies": {
+          "OpenEtrm.MarketData": "[1.0.0, )"
+        }
+      },
+      "openetrm.shared": {
+        "type": "Project"
+      }
+    }
+  }
+}

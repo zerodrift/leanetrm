@@ -1,5 +1,6 @@
 """Financial swap booking, retained history and independent side PV checks."""
 from preview_fixture import trade_booking
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 from preview_client import PreviewClient
@@ -24,8 +25,13 @@ def run_checks(url):
     body = {**context, 'operationId': str(uuid4()), **trade_booking(), 'bookId': catalog['books'][0]['id'], 'definitionRevisionId': index['definitionRevisionId'], 'commodity':index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': True,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'], 'paymentSchedule':rule(18)},
             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'],
-                         'firstFixingAt': '2020-12-31T12:00:00Z', 'paymentSchedule':rule(46), 'resetFrequency':'monthly','averagingMethod':'none'}}
+                         'paymentSchedule':rule(46), 'resetFrequency':'monthly','averagingMethod':'none'}}
     preview = c.call('swaps/preview', body)
+    check('published fixing conventions generate schedules without a manual fixing boundary',
+          index['fixingConvention'] == 'published_index_observations_v1' and
+          datetime.fromisoformat(preview['valuation']['sides'][1]['payments'][0]['resets'][0]['fixingAt'].replace('Z','+00:00')) == datetime(2020,12,31,12,tzinfo=timezone.utc))
+    c.call('swaps/preview', {**body, 'floating': {**body['floating'], 'firstFixingAt': '2020-12-31T12:00:00Z'}}, expected=422)
+    check('manual fixing boundary overrides reject even when they match the published schedule', True)
     result = c.call('swaps/book', body)
     retry = c.call('swaps/book', body)
     check('booking retries return the same trade instrument and initial event', result == retry and result['revision'] == 1)
@@ -56,8 +62,9 @@ def run_checks(url):
     c.call('swaps/book', {**body, 'operationId': str(uuid4()), 'floating': {**body['floating'], 'averaging': 'unknown'}}, expected=422)
     c.call('swaps/book', {**body, 'operationId': str(uuid4()), 'discounting': None}, expected=422)
     check('stale heads unsupported conventions currencies and missing policies reject', True)
-    risk = PreviewClient(url); risk.bootstrap(); risk.call('profile', {'profile': 'risk'})
-    risk.call('swaps/book', {**body, 'operationId': str(uuid4())}, expected=403)
+    c.call('profile', {'profile': 'risk'})
+    c.call('swaps/book', {**body, 'operationId': str(uuid4())}, expected=403)
+    c.call('profile', {'profile': 'trader'})
     check('read-only risk authority cannot book', True)
     for curve, strike, expected in [('daily_gas', '3', '16'), ('daily_power', '40', '160')]:
         daily = next(i for i in catalog['indices'] if i['curve'] == curve)
@@ -100,3 +107,4 @@ def run_checks(url):
     before_move = c.call('trading/blotter', {'context': {**shared, 'knowledgeMode': 'retained', 'contextId': blotter['context']['contextId']}, 'view': trades})
     check('book filters follow latest head while retained knowledge preserves earlier book membership', not any(h['tradeId'] == result['tradeId'] for h in now['holdings']) and any(h['tradeId'] == result['tradeId'] and h['bookId'] == body['bookId'] for h in before_move['holdings']))
     print(f'{passed} swap HTTP checks passed.', flush=True)
+    return c

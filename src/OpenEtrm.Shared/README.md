@@ -1,10 +1,21 @@
 # Shared utilities
 
-Small, dependency-free .NET utilities used by executable temporal acceptance
+Small, dependency-free .NET utilities used by executable temporal and numerical acceptance
 cases. The named contract-sequence resolver stays in the market domain because
 it carries exact contract/reference identities. Keep business definitions, storage and authorization in their owning
 modules. Add common behavior here when it has a concrete consumer; do not turn
 this folder into a general framework.
+
+## Exact integer rounding
+
+`IntegerRounding.RoundQuotient` rounds a signed integer fraction once, with a
+positive denominator and an explicitly selected nearest/ties-to-even or
+nearest/ties-away-from-zero rule. Amount formatting, increment rounding and rate
+factor construction share this operation. Their callers retain responsibility
+for units, scale, financial conventions, supported bounds and structured errors.
+The utility selects no precision or financial policy and has no floating-point
+intermediate. Checks compare signed fractions with an independent decimal oracle
+and cover 300-digit half ties and unsupported inputs.
 
 ## Temporal payloads
 
@@ -15,8 +26,8 @@ this folder into a general framework.
 | `MonthlyDates` | Bounded monthly anchors with explicit short-month policy and retained original/adjusted dates |
 | `BitemporalRange` | Half-open effective dates and UTC knowledge intervals with a finite reserved open end |
 | `DateReference` | Bounded names, occurrence indexes and signed business-day offsets; no scripting |
-| `UtcGrid` | Immutable strictly increasing UTC interval boundaries; explicit uniform-grid size limit or supplied nonuniform boundaries |
-| `UtcSelection` | Immutable slot bitmask bound to the exact grid, with exact selected duration in ticks |
+| `UtcGrid` | Immutable exact UTC intervals; compact uniform axes, sparse equal-duration axes or supplied nonuniform boundaries |
+| `UtcSelection` | Immutable slot bitmask bound to the exact grid, with union/intersection/overlap, selected-slot iteration and exact duration |
 | `ImmutablePool<T>` | Bounded, explicitly scoped, concurrency-safe canonicalization using full equality, including hash-collision checks |
 
 Separate named definitions can share a canonical payload. A pool is owned by its
@@ -89,3 +100,15 @@ incremental retained payload memory. The platform did not expose process peak
 working set, so the report records that field as unavailable. No portfolio,
 database, concurrent-throughput or production performance claim follows from
 these measurements.
+
+## Dependency calculation
+
+`Calculation.DependencyPlan` owns immutable compressed forward/reverse adjacency
+and cycle validation. `GraphSession<T>` evaluates declared dependencies once,
+with immutable values and nested sparse additive scenarios. `Advance` shares
+completed memo pages copy-on-write across separately admitted base frames;
+`Rebind` transfers qualified completed work between integer slot layouts. Neither
+retains a chain of previous frames. Owners must explicitly qualify semantic
+correspondence and supply changed bound operators. Context resolution, financial
+units, lineage, source admission and authorization remain in their owning modules.
+Native/basis/custom curves, instrument pricing and risk use this kernel.

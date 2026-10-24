@@ -1,54 +1,57 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,allCurves,marketType,marketTypeName,marketGroups,curveName,setCurveNames} from '../dist/market-view.js';
+import {frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,curveName,setCurveNames} from '../dist/market-view.js';
 import {dataSections,referenceSections,setupSections} from '../dist/data-sections.js';
 import {newPreferences,parsePreferences,loadPreferences,savePreferences} from '../dist/preferences.js';
 const id='12345678-1234-1234-1234-123456789012';
 const frame=(at,name='Initial synthetic inputs',suffix='')=>({id:id+suffix,name,at,observationIds:[]});
-const workspace={definitions:{curves:[{code:'future',commodity_code:'gas'},{code:'base_forward',commodity_code:'gas'},{code:'local_power',commodity_code:'power'}],curve_members:[{curve_code:'future',contract_id:'f'},{curve_code:'base_forward',contract_id:'g'},{curve_code:'local_power',contract_id:'p'}],contracts:[{id:'f',kind:'future'},{id:'g',kind:'forward'},{id:'p',kind:'forward'}]},references:{commodities:[{code:'gas',name:'Synthetic gas'},{code:'power',name:'Synthetic power'}],currencies:[{code:'currency',display_code:'TST'}],units:[{code:'energy',symbol:'E_A'}],quantity_specifications:[{code:'gas_energy',unit_code:'energy'}],quote_specifications:[{code:'quote',quantity_code:'gas_energy',currency_code:'currency',multiplier:'1'}]}};
+const workspace={references:{currencies:[{code:'currency',display_code:'TST'}],units:[{code:'energy',symbol:'E_A'}],quantity_specifications:[{code:'gas_energy',unit_code:'energy'}],quote_specifications:[{code:'quote',quantity_code:'gas_energy',currency_code:'currency',multiplier:'1'}]}};
 test('market dates use minutes and retain exact server selection IDs',()=>{const frames=[frame('2020-12-18T16:00:13.123Z'),frame('2020-12-18T16:00:13.123Z','Edited inputs','b')];const opts=frameOptions(frames,'America/Chicago');assert.deepEqual(opts.map(o=>o.value),frames.map(f=>f.id));assert.ok(opts[0].name.includes('10:00 AM'));assert.ok(opts[0].name.endsWith('Original'));assert.ok(opts[1].name.endsWith('Correction 1'));assert.ok(!opts[0].name.includes(':13'));assert.ok(!opts[0].name.includes(id));});
 test('changing zone changes labels but never input identities or ordering',()=>{const frames=[frame('2020-12-18T01:00:30Z'),frame('2020-12-18T01:00:30Z','Edited inputs','b')];const before=JSON.stringify(frames),utc=frameOptions(frames,'UTC'),chicago=frameOptions(frames,'America/Chicago');assert.deepEqual(utc.map(o=>o.value),chicago.map(o=>o.value));assert.notEqual(utc[0].name,chicago[0].name);assert.equal(JSON.stringify(frames),before);});
 test('fall-back repeated local times show offsets rather than false versions',()=>{const opts=frameOptions([frame('2024-11-03T05:30:00Z'),frame('2024-11-03T06:30:00Z','Initial synthetic inputs','b')],'America/New_York');assert.ok(opts[0].name.includes('1:30 AM'));assert.ok(opts[0].name.endsWith('GMT-4'));assert.ok(opts[1].name.endsWith('GMT-5'));assert.ok(!opts.some(o=>/Original|version|Correction/.test(o.name)));});
 test('real versions within a repeated local minute are still separate choices',()=>{const opts=frameOptions([frame('2024-11-03T05:30:00Z'),frame('2024-11-03T05:30:00Z','Edited inputs','b'),frame('2024-11-03T06:30:00Z','Initial synthetic inputs','c')],'America/New_York');assert.match(opts[0].name,/GMT-4 · Original$/);assert.match(opts[1].name,/GMT-4 · Correction 1$/);assert.match(opts[2].name,/GMT-5$/);});
 test('history rows can distinguish DST folds without seconds',()=>{const labels=timeLabels(['2024-11-03T05:30:00Z','2024-11-03T06:30:00Z'],'America/New_York');assert.notEqual(labels[0],labels[1]);assert.ok(labels.every(l=>l.includes('1:30 AM')));});
+test('seconds labels name the offset only where a repeated clock needs it',()=>{
+ assert.deepEqual(timeLabels(['2026-11-01T05:30:00+00:00','2026-11-01T06:30:00+00:00','2026-11-01T07:30:00+00:00'],'America/New_York',true),['Nov 1, 2026, 1:30:00 AM GMT-4','Nov 1, 2026, 1:30:00 AM GMT-5','Nov 1, 2026, 2:30:00 AM']);
+ assert.deepEqual(timeLabels(['2026-10-21T02:08:38.123456+00:00','2026-10-21T02:08:41+00:00'],'UTC',true),['Oct 21, 2026, 2:08:38 AM','Oct 21, 2026, 2:08:41 AM']);
+ assert.equal(displayInstant('2026-10-21T02:08:38+00:00','UTC',true),'Oct 21, 2026, 2:08:38 AM');
+ assert.equal(timeLabels(['2026-10-21T02:08:38+00:00'],'UTC')[0],'Oct 21, 2026, 2:08 AM');});
+test('repeated instant labels reuse their formatters and give identical text',()=>{
+ const values=['2026-11-01T05:30:00+00:00','2026-11-01T06:30:00+00:00','2026-11-01T07:30:00+00:00'];
+ const calls=[[values,'America/New_York',false],[values,'America/New_York',true],[values,'UTC',false],[values,'UTC',true]];
+ const first=calls.map(([v,zone,seconds])=>timeLabels(v,zone,seconds));
+ const Original=Intl.DateTimeFormat;let built=0;
+ Intl.DateTimeFormat=function(...args){built++;return new Original(...args);};
+ try{for(let round=0;round<100;round++)calls.forEach(([v,zone,seconds],i)=>{assert.deepEqual(timeLabels(v,zone,seconds),first[i]);assert.equal(displayInstant(v[2],zone,seconds),first[i][2]);});}
+ finally{Intl.DateTimeFormat=Original;}
+ // Labelling cost must not grow with the number of instants: formatters are built once per zone and precision.
+ assert.ok(built<=calls.length+2,`built ${built} formatters`);
+ assert.deepEqual(first[1],['Nov 1, 2026, 1:30:00 AM GMT-4','Nov 1, 2026, 1:30:00 AM GMT-5','Nov 1, 2026, 2:30:00 AM']);
+ assert.deepEqual(first[2],['Nov 1, 2026, 5:30 AM','Nov 1, 2026, 6:30 AM','Nov 1, 2026, 7:30 AM']);});
 test('delivery month stays contractual across user time zones',()=>{assert.equal(deliveryMonth('2021-01-01'),'Jan 2021');assert.match(displayInstant('2021-01-01T00:00:00Z','America/Chicago'),/Dec 31, 2020/);});
 test('daily, monthly and BALMO labels identify their exact delivery coverage',()=>{assert.equal(deliveryLabel('2026-01-16','2026-01-17'),'Jan 16, 2026');assert.equal(deliveryLabel('2026-02-01','2026-03-01'),'Feb 2026');assert.equal(deliveryLabel('2026-01-16','2026-02-01'),'Jan 16, 2026 – Jan 31, 2026');assert.throws(()=>deliveryLabel('2026-02-01','2026-02-01'));});
 test('missing history prices retain explicit availability rather than displaying zero',()=>{assert.equal(historyPriceLabel({value:'0',unavailableReason:null}),'0');assert.equal(historyPriceLabel({value:null,unavailableReason:'source_expired'}),'Past marking cutoff');assert.equal(historyPriceLabel({value:null,unavailableReason:'missing_observation'}),'No saved price');assert.throws(()=>historyPriceLabel({value:null}));assert.throws(()=>historyPriceLabel({value:'3',unavailableReason:'source_expired'}));});
 test('price-unit labels resolve currency and actual unit symbol',()=>{assert.equal(quoteUnit('quote',workspace),'TST / E_A');const copy=structuredClone(workspace);copy.references.quote_specifications[0].multiplier='100';assert.equal(quoteUnit('quote',copy),'TST / E_A × 100');});
 test('missing unit relationships raise rather than guess a unit',()=>{const copy=structuredClone(workspace);copy.references.units=[];assert.throws(()=>quoteUnit('quote',copy),/missing or inconsistent/);});
-test('futures/forwards follow dated contract kinds',()=>{assert.equal(marketType(workspace.definitions.curves[0],workspace),'futures');assert.equal(marketType(workspace.definitions.curves[1],workspace),'forwards');const copy=structuredClone(workspace);copy.definitions.curve_members.push({curve_code:'future',contract_id:'g'});assert.equal(marketType(copy.definitions.curves[0],copy),'mixed');assert.equal(marketTypeName('mixed'),'Mixed curves');});
-test('browsing can group by commodity or market type without changing curves',()=>{const before=JSON.stringify(workspace);assert.deepEqual(marketGroups(workspace,'commodity','all','all').map(g=>g.name),['Gas','Power']);assert.deepEqual(marketGroups(workspace,'marketType','all','all').map(g=>g.name),['Forward curves','Futures']);assert.equal(JSON.stringify(workspace),before);});
-test('commodity and market filters compose',()=>{const groups=marketGroups(workspace,'commodity','gas','forwards');assert.equal(groups.length,1);assert.deepEqual(groups[0].curves.map(c=>c.code),['base_forward']);assert.deepEqual(marketGroups(workspace,'commodity','power','futures'),[]);});
 test('all visible text redacts full UUIDs including multiple IDs',()=>{assert.equal(publicText(`Old ${id}, new ${id.toUpperCase()}`),'Old internal record, new internal record');});
 test('reference tables omit every ID column and UUID-bearing value',()=>{const rows=[{id,catalog_id:id,revision_id:id,source_revision_id:id,code:'energy',symbol:'E_A',extra:id,other:id}];assert.deepEqual(publicColumns(rows).map(c=>c.key),['code','symbol']);});
-test('profile settings survive reload independently per demo user',()=>{const map=new Map(),storage={getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)};const prefs={...newPreferences('America/Chicago'),browseBy:'marketType',commodity:'gas',marketType:'forwards',tab:'inputs'};savePreferences(storage,'viewer',prefs);assert.deepEqual(loadPreferences(storage,'viewer','UTC'),prefs);assert.equal(loadPreferences(storage,'editor','UTC').timeZone,'UTC');});
+test('profile settings survive reload independently per demo user',()=>{const map=new Map(),storage={getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)};const prefs={...newPreferences('America/Chicago'),browseBy:'marketType',market:'gas',marketType:'forwards',tab:'inputs'};savePreferences(storage,'viewer',prefs);assert.deepEqual(loadPreferences(storage,'viewer','UTC'),prefs);assert.equal(loadPreferences(storage,'editor','UTC').timeZone,'UTC');});
 test('profile schema ignores unrelated fields and contains no market input choices',()=>{const prefs=newPreferences('UTC');assert.deepEqual(parsePreferences(JSON.stringify({...prefs,snapshotId:id,role:'editor',observations:[id]})),prefs);});
-test('invalid time zone and unsupported preference versions are rejected',()=>{const prefs=newPreferences('UTC');for(const patch of [{timeZone:'invalid/zone'},{version:2},{browseBy:'prices'},{marketType:'guess'},{tab:'unknown'}])assert.throws(()=>parsePreferences(JSON.stringify({...prefs,...patch})));});
+test('invalid time zone and unsupported preference versions are rejected',()=>{const prefs=newPreferences('UTC');for(const patch of [{timeZone:'invalid/zone'},{version:2},{browseBy:'prices'},{market:''},{market:7},{market:'x'.repeat(129)},{marketType:'guess'},{tab:'unknown'}])assert.throws(()=>parsePreferences(JSON.stringify({...prefs,...patch})));});
 test('unavailable browser storage is surfaced instead of reporting success',()=>{assert.throws(()=>savePreferences({getItem:()=>null,setItem:()=>{throw Error('blocked');}},'viewer',newPreferences('UTC')),/blocked/);});
 
 test('reference data groups business references and conventions as distinct curated sections',()=>{const available=['locations','units','currencies','clock_rules','quote_specifications','commodity_locations','revisions'];assert.deepEqual(dataSections(available).map(g=>g.sections.map(s=>s.value)),[['units','currencies','locations'],['clock_rules','quote_specifications']]);assert.deepEqual(dataSections(['units']).map(g=>g.name),['Reference data']);assert.ok(!referenceSections.some(s=>setupSections.some(t=>t.value===s.value)));});
 test('location coordinates have plain labels and preserve exact decimal text',()=>{const rows=[{id,latitude:'12.345678',longitude:'-45.678912'}];assert.deepEqual(publicColumns(rows),[{key:'latitude',name:'Latitude (°)'},{key:'longitude',name:'Longitude (°)'}]);assert.equal(publicText(rows[0].latitude),'12.345678');});
 
-test('interest curves are browsed without manufacturing commodity contracts',()=>{const copy=structuredClone(workspace);copy.definitions.rate_curves=[{code:'interest_rates',interest_rate_code:'rate'}];assert.equal(allCurves(copy).length,4);assert.equal(marketType(copy.definitions.rate_curves[0],copy),'rates');assert.deepEqual(marketGroups(copy,'commodity','rates','rates').map(g=>g.name),['Interest rates']);assert.equal(copy.definitions.contracts.length,3);});
 test('retired standalone convention catalogs are not menu choices',()=>{assert.ok(![...referenceSections,...setupSections].some(s=>['day_count_conventions','compounding_conventions','fx_rate_definitions','heat_rate_definitions'].includes(s.value)));});
+
+test('execution admission inspection has an explicit category and source-code labels',()=>{
+  assert.deepEqual(dataSections(['futures_execution_policies'])[0]?.sections.map(({value,name})=>({value,name})),[{value:'futures_execution_policies',name:'Trading eligibility'}]);
+  assert.deepEqual(publicColumns([{eligible_from:'2026-01-05T09:00:00Z',qualification_source_code:'source',source_series_code:'source_contract',usage_policy:'sample'}]).map(c=>c.name),['Trading eligibility from','Qualification source','Source contract code','Usage policy']);
+});
 
 
 test('older saved profiles acquire only presentation layout defaults',()=>{const old={version:1,timeZone:'UTC',browseBy:'commodity',commodity:'all',marketType:'all',tab:'prices'};const prefs=parsePreferences(JSON.stringify(old));assert.deepEqual(prefs,newPreferences('UTC'));});
 test('collapsed sidebar library and menus persist independently per persona',()=>{const entries=new Map(),storage={getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,v)},prefs={...newPreferences('UTC'),sidebarCollapsed:true,libraryCollapsed:true,collapsedMenus:['settings-menu'],collapsedCurveGroups:['commodity|Gas']};savePreferences(storage,'viewer',prefs);assert.deepEqual(loadPreferences(storage,'viewer','UTC'),prefs);assert.deepEqual(loadPreferences(storage,'editor','UTC').collapsedMenus,[]);});
 test('invalid and unbounded layout preferences are rejected',()=>{for(const patch of [{sidebarCollapsed:'true'},{libraryCollapsed:1},{collapsedMenus:['unknown']},{collapsedMenus:['market-menu','market-menu']},{collapsedCurveGroups:['x'.repeat(129)]},{collapsedCurveGroups:Array.from({length:65},(_,i)=>String(i))}])assert.throws(()=>parsePreferences(JSON.stringify({...newPreferences('UTC'),...patch})));});
 test('curve names come from the served directory and are never invented from codes',()=>{setCurveNames([{code:'future',name:'Synthetic futures'},{code:'rates',name:'Synthetic rates'},{code:'split',name:'One'},{code:'split',name:'Two'}]);assert.equal(curveName('future'),'Synthetic futures');assert.equal(curveName('rates'),'Synthetic rates');assert.throws(()=>curveName('missing_curve'),/missing or inconsistent/);assert.throws(()=>curveName('split'),/missing or inconsistent/);setCurveNames([]);assert.throws(()=>curveName('future'),/missing or inconsistent/);});
-
-test('market navigation omits curves without data in the selected frame',async()=>{
- const {availableMarketCurves}=await import('../dist/market-view.js');
- const w={...workspace,frames:[{id:'a',observationIds:['o'],curveContracts:{future:['f'],base_forward:[],local_power:['p']}},{id:'b',observationIds:['q'],curveContracts:{future:[],base_forward:['g']}}],observations:[]};
- assert.deepEqual(availableMarketCurves(w,'a').map(c=>c.code),['future','local_power']);
- assert.deepEqual(availableMarketCurves(w,'b').map(c=>c.code),['base_forward']);
- assert.deepEqual(availableMarketCurves(w,'missing'),[]);
- assert.deepEqual(availableMarketCurves(w).map(c=>c.code),['future','base_forward','local_power']);
-});
-test('empty reference categories are omitted while populated supplements stay available',async()=>{
- const {populatedDataSections}=await import('../dist/data-sections.js');
- const groups=populatedDataSections({units:[],currencies:[{code:'USD'}],locations:[]},{units:[{code:'energy'}]});
- assert.deepEqual(groups.flatMap(g=>g.sections.map(s=>s.value)),['units','currencies']);
- assert.deepEqual(populatedDataSections({units:[],locations:[]}),[]);
-});

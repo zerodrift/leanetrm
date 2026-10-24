@@ -4,7 +4,7 @@ import {matchesTableRow,columnValues,validNumericFilter} from './regular-table.j
 import {publicText} from './market-view.js';
 export type GridLayout={order:string[];widths:Record<string,number>;sort:{key:string;direction:'asc'|'desc'}[]};
 export const emptyGridLayout=():GridLayout=>({order:[],widths:{},sort:[]});
-type GridOptions={displayRows?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void};
+type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void};
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[],isBusy:()=>boolean,options:GridOptions){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=publicText(value);return n;};
   const values=rows.map(row=>row.map(cell=>publicText(typeof cell==='string'?cell:cell.textContent??'')));
@@ -44,7 +44,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   const definitions:Record<string,unknown>[]=[],groups=new Map<string,{columns:Record<string,unknown>[]} >();
   for(const key of ordered){
     const i=options.keys.indexOf(key),group=options.columnGroups?.[key],title=publicText(group?.measureTitle??headers[i]);
-    const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:options.visible?.[i]!==false,minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:true,hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const span=document.createElement('span'),index=Number(cell.getRow().getData().__sourceIndex);span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return span;},headerWordWrap:true,
+    const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:options.visible?.[i]!==false,minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:true,hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const span=document.createElement('span'),index=Number(cell.getRow().getData().__sourceIndex);span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.cellTitles?.[index]?.[i]!==undefined)span.title=publicText(options.cellTitles[index][i]);else if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return span;},headerWordWrap:true,
       sorter:numeric.includes(i)?(a:string,b:string)=>a===''?(b===''?0:-1):b===''?1:compareDecimalStrings(a,b):'string'};
     if(!group){definitions.push(definition);continue;}
     let parent=groups.get(group.key);if(!parent){const title=publicText(group.title);parent={columns:[]};groups.set(group.key,parent);definitions.push({...parent,title,titleFormatter:()=>document.createTextNode(title),headerHozAlign:'center',cssClass:'pivot-column-group'});}
@@ -65,10 +65,13 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       event.detail>0&&gesture&&(gesture.cancelled||gesture.row!==row.getElement()))return;
     openRow(row);
   });
-  function matches(row:Record<string,string>){return matchesTableRow(headers.map((_,i)=>row[field(i)]),state.query,state.columns,numeric);}
-  function update(){const shown=values.filter(row=>matchesTableRow(row,state.query,state.columns,numeric)).length;count.textContent=`${shown} of ${values.length} rows`;clear.hidden=!state.query&&!state.columns.some(v=>v!==null);}
+  function matches(row:Record<string,string>){return matchesTableRow(headers.map((_,i)=>row[field(i)]),state.query,state.columns,options.visible,numeric);}
+  function update(){const shown=values.filter(row=>matchesTableRow(row,state.query,state.columns,options.visible,numeric)).length;count.textContent=`${shown} of ${values.length} rows`;clear.hidden=!state.query&&!state.columns.some(v=>v!==null);}
   function apply(){update();if(ready&&alive)table.setFilter(matches);}
   function layout():GridLayout{return {order:table.getColumns().map(c=>options.keys[Number(c.getField().slice(1))]),widths:Object.fromEntries(table.getColumns().map(c=>[options.keys[Number(c.getField().slice(1))],Math.max(40,Math.min(3000,Math.round(c.getWidth()||120)))])),sort:table.getSorters().map(s=>({key:options.keys[Number(s.field.slice(1))],direction:s.dir}))};}
+  // fitDataFill refits every column without a definition width whenever the
+  // grid is redrawn for a new size, so a user's resize becomes that width.
+  table.on('columnResized',(column:any)=>{column.getDefinition().width=column.getWidth();});
   table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;apply();options.onReady?.();});
   for(const event of ['columnMoved','columnResized','dataSorted'])table.on(event,()=>{if(ready&&current())options.onLayout(layout());});
   search.oninput=()=>{if(!current())return;state.query=search.value;apply();};

@@ -1,7 +1,6 @@
 import {displayDate} from './market-view.js';
-import {localTimeValue} from './user-time.js';
 
-// Calendar layout and user-zone grouping are presentation only. Availability is
+// Calendar layout is presentation only. Availability is
 // supplied by the consuming operation; this component never invents valid dates.
 export function calendarDays(month:string,available:readonly string[]){
  const start=new Date(month+'-01T00:00:00Z');
@@ -13,8 +12,6 @@ export function calendarDays(month:string,available:readonly string[]){
  }
  return result;
 }
-export function frameDays<T extends {at:string}>(frames:readonly T[],zone:string){return [...new Set(frames.map(f=>localTimeValue(f.at,zone).slice(0,10)))].sort();}
-export function framesOnDay<T extends {at:string}>(frames:readonly T[],day:string,zone:string){return frames.filter(f=>localTimeValue(f.at,zone).slice(0,10)===day);}
 
 export function createAvailableDatePicker(host:HTMLElement,options:{id:string;label:string;onChange:(date:string)=>void;busy?:()=>boolean}){
  const panel=document.createElement('details');panel.className='available-date-picker';

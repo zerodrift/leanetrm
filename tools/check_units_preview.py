@@ -2,8 +2,8 @@
 from preview_client import PreviewClient
 
 
-def run_checks(url, previous_known_at=None):
-    c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'viewer'})
+def run_checks(url, previous_known_at=None, client=None):
+    c = client or PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'viewer'})
     w = c.call('workspace'); refs = w['unitCatalog']['references']
     units = {u['code']: u for u in refs['units']}
     assert {'mmbtu_it','btu_it','therm_it','dekatherm_it','joule','megajoule','gigajoule','kilowatt_hour','megawatt_hour','kilowatt','megawatt','gigawatt','cubic_metre','litre','cubic_foot','mcf','mmcf','us_gallon','petroleum_barrel','kilogram','metric_tonne','pound','short_ton','troy_ounce'} <= units.keys()

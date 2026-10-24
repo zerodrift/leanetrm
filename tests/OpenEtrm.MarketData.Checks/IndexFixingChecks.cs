@@ -1,92 +1,248 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
-using OpenEtrm.MarketData.Trading;
-using OpenEtrm.Shared.Temporal;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
 
 internal static class IndexFixingChecks
 {
- public static int Run()
- {
-  var f=new Fixture();var quote=f.Quotes[0];var unit=new Quantity(ExactDecimal.Parse("1"),quote.Quantity);
-  var daily=DailyFixture.Create(f,quote,["90","20","30"]);
-  var at=Fixture.Utc("2041-01-02T12:00:00Z");var known=Fixture.Utc("2041-01-05T00:00:00Z");
-  var rules=daily.Projections.Select((p,n)=>new IndexFixingRequirement(f.R("index"),quote,f.R("source"),p.Contract.DeliveryFrom,p.Contract.DeliveryTo,
-   Fixture.Utc($"2041-01-{n+2:00}T00:00:00Z"),IndexFixingRequirement.LatestEligibleFinalByContext)).ToImmutableArray();
-  var actual=new IndexFixingObservation(new(f.Revision.CatalogId,Guid.NewGuid()),rules[0].Index,rules[0].Source,quote,rules[0].From,rules[0].To,
-   Fixture.Utc("2041-01-02T10:00:00Z"),Fixture.Utc("2041-01-04T00:00:00Z"),PublicationState.Final,new UnitPrice(ExactDecimal.Parse("10"),quote),1,null);
-  var snapshot=daily.Market.Snapshot with {ValuationAt=at,FixingKnowledgeCutoff=known,IndexFixings=[actual]};
-  var projected=new FloatingSide(Guid.NewGuid(),f.R("index"),quote,unit,daily.From,daily.To,rules[0].FixingAt,Fixture.Utc("2041-02-18T00:00:00Z"),
-   FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.Implementation,spread:new UnitPrice(ExactDecimal.Parse("1"),quote));
-  var side=new FixingAwareFloatingSide(projected,rules,FixingAwareFloatingSide.Implementation);
-  var count=0;
-  void Check(string label,Action run){run();count++;Console.WriteLine("PASS index fixings: "+label);}
-  void Reject(string code,Action run){try{run();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected "+code);}
-  SideValuation Value(MarketSnapshot s)=>side.PV(new SideValuationContext(daily.Model.Build(s,side.DependenciesAt(s)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
-  Check("partially fixed average uses actual 10 and projected 20/30 plus contractual spread, once",()=>{
-   var value=Value(snapshot);if(value.PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString()!="63")throw new Exception("Expected (10+20+30+3)*3/3 = 63");
-   var rows=value.Payments.Single().Resets;
-   if(rows[0].Price.Kind!=SchedulePriceKind.Actual||rows[0].Price.Fixing?.Key!=actual.Key||rows.Skip(1).Any(r=>r.Price.Kind!=SchedulePriceKind.Projected))throw new Exception("Actual/projected evidence lost");
-   if(side.DependenciesAt(snapshot).Length!=2||side.DependenciesAt(snapshot).Contains(daily.Projections[0].Market))throw new Exception("An actual fixing retained live curve exposure");
-  });
-  Check("dependency discovery cannot report complete risk inputs when a due fixing is missing",()=>
-   Reject("index_fixing_required",()=>side.DependenciesAt(snapshot with{IndexFixings=[]})));
-  Check("missing due fixing cannot fall back to an available forward mark",()=>Reject("index_fixing_required",()=>Value(snapshot with{IndexFixings=[]})));
-  Check("preliminary, late publication, future knowledge and wrong source are not eligible actuals",()=>{
-   Reject("index_fixing_required",()=>Value(snapshot with{IndexFixings=[actual with{State=PublicationState.Preliminary}]}));
-   Reject("index_fixing_required",()=>Value(snapshot with{IndexFixings=[actual with{PublishedAt=at.AddSeconds(1)}]}));
-   Reject("index_fixing_required",()=>Value(snapshot with{FixingKnowledgeCutoff=actual.KnownAt.AddTicks(-10)}));
-   Reject("index_fixing_required",()=>Value(snapshot with{IndexFixings=[actual with{Source=f.R("other_source") }]}));
-  });
-  Check("later eligible final revisions change later contexts and historical replay retains the original",()=>{
-   var corrected=actual with{Key=new(f.Revision.CatalogId,Guid.NewGuid()),Price=new UnitPrice(ExactDecimal.Parse("16"),quote),KnownAt=known.AddDays(1),Revision=2,Corrects=actual.Key};
-   var inputs=snapshot with{IndexFixings=[actual,corrected]};
-   if(Value(inputs).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString()!="63")throw new Exception("Later knowledge leaked into original context");
-   var later=Value(inputs with{FixingKnowledgeCutoff=corrected.KnownAt});
-   if(later.PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString()!="69"||later.Payments.Single().Resets[0].Price.Fixing?.Key!=corrected.Key)throw new Exception("Eligible final correction was not resolved");
-   if(Value(inputs).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString()!="63")throw new Exception("Replaying the original context changed its result");
-   var preliminary=corrected with{State=PublicationState.Preliminary};
-   if(Value(inputs with{IndexFixings=[actual,preliminary],FixingKnowledgeCutoff=corrected.KnownAt}).Payments.Single().Resets[0].Price.Fixing?.Key!=actual.Key)throw new Exception("A preliminary correction displaced the final fixing");
-  });
-  Check("fixing-aware wrappers preserve generated zero-lag payment semantics",()=>{
-   var monthly=f.Contracts[1];
-   var paymentRule=new PaymentRule(PaymentFrequency.Monthly,PaymentDateRule.DaysAfterPeriodEnd,0,null,PaymentDayBasis.CalendarDays,null,DateRoll.Unadjusted,null,PaymentRule.Implementation);
-   var underlying=new FloatingSide(Guid.NewGuid(),f.R("index"),quote,unit,monthly.DeliveryFrom,monthly.DeliveryTo,rules[0].FixingAt,paymentRule,FloatingAveraging.MonthlyIndexPrice,
-    [new(new(f.C("base_forward"),monthly.Key),monthly)],FloatingSide.Implementation);
-   var requirement=rules[0] with{From=monthly.DeliveryFrom,To=monthly.DeliveryTo};
-   var wrapped=new FixingAwareFloatingSide(underlying,[requirement],FixingAwareFloatingSide.Implementation);
-   var inputs=snapshot with{IndexFixings=[actual with{From=monthly.DeliveryFrom,To=monthly.DeliveryTo}]};
-   var value=wrapped.PV(new SideValuationContext(inputs,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
-   if(value.Payments.Single().Plan.PaymentDate!=new DateOnly(2041,1,31)||value.Payments.Single().Plan.PaymentConvention!=paymentRule||value.PresentValue.ToMoney().Amount.ToString()!="10")throw new Exception("Generated payment semantics changed in the fixing-aware wrapper");
-  });
-  Check("ordinary shared market scenarios freeze actuals and shock only projected contributions",()=>{
-   var baseMarket=daily.Model.Build(snapshot,side.DependenciesAt(snapshot));
-   ExactMoney ValueIn(CurveBuild market)=>side.PV(new SideValuationContext(market,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted))).PresentValue.Scale(ExactDecimal.Parse("3"));
-   QuoteShift Shift(int n)=>new(snapshot.Selections[n].Input,quote.Key,PriceUnit.FromQuote(quote),ExactDecimal.Parse("1"),QuoteShift.Convention);
-   var actualShock=daily.Model.WithShifts(baseMarket,[Shift(0)]);
-   var projectedShock=daily.Model.WithShifts(baseMarket,[Shift(1)]);
-   if(ValueIn(actualShock).ToMoney().Amount.ToString()!="63"||ValueIn(projectedShock).ToMoney().Amount.ToString()!="64"||!snapshot.HasSameInputs(projectedShock.Snapshot))throw new Exception("Market shocks changed a resolved actual fixing");
-  });
-  Check("a fully fixed side can value without any commodity projection inputs",()=>{
-   var allRules=rules.Select(r=>r with{FixingAt=rules[0].FixingAt}).ToImmutableArray();
-   var fullyFixed=new FixingAwareFloatingSide(projected,allRules,FixingAwareFloatingSide.Implementation);
-   var all=rules.Select((r,n)=>actual with{Key=new(f.Revision.CatalogId,Guid.NewGuid()),From=r.From,To=r.To,Price=new UnitPrice(ExactDecimal.Parse((10*(n+1)).ToString(System.Globalization.CultureInfo.InvariantCulture)),quote)}).ToImmutableArray();
-   var inputs=snapshot with{IndexFixings=all};
-   if(fullyFixed.DependenciesAt(inputs).Length!=0)throw new Exception("A fully fixed side requested projections");
-   var value=fullyFixed.PV(new SideValuationContext(inputs,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
-   if(value.PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString()!="63")throw new Exception("Fully fixed arithmetic changed");
-  });
-  Check("same snapshot identity with changed actual pins cannot share valuation inputs",()=>{
-   if(snapshot.HasSameInputs(snapshot with{IndexFixings=[actual with{Price=new UnitPrice(ExactDecimal.Parse("11"),quote)}]}))throw new Exception("Actual inputs omitted from context equality");
-   var baseline=daily.Model.Build(snapshot,side.DependenciesAt(snapshot)).Scenario.Id;
-   foreach(var changed in new[]{snapshot with{IndexFixings=[actual with{Price=new UnitPrice(ExactDecimal.Parse("11"),quote)}]},
-    snapshot with{FixingContextId=Guid.NewGuid()},snapshot with{FixingKnowledgeCutoff=known.AddTicks(10)}})
-    if(daily.Model.Build(changed,side.DependenciesAt(changed)).Scenario.Id==baseline)throw new Exception("Actual inputs omitted from scenario identity");
-   var all=snapshot with{IndexFixings=[actual,actual with{Key=new(f.Revision.CatalogId,Guid.NewGuid()),From=rules[1].From,To=rules[1].To}]};
-   if(daily.Model.Build(all,side.DependenciesAt(all)).Scenario.Id!=daily.Model.Build(all with{IndexFixings=all.IndexFixings.Reverse().ToImmutableArray()},side.DependenciesAt(all)).Scenario.Id)
-    throw new Exception("Fixing input order changed scenario identity");
-  });
-  Check("legacy projection-only sides keep the original first-fixing rejection",()=>Reject("swap_fixing_required",()=>projected.PV(new SideValuationContext(daily.Model.Build(snapshot,projected.Dependencies),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)))));
-  return count;
- }
+    public static int Run()
+    {
+        var count = 0;
+        void Check(string name, Action action) { action(); count++; Console.WriteLine("PASS index fixings: " + name); }
+        void Equal<T>(T actual, T expected) { if (!Equals(actual, expected)) throw new Exception($"Expected {expected}, got {actual}"); }
+        void Reject(string code, Action action)
+        { try { action(); } catch (MarketDataException e) when (e.Code == code) { return; } throw new Exception("Expected " + code); }
+        var monthly = new FixingFixture(monthly: true);
+        var daily = new FixingFixture();
+        var at = daily.Fixings[1].FixingAt;
+        var snapshot = daily.Snapshot(at, actuals: 2);
+        var swap = daily.Swap();
+        InstrumentValuation Value(FixingFixture f, MarketSnapshot s, FinancialSwapInstrument? instrument = null)
+        {
+            instrument ??= f.Swap();
+            return instrument.PV(new(f.Model.Build(s, instrument.DependenciesAt(s)),
+                new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
+        }
+        Check("monthly actual replaces an expired projection at the exact explicit publication boundary", () =>
+        {
+            var s = monthly.Snapshot(monthly.Fixings[0].FixingAt, 1); var instrument = monthly.Swap();
+            Equal(instrument.DependenciesAt(s).Length, 0);
+            Equal(Value(monthly, s, instrument).PresentValue.ToMoney().Amount.ToString(), "-5");
+        });
+        Check("future monthly reset projects and does not require an actual", () =>
+        {
+            var s = monthly.Snapshot(monthly.Fixings[0].FixingAt.AddDays(-2));
+            Equal(monthly.Swap().DependenciesAt(s).Length, 1);
+            Equal(Value(monthly, s).PresentValue.ToMoney().Amount.ToString(), "-4");
+        });
+        Check("a fully fixed deal risk run prices its actuals once with no live quote scenarios", () =>
+        {
+            var s = monthly.Snapshot(monthly.Fixings[0].FixingAt, 1); var instrument = monthly.Swap();
+            ExactMoney Price(CurveBuild market) => instrument.PV(new(market,
+                new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))).PresentValue;
+            var risk = DealRisk.Calculate(monthly.Model, s, instrument.DependenciesAt(s), Price, DealRisk.BumpPolicy, DealRisk.NumericalPolicy);
+            Equal(risk.Base.ToMoney().Amount.ToString(), "-5"); Equal(risk.Factors.Length, 0); Equal(risk.ScenarioCount, 1);
+            Reject("index_fixing_missing", () => DealRisk.Calculate(monthly.Model, monthly.Snapshot(monthly.Fixings[0].FixingAt), [],
+                Price, DealRisk.BumpPolicy, DealRisk.NumericalPolicy));
+            Reject("risk_policy", () => DealRisk.Calculate(monthly.Model, s, default, Price, DealRisk.BumpPolicy, DealRisk.NumericalPolicy));
+            using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+            try { DealRisk.Calculate(monthly.Model, s, [], Price, DealRisk.BumpPolicy, DealRisk.NumericalPolicy, cancelled.Token); }
+            catch (OperationCanceledException) { return; }
+            throw new Exception("A canceled fully fixed risk run returned success.");
+        });
+        Check("daily mixed actual and projected values retain the complete averaging denominator", () =>
+        {
+            var deps = swap.DependenciesAt(snapshot); Equal(deps.Length, 1); Equal(deps[0], daily.Projections[2].Market);
+            var value = Value(daily, snapshot, swap);
+            Equal(value.PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "18");
+            var resets = ((PaymentSideValuation)value.Sides[1].Value).Payments[0].Resets;
+            Equal(string.Join(',', resets.Select(r => r.Price.State)), "Actual,Actual,Projected");
+            Equal(string.Join(',', resets.Select(r => r.Price.Price.Value.ToString())), "10,20,33");
+            Equal(resets[0].Price.Lineage.Single(), snapshot.Selections.Single(s => s.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact)).Observation.Key);
+        });
+        Check("whole-book risk values shared indexed units with frozen actuals and shocks only unresolved resets", () =>
+        {
+            var book=Guid.NewGuid();
+            RiskPosition Position(string quantity)=>new(Guid.NewGuid(),Guid.NewGuid(),book,swap.Id,
+                new(ExactDecimal.Parse(quantity),swap.UnitQuantity.Specification),new(new Money(default,swap.Currency),swap.UnitQuantity.Specification),new(default,swap.Currency));
+            var portfolio=new ValuationPortfolio([swap],[Position("100"),Position("250")],
+                new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,
+                    new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            var prepared=RiskEngine.Prepare(daily.Model,snapshot,[portfolio]);
+            Equal(prepared.Factors.Length,1);
+            Equal(prepared.Factors.Single().Input.Series,daily.Series[2].Key);
+            var factor=prepared.Factors.Single();
+            var run=RiskEngine.CalculateExact(prepared,[new(factor.Input,factor.Quote,factor.Unit,factor.TradingTick,QuoteBump.Convention)],RiskEngine.ExactNumericalPolicy);
+            Equal(run.Groups.Single().BaseValues.Single().Value.ToMoney().Amount.ToString(),"2100");
+            var risk=run.Groups.Single().Factors.Single().Totals.Single().Values;
+            Equal(risk.Delta.Value.Numerator,"350");Equal(risk.Delta.Value.Denominator,"3");Equal(risk.Gamma.Value.Numerator,"0");
+            Equal(run.Work.UniqueValuations,1);Equal(run.Work.UnitPricerCalls,3);Equal(run.Work.PositionCount,2);
+            var fixedSnapshot=daily.Snapshot(daily.Fixings[2].FixingAt,3);
+            var fixedPlan=RiskEngine.Prepare(daily.Model,fixedSnapshot,[portfolio]);
+            Equal(fixedPlan.Factors.Length,0);
+            var fixedRun=RiskEngine.CalculateExact(fixedPlan,[],RiskEngine.ExactNumericalPolicy);
+            Equal(fixedRun.Groups.Single().BaseValues.Single().Value.ToMoney().Amount.ToString(),"1750");
+            Equal(fixedRun.Groups.Single().Factors.Length,0);Equal(fixedRun.Work.ScenarioCount,1);Equal(fixedRun.Work.UnitPricerCalls,1);
+            var missing=daily.Snapshot(at,1);
+            Reject("index_fixing_missing",()=>RiskEngine.CalculateExact(RiskEngine.Prepare(daily.Model,missing,[portfolio]),[],RiskEngine.ExactNumericalPolicy));
+        });
+        Check("cancellation during the sole fully fixed repricing cannot return successful zero risk", () =>
+        {
+            var s = monthly.Snapshot(monthly.Fixings[0].FixingAt, 1); var instrument = monthly.Swap();
+            using var cancelled = new CancellationTokenSource();
+            ExactMoney Price(CurveBuild market)
+            {
+                var result = instrument.PV(new(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))).PresentValue;
+                cancelled.Cancel(); return result;
+            }
+            try { DealRisk.Calculate(monthly.Model, s, [], Price, DealRisk.BumpPolicy, DealRisk.NumericalPolicy, cancelled.Token); }
+            catch (OperationCanceledException) { return; }
+            throw new Exception("Canceled repricing returned a successful risk run.");
+        });
+        Check("fully fixed daily period values without building expired projections", () =>
+        {
+            var s = daily.Snapshot(daily.Fixings[2].FixingAt, 3);
+            Equal(swap.DependenciesAt(s).Length, 0);
+            Equal(Value(daily, s, swap).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "15");
+        });
+        Check("one instant before a fixing projects only that still-live reset", () =>
+        {
+            var s = daily.Snapshot(at.AddTicks(-10), 1);
+            Equal(swap.DependenciesAt(s).Length, 2);
+            Equal(Value(daily, s, swap).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "20");
+        });
+        Check("missing actual at the exact boundary never falls back to its forecast", () =>
+            Reject("index_fixing_missing", () => Value(daily, daily.Snapshot(at, 1), swap)));
+        MarketSnapshot ChangeActual(MarketSnapshot s, Func<MarketObservation, MarketObservation> change) => s with
+        { Selections = s.Selections.Select(x => x.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact) ? x with { Observation = change(x.Observation) } : x).ToImmutableArray() };
+        Check("wrong actual source and role reject even when a compatible numeric value exists", () =>
+        {
+            Reject("index_fixing_selection", () => Value(daily, ChangeActual(snapshot, o => o with { Source = daily.Base.R("other_source") }), swap));
+            Reject("index_fixing_selection", () => Value(daily, ChangeActual(snapshot, o => o with { Role = ObservationRole.FinalContractSettlement }), swap));
+        });
+        Check("actuals must be final and observed within their explicit publication and market cutoff", () =>
+        {
+            Reject("frozen_fact", () => Value(daily, ChangeActual(snapshot, o => o with { State = PublicationState.Preliminary }), swap));
+            Reject("index_fixing_selection", () => Value(daily, ChangeActual(snapshot, o => o with { ObservedAt = daily.Fixings[0].FixingAt.AddTicks(-10) }), swap));
+            Reject("observation_cutoff", () => Value(daily, ChangeActual(snapshot, o => o with { ObservedAt = at.AddTicks(10) }), swap));
+        });
+        Check("explicit old and corrected actual pins produce separate reproducible values", () =>
+        {
+            var revised = ChangeActual(snapshot, o => o with { Key = new(o.Key.CatalogId, Guid.NewGuid()), Value = ExactDecimal.Parse("13") });
+            Equal(Value(daily, revised, swap).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "21");
+            Equal(Value(daily, snapshot, swap).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "18");
+        });
+        Check("an actual is never a variable curve input or a direct curve recipe role", () =>
+        {
+            var wrong = snapshot with { Selections = snapshot.Selections.Where(s => s.Input != new InputKey(daily.Series[0].Key, InputUse.Variable))
+                .Select(s => s.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact) ? s with { Input = new(s.Input.Series, InputUse.Variable) } : s).ToImmutableArray() };
+            Reject("index_fixing_use", () => daily.Model.Build(wrong, []));
+            Reject("unsupported_role", () => new CurveModel(daily.Base.Revision, daily.Base.Reference, daily.Base.Quantities,
+                [daily.Quote], daily.Projections.Select(p => p.Contract).ToImmutableArray(), [daily.Curve with { DirectRole = ObservationRole.IndexFixing }], [], [], daily.Series));
+        });
+        Check("actual series must belong to the exact observation period rather than another daily reset", () =>
+        {
+            var rules = daily.Fixings.SetItem(0, daily.Fixings[0] with { Series = daily.Series[1].Key })
+                .SetItem(1, daily.Fixings[1] with { Series = daily.Series[0].Key });
+            Reject("index_fixing_definition", () => Value(daily, snapshot, daily.Swap(daily.Floating(rules))));
+        });
+        Check("fixing schedule coverage, identities, quote and explicit implementation cannot be guessed", () =>
+        {
+            Reject("index_fixing_definition", () => daily.Floating([]));
+            Reject("index_fixing_definition", () => daily.Floating(daily.Fixings.RemoveAt(0)));
+            foreach (var rule in new[] { daily.Fixings[0] with { Index = daily.Base.R("other_index") },
+                daily.Fixings[0] with { Quote = daily.Base.R("other_quote") }, daily.Fixings[0] with { To = daily.To },
+                daily.Fixings[0] with { Implementation = "" }, daily.Fixings[0] with { Series = new(daily.Base.Revision, Guid.Empty) } })
+                Reject("index_fixing_definition", () => daily.Floating(daily.Fixings.SetItem(0, rule)));
+        });
+        Check("a forged quote specification cannot reprice an actual under a retained quote key", () =>
+        {
+            var side = daily.Floating(quote: daily.Quote with { Multiplier = ExactDecimal.Parse("2") });
+            Reject("swap_definition", () => Value(daily, snapshot, daily.Swap(side)));
+        });
+        Check("shared market shocks change future resets and leave actual values and lineage unchanged", () =>
+        {
+            var build = daily.Model.Build(snapshot, swap.DependenciesAt(snapshot));
+            var bump = new QuoteBump(new(daily.Series[2].Key, InputUse.Variable), daily.Quote.Key, PriceUnit.FromQuote(daily.Quote), ExactDecimal.Parse("0.1"), QuoteBump.Convention);
+            var pair = daily.Model.Scenarios(build, [bump]).Single();
+            InstrumentValuation Price(CurveBuild market) => swap.PV(new(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
+            Equal(Price(pair.Up).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "18.1");
+            Equal(Price(pair.Down).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "17.9");
+            var actual = ((PaymentSideValuation)Price(pair.Up).Sides[1].Value).Payments[0].Prices[0];
+            Equal(actual.Price.Value.ToString(), "10");
+            Equal(actual.Lineage.Single(), snapshot.Selections.Single(s => s.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact)).Observation.Key);
+            Reject("risk_factor", () => daily.Model.Scenarios(build, [bump with { Input = new(daily.Series[0].Key, InputUse.FrozenFact) }]).ToArray());
+        });
+        Check("due payments retain the lifecycle rejection and legacy manual boundaries retain their old contract", () =>
+        {
+            Reject("side_payment_due", () => Value(daily, daily.Snapshot(daily.Payment, 3), swap));
+            var legacy = new FloatingSide(Guid.NewGuid(), daily.Base.R("index"), daily.Quote, new(ExactDecimal.Parse("1"), daily.Quote.Quantity),
+                daily.From, daily.To, daily.Fixings[0].FixingAt, daily.Payment, FloatingAveraging.CalendarDayArithmetic,
+                daily.Projections, FloatingSide.Implementation);
+            Reject("swap_fixing_required", () => legacy.PV(new(snapshot,
+                new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))));
+            Equal(DefinitionIdentity.For(legacy).Version, "FloatingSide_v3");
+            if (DefinitionIdentity.For(legacy).Canonical.Contains("IndexFixings")) throw new Exception("Legacy identity changed.");
+            Equal(DefinitionIdentity.For(swap.Floating).Version, "FloatingSide_v4");
+        });
+        Check("new indexed economic identity includes the qualified schedule but excludes selected actual values", () =>
+        {
+            var original = DefinitionIdentity.For(swap.Floating);
+            var changed = daily.Floating(daily.Fixings.SetItem(0, daily.Fixings[0] with { Source = daily.Base.R("other_source") }));
+            if (DefinitionIdentity.For(changed) == original) throw new Exception("Actual source was omitted from identity.");
+            if (DefinitionIdentity.For(daily.Floating(daily.Fixings.SetItem(1, daily.Fixings[1] with { FixingAt = at.AddHours(1) }))) == original)
+                throw new Exception("An independently dated fixing was omitted from identity.");
+            Equal(DefinitionIdentity.For(swap.Floating), original);
+        });
+        return count;
+    }
+
+    internal sealed class FixingFixture
+    {
+        public Fixture Base { get; } = new();
+        public QuoteSpecification Quote { get; }
+        public CurveModel Model { get; }
+        public ImmutableArray<SwapProjection> Projections { get; }
+        public ImmutableArray<IndexFixing> Fixings { get; }
+        public ImmutableArray<MarketSeries> Series { get; }
+        public Curve Curve { get; }
+        public DateOnly From { get; } = new(2041, 1, 1);
+        public DateOnly To { get; }
+        public DateTimeOffset Payment { get; } = Fixture.Utc("2041-02-18T00:00:00Z");
+        public FixingFixture(bool monthly = false)
+        {
+            Quote = Base.Quotes[0];
+            To = monthly ? From.AddMonths(1) : From.AddDays(3);
+            var contracts = Enumerable.Range(0, monthly ? 1 : 3).Select(n =>
+                new MarketContract(new(Base.Revision, Guid.NewGuid()), ContractKind.Forward,
+                    From.AddDays(n), monthly ? To : From.AddDays(n + 1),
+                    monthly ? Fixture.Utc("2040-12-31T00:00:00Z") : Fixture.Utc("2041-01-01T12:00:00Z").AddDays(n), null)).ToImmutableArray();
+            Series = contracts.Select(c => new MarketSeries(new(Base.Revision, Guid.NewGuid()), c.Key, Quote.Key, null)).ToImmutableArray();
+            var curve = Curve = new Curve(Base.C("fixing_projection"), Quote.Key, Base.R("location"), Base.R("uniform"),
+                new(SettlementKind.Index, Base.R("index"), null), CurveRule.Direct,
+                contracts.Select(c => c.Key).ToImmutableArray(), [], ObservationRole.TraderMark, Base.R("source"), null);
+            Model = new(Base.Revision, Base.Reference, Base.Quantities, [Quote], contracts, [curve], [], [], Series);
+            Projections = contracts.Select(c => new SwapProjection(new(curve.Key, c.Key), c)).ToImmutableArray();
+            Fixings = contracts.Select((c, n) => new IndexFixing(Base.R("index"), Quote.Key, c.DeliveryFrom, c.DeliveryTo,
+                Fixture.Utc("2041-01-01T12:00:00Z").AddDays(n), Series[n].Key, Base.R("actual_source"), IndexFixing.SupportedImplementation)).ToImmutableArray();
+        }
+        public MarketSnapshot Snapshot(DateTimeOffset at, int actuals = 0) => Base.Snapshot() with
+        {
+            Id = Guid.NewGuid(), ValuationAt = at, MarketCutoff = at,
+            Selections = Series.Select((s, n) => new SelectedObservation(new(s.Key, InputUse.Variable),
+                new(new(Base.Revision.CatalogId, Guid.NewGuid()), s.Key, Base.R("source"), ObservationRole.TraderMark,
+                    PublicationState.Final, Fixture.Utc("2040-12-30T00:00:00Z"), ExactDecimal.Parse(((n + 1) * 11).ToString()))))
+                .Concat(Series.Take(actuals).Select((s, n) => new SelectedObservation(new(s.Key, InputUse.FrozenFact),
+                    new(new(Base.Revision.CatalogId, Guid.NewGuid()), s.Key, Base.R("actual_source"), ObservationRole.IndexFixing,
+                        PublicationState.Final, Fixings[n].FixingAt, ExactDecimal.Parse(((n + 1) * 10).ToString()))))).ToImmutableArray()
+        };
+        public FloatingSide Floating(ImmutableArray<IndexFixing>? fixings = null, QuoteSpecification? quote = null) => new(Guid.NewGuid(), Base.R("index"), quote ?? Quote,
+            new(ExactDecimal.Parse("1"), Quote.Quantity), From, To, fixings ?? Fixings, Payment,
+            Projections.Length == 1 ? FloatingAveraging.MonthlyIndexPrice : FloatingAveraging.CalendarDayArithmetic,
+            Projections, FloatingSide.IndexedImplementation);
+        public FinancialSwapInstrument Swap(FloatingSide? floating = null) => new(Guid.NewGuid(),
+            [new(new FixedSide(Guid.NewGuid(), new(ExactDecimal.Parse("15"), Quote), new(ExactDecimal.Parse("1"), Quote.Quantity),
+                From, To, Payment, FixedSide.Implementation, Quote), ExactDecimal.Parse("-1")), new(floating ?? Floating(), ExactDecimal.Parse("1"))],
+            FinancialSwapInstrument.Implementation, false);
+    }
 }

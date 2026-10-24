@@ -1,8 +1,8 @@
 """Independently check weekday demo holdings in the owner's synthetic preview."""
 from datetime import datetime
 from decimal import Decimal
-from preview_client import PreviewClient
-from seed_preview_positions import seed_positions
+from preview_client import PreviewClient, initial_frame
+from seed_preview_positions import BOOKS, seed_positions
 
 
 def run_checks(url, run_id, owned_root):
@@ -18,7 +18,8 @@ def run_checks(url, run_id, owned_root):
     check('the standard example contains December 15 through 18 only', [f['at'][:10] for f in frames] == ['2020-12-15','2020-12-16','2020-12-17','2020-12-18'])
     view = {'snapshotId': frames[0]['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'}
     earlier = client.call('futures/holdings', view)['context']
-    first = seed_positions(url, run_id, owned_root)
+    first = seed_positions(url, run_id, owned_root, client)
+    # A repeated load is a new loader run, so it seeds from a session of its own.
     second = seed_positions(url, run_id, owned_root)
     ids = {r['tradeId'] for r in first}
     check('repeated seeding returns the same eight committed trades', first == second and len(ids) == 8)
@@ -32,3 +33,16 @@ def run_checks(url, run_id, owned_root):
     check('new backdated demo trades do not leak into an earlier knowledge receipt', not any(r['tradeId'] in ids for r in historical['holdings']))
     check('all demo economic effective dates are weekdays and settlement remains unprocessed', all(datetime.fromisoformat(r['economicEffectiveAt']).weekday() < 5 and r['settlement'] == 'unprocessed' for r in rows))
     print(f'{passed} seeded preview checks passed.', flush=True)
+
+
+def run_swap_book_checks(client, seeded):
+    """Verify the fixture's mixed Book B and separate futures-only Book A scopes."""
+    client.call('profile', {'profile': 'trader'})
+    frame = initial_frame(client.call('workspace'), '2020-12-18')
+    context = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
+    view = {'mode': 'trades', 'bookIds': [], 'portfolioIds': [], 'groupBy': [], 'measures': [], 'pivotConvention': None}
+    def trades(book):
+        return {r['tradeId'] for r in client.call('trading/blotter', {'context': context, 'view': {**view, 'bookIds': [book]}})['holdings']}
+    swaps = {r['tradeId'] for r in seeded}
+    assert len(swaps) == 16 and swaps <= trades(BOOKS[1]) and not swaps & trades(BOOKS[0]), 'seeded swaps belong to Book B only'
+    print('PASS seeded preview: the sixteen swap examples share Book B, leaving seeded Book A futures-only', flush=True)

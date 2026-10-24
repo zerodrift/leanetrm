@@ -22,6 +22,57 @@ prefixes; exact UTC knowledge cutoffs now use retained engine commit certificate
 for exact storage, permissions, engine pins and remaining limits. Earlier design
 examples below describe broader potential operations, not an implemented grammar.
 
+The example loader gets its explicit terms from the managed backend. The ordinary
+owned standard preview publishes `oe.sample_gas_months` through the same schedule
+save and publish operations. It binds the exact synthetic reference calendar and
+is visible to separate authorized sessions. The monthly gas contract example
+requires an explicitly chosen published schedule and retains its date references.
+The daily power example supplies two fixed literal delivery periods and UTC
+cutoffs. Loading an example is a preview action. An authorized user can explicitly
+save the reviewed rules as a shared draft and separately publish that version;
+this does not publish a price curve, exchange instrument or daily generator.
+
+## Shared contract-date library
+
+Contract-date definitions are durable workspace data rather than session-only
+candidates (D167). Save and publish use the existing `WriteMarketDefinitions` and
+`SealMarketDefinitions` permissions. Readers see published versions; authors and
+publishers can also inspect current drafts. Published versions and their child
+rows cannot change. Editing one creates a new draft under the same stable code.
+Optimistic generations reject stale saves. Save and publish commands have stable
+request identities; retries return only the accepted version and state, followed
+by a fresh authorized library read.
+
+Saving resolves the form in an explicit certified context and pins the actual
+schedule versions used for each field. Storage retains exact schedule foreign
+keys, occurrence rules, business-day offsets and literal dates separately from
+display expressions. The definition's validation context also has an exact
+foreign key. No existing browser-session candidates are imported automatically.
+Delivery end must follow delivery start. Last trading is a separately supplied
+UTC instant and may occur before, at or after the exclusive delivery end; the
+library does not infer a trading cutoff from delivery boundaries. A sequence
+still requires nonoverlapping ordered delivery periods and increasing explicit
+last-trading instants.
+
+Resolving an exact published version requires an explicitly selected context.
+The managed resolver applies its retained source versions, their effective
+coverage and calendars. A newer publication under the same `oe.name` does not
+rebind a saved definition. Earlier knowledge cutoffs cannot see later definition
+publications; current access remains required for every source. A definition's
+saved validation context is displayed independently of the user's resolve context.
+
+This library has no implicit expiry or exchange policy. Unadjusted civil monthly
+boundaries can be named as delivery dates when an explicitly chosen calendar has
+the required coverage. They do not establish exchange last trading. Real contract
+milestones must come from sourced facts; the illustrative three-business-day and
+UTC-cutoff examples remain explicitly synthetic. The library does not generate
+daily schedules, activate contracts or modify literal dates on booked sides.
+
+Migration `0054_contract_date_library.sql` requires a separately qualified schema
+upgrade; an application-image-only update cannot install it. Focused verification
+uses `tools/run_preview.py --contract-dates-check --browser-check` with explicit
+PostgreSQL, SDK and browser paths. All fixtures and observations are synthetic.
+
 ## Agreed behavior
 
 For a configured sequence of dated contracts, the current contract advances to

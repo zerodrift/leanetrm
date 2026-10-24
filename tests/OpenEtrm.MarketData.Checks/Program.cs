@@ -1,7 +1,50 @@
 using System.Collections.Immutable;
+using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+
+if(args is ["--observation-schedules"]){ObservationScheduleChecks.Run();return;}
+if(args is ["--ppa-normalization-reuse"]){PpaNormalizationReuseChecks.Run();return;}
+if(args is ["--series-index-acceptance"]){SeriesIndexAcceptanceChecks.Run();return;}
+if(args is ["--ppa-summary"]){PpaSummaryChecks.Run();return;}
+if(args is ["--ppa-break-even"]){PpaBreakEvenChecks.Run();return;}
+if(args is ["--settlement-preview"]){SettlementPreviewChecks.Run();return;}
+if(args is ["--ppa-sides"]){PpaBreakEvenChecks.Run();SettlementPreviewChecks.Run();PpaContractChecks.Run();PpaAcceptanceChecks.Run();PpaPreparationChecks.Run();return;}
+if(args is ["--ppa-preparation"]){PpaPreparationChecks.Run();SeriesIndexWorkChecks.Run();return;}
+if(args is ["--ppa-benchmark-acceptance"]){PpaBenchmark.CheckWorkloads();return;}
+if(args is ["--ppa-benchmark-sample",var ppaCase,var sampleOutput]){PpaBenchmark.RunSample(ppaCase,sampleOutput);return;}
+if(args is ["--ppa-benchmark",var ppaOutput]){PpaBenchmark.Run(ppaOutput);return;}
+if(args is ["--book-valuation"]){BookValuationChecks.Run();return;}
+if(args is ["--independent-sides"]){IndependentSideChecks.Run();return;}
+if(args is ["--asset-volumes"]){Slice2AcceptanceChecks.Run();return;}
+if(args is ["--monthly-swaps"]){MonthlySwapChecks.Run();return;}
+if(args is ["--commodity-lookups"]){CommodityLookupChecks.Run();return;}
+if(args is ["--commodity-lookup-benchmark"]){CommodityLookupChecks.Benchmark();return;}
+if(args is ["--snapshot-inputs"]){SnapshotInputChecks.Run();return;}
+if(args is ["--power-interval-quantities"]){PowerIntervalQuantityChecks.Run();return;}
+if(args is ["--interval-data-benchmark",var intervalOutput]){IntervalDataBenchmark.Run(intervalOutput);return;}
+if(args is ["--interval-data"]){IntervalDataChecks.Run();return;}
+if(args is ["--interval-series"]){IntervalSeriesChecks.Run();return;}
+if(args is ["--interval-curves"]){IntervalCurveChecks.Run();return;}
+if(args is ["--block-shaping"]){BlockShapingChecks.Run();return;}
+if(args is ["--interval-pricing"]){IntervalPricingChecks.Run();return;}
+if(args is ["--interval-price-resolver"]){IntervalPriceResolverChecks.Run();IntervalAnchorChecks.Run();IntervalResolverReuseChecks.Run();return;}
+if(args is ["--interval-resolver-reuse"]){IntervalResolverReuseChecks.Run();return;}
+if(args is ["--interval-resolver-benchmark",var resolverOutput]){IntervalResolverBenchmark.Run(resolverOutput);return;}
+
+if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
+if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();return;}
+if(args is ["--curve-engine-cutover"]){CurveEngineCutoverChecks.Run();return;}
+if(args is ["--connected-curves"]){ConnectedCurveChecks.Run();return;}
+if(args is ["--connected-scenarios"]){ConnectedScenarioChecks.Run();return;}
+if(args is ["--connected-recipes"]){ConnectedRecipeChecks.Run();return;}
+if(args is ["--custom-projection"]){CustomProjectionChecks.Run();return;}
+if(args is ["--connected-portfolios"]){ConnectedPortfolioChecks.Run();return;}
+if(args is ["--temporal-bindings"]){TemporalBindingChecks.Run();return;}
+if(args is ["--connected-graph-benchmark",var graphOutput]){ConnectedGraphBenchmark.Run(graphOutput);return;}
+if(args is ["--index-fixings"]){IndexFixingChecks.Run();return;}
+if(args is ["--risk-propagation"]){RiskPropagationChecks.Run();return;}
 
 if (args.Length > 0)
 {
@@ -22,8 +65,11 @@ if (args.Length > 0)
     return;
 }
 
+IntervalDataChecks.Run();
 PowerHoursChecks.Run();
-var passed = 0;
+CustomCurveChecks.Run();
+ExactCurvePriceChecks.Run();
+var passed = PpaBenchmark.CheckWorkloads();
 void Check(string label, Action run) { run(); passed++; Console.WriteLine($"PASS {label}"); }
 void Equal<T>(T actual, T expected) where T : notnull
 {
@@ -87,6 +133,18 @@ Check("revised base observation propagates and old snapshot is unchanged", () =>
             Key = new(fixture.Revision.CatalogId, Guid.NewGuid()), Value = ExactDecimal.Parse("3.05") } } : s).ToImmutableArray() };
     Equal(model.Build(corrected, request).Values[0].Price.Value.ToString(), "29.45");
     Equal(model.Build(original, request).Values[0].Price.Value.ToString(), "29.1");
+});
+Check("a new native snapshot reuses unaffected calculation slots without reusing old evidence",()=>
+{
+    var cache=new OpenEtrm.MarketData.Calculation.ConnectedCalculationCache(4,1000);
+    var cached=fixture.Model(calculations:cache);
+    var first=cached.Build(original,request);
+    var next=original with{Id=Guid.NewGuid(),Selections=original.Selections.Select(s=>s.Observation.Series==fixture.S(1)?s with{
+        Observation=s.Observation with{Key=new(fixture.Revision.CatalogId,Guid.NewGuid()),Value=ExactDecimal.Parse("3.05")}}:s).ToImmutableArray()};
+    var corrected=cached.Build(next,request);
+    Equal(corrected.Values[0].Price.Value.ToString(),"29.45");
+    if(corrected.EvaluatedConstituents>=first.EvaluatedConstituents)throw new Exception("An independent native branch was recalculated.");
+    Equal(corrected.Snapshot.Id,next.Id);Equal(first.Values[0].Price.Value.ToString(),"29.1");
 });
 Check("shared dependencies evaluate once across requested outputs", () =>
 {
@@ -254,7 +312,10 @@ Check("raw history enforces scoped identity and finite UTC event times", () =>
 });
 Check("common roles grant exact capabilities without implicit administration", () =>
 {
-    Equal(CommonRoles.Templates.Length, 6);
+    Equal(CommonRoles.Templates.Length, 7);
+    Equal(string.Join(",", CommonRoles.Templates.Single(r => r.Code == "agent_reader").Permissions.Order()), "ReadMarketData,ReadTrades,ReadTradeParties");
+    Equal(string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.UseAgents)).Select(r => r.Code)), "trader,risk_analyst,market_data_editor");
+    Equal(string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.ManageAgents)).Select(r => r.Code)), "access_administrator");
     var editor = CommonRoles.Templates.Single(r => r.Code == "market_data_editor");
     Equal(editor.Permissions.Contains(Permission.ImportObservations), true);
     Equal(editor.Permissions.Contains(Permission.SealMarketDefinitions), false);
@@ -360,17 +421,49 @@ passed += ExpiryTransitionChecks.Run();
 passed += PowerCurveChecks.Run();
 passed += TypedPriceChecks.Run();
 passed += AmountUnitChecks.Run();
+passed += PilotCloseChecks.Run();
 passed += PowerQuantityChecks.Run();
+passed += PowerIntervalQuantityChecks.Run();
+passed += IntervalSeriesChecks.Run();
+passed += IntervalCurveChecks.Run();
+passed += BlockShapingChecks.Run();
+passed += IntervalPricingChecks.Run();
+passed += IntervalPriceResolverChecks.Run();
+passed += IntervalAnchorChecks.Run();
+passed += Slice2AcceptanceChecks.Run();
+PpaBreakEvenChecks.Run();
+SettlementPreviewChecks.Run();
+passed += PpaContractChecks.Run();
+passed += PpaAcceptanceChecks.Run();
+passed += PpaSummaryChecks.Run();
+passed += PpaPreparationChecks.Run();
+SeriesIndexWorkChecks.Run();passed++;
+PpaNormalizationReuseChecks.Run();passed++;
+SeriesIndexAcceptanceChecks.Run();passed++;
+passed += IntervalResolverReuseChecks.Run();
 passed += ContractIdentityChecks.Run() + TradingIdentityChecks.Run();
 passed += FuturesChecks.Run();
 passed += ExchangeFuturesChecks.Run();
 passed += SwapChecks.Run();
+passed += ObservationScheduleChecks.Run();
+passed += CommodityLookupChecks.Run();
+passed += SnapshotInputChecks.Run();
+passed += MonthlySwapChecks.Run();
 passed += IndexFixingChecks.Run();
 passed += PaymentRuleChecks.Run();
 passed += IndependentSideChecks.Run();
 passed += RiskChecks.Run();
 passed += NestedScenarioChecks.Run();
+passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
+passed += InstrumentRiskChecks.Run();
+CurveEngineCutoverChecks.Run();
+ConnectedCurveChecks.Run();
+passed += ConnectedScenarioChecks.Run();
+ConnectedRecipeChecks.Run();
+CustomProjectionChecks.Run();
+ConnectedPortfolioChecks.Run();
+passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");
 
@@ -412,6 +505,14 @@ sealed class Fixture
             Direct("power_basis", K(5), R("power_basis"), SettlementKind.IndexDifference),
             Add("local_power", 5, "power_out", "hub_power", 4, "power_basis")];
     }
+    // An interval labelled from its own local time on the zone's clock; occurrence 2 is the second pass through a repeated hour.
+    public static DeliveryInterval Interval(TimeZoneInfo zone, DateTimeOffset start, int minutes, int occurrence = 1)
+    {
+        var local = TimeZoneInfo.ConvertTime(start, zone);
+        return new(start, start.AddMinutes(minutes), DateOnly.FromDateTime(local.DateTime), local.Hour, local.Minute, occurrence);
+    }
+    public MarketContract IntervalContract(int n, DeliveryInterval interval) =>
+        new(K(n), ContractKind.Forward, interval.OperatingDate, interval.OperatingDate.AddDays(1), interval.End, null, interval);
     public CurveInput Input(string source, ContractKey target, ContractKey contract, InputSlot slot) =>
         new(slot, C(source), SourceExpiryRule.RequireLive, [new(target, contract)]);
     public Curve Direct(string code, ContractKey member, ReferenceKey quote, SettlementKind settlement) =>
@@ -419,7 +520,8 @@ sealed class Fixture
             settlement == SettlementKind.IndexDifference ? R("index_b") : null), CurveRule.Direct, [member], [],
             settlement == SettlementKind.FutureSeries ? ObservationRole.DailySettlement : ObservationRole.TraderMark, R("source"), null);
     public CurveModel Model(ImmutableArray<Curve>? curves = null, ImmutableArray<QuoteSpecification>? quotes = null,
-        ImmutableArray<MarketContract>? contracts = null, ImmutableArray<ValueSpecification>? valueSpecs = null) =>
+        ImmutableArray<MarketContract>? contracts = null, ImmutableArray<ValueSpecification>? valueSpecs = null,
+        OpenEtrm.MarketData.Calculation.ConnectedCalculationCache? calculations=null) =>
         new(Revision, Reference, Quantities, quotes ?? Quotes, contracts ?? Contracts, curves ?? Curves,
             [new(R("future_jan"), R("gas_quantity"), R("currency"), ExactDecimal.Parse("1"), ExactDecimal.Parse("0.025"),
                 R("location"), R("uniform"), new(2041, 1, 1), new(2041, 2, 1), Utc("2040-12-28T00:00:00Z"),
@@ -428,7 +530,7 @@ sealed class Fixture
             [new(S(1), K(1), R("gas_out"), null), new(S(2), K(2), R("gas_basis"), null),
              new(S(3), K(3), R("gas_basis"), null), new(S(4), K(4), R("power_basis"), null),
              new(S(5), K(5), R("power_basis"), null), new(S(6), null, null, R("conversion_ratio")),
-             new(S(7), K(5), R("power_out"), null), new(S(8), K(2), R("gas_out"), null)]);
+             new(S(7), K(5), R("power_out"), null), new(S(8), K(2), R("gas_out"), null)],calculations);
     public SelectedObservation Select(int contract, QuoteKind measure, string quote, string value)
     {
         var id = contract == 5 && measure == QuoteKind.Outright ? 7 : contract;
@@ -442,4 +544,20 @@ sealed class Fixture
          Select(3, QuoteKind.Basis, "gas_basis", "0.2"), Select(4, QuoteKind.Basis, "power_basis", "4"), Select(5, QuoteKind.Basis, "power_basis", "2"),
          new(new(S(6), InputUse.Variable), new(new(Revision.CatalogId, Guid.NewGuid()), S(6), R("source"), ObservationRole.Parameter,
              PublicationState.Final, Utc("2040-12-18T00:00:00Z"), ExactDecimal.Parse("7")))]);
+}
+
+// An exact test-side rational, independent of the implementation's arithmetic.
+internal readonly record struct Fraction
+{
+    public BigInteger Numerator { get; }
+    public BigInteger Denominator { get; }
+    public Fraction(BigInteger numerator,BigInteger denominator)
+    {
+        if(denominator<0){numerator=-numerator;denominator=-denominator;}
+        var gcd=BigInteger.GreatestCommonDivisor(BigInteger.Abs(numerator),denominator);
+        Numerator=numerator/gcd;Denominator=denominator/gcd;
+    }
+    public static Fraction operator +(Fraction a,Fraction b)=>new(a.Numerator*b.Denominator+b.Numerator*a.Denominator,a.Denominator*b.Denominator);
+    public static Fraction operator -(Fraction a,Fraction b)=>new(a.Numerator*b.Denominator-b.Numerator*a.Denominator,a.Denominator*b.Denominator);
+    public static Fraction operator *(Fraction a,Fraction b)=>new(a.Numerator*b.Numerator,a.Denominator*b.Denominator);
 }

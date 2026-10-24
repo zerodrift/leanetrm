@@ -20,7 +20,7 @@ internal static class DraftRisk
             var symbol=data.References["units"].Single(u=>u.Text("code")==quantity.Text("unit_code")).Text("symbol");
             return $"{unit.Multiplier} {Currency(unit.Currency)} / {symbol}";
         }
-        return new{unbooked=true,measure,basePv=Exact(risk.Base),bumpPolicy=DealRisk.BumpPolicy,numericalPolicy=DealRisk.NumericalPolicy,
+        return new{unbooked=true,measure,bumpPolicy=DealRisk.BumpPolicy,numericalPolicy=DealRisk.NumericalPolicy,
             coverage="commodity_quote_factors_rates_held_fixed",risk.ScenarioCount,currency=Currency(risk.Base.Currency),
             factors=risk.Factors.Select(row=>new{factor=new{seriesId=row.Factor.Input.Series.Id,quote=row.Factor.Quote.Code,
                 curves=row.Factor.Curves.Select(c=>c.Code),unit=Unit(row.Factor.Unit),contract=row.Factor.Contract,

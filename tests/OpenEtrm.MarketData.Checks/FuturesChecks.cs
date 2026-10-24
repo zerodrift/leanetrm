@@ -49,7 +49,7 @@ internal static class FuturesChecks
             Equal(common.Id, ContractIdentity.Futures(series.Key));
             Equal(instrument.Market, side.Market);
         });
-        Check("unknown first-trading time requires explicit eligibility outside instrument identity", () =>
+        Check("unknown first-trading time requires explicit eligibility outside instrument identity",()=>
         {
             var terms=series with{FirstTradingAt=null};var shared=new FuturesContract(terms);
             Reject("futures_definition",()=>new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,quote,"cash",FuturesMarketBinding.Implementation,shared));
@@ -57,6 +57,13 @@ internal static class FuturesChecks
             var later=new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,quote,"cash",FuturesMarketBinding.Implementation,shared,eligibleFrom:first.AddDays(1));
             Equal(bound.EligibleFrom,first);Equal(later.EligibleFrom,first.AddDays(1));
             Equal(ReferenceEquals(bound.Instrument,later.Instrument),true);
+            Equal(bound.Instrument.Id,ContractIdentity.Futures(series.Key));
+            Reject("futures_definition",()=>new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,quote,"cash",FuturesMarketBinding.Implementation,eligibleFrom:contract.Expiry));
+            Reject("futures_definition",()=>new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,quote,"cash",FuturesMarketBinding.Implementation,eligibleFrom:first.ToOffset(TimeSpan.FromHours(1))));
+            Reject("futures_definition",()=>new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,series,quote,"cash",FuturesMarketBinding.Implementation,eligibleFrom:first.AddTicks(-10)));
+            var price=new UnitPrice(ExactDecimal.Parse("3"),quote);
+            _=new FuturesPosition(Guid.NewGuid(),bound,ExactDecimal.Parse("1"),price,first,FuturesSettlementState.Unprocessed);
+            Reject("futures_execution",()=>new FuturesPosition(Guid.NewGuid(),bound,ExactDecimal.Parse("1"),price,first.AddTicks(-10),FuturesSettlementState.Unprocessed));
         });
         Check("unit side contribution, instrument lot size and booked lots apply once at their own levels", () =>
         {

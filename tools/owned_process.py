@@ -25,7 +25,9 @@ def stop_owned_group(process, grace_seconds=3):
             return
         try:
             os.killpg(group, action)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # macOS refuses to signal a group whose remaining members are already exiting;
+            # whether every member is gone is decided below, as after any signal.
             pass
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:

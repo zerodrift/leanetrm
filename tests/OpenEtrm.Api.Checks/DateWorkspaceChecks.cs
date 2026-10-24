@@ -47,12 +47,41 @@ internal static class DateWorkspaceChecks
             Reject("calendar_definition",()=>DateWorkspace.Calendar(Make(-1)));
             Reject("date_coverage",()=>DateWorkspace.Calendar(Make(96,(new(2021,2,1),false))));
         });
+        Check("explicit last trading may occur after the exclusive delivery end",()=>{
+            var context=new ScheduleContext("2021-01-15",0);
+            DateReceipt Literal(string expression)=>PublishedSchedules.Resolve([],expression,context);
+            var atEnd=DateWorkspace.Contract(new("Synthetic next-day cutoff","2021-01-05","2021-01-06","2021-01-06","04:00"),Literal);
+            var afterEnd=DateWorkspace.Contract(new("Synthetic later cutoff","2021-01-06","2021-01-07","2021-01-08","04:00"),Literal);
+            if(atEnd.Expiry!=new DateTimeOffset(2021,1,6,4,0,0,TimeSpan.Zero)||afterEnd.Expiry!=new DateTimeOffset(2021,1,8,4,0,0,TimeSpan.Zero))
+                throw new Exception("A literal last-trading instant was clipped to the delivery period.");
+        });
         Check("a referenced calendar replaces, and never mixes with, an inline calendar",()=>{
             var reference=new ReferenceCalendar(new(Guid.Empty,Guid.Empty,"synthetic_business"),new(2020,12,1),new(2021,6,1),96,[(new DateOnly(2021,1,1),false)]);
             var bound=DateWorkspace.Compile(request with{Calendar=null},reference);
             if(!bound.Dates.Select(d=>d.Date).SequenceEqual(saved.Dates.Select(d=>d.Date)))throw new Exception("Reference calendar changed equal dates");
             Reject("calendar_binding",()=>DateWorkspace.Compile(request,reference));
             Reject("calendar_definition",()=>DateWorkspace.Compile(request with{Calendar=null}));
+        });
+        Check("monthly gas example retains explicit monthly policies and published references",()=>{
+            var sample=ScheduleExamples.MonthlyGas;
+            if(sample.Definition.Symbol!="oe.sample_gas_months"||sample.Selection!="context_month"||sample.Definition.Calendar is not null||sample.Definition.Anchor!="day"||sample.Definition.Day!=1||sample.Definition.Adjustment!="unadjusted"||sample.Definition.ShortMonth!="reject")throw new Exception("Example silently changed financial terms");
+            var version=new ScheduleVersion(Guid.NewGuid(),1,1,"published",request,"context_month",new(2021,1,1),new(2021,5,1),1,new DateTimeOffset(2020,12,1,0,0,0,TimeSpan.Zero));
+            var context=new ScheduleContext("2021-01-15",1);
+            var example=ScheduleExamples.Contracts(new("monthly_gas","oe.ng",context),[version],context);
+            if(example.Definition.Contracts is not [{Start:"oe.ng[0]",End:"oe.ng[1]",LastTrading:"oe.ng[0] - 3bd",CutoffUtc:"15:30"}, {Start:"oe.ng[1]",End:"oe.ng[2]"}])throw new Exception("Monthly example lost reusable date references");
+            Reject("schedule_example",()=>ScheduleExamples.Contracts(new("monthly_gas",null,context),[version],context));
+            Reject("schedule_unpublished",()=>ScheduleExamples.Contracts(new("monthly_gas","oe.ng",context),[version with{State="draft"}],context));
+        });
+        Check("daily power example is explicit literal candidate dates without a daily generator",()=>{
+            var context=new ScheduleContext("2021-01-15",0);
+            var example=ScheduleExamples.Contracts(new("daily_power",null,context),[],context);
+            if(example.Definition.Contracts is not [{Start:"2021-01-05",End:"2021-01-06",LastTrading:"2021-01-04",CutoffUtc:"16:00"}, {Start:"2021-01-06",End:"2021-01-07",LastTrading:"2021-01-05",CutoffUtc:"16:00"}])throw new Exception("Daily example must retain exact supplied date literals");
+            foreach(var row in example.Definition.Contracts) {
+                var value=DateWorkspace.Contract(new(row.Label,row.Start,row.End,row.LastTrading,row.CutoffUtc),expression=>PublishedSchedules.Resolve([],expression,context));
+                if(value.DeliveryTo.DayNumber-value.DeliveryFrom.DayNumber!=1||value.Expiry.Offset!=TimeSpan.Zero)throw new Exception("Daily sample period or UTC cutoff changed");
+            }
+            Reject("schedule_example",()=>ScheduleExamples.Contracts(new("missing",null,context),[],context));
+            Reject("schedule_example",()=>ScheduleExamples.Contracts(new("daily_power","oe.ng",context),[],context));
         });
         Console.WriteLine($"{passed} date workspace checks passed.");
     }

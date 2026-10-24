@@ -42,6 +42,15 @@ internal static class IndependentSideChecks
                 contract.DeliveryFrom, contract.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), floatAt,
                 FloatingAveraging.MonthlyIndexPrice, floating.Projections, FloatingSide.Implementation));
         });
+        Check("explicit keys resolve their own factors without fabricating cash payment plans", () =>
+        {
+            var keys=ImmutableArray.Create(new SidePaymentKey(Guid.NewGuid(),0,fixedAt,quote.Currency),
+                new SidePaymentKey(Guid.NewGuid(),4,floatAt,quote.Currency));
+            var resolver=new ExplicitDiscounting(ExactDecimal.Parse("0.8"),DiscountFactorSource.Explicit);
+            var factors=resolver.Resolve(keys,snapshot);
+            if(!factors.Select(f=>f.Payment).SequenceEqual(keys) || factors.Any(f=>f.DiscountFactor.ToString()!="0.8" ||
+                f.Source!=DiscountFactorSource.Explicit || !f.Snapshot.HasSameInputs(snapshot)))throw new Exception("Exact key factor ownership changed.");
+        });
         var source = new TestDiscounting((schedule, context) => schedule.Payments.Select(p => new SidePaymentFactor(p.Key,
             ExactDecimal.Parse(p.PaymentAt == fixedAt ? "0.5" : "0.8"), context, DiscountFactorSource.Explicit)).ToImmutableArray());
         var context = new SideValuationContext(market, source);
@@ -140,9 +149,41 @@ internal static class IndependentSideChecks
             var undiscounted = new SideValuationContext(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted));
             Equal(instrument.PV(undiscounted).PresentValue.Scale(ExactDecimal.Parse("100")).ToMoney().Amount.ToString(), "307");
         });
+        Check("a non-cash side participates in exact signed composition without manufacturing payments", () =>
+        {
+            var physical=new PhysicalProbe(Guid.NewGuid(),quote.Currency,unit,ExactDecimal.Parse("10"));
+            Side generic=physical;SideSchedule schedule=generic.GenerateSchedule();
+            var result=new TestInstrument([new(fixedSide,ExactDecimal.Parse("-1")),new(physical,ExactDecimal.Parse("2"))],quote.Currency,unit).PV(context);
+            Equal(result.PresentValue.ToMoney().Amount.ToString(),"18.5");
+            if(schedule is SidePaymentSchedule || result.Sides[1].Value is PaymentSideValuation ||
+                result.Sides[0].Value is not PaymentSideValuation cash || cash.Payments.Length!=1 ||
+                result.Sides[1].Value.Schedule.SideId!=physical.Id || result.Sides[1].Value.Snapshot!=snapshot)
+                throw new Exception("A non-cash side lost its own schedule or invented cash rows.");
+            var stale=physical.PV(new SideValuationContext(snapshot,source));
+            Reject("instrument_context",()=>new TestInstrument([new(new RecordedSide(stale),ExactDecimal.Parse("1"))],quote.Currency,unit).PV(context));
+        });
+        Check("explicit value keys cannot request a due or malformed factor context", () =>
+        {
+            var resolver=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
+            var key=new SidePaymentKey(Guid.NewGuid(),0,fixedAt,quote.Currency);
+            Reject("side_context",()=>resolver.Resolve([key],null!));
+            Reject("side_payment_due",()=>resolver.Resolve([key with {PaymentAt=snapshot.ValuationAt}],snapshot));
+            Reject("side_payment_factors",()=>resolver.Resolve([key,key],snapshot));
+            Reject("side_payment_factors",()=>resolver.Resolve([key with {SideId=Guid.Empty}],snapshot));
+        });
         return passed;
     }
 
+    private sealed record PhysicalSchedule(Guid Id,ReferenceKey Money,Quantity Unit) : SideSchedule(Id,Money,Unit,"synthetic_physical_probe_v1")
+    {public override ImmutableArray<CurveRequest> Dependencies=>[];}
+    private sealed record PhysicalValue(SideSchedule OwnSchedule,SideValuationContext OwnContext,ExactMoney Amount)
+        : SideValuation(OwnSchedule,OwnContext,Amount);
+    private sealed record PhysicalProbe(Guid Identity,ReferenceKey Money,Quantity Unit,ExactDecimal Amount) : Side(Identity)
+    {
+        public override ImmutableArray<CurveRequest> Dependencies=>[];
+        public override SideSchedule GenerateSchedule()=>new PhysicalSchedule(Id,Money,Unit);
+        public override SideValuation PV(SideValuationContext context)=>new PhysicalValue(GenerateSchedule(),context,ExactMoney.FromMoney(new(Amount,Money)));
+    }
     private sealed class TestDiscounting(Func<SidePaymentSchedule, MarketSnapshot, ImmutableArray<SidePaymentFactor>> resolve) : ISideDiscounting
     {
         public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot) => resolve(schedule, snapshot);
@@ -150,7 +191,7 @@ internal static class IndependentSideChecks
     private sealed record RecordedSide(SideValuation Value) : Side(Value.SideId)
     {
         public override ImmutableArray<CurveRequest> Dependencies => Value.Schedule.Dependencies;
-        public override SidePaymentSchedule GenerateSchedule() => Value.Schedule;
+        public override SideSchedule GenerateSchedule() => Value.Schedule;
         public override SideValuation PV(SideValuationContext context) => Value;
     }
     private sealed record TestInstrument : SidedInstrument

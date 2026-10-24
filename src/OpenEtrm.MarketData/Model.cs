@@ -2,7 +2,9 @@ using System.Collections.Immutable;
 
 namespace OpenEtrm.MarketData;
 
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public readonly record struct ReferenceRevision(Guid CatalogId, Guid RevisionId);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public readonly record struct ReferenceKey(ReferenceRevision Revision, string Code);
 public readonly record struct DefinitionRevision(Guid CatalogId, Guid RevisionId);
 public readonly record struct ContractKey(DefinitionRevision Revision, Guid Id);
@@ -15,7 +17,8 @@ public enum QuoteKind { Outright = 1, Basis }
 public enum CurveRule { Direct = 1, Add, ScaleAdd }
 public enum InputSlot { Base = 1, Spread }
 public enum SourceExpiryRule { RequireLive = 1, FreezeFinalFuture }
-public enum ObservationRole { TraderMark = 1, DailySettlement, FinalContractSettlement, Parameter }
+public enum ConstituentExpiryRule { RequireLive = 1, FreezeFinalSettlement }
+public enum ObservationRole { TraderMark = 1, DailySettlement, FinalContractSettlement, Parameter, IndexFixing }
 public enum PublicationState { Preliminary = 1, Final }
 public enum InputUse { Variable = 1, FrozenFact }
 public enum InputSelectionPolicy { ExactPinnedFinalObservationsNoAgeFiltering = 1 }
@@ -34,9 +37,14 @@ public sealed record QuoteSpecification(
 public sealed record SettlementTarget(
     SettlementKind Kind, ReferenceKey? IndexA, ReferenceKey? IndexB);
 
+// An exact UTC delivery interval with the market clock's operating date and local labels;
+// Occurrence tells the two copies of a repeated local hour apart.
+public sealed record DeliveryInterval(DateTimeOffset Start, DateTimeOffset End, DateOnly OperatingDate,
+    int HourBeginning, int Minute, int Occurrence);
+
 public sealed record MarketContract(
     ContractKey Key, ContractKind Kind, DateOnly DeliveryFrom, DateOnly DeliveryTo,
-    DateTimeOffset Expiry, ReferenceKey? FuturesSeries);
+    DateTimeOffset Expiry, ReferenceKey? FuturesSeries, DeliveryInterval? Interval = null);
 
 // Resolved from the exact dated series/product/milestone reference links. This
 // preserves the authoritative specification when constructing an in-memory model.
@@ -89,7 +97,11 @@ public sealed record Curve(
     ReferenceKey DeliveryProfile, SettlementTarget Settlement,
     CurveRule Rule, ImmutableArray<ContractKey> Constituents,
     ImmutableArray<CurveInput> Inputs, ObservationRole? DirectRole,
-    ReferenceKey? DirectSource, NumericInput? Multiplier);
+    ReferenceKey? DirectSource, NumericInput? Multiplier)
+{
+    // Existing curve definitions retain their live-only contract; freezing is opt-in.
+    public ConstituentExpiryRule ConstituentExpiry { get; init; } = ConstituentExpiryRule.RequireLive;
+}
 
 public sealed record MarketObservation(
     ObservationKey Key, SeriesKey Series,
@@ -106,23 +118,15 @@ public sealed record MarketSnapshot(
     DateTimeOffset MarketCutoff, InputSelectionPolicy SelectionPolicy,
     ImmutableArray<SelectedObservation> Selections)
 {
-    public Guid? FixingContextId { get; init; }
-    public DateTimeOffset? FixingKnowledgeCutoff { get; init; }
-    public ImmutableArray<Trading.IndexFixingObservation> IndexFixings { get; init; } = [];
-
     public bool HasCoherentSelections() => !Selections.IsDefault &&
         Selections.All(s => s is not null && s.Observation is not null) &&
-        !IndexFixings.IsDefault && IndexFixings.All(f=>f is not null) &&
-        IndexFixings.Select(f=>f.Key).Distinct().Count()==IndexFixings.Length &&
         Selections.Select(s => s.Input).Distinct().Count() == Selections.Length &&
         Selections.GroupBy(s => s.Observation.Key).All(g => g.Select(s => s.Observation).Distinct().Count() == 1);
 
     public bool HasSameInputs(MarketSnapshot? other) => other is not null &&
         Id == other.Id && Definitions == other.Definitions && ValuationAt == other.ValuationAt && MarketCutoff == other.MarketCutoff &&
-        SelectionPolicy == other.SelectionPolicy && FixingContextId==other.FixingContextId && FixingKnowledgeCutoff==other.FixingKnowledgeCutoff &&
-        !IndexFixings.IsDefault && !other.IndexFixings.IsDefault && IndexFixings.Length==other.IndexFixings.Length &&
-        IndexFixings.ToHashSet().SetEquals(other.IndexFixings) && !Selections.IsDefault && !other.Selections.IsDefault &&
-        Selections.Length == other.Selections.Length && Selections.ToHashSet().SetEquals(other.Selections);
+        SelectionPolicy == other.SelectionPolicy && !Selections.IsDefault && !other.Selections.IsDefault &&
+        Selections.Length == other.Selections.Length && (ReferenceEquals(this, other) || Selections.ToHashSet().SetEquals(other.Selections));
 }
 
 public readonly record struct CurveRequest(CurveKey Curve, ContractKey Contract);
@@ -144,6 +148,7 @@ public sealed record CurveEvaluation(BuiltValue Result, InputUse Use,
 public sealed record CurveBuild
 {
     internal CurveModel Model { get; }
+    internal ImmutableDictionary<InputKey, SelectedObservation> SelectedInputs { get; }
     public MarketSnapshot Snapshot { get; }
     public Guid SnapshotId => Snapshot.Id;
     public DefinitionRevision Definitions => Snapshot.Definitions;
@@ -154,12 +159,24 @@ public sealed record CurveBuild
     public int ReusedConstituents { get; }
     public Risk.QuoteShock? Shock { get; }
     public Risk.QuoteScenario Scenario { get; }
+    public Calculation.ConnectedScenario Graph { get; }
+    internal Calculation.ConnectedCurveExport Compiled { get; }
+    internal ImmutableArray<CurveRequest> Requests { get; }
+    private readonly Lazy<Calculation.ConnectedValuation> valuation;
+    private readonly Lazy<Trading.PreparedValuationMarket> pricing;
+    internal Trading.PreparedValuationMarket Pricing=>pricing.Value;
     internal CurveBuild(CurveModel model,MarketSnapshot snapshot,string numericalPolicy,ImmutableArray<BuiltValue> values,
-        int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,int reusedConstituents=0,Risk.QuoteShock? shock=null,
+        ImmutableDictionary<InputKey, SelectedObservation> selectedInputs,int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,
+        Calculation.ConnectedScenario graph,Calculation.ConnectedCurveExport compiled,ImmutableArray<CurveRequest> requests,CurveBuild? parent,
+        int reusedConstituents=0,Risk.QuoteShock? shock=null,
         Risk.QuoteScenario? scenario=null)
     {
-        Model=model; Snapshot=snapshot; NumericalPolicy=numericalPolicy; Values=values;
+        Model=model; Snapshot=snapshot; NumericalPolicy=numericalPolicy; Values=values; SelectedInputs=selectedInputs;
         EvaluatedConstituents=evaluatedConstituents; Evaluations=evaluations;
         ReusedConstituents=reusedConstituents; Shock=shock; Scenario=scenario??Risk.QuoteScenario.Base(snapshot);
+        Graph=graph;Compiled=compiled;Requests=requests;
+        valuation=new(()=>parent is null?Calculation.ConnectedValuation.Prepare(Graph,Snapshot):parent.valuation.Value.WithScenario(Graph));
+        pricing=new(()=>parent is null?valuation.Value.Market(requests.ToImmutableDictionary(r=>r,r=>compiled.Points[(r,InputUse.Variable)]),this,default,this):
+            Calculation.ConnectedValuation.WithScenario(parent.Pricing,valuation.Value,this));
     }
 }

@@ -22,7 +22,6 @@ public sealed record QuoteShift(InputKey Input,ReferenceKey Quote,PriceUnit Unit
 public sealed class QuoteScenario
 {
     public const string IdentityVersion="pinned_quote_scenario_v1";
-    public const string FixingIdentityVersion="pinned_quote_fixing_scenario_v1";
     public string Id{get;}
     public string? ParentId{get;}
     public int Depth{get;}
@@ -44,19 +43,9 @@ public sealed class QuoteScenario
                 input=s.Input,observation=s.Observation.Key,series=s.Observation.Series,source=s.Observation.Source,
                 role=s.Observation.Role,state=s.Observation.State,at=s.Observation.ObservedAt,value=s.Observation.Value.ToString()
             });
-        var quoteInputs=new{version=IdentityVersion,snapshot=snapshot.Id,definitions=snapshot.Definitions,
+        var id=Digest(new{version=IdentityVersion,snapshot=snapshot.Id,definitions=snapshot.Definitions,
             valuationAt=snapshot.ValuationAt,cutoff=snapshot.MarketCutoff,selection=snapshot.SelectionPolicy,
-            numericalPolicy=CurveModel.NumericalPolicy,observations};
-        // Keep projection-only receipts stable; actual-aware contexts have their
-        // own identity contract, including immutable correction and price inputs.
-        var id=snapshot.FixingContextId is null&&snapshot.FixingKnowledgeCutoff is null&&snapshot.IndexFixings.IsEmpty?
-            Digest(quoteInputs):Digest(new{version=FixingIdentityVersion,quoteInputs,snapshot.FixingContextId,snapshot.FixingKnowledgeCutoff,
-                fixings=snapshot.IndexFixings.OrderBy(f=>f.Key.CatalogId).ThenBy(f=>f.Key.Id).Select(f=>new{
-                    f.Key,f.Index,f.Source,f.From,f.To,f.PublishedAt,f.KnownAt,f.State,f.Revision,f.Corrects,
-                    price=f.Price.Value.ToString(),unit=new{f.Price.Unit.Currency,f.Price.Unit.Quantity,multiplier=f.Price.Unit.Multiplier.ToString()},
-                    quote=new{f.Quote.Key,f.Quote.Kind,f.Quote.Currency,f.Quote.Quantity,multiplier=f.Quote.Multiplier.ToString(),
-                        tick=f.Quote.TradingTick.ToString(),clearingIncrement=f.Quote.ClearingIncrement.ToString(),minimum=f.Quote.Minimum.ToString(),maximum=f.Quote.Maximum.ToString()}
-                })});
+            numericalPolicy=CurveModel.NumericalPolicy,observations});
         return new(id,null,0,[],ImmutableDictionary<InputKey,QuoteShift>.Empty);
     }
     internal QuoteScenario Child(ImmutableArray<QuoteShift> shifts)

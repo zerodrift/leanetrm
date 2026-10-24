@@ -1,5 +1,8 @@
+using System.Buffers;
 using System.Globalization;
 using System.Numerics;
+using System.Text;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
@@ -26,10 +29,8 @@ public sealed record AmountFormat
     internal BigInteger RoundedInteger(BigInteger numerator, BigInteger denominator)
     {
         if (denominator <= 0) throw new MarketDataException("numeric_division", "A positive denominator is required.");
-        var value = BigInteger.DivRem(BigInteger.Abs(numerator) * BigInteger.Pow(10, DecimalPlaces), denominator, out var remainder);
-        var comparison = (remainder * 2).CompareTo(denominator);
-        if (comparison > 0 || comparison == 0 && (TieRule == CashTieRule.AwayFromZero || !value.IsEven)) value++;
-        return value * numerator.Sign;
+        return IntegerRounding.RoundQuotient(numerator * BigInteger.Pow(10, DecimalPlaces), denominator,
+            TieRule == CashTieRule.ToEven ? MidpointRounding.ToEven : MidpointRounding.AwayFromZero);
     }
     internal ExactDecimal RoundFraction(BigInteger numerator, BigInteger denominator) =>
         ExactDecimal.FromScaled(RoundedInteger(numerator, denominator) * BigInteger.Pow(10, 18 - DecimalPlaces));
@@ -49,12 +50,27 @@ public sealed record AmountFormat
 
 public sealed record AmountLabel
 {
+    public const int MaximumSymbolLength = 80;
     public ReferenceKey Key { get; }
     public string Symbol { get; }
+    public static bool IsSupportedSymbol(string? symbol)
+    {
+        if (string.IsNullOrEmpty(symbol)) return false;
+        var remaining = symbol.AsSpan();
+        var length = 0; var hasNonWhitespace = false;
+        while (!remaining.IsEmpty)
+        {
+            if (++length > MaximumSymbolLength ||
+                Rune.DecodeFromUtf16(remaining, out var character, out var consumed) != OperationStatus.Done || Rune.IsControl(character)) return false;
+            hasNonWhitespace |= !Rune.IsWhiteSpace(character);
+            remaining = remaining[consumed..];
+        }
+        return hasNonWhitespace;
+    }
     public AmountLabel(ReferenceKey key, string symbol)
     {
         Money.RequireKey(key);
-        if (string.IsNullOrWhiteSpace(symbol) || symbol.Length > 80 || symbol.Any(char.IsControl))
+        if (!IsSupportedSymbol(symbol))
             throw new MarketDataException("display_reference", "Supply a resolved currency or quantity label.");
         Key = key; Symbol = symbol;
     }

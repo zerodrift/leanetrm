@@ -7,8 +7,10 @@ schedules and contract-date candidates are qualified in owned previews; see
 [implemented scope](implementation.md#shared-historical-market-view-and-administration).
 Immutable synthetic futures booking history now shares the certified cutoff and
 adds exact effective-instant selection. Latest-head futures and financial swap
-amendments retain prior effective/knowledge views. General lifecycle transitions,
-activation and production recovery remain unimplemented.
+amendments retain prior effective/knowledge views. Custom-curve effective
+timelines now resolve under that same certified context (D189); exact booked
+references remain pinned. General lifecycle transitions, native-curve activation
+and production recovery remain unimplemented.
 
 This is a baseline product requirement, not an optional reporting feature. Read
 with [architecture](architecture.md), [lifecycle](lifecycle.md) and [plan](plan.md).
@@ -269,15 +271,6 @@ The same token flows from API operations to domain methods and every lazy/paged
 read. Shared scenarios are overlays on this context's market snapshot; they do not
 refresh inputs from current data. Jobs retain the resolved token when queued.
 
-The risk UI uses this same header context. Its temporary scenario stack derives
-immutable children with explicit parent-relative quote shifts. Popping a child
-resumes its parent without restoring mutable data. Each durable risk occurrence
-retains the resolved context, selected books, exact observation/definition pins,
-scenario contract and engine fingerprint. A worker never follows a later UI
-selection or an unresolved "current" date. Current execution authority is checked
-separately, including revocation since admission. Recurring date-selection rules
-and future valuation regimes require supported typed contracts before execution.
-
 Pure schedule resolution may be shared when its relevant inputs agree, but
 context-dependent lifecycle decisions and quantities remain pinned. Calculation
 keys include the actual economic state and context dependencies. Cache hits must
@@ -379,3 +372,19 @@ Before offering the historical environment:
 
 This is a core storage/API/UI contract. Implementation choice O07 remains open;
 that choice must be resolved and tested rather than removing the requirement.
+
+
+## Retained risk execution
+
+The risk UI uses this same header context. Its temporary scenario stack derives
+immutable children with explicit parent-relative quote shifts. Popping a child
+resumes its parent without restoring mutable data. Each durable risk occurrence
+retains the resolved context, selected books, exact observation/definition pins,
+scenario contract and engine fingerprint. A worker never follows a later UI
+selection or an unresolved "current" date. Current execution authority is checked
+separately, including revocation since admission. Recurring date-selection rules
+and future valuation regimes require supported typed contracts before execution.
+
+Frozen observation uses are retained alongside exact observation IDs. Workers read
+those pins under the captured financial context and current authority; they never
+resolve latest corrections again. See [risk scenarios and jobs](risk-engine.md).

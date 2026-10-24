@@ -89,6 +89,9 @@ export function rateWorkbook(result:CurveResult):CurveWorkbook {
 
 export function renderWorkbook(host:HTMLElement,workbook:CurveWorkbook){
   const node=(tag:string,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
+  const connected=workbook.connections.length>0;
+  host.className='workbook-view'+(connected?'':' workbook-simple');
+  if(!workbook.tables.length){host.replaceChildren(node('p','No price sources to display.'));return;}
   const columns=Math.max(...workbook.tables.map(t=>t.column))+1,gap=108,rowHeight=32,headerHeight=104;
   const widths=Array.from({length:columns},(_,column)=>Math.max(252,...workbook.tables.filter(t=>t.column===column).map(t=>Math.max(t.columns.length*98+28,...t.rows.map(r=>r.cells.reduce((n,c)=>n+Math.max(76,c.length*7+22),28))))));
   const xs=widths.map((_,i)=>18+widths.slice(0,i).reduce((n,w)=>n+w+gap,0));
@@ -97,8 +100,8 @@ export function renderWorkbook(host:HTMLElement,workbook:CurveWorkbook){
   for(let column=0;column<columns;column++){let y=20;for(const table of workbook.tables.filter(t=>t.column===column)){
     const width=widths[column],h=headerHeight+table.rows.length*rowHeight+1;positions.set(table.id,{x:xs[column],y,width,height:h});
     table.rows.forEach((r,i)=>rowPositions.set(r.id,{x:xs[column],y:y+headerHeight+i*rowHeight+rowHeight/2,width}));y+=h+36;}height=Math.max(height,y);}
-  const canvas=node('div');canvas.className='workbook-canvas';canvas.style.width=(xs.at(-1)!+widths.at(-1)!+18)+'px';canvas.style.height=height+'px';
-  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.classList.add('workbook-wires');svg.setAttribute('width',canvas.style.width);svg.setAttribute('height',String(height));svg.setAttribute('aria-hidden','true');canvas.append(svg);
+  const canvas=node('div');canvas.className=connected?'workbook-canvas':'workbook-sheets';if(connected){canvas.style.width=(xs.at(-1)!+widths.at(-1)!+18)+'px';canvas.style.height=height+'px';}
+  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');if(connected){svg.classList.add('workbook-wires');svg.setAttribute('width',canvas.style.width);svg.setAttribute('height',String(height));svg.setAttribute('aria-hidden','true');canvas.append(svg);}
   const wireElements:{element:SVGElement;links:WorkbookLink[]}[]=[],rowElements=new Map<string,HTMLElement>(),buttons=new Map<string,HTMLButtonElement>();
   const allLinks=workbook.connections.flatMap(c=>c.links);
   function trace(id:string){const active=traceWorkbook(id,allLinks);
@@ -117,13 +120,13 @@ export function renderWorkbook(host:HTMLElement,workbook:CurveWorkbook){
       if(connection.uniform){const text=document.createElementNS(ns,'text');text.setAttribute('x',String(start+8));text.setAttribute('y',String(a.y-7));text.textContent=connection.label;svg.append(text);}
     });
   }
-  for(const table of workbook.tables){const p=positions.get(table.id)!,panel=node('section');panel.className='workbook-table'+(table.output?' output':'');panel.style.left=p.x+'px';panel.style.top=p.y+'px';panel.style.width=p.width+'px';panel.setAttribute('aria-label',publicText(table.title));
+  for(const table of workbook.tables){const p=positions.get(table.id)!,panel=node('section');panel.className='workbook-table'+(table.output?' output':'');if(connected){panel.style.left=p.x+'px';panel.style.top=p.y+'px';panel.style.width=p.width+'px';}panel.setAttribute('aria-label',publicText(table.title));
     const caption=node('div');caption.className='sheet-caption';caption.append(node('strong',table.title),node('small',table.subtitle));panel.append(caption);
     const grid=node('table'),head=node('thead'),heading=node('tr');heading.append(node('th','#'));
     table.columns.forEach((name,i)=>{const th=node('th'),letter=node('small',String.fromCharCode(65+i));th.append(letter,node('span',name));heading.append(th);});head.append(heading);grid.append(head);
     const body=node('tbody');table.rows.forEach((row,i)=>{const tr=node('tr');tr.title=publicText(row.formula);tr.append(node('th',String(i+1)));
-      row.cells.forEach((value,j)=>{const td=node('td');if(j===0){const button=node('button',value) as HTMLButtonElement;button.type='button';button.setAttribute('aria-pressed','false');button.setAttribute('aria-label',publicText(`Trace ${value} through ${table.title}`));button.onclick=()=>trace(row.id);buttons.set(row.id,button);td.append(button);}else td.textContent=publicText(value);tr.append(td);});body.append(tr);rowElements.set(row.id,tr);});grid.append(body);panel.append(grid);canvas.append(panel);
+      row.cells.forEach((value,j)=>{const td=node('td');if(j===0&&connected){const button=node('button',value) as HTMLButtonElement;button.type='button';button.setAttribute('aria-pressed','false');button.setAttribute('aria-label',publicText(`Trace ${value} through ${table.title}`));button.onclick=()=>trace(row.id);buttons.set(row.id,button);td.append(button);}else td.textContent=publicText(value);tr.append(td);});body.append(tr);rowElements.set(row.id,tr);});grid.append(body);panel.append(grid);canvas.append(panel);
   }
   const hint=node('p','Select a contract row to trace its connections. One line groups identical rules and period mappings; individual lines show exceptions.');hint.className='field-help';
-  host.className='workbook-view';host.replaceChildren(canvas,hint);
+  host.replaceChildren(...(connected?[canvas,hint]:[canvas]));
 }

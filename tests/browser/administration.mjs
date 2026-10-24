@@ -1,10 +1,19 @@
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,errors,url}){
+import {sideSession} from './side-session.mjs';
+
+export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url}){
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__responses=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{const path=String(args[0]),body=args[1]?.body?JSON.parse(args[1].body):null;window.__requests.push({path,body});const response=await window.__originalFetch(...args);window.__responses.push({path,status:response.status,data:await response.clone().json()});return response;};window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
+  // An agent of this scenario's own, created as agent administration creates one.
+  const agentName='Browser listed agent '+Date.now();await(await sideSession(url)).call('settings/ai/agents/create',{operationId:crypto.randomUUID(),name:agentName});
   await persona('admin');
   await check('administration-only identity opens users without business access',"!document.querySelector('#admin-page').hidden&&document.querySelector('#market-page').hidden&&document.querySelector('#nav-market').hidden&&document.querySelector('#page-title').textContent==='Users & access'&&document.querySelector('#error').hidden");
-  await check('six explicit role choices and permission details are shown',"document.querySelectorAll('#admin-roles input').length===6&&document.querySelectorAll('#admin-roles details').length===6");
+  await check("Users & access shows the workspace's agent grants in force and their recent changes, read-only, and none are made here","!document.querySelector('#admin-grants-card').hidden&&!document.querySelector('#admin-grant-history-card').hidden&&document.querySelectorAll('#admin-grants tbody tr,#admin-grant-history tbody tr').length===0");
+  await check('six explicit role choices and permission details are shown',"document.querySelectorAll('#admin-roles input').length===6&&document.querySelectorAll('#admin-roles details').length===6&&!document.querySelector('#admin-roles input[value=agent_reader]')");
+  await check('accounts are created as humans or services, and agents are listed as agent readers without Edit',
+    "JSON.stringify([...document.querySelector('#admin-kind').options].map(o=>o.value))==='[\"\",\"human\",\"service\"]'"
+    +`&&(rows=>rows.every(r=>!r.querySelector('button'))&&rows.some(r=>r.cells[0].textContent===${JSON.stringify(agentName)}&&r.cells[3].textContent==='Agent reader'&&r.cells[4].textContent==='Managed as an agent'))`
+    +"([...document.querySelectorAll('#admin-members tbody tr')].filter(r=>r.cells[1].textContent==='Agent'))");
   const login='browser_human_'+Date.now(),name='Browser test human';
   await set('#admin-name',name);await set('#admin-login',login);await set('#admin-kind','human');
   await evaluate("document.querySelector('#admin-roles input[value=viewer]').checked=true");
@@ -30,11 +39,26 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await submit('#admin-form');
   const retained=await evaluate("JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.admin.request.'))))");
   await check('lost response retains exact command identity for reconciliation',`!document.querySelector('#admin-pending').hidden&&!!${JSON.stringify(retained.operationId)}&&!document.querySelector('#error').hidden`);
-  await set('#admin-name','Changed uncertain details');await submit('#admin-form');
-  await check('changed form cannot repurpose outstanding administrative request',"document.querySelector('#error').textContent.includes('outstanding request')&&!document.querySelector('#admin-pending').hidden");
+  const authority=await sideSession(url);
+  const controller=await authority.call('admin/create',{operationId:crypto.randomUUID(),login:'synthetic_retry_admin_'+Date.now(),name:'Synthetic retry administrator',kind:'human',roles:['access_administrator']});
+  const independent=authority;await independent.call('profile',{profile:controller.login});
+  const originalAdmin=(await independent.call('admin')).members.find(m=>m.login==='admin');
+  const restrictedAdmin=await independent.replaceRoles(originalAdmin,['viewer']);
+  try{
+   await click('#admin-retry');
+   await check('a denied retry preserves an earlier uncertain administrative commit',`!document.querySelector('#admin-pending').hidden&&JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.admin.request.')))).operationId===${JSON.stringify(retained.operationId)}`);
+   await check('denied administration clears privileged rows and fields while retaining its retry',"document.querySelector('#admin-members').children.length===0&&document.querySelector('#admin-audit').children.length===0&&document.querySelector('#admin-roles').children.length===0&&document.querySelector('#admin-form').hidden&&document.querySelector('#admin-name').value===''&&!document.querySelector('#admin-pending').hidden&&['admin-grants','admin-grant-history'].every(id=>document.getElementById(id).children.length===0)&&document.querySelector('#admin-grants-card').hidden&&document.querySelector('#admin-grant-history-card').hidden");
+  }finally{await independent.replaceRoles(restrictedAdmin,originalAdmin.roles);}
+  await submit('#admin-form');
+  await check('a cleared form cannot start another mutation while the earlier request is unconfirmed',`!document.querySelector('#admin-pending').hidden&&JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.admin.request.')))).operationId===${JSON.stringify(retained.operationId)}&&window.__requests.filter(r=>r.path==='/api/admin/create'&&r.body.operationId===${JSON.stringify(retained.operationId)}).length===2`);
   await click('#admin-retry');
-  await check('retry uses original operation identity and succeeds idempotently',`(()=>{const requests=window.__requests.filter(r=>r.path==='/api/admin/create'&&r.body.operationId===${JSON.stringify(retained.operationId)});const audit=window.__responses.filter(r=>r.path==='/api/admin').at(-1).data.audit;return requests.length===2&&JSON.stringify(requests[0].body)===JSON.stringify(requests[1].body)&&audit.filter(a=>a.operationId===${JSON.stringify(retained.operationId)}).length===1&&document.querySelector('#admin-pending').hidden&&document.querySelector('#error').hidden;})()`);
+  await check('retry uses original operation identity and succeeds idempotently',`(()=>{const requests=window.__requests.filter(r=>r.path==='/api/admin/create'&&r.body.operationId===${JSON.stringify(retained.operationId)});const audit=window.__responses.filter(r=>r.path==='/api/admin').at(-1).data.audit;return requests.length===3&&requests.every(r=>JSON.stringify(r.body)===JSON.stringify(requests[0].body))&&audit.filter(a=>a.operationId===${JSON.stringify(retained.operationId)}).length===1&&document.querySelector('#admin-pending').hidden&&document.querySelector('#error').hidden;})()`);
   await check('retry preserves original name rather than modified form',"document.querySelector('#admin-name').value==='Synthetic uncertain account'&&!document.querySelector('#admin-members').textContent.includes('Changed uncertain details')");
+  await evaluate("(()=>{const original=window.fetch;let failed=false;window.confirmedAdminWrites=0;window.fetch=async(...args)=>{const path=String(args[0]);if(path==='/api/admin'&&window.confirmedAdminWrites&&!failed){failed=true;return new Response(JSON.stringify({code:'synthetic_refresh'}),{status:503});}const response=await original(...args);if(path==='/api/admin/update'&&response.ok)window.confirmedAdminWrites++;return response;};})()");
+  await set('#admin-name','Synthetic uncertain account revised');await submit('#admin-form');
+  await check('failed reads after confirmed administration remain visible without retaining the write',"!document.querySelector('#error').hidden&&document.querySelector('#admin-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.admin.request.'))");
+  await click('#admin-refresh');
+  await check('administrative read recovery does not resubmit the confirmed write',"window.confirmedAdminWrites===1&&document.querySelector('#admin-members').textContent.includes('Synthetic uncertain account revised')&&document.querySelector('#error').hidden");
   await click('#admin-new');await set('#admin-name','Malformed response test');await set('#admin-login','malformed_'+Date.now());await set('#admin-kind','human');await evaluate("document.querySelector('#admin-roles input[value=viewer]').checked=true;window.__badGateway=true;window.fetch=async(...args)=>{const r=await window.__trackedFetch(...args);if(window.__badGateway&&String(args[0])==='/api/admin/create'){window.__badGateway=false;return new Response('<html>Bad Gateway</html>',{status:502,headers:{'Content-Type':'text/html'}});}return r;}");await submit('#admin-form');
   const malformed=await evaluate("JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.admin.request.'))))");
   await check('malformed 502 after commit retains administrative request',"!document.querySelector('#admin-pending').hidden&&!document.querySelector('#error').hidden");await click('#admin-retry');
@@ -43,7 +67,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('admin account table filter limits displayed rows',"document.querySelectorAll('#admin-members tbody tr:not([hidden])').length===1&&document.querySelector('#admin-members tbody').textContent.includes('Synthetic uncertain account')");
   await evaluate('window.scrollTo(0,0)');await shot('admin-desktop');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
-  await check('admin mobile layout avoids page-wide horizontal overflow',"document.documentElement.scrollWidth<=window.innerWidth+1");await shot('admin-mobile');
+  await check('admin mobile layout avoids page-wide horizontal overflow',fitsWidth);await shot('admin-mobile');
   await check('admin visible text exposes no internal GUIDs',"!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(document.body.innerText)");
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   const actorLogin='browser_admin_'+Date.now();await click('#admin-new');await set('#admin-name','Revocation actor '+Date.now());await set('#admin-login',actorLogin);await set('#admin-kind','human');await evaluate("document.querySelector('#admin-roles input[value=access_administrator]').checked=true");await submit('#admin-form');
@@ -53,7 +77,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await sideApi('bootstrap');await sideApi('profile',{profile:'admin'});const otherLogin='other_admin_'+Date.now();await sideApi('admin/create',{operationId:crypto.randomUUID(),login:otherLogin,name:'Independent test administrator',kind:'human',roles:['access_administrator']});await sideApi('profile',{profile:otherLogin});
   await sideApi('admin/update',{operationId:crypto.randomUUID(),id:actor.id,expectedVersion:actor.version,name:actor.name,enabled:false,roles:actor.roles});
   await click('#admin-refresh');
-  await check('revoked admin refresh clears cached account directory',"!document.querySelector('#error').hidden&&document.querySelector('#admin-members').children.length===0&&document.querySelector('#admin-audit').children.length===0");
+  await check('revoked admin refresh clears cached account directory',"!document.querySelector('#error').hidden&&document.querySelector('#admin-members').children.length===0&&document.querySelector('#admin-audit').children.length===0&&['admin-grants','admin-grant-history'].every(id=>document.getElementById(id).children.length===0)&&document.querySelector('#admin-grants-card').hidden&&document.querySelector('#admin-grant-history-card').hidden");
   await check('revoked admin refresh clears stale selected account form',"document.querySelector('#admin-name').value===''&&document.querySelector('#admin-login').value===''&&document.querySelector('#admin-form').hidden&&document.querySelector('#admin-pending').hidden");
   await check('no uncaught JavaScript exceptions',JSON.stringify(errors.length===0));
 }

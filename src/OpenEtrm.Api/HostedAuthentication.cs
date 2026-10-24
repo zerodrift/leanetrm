@@ -13,7 +13,10 @@ using Npgsql;
 
 namespace OpenEtrm.Api;
 
-public sealed record HostedIdentity(Guid PrincipalId, string Issuer, string Subject, string Login, string Name);
+public sealed record HostedIdentity(Guid PrincipalId, string Issuer, string Subject, string Login, string Name, DateTimeOffset Ends);
+// The sign-in session an application session belongs to: the digest that names it to the database, and when it ends
+// (docs/ai-assistant.md §11).
+public sealed record HostedSignIn(string Digest, DateTimeOffset Ends);
 
 public sealed class HostedAuthentication : IAsyncDisposable
 {
@@ -67,6 +70,7 @@ public sealed class HostedAuthentication : IAsyncDisposable
     public static HostedIdentity Current(HttpContext context) => context.Items[typeof(HostedIdentity)] as HostedIdentity
         ?? throw new PreviewDeniedException();
     public static string SessionDigest(HttpContext context) => HostedAccess.TokenDigest(context.User.FindFirstValue("session")??throw new PreviewDeniedException());
+    public static HostedSignIn SignIn(HttpContext context) => new(SessionDigest(context), Current(context).Ends);
     public async Task<HostedIdentity?> Identity(string token, CancellationToken ct)
     {
         string digest;
@@ -76,10 +80,13 @@ public sealed class HostedAuthentication : IAsyncDisposable
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
         if (reader.GetString(1) != settings.IdentityIssuer || reader.GetGuid(5) != Tenant || reader.GetGuid(6) != Workspace) return null;
-        return new(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4));
+        return new(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetFieldValue<DateTimeOffset>(7));
     }
     public Guid Tenant { private get; set; }
     public Guid Workspace { private get; set; }
+    // Told of each sign-out once its session is revoked, with the session's digest and subject, so the session's streams
+    // end at once (docs/ai-assistant.md §11).
+    public Action<string, string>? SignedOut { private get; set; }
     public void Map(WebApplication app)
     {
         var auth = app.MapGroup("/auth");
@@ -117,7 +124,7 @@ public sealed class HostedAuthentication : IAsyncDisposable
         }).RequireRateLimiting("local-auth");
         auth.MapPost("/login", async (HttpContext c) =>
         {
-            if(c.User.Identity?.IsAuthenticated==true)return Results.StatusCode(409);
+            if(c.User.Identity?.IsAuthenticated==true)return Results.Redirect("/");
             var form = await c.Request.ReadFormAsync(c.RequestAborted);
             string? login;
             try { login = HostedAccess.Login(form["login"].ToString()); }
@@ -146,8 +153,10 @@ public sealed class HostedAuthentication : IAsyncDisposable
         app.MapPost("/api/logout", async (HttpContext c) =>
         {
             var token = c.User.FindFirstValue("session") ?? throw new PreviewDeniedException();
+            var digest = HostedAccess.TokenDigest(token);
             await using var command = source.CreateCommand("SELECT security.revoke_hosted_session($1)");
-            command.Parameters.AddWithValue(HostedAccess.TokenDigest(token)); await command.ExecuteNonQueryAsync(c.RequestAborted);
+            command.Parameters.AddWithValue(digest); await command.ExecuteNonQueryAsync(c.RequestAborted);
+            SignedOut?.Invoke(digest, Current(c).Subject);
             await c.SignOutAsync(Scheme); c.Response.Cookies.Delete("__Host-openetrm_workspace",new CookieOptions{Secure=true,Path="/"}); return Results.Ok(new{signedOut=true});
         }).WithMetadata(new PreviewScope("baseline"));
     }

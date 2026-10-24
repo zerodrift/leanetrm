@@ -1,7 +1,7 @@
 """HTTP checks against a newly owned synthetic preview; invoked by run_preview.py."""
 from preview_client import PreviewClient
 
-def run_checks(url):
+def run_checks(url,query,manifest,direct_reads):
     passed=0
     class Client(PreviewClient):
         def __init__(self):
@@ -14,15 +14,35 @@ def run_checks(url):
         print('PASS '+name,flush=True)
     c=Client();boot=c.bootstrap()
     check('synthetic preview boundary is explicit',boot['mode']=='local-synthetic-preview' and boot['profile'] is None)
+    startup=c.call('bootstrap?includeFrames=false&includeAccess=true')
+    check('anonymous bootstrap explicitly has no selected-profile access projection',startup['access'] is None and startup['profile'] is None)
+    compact=c.call('bootstrap?includeFrames=false')
+    check('identity bootstrap can omit unused frame payload without changing session metadata',compact['frames']==[] and
+          all(compact[key]==boot[key] for key in ['mode','runId','profiles','profile','customProfiles','catalogId','tenantId','workspaceId']) and
+          bool(compact['csrfToken']) and bool(boot['frames']))
+    check('full bootstrap remains compatible and compact reads preserve exact retained frames',
+          c.call('bootstrap?includeFrames=true')['frames']==boot['frames']==c.call('bootstrap')['frames'])
+    c.call('bootstrap?includeFrames=unknown',expected=400);check('invalid bootstrap frame selection is rejected')
     c.call('workspace',expected=403);check('no identity does not read workspace')
+    c.call('workspace/catalog',expected=403);check('navigation catalog requires current identity')
+    c.call('reference/catalog?table=currencies',expected=403);check('reference pages require current identity')
     c.call('profile',{'profile':'viewer'},headers={'X-Preview-CSRF':'invalid'},expected=400);check('CSRF token enforced')
     c.call('profile',{'profile':'viewer'},headers={'Origin':'https://untrusted.invalid'},expected=403);check('foreign origin rejected')
     c.call('health',headers={'Host':'untrusted.invalid'},expected=403);check('host boundary enforced')
     c.call('profile',{'profile':'administrator'},expected=403);check('client cannot invent test identity')
     c.call('profile',{'profile':'viewer'})
+    from check_bootstrap_access import run_checks as check_bootstrap_access
+    check_bootstrap_access(c,check,query)
+    from check_market_navigation import run_checks as check_market_navigation
+    check_market_navigation(c,check,query,manifest)
+    from check_first_pricing import run_checks as check_first_pricing
+    check_first_pricing(c,check)
     workspace=c.call('workspace')
     check('database timestamp transport stays UTC under a non-UTC API environment',all(m.get('event_at') is None or m['event_at'].endswith('+00:00') for m in workspace['references']['futures_milestones']))
     check('viewer reads real catalog and exact input frames',len(workspace['definitions']['curves'])==10 and len(workspace['frames'])==4)
+    compact=c.call('bootstrap?includeFrames=false')
+    check('compact identity bootstrap retains the selected profile and authorized workspace pins',compact['profile']=='viewer' and
+          c.call('workspace/catalog')['frames']==workspace['frames'])
     named=workspace['definitions']['curves']+workspace['definitions']['rate_curves']
     directory=c.call('curve-names')
     check('the curve-name directory serves stored names for every catalog curve, including other bundles',{v['code'] for v in named}<={d['code'] for d in directory} and {'daily_gas','daily_power'}<={d['code'] for d in directory} and all(d['name'] for d in directory))
@@ -77,14 +97,6 @@ def run_checks(url):
     selected=c.call('select-observation',{'snapshotId':new,'observationId':obs})
     replay=c.call('evaluate',{'snapshotId':selected['frame']['id'],'curve':'local_power'})
     check('prior revision can be explicitly selected',replay['points'][0]['value']=='29.1')
-    # The full market read and the pin-filtered financial read must resolve
-    # identical selected correction values, while retaining the earlier frame.
-    c.call('profile',{'profile':'trader'})
-    for snapshot in (old,new):
-        full=c.call('evaluate',{'snapshotId':snapshot,'curve':'future'})
-        narrow=c.call('futures/catalog',{'snapshotId':snapshot,'convention':'fixed_total_cash_execution_pnl_v1','knowledgeMode':'current'})
-        by_id={x['contractId']:x['value'] for x in full['points']}
-        check('filtered financial read equals full selected-pin calculation',all(x['mark']==by_id[x['id']] for x in narrow['contracts']))
     c.call('profile',{'profile':'viewer'})
     c.call('corrections',{'snapshotId':new,'observationId':changed['observationId'],'value':'3.2'},expected=403);check('identity switch applies current permissions')
     other=Client();other.bootstrap();other.call('profile',{'profile':'viewer'})
@@ -129,12 +141,27 @@ def run_checks(url):
     check_admin(Client,check)
     from check_power_preview import run_checks as check_power
     check_power(Client,check)
+    from check_empty_trading_directory import run_checks as check_empty_directory
+    check_empty_directory(c,check,query,manifest)
     from check_futures_preview import run_checks as check_futures
     check_futures(Client,check)
+    from check_trading_directory import run_checks as check_trading_directory
+    check_trading_directory(c,check,query,manifest)
+    from check_trade_valuation_scope import run_checks as check_trade_valuation_scope
+    check_trade_valuation_scope(c,check,query)
+    from check_trading_pin_reads import run_checks as check_trading_pin_reads
+    check_trading_pin_reads(c,check,query,manifest)
+    from check_trading_compression import run_checks as check_trading_compression
+    check_trading_compression(c,check,query,manifest)
     from check_risk_preview import run_checks as check_risk
     check_risk(Client,check)
     from check_tou_products import run_checks as check_tou_products
     check_tou_products(Client,check)
+    from check_page_reads import run_checks as check_page_reads
+    check_page_reads(c,check,direct_reads)
+    from check_reference_reads import run_checks as check_reference_reads,run_scope_checks
+    check_reference_reads(c,check)
+    run_scope_checks(c,check,query,manifest)
     print(f'{passed} preview HTTP checks passed.',flush=True)
     return workspace
 

@@ -1,21 +1,24 @@
 using OpenEtrm.Shared.Temporal;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
 using OpenEtrm.Api;
+using OpenEtrm.Automation;
 using OpenEtrm.MarketData;
 
-if(args is ["--render-power-days",var calendarInput,var calendarOutput]){PowerDayCalendar.Run(calendarInput,calendarOutput);return;}
-
 if(args.Length>0&&args[0]=="--import-reference"){Environment.ExitCode=await ReferenceImportCommand.Run(args[1..]);return;}
-
 if(args.Length>0&&args[0]=="--capture-reference"){Environment.ExitCode=await ReferenceCaptureCommand.Run(args[1..]);return;}
+
+if(args is ["--render-power-days",var calendarInput,var calendarOutput]){PowerDayCalendar.Run(calendarInput,calendarOutput);return;}
 
 if(args.Length>0 && args[0]=="--collect-power"){Environment.ExitCode=await PowerCollection.Run(args[1..]);return;}
 if(args.Length>0 && args[0]=="--risk-worker"){Environment.ExitCode=await RiskWorker.Run(args[1..]);return;}
@@ -29,17 +32,39 @@ var webRoot=Path.GetFullPath(hosted?.WebDirectory ?? Environment.GetEnvironmentV
 await using var hostedAuthentication=hosted is null?null:new HostedAuthentication(hosted);
 var builder=WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); builder.Logging.AddSimpleConsole(o=>o.SingleLine=true); builder.Logging.SetMinimumLevel(LogLevel.Warning);
-builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=32*1024; });
+const int bodyLimit=32*1024;
+builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=bodyLimit; });
 if(hosted is null)builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
 else {HostedAuthentication.Configure(builder,hosted);builder.Services.AddSingleton(hostedAuthentication!);}
 builder.Services.AddSingleton<IAntiforgeryAdditionalDataProvider,PreviewAntiforgeryScope>();
 builder.Services.AddAntiforgery(o=> { o.HeaderName="X-Preview-CSRF"; o.Cookie.Name=hosted is null?"openetrm_preview_csrf":"__Host-openetrm_csrf"; o.Cookie.HttpOnly=true; o.Cookie.SameSite=SameSiteMode.Strict; o.Cookie.SecurePolicy=hosted is null?CookieSecurePolicy.None:CookieSecurePolicy.Always; });
-builder.Services.ConfigureHttpJsonOptions(o=>{o.SerializerOptions.PropertyNamingPolicy=JsonNamingPolicy.CamelCase;o.SerializerOptions.Converters.Add(new ExactDecimalJsonConverter());});
+// A member repeated in any letter case is ambiguous, so it never binds.
+builder.Services.ConfigureHttpJsonOptions(o=>{o.SerializerOptions.PropertyNamingPolicy=JsonNamingPolicy.CamelCase;o.SerializerOptions.AllowDuplicateProperties=false;
+    o.SerializerOptions.Converters.Add(new ExactDecimalJsonConverter());});
+// In every environment, binding refuses what it cannot read with a bare status, which the API then names.
+builder.Services.Configure<RouteHandlerOptions>(o=>o.ThrowOnBadRequest=false);
+builder.Services.AddResponseCompression(o=>{o.EnableForHttps=true;o.Providers.Add<GzipCompressionProvider>();o.MimeTypes=["application/json"];});
+builder.Services.Configure<GzipCompressionProviderOptions>(o=>o.Level=CompressionLevel.Fastest);
 var app=builder.Build();
 var httpContext=hosted is null?null:app.Services.GetRequiredService<IHttpContextAccessor>();
 await using var database=new PreviewDatabase(root,hosted:hosted,hostedSession:hosted is null?null:()=>HostedAuthentication.SessionDigest(httpContext!.HttpContext??throw new PreviewDeniedException()));
 if(hosted is not null)await database.ValidateHostedBoundary(CancellationToken.None);
 if(hostedAuthentication is not null){hostedAuthentication.Tenant=database.Manifest.TenantId;hostedAuthentication.Workspace=database.Manifest.WorkspaceId;app.UseForwardedHeaders();}
+// The page assistant's worker and provider client (docs/ai-assistant.md §7.4, §11). The worker starts its generation
+// before serving, closing whatever an earlier one left open. Only owned checks set the provider check endpoint (§5.2).
+var checkEndpoint=ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_PROVIDER_CHECK_ENDPOINT"));
+var (workerHolder,workerWrites)=PreviewDatabase.WorkerSources(root,hosted);
+await using var agentWorker=new AgentWorker(workerHolder,workerWrites,app.Logger);
+// Provider keys are sealed under the installation's key files when hosted, else the preview runner's (§5.2, §11).
+var custody=hosted is null?CredentialCustody.FromEnvironment():new CredentialCustody(hosted.CredentialKeyFile,hosted.CredentialRetryKeyFile);
+var adapter=new ModelAdapters(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider);
+var providerTests=new ProviderTests(custody,agentWorker,adapter,app.Logger);
+// The live event stream's subscriptions, which the worker tells of what it publishes (§8).
+var turnStreams=new TurnStreams();
+await using var turnWorker=new TurnWorker(agentWorker,custody,adapter,turnStreams,app.Logger);
+await agentWorker.Generation(CancellationToken.None);
+// Signing out ends the session's streams at once; revoking its sign-in session has cancelled its turns (§11).
+if(hostedAuthentication is not null)hostedAuthentication.SignedOut=turnStreams.EndSession;
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
 
@@ -56,8 +81,13 @@ app.Use(async (context,next)=>
     context.Response.Headers["X-Content-Type-Options"]="nosniff"; context.Response.Headers["Referrer-Policy"]=hosted is null?"no-referrer":"same-origin";
     if(hosted is not null){context.Response.Headers.CacheControl="no-store";context.Response.Headers["Strict-Transport-Security"]="max-age=31536000";}
     if (apiPath.StartsWithSegments("/api")) context.Response.Headers.CacheControl="no-store";
-    using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted); deadline.CancelAfter(TimeSpan.FromSeconds(15));
+    // A route that must tell the client leaving apart from the request deadline reads the client's own token here.
+    context.Items["client_aborted"]=context.RequestAborted;
+    // Authorized event streams have their own session, heartbeat and write bounds.
+    using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+    if(!LiveContexts.Matches(context.Request.Method,apiPath)&&!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(apiPath.StartsWithSegments("/api/ppa")?20:15));
     context.RequestAborted=deadline.Token;
+    const string malformed="The request is incomplete or malformed.";
     try
     {
         await next(context);
@@ -66,17 +96,38 @@ app.Use(async (context,next)=>
     {
         var (status,code,message)=e switch
         {
-            PreviewDeniedException => (403,"access_denied","The selected test identity cannot perform this operation."),
+            // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
+            PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
+            PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
+            PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"The complete settlement preview requires compatible, final, certified evidence and explicit policies."),
+            CloseRiskInputsException c => (422,CloseRiskInputsException.Code,c.Message),
+            AutomationException a => (422,a.Code,a.Message),
+            OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
+            PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("curve_activation_",StringComparison.Ordinal) => (422,p.MessageText,"Supply disjoint effective intervals and exact published outputs under the complete timeline policy."),
+            PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
+            PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
+            PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("pilot_",StringComparison.Ordinal) => (422,p.MessageText,"Choose complete explicit pilot close inputs, supported policies and an available exact anchor."),
+            PostgresException p when p.MessageText is "infrastructure_busy" => (409,p.MessageText,"Wait for active workloads or pending maintenance to finish before requesting node maintenance."),
+            PostgresException p when p.MessageText is "infrastructure_conflict" => (409,p.MessageText,"The node changed. Refresh infrastructure before requesting another action."),
+            PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/infrastructure") => (409,"infrastructure_busy","Cluster maintenance is already queued, running or awaiting reconciliation."),
+            PostgresException p when p.MessageText is "infrastructure_input" => (422,p.MessageText,"Supply a supported infrastructure operation and exact target version."),
+            PostgresException p when p.SqlState is "23502" or "23514" or "22P02" or "22007" or "22008" or "22003" && apiPath.StartsWithSegments("/api/jobs") => (422,"job_input","The job contract has missing, malformed or unsupported fields."),
+            PostgresException p when p.MessageText is "job_input" or "job_transition" or "job_limit" => (422,p.MessageText,"Supply a supported job contract or an available action within its limits."),
             AntiforgeryValidationException => (400,"request_token","Reload the preview to obtain a valid request token."),
-            MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "futures_revision_conflict" or "swap_revision_conflict" => (409,m.Code,m.Message),
+            MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
+            PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
+            MarketDataException m when m.Code=="reference_conflict" => (409,m.Code,m.Message),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="reference_conflict" => (409,p.MessageText,"This reference version or display selection changed. Reload before editing."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "reference_edit" or "reference_limit" or "reference_economic_change" => (422,p.MessageText,"Supply supported display fields within the authoring limits. Financial terms must remain identical before display activation."),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/tou-products") => (409,"tou_conflict","This TOU product changed or its code already exists. Reload before editing."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="ppa_conflict" => (409,p.MessageText,"The trade or operation changed. Reconcile its original request or current head."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("ppa_",StringComparison.Ordinal) => (422,p.MessageText,"The PPA operation does not meet its explicit terms, pins, coverage or limits."),
             MarketDataException m => (422,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="index_fixing_conflict" => (409,p.MessageText,"This source revision already has different fixing terms."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("index_fixing_",StringComparison.Ordinal) => (422,p.MessageText,"The fixing does not meet its explicit identity, revision, context or price contract."),
-            PostgresException p when p.SqlState=="23503" && apiPath.StartsWithSegments("/api/index-fixings") => (422,"index_fixing_definition","Choose compatible retained index, quote, source and predecessor references."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("risk_",StringComparison.Ordinal) => (422,p.MessageText,"The risk job does not meet its retained context, input or execution contract."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "swap_conflict" or "swap_revision_conflict" or "trade_operation_conflict" => (409,p.MessageText,"This trade or operation changed. Reconcile the original request or reload the latest revision."),
@@ -93,15 +144,50 @@ app.Use(async (context,next)=>
             TemporalException t => (422,t.Code,t.Message),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/date-schedules") => (409,"schedule_conflict","This schedule changed or the reference already exists. Reload before editing."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="admin_conflict" => (409,"admin_conflict","This account or request changed. Reload administration before editing."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="admin_limit" && context.Items.ContainsKey("model_admin_attempted") => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "last_administrator" or "self_access_change" or "admin_input" or "admin_limit" => (422,p.MessageText,"The administrative change was rejected. Keep a current administrator and supply explicit account details and roles."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_managed" => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/admin") => (409,"admin_conflict","That account or request already exists. Reload administration."),
+            ModelAdministrationException m => (422,m.Code,m.Message),
+            ModelCallException m => (422,m.Code,m.Message),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_conflict" || p.SqlState=="23505" && context.Items.ContainsKey("model_admin_attempted")
+                => (409,"model_admin_conflict","This provider, model or request changed, or its current state does not allow the change. Reload Settings › AI before repeating the change under a new request."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_provider_unqualified" or "model_provider_disabled" or "model_unqualified" or "model_mapping_unconfirmed"
+                or "model_unpriced" or "test_in_progress" or "model_changed" or "model_disabled" or "agent_retired"
+                => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_role_lacks_permission" => (422,p.MessageText,AgentAdministration.RoleRefusal(AgentAdministration.Lacking(p.Hint))),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "agent_not_allowed" or "grant_permission_missing" => (403,p.MessageText,AgentGrants.Refusal(p.MessageText,p.Hint)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_unknown" => (404,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_conflict" => (409,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_input" => (422,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_input" or "question_too_long" => (422,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_conflict" or "conversation_agent_mismatch" or "knowledge_budget_reserved"
+                or "access_changed" => (409,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "conversation_not_found" or "turn_not_found" => (404,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_required" => (403,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable" or "parameter_required"
+                or "model_limit_exceeded" or "instructions_too_long" or "grant_duration_exceeded"
+                => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_runtime_unavailable" => (503,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "report_zone_invalid" or "report_range_invalid" => (422,p.MessageText,UsageReports.Refusal(p.MessageText)),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "amount_format" or "futures_lot" => (422,p.MessageText,"Supply exact supported contract lot terms or deal display precision."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_conflict" or "interval_series_revision_conflict" => (409,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_values" or "interval_series_window" or "interval_series_grid" or "interval_series_code"
+                || p.SqlState=="23514" && p.MessageText=="interval_series_definition" => (422,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
+            PostgresException p when p.SqlState=="23514" && p.MessageText=="interval_curve_definition"
+                => (422,p.MessageText,"Interval contracts must be forwards on their operating date, alone in their curve and as long as its delivery profile's interval."),
             PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_limit" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
             PostgresException p when p.SqlState=="42501" => (403,"access_denied","Database permissions rejected this operation."),
             PostgresException p when p.SqlState is "23514" or "55000" => (422,"definition_rejected","The value or operation violates an explicit database specification."),
             PostgresException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome cannot be confirmed. Retain the original request and inspect the audit before retrying."),
+            Exception when context.Items.ContainsKey("model_admin_attempted") && e is NpgsqlException or OperationCanceledException
+                => (503,"model_admin_outcome_unknown","The outcome is unknown. Check Settings › AI and its audit, or repeat the identical request."),
+            Exception when context.Items.ContainsKey("grant_attempted") && e is NpgsqlException or OperationCanceledException
+                => (503,"grant_outcome_unknown","The outcome is unknown. Read your grants, or repeat the identical request."),
+            Exception when context.Items.ContainsKey("turn_attempted") && e is NpgsqlException or OperationCanceledException
+                => (503,"turn_outcome_unknown","The outcome is unknown. Read your conversations, or repeat the identical request."),
             OperationCanceledException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
             NpgsqlException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
             OperationCanceledException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome is unknown. Retain the request identity and inspect the audit before retrying the exact command."),
@@ -112,17 +198,43 @@ app.Use(async (context,next)=>
             NpgsqlException when context.Items.ContainsKey("swap_attempted") => (503,"swap_outcome_unknown","The trade request outcome is unknown. Reconcile or retry its retained operation identity."),
             OperationCanceledException when context.Items.ContainsKey("futures_attempted") => (503,"futures_outcome_unknown","The trade request outcome is unknown. Reconcile or retry the retained operation identity."),
             NpgsqlException when context.Items.ContainsKey("futures_attempted") => (503,"futures_outcome_unknown","The trade request outcome is unknown. Reconcile or retry the retained operation identity."),
+            Exception when context.Items.ContainsKey("automation_attempted") && e is NpgsqlException or OperationCanceledException => (503,"job_outcome_unknown","The operation outcome is unknown. Inspect current state or retry the retained exact request identity."),
+            Exception when context.Items.ContainsKey("reference_attempted") && e is NpgsqlException or OperationCanceledException => (503,"reference_outcome_unknown","The reference change outcome is unknown. Inspect saved versions or retry the retained exact request identity."),
+            Exception when context.Items.ContainsKey("interval_series_attempted") && e is NpgsqlException or OperationCanceledException => (503,"interval_series_outcome_unknown","The save outcome is unknown. Retry the original request to recover its receipt."),
             OperationCanceledException when context.Items.ContainsKey("risk_job_attempted") => (503,"risk_job_outcome_unknown","Job admission could not be confirmed. Reconcile or retry the exact retained request identity."),
             NpgsqlException when context.Items.ContainsKey("risk_job_attempted") => (503,"risk_job_outcome_unknown","Job admission could not be confirmed. Reconcile or retry the exact retained request identity."),
             OperationCanceledException => (503,"request_cancelled","The request was cancelled or exceeded its time limit."),
-            BadHttpRequestException or JsonException => (400,"request_format","The request is incomplete or malformed."),
+            BadHttpRequestException or JsonException => (400,"request_format",malformed),
             _ => (500,"preview_error","The preview could not complete the operation.")
         };
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
         if (status==500) app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
         context.Response.StatusCode=status;
+        // A role refusal also names the role and permission as fields, so a page never parses its message.
+        object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
+            ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
+        if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
+        await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
+    }
+    // Binding refuses a body or query value it cannot read, and a body over the limit, with a bare status before any
+    // handler runs. No handler answers a bare 400 or 413, so pages release a request refused this way as one that wrote
+    // nothing. An API answer names the refusal instead, echoing nothing that was read.
+    if(apiPath.StartsWithSegments("/api")&&!context.Response.HasStarted&&context.Response.StatusCode is 400 or 413)
+    {
+        var limit=context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize??bodyLimit;
+        var (code,message)=context.Response.StatusCode==413?("request_too_large",$"The request body exceeds its {limit/1024} KiB limit."):("request_format",malformed);
         await context.Response.WriteAsJsonAsync(new {code,message},CancellationToken.None);
     }
+});
+
+// Interval series imports alone accept bodies up to 8 MiB; every other route keeps the 32 KiB limit.
+// Binding refuses a larger body with a bare 413, which the error middleware names request_too_large.
+// The hosted gateway (deploy/nginx.conf.template) applies the same limits and answer, so change them together.
+app.Use((context,next)=>
+{
+    var size=context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=8*1024*1024;
+    return next(context);
 });
 
 if(hostedAuthentication is not null){app.UseAuthentication();app.UseRateLimiter();}
@@ -153,39 +265,65 @@ app.Use(async(c,next)=>
     await next(c);
 });
 
+app.UseWhen(c=>c.Request.Method=="POST"&&c.Request.Path.Equals("/api/trading/workspace",StringComparison.Ordinal),branch=>branch.UseResponseCompression());
+
 await using var exchangeDatabase=hosted is null&&File.Exists(Path.Combine(root,"exchange-manifest.json"))?new PreviewDatabase(root,"exchange-manifest.json"):null;
-MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,hosted is null?"openetrm_preview":"__Host-openetrm_workspace");
-if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api").WithMetadata(new PreviewScope("exchange")),exchangeDatabase,"openetrm_exchange_preview");
+await using var calculationChanges=new CalculationChanges(database);
+await using var exchangeCalculationChanges=exchangeDatabase is null?null:new CalculationChanges(exchangeDatabase);
+MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,hosted is null?"openetrm_preview":"__Host-openetrm_workspace","api",calculationChanges);
+if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api").WithMetadata(new PreviewScope("exchange")),exchangeDatabase,"openetrm_exchange_preview","exchange",exchangeCalculationChanges!);
 app.MapGet("/api/examples",()=>new[]{new {id="baseline",name=hosted is null?"Original synthetic example":"Private pilot workspace",url="/"},new {id="exchange",name="CME & ICE futures · synthetic prices",url="/?example=exchange"}}.Where(e=>e.id=="baseline"||exchangeDatabase is not null));
-void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName)
+void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName,string turnScope,CalculationChanges changes)
 {
 var sessions=new ConcurrentDictionary<string,PreviewSession>();
-api.MapGet("/health",()=>new {mode=database.Manifest.Mode,runId});
-api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery)=>
+var marketReads=new MarketReads(database);
+var scheduleReads=new ScheduleReads(database);
+var partyReads=new PartyReads(database);
+var tradeReads=new TradeReads(database);
+var liveContexts=new LiveContexts(database,changes,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
+async Task<string[]> CurrentPermissions(NpgsqlConnection connection,CancellationToken ct)
 {
-    foreach(var item in sessions.Where(x=>DateTimeOffset.UtcNow-x.Value.Created>TimeSpan.FromMinutes(30)).ToArray()) sessions.TryRemove(item.Key,out _);
+    await using var command=ScheduleStore.Command(connection,"SELECT security.current_permissions()");
+    return (string[])(await command.ExecuteScalarAsync(ct))!;
+}
+api.MapGet("/health",()=>new {mode=database.Manifest.Mode,runId});
+api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool includeFrames=true,bool includeAccess=false)=>
+{
+    foreach(var item in sessions.Where(x=>DateTimeOffset.UtcNow>x.Value.Ends).ToArray()) sessions.TryRemove(item.Key,out _);
     PreviewSession session;
-    if (context.Request.Cookies.TryGetValue(cookieName,out var cookie)&&sessions.TryGetValue(cookie,out var existing)) session=existing;
+    // A hosted application session belongs to the sign-in session it was opened under (docs/ai-assistant.md §11).
+    if (context.Request.Cookies.TryGetValue(cookieName,out var cookie)&&sessions.TryGetValue(cookie,out var existing)
+        &&(hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context))) session=existing;
     else
     {
         if (sessions.Count>=64) throw new PreviewDeniedException();
-        var id=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)); session=new PreviewSession(database.Manifest);
+        var id=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)); session=new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context));
         sessions[id]=session;
-        context.Response.Cookies.Append(cookieName,id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=TimeSpan.FromMinutes(30),Path="/"});
+        context.Response.Cookies.Append(cookieName,id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=PreviewSession.Lifetime,Path="/"});
     }
     await session.Gate.WaitAsync(context.RequestAborted);
     try {
         var identity=hosted is null?null:HostedAuthentication.Current(context);
         if(identity is not null){if(session.Profile is not null&&session.Profile!=identity.Subject)throw new PreviewDeniedException();session.Profile=identity.Subject;}
-        return new {mode=database.Manifest.Mode,runId,notice=hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
-        profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=session.Frames.Values.Where(f=>f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray(),
-        catalogId=database.Manifest.CatalogId,tenantId=database.Manifest.TenantId,workspaceId=database.Manifest.WorkspaceId}; }
+        object response=new {mode=database.Manifest.Mode,runId,notice=hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
+        profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
+        catalogId=database.Manifest.CatalogId,tenantId=database.Manifest.TenantId,workspaceId=database.Manifest.WorkspaceId};
+        if(includeAccess)
+        {
+            var options=new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase};
+            var json=JsonSerializer.SerializeToNode(response,options)!.AsObject();
+            json["access"]=session.Profile is null?null:JsonSerializer.SerializeToNode(new {profile=session.Profile,
+                permissions=await database.WithIdentity(Profile(session),null,CurrentPermissions,context.RequestAborted)},options);
+            response=json;
+        }
+        return Results.Ok(response); }
     finally { session.Gate.Release(); }
 });
 PreviewSession Session(HttpContext context)
 {
-    if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow-session.Created>TimeSpan.FromMinutes(30)) throw new PreviewDeniedException();
+    if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow>session.Ends) throw new PreviewSessionEnded();
     if(hosted is not null&&session.Profile!=HostedAuthentication.Current(context).Subject)throw new PreviewDeniedException();
+    if(hosted is not null&&session.Digest!=HostedAuthentication.SessionDigest(context))throw new PreviewSessionEnded();
     return session;
 }
 async Task<IResult> Locked(HttpContext context,Func<PreviewSession,Task<IResult>> work)
@@ -194,23 +332,100 @@ async Task<IResult> Locked(HttpContext context,Func<PreviewSession,Task<IResult>
     try {return await work(session);} finally {session.Gate.Release();}
 }
 string Profile(PreviewSession session)=>session.Profile ?? throw new PreviewDeniedException();
-api.MapPost("/time/inspect",(HttpContext c,LocalTimeRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>
+api.MapPost("/time/inspect",(HttpContext c,LocalTimeRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,(_,_)=>
     Task.FromResult<IResult>(Results.Ok(new{candidates=UserTime.Inspect(body.LocalTime,body.TimeZone)})),c.RequestAborted)));
-InputFrame Frame(PreviewSession session,Guid id)=>session.Frames.TryGetValue(id,out var frame) && frame.ContextId==session.MarketContext?.ContextId?frame:throw new MarketDataException("snapshot_missing","Select a saved input snapshot from this preview session.");
+// Pages pin the session's selected context, or current working data when none is selected.
+PinnedContext Pin(PreviewSession session,Guid? frame=null)
+{
+    if(frame is {} live&&session.LivePin(live) is {} retained)return retained;
+    var selected=frame is {} id?Frame(session,id):null;
+    return session.MarketContext is {} context?PinnedContext.Retained(context,selected):PinnedContext.Current(selected);
+}
+InputFrame PpaFrame(PreviewSession session,Guid id)=>Pin(session).Require(session.Frames.GetValueOrDefault(id));
+InputFrame Frame(PreviewSession session,Guid id)
+{
+    var frame=PpaFrame(session,id);
+    return frame.PpaBundle is null?frame:throw new MarketDataException("snapshot_inputs","This exact bundle frame belongs to the bounded PPA consumer.");
+}
+async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewSession session,CancellationToken ct)
+{
+    if(session.Live is not null)return new([],session.FrameCatalog);
+    var aliases=session.ContextAliases(session.MarketContext);
+    var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,database.Manifest.RevisionId,session.MarketContext?.ContextId,ct,session.DurableLimit(aliases));
+    return session.PlanFrames(stored,session.MarketContext,aliases);
+}
+async Task RefreshFrames(PreviewSession session,CancellationToken ct)
+{
+    var plan=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,cancellation)=>
+    {
+        await Pin(session).Bind(connection,database.Manifest.CatalogId,cancellation);
+        return await DiscoverFrames(connection,session,cancellation);
+    },ct);
+    session.ApplyFrames(plan);
+}
+api.MapMarketDates(database,(c,work)=>Locked(c,async session=>
+{
+    await RefreshFrames(session,c.RequestAborted);
+    return await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>work(connection,Pin(session),session.VisibleFrames,session.FrameCatalog,ct),c.RequestAborted);
+}));
+api.MapPost("/market/closes/register",(HttpContext c,MarketCloseRegister body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"PublishMarketData",async(connection,ct)=>
+        Results.Ok(await MarketCloses.Register(database,connection,Pin(session),Frame(session,body.SnapshotId),body,ct)),c.RequestAborted)));
+api.MapPost("/jobs/close-book-risk/create",(HttpContext c,CloseBookRiskCreate body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunJobs",async(connection,ct)=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Admit existing-close jobs in the current workspace.");
+    return Results.Ok(await CloseBookRiskJobs.Create(database,connection,body,ct));
+},c.RequestAborted)));
+api.MapGet("/jobs/pilot-close/catalog",async Task<IResult>(HttpContext c)=>await Locked(c,session=>database.WithIdentity(Profile(session),"RunJobs",async(connection,ct)=>
+    Results.Ok(await PilotCloseJobs.Catalog(database,connection,Pin(session),[..session.Frames.Values.Where(f=>f.ContextId==session.MarketContext?.ContextId)],ct)),c.RequestAborted)));
+api.MapPost("/jobs/pilot-close/create",(HttpContext c,PilotCloseJobCreate body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunJobs",async(connection,ct)=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Configure pilot close jobs in the current workspace.");
+    return Results.Ok(await PilotCloseJobs.Create(connection,body,ct));
+},c.RequestAborted)));
+api.MapGet("/jobs/pilot-close/definition",async Task<IResult>(HttpContext c,Guid jobId)=>await Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+{
+    await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);
+    await using var command=ScheduleStore.Command(connection,"SELECT automation.pilot_job_definition($1)::text",jobId);
+    using var document=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException()));
+    return Results.Ok(document.RootElement.Clone());
+},c.RequestAborted)));
+api.MapGet("/jobs/pilot-close/results",async Task<IResult>(HttpContext c,Guid runId)=>await Locked(c,session=>database.WithIdentity(Profile(session),null,async(connection,ct)=>
+{
+    var pin=Pin(session);await pin.Bind(connection,database.Manifest.CatalogId,ct);
+    return Results.Ok(await PilotCloseReports.Read(connection,runId,pin,ct));
+},c.RequestAborted)));
+api.MapCustomCurves(database,(c,permission,snapshotId,work)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),permission,async(connection,ct)=>
+    {
+        var pin=Pin(session,snapshotId);
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" && pin.Context is not null)
+            throw new MarketDataException("custom_curve_historical","Author and publish curves in the current workspace.");
+        return await work(connection,pin,ct);
+    },c.RequestAborted)));
 api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
 {
     if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
-    session.Profile=body.Profile; session.MarketContext=null; return Task.FromResult(Results.Ok(new {profile=session.Profile}));
+    var left=session.Profile;
+    session.StopLive();session.ForgetDiscoveredFrames(resetAliasIdentities:true);session.Profile=body.Profile; session.MarketContext=null;
+    // Then the switch ends the streams the session opened under the profile it left, before it cancels the turns the session
+    // asked, so no stream carries that cancel instead; a stream still being admitted finds the new profile
+    // (docs/ai-assistant.md §7.2, §8).
+    turnStreams.EndSession(session.Digest,left);
+    turnWorker.EndSession(session.Digest);
+    return Task.FromResult(Results.Ok(new {profile=session.Profile}));
 }));
 PreviewSequenceCoverage ScheduleSource(string? code) => (database.Manifest.Schedules ?? []).SingleOrDefault(s=>s.Curve==code)
     ?? throw new MarketDataException("sequence_source","Choose an explicitly configured contract schedule.");
 Task<IResult> ScheduleOperation(HttpContext c,Func<PreviewSession,PreviewData,IResult> work) => Locked(c,async session=>
-    await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>work(session,await MarketData(session,connection,ct)),c.RequestAborted));
+    await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>work(session,await marketReads.Data(connection,Pin(session),ct,[])),c.RequestAborted));
 api.MapPost("/units/convert",(HttpContext c,UnitConvertRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
-    var data=await MarketData(session,connection,ct);
-    return Results.Ok(UnitOperations.Convert(await database.ReadUnitCatalog(connection,data,ct),body));
+    var data=await marketReads.Data(connection,Pin(session),ct,[]);
+    var units=await database.ReadUnitCatalog(connection,data,ct);
+    return Results.Ok(UnitOperations.Convert(units,body,await ReferenceEditors.Display(connection,units.Revision,ct)));
 },c.RequestAborted)));
 api.MapPost("/amounts/display",(HttpContext c,System.Collections.Immutable.ImmutableArray<DisplayNumberRequest> body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),null,(_,_)=>Task.FromResult<IResult>(Results.Ok(UnitOperations.Display(body))),c.RequestAborted)));
@@ -221,35 +436,109 @@ var touStore=new TouProductStore(database.Manifest.CatalogId,database.Manifest.R
 // TOU products are current definitions; a historical view never substitutes them.
 Task<IResult> PowerOperation(HttpContext c,string permission,Func<PreviewSession,NpgsqlConnection,CancellationToken,Task<IResult>> work)=>Locked(c,session=>
 {
-    if(session.MarketContext is not null)
-        throw new MarketDataException("power_historical","TOU products and power hours require current inputs; historical TOU publication is not implemented.");
+    ScheduleReads.RequireCurrent(Pin(session));
     return database.WithIdentity(Profile(session),permission,(connection,ct)=>work(session,connection,ct),c.RequestAborted);
 });
-async Task<PowerPreview.ProductSet> PublishedProducts(NpgsqlConnection connection,CancellationToken ct)=>
-    PowerPreview.Products(TouProductStore.Published(await touStore.Read(connection,ct)),await touStore.Clocks(connection,ct));
-// Stored display names for every curve in this catalog, for screens that show curve codes from any bundle.
 api.MapGet("/curve-names",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
-{
-    if(session.MarketContext is {} selected)await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
-    await using var command=ScheduleStore.Command(connection,"SELECT code,name FROM market_data.curves WHERE catalog_id=$1 UNION SELECT code,name FROM market_data.rate_curves WHERE catalog_id=$1 ORDER BY 1,2",database.Manifest.CatalogId);
-    await using var reader=await command.ExecuteReaderAsync(ct);var rows=new List<object>();
-    while(await reader.ReadAsync(ct))rows.Add(new {code=reader.GetString(0),name=reader.GetString(1)});
-    return Results.Ok(rows);
-},c.RequestAborted))));
+    Results.Ok(await marketReads.CurveNames(connection,Pin(session),ct)),c.RequestAborted))));
 api.MapPost("/power/catalog",(HttpContext c,PowerCatalogRequest body)=>PowerOperation(c,"ReadMarketData",async(session,connection,ct)=>
-    Results.Ok(PowerPreview.Catalog(await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds),Frame(session,body.SnapshotId),await PublishedProducts(connection,ct)))));
+    Results.Ok(await scheduleReads.PowerCatalog(connection,Pin(session,body.SnapshotId),ct))));
 api.MapPost("/power/preview",(HttpContext c,PowerPreviewRequest body)=>PowerOperation(c,"ReadMarketData",async(session,connection,ct)=>
-    Results.Ok(PowerPreview.Calculate(await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds),Frame(session,body.SnapshotId),body,await PublishedProducts(connection,ct)))));
+    Results.Ok(PowerPreview.Calculate(await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds),Frame(session,body.SnapshotId),body,await scheduleReads.PublishedProducts(connection,Pin(session),ct)))));
+api.MapPost("/power/settlement",(HttpContext c,PowerActualSettlementRequest body)=>PowerOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await PowerActualSettlement.Calculate(connection,await PowerActualSettlement.ReadData(database,connection,ct),Frame(session,body.SnapshotId),body,await scheduleReads.PublishedProducts(connection,Pin(session),ct),ct))));
 api.MapGet("/tou-products",(Func<HttpContext,Task<IResult>>)(c=>PowerOperation(c,"ReadMarketData",async(session,connection,ct)=>
-{
-    var canEdit=await HasPermission(connection,"WriteMarketDefinitions",ct);var canPublish=await HasPermission(connection,"SealMarketDefinitions",ct);
-    // Row security returns drafts to authors only; readers receive published versions.
-    return Results.Ok(new {versions=await touStore.Read(connection,ct),clocks=await touStore.Clocks(connection,ct),canEdit,canPublish});
-})));
+    Results.Ok(await scheduleReads.TouProducts(connection,Pin(session),ct)))));
 api.MapPost("/tou-products/save",(HttpContext c,TouProductSaveRequest body)=>PowerOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await touStore.Save(connection,body,ct))));
 api.MapPost("/tou-products/publish",(HttpContext c,TouProductPublishRequest body)=>PowerOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await touStore.Publish(connection,body,ct))));
+var intervalSeries=new IntervalSeriesStore(database);
+// Interval series work on current data; history is read with each request's explicit knowledge time.
+// Writes never read back in their own transaction, whose revision cannot be certified before it commits.
+Task<IResult> IntervalSeriesOperation<T>(HttpContext c,string permission,Func<NpgsqlConnection,CancellationToken,Task<T>> work)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)
+        throw new MarketDataException("interval_series_historical","Return to working data to edit or read interval series; use Known at on this page for history.");
+    if(permission!="ReadMarketData")c.Items["interval_series_attempted"]=true;
+    return database.WithIdentity(Profile(session),permission,async(connection,ct)=>Results.Ok(await work(connection,ct)),c.RequestAborted);
+});
+api.MapGet("/interval-series",(Func<HttpContext,Task<IResult>>)(c=>IntervalSeriesOperation(c,"ReadMarketData",intervalSeries.Catalog)));
+api.MapPost("/interval-series/define",(HttpContext c,IntervalSeriesDefineRequest body)=>IntervalSeriesOperation(c,"WriteMarketDefinitions",(connection,ct)=>intervalSeries.Define(connection,body,ct)));
+api.MapPost("/interval-series/revise",(HttpContext c,IntervalSeriesReviseRequest body)=>IntervalSeriesOperation(c,"ImportObservations",(connection,ct)=>intervalSeries.Revise(connection,body,ct)));
+api.MapPost("/interval-series/values",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Values(connection,body,ct)));
+api.MapPost("/interval-series/changes",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Changes(connection,body,ct)));
+var intervalCurves=new IntervalCurvesStore(marketReads,touStore);
+var ppaQuantities=new PpaQuantitiesStore(marketReads,touStore);
+// Interval curves read published TOU and shape inputs, which are current definitions, so a historical view never substitutes them.
+Task<IResult> IntervalCurveRead(HttpContext c,Guid snapshot,Func<NpgsqlConnection,PinnedContext,CancellationToken,Task<object>> work)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)
+        throw new MarketDataException("interval_curve_historical","Return to working data to read interval curves; their delivery inputs are current definitions.");
+    var profile=Profile(session);
+    var pin=Pin(session,snapshot);
+    return database.WithIdentity(profile,"ReadMarketData",async(connection,ct)=>Results.Ok(await work(connection,pin,ct)),c.RequestAborted);
+});
+api.MapPost("/interval-curves/catalog",(HttpContext c,IntervalCurveCatalogRequest body)=>IntervalCurveRead(c,body.SnapshotId,intervalCurves.Catalog));
+api.MapPost("/interval-curves/values",(HttpContext c,IntervalCurveValuesRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>intervalCurves.Values(connection,pin,body,ct)));
+api.MapPost("/period-curves/values",(HttpContext c,PeriodCurveValuesRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>intervalCurves.PeriodValues(connection,pin,body,ct)));
+var ppaStore=new PpaStore(database,touStore);
+var settlementPreview=new SettlementPreview(database,ppaStore);
+Task<IResult> SettlementOperation(HttpContext c,Guid snapshot,Func<NpgsqlConnection,InputFrame,CancellationToken,Task<(object Value,Guid Trade)>> work)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("settlement_context","Use an explicit preview knowledge cutoff from current working data.");
+    var frame=PpaFrame(session,snapshot);
+    return database.WithIdentity(Profile(session),SettlementPreview.Permission,async(connection,ct)=>
+    {
+        var result=await work(connection,frame,ct);ct.ThrowIfCancellationRequested();
+        var bytes=PpaStore.Response(result.Value,SettlementPreview.JsonOptions,SettlementPreview.MaximumResponseBytes);ct.ThrowIfCancellationRequested();
+        await settlementPreview.Recheck(connection,result.Trade,ct);
+        return (IResult)new PpaJsonResult(bytes,200);
+    },c.RequestAborted);
+});
+api.MapPost("/settlement/payment-lineages/plan",(HttpContext c,PaymentLineageRequest body)=>SettlementOperation(c,body.SnapshotId,async(connection,frame,ct)=>(await settlementPreview.Plan(connection,frame,body,ct),body.TradeId)));
+api.MapPost("/settlement/ppa/preview",(HttpContext c,SettlementPreviewRequest body)=>SettlementOperation(c,body.SnapshotId,(connection,frame,ct)=>settlementPreview.Preview(connection,frame,body,ct)));
+
+Task<IResult> PpaOperation(HttpContext c,Guid? snapshot,string permission,Func<NpgsqlConnection,InputFrame?,CancellationToken,Task<object>> work,Func<NpgsqlConnection,InputFrame?,CancellationToken,Task>? recheck=null)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("ppa_historical","Return to current working data; PPA history uses an explicit known-at cutoff.");
+    var frame=snapshot is {} id?PpaFrame(session,id):null;
+    return database.WithIdentity(Profile(session),permission,async(connection,ct)=>
+    {
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct) || !await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
+        var value=await work(connection,frame,ct);ct.ThrowIfCancellationRequested();
+        var bytes=PpaStore.Response(value);ct.ThrowIfCancellationRequested();
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct) || !await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
+        await ppaStore.Recheck(connection,frame,ct);
+        if(value is PpaRevisionRefusal refusal)await ppaStore.RecheckRefusal(connection,refusal,ct);
+        if(recheck is not null)await recheck(connection,frame,ct);ct.ThrowIfCancellationRequested();
+        return (IResult)new PpaJsonResult(bytes,value is PpaRevisionRefusal?422:200);
+    },c.RequestAborted);
+});
+api.MapGet("/ppa/frames",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("ppa_historical","PPA frames use explicit current-session bundle selection.");
+    var frames=await ppaStore.FramesRead(connection,session.Frames.Values.Where(f=>f.ContextId is null).OrderBy(f=>f.At).ThenBy(f=>f.Id),ct);
+    var bytes=PpaStore.Response(frames);
+    await ppaStore.Recheck(connection,null,ct);
+    foreach(var frame in frames)await ppaStore.Recheck(connection,frame,ct);
+    return (IResult)new PpaJsonResult(bytes,200);
+},c.RequestAborted))));
+api.MapPost("/ppa/catalog",(HttpContext c,IntervalCurveCatalogRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.CatalogRead(connection,frame!,ct)));
+api.MapPost("/ppa/directory",(HttpContext c,PpaDirectoryRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Directory(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,"books",body.BookIds,ppaStore.ReferenceFor(frame!),ct)));
+api.MapPost("/ppa/inspect",(HttpContext c,PpaInspectRequest body)=>PpaOperation(c,body.Preview?.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Inspect(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.Preview!.KnownAt,body.Preview.Scope,body.Preview.SelectedIds,body.Preview.ReferenceCatalogId,ct)));
+api.MapPost("/ppa/break-even",(HttpContext c,PpaBreakEvenRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>new PpaBreakEvenStore(database,ppaStore).Solve(connection,frame!,body,ct)));
+api.MapPost("/ppa/validate",(HttpContext c,PpaValidateRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Validate(connection,frame!,body,ct)));
+api.MapPost("/ppa/preview",(HttpContext c,PpaPreviewRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Preview(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,body.Scope,body.SelectedIds,body.ReferenceCatalogId,ct)));
+api.MapPost("/ppa/book",(HttpContext c,PpaWriteRequest body)=>PpaOperation(c,body.SnapshotId,"BookTrade",(connection,frame,ct)=>ppaStore.Save(connection,frame!,body,"booked",ct),(connection,frame,ct)=>ppaStore.RecheckWrite(connection,frame!,body,ct)));
+api.MapPost("/ppa/amend",(HttpContext c,PpaWriteRequest body)=>PpaOperation(c,body.SnapshotId,"AmendTrade",(connection,frame,ct)=>ppaStore.Save(connection,frame!,body,"amended",ct),(connection,frame,ct)=>ppaStore.RecheckWrite(connection,frame!,body,ct)));
+api.MapPost("/ppa/terminate",(HttpContext c,PpaWriteRequest body)=>PpaOperation(c,body.SnapshotId,"AmendTrade",(connection,frame,ct)=>ppaStore.Save(connection,frame!,body,"terminated",ct),(connection,frame,ct)=>ppaStore.RecheckWrite(connection,frame!,body,ct)));
+api.MapPost("/ppa/status",(HttpContext c,PpaStatusRequest body)=>PpaOperation(c,null,"ReadTrades",(connection,frame,ct)=>ppaStore.Status(connection,body.OperationId,ct),async(connection,frame,ct)=>{await ppaStore.Status(connection,body.OperationId,ct);}));
+api.MapPost("/ppa/editor",(HttpContext c,PpaEditorRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Editor(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,"trades",[body.TradeId],ppaStore.ReferenceFor(frame!),ct)));
+api.MapPost("/ppa/legs",(HttpContext c,PpaLegsRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Legs(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,"trades",[body.TradeId],ppaStore.ReferenceFor(frame!),ct)));
+api.MapPost("/ppa/quantities",(HttpContext c,PpaQuantityRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>ppaQuantities.Quantities(connection,pin,body,ct)));
+api.MapPost("/ppa/capacity",(HttpContext c,PpaCapacityRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>ppaQuantities.Capacity(connection,pin,body,ct)));
+api.MapPost("/ppa/profile",(HttpContext c,PpaProfileRequest body)=>IntervalCurveRead(c,body.SnapshotId,(connection,pin,ct)=>ppaQuantities.Profile(connection,pin,body,ct)));
 api.MapGet("/schedules",(Func<HttpContext,Task<IResult>>)(c=>ScheduleOperation(c,(session,data)=>
 {
     var sources=(database.Manifest.Schedules??[]).Select(source=>
@@ -336,47 +625,19 @@ api.MapPost("/schedules/contracts/keep",(HttpContext c,CurveDatesRequest body)=>
     Results.Ok(session.Dates.KeepCurve(Profile(session),CompileCurve(session,data,body)))));
 var scheduleStore=new ScheduleStore(database.Manifest.CatalogId,database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId);
 var knowledgeStore=new KnowledgeStore(database.Manifest.CatalogId);
+var contractDateStore=new ContractDateStore(database.Manifest.CatalogId,scheduleStore);
 Task<IResult> DateOperation(HttpContext c,string permission,Func<PreviewSession,NpgsqlConnection,CancellationToken,Task<IResult>> work)=>Locked(c,session=>
     database.WithIdentity(Profile(session),permission,async(connection,ct)=>
     {
         if(session.MarketContext is {} selected)await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
         return await work(session,connection,ct);
     },c.RequestAborted));
-async Task<bool> HasPermission(NpgsqlConnection connection,string permission,CancellationToken ct)
+api.MapGet("/date-schedules",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
-    await using var command=ScheduleStore.Command(connection,"SELECT security.has_permission($1)",permission);
-    return Equals(await command.ExecuteScalarAsync(ct),true);
-}
-api.MapGet("/date-schedules",(Func<HttpContext,Task<IResult>>)(c=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
-{
-    var knownThrough=session.MarketContext?.KnownThrough??await scheduleStore.Capture(connection,ct);
-    var canEdit=session.MarketContext is null && await HasPermission(connection,"WriteMarketDefinitions",ct);
-    var canPublish=session.MarketContext is null && await HasPermission(connection,"SealMarketDefinitions",ct);
-    // Row security returns drafts to authors only; readers receive published versions.
-    var versions=session.MarketContext is {} selected?await scheduleStore.ReadAt(connection,selected,ct):await scheduleStore.Read(connection,ct);
-    return Results.Ok(new {knownThrough,versions,canEdit,canPublish,choices=DateWorkspace.Choices,
-        contractDefinitions=session.ContractDefinitions.Where(p=>p.Key.Owner==Profile(session)).Select(p=>p.Value).ToArray(),
-        calendars=(await scheduleStore.Calendars(connection,ct)).Select(c=>new {c.Reference,c.CoverageFrom,c.CoverageTo,c.WeekendDays,
-            closedDates=c.Days.Where(d=>!d.Open).Select(d=>d.Date),openDates=c.Days.Where(d=>d.Open).Select(d=>d.Date)})});
-})));
-var indexFixings=new IndexFixingStore(database.Manifest);
-api.MapPost("/index-fixings/import",(HttpContext c,IndexFixingImport body)=>DateOperation(c,"ImportObservations",async(session,connection,ct)=>
-{
- if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Index-fixing imports require working data.");
- return Results.Ok(await indexFixings.Import(connection,body,ct));
-}));
-api.MapPost("/index-fixings/read",(HttpContext c,IndexFixingRead body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
-{
- var selected=(await knowledgeStore.Read(connection,body.ContextId,ct)).Context;
- if(session.MarketContext is {} historical&&historical.ContextId!=selected.ContextId)throw new MarketDataException("index_fixing_context","Use the shared selected historical context.");
- if(session.MarketContext is null)await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
- var at=SchedulePreview.ParseAt(body.ValuationAt);
- if(at.UtcDateTime.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture)!=selected.EffectiveOn)throw new MarketDataException("index_fixing_context","The fixing valuation instant must belong to the selected effective date.");
- var data=await database.Read(connection,ct,body.DefinitionRevisionId,observationIds:[]);
- var frame=new InputFrame(Guid.NewGuid(),"Index fixing inputs",at,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,body.ContextId);
- var snapshot=await indexFixings.Bind(connection,data,frame,ct);
- return Results.Ok(new{context=selected,fixings=snapshot.IndexFixings,knowledgeCutoff=snapshot.FixingKnowledgeCutoff});
-}));
+    var library=await scheduleReads.Library(connection,Pin(session),ct);
+    return Results.Ok(new {library.KnownThrough,library.Versions,library.CanEdit,library.CanPublish,choices=DateWorkspace.Choices,
+        library.ContractDefinitions,library.Calendars,examples=ScheduleExamples.Catalog});
+},c.RequestAborted))));
 api.MapPost("/date-schedules/preview",(HttpContext c,DateSchedulePreviewRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(DateWorkspace.Compile(body.Definition??throw new TemporalException("schedule_definition","Supply an explicit schedule definition."),
         await scheduleStore.Calendar(connection,body.Calendar,ct)))));
@@ -412,142 +673,219 @@ api.MapPost("/date-schedules/catalog",(HttpContext c,ScheduleCatalogRequest body
 }));
 async Task<BoundContractDefinition> BindContracts(NpgsqlConnection connection,PublishedContractRequest body,CancellationToken ct)
 {
-    if(body.Code is null || !System.Text.RegularExpressions.Regex.IsMatch(body.Code,@"\A[a-z][a-z0-9_]{0,31}\z") ||
-        string.IsNullOrWhiteSpace(body.Name) || body.Name.Length>80 || body.Contracts is null || body.Contracts.Length is <1 or >120 ||
-        body.Contracts.Any(c=>c is null) || body.Contracts.Select(c=>c.Label).Distinct().Count()!=body.Contracts.Length)
-        throw new TemporalException("contract_dates","Name the definition and supply uniquely named contracts.");
     var view=await ScheduleView(connection,body.Context,ct);
-    var contracts=body.Contracts.Select(d=>DateWorkspace.Contract(new(d.Label,d.Start,d.End,d.LastTrading,d.CutoffUtc),e=>PublishedSchedules.Resolve(view.Versions,e,view.Context))).ToImmutableArray();
-    for(var n=1;n<contracts.Length;n++)if(contracts[n].DeliveryFrom<contracts[n-1].DeliveryTo || contracts[n].Expiry<=contracts[n-1].Expiry)
-        throw new TemporalException("contract_dates","Contract periods must be ordered without overlap and have increasing last-trading instants.");
-    return new(body.Code,body.Name,view.Context,contracts.Select(c=>new DatedContractDefinition(c.Label,c.DeliveryFrom,c.DeliveryTo,c.Expiry,c.DeliveryStart,c.DeliveryEnd,c.LastTrading,c.CutoffUtc)).ToImmutableArray());
+    return ContractDateStore.Compile(body,view.Versions,view.Context);
 }
 api.MapPost("/date-schedules/contracts/preview",(HttpContext c,PublishedContractRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await BindContracts(connection,body,ct))));
-api.MapPost("/date-schedules/contracts/save",(HttpContext c,PublishedContractRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+api.MapPost("/date-schedules/contracts/example",(HttpContext c,ContractExampleRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
 {
-    var result=await BindContracts(connection,body,ct);var key=(Profile(session),result.Code);
-    if(session.ContractDefinitions.TryGetValue(key,out var old) && JsonSerializer.Serialize(old)!=JsonSerializer.Serialize(result))
-        throw new TemporalException("date_definition_conflict","This candidate name has different terms. Choose a new code.");
-    if(!session.ContractDefinitions.ContainsKey(key) && session.ContractDefinitions.Keys.Count(k=>k.Owner==Profile(session))>=16)
-        throw new TemporalException("preview_limit","At most 16 candidate definitions can be kept per persona.");
-    session.ContractDefinitions[key]=result;return Results.Ok(result);
+    var view=await ScheduleView(connection,body.Context,ct);
+    var example=ScheduleExamples.Contracts(body,view.Versions,view.Context);
+    _=await BindContracts(connection,example.Definition,ct);
+    return Results.Ok(example);
 }));
-async Task<PreviewData> MarketData(PreviewSession session,NpgsqlConnection connection,CancellationToken ct)
+api.MapPost("/date-schedules/contracts/save",(HttpContext c,ContractDateSaveRequest body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await contractDateStore.Save(connection,body,ct))));
+api.MapPost("/date-schedules/contracts/publish",(HttpContext c,ContractDatePublishRequest body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await contractDateStore.Publish(connection,body,ct))));
+api.MapPost("/date-schedules/contracts/resolve",(HttpContext c,ContractDateResolveRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await contractDateStore.Resolve(connection,body,session.MarketContext,ct))));
+// Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
+async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve)
 {
-    if(session.MarketContext is {} selected)await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
-    return await database.Read(connection,ct);
-}
-api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(c,async session=>
-{
-    if(body.Selection!="latest_correction")throw new MarketDataException("selection_policy","Choose the explicit latest-known correction policy.");
+    if(selection!="latest_correction")throw new MarketDataException("selection_policy","Choose the explicit latest-known correction policy.");
     var snapshot=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
-        var captured=await knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct);
+        var captured=await resolve(connection,ct);
         await MarketContextStore.Bind(connection,database.Manifest.CatalogId,captured.Context,ct);
         var data=await database.Read(connection,ct);
-        var end=DateWorkspace.Date(captured.Context.EffectiveOn).AddDays(1).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc);
-        var selected=session.InitialFrames.Select(id=>session.Frames[id]).Where(f=>f.At.UtcDateTime<end).ToArray();
-        var frames=selected.Select(f=>session.Frames.Values.FirstOrDefault(existing=>existing.ContextId==captured.Context.ContextId&&existing.At==f.At)
-            ??MarketContextStore.Select(f,data,captured.Context)).ToArray();
-        if(session.Frames.Count+frames.Count(f=>!session.Frames.ContainsKey(f.Id))>128)throw new MarketDataException("preview_limit","This preview has reached its retained input limit.");
-        return (captured,frames);
+        var aliases=session.SelectContextAliases(data,captured.Context);
+        var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,database.Manifest.RevisionId,captured.Context.ContextId,ct,session.DurableLimit(aliases));
+        return (captured,plan:session.PlanFrames(stored,captured.Context,aliases));
     },c.RequestAborted);
-    foreach(var frame in snapshot.frames)session.Frames.TryAdd(frame.Id,frame);
+    session.StopLive();session.ApplyFrames(snapshot.plan);
     session.MarketContext=snapshot.captured.Context;
     return Results.Ok(snapshot.captured);
-}));
+}
+api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(c,session=>
+    SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct))));
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
 {
     await database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>Task.FromResult(true),c.RequestAborted);
-    session.MarketContext=null;return Results.Ok(new {mode="explicit_input_pins"});
+    session.StopLive();session.ForgetDiscoveredFrames();session.MarketContext=null;return Results.Ok(new {mode="explicit_input_pins"});
 })));
-api.MapGet("/workspace",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
+api.MapPost("/market/live",(HttpContext c,LiveSelectRequest body)=>Locked(c,async session=>
+{
+    var seed=Frame(session,body.SnapshotId);
+    var resolved=await liveContexts.Resolve(Profile(session),LiveSelection.Start(seed,body.Policy),c.RequestAborted);
+    session.SelectLive(resolved);
+    return Results.Ok(new{live=resolved.Summary(),context=resolved.Context,frame=new NavigationFrame(resolved.Frame!.Id,resolved.Frame.Name,resolved.Frame.At)});
+}));
+api.MapGet("/market/live/events",(HttpContext c,Guid selection)=>liveContexts.Serve(c,()=>Session(c),selection,app.Lifetime.ApplicationStopping));
+api.MapPost("/market/live/pause",(HttpContext c,LivePauseRequest body)=>Locked(c,async session=>
+{
+    if(session.Live?.Id!=body.Selection)throw PinnedContext.Missing();
+    var pin=session.LivePin(body.SnapshotId)??throw PinnedContext.Missing();
+    await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+    {
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        await MarketBundle.RequireObservationPins(connection,database.Manifest,pin.RequireFrame().ObservationIds,ct);return true;
+    },c.RequestAborted);
+    session.PauseLive(pin);return Results.Ok(new{context=pin.Context,frame=new NavigationFrame(pin.RequireFrame().Id,pin.RequireFrame().Name,pin.RequireFrame().At)});
+}));
+object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalogOnly,PinnedContext? exact=null)
+{
+    var data=read.Data;
+    var context=exact is null?session.MarketContext:exact.Context;
+    var prior=exact?.Frame is {} selected&&selected.ContextId!=session.MarketContext?.ContextId?selected:null;
+    return new {unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
+        frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:context is null?session.InitialFrames:session.ContextAliases(context).Select(f=>f.Id).ToArray()};
+}
+Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
 {
     var read=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
-        var data=await MarketData(session,connection,ct);
-        UnitCatalogData? units;
-        try { units=await database.ReadUnitCatalog(connection,data,ct); }
-        catch(MarketDataException e) when(e.Code=="unit_catalog") { units=null; }
-        return (Data:data,Units:units);
+        var workspace=await marketReads.Workspace(connection,Pin(session),catalogOnly,ct);
+        return(workspace,plan:await DiscoverFrames(connection,session,ct));
     },c.RequestAborted);
-    var data=read.Data;
-    return Results.Ok(new {unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,context=session.MarketContext,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,definitions=data.Definitions,references=data.References,observations=data.Observations,
-        frames=session.Frames.Values.Where(f=>f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray(),initialFrameIds=session.MarketContext is null?session.InitialFrames:session.Frames.Values.Where(f=>f.ContextId==session.MarketContext.ContextId).Select(f=>f.Id).ToArray()});
+    session.ApplyFrames(read.plan);
+    return Results.Ok(WorkspaceProjection(session,read.workspace,catalogOnly));
+});
+api.MapGet("/workspace",(Func<HttpContext,Task<IResult>>)(c=>Workspace(c,false)));
+api.MapGet("/workspace/catalog",(Func<HttpContext,Task<IResult>>)(c=>Workspace(c,true)));
+api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
+{
+    var read=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+    {
+        var navigation=await marketReads.Navigation(connection,Pin(session),ct);
+        return(navigation,plan:await DiscoverFrames(connection,session,ct));
+    },c.RequestAborted);
+    session.ApplyFrames(read.plan);var frames=session.VisibleFrames;
+    return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
+        database.Manifest.FuturesConvention,database.Manifest.Example,
+        session.MarketContext is null?[..session.InitialFrames]:[..session.ContextAliases(session.MarketContext).Select(f=>f.Id)],
+        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary()});
 })));
+api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var requestedOffset=c.Request.Query["offset"].ToString();
+    if(!int.TryParse(c.Request.Query.ContainsKey("offset")?requestedOffset:"0",System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var offset))
+        throw new MarketDataException("reference_page",$"Choose an offset from 0 to {PreviewDatabase.ReferenceMaximumOffset}.");
+    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),ct);
+    var referenceDisplay=await ReferenceEditors.Display(connection,page.ReferenceRevision,ct);
+    return Results.Ok(new {page.Table,page.Rows,page.References,page.Offset,page.PageSize,page.MaximumOffset,page.HasMore,page.Search,page.ReferenceRevision,page.DefinitionRevisionId,referenceDisplay,
+        tables=PreviewDatabase.ReferenceTables,referenceScope="selected_table",context=session.MarketContext,profile=session.Profile});
+},c.RequestAborted))));
+api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);
+    var code=c.Request.Query.TryGetValue("code",out var selected)?selected.ToString():null;
+    return Results.Ok(await ReferenceEditors.Read(connection,database.Manifest,c.Request.Query["table"].ToString(),ct,code));
+},c.RequestAborted))));
+Task<IResult> ReferenceMutation(HttpContext c,string permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> work)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before saving or applying reference display changes.");
+    return database.WithIdentity<IResult>(Profile(session),permission,async(connection,ct)=>
+    {
+        c.Items["reference_attempted"]=true;
+        return Results.Ok(await work(connection,ct));
+    },c.RequestAborted);
+});
+api.MapPost("/reference/save",(HttpContext c,ReferenceSaveRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Save(connection,database.Manifest,body,ct)));
+api.MapPost("/reference/apply",(HttpContext c,ReferenceApplyRequest body)=>ReferenceMutation(c,"SealReferenceData",(connection,ct)=>ReferenceEditors.Apply(connection,database.Manifest,body,ct)));
 api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async session=>
 {
-    var frame=Frame(session,body.SnapshotId);
-    if(session.MarketContext is {} selected && DateOnly.FromDateTime(frame.At.UtcDateTime)!=DateWorkspace.Date(selected.EffectiveOn))
-        throw new MarketDataException("market_date","Choose inputs for the selected context date. No earlier market date is substituted.");
-    var result=await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>(await MarketData(session,connection,ct)).Result(frame,body.Curve),c.RequestAborted);
-    if(session.MarketContext is {} view)
+    var pin=Pin(session,body.SnapshotId);
+    var read=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.Evaluate(connection,pin,body.Curve,ct,body.IncludeWorkspace),c.RequestAborted);
+    var result=read.Result;
+    if(pin.Context is not null || body.IncludeSources || body.IncludeWorkspace)
     {
         var json=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(result,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase}))!.AsObject();
-        json["context"]=JsonSerializer.SerializeToNode(view,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});return Results.Ok(json);
+        if(pin.Context is {} view)json["context"]=JsonSerializer.SerializeToNode(view,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
+        if(body.IncludeSources)
+        {
+            json["observations"]=JsonSerializer.SerializeToNode(read.Observations);
+            json["observationScope"]="selected_frame";
+        }
+        if(body.IncludeWorkspace)json["workspace"]=JsonSerializer.SerializeToNode(WorkspaceProjection(session,read.Workspace??throw new InvalidOperationException("The requested workspace projection is missing."),true,pin),new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
+        return Results.Ok(json);
     }
     return Results.Ok(result);
 }));
 api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async session=>
 {
-    var current=Frame(session,body.SnapshotId);
-    var result=await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>
-    {
-        var data=await MarketData(session,connection,ct);
-        var frames=(session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)):session.Frames.Values.Where(f=>f.ContextId==session.MarketContext.ContextId)).Select(f=>f.At==current.At?current:f).OrderBy(f=>f.At).ToArray();
-        return frames.Select(f=>
-        {
-            try {
-                var value=data.HistoryValue(f,body.Curve,body.ContractId,body.SeriesId);
-                return new HistorySample(f.At,value.Value,f.Id,value.Inputs,null);
-            }
-            catch(MarketDataException error) when(error.Code is "missing_observation" or "source_expired")
-            { return new HistorySample(f.At,null,f.Id,[],error.Code); }
-        }).ToArray();
-    },c.RequestAborted);
-    return Results.Ok(new {mode="rebuilt_from_explicit_seed_pins_with_selected_frame",points=result});
+    await RefreshFrames(session,c.RequestAborted);
+    var pin=Pin(session,body.SnapshotId);
+    // Current history includes initial inputs and every offered stored close;
+    // unselected manual edits remain separate explicit input choices.
+    var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
+    var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,ct,
+        session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
+    return Results.Ok(new {mode="exact_visible_close_history_with_selected_instant_v1",points});
 }));
 api.MapPost("/corrections",(HttpContext c,CorrectionRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to current input editing before changing observations.");
     var frame=Frame(session,body.SnapshotId);
-    if (!frame.ObservationIds.Contains(body.ObservationId)) throw new MarketDataException("snapshot_input","Only an explicitly selected observation can be corrected here.");
+    // The correction replaces the pin in whichever bundle of this snapshot holds it (D172).
+    var held=frame.ObservationIds.Contains(body.ObservationId)?[]:(database.Manifest.SwapMarkets??[])
+        .Select(m=>(m.RevisionId,Pins:database.SwapMarketPins(frame,m)??[])).Where(m=>m.Pins.Contains(body.ObservationId)).ToArray();
+    if (held.Length>1) throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous.");
+    if (!frame.ObservationIds.Contains(body.ObservationId)&&held.Length==0) throw new MarketDataException("snapshot_input","Only an explicitly selected observation can be corrected here.");
     if (session.Frames.Count>=128) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
     if (string.IsNullOrWhiteSpace(body.Value)) throw new MarketDataException("missing_value","Enter an exact decimal value.");
     c.Items["correction_attempted"]=true;
-    var id=await database.WithIdentity(Profile(session),"ImportObservations",(connection,ct)=>database.Correct(connection,body.ObservationId,body.Value,ct),c.RequestAborted);
-    var updated=frame with {Id=Guid.NewGuid(),Name="Edited inputs",ObservationIds=frame.ObservationIds.Replace(body.ObservationId,id)};
+    var revision=held.Length==1?held[0].RevisionId:database.Manifest.RevisionId;
+    var id=await database.WithIdentity(Profile(session),"ImportObservations",(connection,ct)=>database.Correct(connection,revision,body.ObservationId,body.Value,ct),c.RequestAborted);
+    var updated=held.Length==0?frame.SelectRevision(body.ObservationId,id,"Edited inputs")
+        :frame.SelectSwapMarketRevision(revision,held[0].Pins,body.ObservationId,id,"Edited inputs");
     session.Frames.Add(updated.Id,updated);
     return Results.Ok(new {frame=updated,observationId=id});
 }));
+// The pin a chosen revision replaces: the one pin of the same exact source fact and time.
+static Guid SameFact(PreviewData data,ImmutableArray<Guid> pins,Guid chosenId)
+{
+    var chosen=data.Observation(chosenId);
+    var previous=pins.Where(id=>
+    {
+        var o=data.Observation(id);
+        return o.Id("series_id")==chosen.Id("series_id")&&o.Text("source_event_id")==chosen.Text("source_event_id")&&o.Text("source_code")==chosen.Text("source_code")&&o.Text("role")==chosen.Text("role")&&o.Instant("observed_at")==chosen.Instant("observed_at");
+    }).ToArray();
+    if (previous.Length!=1) throw new MarketDataException("selection_mismatch","Select a revision of the same exact source fact and time.");
+    return previous[0];
+}
 api.MapPost("/select-observation",(HttpContext c,SelectionRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to current input editing before changing selected revisions.");
     var frame=Frame(session,body.SnapshotId);
     var updated=await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>
     {
-        var data=await database.Read(connection,ct); var chosen=data.Observation(body.ObservationId);
-        var previous=frame.ObservationIds.Where(id=>
-        {
-            var o=data.Observation(id);
-            return o.Id("series_id")==chosen.Id("series_id")&&o.Text("source_event_id")==chosen.Text("source_event_id")&&o.Text("source_code")==chosen.Text("source_code")&&o.Text("role")==chosen.Text("role")&&o.Instant("observed_at")==chosen.Instant("observed_at");
-        }).ToArray();
-        if (previous.Length!=1) throw new MarketDataException("selection_mismatch","Select a revision of the same exact source fact and time.");
-        return frame with {Id=Guid.NewGuid(),Name="Explicit revision selection",ObservationIds=frame.ObservationIds.Replace(previous[0],body.ObservationId)};
+        // The chosen revision replaces the pin of the same source fact in the bundle that holds it (D172).
+        var data=await database.Read(connection,ct);
+        if(!data.HasObservation(body.ObservationId))
+            foreach(var market in database.Manifest.SwapMarkets??[])
+            {
+                if(database.SwapMarketPins(frame,market) is not {} pins||!await database.SwapMarketAvailable(connection,market,ct))continue;
+                var bundle=await database.Read(connection,ct,market.RevisionId);
+                if(bundle.HasObservation(body.ObservationId))
+                    return frame.SelectSwapMarketRevision(market.RevisionId,pins,SameFact(bundle,pins,body.ObservationId),body.ObservationId,"Explicit revision selection");
+            }
+        return frame.SelectRevision(SameFact(data,frame.ObservationIds,body.ObservationId),body.ObservationId,"Explicit revision selection");
     },c.RequestAborted);
     if (session.Frames.Count>=128) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
     session.Frames.Add(updated.Id,updated); return Results.Ok(new {frame=updated});
 }));
+// The party page reads a historical view's own context, or working data as of current knowledge
+// it captures at the selected frame's date.
+async Task<TradingView> PartyView(NpgsqlConnection connection,PreviewSession session,Guid frame,CancellationToken ct)
+{
+    var pin=Pin(session,frame);
+    return pin.Context is {} retained?TradingView.Retained(pin.Frame,retained):await TradingView.Capture(connection,knowledgeStore,pin.Frame,ct);
+}
 api.MapPost("/parties/catalog",(HttpContext c,PartyReadRequest body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ReadTradeParties",async(connection,ct)=>
-    {
-        var frame=Frame(session,body.SnapshotId);
-        var selected=session.MarketContext ?? (await knowledgeStore.Capture(connection,new(frame.At.UtcDateTime.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
-        await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
-        return Results.Ok(new{versions=await PartyEditors.Read(connection,database.Manifest.CatalogId,body.Kind,frame.At,ct),context=selected,
-            canEdit=session.MarketContext is null && await HasPermission(connection,"WriteTradeParties",ct)});
-    },c.RequestAborted)));
+        Results.Ok(await partyReads.Catalog(connection,await PartyView(connection,session,body.SnapshotId,ct),body.Kind,ct)),c.RequestAborted)));
 api.MapPost("/parties/save",(HttpContext c,PartySaveRequest body)=>Locked(c,session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before editing party records.");
@@ -561,57 +899,62 @@ api.MapPost("/table-views/blotter",(HttpContext c,SaveTableView body)=>Locked(c,
 api.MapPost("/table-views/blotter/delete",(HttpContext c,DeleteTableView body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>{await TableViews.Delete(connection,body,ct);return Results.Ok(new {deleted=true});},c.RequestAborted)));
 var futuresStore=new FuturesStore(database.Manifest);
+// Working data, the only editable view: current knowledge captured for this read over a working frame.
+bool Working(PreviewSession session,FuturesReadRequest body)=>session.MarketContext is null&&body is {KnowledgeMode:"current",ContextId:null};
+// Trading pages name their knowledge: current knowledge, captured now at the working frame's date;
+// a context captured earlier, re-read over a working frame; or the selected historical view's own.
+async Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,FuturesReadRequest body,InputFrame frame,CancellationToken ct)
+{
+    if(Working(session,body))return await TradingView.Capture(connection,knowledgeStore,frame,ct);
+    if(body is not {KnowledgeMode:"retained",ContextId:{} id})throw new MarketDataException("futures_context","Choose current knowledge explicitly or supply the exact retained context.");
+    var context=(await knowledgeStore.Read(connection,id,ct)).Context;
+    if(session.MarketContext is null)return TradingView.Reread(frame,context);
+    if(session.Live is not null&&frame.ContextId==context.ContextId)return TradingView.Retained(frame,context);
+    return session.MarketContext.ContextId==context.ContextId?TradingView.Retained(frame,context)
+        :throw new MarketDataException("futures_context","Trading must use the shared selected historical context.");
+}
+// Trading pages without a read operation of their own run their store's read on the shared trading read path.
 Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false)=>
+    TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk);
+// The page keeps request policy: conventions, risk and amendment permissions, and the booking and amendment flags.
+Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,TradingView,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,bool combinedWorkspace=false)=>
     Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
     {
         if(expectedConvention is SwapStore.Convention or TradingBlotter.Convention){if(body.Convention!=expectedConvention)throw new MarketDataException("swap_context","Select the explicit supported swap valuation convention.");}
         else FuturesStore.Convention(body.Convention);
-        if(scenario && !await HasPermission(connection,"RunScenario",ct)||dealRisk && !await HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
-        var frame=Frame(session,body.SnapshotId);
-        var working=session.MarketContext is null&&body.KnowledgeMode=="current"&&body.ContextId is null;
+        if(scenario && !await PreviewDatabase.HasPermission(connection,"RunScenario",ct)||dealRisk && !await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
+        var frame=session.LivePin(body.SnapshotId)?.RequireFrame()??Frame(session,body.SnapshotId);
+        var working=Working(session,body);
         if(amendmentPreview&&!working)
             throw new MarketDataException("historical_read_only","Amendments require working data.");
-        if(amendmentPreview&&!await HasPermission(connection,"AmendTrade",ct))throw new PreviewDeniedException();
+        if(amendmentPreview&&!await PreviewDatabase.HasPermission(connection,"AmendTrade",ct))throw new PreviewDeniedException();
         int? currentHead=null;
         if(working&&headTrade is {} trade)
         {
             await using var head=ScheduleStore.Command(connection,expectedConvention==SwapStore.Convention?"SELECT security.swap_current_head($1,$2)":"SELECT security.futures_current_head($1,$2)",database.Manifest.CatalogId,trade);
             currentHead=await head.ExecuteScalarAsync(ct) is int revision?revision:null;
         }
-        ScheduleContext selected;
-        if(body.KnowledgeMode=="current" && body.ContextId is null && session.MarketContext is null)
-            selected=(await knowledgeStore.Capture(connection,new(frame.At.UtcDateTime.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
-        else if(body.KnowledgeMode=="retained" && body.ContextId is {} id)
+        var view=await TradeView(connection,session,body,frame,ct);
+        var value=await read(connection,view,ct);
+        if(scenario && !await PreviewDatabase.HasPermission(connection,"RunScenario",ct)||dealRisk && !await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
+        var response=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(value,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase,Converters={new ExactDecimalJsonConverter()}}))!.AsObject();
+        foreach(var json in combinedWorkspace?new[]{response["catalog"]!.AsObject(),response["blotter"]!.AsObject()}:new[]{response})
         {
-            selected=(await knowledgeStore.Read(connection,id,ct)).Context;
-            if(session.MarketContext is {} view && view.ContextId!=selected.ContextId)
-                throw new MarketDataException("futures_context","Trading must use the shared selected historical context.");
-        }
-        else throw new MarketDataException("futures_context","Choose current knowledge explicitly or supply the exact retained context.");
-        await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
-        frame=frame with{ContextId=selected.ContextId};
-        await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At))await bind.ExecuteNonQueryAsync(ct);
-        var data=await database.Read(connection,ct,observationIds:frame.ObservationIds);
-        var value=await read(connection,data,frame,ct);
-        if(scenario && !await HasPermission(connection,"RunScenario",ct)||dealRisk && !await HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
-        await using(var check=ScheduleStore.Command(connection,"SELECT security.trading_access($1,'ReadTrades')",database.Manifest.CatalogId))
-            if(!Equals(await check.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
-        var json=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(value,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase,Converters={new ExactDecimalJsonConverter()}}))!.AsObject();
-        json["context"]=JsonSerializer.SerializeToNode(selected,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});json["asOf"]=JsonSerializer.SerializeToNode(frame.At);
-        json["canRunDealRisk"]=JsonSerializer.SerializeToNode(await HasPermission(connection,"RunDealRisk",ct));
-        json["canBook"]=JsonSerializer.SerializeToNode(session.MarketContext is null&&body.KnowledgeMode=="current"&&await HasPermission(connection,"BookTrade",ct));
+        json["context"]=JsonSerializer.SerializeToNode(view.Context,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});json["asOf"]=JsonSerializer.SerializeToNode(frame.At);
+        json["canRunDealRisk"]=JsonSerializer.SerializeToNode(await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct));
+        json["canBook"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"BookTrade",ct));
         if(json["books"] is not null)
         {
-            json["canAmendTrades"]=JsonSerializer.SerializeToNode(working&&await HasPermission(connection,"AmendTrade",ct));
+            json["canAmendTrades"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct));
             json["bookingUnavailableReason"]=JsonSerializer.SerializeToNode(!working
                 ?"Historical view is read-only. Return to working data, then select an As of date."
-                :!await HasPermission(connection,"BookTrade",ct)?"Your current role does not have Book Trade permission.":null);
+                :!await PreviewDatabase.HasPermission(connection,"BookTrade",ct)?"Your current role does not have Book Trade permission.":null);
         }
         if(headTrade is not null)
         {
             var selectedRevision=json["state"]?["revision"]?.GetValue<int>()??json["expectedRevision"]?.GetValue<int>();
             var lifecycleEligible=json["lifecycleEligible"]?.GetValue<bool>()??true;
-            var canAmend=working&&currentHead==selectedRevision&&lifecycleEligible&&await HasPermission(connection,"AmendTrade",ct);
+            var canAmend=working&&currentHead==selectedRevision&&lifecycleEligible&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct);
             if(amendmentPreview&&!canAmend)throw new MarketDataException(expectedConvention==SwapStore.Convention?"swap_revision_conflict":"futures_revision_conflict","Reload the latest eligible trade revision before amending.");
             json["canAmend"]=JsonSerializer.SerializeToNode(canAmend);
             json["amendUnavailableReason"]=JsonSerializer.SerializeToNode(!working?"Historical view is read-only. Return to working data to amend."
@@ -619,7 +962,16 @@ Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
                 :!lifecycleEligible?"This retained state is outside the supported live, unprocessed futures lifecycle. Settlement must be handled separately."
                 :!canAmend?"Your current role does not have Amend Trade permission.":null);
         }
-        return Results.Ok(json);
+        }
+        if(scenario)
+        {
+            // Financial projections and capability labels are now materialized.
+            // Independently expiring market/scenario grants must still be live.
+            await using var publication=ScheduleStore.Command(connection,
+                "SELECT security.trading_access($1,'ReadTrades') AND security.market_access($1,'ReadMarketData') AND security.has_permission('RunScenario')",database.Manifest.CatalogId);
+            if(!Equals(await publication.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+        }
+        return Results.Ok(response);
     },c.RequestAborted));
 api.MapPost("/trade-formats/read",(HttpContext c,DealFormatRead body)=>
 {
@@ -632,8 +984,8 @@ api.MapPost("/trade-formats/save",(HttpContext c,DealFormatSave body)=>Locked(c,
  return Results.Ok(await DealAmountFormats.Save(connection,database.Manifest.CatalogId,body,ct));
 },c.RequestAborted)));
 api.MapPost("/futures/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,futuresStore.Catalog));
-api.MapPost("/futures/editor",(HttpContext c,FuturesEditorRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("futures_trade","Supply the selected context."),
-    (connection,data,frame,ct)=>futuresStore.Editor(connection,data,frame,body,ct),headTrade:body.TradeId));
+api.MapPost("/futures/editor",(HttpContext c,FuturesEditorRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("futures_trade","Supply the selected context."),
+    (connection,view,ct)=>tradeReads.FuturesTrade(connection,view,body.TradeId,body.Revision,ct),headTrade:body.TradeId));
 api.MapPost("/futures/amend-preview",(HttpContext c,FuturesAmendRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
     (connection,data,frame,ct)=>futuresStore.PreviewAmendment(connection,data,frame,body,ct),headTrade:body.TradeId,amendmentPreview:true));
 api.MapPost("/futures/amend",(HttpContext c,FuturesAmendRequest body)=>Locked(c,async session=>
@@ -642,21 +994,27 @@ api.MapPost("/futures/amend",(HttpContext c,FuturesAmendRequest body)=>Locked(c,
     c.Items["futures_attempted"]=true;
     return await database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
     {
-        if(!await HasPermission(connection,"ReadTrades",ct)||!await HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
-        return Results.Ok(await futuresStore.Amend(connection,await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds),Frame(session,body.SnapshotId),body,ct));
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct)||!await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
+        return Results.Ok(await futuresStore.Amend(connection,await database.Read(connection,ct),Frame(session,body.SnapshotId),body,ct));
     },c.RequestAborted);
 }));
 api.MapPost("/futures/blotter",(HttpContext c,FuturesBlotterRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),(connection,data,frame,ct)=>futuresStore.Blotter(connection,data,frame,body.View,ct)));
 api.MapPost("/futures/holdings",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,futuresStore.Holdings));
 var swapStore=new SwapStore(database);
-var tradingBlotter=new TradingBlotter(database.Manifest,futuresStore,swapStore);
-api.MapPost("/trading/blotter",(HttpContext c,FuturesBlotterRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
- (connection,data,frame,ct)=>tradingBlotter.Read(connection,data,frame,body.View,ct),expectedConvention:TradingBlotter.Convention));
-api.MapPost("/swaps/valuation-receipt",(HttpContext c,SwapValuationReceiptRead body)=>DateOperation(c,"ReadTrades",async(session,connection,ct)=>
- Results.Ok(await swapStore.ValuationReceipt(connection,body,ct))));
+api.MapPost("/trading/workspace",(HttpContext c,TradingWorkspaceRequest body)=>
+{
+ if(body.BookingCatalog is not(null or "directory" or "priced_contracts"))throw new MarketDataException("blotter_view","Choose an available booking catalog projection.");
+ return TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
+  (connection,view,ct)=>tradeReads.Workspace(connection,view,body.View,body.BookingCatalog=="directory",ct),expectedConvention:TradingBlotter.Convention,combinedWorkspace:true);
+});
+api.MapPost("/trading/blotter",(HttpContext c,FuturesBlotterRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
+ (connection,view,ct)=>tradeReads.Blotter(connection,view,body.View,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/swaps/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,swapStore.Catalog,expectedConvention:SwapStore.Convention));
-api.MapPost("/swaps/editor",(HttpContext c,SwapEditorRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("swap_context","Supply the selected context."),
- (connection,data,frame,ct)=>swapStore.Editor(connection,data,frame,body,ct),headTrade:body.TradeId,expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/observation-options",(HttpContext c,SwapObservationOptionsRequest body)=>FuturesRead(c,
+ body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
+ (connection,data,frame,ct)=>swapStore.ObservationOptions(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/editor",(HttpContext c,SwapEditorRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("swap_context","Supply the selected context."),
+ (connection,view,ct)=>tradeReads.SwapTrade(connection,view,body.TradeId,body.Revision,ct),headTrade:body.TradeId,expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/preview",(HttpContext c,SwapWriteRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
  (connection,data,frame,ct)=>swapStore.Preview(connection,data,frame,body,ct),headTrade:body.TradeId,amendmentPreview:body.TradeId is not null,expectedConvention:SwapStore.Convention));
 Task<IResult> SaveSwap(HttpContext c,SwapWriteRequest body,bool amend)=>Locked(c,session=>database.WithIdentity(Profile(session),amend?"AmendTrade":"BookTrade",async(connection,ct)=>
@@ -665,61 +1023,77 @@ Task<IResult> SaveSwap(HttpContext c,SwapWriteRequest body,bool amend)=>Locked(c
  if(amend!=(body.TradeId is not null))throw new MarketDataException("swap_input","Choose booking or latest-head amendment explicitly.");
  c.Items["swap_attempted"]=true;
  await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);
- return Results.Ok(await swapStore.Save(connection,await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds),Frame(session,body.SnapshotId),body,ct));
+ return Results.Ok(await swapStore.Save(connection,await database.Read(connection,ct),Frame(session,body.SnapshotId),body,ct));
 },c.RequestAborted));
 api.MapPost("/swaps/book",(HttpContext c,SwapWriteRequest body)=>SaveSwap(c,body,false));
 api.MapPost("/swaps/amend",(HttpContext c,SwapWriteRequest body)=>SaveSwap(c,body,true));
 api.MapPost("/swaps/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await swapStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
 api.MapPost("/futures/price",(HttpContext c,FuturesDraftRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("draft_context","Choose the draft market context."),(connection,data,frame,ct)=>futuresStore.PriceDraft(connection,data,frame,body,ct)));
 api.MapPost("/futures/draft-risk",(HttpContext c,FuturesDraftRiskRequest body)=>FuturesRead(c,body.Draft?.Context??throw new MarketDataException("draft_context","Choose the draft and market context."),(connection,data,frame,ct)=>futuresStore.RiskDraft(connection,data,frame,body,ct),dealRisk:true));
-api.MapPost("/swaps/fixing-observations",(HttpContext c,SwapFixingObservationsRequest body)=>FuturesRead(c,body.Context,
- (connection,data,frame,ct)=>swapStore.FixingObservations(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/price",(HttpContext c,SwapDraftRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("draft_context","Choose the draft market context."),(connection,data,frame,ct)=>swapStore.PriceDraft(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/draft-risk",(HttpContext c,SwapDraftRiskRequest body)=>FuturesRead(c,body.Draft?.Context??throw new MarketDataException("draft_context","Choose the draft and market context."),(connection,data,frame,ct)=>swapStore.RiskDraft(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention,dealRisk:true));
-var futuresRisk=new FuturesRiskPreview(futuresStore);
-api.MapPost("/futures/risk/catalog",(HttpContext c,FuturesRiskCatalogRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),(connection,data,frame,ct)=>futuresRisk.Catalog(connection,data,frame,body,ct),scenario:true));
-api.MapPost("/futures/risk",(HttpContext c,FuturesRiskRequest body)=>FuturesRead(c,
+var portfolioRisk=new PortfolioRiskPreview(database);
+Task<IResult> PortfolioRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read)=>
+    TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,
+        data=>read(connection,data,view.CalculationFrame,ct),ct,
+        referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),
+        scenario:true,expectedConvention:TradingBlotter.Convention);
+api.MapPost("/portfolio/risk/catalog",(HttpContext c,PortfolioRiskCatalogRequest body)=>PortfolioRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
-    (connection,data,frame,ct)=>futuresRisk.Calculate(connection,data,frame,body,ct),scenario:true));
-api.MapPost("/futures/risk/jobs",(HttpContext c,SubmitRiskJob body)=>FuturesRead(c,
+    (connection,data,frame,ct)=>portfolioRisk.Catalog(connection,data,frame,body,ct)));
+api.MapPost("/portfolio/risk",(HttpContext c,PortfolioRiskRequest body)=>PortfolioRead(c,
+    body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
+    (connection,data,frame,ct)=>portfolioRisk.Calculate(connection,data,frame,body,ct)));
+api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>PortfolioRead(c,
     body.Request?.Context??throw new MarketDataException("risk_job_context","Supply the risk request and exact retained context."),
     (connection,data,frame,ct)=>
     {
         c.Items["risk_job_attempted"]=true;
-        return RiskJobs.Submit(connection,database.Manifest,futuresRisk,data,frame,body,ct);
-    },scenario:true));
-api.MapGet("/futures/risk/jobs",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,ct)),c.RequestAborted))));
-api.MapGet("/futures/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,session=>
-    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct)),c.RequestAborted)));
-api.MapPost("/futures/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
-    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true)),c.RequestAborted)));
+        return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,body,ct);
+    }));
+api.MapGet("/portfolio/risk/jobs",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,ct,PortfolioRiskPreview.Convention)),c.RequestAborted))));
+api.MapGet("/portfolio/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
+api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or amending.");
     c.Items["futures_attempted"]=true;
     return await database.WithIdentity(Profile(session),"BookTrade",async(connection,ct)=>
     {
-        if(!await HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
-        return Results.Ok(await futuresStore.Book(connection,await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds),Frame(session,body.SnapshotId),body,ct));
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
+        return Results.Ok(await futuresStore.Book(connection,await database.Read(connection,ct),Frame(session,body.SnapshotId),body,ct));
     },c.RequestAborted);
 }));
 api.MapPost("/futures/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
     Results.Ok(await futuresStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>Results.Ok(await CollectionJobs.Directory(connection,ct,page??0,collectionPage??0)),c.RequestAborted)));
+api.MapPost("/jobs/collection/update",(HttpContext c,CollectionJobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await CollectionJobs.Update(connection,body,ct));},c.RequestAborted)));
+api.MapPost("/infrastructure/availability",(HttpContext c,NodeCommand body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await JobOperations.NodeAction(connection,body,ct));},c.RequestAborted)));
+api.MapPost("/infrastructure/resolve",(HttpContext c,NodeResolution body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await JobOperations.ResolveNode(connection,body,ct));},c.RequestAborted)));
+api.MapPost("/jobs/create",(HttpContext c,JobCreate body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunJobs",
+    async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await JobOperations.Create(connection,body,ct));},c.RequestAborted)));
+api.MapPost("/jobs/control",(HttpContext c,JobControl body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await JobOperations.Control(connection,body,ct));},c.RequestAborted)));
+api.MapPost("/jobs/update",(HttpContext c,JobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await JobOperations.Update(connection,body,ct));},c.RequestAborted)));
 api.MapGet("/access",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
     database.WithIdentity(Profile(session),null,async(connection,ct)=>
-    {
-        await using var command=ScheduleStore.Command(connection,"SELECT security.current_permissions()");
-        return Results.Ok(new {permissions=(string[])(await command.ExecuteScalarAsync(ct))!});
-    },c.RequestAborted))));
-// The principal kinds security.principals accepts; each maps to one login kind.
-(string Code,string Name)[] IdentityKinds=[("human","Human"),("service","Service"),("agent","Agent")];
+        Results.Ok(new {permissions=await CurrentPermissions(connection,ct)}),c.RequestAborted))));
+// The principal kinds security.principals accepts; each maps to one login kind. Agents are created through agent administration.
+(string Code,string Name,bool Creatable)[] IdentityKinds=[("human","Human",true),("service","Service",true),("agent","Agent",false)];
 api.MapGet("/admin",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>
     {
         await using var command=ScheduleStore.Command(connection,"SELECT security.administration_directory()::text");
         var directory=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>((string)(await command.ExecuteScalarAsync(ct))!)!;
-        directory["kinds"]=JsonSerializer.SerializeToElement(IdentityKinds.Select(k=>new {code=k.Code,name=k.Name}));
+        directory["kinds"]=JsonSerializer.SerializeToElement(IdentityKinds.Select(k=>new {code=k.Code,name=k.Name,creatable=k.Creatable}));
         directory["canCreate"]=JsonSerializer.SerializeToElement(hosted is null);
         return Results.Ok(directory);
     },c.RequestAborted))));
@@ -731,12 +1105,130 @@ async Task<IResult> AdminMutation(HttpContext c,object body,string action)=>awai
         var request=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(body,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase}))!.AsObject();request["action"]=action;
         await using var command=ScheduleStore.Command(connection,"SELECT security.apply_administration($1::jsonb)::text",request.ToJsonString());
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
-    },c.RequestAborted,administration:true);
+    },c.RequestAborted,admission:Admission.Administration);
     if(result.GetProperty("kind").GetString()=="human")session.CustomProfiles[result.GetProperty("login").GetString()!]=result.GetProperty("name").GetString()!;
     return Results.Ok(result);
 });
 api.MapPost("/admin/create",(HttpContext c,AdminCreate body)=>hosted is null?AdminMutation(c,body,"create"):Task.FromResult<IResult>(Results.Json(new{code="access_denied",message="Hosted accounts require a private invitation."},statusCode:403)));
 api.MapPost("/admin/update",(HttpContext c,AdminUpdate body)=>AdminMutation(c,body,"update"));
+// Settings › AI administers the page assistant (docs/ai-assistant.md §9, §11).
+var (modelProviders,modelCatalog)=(new ModelProviders(custody,database.Manifest,checkEndpoint),new ModelCatalog());
+Task<IResult> ModelRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
+Task<IResult> ModelCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,session=>
+{
+    c.Items["model_admin_attempted"]=true;
+    return database.WithIdentity(Profile(session),"ManageModelProviders",async(connection,ct)=>Results.Ok(await command(connection,ct)),c.RequestAborted);
+});
+api.MapGet("/settings/ai/providers",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,modelProviders.Directory)));
+api.MapGet("/settings/ai/models",(Func<HttpContext,Task<IResult>>)(c=>ModelRead(c,async(connection,ct)=>await modelCatalog.Directory(connection,ct))));
+api.MapPost("/settings/ai/providers/key",(HttpContext c,ReplaceKeyRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.ReplaceKey(connection,body,ct)));
+api.MapPost("/settings/ai/providers/terms",(HttpContext c,RecordTermsRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.RecordTerms(connection,body,ct)));
+api.MapPost("/settings/ai/providers/attest",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Attest(connection,body,ct)));
+api.MapPost("/settings/ai/providers/enable",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Enable(connection,body,ct)));
+api.MapPost("/settings/ai/providers/disable",(HttpContext c,ProviderRequest body)=>ModelCommand(c,(connection,ct)=>modelProviders.Disable(connection,body,ct)));
+api.MapPost("/settings/ai/models/add",(HttpContext c,AddModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddModel(connection,body,ct)));
+api.MapPost("/settings/ai/models/rename",(HttpContext c,RenameModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.RenameModel(connection,body,ct)));
+api.MapPost("/settings/ai/models/price",(HttpContext c,AddPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.AddPrice(connection,body,ct)));
+api.MapPost("/settings/ai/models/withdraw",(HttpContext c,WithdrawPriceRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.WithdrawPrice(connection,body,ct)));
+api.MapPost("/settings/ai/models/edit",(HttpContext c,EditModelRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EditModel(connection,body,ct)));
+api.MapPost("/settings/ai/models/enable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.EnableModel(connection,body,ct)));
+api.MapPost("/settings/ai/models/disable",(HttpContext c,ModelCommandRequest body)=>ModelCommand(c,(connection,ct)=>modelCatalog.DisableModel(connection,body,ct)));
+// Agents (§5.4, §9). Create and Retire write control tables: the database refuses them with admission_required once
+// every check has passed under the shared admission, and they are repeated under exclusive admission, so a refusal
+// or a repeat never takes the epoch row exclusively.
+Task<IResult> AgentCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command,bool control=false)=>Locked(c,async session=>
+{
+    c.Items["model_admin_attempted"]=true;
+    try{return Results.Ok(await database.WithIdentity(Profile(session),"ManageAgents",command,c.RequestAborted));}
+    catch(PostgresException p) when(control&&p.SqlState=="P0001"&&p.MessageText=="admission_required")
+    {return Results.Ok(await database.WithIdentity(Profile(session),"ManageAgents",command,c.RequestAborted,Admission.Agents));}
+});
+api.MapGet("/settings/ai/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ManageAgents",async(connection,ct)=>Results.Ok(await AgentAdministration.Directory(connection,ct)),c.RequestAborted))));
+api.MapPost("/settings/ai/agents/create",(HttpContext c,CreateAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Create(connection,body,ct),control:true));
+api.MapPost("/settings/ai/agents/save",(HttpContext c,SaveAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Save(connection,body,ct)));
+api.MapPost("/settings/ai/agents/publish",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Publish(connection,body,ct)));
+api.MapPost("/settings/ai/agents/retire",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Retire(connection,body,ct),control:true));
+// Grants (§7.1, §8): the agents a user may use and the user's grants. Grant and Revoke write control tables, so like
+// Create and Retire they repeat under exclusive admission only once every check has passed; Revoke needs no UseAgents.
+Task<IResult> GrantCommand(HttpContext c,string? permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> command)=>Locked(c,async session=>
+{
+    c.Items["grant_attempted"]=true;
+    try{return Results.Ok(await database.WithIdentity(Profile(session),permission,command,c.RequestAborted));}
+    catch(PostgresException p) when(p.SqlState=="P0001"&&p.MessageText=="admission_required")
+    {return Results.Ok(await database.WithIdentity(Profile(session),permission,command,c.RequestAborted,Admission.Grants));}
+});
+api.MapGet("/assistant/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"UseAgents",async(connection,ct)=>Results.Ok(await AgentGrants.Usable(connection,ct)),c.RequestAborted))));
+api.MapGet("/assistant/grants",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await AgentGrants.Grants(connection,ct)),c.RequestAborted))));
+// A workspace's grants, read-only, for those who administer its access: the database also requires ManageIdentities
+// and refuses a delegated context. Revoke stays the delegator's.
+api.MapGet("/assistant/grants/workspace",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>Results.Ok(await AgentGrants.Workspace(connection,ct)),c.RequestAborted))));
+api.MapPost("/assistant/grants/grant",(HttpContext c,GrantRequest body)=>GrantCommand(c,"UseAgents",(connection,ct)=>AgentGrants.Grant(connection,body,ct)));
+api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>GrantCommand(c,null,(connection,ct)=>AgentGrants.Revoke(connection,body,ct)));
+// Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
+// is selected, a retained context only when it is the selected one, and a frame only of the session's current market
+// context. Working data is captured at its frame's date, so it needs one. Nothing else is pinned, and nothing falls back.
+var agentTurns=new AgentTurns(database,turnScope,agentWorker,turnWorker,new AgentTools(database,marketReads,scheduleReads,partyReads,tradeReads,app.Logger),app.Logger);
+(string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge)
+{
+    var selected=session.MarketContext?.ContextId;
+    var (mode,retained)=knowledge switch
+    {
+        {Mode:"current",ContextId:null} when selected is null=>("current",(Guid?)null),
+        {Mode:"retained",ContextId:{} id} when id==selected=>("retained",id),
+        _=>throw new MarketDataException("context_required","Ask over the knowledge the page shows: current knowledge, or the selected historical view.")
+    };
+    var frame=knowledge.FrameId is {} chosen?Frame(session,chosen):null;
+    if(frame is not null&&frame.ContextId!=retained)throw PinnedContext.Missing();
+    return mode=="current"&&frame is null?throw PinnedContext.Missing():(mode,retained,frame);
+}
+api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,session=>
+{
+    var (mode,retained,frame)=Knowledge(session,body.Knowledge);
+    c.Items["turn_attempted"]=true;
+    return agentTurns.Ask(session,Profile(session),body,mode,retained,frame,c.RequestAborted);
+}));
+api.MapPost("/assistant/turns/stop",(HttpContext c,StopRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Stop(connection,body,ct)),c.RequestAborted)));
+api.MapPost("/assistant/curve-proposal",(HttpContext c,CurveProposalRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.CurveProposal(connection,body,ct)),c.RequestAborted)));
+api.MapGet("/assistant/conversations",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversations(connection,ct)),c.RequestAborted))));
+api.MapGet("/assistant/conversations/{id:guid}",(HttpContext c,Guid id,long after)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Conversation(connection,id,after,ct)),c.RequestAborted)));
+// The live event stream (§8) takes no session semaphore, so the session's commands, Stop among them, never wait for it.
+var turnStream=new TurnStream(database,turnScope,agentWorker,turnStreams,
+    app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions,
+    TimeProvider.System,app.Lifetime.ApplicationStopping,app.Logger);
+api.MapGet("/assistant/conversations/{id:guid}/events",(HttpContext c,Guid id,long after)=>turnStream.Serve(c,()=>Session(c),id,after));
+api.MapGet("/assistant/turns/unfinished",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Unfinished(connection,ct)),c.RequestAborted))));
+api.MapPost("/assistant/conversations/read",(HttpContext c,MarkReadRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.MarkRead(connection,body,ct)),c.RequestAborted)));
+// The panel's Go and Back (§10.1) select a target's retained context again by its id: exactly that context, which an ask
+// may then pin, never a new capture.
+api.MapPost("/market/context/retained",(HttpContext c,RetainedContextRequest body)=>Locked(c,session=>
+    SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Read(connection,body.ContextId,ct))));
+// Usage (§9) is read under ReadModelUsage alone. An export records the report it carries in the model administration
+// audit, so like a change its outcome can be unknown, and repeating it answers as its original did.
+Task<IResult> UsageRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadModelUsage",async(connection,ct)=>Results.Ok(await read(connection,ct)),c.RequestAborted));
+api.MapGet("/settings/ai/usage",(Func<HttpContext,Task<IResult>>)(c=>UsageRead(c,async(connection,ct)=>await UsageReports.Directory(connection,ct))));
+api.MapPost("/settings/ai/usage/report",(HttpContext c,UsageReportRequest body)=>UsageRead(c,async(connection,ct)=>await UsageReports.Report(connection,body,ct)));
+api.MapPost("/settings/ai/usage/export",(HttpContext c,UsageExportRequest body)=>
+{
+    c.Items["model_admin_attempted"]=true;
+    return UsageRead(c,async(connection,ct)=>await UsageReports.Export(connection,body,ct));
+});
+api.MapPost("/settings/ai/providers/test",(HttpContext c,TestRequest body)=>Locked(c,async session=>
+{
+    c.Items["model_admin_attempted"]=true;
+    return Results.Ok(await providerTests.Run(database,Profile(session),body,c.RequestAborted,(CancellationToken)c.Items["client_aborted"]!));
+}));
 }
 var files=new PhysicalFileProvider(webRoot);
 app.UseDefaultFiles(new DefaultFilesOptions {FileProvider=files});
@@ -749,15 +1241,22 @@ public sealed record AdminCreate(Guid OperationId,string? Login,string? Name,str
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record AdminUpdate(Guid OperationId,Guid Id,int ExpectedVersion,string? Name,bool? Enabled,string[]? Roles);
 public sealed record ProfileRequest(string Profile);
+// A request whose session is missing, unknown or past its end.
+public sealed class PreviewSessionEnded : Exception;
 public sealed record LocalTimeRequest(string? LocalTime,string? TimeZone);
-public sealed record BuildRequest(Guid SnapshotId,string Curve);
+public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false);
 public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null);
-public sealed record HistorySample(DateTimeOffset At,string? Value,Guid SnapshotId,Guid[] ObservationIds,string? UnavailableReason);
 public sealed record CorrectionRequest(Guid SnapshotId,Guid ObservationId,string Value);
 public sealed record SelectionRequest(Guid SnapshotId,Guid ObservationId);
-public sealed class PreviewSession
+public sealed partial class PreviewSession
 {
+    public static readonly TimeSpan Lifetime=TimeSpan.FromMinutes(30);
     public DateTimeOffset Created {get;}=DateTimeOffset.UtcNow;
+    // Within its lifetime and, in hosted mode, no later than the sign-in session it belongs to (docs/ai-assistant.md §11).
+    public DateTimeOffset Ends {get;}
+    // Names the session to the database, which binds its turns to it (docs/ai-assistant.md §7.2, §11): its sign-in
+    // session's digest in hosted mode, otherwise random, so it reveals nothing of the session's cookie.
+    public string Digest {get;}
     public SemaphoreSlim Gate {get;}=new(1,1);
     public string? Profile {get;set;}
     public ScheduleContext? MarketContext {get;set;}
@@ -765,15 +1264,16 @@ public sealed class PreviewSession
     public Dictionary<Guid,InputFrame> Frames {get;}=[];
     public PreviewShortcutLibrary Shortcuts {get;}=new();
     public DateWorkspace Dates {get;}=new();
-    public Dictionary<(string Owner,string Code),BoundContractDefinition> ContractDefinitions {get;}=[];
     public Guid[] InitialFrames {get;}
-    public PreviewSession(PreviewManifest manifest)
+    public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null)
     {
+        Ends=signIn is {} s&&s.Ends<Created+Lifetime?s.Ends:Created+Lifetime;
+        Digest=signIn?.Digest??Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         foreach(var f in manifest.Frames) {
             if(f.CurveContracts is null)throw new MarketDataException("missing_curve_view","Every seed frame requires explicit curve contract selections.");
             var frame=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",f.At,f.ObservationIds.ToImmutableArray(),
-                f.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()));Frames.Add(frame.Id,frame);
+                f.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),FrozenObservationIds:(f.FrozenObservationIds??[]).ToImmutableArray()){PpaBundle=f.PpaBundle};Frames.Add(frame.Id,frame);
         }
-        InitialFrames=Frames.Keys.ToArray();
+        InitialFrames=Frames.Values.Where(f=>f.PpaBundle is null).Select(f=>f.Id).ToArray();
     }
 }

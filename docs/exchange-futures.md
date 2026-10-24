@@ -5,12 +5,17 @@ definitions and original synthetic observations. It is selected independently of
 the original synthetic workspace, with separate catalog, identity-provider,
 workspace, sessions, pending commands and account layouts.
 
-There are 19 exchange product families and one explicitly synthetic daily-rate
-control: 113 dated contracts, six monthly periods from November 2026 through April
-2027 or five daily periods from October 19–23, 2026. Four synthetic market dates
-cover October 13–16. Admission starts on October 1 are synthetic, not exchange
-first-listing dates. This is a bounded benchmark shortlist, not a verified ranking
-by current traded volume or open interest.
+There are 19 real exchange product definitions. Twelve monthly families have 72
+source-confirmed maturities from November 2026 through April 2027; 61 are executable.
+Eleven ICE year-end maturities retain their real last-trading dates with unknown
+cutoff instants until specific-session hours are qualified. No 18:00 fallback is
+applied to those dates. Seven daily product definitions retain their sourced terms
+but have no executable maturity rows until an actual exchange contract list confirms them. Listing-cycle rules
+alone do not establish currently listed maturities. Four snapshots dated
+October 13–16 contain generated prices. The explicit application execution bound is October 1; it is not an exchange
+first-listing date. Unknown source first-trading facts remain unknown. Prices are
+generated trader marks, not official daily settlements. This is a bounded benchmark shortlist,
+not a verified ranking by current traded volume or open interest.
 
 | Families | Contract sizing | Public specification |
 | --- | --- | --- |
@@ -24,14 +29,20 @@ by current traded volume or open interest.
 | ICE PJM PDA, ERCOT END daily peak | 800 MWh fixed total | [PDA](https://www.ice.com/products/6590471), [END](https://www.ice.com/products/6590453) |
 | ICE CAISO NP-15 DPN, SP-15 SDP daily peak | 400 MWh fixed total | [DPN](https://www.ice.com/products/6590450), [SDP](https://www.ice.com/products/6590477) |
 
-Contract-size and tick fields are separate. The example selects screen execution ticks explicitly. Its synthetic settlement
-marks use a separately declared increment based on the product quotation precision;
-block execution grids and final-settlement processing are not enabled. The source rulebook is [ICE U.S. Chapter 18](https://www.ice.com/publicdocs/rulebooks/futures_us/18._US_Gas_Power_and_Environmental_Contracts.pdf).
+Contract-size and tick fields are separate. The example selects screen execution
+ticks explicitly. Its generated marks use a separately declared increment based on the product quotation precision;
+block execution grids and final-settlement processing are not enabled. Monthly
+maturity dates and power totals are checked against exchange expiry records.
+Ordinary-session last-trading cutoffs use the [ICE trading-hours specification](https://www.ice.com/publicdocs/futures_us/ICE_Futures_US_Regular_Trading_Hours.pdf);
+this example does not implement a general holiday/early-close resolver. Its trading
+calendar records only the four known business dates used by the sample frames;
+uncovered dates remain unavailable. Delivery peak calendars are separate.
+The source rulebook is [ICE U.S. Chapter 18](https://www.ice.com/publicdocs/rulebooks/futures_us/18._US_Gas_Power_and_Environmental_Contracts.pdf).
 Published monthly lot totals are retained with exact series, quantity, factor,
 rule version and source references; they are not recalculated using an ambient
-timezone. Nominal MW remains distinct from resolved MWh. The synthetic TESTDAY
-control demonstrates 2,500 MMBtu/day over explicit calendar delivery days, with a
-named rule and independently checked totals. It is not an exchange-listed product.
+timezone. Nominal MW remains distinct from resolved MWh. Calendar-day lot
+integration has independent numerical controls in the tests;
+invented products are excluded from this exchange example.
 
 The exact `ref_data.futures_series(catalog_id, revision_id, code)` primary key is
 the instrument identity. Product delivery profile is authoritative; curve recipes

@@ -2,6 +2,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0.13-noble@sha256:d5633778c754e89a386882
 WORKDIR /opt/openetrm
 COPY LICENSE ./LICENSE
 COPY api/ ./api/
+COPY worker/ ./worker/
 COPY web/ ./web/
 ENV ASPNETCORE_ENVIRONMENT=Production DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 USER 1654:1654

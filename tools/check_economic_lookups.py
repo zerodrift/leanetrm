@@ -5,17 +5,17 @@ from preview_client import PreviewClient
 from preview_fixture import trade_booking
 
 
-def run_checks(url, query, manifest):
-    c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
+def run_checks(url, query, manifest, client=None):
+    c = client or PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
     frame = next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
     context = {'snapshotId': frame['id'], 'convention': 'independent_side_financial_swap_v2', 'knowledgeMode': 'current'}
     future_context = {**context, 'convention': 'fixed_total_cash_execution_pnl_v1'}
     futures = c.call('futures/catalog', future_context)
     member = futures['contracts'][0]
-    viewer=PreviewClient(url);viewer.bootstrap();viewer.call('profile',{'profile':'viewer'})
-    view_frame=next(f for f in viewer.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
-    market=viewer.call('evaluate',{'snapshotId':view_frame['id'],'curve':member['curve']})
+    c.call('profile',{'profile':'viewer'})
+    market=c.call('evaluate',{'snapshotId':frame['id'],'curve':member['curve']})
     assert next(p for p in market['points'] if p['contractId']==member['id'])['instrumentId']==member['instrumentId']
+    c.call('profile',{'profile':'trader'})
     future_body = {**future_context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': futures['books'][0]['id'],
                    'curve': member['curve'], 'contractId': member['id'],
                    'lots': '2', 'executionPrice': '3'}
@@ -72,7 +72,7 @@ def run_checks(url, query, manifest):
             'commodity': index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
-                         'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'firstFixingAt': '2020-12-31T12:00:00Z',
+                         'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01',
                          'paymentSchedule': rule, 'resetFrequency': 'monthly', 'averagingMethod': 'none'}}
     plain = c.call('swaps/book', body)
     discounted = c.call('swaps/book', {**body, 'operationId': str(uuid4()), 'discounting': True})
@@ -83,11 +83,14 @@ def run_checks(url, query, manifest):
         state = c.call('swaps/editor', {'context': context, 'tradeId': booked['tradeId'], 'revision': None})['state']
         assert state['terms']['discounting'] is expected
     columns = query("SELECT array_agg(a.attname ORDER BY k.n)::text FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,n) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid='trading.swap_floating_sides'::regclass AND c.conname='swap_floating_economic_key';")
-    assert columns == '{catalog_id,definition_revision_id,curve_code,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id,spread,fixing_schedule_id}'
-    spread = c.call('swaps/book',{**body,'operationId':str(uuid4()),'floating':{**body['floating'],'spread':'0.1'}})
-    assert spread['instrumentId'] != plain['instrumentId'], 'A contractual floating spread must distinguish economics.'
-    zero_again = c.call('swaps/book',{**body,'operationId':str(uuid4())})
-    assert zero_again['instrumentId'] == plain['instrumentId'], 'Legacy no-spread admission must not reuse a spread-bearing side.'
+    assert columns == '{catalog_id,definition_revision_id,curve_code,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id,custom_projection_id,spread,observation_schedule_id}', f'Unexpected floating-side economic key: {columns}'
+    spread_body={**body,'operationId':str(uuid4()),'floating':{**body['floating'],'spread':'0.2'}}
+    spread_trade=c.call('swaps/book',spread_body)
+    assert spread_trade['instrumentId']!=plain['instrumentId'], 'A fixed floating spread distinguishes economic sides.'
+    same_spread=c.call('swaps/book',{**spread_body,'operationId':str(uuid4()),'quantity':'200','floating':{**spread_body['floating'],'spread':'0.20'}})
+    assert same_spread['instrumentId']==spread_trade['instrumentId'], 'Equal exact spreads reuse the retained side across quantities.'
+    explicit_zero=c.call('swaps/book',{**body,'operationId':str(uuid4()),'floating':{**body['floating'],'spread':'0'}})
+    assert explicit_zero['instrumentId']==plain['instrumentId'], 'The explicit zero spread preserves the baseline economic lookup.'
     floating = query("SELECT floating_side_id FROM trading.swap_instruments WHERE instrument_id='"+plain['instrumentId']+"';")
     query(f"ALTER TABLE trading.swap_reset_projections DISABLE TRIGGER immutable_record; UPDATE trading.swap_reset_projections SET ordinal=1 WHERE side_id='{floating}'; ALTER TABLE trading.swap_reset_projections ENABLE TRIGGER immutable_record;")
     try:

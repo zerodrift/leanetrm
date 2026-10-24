@@ -3,12 +3,12 @@
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
   const message='We could not confirm the result. Refresh and check the saved changes before saving again.';
   const dialog="document.querySelector('#profile-dialog')",banner="document.querySelector('#error')",save="document.querySelector('#preferences-form [type=submit]')",change="document.querySelector('#open')";
-  const shown=`JSON.stringify([...${dialog}.querySelectorAll('[role=alert]')].filter(n=>n.checkVisibility()).map(n=>n.textContent))===${JSON.stringify(JSON.stringify([message]))}`;
-  const cleared=`[...${dialog}.querySelectorAll('[role=alert]')].every(n=>n.hidden&&n.textContent==='')`;
+  const shown=`JSON.stringify([...${dialog}.querySelectorAll('#profile-error')].filter(n=>n.checkVisibility()).map(n=>n.textContent))===${JSON.stringify(JSON.stringify([message]))}`;
+  const cleared=`[...${dialog}.querySelectorAll('#profile-error')].every(n=>n.hidden&&n.textContent==='')`;
   async function press(key,keyCode){for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:keyCode,...(type==='keyDown'&&key==='Enter'?{text:'\r'}:{})});}
   // Assistive technology must reach the dialog's own alert, unlike inert content behind the modal.
   async function announced(){
-    const {result}=await command('Runtime.evaluate',{expression:`[...${dialog}.querySelectorAll('[role=alert]')].find(n=>n.checkVisibility())`});
+    const {result}=await command('Runtime.evaluate',{expression:`[...${dialog}.querySelectorAll('#profile-error')].find(n=>n.checkVisibility())`});
     if(!result.objectId)return false;
     const {nodes:[node]}=await command('Accessibility.getPartialAXTree',{objectId:result.objectId,fetchRelatives:false});
     return node.role.value==='alert'&&!node.ignored;
@@ -23,7 +23,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await click('#profile-open');await set('#zone','America/Chicago');await evaluate(`${save}.focus()`);
-  await block('/api/futures/catalog');await release();
+  await block('/api/trading/workspace');await release();
   await check('failed preferences save shows its message inside the open profile dialog, not the inert page banner',`${dialog}.open&&${shown}&&${banner}.hidden`);
   await check('the profile dialog alert reaches assistive technology',JSON.stringify(await announced()));
   await check('focus returns to Save preferences so Enter retries',`document.activeElement===${save}`);await shot('profile-error');

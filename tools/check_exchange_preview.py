@@ -17,14 +17,16 @@ def run_checks(url,query=None,manifest=None):
     c.call('futures/catalog',{**context,'snapshotId':baseline_frame['id']},expected=422)
     base.call('futures/catalog',{'snapshotId':frame['id'],'convention':'fixed_total_cash_execution_pnl_v1','knowledgeMode':'current'},expected=422)
     catalog=c.call('futures/catalog',context);contracts=catalog['contracts']
-    assert len(contracts)==113
-    expected_sizes={'test_calendar_day_gas':'75000','ice_dgd':'2500','ice_hxs':'2500','ice_wah':'2500','nymex_ng':'10000','ice_pmi':'320','ice_pjc':'320','ice_ern':'320','ice_spm':'384','ice_npm':'384',
-                    'ice_cfb':'2500','ice_fqh':'2500','ice_fqw':'2500','ice_css':'2500','ice_ucs':'2500','ice_was':'2500',
-                    'ice_pda':'800','ice_dpn':'400','ice_sdp':'400','ice_end':'800'}
+    assert len(contracts)==61
+    expected_sizes={'ice_dgd':'2500','ice_hxs':'2500','ice_wah':'2500','nymex_ng':'10000','ice_pmi':'320','ice_pjc':'320','ice_ern':'320','ice_spm':'384','ice_npm':'384',
+                    'ice_cfb':'2500','ice_fqh':'2500','ice_fqw':'2500'}
     assert len({v['curve'] for v in contracts})==len(expected_sizes)
+    assert all(v['firstTrading'] is None for v in contracts), 'Unknown source facts must not contain invented first-trading times'
+    assert not any(v['curve'].startswith('test_') for v in contracts), 'Test controls do not belong to the exchange catalog'
+    assert not any(v['curve'] in {'ice_css','ice_ucs','ice_was','ice_pda','ice_dpn','ice_sdp','ice_end'} for v in contracts), 'Daily listing dates require an actual exchange contract list'
     nymex=next(v for v in contracts if v['curve']=='nymex_ng')
     assert nymex['settlementMethod']=='physical' and nymex['tick']=='0.001'
-    for curve,totals in [('ice_spm',['384','416','400','384','432','416']),('ice_pmi',['320','352','320','320','368','352'])]:
+    for curve,totals in [('ice_spm',['384','400','384','432','416']),('ice_pmi',['320','320','320','368','352'])]:
         selected=sorted((v for v in contracts if v['curve']==curve),key=lambda v:v['deliveryFrom'])
         assert [v['contractSize'] for v in selected]==totals
         assert all(v['nominalSize']=='1' and v['nominalUnit']=='MW' and v['unit']=='MWh' for v in selected)
@@ -54,13 +56,13 @@ def run_checks(url,query=None,manifest=None):
               'counterpartyId':catalog['counterparties'][0]['id'],'counterpartyRevision':catalog['counterparties'][0]['revision']}
         saved=c.call('futures/book',body);assert saved==c.call('futures/book',body)
         expected[saved['tradeId']]={'quantity':lots*Decimal(size),'pnl':lots*Decimal(size)*tick,'body':body,'contract':contract}
-    holdings=c.call('futures/holdings',context)['holdings'];assert len(holdings)==20
+    holdings=c.call('futures/holdings',context)['holdings'];assert len(holdings)==12
     for h in holdings:
         oracle=expected[h['tradeId']]
         assert Decimal(h['quantity'])==oracle['quantity'],h
         assert Decimal(h['executionPnl'])==oracle['pnl'],h
         assert h['settlement']=='unprocessed'
-    print('PASS exchange futures: 113 dated contracts,20 product families, physical/cash, daily/monthly, signed lots and exact published power lot totals.',flush=True)
+    print('PASS exchange futures: 61 executable source-listed monthly maturities,12 exchange product families, physical/cash, source-listed monthly maturities, signed lots and exact published power lot totals.',flush=True)
     future=holdings[0];trade=future['tradeId']
     formats=c.call('trade-formats/read',{'context':context,'tradeId':trade})
     selected=next(r for r in formats['roles'] if r['role']=='trade');assert selected['revision']==0
@@ -77,6 +79,10 @@ def run_checks(url,query=None,manifest=None):
     c.call('profile',{'profile':'risk'});c.call('trade-formats/save',{**request,'expectedRevision':1},expected=403)
     print('PASS deal precision: per-deal persistence, independent formats, expected-revision conflicts, role/unit bounds and read-only authority.',flush=True)
     power_catalog=c.call('power/catalog',{'snapshotId':frame['id']})
+    # Contract identities here are name-based, so their order says nothing about delivery dates.
+    deliveries=[[k['from'] for k in v['contracts']] for v in power_catalog['curves']]
+    assert any(len(d)>1 for d in deliveries) and all(d==sorted(d) for d in deliveries)
+    print('PASS power catalog: each curve lists its contracts in delivery order.',flush=True)
     peak=next(p for p in power_catalog['presets'] if p['product']=='pjm' and p['block']=='peak' and p['minutes']==60)
     energy=next(q for q in power_catalog['quantityChoices'] if q['basis']=='total_energy')
     power_contract=next(v for v in contracts if v['curve']=='ice_pjc')
@@ -87,21 +93,22 @@ def run_checks(url,query=None,manifest=None):
     assert example['summary']['hours']=='320' and example['summary']['energy']=='1' and example['holidays']==['2026-11-26'] and example['holidayCalendar']=='ept_published_peak'
     assert Decimal(example['summary']['amount'])==Decimal(power_contract['mark']).quantize(Decimal('0.01'))
     print('PASS power example: exact indexed futures reference feeds a typed one-MWh peak allocation without inferring official hourly prices.',flush=True)
-    risk_catalog=c.call('futures/risk/catalog',{'context': context, 'bookIds': [], 'portfolioIds': []})
+    risk_context={**context,'convention':'trading_workspace_v1'}
+    risk_catalog=c.call('portfolio/risk/catalog',{'context': risk_context, 'bookIds': [], 'portfolioIds': []})
     held={v['contract']['id']:v for v in expected.values()}
     factors=[v for v in risk_catalog['factors'] if v['contractId'] in held]
-    bumps=[{'seriesId':v['seriesId'],'quote':v['quote'],'size':'0.01','convention':risk_catalog['bumpConvention']} for v in factors]
+    bumps=[{'factor':v['factor'],'size':'0.01','convention':risk_catalog['bumpConvention']} for v in factors]
     checked=set()
     for start in range(0,len(bumps),16):
-        risk=c.call('futures/risk',{'context':context,'bookIds':[],'portfolioIds':[],'bumps':bumps[start:start+16],'convention':risk_catalog['convention'],'numericalPolicy':risk_catalog['numericalPolicy']})
+        risk=c.call('portfolio/risk',{'context':risk_context,'bookIds':[],'portfolioIds':[],'bumps':bumps[start:start+16],'convention':risk_catalog['convention'],'numericalPolicy':risk_catalog['numericalPolicy'],'pricingPolicy':risk_catalog['pricingPolicy'],'stress':[]})
         for result in risk['factors']:
             cid=result['factor']['contractId'];oracle=held[cid];checked.add(cid)
-            moved=[p for p in result['positions'] if p['contractId']==cid]
+            moved=[p for p in result['positions'] if expected[p['tradeId']]['contract']['id']==cid]
             assert len(moved)==1
             assert Decimal(moved[0]['values']['upPnl'])==oracle['quantity']*Decimal('0.01')
             assert Decimal(moved[0]['values']['downPnl'])==-oracle['quantity']*Decimal('0.01')
-            assert all(Decimal(p['values']['upPnl'])==0 for p in result['positions'] if p['contractId']!=cid)
-    assert len(checked)==20
+            assert all(Decimal(p['values']['upPnl'])==0 for p in result['positions'] if expected[p['tradeId']]['contract']['id']!=cid)
+    assert len(checked)==12
     c.call('profile',{'profile':'trader'})
     oracle=next(v for v in expected.values() if v['body']['curve']=='ice_wah')
     initial_id=next(key for key,value in expected.items() if value is oracle)
@@ -133,8 +140,19 @@ def run_checks(url,query=None,manifest=None):
     c.call('profile',{'profile':'admin'})
     c.call('admin/update',{'operationId':str(uuid4()),'id':first['id'],'expectedVersion':first['version'],'name':first['name'],'enabled':False,'roles':['viewer']},expected=409)
     print('PASS namespace administration: same-login accounts are independent, newly created users sign in, revocation is scoped and cross-workspace updates reject.',flush=True)
+    # Each example workspace keeps its own page-assistant providers and audit.
+    base.call('profile',{'profile':'admin'})
+    stored=base.call('settings/ai/providers/key',{'operationId':str(uuid4()),'vendor':'anthropic','expectedVersion':0,'key':'sk-synthetic-example-'+uuid4().hex})
+    exchange=c.call('settings/ai/providers')
+    assert stored['credential']['version']==1 and exchange['audit']==[] and all(p['credential'] is None and p['version']==0 for p in exchange['providers'])
+    print('PASS each example workspace administers its own model providers.',flush=True)
     if query is not None:
         import json
+        assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{manifest['referenceCatalogId']}' AND definition_state='synthetic';")=='0'
+        assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{manifest['referenceCatalogId']}';")=='19'
+        assert query(f"SELECT count(*) FROM ref_data.futures_series WHERE catalog_id='{manifest['referenceCatalogId']}';")=='72'
+        assert query(f"SELECT count(*) FROM ref_data.futures_milestones WHERE catalog_id='{manifest['referenceCatalogId']}' AND milestone='last_trading' AND value_state='known' AND event_at IS NULL;")=='11'
+        assert query(f"SELECT count(*) FROM ref_data.exchanges WHERE catalog_id='{manifest['referenceCatalogId']}';")=='2'
         assert query("SELECT bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE oid IN('ref_data.futures_product_terms'::regclass,'ref_data.futures_basis_settlements'::regclass,'ref_data.futures_lot_resolutions'::regclass);")=='t'
         assert query("SELECT NOT has_table_privilege('preview_runtime','security.request_contexts','UPDATE');")=='t'
         oracle=next(v for v in expected.values() if v['body']['curve']=='ice_wah');body=oracle['body']

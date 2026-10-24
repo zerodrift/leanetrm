@@ -12,9 +12,11 @@ internal static class TradingInstant
 public abstract record Side
 {
     public Guid Id { get; }
+    public virtual DefinitionIdentity? PricingBindingIdentity => null;
+    internal virtual ImmutableArray<Side> IdentityComponents => [this];
     public abstract ImmutableArray<CurveRequest> Dependencies { get; }
-    public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>Dependencies;
-    public abstract SidePaymentSchedule GenerateSchedule();
+    public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) => Dependencies;
+    public abstract SideSchedule GenerateSchedule();
     public abstract SideValuation PV(SideValuationContext context);
 
     protected Side(Guid id)
@@ -61,16 +63,24 @@ public abstract record Instrument
 {
     public Guid Id { get; }
     public DefinitionIdentity EconomicIdentity => DefinitionIdentity.For(this);
+    public virtual DefinitionIdentity? PricingBindingIdentity => null;
     public abstract ReferenceKey Currency { get; }
     public abstract Quantity UnitQuantity { get; }
     public abstract InstrumentValuation PV(SideValuationContext context);
-    public virtual UnitPricingContract Declare(UnitValuationContext context)=>
-        throw new MarketDataException("risk_contract","This instrument has no supported valuation dependency declaration.");
+    public abstract UnitPricingContract Declare(UnitValuationContext context);
     // Implementers own the declaration. Curve-consuming instruments can use
     // this common resolver; other supported models may override the method.
     public virtual ImmutableArray<QuoteFactor> MarketFactors(UnitValuationContext context)=>
         context.ResolveFactors(Declare(context).Dependencies);
-    public virtual ExactMoney Value(UnitValuationContext context)=>PV(context.SideContext()).PresentValue;
+    public virtual ExactMoney Value(UnitValuationContext context)
+    {
+        if(context.Measure!=ValuationMeasure.PresentValue)
+            throw new MarketDataException("valuation_measure","This instrument implements present value; another measure requires its explicit valuation implementation.");
+        var inputs=context.SideContext();var value=PV(inputs);
+        if(value is null||value.InstrumentId!=Id||value.Currency!=Currency||value.UnitQuantity!=UnitQuantity||!ReferenceEquals(value.Context,inputs))
+            throw new MarketDataException("instrument_context","A unit PV must belong to this exact instrument and valuation scenario.");
+        return value.PresentValue;
+    }
     protected Instrument(Guid id)
     {
         if (id == Guid.Empty) throw new MarketDataException("instrument_definition", "An instrument requires an exact identity.");
@@ -84,9 +94,8 @@ public abstract record SidedInstrument : Instrument
     public ImmutableArray<SideMembership> Sides { get; }
     public ImmutableArray<CurveRequest> Dependencies =>
         Sides.SelectMany(m => m.Side.Dependencies).Distinct().ToImmutableArray();
-
-    public ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>
-        Sides.SelectMany(m=>m.Side.DependenciesAt(snapshot)).Distinct().ToImmutableArray();
+    public ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) =>
+        Sides.SelectMany(m => m.Side.DependenciesAt(snapshot)).Distinct().ToImmutableArray();
 
     protected SidedInstrument(Guid id, ImmutableArray<SideMembership> sides) : base(id)
     {

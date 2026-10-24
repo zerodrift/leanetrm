@@ -155,6 +155,20 @@ internal static class TradingIdentityChecks
             Reject("trade_party", () => new TradeBookingTerms(new(2040, 12, 18), entity,
                 new(new(Guid.NewGuid(), Guid.NewGuid(), 1), "party_b", "Synthetic party B")));
         });
+        Check("party name bounds count Unicode scalars consistently with retained storage", () =>
+        {
+            var key = new PartyKey(f.Revision.CatalogId, Guid.NewGuid(), 1);
+            foreach (var name in new[] { new string('n', 80), string.Concat(Enumerable.Repeat("\U0001F50C", 80)), new string('n', 79) + "\U0001F50C" })
+            {
+                Assert(new LegalEntity(key, "entity_a", name).Name == name);
+                Assert(new Counterparty(key, "party_a", name).Name == name);
+            }
+            foreach (var name in new[] { new string('n', 81), string.Concat(Enumerable.Repeat("\U0001F50C", 81)), "", "\u00A0\u2003", "name\0" })
+            {
+                Reject("trade_party", () => new LegalEntity(key, "entity_a", name));
+                Reject("trade_party", () => new Counterparty(key, "party_a", name));
+            }
+        });
         return passed;
     }
 }

@@ -14,7 +14,7 @@ public sealed partial class CurveModel
             if(!series.TryGetValue(selected.Input.Series,out var definition) || definition.Quote is not {} quoteKey ||
                 definition.Contract is not {} contract || snapshot.ValuationAt>=contracts[contract].Expiry)continue;
             var quote=quotes[quoteKey];var obs=selected.Observation;
-            var direct=curves.Values.Where(c=>c.Rule==CurveRule.Direct && c.Quote==quoteKey && c.Constituents.Contains(contract) &&
+            var direct=curves.Values.Where(c=>c.Rule==CurveRule.Direct && c.Quote==quoteKey && curveMembers[c.Key].Contains(contract) &&
                 c.DirectSource==obs.Source && c.DirectRole==obs.Role).Select(c=>c.Key).OrderBy(c=>c.Code,StringComparer.Ordinal).ToImmutableArray();
             if(!direct.IsEmpty && obs.State==PublicationState.Final)result.Add(new(selected.Input,quoteKey,PriceUnit.FromQuote(quote),contract,obs.Key,obs.Source,obs.Role,obs.Value,direct,quote.TradingTick));
         }
@@ -26,7 +26,7 @@ public sealed partial class CurveModel
         if(bumps.IsDefaultOrEmpty || bumps.Length>16 || bumps.Any(b=>b is null) || bumps.Select(b=>b.Input).Distinct().Count()!=bumps.Length)
             Fail("risk_bump","Select between one and sixteen distinct explicit quote-input bumps.");
         cancellation.ThrowIfCancellationRequested();
-        var @base=Build(snapshot,requests,null,[],cancellation);
+        var @base=Build(snapshot,requests,cancellation);
         return new(@base,Scenarios(@base,bumps,cancellation).ToImmutableArray());
     }
     // Stream one shared factor pair at a time: a broad risk vector must not retain
@@ -63,9 +63,9 @@ public sealed partial class CurveModel
             if(shift.Input.Use!=InputUse.Variable||!series.TryGetValue(shift.Input.Series,out var definition)||
                 definition.Quote!=shift.Quote||!quotes.TryGetValue(shift.Quote,out var quote)||PriceUnit.FromQuote(quote)!=shift.Unit)
                 throw new MarketDataException("risk_factor","A shock requires the exact variable price series, quote and price unit.");
-            var selected=parent.Snapshot.Selections.SingleOrDefault(s=>s.Input==shift.Input)
-                ??throw new MarketDataException("risk_factor","The exact selected variable observation is absent.");
-            var matching=curves.Values.Where(c=>c.Rule==CurveRule.Direct&&c.Quote==shift.Quote&&c.Constituents.Contains(definition.Contract!.Value));
+            if(!parent.SelectedInputs.TryGetValue(shift.Input,out var selected))
+                throw new MarketDataException("risk_factor","The exact selected variable observation is absent.");
+            var matching=curves.Values.Where(c=>c.Rule==CurveRule.Direct&&c.Quote==shift.Quote&&curveMembers[c.Key].Contains(definition.Contract!.Value));
             if(!matching.Any(c=>c.DirectSource==selected.Observation.Source&&c.DirectRole==selected.Observation.Role)||
                 selected.Observation.State!=PublicationState.Final||parent.Snapshot.ValuationAt>=contracts[definition.Contract!.Value].Expiry)
                 Fail("risk_factor","Only an explicitly selected live direct quote is shockable; frozen facts and derived output shocks are unsupported.");
@@ -73,15 +73,17 @@ public sealed partial class CurveModel
             Domain(selected.Observation.Value+parent.Scenario.Offset(shift.Input)+shift.Size,quote.Minimum,quote.Maximum);
         }
         var scenario=parent.Scenario.Child(shifts);
-        var changed=shifts.Select(s=>s.Input).ToHashSet();var affected=new HashSet<(CurveRequest,InputUse)>();
-        foreach(var node in parent.Evaluations)
+        var sources=parent.Compiled.Definitions.SelectMany(d=>d.Points)
+            .Where(p=>p.Expression is Calculation.ConnectedSource {Input.Use:InputUse.Variable})
+            .GroupBy(p=>((Calculation.ConnectedSource)p.Expression).Input).ToDictionary(g=>g.Key,g=>g.First());
+        var changes=shifts.Where(s=>sources.ContainsKey(s.Input)).Select(s=>
         {
-            cancellation.ThrowIfCancellationRequested();var curve=curves[node.Result.Request.Curve];
-            var direct=curve.Rule==CurveRule.Direct&&changed.Contains(new(priceSeries[(node.Result.Request.Contract,curve.Quote)],node.Use));
-            if(direct||node.Inputs.Any(i=>affected.Contains((i.Source,i.Use))))affected.Add((node.Result.Request,node.Use));
-        }
-        var reusable=parent.Evaluations.Where(e=>!affected.Contains((e.Result.Request,e.Use))).ToImmutableArray();
-        return Build(parent.Snapshot,parent.Values.Select(v=>v.Request).ToImmutableArray(),shock,reusable,cancellation,scenario);
+            var point=sources[s.Input];
+            return new Calculation.CurveShift(Calculation.CurveShockCoordinate.MarketQuote,
+                new Calculation.PointCurveTarget(point.Key.Curve,[point.Key.PointId]),s.Unit,s.Size,Calculation.CurveShift.ParentAdditive);
+        }).ToImmutableArray();
+        var graph=changes.IsEmpty?parent.Graph:parent.Graph.WithShifts(changes,cancellation);
+        return Materialize(parent.Snapshot,parent.Requests,parent.Compiled,graph,scenario,parent,shock,cancellation);
     }
     private void RequireScenarioParent(CurveBuild parent)
     {

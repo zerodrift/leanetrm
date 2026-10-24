@@ -132,6 +132,37 @@ def run_checks(query, psql, environment, manifest, url):
         visible = query(runtime(issue('viewer'), bind+f"SELECT count(*) FROM market_data.observations WHERE catalog_id='{catalog}' AND observed_at>='2020-12-18';"))
         check('bound temporal RLS hides later market observation dates', visible == '0')
         check('bound reference reads retain only exact certified bundle versions', query(runtime(issue('viewer'), bind+"SELECT count(DISTINCT revision_id) FROM ref_data.units;")) == '1')
+        reference_catalog = str(UUID(manifest['referenceCatalogId']))
+        reference_revision = str(UUID(manifest['referenceRevisionId']))
+        reference_visible = f"security.reference_version_visible('{reference_catalog}','{reference_revision}')"
+        for mode in ['force_generic_plan', 'force_custom_plan']:
+            check('reference visibility preserves the bound bundle and caller planning policy: '+mode,
+                  query(runtime(issue('viewer'), bind+f"SET LOCAL plan_cache_mode={mode}; SELECT {reference_visible}; "
+                                "SELECT current_setting('plan_cache_mode');")) == 't\n'+mode)
+        # Current catalog scopes are separate authorities. A historical receipt
+        # cannot restore either one after admission. Roll back each injected
+        # revocation together with its bound request in this disposable cluster.
+        for table, scoped_catalog in [('market_catalog_scopes', catalog),
+                                      ('reference_catalog_scopes', reference_catalog)]:
+            revoked = (bind+"SET SESSION AUTHORIZATION preview_owner; "
+                       f"DELETE FROM security.{table} WHERE catalog_id='{scoped_catalog}' "
+                       f"AND tenant_id='{tenant}' AND workspace_id='{workspace}'; "
+                       "SET SESSION AUTHORIZATION preview_runtime; "
+                       f"SELECT NOT {reference_visible} AND NOT EXISTS(SELECT 1 FROM ref_data.units);")
+            check('bound reference visibility rechecks current '+table,
+                  query(runtime(issue('viewer'), revoked).replace(' COMMIT;', ' ROLLBACK;')) == 't')
+        check('reference visibility rechecks token expiry during a statement',
+              query(runtime(issue('viewer', seconds=1), bind+
+                    f"WITH checked AS MATERIALIZED(SELECT n,{reference_visible} AS allowed FROM "
+                    "(SELECT n,pg_sleep((n-1)*1.1) FROM generate_series(1,2)n) delayed) "
+                    "SELECT array_agg(allowed ORDER BY n) FROM checked;")).strip() == '{t,f}')
+        check('visibility helpers retain authority metadata and their explicit local planning policy',
+              query("SELECT bool_and(provolatile='v' AND prosecdef AND NOT proisstrict "
+                    "AND pg_get_userbyid(proowner)='openetrm_security_owner' "
+                    "AND proconfig @> ARRAY['search_path=pg_catalog','plan_cache_mode=force_generic_plan'] "
+                    "AND cardinality(proconfig)=2) FROM pg_proc "
+                    "WHERE oid IN ('security.market_fact_visible(uuid,uuid,uuid)'::regprocedure,"
+                    "'security.reference_version_visible(uuid,uuid)'::regprocedure);") == 't')
         query(runtime(issue('viewer'), bind+expect(f"PERFORM security.use_market_context('{catalog}','{ctx}');", '42501')))
         check('a request cannot rebind its historical scope after reading')
         check('historical editor has no database write context', query(runtime(issue('editor'),bind+"SELECT security.market_access('"+catalog+"','ImportObservations');")) == 'f')
@@ -204,12 +235,30 @@ def run_checks(query, psql, environment, manifest, url):
         check('workspace administrator cannot mutate another workspace member',query(f"SELECT enabled FROM security.workspace_memberships WHERE principal_id='{foreign_member}';")=='t')
         directory=json.loads(query(runtime(issue('admin'),"SELECT security.administration_directory()::text;")))
         check('administrative directory omits other-scope identities',not any(m['id']==foreign_member for m in directory['members']))
-        # Account state cannot be escalated through a different credential kind.
-        agent_actor="(SELECT principal_id FROM security.identity_bindings WHERE subject='synthetic_agent')"
-        query(f"INSERT INTO security.role_grants VALUES(gen_random_uuid(),{agent_actor},'a0000000-0000-0000-0000-000000000006','{tenant}','{workspace}',clock_timestamp(),TIMESTAMPTZ '9999-12-31',false);")
-        agent_token=query(f"SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context('https://preview.invalid','synthetic_agent','agent_credential','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-        query(runtime(agent_token,expect("PERFORM security.administration_directory();",'42501')))
-        check('agent administrator role alone cannot bypass delegated authority')
+        # Account state cannot be escalated through a different credential kind. An agent created through
+        # ManageAgents is an agent reader and can hold no other role.
+        created=json.loads(query(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT assistant.use_agent_admission('{issue('admin')}'); "
+                                 f"SELECT assistant.create_agent('{uuid4()}','Synthetic storage agent')::text; COMMIT;").splitlines()[-1])
+        agent_actor=query(f"SELECT principal_id FROM assistant.agents WHERE id='{created['id']}';")
+        query(expect(f"INSERT INTO security.role_grants VALUES(gen_random_uuid(),'{agent_actor}','a0000000-0000-0000-0000-000000000006','{tenant}','{workspace}',clock_timestamp(),TIMESTAMPTZ '9999-12-31',false);",'23514'))
+        check('an agent created through ManageAgents is refused any role but the agent reader')
+        def agent_token(delegation='NULL'):
+            return query(f"SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context('https://preview.invalid','{agent_actor}','agent_credential','{tenant}','{workspace}',{delegation},'preview_runtime',60);")
+        query(runtime(agent_token(),expect("PERFORM security.administration_directory();",'42501')))
+        check('an agent context cannot administer workspace access')
+        # Delegated authority (docs/ai-assistant.md §13): the agent reads market data only under a current delegation
+        # from a user who may delegate and read it.
+        reads=f"SELECT security.market_access('{catalog}','ReadMarketData');"
+        undelegated=query(runtime(agent_token(),reads)).splitlines()[-1]
+        delegation=str(uuid4())
+        trader=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
+        query(f"INSERT INTO security.agent_delegations VALUES('{delegation}','{agent_actor}','{trader}','{tenant}','{workspace}',clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 hour',false);"
+              f"INSERT INTO security.delegation_permissions VALUES('{delegation}','ReadMarketData');")
+        delegated=query(runtime(agent_token(f"'{delegation}'"),reads)).splitlines()[-1]
+        query(f"UPDATE security.agent_delegations SET revoked=true WHERE id='{delegation}';")
+        revoked=query(runtime(agent_token(f"'{delegation}'"),reads)).splitlines()[-1]
+        check('an agent created through ManageAgents reads market data only under a current delegation',
+              (undelegated,delegated,revoked)==('f','t','f'))
         # A blocked administrative request cannot revive expired credentials.
         locker=connect('BEGIN; SELECT 1 FROM security.epoch WHERE id=true FOR UPDATE;','admin_expiry_lock')
         token=issue('admin',seconds=2)

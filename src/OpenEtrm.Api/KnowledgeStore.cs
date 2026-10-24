@@ -31,18 +31,20 @@ public sealed class KnowledgeStore(Guid catalog)
     }
     public async Task<ScheduleContext> Resolve(NpgsqlConnection connection,ScheduleContext request,CancellationToken ct)
     {
-        KnowledgeSnapshot snapshot;
-        if(request.ContextId is Guid id)
-        {
-            snapshot=await Read(connection,id,ct);
-            if(snapshot.Context.EffectiveOn!=request.EffectiveOn || request.KnownAt is null ||
-                SchedulePreview.ParseAt(snapshot.Context.KnownAt)!=SchedulePreview.ParseAt(request.KnownAt))
-                throw Error("temporal_context","A retained context cannot be reinterpreted with different coordinates.");
-        }
-        else snapshot=await Capture(connection,new(request.EffectiveOn,request.KnownAt,"at"),ct);
-        if(request.KnownThrough is int prefix && prefix!=snapshot.Context.KnownThrough)
-            throw Error("temporal_context","The requested knowledge timestamp and publication prefix disagree.");
-        return snapshot.Context;
+        if(request.ContextId is not null)return await Retained(connection,request,ct);
+        return Prefixed((await Capture(connection,new(request.EffectiveOn,request.KnownAt,"at"),ct)).Context,request);
     }
+    // The stored context a request names, refused unless it has exactly the request's coordinates. Never captures.
+    public async Task<ScheduleContext> Retained(NpgsqlConnection connection,ScheduleContext request,CancellationToken ct)
+    {
+        var stored=(await Read(connection,request.ContextId??throw Error("temporal_context","Name an exact retained context."),ct)).Context;
+        if(stored.EffectiveOn!=request.EffectiveOn || request.KnownAt is null ||
+            SchedulePreview.ParseAt(stored.KnownAt)!=SchedulePreview.ParseAt(request.KnownAt))
+            throw Error("temporal_context","A retained context cannot be reinterpreted with different coordinates.");
+        return Prefixed(stored,request);
+    }
+    private static ScheduleContext Prefixed(ScheduleContext context,ScheduleContext request)=>
+        request.KnownThrough is int prefix && prefix!=context.KnownThrough
+            ?throw Error("temporal_context","The requested knowledge timestamp and publication prefix disagree."):context;
     private static TemporalException Error(string code,string message)=>new(code,message);
 }

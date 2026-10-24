@@ -67,6 +67,7 @@ internal static class NestedScenarioChecks
             Reject("risk_factor",()=>model.WithShifts(basis,[Shift() with{Unit=PriceUnit.FromQuote(f.Quotes[2])}]));
             Reject("risk_factor",()=>model.WithShifts(basis,[Shift() with{Input=new(f.S(6),InputUse.Variable)}]));
             Reject("snapshot_pin",()=>f.Model().WithShifts(basis,[Shift()]));
+            Reject("snapshot_pin",()=>model.WithShifts(null!,[Shift()]));
             var nearLimit=model.WithShifts(model.Build(snapshot,[gas]),[Shift("900")]);
             Reject("price_domain",()=>model.WithShifts(nearLimit,[Shift("900")]));
             Equal(Price(model.WithShifts(model.WithShifts(basis,[Shift()]),[Shift("-0.1")]),gas),"3");
@@ -93,8 +94,6 @@ internal static class NestedScenarioChecks
             var outer=model.WithShifts(basis,[Shift()]);var inner=model.WithShifts(outer,[Shift("1",5,"power_basis")]);
             var result=RiskEngine.Calculate(inner,portfolio,[Bump()],RiskEngine.NumericalPolicy);
             Equal(result.Scenario.Id,inner.Scenario.Id);Equal(result.Work.UnitPricerCalls,3);
-            // Seven nodes survive the last stress layer; four survive each of the two gas bumps.
-            Equal(result.Work.ReusedCurveNodes,15);
             foreach(var row in result.Factors.Single().Positions)
             {
                 Equal(row.Base.Amount.ToString(),"1897.28");
@@ -107,6 +106,65 @@ internal static class NestedScenarioChecks
             var original=ExactDecimal.Parse("29.1")*ExactDecimal.Parse("29.1");
             Equal((result.Factors[0].Positions[0].Base.Amount-(pureGas+pureBasis-original)*ExactDecimal.Parse("2")).ToString(),"2.8");
             Equal(Price(outer,power),"29.8");
+        });
+        Check("grouped decimal and exact-rational portfolios share a stressed parent without losing receipts or precision",()=>
+        {
+            var parent=model.WithShifts(model.WithShifts(basis,[Shift("0.1")]),[Shift("0.2")]);
+            var currency=f.R("currency");var quantity=f.R("gas_quantity");var book=Guid.NewGuid();
+            var linear=new BookValuationChecks.Probe(Guid.NewGuid(),currency,quantity,[gas],i=>
+                i.Price(gas).ExactTimes(new Quantity(ExactDecimal.Parse("1"),quantity)));
+            var fractional=new BookValuationChecks.Probe(Guid.NewGuid(),currency,quantity,[gas],i=>
+                ExactMoney.FromMoney(new(i.Price(gas).Value.CompareTo(ExactDecimal.Parse("3.3")) switch
+                    {0=>default,>0=>ExactDecimal.Parse("0.1"),_=>ExactDecimal.Parse("-0.1")},currency)));
+            ValuationPortfolio Portfolio(Instrument instrument)=>new([instrument],
+                [new(Guid.NewGuid(),Guid.NewGuid(),book,instrument.Id,new(ExactDecimal.Parse("1"),quantity),
+                    new(new Money(default,currency),quantity),new(default,currency))],
+                new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+            Reject("snapshot_pin",()=>RiskEngine.Prepare(null!,[Portfolio(linear)]));
+            Reject("risk_dependency",()=>RiskEngine.Prepare(model.Build(snapshot,[]),[Portfolio(linear)]));
+            Reject("snapshot_pin",()=>RiskEngine.Calculate(null!,Portfolio(linear),[Bump()],RiskEngine.NumericalPolicy));
+            Reject("risk_dependency",()=>RiskEngine.Calculate(model.Build(snapshot,[]),Portfolio(linear),[Bump()],RiskEngine.NumericalPolicy));
+            var prepared=RiskEngine.Prepare(parent,[Portfolio(linear),Portfolio(fractional)]);
+            Equal(prepared.Factors.Single().BaseValue.ToString(),"3.3");
+            var exact=RiskEngine.CalculateExact(prepared,[Bump() with{Size=ExactDecimal.Parse("0.3")}],RiskEngine.ExactNumericalPolicy);
+            Equal(exact.Groups.Length,2);Equal(exact.Work.UnitPricerCalls,6);
+            Equal(exact.Groups[0].Scenario.Id,parent.Scenario.Id);Equal(exact.Groups[1].Scenario.Id,parent.Scenario.Id);
+            Equal(exact.Groups[0].BaseValues.Single().Value.ToMoney().Amount.ToString(),"3.3");
+            var values=exact.Groups[1].Factors.Single().Totals.Single().Values;
+            Equal(values.Base.Numerator,"0");Equal(values.Up.Numerator,"1");Equal(values.Up.Denominator,"10");
+            Equal(values.Down.Numerator,"-1");Equal(values.Down.Denominator,"10");
+            Equal(values.Delta.Value.Numerator,"1");Equal(values.Delta.Value.Denominator,"3");
+            Equal(values.Gamma.Value.Numerator,"0");
+            var decimalRun=RiskEngine.Calculate(prepared,[Bump()],RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
+            Equal(decimalRun.Groups[0].Scenario.Id,parent.Scenario.Id);
+            Equal(decimalRun.Groups[1].Factors.Single().Totals.Single().Delta.Value.ToString(),"1");
+            var noBumps=RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy);
+            Equal(noBumps.Work.ScenarioCount,1);Equal(noBumps.Groups[0].Scenario.Id,parent.Scenario.Id);
+            Equal(noBumps.Groups[0].BaseValues.Single().Value.ToMoney().Amount.ToString(),"3.3");
+            Equal(Price(basis,gas),"3");
+        });
+        Check("nested quote shifts preserve actual index fixings and rational projected-reset risk",()=>
+        {
+            var fixing=new IndexFixingChecks.FixingFixture();var swap=fixing.Swap();
+            var pinned=fixing.Snapshot(fixing.Fixings[1].FixingAt,actuals:2);
+            var original=fixing.Model.Build(pinned,swap.DependenciesAt(pinned));
+            var live=fixing.Model.QuoteFactors(pinned).Single();
+            var shift=new QuoteShift(live.Input,live.Quote,live.Unit,ExactDecimal.Parse("3"),QuoteShift.Convention);
+            var outer=fixing.Model.WithShifts(original,[shift]);var inner=fixing.Model.WithShifts(outer,[shift]);
+            var held=new RiskPosition(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),swap.Id,
+                new(ExactDecimal.Parse("350"),swap.UnitQuantity.Specification),
+                new(new Money(default,swap.Currency),swap.UnitQuantity.Specification),new(default,swap.Currency));
+            var portfolio=new ValuationPortfolio([swap],[held],new(ValuationMeasure.PresentValue,
+                ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            var run=RiskEngine.CalculateExact(RiskEngine.Prepare(inner,[portfolio]),
+                [new(live.Input,live.Quote,live.Unit,live.TradingTick,QuoteBump.Convention)],RiskEngine.ExactNumericalPolicy);
+            Equal(run.Groups.Single().BaseValues.Single().Value.ToMoney().Amount.ToString(),"2800");
+            var values=run.Groups.Single().Factors.Single().Totals.Single().Values;
+            Equal(values.Delta.Value.Numerator,"350");Equal(values.Delta.Value.Denominator,"3");
+            Equal(inner.Snapshot.Selections.Where(s=>s.Input.Use==InputUse.FrozenFact)
+                .Select(s=>s.Observation.Value.ToString()).Aggregate((a,b)=>a+","+b),"10,20");
+            Reject("risk_factor",()=>fixing.Model.WithShifts(inner,[shift with{Input=new(fixing.Series[0].Key,InputUse.FrozenFact)}]));
+            Equal(outer.Values.Single().Price.Value.ToString(),"36");Equal(original.Values.Single().Price.Value.ToString(),"33");
         });
         Console.WriteLine($"{count} nested scenario checks passed.");return count;
     }

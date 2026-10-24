@@ -27,6 +27,120 @@ Existing exact-version foreign keys stay intact in their current storage schema.
 Physical table consolidation and retirement of overlapping legacy definitions
 require a separate migration rather than a cosmetic schema rename.
 
+The category list contains 25 business categories. Each has a current consumer;
+none is retained solely to populate the inspector. The categories are grouped for
+presentation, while the exact reference/version keys remain the calculation inputs.
+
+| Category | Current consumer |
+| --- | --- |
+| Units | Typed quantities and unit prices, the quantity converter, futures lots and power quantity entry |
+| Unit conversions | The managed converter's exact inverse/chained ratios and price-times-quantity consistency checks |
+| Currencies | Money, quote and rate references; trade entry and currency-separated totals |
+| Commodities | Compatible quote/quantity selection, futures terms and curve/trade entry filtering |
+| Locations | Exact curve, futures-product and price-index location references |
+| Location types | The exact type required when validating a location; types do not infer geography or pricing dependencies |
+| Exchanges | Exact futures-product venue references |
+| Clearing houses | Futures-product clearing references and exchange/clearing compatibility constraints in the executable reference baseline |
+| Calendars | Business-day date schedules, swap payment adjustment and power settlement/TOU coverage |
+| Calendar dates | Explicit business-day/holiday overrides consumed by those same schedules and power calculations |
+| Futures products | Contract economics, quote and lot conventions used by futures entry and valuation |
+| Futures contracts | Exact dated contract identities used by curves, reusable instruments, trades and risk factors |
+| Contract dates | First/last-trading checks, expiry-based selection and retained contract schedules |
+| Price indexes | Forward settlement targets, floating swap sides and the single-index power preview |
+| Trading eligibility | Exact execution-policy admission and lifecycle checks; a date-only source never supplies an invented exchange instant |
+| Interest rates | The zero-rate/discount-factor model and swap discounting under its selected convention |
+| Data sources | Exact observation-source matching and retained product evidence; source identity does not establish distribution rights |
+| Market clocks | Contract milestones, calendar rules, schedules, TOUs and elapsed-hour power integration |
+| Delivery patterns | Declared constituent/delivery mappings in composed curves; unsupported shaping is rejected |
+| Settlement rules | Explicit forward/index targets and swap/power settlement construction |
+| Price conventions | Quote units, multipliers, price-domain and clearing-grid checks |
+| Quantity definitions | Exact commodity, unit and measurement-basis identity used by amounts, conversions and side quantities |
+| Measurement bases | Compatible quantity/price arithmetic and declared conversion-ratio orientation |
+| Numeric input types | Dimensionless/quantity-ratio series validation and typed multiplication in scale/add curves |
+| Cash rounding | Explicit currency, increment, tie rule and stage when forming a final cash amount |
+
+The managed consumers live in the market-data amount/curve/power modules,
+[the reference adapter](../src/OpenEtrm.Api/PreviewDatabase.cs),
+[unit operations](../src/OpenEtrm.Api/UnitOperations.cs), the futures and swap
+operations, and the date-schedule store. Internal dimension, relationship,
+evidence, publication and revision records stay out of the category menu; their
+foreign-key and history responsibilities remain in place. Removing a menu item
+does not authorize deleting a retained or referenced record.
+
+## Editing metadata and applying current display changes
+
+The Reference data editor supports display metadata for nine existing categories:
+currency and commodity names, location names and optional point coordinates,
+location-type descriptions, unit symbols, exchange and clearing-house names,
+futures-product names and futures-contract labels. Stable codes, relationships,
+units, ratios, contract terms and other financial values are read-only. The other
+categories remain inspectable because they have the current consumers listed
+above; this editor does not promise financial-term authoring for them.
+
+Saving requires scoped `WriteReferenceData` and reading the original sealed
+reference version. It creates a new immutable draft from the currently applied
+display version, or from the original version when no display change is active.
+The editor reloads the selected row and its exact base version before editing.
+A save changes one item; unpublished drafts cannot be chained. The saved review
+shows that item's supplied fields and the server-recorded time in the user's
+time zone. Optional coordinates are transported as exact decimal strings, with
+both coordinates required together and no browser rounding.
+
+Applying is a separate operation requiring scoped `SealReferenceData`. It locks
+the target before proving that every retained key and non-display value equals
+the original source. Extra economic rows also fail this proof. The source,
+current display version and draft base must still match the reviewed request;
+concurrent or stale changes require a fresh edit. Successful apply seals the
+metadata version and appends an exact source/display revision relationship in
+the current workspace. The same user can save and apply when their current grants
+permit both operations; this is explicit review, not mandatory dual control.
+
+Current curve navigation, reference presentation and the unit converter consume
+a separate display overlay scoped to the original exact reference version.
+Each edit has one typed item key with exact foreign keys to both the original and
+edited reference rows. Its category and displayed code are generated from that
+key. Activation pins the edit's original source revision in its composite foreign
+key as well as the workspace and edited revision. JSON retains request/audit
+payloads; it does not supply an alternative reference relationship.
+The database's field descriptor supplies both the guarded SQL writable-key policy
+and the managed editor metadata, so those declarations cannot drift independently.
+Financial reference JSON and typed reference keys retain the original revision.
+No market bundle, observation, quote, unit conversion ratio or booked trade is
+rewritten or copied as part of applying labels. An updated symbol changes
+formatting, while the underlying amount and conversion remain identical.
+Historical contexts keep their original metadata and cannot inspect later edit
+requests or apply current display changes.
+
+Save and apply retain operation identifiers and exact request payloads. The UI
+retains an unconfirmed request across reloads and retries it before allowing a new
+change. Retries recheck current authority; an earlier successful receipt does not
+grant continued access. A denied retry after an uncertain response does not prove
+that the original transaction rolled back. Financial-term editing, requalification
+of existing prices and financial curve migration require a separate workflow.
+The initial authoring bounds are 100,000 copied reference rows per version and
+64 authored versions per source revision and workspace; the editor lists the
+latest 20 saved versions. Reaching a bound raises `reference_limit` and does not
+prune historical versions or create a partial copy.
+
+Unit symbols must contain a non-whitespace character, contain no C0/C1 controls and use
+at most 80 Unicode scalar values, matching managed amount labels. Supplementary
+characters count once. Migration 0049 validates existing rows and refuses an
+unusable symbol without truncation or replacement. The editor receives explicit
+scalar limits from the database descriptor: 80 for symbols, 300 for other text
+and 48 for decimal entry. Missing or malformed bounds fail the editor read.
+
+## Delivery price catalog integrity
+
+Delivery-price storage couples its market catalog from each collection job to
+the attempt, batch and price, including the price source's catalog. Exact
+composite foreign keys enforce these relationships independently of collector
+validation. Migration 0048 refuses inconsistent retained catalogs rather than
+repairing or discarding them. Its transactional backfill adds only the known
+parent catalog keys; existing prices, source references and commit receipts stay
+unchanged. The migration requires stopped admission and drained calls under a
+separately qualified schema upgrade. Owned stock-database checks cover retained
+rows, cross-catalog rejection and rollback; they do not qualify a live installation.
+
 ## Location types and geography
 
 One Location model uses the existing exact-version `location_types` relationship.
@@ -112,7 +226,7 @@ version and relationship tables. Their bounded uses are:
 | Tables in `ref_data` | Current consumer or executable baseline case |
 | --- | --- |
 | `catalogs`, `revisions` | Every exact reference key, draft/seal checks and scoped catalog ownership/sharing |
-| `currencies` | Quote and interest currency links; managed Money rejects cross-currency addition |
+| `currencies` | Quote and interest currency links; managed Money rejects cross-currency addition; page-assistant price revisions bind an exact row of a sealed revision |
 | `dimensions`, `units`, `commodities`, `commodity_units` | Futures lot/quote validation and compatible commodity-unit foreign keys |
 | `unit_conversions` | Capture an explicit multiplicative conversion; write checks reject mismatched endpoint dimensions. Quantity/price conversion consumer validates exact ratios, versions, commodities and bases |
 | `measurement_bases`, `quantity_specifications` | Typed quantity/price multiplication and explicit ratio orientation in scaling curves |
@@ -237,73 +351,6 @@ be replaced with plausible defaults or zeros.
 
 ## Accuracy and maintenance
 
-### Implemented source capture boundary
-
-The managed API executable also provides an operator command for private source
-acquisition. It accepts no application/database credentials and does not mutate a
-database. All paths are absolute; the credential file and output directory require
-owner-only Unix permissions. Existing output files are never overwritten.
-
-```sh
-dotnet OpenEtrm.Api.dll --capture-reference cme-products CONFIG OUTPUT
-dotnet OpenEtrm.Api.dll --capture-reference cme-contracts CONFIG SELECTION OUTPUT
-dotnet OpenEtrm.Api.dll --capture-reference ice-files MANIFEST OUTPUT
-```
-
-`CONFIG` is private JSON with explicit `clientId`, `clientSecret`, `pageSize`,
-`maximumRequests`, `minimumRequestSpacingMilliseconds`, `maximumResponseBytes`
-and `maximumCaptureBytes`. Token and reference origins are fixed to official CME
-HTTPS endpoints. Redirects are disabled. Requests use client-credentials OAuth;
-tokens and provider error bodies are excluded from packages and diagnostics.
-Pagination must retain consistent totals and return every exact expected page;
-changed scope, duplicate identities, missing pages and resource limits reject the
-whole capture. Retries require a new explicit invocation; there is no silent
-partial-success or provider fallback.
-
-`SELECTION` is an array of exact `{ "productId": "...", "exchange": "..." }`
-source identities. Product names and trading symbols are not identifiers. The
-selected product must report `securityType=FUT`; each instrument must link back
-to that exact product on the selected clearing exchange. Discovery output also
-contains non-futures and test products; it is not a tradable-product list.
-
-The ICE manifest supplies `maximumDocumentBytes`, `maximumCaptureBytes` and
-`files`. Each file requires `productId`, `exchange` (the supported IFED namespace),
-`kind` (`expiry_csv` or `specification_pdf`), absolute `file`, exact official
-download `url`, `retrievedAtUtc` and matching `sha256`. Local file evidence is
-explicitly labelled `operator_reported_download`: its URL and retrieval time are
-operator assertions, rather than an HTTP response observed by this process.
-PDF content is retained as evidence without automatic financial interpretation.
-
-The supported ICE CSV contract has `CONTRACT SYMBOL,FTD,LTD,FND,LND,FDD,LDD,FSD`
-and optional `MWHS`. Gas exports may append one unnamed empty field to data rows;
-nonempty unnamed values reject the report. The known Excel text wrapper around a
-contract symbol is decoded as text, without evaluating formulas. Native dates
-remain dates, blank cells remain unknown, and an empty report does not establish
-absence of listings. Published MWh values use the existing exact source-capture
-bound (at most 18 fractional digits, magnitude below 1e24); they acquire no
-approved unit-reference binding and enter no calculation at intake. No hours,
-delivery periods, UTC cutoffs, ticks or missing maturities are generated.
-
-`exchange_reference_capture_v1` retains raw source bytes, hashes, source record
-identities and capture start/end times. CME documents identify observed HTTP
-responses; ICE documents identify operator-supplied files. All packages explicitly
-say `state=unqualified`, `tradingEnabled=false`, `pointInTimeSnapshot=false`.
-An enumeration can span provider updates, even when totals remain stable.
-Hashes prove retained byte identity, not exchange authenticity, economic approval,
-listing completeness, data-use permission or certified historical knowledge.
-
-Source identities are intake keys, not replacements for the existing exact-version
-futures product/series primary keys. Qualification must explicitly map them to
-retained relational references before UI, imports or agents can book or price.
-No production reference import/activation operation is implemented by this command.
-
-Run the synthetic protocol/filesystem checks with the API checks project's
-`--reference-capture` argument. The normal `--schedules` verification path runs
-them as well. Real source documents and private connection files stay outside
-the public repository.
-
-### Qualification and publication
-
 Accuracy is a controlled process, not a permanent claim about a static seed file:
 
 1. Import an entitled source or an authorized manual entry into a new draft.
@@ -323,8 +370,9 @@ economic accuracy or permission to use/distribute that data.
 ## Public placeholders and installation data
 
 Ship generic schemas, empty placeholders and clearly synthetic fixtures in the
-public project. Do not ship real venue catalogs, copied rulebook prose, source
-documents, settlement histories or privately licensed reference datasets.
+public project. The bounded exchange example may contain verified public
+specification facts and source links. Do not ship copied rulebook prose, source documents, settlement
+histories or privately licensed reference datasets.
 Real definitions belong in installation-specific data loaded under appropriate
 permissions. The project's code license does not license third-party data.
 
@@ -352,9 +400,9 @@ facts and shocks only still-variable inputs. Initial model policy must define
 which amounts PV includes, cash timing, discounting and any price-alignment or
 collateral assumptions. Initial margin is distinct from variation margin.
 
-First enable a documented synthetic fixed-lot convention. Before a real product
-is supported, qualify its daily/final settlement, closeout and any delivery/notice
-rules. Physically deliverable products require an explicit supported path or an
+Execution P&L/open-risk use may consume source-qualified real terms under the
+selected execution policy. Full futures valuation and lifecycle support still
+require qualified daily/final settlement, closeout and delivery/notice rules. Physically deliverable products require an explicit supported path or an
 enforced pre-delivery closeout policy; cash-settled tests do not prove physical
 delivery support.
 
@@ -370,41 +418,51 @@ Further acceptance covers holiday exceptions, date-only versus instant deadlines
 unit/tick economics, pending verification, conflicting sources, expired permissions,
 history replay and futures P&L/settlement reconciliation.
 
+## Execution qualification and price provenance
 
-## Private inactive source import
+Product/series `definition_state` records provenance/completeness, not permission
+to execute. A real exchange contract does not become synthetic because its price
+is generated. The exchange example uses candidate definitions with sourced terms
+and a separate synthetic price source selected as `trader_mark`. Unknown listing
+facts remain NULL; no application eligibility bound is presented as an exchange
+first-trading event.
 
-`--import-reference CONFIG CAPTURE` validates retained source bytes through the
-managed parser before connecting with a dedicated trusted operator login.
-Configuration explicitly supplies separate authenticator/operator connection
-files, service identity, tenant, workspace, catalog, stable operation UUID,
-product/location mappings and any exact MWh quantity reference. Files are private
-installation inputs; neither credentials nor real catalogs belong in this tree.
-The application runtime cannot execute this import function. The operator login
-cannot issue identities, own database objects or bypass row security. Scoped
-capabilities still identify the service actor and require current reference read,
-write and seal authority before and after the operation.
+Migration 0040 adds exact-series/implementation execution policies with explicit
+bounds/rules, price-role/source FKs and qualification-evidence FKs. SQL booking
+and managed loading enforce the selected policy under current reference authority
+and historical visibility. Instrument identity remains the series primary key.
+This extends execution P&L/open-risk use, not variation-margin, final-settlement
+or physical-delivery processing. Installation data and seeding scripts do not
+require a private application admission mode.
 
-`imported_product_keys` and `imported_series_keys` retain native composite primary
-keys, with unique foreign-key mappings to canonical product and series primary
-keys in the same revision. Exact native-key lookups therefore retrieve the same
-canonical definition without symbol searches or duplicate per-trade objects.
-Source documents retain bytes, hashes, acquisition method and the original
-retrieval timestamp. PostgreSQL retrieval instants explicitly floor submicrosecond
-precision; the original timestamp remains evidence. Source-native calendar dates
-remain dates. Unknown delivery periods and cutoff clocks stay unknown.
-Published MWh amounts use exact `Quantity` values pinned to the explicitly selected
-sealed electricity/energy/MWh specification. No MW/hour schedule is inferred.
+For a known first-trading date without a time, qualification retains the next-local-
+date UTC boundary's offset and declared tzdb version. Managed qualification checks
+that proof against the pinned clock; SQL enforces the retained bound independently
+of database-host timezone rules. The bound may be later, never earlier. Exact-
+instant and wholly unknown-source policies carry no date proof. SQL also rejects
+missing or repeated local midnight; minute-aligned offsets within fourteen hours
+of UTC define the supported proof range. Contract-sequence shortcuts use the
+selected execution policy to identify eligible contracts, while milestone receipts
+retain their actual known/unknown source facts.
 
-The import freezes a new revision atomically and records the server actor/time.
-All imported products and series remain non-executable placeholders. A repeated
-operation with identical input returns its receipt; changed input under the same
-operation or a duplicate payload under a different operation rejects. Existing
-financial data, market revisions, marks and trade state are not changed. Historical
-reads apply the existing exact revision visibility policy to aliases and evidence,
-including visibility of their quantity references.
 
-An empty daily expiry download retains an incomplete product with no series.
-It does not establish an empty exchange listing and does not authorize invented
-maturities. Exchange enumeration is evidence, not certification of current trading
-eligibility, data entitlements or executable economics. No automatic recurring
-reference schedule or real futures activation is implemented by this command.
+## Private managed reference intake
+
+`--capture-reference` acquires public API enumerations or replays operator-retained
+website download bytes into private, unqualified evidence packages. The public
+implementation uses synthetic observations in its checks; it includes no external
+source documents or credentials. Source identities, native date-only facts,
+content hashes and explicit unknown fields remain distinct from mapped terms.
+
+`--import-reference CONFIG CAPTURE` replays those retained bytes, verifies source
+integrity and explicit mappings, and uses separately provisioned authenticator
+and trusted-importer connections to write immutable inactive placeholders through
+migration 0034's authorized operation. `--import-reference inspect CONFIG CAPTURE`
+validates the plan before opening those connections. Private files require owner-only
+permissions. Exact retries preserve the original operation; changed payloads conflict.
+
+Runtime, collection, scheduler and pilot-runtime credentials must not carry the
+trusted-importer role. Import never grants data distribution rights or execution
+eligibility. Activation, certified reference publication and the selected futures
+execution policy retain their existing separate contracts. The complete synthetic
+runner covers managed intake and an owned PostgreSQL import/authority check.

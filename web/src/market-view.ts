@@ -1,10 +1,13 @@
 export type Row = Record<string, string | number | null>;
-export type Frame = {id:string; name:string; at:string; observationIds:string[];curveContracts:Record<string,string[]>};
-export type Workspace = {futuresConvention:string;unitCatalogError?:string|null;unitCatalog?:{revision:unknown;references:Record<string,Row[]>};profile:string;example:{at:string;curve:string}|null; definitions:Record<string,Row[]>; references:Record<string,Row[]>; observations:Row[]; frames:Frame[]; initialFrameIds:string[]};
+export type ReferenceRevision={catalogId:string;revisionId:string};
+export type ReferenceDisplay={sourceRevision:ReferenceRevision;displayRevision:ReferenceRevision;version:number;references:Record<string,Row[]>};
+export type Frame = {id:string; name:string; at:string; originCloseId?:string|null;observationIds:string[];curveContracts:Record<string,string[]>};
+export type Workspace = {futuresConvention:string;curveNames?:{code:string;name:string}[]|null;powerCurveCodes:string[];unitCatalogError?:string|null;unitCatalog?:{revision:unknown;references:Record<string,Row[]>};referenceDisplay?:ReferenceDisplay|null;unitReferenceDisplay?:ReferenceDisplay|null;profile:string;example:{at:string;curve:string}|null; definitions:Record<string,Row[]>; references:Record<string,Row[]>;referenceScope?:'definition_closure'|'all_visible';observationScope?:'on_demand';observations:Row[]; frames:Frame[]; initialFrameIds:string[]};
 import type {PricingNode} from './pricing-view.js';
+import type {FrameSummary} from './market-navigation.js';
 
 export type Point = {priceTick?:string;contractId?:string; seriesId?:string; maturity?:string; deliveryFrom?:string; deliveryTo?:string; expiry?:string; value:string; quote?:string; lineage:string[]; discountFactor?:string; displayDiscountFactor?:string; annualRate?:string; actualDays?:number};
-export type CurveResult = {kind?:'rates';convention?:{dayCount:string;compounding:string};availability?:'no_remaining_contracts';trace?:PricingNode[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
+export type CurveResult = {kind?:'rates';convention?:{dayCount:string;compounding:string};availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
 export type HistoryPoint = {at:string; value:string|null; snapshotId:string;unavailableReason?:string|null};
 export type PriceHistory = {points:HistoryPoint[]};
 export const val = (row:Row,key:string) => String(row[key] ?? '—');
@@ -16,7 +19,21 @@ export function exactRow(rows:Row[],key:string,value:string):Row {
   if(matches.length!==1)throw Error('Some market details are missing or inconsistent. Refresh and try again.');
   return matches[0];
 }
-export function commodityName(code:string,workspace:Workspace){const row=exactRow(workspace.references.commodities,'code',code);const name=publicText(val(row,'name').replace(/^Synthetic /,''));return name.charAt(0).toUpperCase()+name.slice(1);}
+// Overlay rows are for presentation only; callers retain the original financial rows.
+export function displayReferenceRows(table:string,rows:Row[],display:ReferenceDisplay|null|undefined,source:ReferenceRevision):Row[]{
+  if(!display)return rows;
+  if(display.sourceRevision.catalogId!==source.catalogId||display.sourceRevision.revisionId!==source.revisionId)throw Error('Reference display details are inconsistent. Refresh and try again.');
+  const labels=display.references[table]??[],byCode=new Map<string,Row>();
+  if(!labels.length)return rows;
+  for(const label of labels){if(typeof label.code!=='string'||byCode.has(label.code))throw Error('Reference display details are inconsistent. Refresh and try again.');byCode.set(label.code,label);}
+  return rows.map(row=>({...row,...byCode.get(String(row.code))}));
+}
+export function presentedReferences(workspace:Workspace){
+  if(!workspace.referenceDisplay)return workspace.references;
+  const revision=workspace.definitions.revisions[0],source={catalogId:val(revision,'reference_catalog_id'),revisionId:val(revision,'reference_revision_id')};
+  return Object.fromEntries(Object.entries(workspace.references).map(([table,rows])=>[table,displayReferenceRows(table,rows,workspace.referenceDisplay,source)]));
+}
+export function commodityName(code:string,workspace:Workspace){const row=exactRow(presentedReferences(workspace).commodities,'code',code);const name=publicText(val(row,'name').replace(/^Synthetic /,''));return name.charAt(0).toUpperCase()+name.slice(1);}
 export type MarketType='futures'|'forwards'|'mixed'|'rates';
 export const allCurves=(workspace:Workspace)=>[...workspace.definitions.curves,...(workspace.definitions.rate_curves??[])];
 // Display names are stored with each curve definition and served as a directory for
@@ -27,37 +44,19 @@ export function setCurveNames(rows:{code:string;name:string}[]){
   for(const row of rows)curveNames.set(row.code,curveNames.has(row.code)&&curveNames.get(row.code)!==row.name?null:row.name);
 }
 export function curveName(code:unknown){const name=curveNames.get(String(code));if(typeof name!=='string'||!name)throw Error('Some market details are missing or inconsistent. Refresh and try again.');return publicText(name);}
-export const marketCategory=(curve:Row)=>typeof curve.interest_rate_code==='string'?'rates':val(curve,'commodity_code');
-export const categoryName=(code:string,workspace:Workspace)=>code==='rates'?'Interest rates':commodityName(code,workspace);
-export function marketType(curve:Row,workspace:Workspace):MarketType {
-  if(typeof curve.interest_rate_code==='string')return 'rates';
-  const members=workspace.definitions.curve_members.filter(m=>m.curve_code===curve.code);
-  if(!members.length)throw Error('This curve has no contracts.');
-  const kinds=new Set(members.map(m=>exactRow(workspace.definitions.contracts,'id',val(m,'contract_id')).kind));
-  if(kinds.size===1&&kinds.has('future'))return 'futures';
-  if(kinds.size===1&&kinds.has('forward'))return 'forwards';
-  if([...kinds].every(k=>k==='future'||k==='forward'))return 'mixed';
-  throw Error('This contract type is not supported yet.');
-}
-export function availableMarketCurves(workspace:Workspace,frameId?:string){
-  const frames=frameId?workspace.frames.filter(f=>f.id===frameId):workspace.frames;
-  return allCurves(workspace).filter(c=>frames.some(f=>{
-    if(!f.observationIds.length)return false;
-    if(typeof c.interest_rate_code!=='string')return (f.curveContracts[String(c.code)]?.length??0)>0;
-    const series=new Set((workspace.definitions.rate_curve_points??[]).filter(p=>p.curve_code===c.code).map(p=>p.series_id));
-    return workspace.observations.some(o=>f.observationIds.includes(String(o.id))&&series.has(o.series_id));
-  }));
-}
-export function marketGroups(workspace:Workspace,by:'commodity'|'marketType',commodity:string,type:string,available=allCurves(workspace)){
-  const curves=available.filter(c=>(commodity==='all'||marketCategory(c)===commodity)&&(type==='all'||marketType(c,workspace)===type));
-  const groups=new Map<string,Row[]>();
-  for(const curve of curves){const name=by==='commodity'?categoryName(marketCategory(curve),workspace):marketTypeName(marketType(curve,workspace));if(!groups.has(name))groups.set(name,[]);groups.get(name)!.push(curve);}
-  return [...groups.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([name,curves])=>({name,curves}));
-}
 export function displayDate(value:string){return new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(value+'T00:00:00Z'));}
 export function pointDate(point:Point){const date=point.maturity??point.deliveryFrom;if(!date)throw Error('This sample has no date.');return date;}
 export function pointIdentity(point:Point){const id=point.seriesId??point.contractId;if(!id)throw Error('This sample is unavailable.');return id;}
-export function displayInstant(value:string,zone:string){return new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:zone}).format(new Date(value));}
+// Building a formatter costs far more than formatting with one, and a table can label tens of thousands
+// of instants, so each set of options builds one formatter, reused for the rest of the page's life.
+const formatters=new Map<string,Intl.DateTimeFormat>();
+function formatter(options:Intl.DateTimeFormatOptions){
+  const key=JSON.stringify(options);
+  let built=formatters.get(key);
+  if(!built){built=new Intl.DateTimeFormat('en',options);formatters.set(key,built);}
+  return built;
+}
+export function displayInstant(value:string,zone:string,seconds=false){return formatter({year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',...(seconds?{second:'2-digit'}:{}),timeZone:zone}).format(new Date(value));}
 export function deliveryMonth(value:string){return new Intl.DateTimeFormat('en',{month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(value+'T00:00:00Z'));}
 export function deliveryLabel(from:string,to:string){
   const next=new Date(from+'T00:00:00Z'),end=new Date(to+'T00:00:00Z');
@@ -73,15 +72,15 @@ export function historyPriceLabel(point:HistoryPoint){
   if(point.unavailableReason==='missing_observation')return 'No saved price';
   throw Error('The price history availability is missing.');
 }
-// Display minutes without rounding or changing the underlying instant. Repeated
+// Display minutes (or seconds) without rounding or changing the underlying instant. Repeated
 // local clocks get an offset only where needed (e.g. the autumn DST fold).
-export function timeLabels(values:string[],zone:string){
-  const labels=values.map(v=>displayInstant(v,zone)),minutes=values.map(v=>Math.floor(new Date(v).getTime()/60000));
+export function timeLabels(values:string[],zone:string,seconds=false){
+  const labels=values.map(v=>displayInstant(v,zone,seconds)),units=values.map(v=>Math.floor(new Date(v).getTime()/(seconds?1000:60000)));
   const identities=new Map<string,Set<number>>();
-  labels.forEach((label,i)=>{if(!identities.has(label))identities.set(label,new Set());identities.get(label)!.add(minutes[i]);});
-  return labels.map((label,i)=>identities.get(label)!.size<2?label:`${label} ${new Intl.DateTimeFormat('en',{timeZone:zone,timeZoneName:'shortOffset'}).formatToParts(new Date(values[i])).find(p=>p.type==='timeZoneName')!.value}`);
+  labels.forEach((label,i)=>{if(!identities.has(label))identities.set(label,new Set());identities.get(label)!.add(units[i]);});
+  return labels.map((label,i)=>identities.get(label)!.size<2?label:`${label} ${formatter({timeZone:zone,timeZoneName:'shortOffset'}).formatToParts(new Date(values[i])).find(p=>p.type==='timeZoneName')!.value}`);
 }
-export function frameOptions(frames:Frame[],zone:string){
+export function frameOptions(frames:FrameSummary[],zone:string){
   const totals=new Map<number,number>(),counts=new Map<number,number>(),dates=timeLabels(frames.map(f=>f.at),zone);
   const minutes=frames.map(f=>Math.floor(new Date(f.at).getTime()/60000));
   minutes.forEach(m=>totals.set(m,(totals.get(m)??0)+1));
@@ -89,9 +88,9 @@ export function frameOptions(frames:Frame[],zone:string){
 }
 export function marketTypeName(kind:MarketType){return {futures:'Futures',forwards:'Forward curves',mixed:'Mixed curves',rates:'Interest rates'}[kind];}
 export function quoteUnit(quoteCode:string,workspace:Workspace){
-  const refs=workspace.references,quote=exactRow(refs.quote_specifications,'code',quoteCode),quantity=exactRow(refs.quantity_specifications,'code',val(quote,'quantity_code'));
+  const refs=presentedReferences(workspace),quote=exactRow(refs.quote_specifications,'code',quoteCode),quantity=exactRow(refs.quantity_specifications,'code',val(quote,'quantity_code'));
   const currency=exactRow(refs.currencies,'code',val(quote,'currency_code')),unit=exactRow(refs.units,'code',val(quantity,'unit_code'));
   return `${val(currency,'display_code')} / ${val(unit,'symbol')}${quote.multiplier==='1'?'':` × ${val(quote,'multiplier')}`}`;
 }
-export const fieldNames:Record<string,string>={latitude:'Latitude (°)',longitude:'Longitude (°)',day_count:'Day count',compounding:'Compounding',display_code:'Code',display_minor_units:'Decimal places',code:'Name',name:'Description',symbol:'Symbol',dimension_code:'Measurement',commodity_code:'Commodity',basis_code:'Measurement basis',unit_code:'Unit',quantity_code:'Quantity',currency_code:'Currency',multiplier:'Price multiplier',trading_tick:'Trading tick',clearing_increment:'Settlement increment',minimum:'Minimum',maximum:'Maximum',kind:'Type',numerator_quantity_code:'Input quantity',denominator_quantity_code:'Output quantity',location_code:'Location',profile_code:'Delivery pattern',clock_code:'Market clock',calendar_code:'Calendar',type_code:'Location type',delivery_from:'Delivery starts',delivery_to:'Delivery ends',event_at:'Date and time',event_date:'Date',milestone:'Event',value_state:'Availability',definition_state:'Status',product_code:'Product',series_code:'Contract',series_label:'Contract month',exchange_code:'Exchange',source_code:'Source',lot_unit_code:'Contract unit',contract_size:'Contract size',lot_basis:'Quantity basis',quote_currency_code:'Price currency',quote_unit_code:'Price unit',quote_multiplier:'Price multiplier',outright_tick_size:'Trading tick',market_clock_code:'Market clock',trading_calendar_code:'Trading calendar',clearing_house_code:'Clearing house',numerator:'Numerator',denominator:'Denominator',increment:'Rounding increment',tie_rule:'Rounding method',stage:'Applies to',retrieved_at:'Retrieved',locator:'Source',evidence:'Evidence',index_a_code:'First index',index_b_code:'Second index',quantity_basis:'Quantity basis',interval_minutes:'Interval (minutes)',utc_offset_minutes:'UTC offset (minutes)',zone_name:'Time zone',iana_zone:'Time zone',tzdb_version:'tzdb release',fixed_offset_seconds:'Fixed offset (seconds)',weekend_mask:'Weekend mask (bit 0 = Monday)',coverage_from:'Covers from',coverage_to:'Covers until (excluded)',peak_start_hour:'Peak starts (hour beginning)',peak_end_hour:'Peak ends (hour beginning, excluded)',peak_saturday:'Saturday peak',business_date:'Date',date:'Date',is_business_day:'Business day'};
+export const fieldNames:Record<string,string>={eligible_from:'Trading eligibility from',qualification_source_code:'Qualification source',source_series_code:'Source contract code',usage_policy:'Usage policy',execution_venue:'Execution venue',eligibility_rule:'Eligibility rule',eligibility_offset_seconds:'Eligibility offset (seconds)',eligibility_tzdb_version:'Eligibility time-zone release',latitude:'Latitude (°)',longitude:'Longitude (°)',day_count:'Day count',compounding:'Compounding',display_code:'Code',display_minor_units:'Decimal places',code:'Name',name:'Description',symbol:'Symbol',dimension_code:'Measurement',commodity_code:'Commodity',basis_code:'Measurement basis',unit_code:'Unit',quantity_code:'Quantity',currency_code:'Currency',multiplier:'Price multiplier',trading_tick:'Trading tick',clearing_increment:'Settlement increment',minimum:'Minimum',maximum:'Maximum',kind:'Type',numerator_quantity_code:'Input quantity',denominator_quantity_code:'Output quantity',location_code:'Location',profile_code:'Delivery pattern',clock_code:'Market clock',calendar_code:'Calendar',type_code:'Location type',delivery_from:'Delivery starts',delivery_to:'Delivery ends',event_at:'Date and time',event_date:'Date',milestone:'Event',value_state:'Availability',definition_state:'Status',product_code:'Product',series_code:'Contract',series_label:'Contract month',exchange_code:'Exchange',source_code:'Source',lot_unit_code:'Contract unit',contract_size:'Contract size',lot_basis:'Quantity basis',quote_currency_code:'Price currency',quote_unit_code:'Price unit',quote_multiplier:'Price multiplier',outright_tick_size:'Trading tick',market_clock_code:'Market clock',trading_calendar_code:'Trading calendar',clearing_house_code:'Clearing house',numerator:'Numerator',denominator:'Denominator',increment:'Rounding increment',tie_rule:'Rounding method',stage:'Applies to',retrieved_at:'Retrieved',locator:'Source',evidence:'Evidence',index_a_code:'First index',index_b_code:'Second index',quantity_basis:'Quantity basis',interval_minutes:'Interval (minutes)',utc_offset_minutes:'UTC offset (minutes)',zone_name:'Time zone',iana_zone:'Time zone',tzdb_version:'tzdb release',fixed_offset_seconds:'Fixed offset (seconds)',weekend_mask:'Weekend mask (bit 0 = Monday)',coverage_from:'Covers from',coverage_to:'Covers until (excluded)',peak_start_hour:'Peak starts (hour beginning)',peak_end_hour:'Peak ends (hour beginning, excluded)',peak_saturday:'Saturday peak',business_date:'Date',date:'Date',is_business_day:'Business day'};
 export function publicColumns(rows:Row[]){return rows.length?Object.keys(rows[0]).filter(k=>!k.endsWith('_id')&&k!=='id'&&k!=='implementation'&&!rows.some(r=>typeof r[k]==='string'&&String(r[k]).match(UUID)!==null)).map(key=>({key,name:fieldNames[key]??friendly(key)})):[];}

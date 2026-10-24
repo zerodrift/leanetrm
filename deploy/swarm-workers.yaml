@@ -1,0 +1,96 @@
+version: "3.8"
+services:
+  scheduler:
+    image: ${WORKER_IMAGE:?Supply the reviewed digest-pinned worker image}
+    entrypoint: [dotnet, /opt/openetrm/worker/OpenEtrm.Worker.dll]
+    user: "1654:1654"
+    read_only: true
+    cap_drop: [ALL]
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    environment:
+      OPENETRM_WORKER_CONNECTION_FILE: /run/secrets/scheduler.connection
+      OPENETRM_WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:?}
+      OPENETRM_WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:?}
+    secrets:
+      - source: scheduler_connection
+        target: scheduler.connection
+        uid: "1654"
+        gid: "1654"
+        mode: 0400
+      - source: database_root
+        target: database-root.pem
+        uid: "1654"
+        gid: "1654"
+        mode: 0400
+    networks: [database]
+    deploy:
+      replicas: ${SCHEDULER_REPLICAS:?}
+      placement:
+        constraints: ["node.labels.openetrm.control==scheduler", "node.platform.os==linux"]
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+      restart_policy: {condition: on-failure, delay: 5s}
+      update_config: {parallelism: 1, order: stop-first}
+  controller:
+    image: ${WORKER_IMAGE:?}
+    entrypoint: [dotnet, /opt/openetrm/worker/OpenEtrm.Worker.dll]
+    user: "1654:1654"
+    read_only: true
+    cap_drop: [ALL]
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    environment:
+      OPENETRM_WORKER_CONNECTION_FILE: /run/secrets/controller.connection
+      OPENETRM_WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:?}
+      OPENETRM_WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:?}
+      OPENETRM_SWARM_CONFIG_FILE: /run/secrets/swarm.json
+    secrets:
+      - source: controller_connection
+        target: controller.connection
+        uid: "1654"
+        gid: "1654"
+        mode: 0400
+      - source: database_root
+        target: database-root.pem
+        uid: "1654"
+        gid: "1654"
+        mode: 0400
+      - source: swarm_config
+        target: swarm.json
+        uid: "1654"
+        gid: "1654"
+        mode: 0400
+      - source: swarm_client
+        target: swarm-client.pem
+        uid: "1654"
+        gid: "1654"
+        mode: 0400
+      - source: swarm_key
+        target: swarm-key.pem
+        uid: "1654"
+        gid: "1654"
+        mode: 0400
+      - source: swarm_root
+        target: swarm-root.pem
+        uid: "1654"
+        gid: "1654"
+        mode: 0400
+    networks: [database, control]
+    deploy:
+      replicas: 1
+      placement:
+        constraints: ["node.labels.openetrm.control==controller", "node.platform.os==linux"]
+      resources:
+        limits: {cpus: "1", memory: 512M}
+      restart_policy: {condition: on-failure, delay: 5s}
+      update_config: {parallelism: 1, order: stop-first}
+networks:
+  database: {external: true, name: "${DATABASE_NETWORK:?}"}
+  control: {external: true, name: "${CONTROL_NETWORK:?}"}
+secrets:
+  scheduler_connection: {external: true, name: "${SCHEDULER_CONNECTION_SECRET:?}"}
+  controller_connection: {external: true, name: "${CONTROLLER_CONNECTION_SECRET:?}"}
+  database_root: {external: true, name: "${DATABASE_ROOT_SECRET:?}"}
+  swarm_config: {external: true, name: "${SWARM_CONFIG_SECRET:?}"}
+  swarm_client: {external: true, name: "${SWARM_CLIENT_SECRET:?}"}
+  swarm_key: {external: true, name: "${SWARM_KEY_SECRET:?}"}
+  swarm_root: {external: true, name: "${SWARM_ROOT_SECRET:?}"}

@@ -5,9 +5,9 @@ import {displayDate,friendly,timeLabels} from './market-view.js';
 type Contract={id:string;from:string;to:string;holidayCalendar:string};
 type Preset={product:string;block:string;minutes:number;nonHolidays:string;holidays:string;columns:{he:string;hb:string}[]};
 type Choice={code:string;name:string};
-type QuantityChoice={basis:string;label:string;specification:unknown};
+type QuantityChoice={commodityCode:string;basis:string;label:string;specification:unknown};
 type Product={code:string;name:string;version:number;clock:string};
-type Catalog={classifications:{priceTypes:string[];timings:string[]};products:Product[];unavailableProducts:{code:string;name:string;reason:string}[];blocks:Choice[];intervals:number[];hourLabels:Choice[];presets:Preset[];curves:{code:string;contracts:Contract[]}[];weekdays:string[];numericalPolicy:string;quantityChoices:QuantityChoice[];display:{quantity:number;price:number;money:number}};
+type Catalog={classifications:{priceTypes:string[];timings:string[]};products:Product[];unavailableProducts:{code:string;name:string;reason:string}[];blocks:Choice[];intervals:number[];hourLabels:Choice[];presets:Preset[];curves:{code:string;commodityCode:string;contracts:Contract[]}[];weekdays:string[];numericalPolicy:string;quantityChoices:QuantityChoice[];display:{quantity:number;price:number;money:number}};
 type Preview={holidays:string[];holidayCalendar:string;summary:{hours:string;energy:string;averagePrice:string;amount:string;policy:{implementation:string}};amounts:{energyText:string;cashText:string;priceText:string};currency:string;mark:string;from:string;to:string;product:string;rows:{label:string;start:string;end:string;offsetMinutes:number;occurrence:number;holiday:boolean;price:string;priceText:string;energy:{numerator:string;denominator:string};energyText:string}[];days:{date:string;hours:string;intervals:number}[]};
 type Options={zone:()=>string;api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;source:()=>{snapshotId:string;curve:string;name:string};name:(code:string)=>string};
 const node=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -22,7 +22,9 @@ export function setupPowerView(o:Options){
   let current:Preview|undefined;
   const form=node<HTMLFormElement>('power-form');
   const quantityKey=(q:QuantityChoice)=>JSON.stringify(q.specification);
-  const selectedQuantity=()=>catalog?.quantityChoices.find(q=>quantityKey(q)===choice('power-quantity-basis').value);
+  const quantityChoices=()=>{const commodity=catalog?.curves.find(c=>c.code===choice('power-curve').value)?.commodityCode;return commodity?catalog!.quantityChoices.filter(q=>q.commodityCode===commodity):[];};
+  const selectedQuantity=()=>quantityChoices().find(q=>quantityKey(q)===choice('power-quantity-basis').value);
+  function quantitySelection(){const selected=selectedQuantity(),total=selected?.basis==='total_energy';node('power-allocation-field').hidden=!total;choice('power-allocation').required=total;choice('power-allocation').value='';node('power-quantity-label').textContent=selected?total?'Total energy · MWh':'Flat power · MW':'Amount';}
   function clearResult(){current=undefined;node('power-result').hidden=true;node('power-days').replaceChildren();node('power-intervals').replaceChildren();for(const id of ['power-summary','power-price-note','power-rows-note'])node(id).textContent='';}
   // Product, hours and grid are economic choices: they start unselected and are never assumed.
   function preset(){if(!catalog)throw Error('Load the power example first.');if(!choice('power-product').value||!choice('power-block').value||!choice('power-minutes').value)return undefined;const p=catalog.presets.find(p=>p.product===choice('power-product').value&&p.block===choice('power-block').value&&String(p.minutes)===choice('power-minutes').value);if(!p)throw Error('Choose a supported product and grid.');return p;}
@@ -52,7 +54,7 @@ export function setupPowerView(o:Options){
     applyPreset();
   }
   function applyPreset(){const p=preset();nonHolidays=p?.nonHolidays??'';holidays=p?.holidays??'';clearResult();grids();}
-  function contracts(){const curve=catalog?.curves.find(c=>c.code===choice('power-curve').value);options('power-contract',curve?.contracts.map(c=>({value:c.id,label:`${c.from} → ${c.to} (end excluded)`}))??[],undefined,'Choose a delivery period…');holidayCalendar();clearResult();}
+  function contracts(){const curve=catalog?.curves.find(c=>c.code===choice('power-curve').value);options('power-contract',curve?.contracts.map(c=>({value:c.id,label:`${c.from} → ${c.to} (end excluded)`}))??[],undefined,'Choose a delivery period…');options('power-quantity-basis',quantityChoices().map(q=>({value:quantityKey(q),label:q.label})),undefined,'Choose quantity basis…');quantitySelection();holidayCalendar();clearResult();}
   // Holidays come from the selected contract's settlement index calendar.
   function holidayCalendar(){const contract=catalog?.curves.find(c=>c.code===choice('power-curve').value)?.contracts.find(c=>c.id===choice('power-contract').value);node('power-holiday-calendar').textContent=contract?`${friendly(contract.holidayCalendar)} calendar · from the contract's settlement index`:'Choose a delivery period to see its holiday calendar.';}
   function render(result:Preview){
@@ -74,7 +76,7 @@ export function setupPowerView(o:Options){
   choice('power-curve').onchange=contracts;
   choice('power-contract').onchange=()=>{holidayCalendar();clearResult();};
   choice('power-show').onchange=()=>{if(current)render(current);};
-  choice('power-quantity-basis').onchange=()=>{clearResult();const total=selectedQuantity()?.basis==='total_energy';node('power-allocation-field').hidden=!total;choice('power-allocation').required=total;choice('power-allocation').value='';node('power-quantity-label').textContent=total?'Total energy · MWh':'Flat power · MW';};
+  choice('power-quantity-basis').onchange=()=>{clearResult();quantitySelection();};
   for(const id of ['power-mw','power-allocation','power-money-precision','power-price-type','power-timing'])node(id).addEventListener('input',clearResult);
   form.onsubmit=event=>{event.preventDefault();void o.act(async()=>{
     clearResult();if(!preset())throw Error('Choose a product, hours and grid interval.');
@@ -85,7 +87,6 @@ export function setupPowerView(o:Options){
   return {refresh(){if(current)render(current);},reset(){catalog=undefined;snapshotId='';nonHolidays='';holidays='';clearResult();form.reset();for(const id of ['power-curve','power-contract','power-product','power-normal-grid','power-holiday-grid'])node(id).replaceChildren();node('power-context').textContent='';form.hidden=true;node('power-guidance').hidden=false;},async load(){
     clearResult();const source=o.source();snapshotId=source.snapshotId;
     catalog=await o.api<Catalog>('power/catalog',{snapshotId});
-    options('power-quantity-basis',[{value:'',label:'Choose quantity basis…'},...catalog.quantityChoices.map(q=>({value:quantityKey(q),label:q.label}))]);choice('power-quantity-basis').value='';choice('power-allocation').required=false;node('power-allocation-field').hidden=true;
     node<HTMLInputElement>('power-money-precision').value=String(catalog.display.money);node<HTMLDetailsElement>('power-advanced').open=false;
     node('power-guidance').hidden=true;form.hidden=false;node('power-context').textContent=`Market date: ${source.name}`;
     options('power-product',catalog.products.filter(p=>powerChoices(catalog!.presets).products.includes(p.code)).map(p=>({value:p.code,label:`${p.name} · ${p.code} v${p.version}`})),undefined,'Choose a product…');

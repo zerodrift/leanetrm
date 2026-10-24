@@ -9,7 +9,7 @@ using OpenEtrm.MarketData;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record SubmitRiskJob(Guid RequestId,FuturesRiskRequest Request);
+public sealed record SubmitPortfolioRiskJob(Guid RequestId,PortfolioRiskRequest Request);
 
 public static class RiskJobs
 {
@@ -28,46 +28,89 @@ public static class RiskJobs
     });
     internal static string EngineVersion=>engine.Value;
 
-    public static async Task<object> Submit(NpgsqlConnection connection,PreviewManifest manifest,FuturesRiskPreview calculator,
-        PreviewData data,InputFrame frame,SubmitRiskJob body,CancellationToken ct)
+    public static async Task<object> Submit(NpgsqlConnection connection,PreviewManifest manifest,PortfolioRiskPreview calculator,
+        PreviewData data,InputFrame frame,SubmitPortfolioRiskJob body,CancellationToken ct)
     {
         if(body.RequestId==Guid.Empty||body.Request?.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
             throw new MarketDataException("risk_job_context","Queue an exact retained financial context with a stable request identity.");
         var prepared=await calculator.Prepare(connection,data,frame,body.Request,ct);
-        var selected=prepared.Books.Where(b=>(body.Request.BookIds.IsEmpty||body.Request.BookIds.Contains(b.Id("id")))&&
-            (body.Request.PortfolioIds.IsEmpty||body.Request.PortfolioIds.Contains(b.Id("portfolio_id"))))
-            .Select(b=>b.Id("id")).Order().ToImmutableArray();
-        var request=body.Request with {BookIds=selected,PortfolioIds=[],Detail=prepared.Detail==OpenEtrm.MarketData.Risk.RiskDetail.Books?"books":"holdings",
-            Stress=body.Request.Stress.IsDefault?[]:body.Request.Stress};
+        var request=prepared.Request with {BookIds=prepared.BookIds,PortfolioIds=[],
+            Detail=prepared.Detail==OpenEtrm.MarketData.Risk.RiskDetail.Books?"books":"holdings",
+            Stress=prepared.Request.Stress};
         var payload=JsonSerializer.SerializeToNode(request,Json)!.AsObject();
         payload["engineVersion"]=EngineVersion;
-        var pinnedFrame=frame with {ContextId=contextId};
+        var supplemental=new JsonObject();
+        foreach(var market in prepared.SupplementalMarkets.OrderBy(m=>m.Data.DefinitionRevision.RevisionId))
+            supplemental.Add(market.Data.DefinitionRevision.RevisionId.ToString(),PinFrame(market.Frame with {ContextId=contextId}));
+        var pinnedFrame=PinFrame(frame with {ContextId=contextId,SwapMarketSelections=prepared.SupplementalMarkets
+            .ToImmutableDictionary(m=>m.Data.DefinitionRevision.RevisionId,m=>m.Frame.ObservationIds)});
+        pinnedFrame["supplementalMarkets"]=supplemental;
+        pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
+        pinnedFrame["scenarioAxes"]=JsonSerializer.SerializeToNode(CurveRiskAxes.Retained(prepared),Json);
         await using var command=ScheduleStore.Command(connection,
             "SELECT risk.submit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
-            data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),JsonSerializer.Serialize(pinnedFrame,Json));
+            data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),pinnedFrame.ToJsonString(Json));
         var submitted=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
-        var id=(submitted["id"]??submitted["jobId"])!.GetValue<Guid>();
-        return await Read(connection,manifest.CatalogId,id,ct);
+        return await Read(connection,manifest.CatalogId,(submitted["id"]??submitted["jobId"])!.GetValue<Guid>(),ct);
     }
 
-    public static async Task<object> Read(NpgsqlConnection connection,Guid catalog,Guid id,CancellationToken ct,bool cancel=false)
+    internal static JsonObject PinFrame(InputFrame frame)
     {
+        var pinned=JsonSerializer.SerializeToNode(frame,Json)!.AsObject();
+        // Public frame JSON omits input uses; the retained execution envelope
+        // carries them explicitly so a frozen fact never becomes shockable.
+        pinned["frozenObservationIds"]=JsonSerializer.SerializeToNode(
+            frame.FrozenObservationIds.IsDefault?ImmutableArray<Guid>.Empty:frame.FrozenObservationIds,Json);
+        return pinned;
+    }
+
+    internal static InputFrame ReadFrame(JsonNode pinned)
+    {
+        var frame=pinned.Deserialize<InputFrame>(Json)??throw new JsonException("Missing risk frame.");
+        var frozen=pinned["frozenObservationIds"]?.Deserialize<ImmutableArray<Guid>>(Json);
+        if(frozen is null||frozen.Value.IsDefault||frozen.Value.Distinct().Count()!=frozen.Value.Length||
+            frozen.Value.Any(id=>!frame.ObservationIds.Contains(id)))
+            throw new MarketDataException("risk_job_context","Frozen inputs must be an explicit exact subset of the retained observations.");
+        return frame with {FrozenObservationIds=frozen.Value};
+    }
+
+    public static async Task<object> Read(NpgsqlConnection connection,Guid catalog,Guid id,CancellationToken ct,bool cancel=false,string? expectedConvention=null)
+    {
+        async Task<JsonObject> ReadValue()
+        {
+            await using var command=ScheduleStore.Command(connection,"SELECT risk.read($1)::text",id);
+            var value=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
+            if(expectedConvention is not null&&value["convention"]?.GetValue<string>()!=expectedConvention)
+                throw new MarketDataException("risk_job_convention","This job belongs to a different retained risk operation.");
+            return value;
+        }
+        var value=await ReadValue();
         if(cancel)
         {
             await using var cancellation=ScheduleStore.Command(connection,"SELECT risk.cancel($1)",id);
             await cancellation.ExecuteScalarAsync(ct);
+            value=await ReadValue();
         }
-        await using var command=ScheduleStore.Command(connection,"SELECT risk.read($1)::text",id);
-        var value=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
-        return await Receipt(connection,catalog,value,ct);
+        var receipt=await Receipt(connection,catalog,value,ct);
+        await RequireCurrentAccess(connection,catalog,ct);
+        return receipt;
     }
 
-    public static async Task<object> List(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
+    public static async Task<object> List(NpgsqlConnection connection,Guid catalog,CancellationToken ct,string? convention=null)
     {
-        await using var command=ScheduleStore.Command(connection,"SELECT risk.list($1)::text",catalog);
+        await using var command=convention is null?ScheduleStore.Command(connection,"SELECT risk.list($1)::text",catalog):
+            ScheduleStore.Command(connection,"SELECT risk.list($1,$2)::text",catalog,convention);
         var values=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsArray();
         foreach(var value in values)await Receipt(connection,catalog,value!.AsObject(),ct);
+        await RequireCurrentAccess(connection,catalog,ct);
         return values;
+    }
+
+    private static async Task RequireCurrentAccess(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
+    {
+        await using var check=ScheduleStore.Command(connection,
+            "SELECT security.trading_access($1,'ReadTrades') AND security.market_access($1,'ReadMarketData') AND security.has_permission('RunScenario')",catalog);
+        if(!Equals(await check.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
     }
 
     private static async Task<JsonObject> Receipt(NpgsqlConnection connection,Guid catalog,JsonObject value,CancellationToken ct)

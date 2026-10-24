@@ -13,10 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
-    name: Stock database and browser checks
+  verification:
+    name: Synthetic verification (${{ matrix.group }})
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ["workspace", "ppa", "recovery"]
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
@@ -52,10 +56,22 @@ jobs:
       - name: Run synthetic verification
         shell: bash
         run: |
-          python3 tools/check_all.py \
+          python3 tools/check_all.py --group "${{ matrix.group }}" \
             --pg-bin /usr/lib/postgresql/16/bin \
             --dotnet "$(command -v dotnet)" \
             --browser "$(command -v google-chrome)"
+
+  checks:
+    name: Stock database and browser checks
+    needs: verification
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Require every verification group to complete successfully
+        env:
+          VERIFICATION_RESULT: ${{ needs.verification.result }}
+        run: test "$VERIFICATION_RESULT" = success
 
   publish:
     name: Publish hosted release
@@ -86,10 +102,12 @@ jobs:
         run: |
           dotnet restore src/OpenEtrm.Api/OpenEtrm.Api.csproj --locked-mode
           dotnet publish src/OpenEtrm.Api/OpenEtrm.Api.csproj --no-restore --no-self-contained --configuration Release --output "$RUNNER_TEMP/api"
+          dotnet restore src/OpenEtrm.Worker/OpenEtrm.Worker.csproj --locked-mode
+          dotnet publish src/OpenEtrm.Worker/OpenEtrm.Worker.csproj --no-restore --no-self-contained --configuration Release --output "$RUNNER_TEMP/worker"
           npm ci --prefix web --ignore-scripts
           npm run build --prefix web
           mkdir "$RUNNER_TEMP/release"
-          python3 tools/package_release.py --api "$RUNNER_TEMP/api" --web web/dist \
+          python3 tools/package_release.py --api "$RUNNER_TEMP/api" --worker "$RUNNER_TEMP/worker" --web web/dist \
             --output "$RUNNER_TEMP/release/openetrm-release.tar.gz" \
             --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"

@@ -64,8 +64,7 @@ public static class PowerCollection
                 foreach(var source in sources.RootElement.EnumerateArray())
                 {
                     var clock=source.GetProperty("clock");
-                    string? Optional(string name)=>clock.GetProperty(name).ValueKind==JsonValueKind.Null?null:clock.GetProperty(name).GetString();
-                    var rule=new ClockRule(clock.GetProperty("code").GetString()!,clock.GetProperty("kind").GetString()!,clock.GetProperty("fixed_offset_seconds").ValueKind==JsonValueKind.Null?null:clock.GetProperty("fixed_offset_seconds").GetInt32(),Optional("iana_zone"),Optional("tzdb_version"));
+                    var rule=ReferenceClockJson.Read(clock);
                     var reference=new ReferenceRevision(source.GetProperty("reference_catalog_id").GetGuid(),source.GetProperty("reference_revision_id").GetGuid());
                     var unit=new PriceUnit(new(reference,source.GetProperty("currency_code").GetString()!),new(reference,source.GetProperty("quantity_code").GetString()!),ExactDecimal.Parse("1"));
                     var rows=await client.Fetch(source.GetProperty("dataset").GetString()!,source.GetProperty("market").GetString()!,source.GetProperty("point").GetString()!,source.GetProperty("minutes").GetInt32(),first,last,PowerClock.FromRule(rule,TimeZoneDatabase.Installed()),unit,ct);

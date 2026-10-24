@@ -4,6 +4,16 @@ Status: local synthetic preview. This is a bounded
 foundation with a runnable local market-data and bounded futures trading preview. No existing application or production
 resource is used by its checks.
 
+The managed [connected calculation engine](connected-calculation.md) now drives
+saved [custom curves](custom-curves.md), their authoring UI, booked swap
+projections, portfolio risk and retained worker replay. Explicit weighted
+combinations can consume other computed curves, with nested input and output
+shocks following the same connected graph. Agent proposals use the same backend
+validation and open as unpriced drafts for human review. TypeScript remains
+presentation only. The [large-graph benchmark](connected-graph-benchmark.md)
+measures the compact integer execution kernel; end-to-end loading and large exact
+financial workloads still need performance qualification.
+
 Earlier foundation checkpoint verification (2026-10-17): 60 frontend, 102 managed core,
 24 mixed-resolution managed, 29 rate, 31 shared temporal and 20 schedule checks;
 173 stock PostgreSQL schema checks; 198 standard and 24 mixed HTTP, 14 schedule-storage,
@@ -19,6 +29,40 @@ canonical sharing. Its 31 checks and synthetic microbenchmark qualify these raw
 in-memory operations only. Date-set operations remain coding utilities. The named contract-schedule resolver
 described below is a domain consumer with exact contract identities. Monthly anchor generation and durable schedule authoring are now consumers. Project instructions
 now require TDD, DRY, simple code and an explicit quality review before check-in.
+
+The blotter now separates numeric amounts from units and currencies. Its pivot
+builder assigns row and column dimensions, backend measures and linked bar,
+line or heatmap plots. Numeric sorting/filtering retains exact values, including
+rational custom marks and PV; saved layout v3 retains chart choices. Charts use
+the selected financial report scope before local grid filters. Price aggregation
+supports exact minimum/maximum and explicit rounded arithmetic mean. Subtotals
+and cell drill-through are not implemented.
+
+Swaps support financial fixed/floating and floating/floating types with separate
+side schedules and explicit fixed spreads. Blank fixed-price entry can request a
+managed par quote for review; Risk requires the resolved concrete quote. Both
+floating slots preserve published fixing/custom-source evidence through pricing,
+booking, amendments, portfolio valuation and generated/existing-close reports (D207,
+migration 0101). The new migration requires a separately reviewed schema window;
+no hosted migration, worker deployment or production qualification is implied.
+
+## Durable jobs and shared infrastructure
+
+The [automation implementation](automation.md) adds a separate .NET worker and
+trusted controller over stock PostgreSQL. It includes owner/admin job controls,
+explicit agent delegation checks, forced RLS, database-time claims and fences,
+quota enforcement across workspaces, fair reconciliation and exact-request replay.
+Jobs & Infrastructure is ordinary navigation; shared status grants no mutation
+rights. Node availability requires both explicit identity permission and an
+installation operator registration. The worker stack is separately configurable.
+
+Synthetic Docker responses exercise approved digest/platform launch, strict
+service/task identity, unknown outcomes and individual cleanup. Real Engine
+execution and recovery remain unqualified. Retained financial risk-job contexts
+and workers are implemented as described in [risk](risk-engine.md). Broader
+scheduled financial operations and host management remain work. No runtime
+credentials or installation-specific configuration are seeded or included in
+this repository.
 
 ## Role-tailored workbench and reference-driven choices
 
@@ -170,16 +214,7 @@ Standalone physical forward booking, option products and VaR/covariance remain
 unimplemented; their agreed design is recorded in architecture/plan.
 
 Trading opens a shared Blotter with individual futures trade bindings, managed
-pivots, account-saved layouts, exact exports and shared charts. The pivot builder
-has separate row/column/value areas, grouped measure headers and an explicit axis
-summary. Bar, line and heatmap plots follow those axes using a managed report in
-the same retained financial context. Charts expose all supported measures,
-including PV and the explicitly defined price statistics, with separate exact
-unit/currency/quote-multiplier panels and gaps for unavailable values. Table row
-filters do not change charts; the scope is labeled. Plot styles switch without
-repricing and persist in version 3 account layouts. Older layouts retain their
-choices and acquire the previous bar style. Subtotals and cell drill-through
-remain unimplemented. Eight synthetic
+pivots, account-saved layouts, exact exports and shared charts. Eight synthetic
 weekday bookings exercise cumulative holdings across the four standard frames.
 Leaf futures contracts retain exact market terms; composed instruments retain nonempty immutable side memberships.
 Pricing reports typed gross execution P&L and open quote sensitivity; it does not
@@ -220,14 +255,67 @@ business-day observations, calendar-day weighting using the preceding/following
 eligible observation, and explicitly supplied positive daily quantity weights.
 Business-day rules require a covered exact calendar. Every required projection
 must be present in date order; unsupported rules and gaps fail explicitly. The
-bounded delivery interval is at most 366 days. This first forecast model rejects
-valuation at or after the declared first fixing; retained actual fixings and
-settlement remain future work.
+bounded delivery interval is at most 366 days. Legacy projection-only sides reject
+valuation at or after their declared first fixing. Indexed sides consume exact
+pinned actual fixings from their qualified schedules (D165, D172); settlement
+remains future work.
+
+`FloatingObservationPlan` now supplies the same six-mode date selection to the
+Side and its booking adapter. A generated payment retains `Applications`, with
+target bounds, observation ordinal, exact weight and a versioned mapping rule.
+Previous/next rules retain every represented day, including the link to an
+outside-period guard observation. Each observation is resolved once; the payment
+evaluator creates application cash contributions and reconciles them into the
+existing observation subtotals. `ObservationWeightTotal` is exact decimal text
+from the unbounded integer sum, so displaying the denominator does not narrow the
+existing numerical contract. The schedule itself can be evaluated directly.
+
+The admission service distinguishes the period of a qualified fixing from
+payment frequency and projected curve tenor. `/api/swaps/observation-options`
+accepts partial authoring at an exact retained context and returns source/method
+choices, required typed observation coordinates and structured coverage failures.
+Quantity entry coordinates contain no placeholder amounts or inferred weights.
+Submitted definitions use the same compatibility and observation-plan operations.
+Exact reference keys and their revision objects reject unknown JSON members, so
+an unrecognized nested financial policy cannot disappear during input binding.
+These are synthetic source qualifications; a product name alone admits nothing.
+
+Migration 0102 adds immutable observation-schedule headers and typed quantity
+children. Exact-version foreign keys retain the curve, index, quote, calendar,
+quantity specification and quantity contract. Hash lookup is followed by a full
+definition/child comparison. Legacy and observation booking entry points delegate
+one private writer. Composed booking uses the same per-Side observation selection
+and fixing evidence for both floating memberships, retaining their calendars and
+quantity weights independently. Side lookup includes both the explicit spread and
+observation schedule. Atomic publications, command retries and amendment history
+remain unchanged.
+The additional authoring version is `side_observation_schedule_v1`; the existing
+`FloatingSide_v3`, `index_observation_fixings_v1` and six averaging definitions
+remain unchanged. New rules still use one complete delivery month and one payment
+per Side. Quantity weights must remain strictly positive. Other observation
+windows, explicit zero weights, blocks/events, persisted recurring strips and
+contract-relative or paired sampling are not admitted by this version.
+
+Focused verification commands use disposable synthetic resources:
+
+```sh
+dotnet run --project tests/OpenEtrm.MarketData.Checks -- --observation-schedules
+dotnet run --project tests/OpenEtrm.Api.Checks -- --side-observation-compatibility
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet --side-observation-check
+```
+
+The managed checks compare independent exact values, original day mappings,
+partly fixed risk, publication boundaries, large denominators and unchanged Side
+reuse. The HTTP check exercises the real authoring, valuation and saved-trade
+operations. Broader convention qualification needs its own implementation and
+independent acceptance evidence; these checks do not establish market-source or
+production qualification.
 
 Each side applies its own quote multiplier and payment factors to exact rational
 cash amounts. Exact side PVs survive signed instrument aggregation and later
-trade quantity scaling. A repeating intermediate average can
-produce an exact final amount; an unrepresentable final amount raises an error.
+trade quantity scaling. Repeating averages and final amounts remain exact
+rationals. A consumer explicitly requesting working-decimal Money rejects an
+unrepresentable amount; rational PV and risk outputs do not round to satisfy it.
 The currency-default discount consumer builds rates from the same full snapshot,
 retains exact mapping/curve and bracketing observation identities, and uses the
 existing explicit simple Actual/365 Fixed rate policy. Log-linear interpolation of
@@ -248,8 +336,12 @@ The financial-swap trade-valuing operation applies positive typed trade quantity
 once after that sum. The current instrument implementation is
 `independent_side_financial_swap_v2`.
 
-Each side currently has one payment. Delivery/payment dates, calendars, lookup
-rules and quote multipliers belong to that side. SideValuationContext carries no
+Each constituent FixedSide or FloatingSide has one payment. The managed
+`MonthlySwapSide` composes these into a multi-payment strip with explicit rational
+quantity allocations; `MonthlyFinancialSwap` supports one to 1,200 contiguous
+complete months. Booking and the trade editor still persist one month.
+Delivery/payment dates, calendars, lookup rules and quote multipliers belong to
+each constituent side. SideValuationContext carries no
 instrument, membership sign or trade quantity. A standalone fixed side can value
 with only the selected snapshot and rate inputs; a floating side additionally
 requires its declared model-owned market projections. Returned side schedules
@@ -261,26 +353,31 @@ Rate-based rows retain exact currency/default mapping, curve definition and used
 pillar maturities, annual rates, factors, observations and interpolation policy.
 Side payments/side PVs use `independent_side_rational_pv_v1`; instrument aggregation
 uses `signed_exact_side_pv_sum_v1`; final financial-swap trade scaling uses
-`financial_swap_trade_scale_exact_18_v1`. ExactMoney retains rational or large
-side amounts through all those stages; only final Money conversion applies the
-working precision/range. No rounded unit or gross-side PV is substituted.
+`financial_swap_trade_scale_exact_rational_v1`. ExactMoney retains rational or
+large side amounts through all those stages. Working-decimal Money conversion is
+an explicit projection that applies its precision/range; exact trade PV and risk
+remain rational. No rounded unit or gross-side PV is substituted.
 
-FuturesContract satisfies the common behavior contract by explicitly rejecting PV
-and payment schedule generation without required variation-margin/settlement
-state. Its existing execution-P&L/open-sensitivity operations are unchanged.
+FuturesContract explicitly rejects full PV without required variation-margin and
+settlement state. Its existing execution-P&L/open-sensitivity operations remain
+available through the common valuation contract. Sides implement schedule
+generation; a universal instrument schedule interface remains proposed.
 OptionSide is not implemented: explicit sibling references, base-versus-final
 valuation modes and exercise-control double-counting constraints remain recorded
 in the architecture; O13 does not yet select an adjustment or joint allocation.
 
 These managed contracts now have persisted default resolution, authorized swap
 booking/amendments, a shared blotter and a schedule-inspection editor, described
-below. Swap risk and fee capture/calculation/reconciliation remain deferred;
-current futures execution-P&L diagnostics are gross and exclude fees.
+below. Draft swap risk, interactive booked-portfolio risk and generated-close
+mixed-product reports are implemented. Interactive and generated-close consumers
+share portfolio materialization and scenario calculation. Fee capture, calculation
+and reconciliation remain work; current futures execution-P&L diagnostics are
+gross and exclude fees.
 
 The futures editor separates trade inputs from a vertical side panel populated
-from actual selected contract metadata. The financial swap editor groups product, independent delivery periods, notional
-quantity, side pricing and observation/payment rules in business order. It no
-longer initializes peer delivery dates: each side is entered independently.
+from actual selected contract metadata. The financial swap editor has aligned
+fixed/floating columns and initializes only unset counterpart delivery/currency
+fields. No copy button is present; later edits remain independent.
 
 ## Business scenario coverage and permanent browser regressions
 
@@ -301,9 +398,13 @@ starts the browser runner in its own process group and awaits teardown of all li
 members before removing profiles/database files, including Node timeout/interrupt.
 Unconfirmed cleanup fails qualification and retains files. Three real-process
 checks cover normal termination, SIGTERM-resistant descendants and a browser-like
-child outliving its launcher. Browser regressions exercise lost post-commit and
-malformed gateway responses, exact idempotent retry, actual two-session access
-revocation, stale-form clearing and current permission boundaries.
+child outliving its launcher. macOS refuses to signal a group whose remaining
+members are already exiting (`EPERM`), as a large browser renderer can still be when
+its launcher returns; two more checks simulate that refusal: such a group is awaited
+until it is gone, and one that outlives the refusal still fails cleanup. Browser
+regressions exercise lost post-commit and malformed gateway responses, exact
+idempotent retry, actual two-session access revocation, stale-form clearing and
+current permission boundaries.
 
 The scenario-engine contract in that catalogue is proposed next work. It specifies
 typed immutable hypothetical overlays (separate from observation corrections),
@@ -369,7 +470,10 @@ Humans, services and agents retain distinct immutable kinds. An agent role alone
 still cannot act without the existing delegation intersection. Administrators
 have no implicit market-data read permission; their screen loads without fetching
 the market workspace. Identity switching clears old market and administration
-content, and a denied administration reload clears both tables and edit forms.
+content, and a denied administration reload clears its tables, the agent grant cards
+included, and edit forms. In the local preview, Users & access also shows every agent
+grant in force in the workspace and the latest grant changes, read-only
+(ai-assistant.md §7.1).
 Security administration always operates on current authority, irrespective of the
 historical business view.
 
@@ -392,13 +496,15 @@ failures retain it. The directory shows the latest 100 committed audit entries;
 older records remain in storage. Preview limits are 256 members and six fixed
 role templates, not a generic policy language or role editor.
 
-Authentication remains a loopback-only simulation. The synthetic fixture now
-provisions four personas, including **Access Administrator**. New human preview
+Authentication in this disposable preview is simulated. The synthetic fixture
+provides selectable personas, including **Access Administrator**. New human preview
 identities can be selected in the creating browser session. Registration does not
 create a password, send an invitation or verify external credentials. The preview
 issuer/login namespace is global to this disposable installation; production
-identity linking, invitations, MFA, agent credential custody/delegation authoring,
-initial administrator provisioning and deployment hardening remain separate work.
+identity linking, MFA, external agent credential custody and deployment hardening
+remain separate work. The separate hosted mode implements operator-provisioned
+invitations, password sign-in/reset and initial-owner setup; see
+[private pilot operations](hosted-pilot.md).
 No production identity, database or existing application was modified.
 
 Verification for this increment: 60 frontend tests, 184 standard HTTP checks,
@@ -521,21 +627,31 @@ start at 15:30 UTC. Users can replace a reference with a literal date. The same
 context resolves every field, and receipts retain source identity, version,
 implementation, calendar and context. Changing context clears stale output.
 
-This produces contract-date candidates, not activated/pricable curves. Units,
-market specification qualification, dependency mappings and marks remain separate
-from schedule creation. Candidates stay private to the demo persona/session;
-schedule drafts and publications are shared with currently authorized readers
-and survive browser/session reload while the preview database exists. The owned
-preview database is removed when its launcher stops.
+The shared contract-date library now retains reviewed date rules as durable
+workspace drafts and immutable published versions (D167), replacing the earlier
+session-only candidate list. Units, market specification qualification, dependency
+mappings and marks remain separate from schedule creation. Explicit save and
+publish operations do not activate or price contracts. Each field has a literal
+date or an exact published schedule-version foreign key; occurrence indexes,
+business-day offsets, the validation-context foreign key and UTC cutoff are
+retained. Readers can resolve a selected published version in an explicit context
+without rebinding its sources to newer schedule publications. Drafts require
+current authoring access, publication has its separate permission, and historical
+visibility uses certified commit receipts. Migration 0054 and its qualification
+requirements are described in [the schedule contract](schedules-and-contract-sequences.md#shared-contract-date-library).
+The owned preview database is removed when its launcher stops.
 
 Migration [0007](../db/migrations/0007_date_schedules.sql) adds two market setup
 tables, justified by this authoring consumer. It adds no reference catalog or
 external dependency. RLS uses existing scoped read, definition-writing and sealing
 permissions. Runtime cannot update publication state or canonical reference names.
 API operations are under `/api/date-schedules`: list/capture, save, publish,
-resolve and candidate contract preview/save. API and UI share the same operations.
+resolve and contract preview/save/publish/exact-version resolve. API and UI share
+the same operations. Contract save/publish responses are control-only receipts;
+their request identities retain a SHA-256 command hash and exact version foreign
+key, followed by an independently authorized library read.
 
-Verification: 27 shared temporal checks, 11 contract-sequence checks, 20 schedule
+Earlier schedule-slice verification: 27 shared temporal checks, 11 contract-sequence checks, 20 schedule
 adapter/resolution checks, 57 frontend checks, 140 HTTP checks, 13 adversarial
 schedule-storage checks and ten persisted-adapter checks. Storage checks include
 published/identity immutability, stale generations, finite dates, scope isolation,
@@ -640,8 +756,9 @@ unsupported. Existing explicit final-future freezing does not qualify those rule
 The synthetic example has five levels: futures, base-location gas forwards,
 regional gas forwards, hub power forwards and local power forwards. Shared
 constituents evaluate once per build, and each result retains exact observation
-lineage. All-in curves have only their declared direct inputs. No instrument
-pricers, position risk, scenario/shock API or settlement cash calculations exist.
+lineage. All-in curves have only their declared direct inputs. Instrument pricers,
+shared position risk and scenario APIs now consume this model. Full futures
+settlement and variation-margin processing remain work.
 
 Curves carry the common quote, location, delivery profile and settlement target.
 Dated constituents retain delivery/expiry and exact futures-series links. Reusing
@@ -788,7 +905,7 @@ columns; synchronized sampling/covariance/VaR estimators remain later work.
 
 ## Security boundary
 
-[security.md](security.md) documents six common role templates, persisted identities,
+[security.md](security.md) documents seven common role templates, persisted identities,
 scoped grants/delegations, protected catalog ownership/sharing and enforced RLS.
 Database requests bind trusted authenticated identity to an exact login/transaction,
 with a revocation fence and actual-current expiry checks. An agent has a separate
@@ -830,7 +947,60 @@ checks only. No deployment, commit or push has been performed.
 
 The TypeScript client in `web/` and ASP.NET host in `src/OpenEtrm.Api/` are an
 explicit **local synthetic preview**, not production authentication. Install the
-SDK pinned in `global.json`, Node with npm, and stock PostgreSQL 16+ binaries. Run:
+SDK pinned in `global.json`, Node with npm, and stock PostgreSQL 16+ binaries.
+
+The browser build typechecks with TypeScript and uses the pinned build-only
+esbuild 0.28.2 dependency to bundle the application entry. This reduces module
+requests during startup. The existing chart and table vendor modules retain
+their separate files and license notices; the deployed application needs no
+Node runtime or bundler.
+
+Startup explicitly requests compact bootstrap metadata and an access projection.
+For a selected, verified identity, the server reads its current permissions in
+the same response; the browser validates the identity and consumes that projection
+once for navigation. Anonymous local preview still selects its synthetic identity
+explicitly and reads access afresh. Profile refreshes, identity changes and every
+business operation independently check current authority. The default bootstrap
+response retains its existing shape.
+
+`GET /api/workspace/navigation` is a separate typed response for the initial
+directory and date picker. Its managed read obtains each curve's explicit market
+type and, for commodity curves, its commodity and label; interest-rate curves
+have `category: null`. It also obtains all authorized curve display names, exact
+bundle/reference/context identities and frame summaries. It does not construct
+the pricing model or load observation values or the unit-conversion catalog.
+The browser retains navigation separately from the full workspace and hydrates
+the latter only for consumers of its definitions, references or source pins.
+Hydration must match the same account, selection, context and revision pins;
+late responses cannot restore an earlier view. Existing full workspace endpoints
+retain their response contracts. Every definition and reference read orders its
+rows by the table's primary key within the selected revision, so identical pins
+give identical arrays whatever plan the database chooses.
+
+First dated-curve pricing explicitly requests complete workspace metadata with
+the evaluation. Both projections share one bound authorized model read; catalog
+observations remain empty while the price response retains its selected source
+facts. The browser validates both before accepting either and renders the exact
+unit/header before the chart. Evaluation without this explicit request preserves
+its existing response and avoids metadata-only reads. No-date curve details and
+reference inspection continue to use the full catalog endpoint.
+
+An explicit Blotter directory first checks whether either raw futures or swap
+revision table contains a visible row under its already bound trading context.
+Any such row retains the full valuation path. An empty set uses the same report
+projection after validating the view/books, exact sealed bundle and reference
+visibility, and completeness of selected observation pins. Directory metadata
+and final authority checks remain fresh. Narrow navigation and empty reports
+defer validation of economic material they do not consume; priced catalogs
+and nonempty reports continue to require complete supported financial inputs.
+
+Migration 0041 removes a duplicate permissive access check on 35 reference tables
+whose restrictive visibility policy already checks the same authority on every
+invocation. Catalog-only policies and the separate imported-quantity restriction
+remain. Exact helper and policy guards reject schema drift before changing these
+policies; retained deployments require a separately qualified schema baseline.
+
+Run:
 
 ```sh
 python3 tools/run_preview.py \
@@ -840,7 +1010,7 @@ python3 tools/run_preview.py \
 
 Open the printed `http://127.0.0.1:PORT` URL. The screen opens as the read-only
 Viewer demo user. **Market data → Curves & prices** lets users browse by commodity
-or market type, with Futures, Forwards and Interest rates filters. Choose a curve and the **Market date**
+or market type, with Futures, Forwards and Rates filters. Choose a curve and the **Market date**
 dropdown at the top, or click **Explore sample power prices** to explicitly open
 local power forwards for 18 Dec 2020. Six delivery months use four saved dates.
 Select **Price history** beside a contract to follow its prices over time, distinct
@@ -849,8 +1019,10 @@ from the curve's delivery-month axis.
 **Profile** holds the user's time zone and preferred browsing layout. A versioned
 browser-local preference record also remembers commodity/type filters and the
 selected detail tab, sidebar/curve-list collapse and individual menu-group states
-per demo persona. Older profile records retain their existing settings and acquire
-only the new presentation layout defaults. No market-date IDs, input policies, credentials
+per demo persona. The Market filter is saved as a commodity code, or as none for
+**All markets**. Older profile records keep their other settings and acquire the
+new presentation layout defaults, but not their former Market choice: they show
+**All markets**. No market-date IDs, input policies, credentials
 or authority are persisted as preferences. The preview does not implement account
 profiles synchronized across devices; that follows verified sign-in. Unavailable
 browser storage is reported, not presented as a successful save.
@@ -860,11 +1032,23 @@ on mobile. Its Market data and Settings groups, the curve list and each commodit
 or market-type group expand independently. Returning from the icon rail restores
 the saved group state. These controls are keyboard-accessible and remember their
 state per demo persona in the browser; they do not change permissions or inputs.
+The curve list orders its groups, and the curves within each group, by display
+name with the browser's locale collation; for example, **Local power · all-in
+prices** precedes **Local power forwards**. Grouped by market type, each group
+is one market type. Grouped by commodity, each group is one commodity, and
+interest-rate curves, which have no commodity, form the **Interest rates** group.
+Groups never merge by name. Interest-rate curves appear under **All markets** and
+the **Rates** type filter. The **Market** filter lists **All markets** first,
+then each commodity in display-name order. **All markets** is the absence of a
+commodity filter rather than a code, so any commodity, whatever its code, can be
+chosen on its own. The order depends only on names;
+equal names keep the order of the server's directory response.
 
 Every regular table provides **Filter rows**, **Column filters**, a matching-row
 count and **Clear filters**. Case-insensitive search matches words across displayed
-cells; column dropdowns list their distinct available values and match selected
-whole-cell values exactly. Column selections combine with that search. Matching uses displayed strings,
+cells; text in hidden columns is not searched. Column dropdowns list their distinct
+available values and match selected whole-cell values exactly, and a column filter
+stays active while its column is hidden. Column selections combine with that search. Matching uses displayed strings,
 including exact decimals, without parsing or rounding financial values. Filters
 only hide table rows. Charts, calculations, selected market inputs and connected
 worksheet tables remain complete.
@@ -887,7 +1071,8 @@ selected curve. **Profile → Preview access** allows an explicit switch to Mark
 Data Editor. Use **View changes** on the January gas-future price and save `3.1`
 instead of `3`: January local power builds from `29.1` to `29.8`. The separately
 observed all-in alternative stays `29.1`. This is a data correction and new input
-selection, not an implemented risk-scenario operation. Earlier selections retain
+selection. Temporary [risk scenarios](risk-engine.md) use separate immutable
+overlays without publishing corrections. Earlier selections retain
 their inputs. **View this version** supports explicit reconciliation; the application
 never switches to a newer revision automatically. If a write's acknowledgment is
 lost, reload and inspect **Price changes** before resubmitting. Changing display
@@ -970,8 +1155,11 @@ table filters present. These remain preview QA, not production qualification.
 
 ### Per-contract pricing explanation
 
-Both **Price sources** and **How it’s priced** open on one contract/maturity
-with linked selectors. **Show all contracts** displays a spreadsheet-style worksheet with
+For curves with evaluated dependencies and for rates, **Price sources** and
+**How it’s priced** open on one contract/maturity with linked selectors. A supplied
+curve with no evaluated dependencies shows all contract prices and their source
+observations immediately in a plain table, without single-price boxes or redundant
+contract controls. **Show all contracts** displays a spreadsheet-style worksheet with
 one table per curve, dated contract/price rows and connections between tables; the source table combines and deduplicates their observation
 lineage. **Show selected contract** returns to the retained selection. This shared
 presentation mode applies to rates too, and never changes the selected market
@@ -1062,7 +1250,10 @@ intervals and the explicit rate-date basis retain their meaning.
 
 Currency defaults and supplemental immutable daily-market bundles respect the
 common effective/knowledge context. A later backdated mapping does not alter a
-certified earlier view. The shared backend blotter displays projected swap PV and
+certified earlier view. Migration 0052 rejects a second default for the same
+definition revision, exact currency reference, instant and publication, and the
+lookup raises `swap_discount_ambiguous` instead of choosing between tied latest
+mappings (D166). The shared backend blotter displays projected swap PV and
 futures execution P&L as separate nullable measures, with typed product partitions
 in pivots. Saved account layouts retain their choices. New trade offers Futures
 or Financial swap; both have backed booking and latest-head amendment operations.
@@ -1070,9 +1261,12 @@ The swap editor uses aligned vertical columns and initializes only unset peer
 delivery/currency fields; subsequent edits remain independent.
 
 Owned standard previews include sixteen explicit monthly/daily gas/power examples
-across the same four weekdays, alongside the original eight futures. Seeding uses
+across the same four weekdays, alongside the original eight futures. The examples
+share Book B, while Book A stays futures-only. Portfolio risk now accepts either
+book or their combined holdings under the common instrument valuation operation
+(D181). Seeding uses
 stable authorized commands and retries without duplicates. No live feed, actual
-fixing ingestion, recurring payment strips, swap risk, physical delivery, PPA or
+fixing ingestion, recurring payment strips, physical delivery, PPA or
 fee/reconciliation workflow is enabled by this slice. Broader core averaging
 strategies remain hidden until calendar/weight capture and persistence exist.
 
@@ -1118,9 +1312,11 @@ sample dataset links quotes, rates and trades to `usd` / `USD` / `US Dollar` in
 
 Shared grids suppress row activation after pointer dragging, text selection or
 scrolling. Deliberate pointer and keyboard activation preserve source-row identity
-through virtual scrolling. Schedule tables have a single bounded scrolling area;
-shared table text uses consistent spacing and tabular numeric alignment without
-changing exact values or exports.
+through virtual scrolling. A column width a person sets survives later redraws at
+another grid width, such as when an opened menu adds a page scrollbar, and a saved
+view stores it. Schedule tables have a single bounded scrolling area; shared table
+text uses consistent spacing and tabular numeric alignment without changing exact
+values or exports.
 
 The separately selectable [exchange futures example](exchange-futures.md) uses
 public product facts and synthetic observations. V2 lot normalization supports
@@ -1146,7 +1342,6 @@ sensitivities. The UI formats those results through backend amount formatting,
 clears them when terms/context change, and never books a trade as a side effect.
 Swap drafts report PV; futures drafts report execution P&L and open exposure.
 Variation-margin processing and full futures settlement PV remain unimplemented.
-
 
 ## Shared quote-input scenarios and open futures sensitivity
 
@@ -1179,16 +1374,776 @@ bounds or implement generic booked-swap/rate/volatility risk. Full futures PV an
 variation margin remain unsupported. Core policy and futures convention have new
 v2 identifiers; older calculation artifacts retain their original meaning.
 
+## Generated pilot closes and mixed-book reports
+
+The explicitly configured generated-close operation uses the existing job
+directory, schedules, leases and replacement fences (D169). It retains an exact
+anchor, selected books and root curves, synthetic source, seed, native clearing
+tick bounds and versioned calculation policies. The worker preflights whole
+selected books before writing marks. Its dedicated service runtime cannot import
+observations outside the validated publication operation.
+
+The retained portfolio adapter loads futures execution-P&L holdings and swap-PV
+holdings, preserves their separate measures and shares immutable quote scenarios.
+External quantities scale shared unit valuations. Exact rational summaries retain
+base/up/down cash and derivatives without implicit rounding; rate inputs stay
+fixed during commodity quote shocks. The earlier decimal output policy is
+unchanged. Supplemental swap model bundles are rejected by this operation.
+
+Generated marks and immutable reports have separate commits. A replacement reuses
+published inputs and reports; a close without its report remains an incomplete
+occurrence. Saved report relationships use exact versioned foreign keys for trades,
+bindings, market factors, units and discount inputs. Reading a report requires
+current authority and respects the explicitly selected historical view. Stored
+closes are discoverable in later sessions with their original variable and frozen
+pins. These capabilities do not implement settlement, variation margin, complete
+daily economic P&L or historical VaR, and the managed benchmark does not qualify
+their database or end-to-end throughput. Hosted activation and installation data
+remain separate release operations.
+
+## Audited interval series
+
+Phase A of the [PPA design](ppa-design.md) (§5, §10; proposal P40) is implemented as
+an audited store of values per UTC interval (D173). Shaped interval curves
+([phase B](#interval-prices-curves-and-block-shaping)) read additive and
+multiplicative shape series. Phase C now consumes forecast and meter series
+through exact asset/source bindings for quantity preparation and valuation.
+Settlement acceptance and payment recording remain unimplemented.
+
+**Definition.** A series pins a kind, one exact specification in a sealed reference
+revision, a clock and a resolution of 5, 15, 30 or 60 minutes
+([migration 0067](../db/migrations/0067_interval_series.sql); the contract is
+described in [db/README.md](../db/README.md#audited-interval-series)). The kinds are
+`additive_price_shape` (a quote specification), `multiplicative_price_shape` (a
+dimensionless value specification), `capacity_factor_forecast` (a dimensionless
+value specification: output MW per MW of capacity) and `metered_energy` (a quantity
+specification of the energy dimension). Codes are unique within the catalog. A
+series has no owner binding: the curve for shapes and the asset for volumes arrive
+with their consumers in phases B and C.
+
+**Revisions.** Each revision is an immutable delta that stores only the intervals it
+sets or withdraws, where a `null` value withdraws. It records its actor, a reason of
+1 to 500 characters (padding counts, not blank), its request identity and a
+knowledge time certified at commit on the shared knowledge gate. A read at an
+explicit cutoff takes each interval from the latest revision known then; a
+withdrawn interval has no row. A write names the revision it builds on and fails
+with `interval_series_revision_conflict` if another was saved first. Retrying a
+request identity returns its original receipt; the same identity with a different
+command fails with `interval_series_conflict`. A revision holds at most 200,000
+intervals; larger imports are several revisions.
+
+**Grid and values.** `IntervalSeriesGrid.Expand`
+(`src/OpenEtrm.MarketData/Power/IntervalSeries.cs`) expands each imported segment
+onto the cell grid of the series' pinned clock, using the `PowerHours.IsCell` rule
+that `PowerHours.Compile` also uses. A start that is not exactly one clock cell, a
+start outside 2000-01-01Z to 2100-01-01Z, or an overlap is a structured error;
+nothing is aligned or shifted. Repeated DST hours are separate intervals. Storage
+rechecks that every interval has the series' duration and refuses any interval that
+overlaps a stored one at a different start, withdrawn or not, so a stored interval
+changes only at its exact start. Values are canonical exact decimals of at most 18
+fractional digits, within the series' value specification bounds where it has one.
+The checks of the request alone (lengths, durations, order, decimals and bounds) run
+before the shared knowledge gate lock; the replay, head and stored-overlap checks and
+the writes run under it. The stored-overlap check probes two index ranges per new
+interval, one on each side of its start, so it never visits the revisions stored at
+that start.
+
+**Reads.** A values read returns up to 35,136 intervals (366 days of quarter-hour
+intervals) and the change log up to 100,000 rows, at a cutoff no later than now. A
+revision whose knowledge time equals the cutoff is included. Storage bounds the
+window's duration to 35,136 intervals and returns the whole intervals inside it. It
+refuses with `interval_series_grid` a From or To strictly inside a stored interval of
+any revision, a withdrawn one or one saved after the cutoff included, so no interval
+is silently dropped at either end; a From or To in a gap with no stored interval is
+accepted. Reads never load the pinned clock, so they stay available after a tzdata
+update, and a whole local day across a half-hour clock change is a valid window.
+The change log gives each change's previous value, new value, actor, reason and
+knowledge time, and a summary per revision. The values read visits every stored
+revision of each interval in its window, so its cost grows with the number of
+revisions per interval (measured below).
+
+**HTTP and permissions.** `src/OpenEtrm.Api/IntervalSeriesStore.cs` and `Program.cs`
+serve `GET /api/interval-series` (the catalog, choices and a fresh `knownAt` from
+the database's clock, the clock reads compare their cutoff with),
+`POST /api/interval-series/define`, `revise`, `values` and `changes`. Reads need
+`ReadMarketData`, definitions `WriteMarketDefinitions` and revisions
+`ImportObservations`, and each also needs read access to the reference catalog the
+series pins; a read rechecks that access after certifying its cutoff. Every route
+refuses a historical session with `interval_series_historical`, and a restrictive
+row-level policy hides all five tables from a runtime session in a historical view:
+operations work on current data, and history is read by sending an explicit
+`knownAt` rather than by switching the session. Each read's retained temporal context
+belongs to its cutoff alone, dated by the cutoff's UTC day, since series are not
+effective-dated. Instants are UTC with `Z` or `+00:00` and 0 or 1 to 6 fractional
+digits; reads render `+00:00`. Every request member is required: a missing, unknown or
+unreadable member is refused `400` with `request_format`, and nothing is defaulted.
+Only `revise` accepts bodies up to 8 MiB; every other route keeps 32 KiB. A body over
+its route's limit, with or without a declared length, is refused `413` with
+`request_too_large`, whose message names that limit. A save whose outcome is unknown answers `503` with
+`interval_series_outcome_unknown`; repeating the same request identity recovers the
+receipt.
+
+**Screen.** Market data › Interval series (`web/src/interval-series-view.ts`)
+defines series and shows values and the change log at a chosen Known at. An import
+reads a CSV file with the header `start,value`, UTC starts ending in `Z` and a value
+on every row; an import never withdraws an interval. An editor chooses one interval
+by clicking its row of the values, or by moving to it with the Up and Down keys and
+pressing Enter or Space (the rows share one tab stop). An action bar shows its start
+and value and offers Correct and Withdraw, each requiring a reason. Choosing another
+interval closes a change begun on the last; every read of the values (Show, Reload
+or after a save) and a change of series or time zone clears the choice. The values
+have no row buttons, and the per-interval columns of the values and change-log
+tables (Start, End, the values and Known from) have no column filter, which would
+list one choice per interval; the search box still covers them. Any structured
+refusal from these routes releases the form, since nothing was saved; only an
+unknown outcome (`interval_series_outcome_unknown`, a reply lost or timed out in
+transport, or an answer without a code) keeps the request outstanding for an exact
+retry. Presentation only: grid, values and authority are checked by the backend. In
+Chrome 156 on the benchmark machine below, in three runs of the browser check, the
+largest window, 366 days of quarter-hour values with its 35,136-row change log, took
+2.73 to 2.74 s from Show until both tables were painted, about 0.37 s of it before
+the change log arrived. With it shown, choosing its last interval and starting a
+Correct took 0.20 s, and opening Profile, which disables and enables every control
+on the page, 0.65 to 0.67 s. The renderer's JavaScript heap held 43 to 45 MiB and
+the page about 923,000 DOM nodes.
+
+**Verification.**
+
+```sh
+dotnet run --project tests/OpenEtrm.MarketData.Checks -- --interval-series
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
+  --interval-series-check --browser-check --browser /path/to/browser
+```
+
+The managed checks cover the grid on synthetic clocks, including repeated and skipped
+hours, half-hour offsets and a half-hour clock change.
+`tools/check_interval_series_storage.py` runs 20 storage checks,
+`tools/check_interval_series_http.py` 12 HTTP checks and
+`tests/browser/interval-series.mjs` 38 browser checks. `tools/check_all.py` runs all
+of them: the managed checks with the other managed suites, and the preview command
+above, browser checks included.
+
+### Twenty-year qualification
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/dotnet \
+  --interval-series-benchmark
+```
+
+`tools/benchmark_interval_series.py` runs in the launcher's newly created database.
+The launcher prints its JSON report among its own log lines, as the block that starts
+with a line holding only `{` and ends with one holding only `}`, and exits nonzero if
+a step fails. An editor session drives the same authorized routes as the screen. Its
+import bodies (about 1.2 MB each) exceed the 32 KiB limit of the other routes and stay
+under the 8 MiB limit of `revise`. Each workload defines one series
+(`capacity_factor_forecast`, value specification `test_zero_rate`, clock
+`synthetic_eastern`), so there is one unique contract per workload and no
+scenarios: no valuation or shock is evaluated. The evaluated work is the intervals
+stored, read and logged below. The workloads `hourly_20y` and `quarter_hour_20y`
+each:
+
+1. import 2027-01-01T05:00Z to 2047-01-01T05:00Z with values cycling `0.1` to
+   `0.9`: `hourly_20y` as one revision of 175,320 intervals, `quarter_hour_20y` as
+   four five-year revisions of 175,296, 175,392, 175,296 and 175,296 intervals
+   (701,280 in all);
+2. read one 366-day window from 2036-07-01T05:00Z at a cutoff after the import
+   (8,784 and 35,136 intervals, the second the largest window allowed);
+3. append a correction of 10,000 intervals from the start of that window;
+4. re-read the window at the earlier cutoff and require the same rows;
+5. read the change log for 31 days from the same start.
+
+The workload `hourly_rewrites` imports the same hourly span ten times, each a full
+rewrite of 175,320 intervals that shifts every value along the cycle, so each interval
+ends with ten stored revisions (1,753,200 stored intervals); it then reads the same
+366-day window, every row from the tenth rewrite. The workloads run in this order in
+one API process.
+
+The benchmark stops with the failing workload and step on any refusal, timeout or
+wrong count. It requires the declared interval counts to match the date spans, each
+receipt to match its revision, every read to return exactly the window's interval
+count with the expected values and revisions, and the change log to hold each
+interval's import and correction rows. `requestBytes` and `reviseSeconds` list the
+import requests, one per revision, as the client sent and timed them.
+`maxReviseSeconds` is the slowest revision request of the workload, the correction
+included, to be read against `requestTimeoutSeconds`: this client and the browser
+transport (`web/src/app.ts`) both abandon a request after 20 s, so a slower request
+fails the run instead of being reported. `revisionsPerInterval` is the number of
+stored revisions of every interval the rewrite workload's read visits. Read times
+include the client's decoding of the response. `tableBytes` and `indexBytes` are
+the growth, over the whole workload, of the five interval series tables.
+`apiResidentBytesAfter` is the resident memory of the launcher-owned API process
+sampled with `ps` after the workload, not a peak; since the workloads share one
+process, each figure follows the workloads before it. `cpu` is the architecture and
+logical processor count.
+
+Report (the API, migration, screen and benchmark are those of revision `9280f2a`; the
+commit that records this report changes only documentation):
+
+```json
+{
+  "environment": {
+    "postgres": "16.14",
+    "dotnet": "10.0.402",
+    "cpu": "arm64, 14 logical processors",
+    "memoryBytes": 51539607552,
+    "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "topology": "One machine: client, API (the launcher's Debug build) and PostgreSQL; loopback HTTP and a Unix-socket database."
+  },
+  "workloads": [
+    {
+      "name": "hourly_20y",
+      "clock": "synthetic_eastern",
+      "intervalMinutes": 60,
+      "intervals": 175320,
+      "revisionIntervals": [175320],
+      "requestBytes": [1227470],
+      "reviseSeconds": [1.2],
+      "read366DaysIntervals": 8784,
+      "read366DaysSeconds": 0.044,
+      "correction10000Seconds": 0.073,
+      "changes31DaysRows": 1488,
+      "changes31DaysSeconds": 0.022,
+      "maxReviseSeconds": 1.2,
+      "requestTimeoutSeconds": 20,
+      "tableBytes": 17309696,
+      "indexBytes": 26107904,
+      "apiResidentBytesAfter": 299761664
+    },
+    {
+      "name": "quarter_hour_20y",
+      "clock": "synthetic_eastern",
+      "intervalMinutes": 15,
+      "intervals": 701280,
+      "revisionIntervals": [175296, 175392, 175296, 175296],
+      "requestBytes": [1227308, 1227980, 1227308, 1227308],
+      "reviseSeconds": [1.267, 1.337, 1.122, 1.145],
+      "read366DaysIntervals": 35136,
+      "read366DaysSeconds": 0.103,
+      "correction10000Seconds": 0.066,
+      "changes31DaysRows": 5952,
+      "changes31DaysSeconds": 0.049,
+      "maxReviseSeconds": 1.337,
+      "requestTimeoutSeconds": 20,
+      "tableBytes": 66232320,
+      "indexBytes": 97943552,
+      "apiResidentBytesAfter": 584269824
+    },
+    {
+      "name": "hourly_rewrites",
+      "clock": "synthetic_eastern",
+      "intervalMinutes": 60,
+      "intervals": 1753200,
+      "revisionIntervals": [175320, 175320, 175320, 175320, 175320, 175320, 175320, 175320, 175320, 175320],
+      "requestBytes": [1227475, 1227475, 1227475, 1227475, 1227475, 1227475, 1227475, 1227475, 1227475, 1227475],
+      "reviseSeconds": [1.294, 1.366, 1.301, 1.501, 1.352, 1.347, 1.362, 1.612, 1.588, 1.503],
+      "revisionsPerInterval": 10,
+      "read366DaysIntervals": 8784,
+      "read366DaysSeconds": 0.052,
+      "maxReviseSeconds": 1.612,
+      "requestTimeoutSeconds": 20,
+      "tableBytes": 163250176,
+      "indexBytes": 388669440,
+      "apiResidentBytesAfter": 970932224
+    }
+  ]
+}
+```
+
+(The printed report lists the arrays one element per line; the values are unchanged.)
+
+Three runs of revision `9280f2a` on the same machine, the one above included, gave
+import revisions of 1.20 to 1.23 s (hourly) and 1.12 to 1.55 s (quarter-hour, 4.9 to
+5.6 s for all four), reads of 0.044 to 0.045 s and 0.103 to 0.108 s, corrections of
+0.066 to 0.076 s and change logs of 0.022 to 0.025 s and 0.049 to 0.051 s. The ten
+rewrites took 1.29 to 1.69 s each, the first 1.29 to 1.31 s and the tenth 1.50 to
+1.67 s, and the 366-day read after them 0.052 to 0.056 s, against 0.044 to 0.045 s
+for the same window with one revision per interval. The slowest revision request in
+any run took 1.69 s, against the 20 s timeout. Table growth was identical in every
+run. Quarter-hour index growth was 97,943,552 bytes in one run and 175,013,888 bytes
+in two; rewrite index growth was 388,669,440 bytes in one and 384,425,984 bytes in
+two. Series identifiers are random. In four runs of an earlier version that recorded
+them, the larger quarter-hour growth occurred exactly when the quarter-hour series'
+identifier sorted before the hourly series', so that its keys entered the middle of
+the indexes instead of appending after the last key. The API process held 287 to
+300 MB after the hourly workload, 584 to 643 MB after the quarter-hour workload, which
+follows it in the same process, and 963 to 983 MB after the rewrites.
+
+What this qualifies: one editor session importing and reading a 20-year hourly and
+quarter-hour series through the authorized HTTP path, and rewriting the hourly series
+in full ten times, on one machine with a Debug build of the API and loopback HTTP.
+Stored revision depth is one revision per interval in `hourly_20y` and
+`quarter_hour_20y`, two for their 10,000 corrected intervals, and ten in
+`hourly_rewrites`; deeper revision histories are not measured. The benchmark generates no other load, but the host was
+not otherwise isolated. It does not qualify concurrent clients, a hosted network, the
+API's Release build, the memory of the database process or the API's peak memory.
+The browser's cost to render the largest window is measured by the browser check
+(Screen, above), not by this benchmark. The interval series tables were not
+explicitly analyzed before the reads, so the reads used whatever planner statistics
+existed at the time.
+
+### Durable PPA bookings and bounded HTTP base previews
+
+Slice 4 implements migration 0092, exact typed term storage, immutable binding
+revisions and authorized catalog, validation, booking, amendment, termination,
+status, editor, binding-page and base-preview operations. Concurrent identical
+operation IDs produce one durable result; conflicting reuse refuses. Forward
+amendment and termination preserve historical bindings and original economics.
+The binding-page operation returns stored bindings, not valued schedule rows.
+
+Accepted R3 admission checks the complete requested PPA position set before any
+valuation. Incompatible definition/reference pins refuse the whole operation;
+explicit compatible subsets remain labeled as subsets. Retained obligations and
+certificate holdings survive ended delivery. Current reference authorization
+precedes pin diagnostics and is rechecked before disclosure. Separately authorized
+PPA frame discovery does not add PPA-only bundles to ordinary workspace inventory.
+The legacy trading blotter lists futures and swaps; it does not list PPA bookings.
+
+Verification passes 44 durable-storage checks, 12 temporal-storage checks, three
+whole-book consumer guards, 18 basic HTTP checks, 43 independent economic HTTP
+checks and 18 R3 checks covering all ten accepted cases. Advertised compositions
+have exact compiler/book/editor/stored-valuation round trips. Independent probes
+cover authority expiry and revocation, full payment-calendar coverage, exact
+response/work boundaries and original-price replay over selected delivery coverage.
+The managed suite retains 493 checks and all 122 independent Fraction/ZoneInfo
+oracle comparisons; prior source, swap, draft and pilot-close regressions pass.
+
+Complete HTTP base previews were measured with one instrument, one binding, five
+sides and one scenario per workload. Each request performed one unit valuation,
+five side calculations and two series validations/selections. A separate two-binding
+80+20 MW check produced exact 2,500 with one unit valuation and one reused result.
+
+| Workload | Native intervals / evaluated side rows | Full HTTP seconds | Allocated bytes through result construction | Sampled peak resident bytes |
+| --- | --- | --- | --- | --- |
+| 20-year hourly | 175,320 / 876,600 | 9.007 | 6,614,174,904 | 3,165,044,736 |
+| 10-year quarter-hour | 350,688 / 1,753,440 | 19.005 | 12,895,192,872 | 4,510,285,824 |
+
+Both measured requests met the existing 20-second target. Each is one warm-service
+sample with fresh request-owned preparation, not a latency guarantee. The hourly
+case uses Eastern weekday 07–23 and 720 unique market contracts; the quarter-hour
+case uses Central weekday 06–22 and 360 contracts, with an explicitly compatible
+ERCOT 15-minute source. Exact independent totals are 80,803,200 and 40,408,960.
+The environment is macOS 26.6.2 Arm64, 14 logical processors, 48 GiB RAM, .NET SDK
+10.0.402, Debug API and stock PostgreSQL 16.14 on the same machine over loopback.
+
+Full HTTP time includes authorization, reads, preparation, valuation, serialization,
+transfer and JSON parsing. Admission/definition reads took 0.206/0.217 seconds;
+remaining reads/preparation took 6.510/13.285 seconds; valuation/result construction
+took 2.273/5.484 seconds. Allocation deltas are process-wide cumulative traffic
+through result construction, excluding serialization. RSS was sampled every 100 ms
+(84/176 samples, maximum gaps 0.125/0.128 seconds); these maxima include process
+history and are not OS high-water marks. The platform returned no usable .NET peak
+working-set measurement. Neither wire byte counts nor repeated latency percentiles
+were measured.
+
+D198 bounds requests independently of the timings: 32 KiB bodies, 8 memberships,
+100 assets, 256 bindings, 360 hourly or 120 quarter-hour months, two million
+evaluated rows, four million preparation contributions, 35,136 returned native rows
+over at most twelve detail months and 8 MiB UTF-8 responses. Capacity preparation
+uses a conservative day-count bound. The 20-second cancellation deadline is not
+hard CPU preemption; managed work checks cancellation at phase boundaries.
+Unproven standalone TOU versions and scopes with no retained bindings refuse
+explicitly. Whole-month capacity pricing remains required. No secondary
+optimization is implemented; later slices are described in their own sections.
+
+Independent adversarial review resolved reproduced correctness findings. The
+enlarged long-workload fixture's ordinary navigation failure was subsequently
+reproduced and fixed in a separately bounded follow-up. The curve-classification
+query used nested joins that repeatedly scanned exact-revision contracts and
+interval metadata, repeating volatile RLS visibility checks. Its five-second
+Npgsql command timeout canceled the query; a database-owner timing concealed the
+runtime authorization cost. The query now materializes those two exact-revision
+sources once under the same runtime RLS context before its unchanged left joins,
+membership validation and interval-curve exclusion. No timeout, policy, schema,
+inventory semantics or financial calculation changed.
+
+On fresh owned fixtures, baseline navigation changed from 0.084 to 0.058 seconds;
+enlarged navigation changed from HTTP 500 after 5.039 seconds to 0.175 seconds.
+The enlarged selected bundle contains 1,372 memberships, 1,342 contracts and 97
+interval metadata rows. Runtime EXPLAIN ANALYZE confirms one scan of each
+materialized source; the fixed classification query took 168.552 ms. A failing
+HTTP regression preceded the fix. The baseline and enlarged checks compare the
+complete authorized directory and retained contexts, including hidden-member
+refusal, revoked scopes, restored access and PPA frame exclusion. Independent
+adversarial probes reproduce those outcomes. These are local synthetic samples,
+not concurrent-load qualification. The follow-up also reruns all 43 independent PPA
+HTTP economic cases, all 18 R3 checks and exact reuse checks. Complete hourly and
+quarter-hour previews take 9.435/19.186 seconds, both below 20 seconds, with
+6,604,508,952/12,914,644,984 bytes allocated through construction and
+3,094,724,608/4,429,676,544 bytes sampled peak RSS under the same measurement limits.
+
+### Not done and limits
+
+- Interval curves and PPA quantities consume series through their exact sealed
+  curve/source/asset bindings. The series itself remains an independent reusable
+  definition; visibility follows catalog/reference and applicable restrictive
+  policies. There is no settlement acceptance consumer.
+- No historical session mode. Series pages and routes refuse a session in a
+  historical view, and storage shows such a session no series rows; history is
+  available only through an explicit `knownAt`.
+- No agent tool entry point yet. The operations exist only as the authorized HTTP
+  operations that the screen also uses.
+- A write checks stored overlaps and inserts while holding the transaction lock of
+  the shared knowledge gate, which every temporal read and certified write also
+  takes, so those operations wait for it; only the checks of the request alone run
+  before it. Revisions of 175,296 to 175,392 intervals, including full rewrites over
+  up to nine stored revisions per interval, took 1.12 to 1.69 s end to end in the
+  measurements above (one session, Debug build, loopback), which bounds that wait for
+  revisions of that size; a 200,000-interval revision was not measured. The
+  200,000-interval cap exists because an earlier trial of a single 701,280-interval
+  append exceeded the 5 s command timeout while holding that lock.
+- A revision of 200,000 long decimals can exceed the 8 MiB body limit and is then
+  refused `413` with `request_too_large`: that happens above roughly 38 characters
+  per value, while the benchmark's values have 3.
+- A revision expands onto the pinned clock, and an IANA-zone clock is used only
+  while the installed tzdb release equals the one its clock rule declares (D127).
+  After a tzdata update, every revision of an existing series on an IANA-zone clock
+  is refused with `clock_tzdb`, and the series cannot be re-pinned to a successor
+  reference revision: open decision O27. Reads never load the clock and stay
+  available; the HTTP check reads values and the change log of a series whose clock
+  declares another release, and only its revision is refused. Fixed-offset clocks are
+  unaffected.
+- Each values or change-log read at a new cutoff stores one retained temporal
+  context, and a catalog holds at most 4,096 of them, never reclaimed
+  (`knowledge_limit`). This existing platform limit is open decision O07; every
+  such interval series read counts against it, and the benchmark stores five.
+- Reads are bounded and not paged: windows over 35,136 intervals or change logs over
+  100,000 rows are refused, not truncated. A values read's cost grows with the
+  revisions stored per interval, which nothing bounds.
+- The screen renders a whole window at once and is not paged. While the largest
+  window was shown in the three runs above, the browser's renderer process peaked at
+  2,042 to 2,050 MiB resident (sampled with `ps` during the check, not by it), against
+  a JavaScript heap of about 45 MiB.
+
+## Interval prices, curves and block shaping
+
+Phase B of the [PPA design](ppa-design.md) (§6, §9 oracles 1–4, §10; proposal P40) is
+implemented as reusable interval-price behaviour in `src/OpenEtrm.MarketData/Power`,
+authorized reads and a Market data screen (D174). Phase C now consumes these
+prices for reusable PPA sides, durable bookings, base valuation and existing-close
+risk. Settlement remains Phase D work. The
+storage contract is in [db/README.md](../db/README.md#interval-curves)
+([migration 0070](../db/migrations/0070_interval_curves.sql)).
+
+**Interval contracts and marked curves.** `market_data.contract_intervals` gives a
+forward its exact UTC interval and the labels its clock gives it: operating date,
+hour beginning, minute and occurrence (2 only for the second pass through a repeated
+local hour). An interval contract delivers from its operating date to the next day
+and expires at its interval end, and a curve's constituents are all interval or all
+date-only. `IntervalContracts.Validate` requires every constituent to be one distinct
+cell of `PowerHours.Compile`'s grid for its curve's delivery profile, labelled as
+that compiler labels it. A directly marked interval price is an ordinary observation
+of the contract's series, built by `CurveModel` like any mark; because the contract
+expires at its interval end, the mark of an ended interval is never built.
+
+**Blocks and shaping.** `curve_blocks` makes a direct, date-only curve a block curve:
+all hours, or the peak or off-peak hours of one published TOU product version
+(`IntervalBlocks`; holidays are off-peak). A shaped curve names one all-hours block
+or the peak and off-peak blocks of one TOU version, a method (`additive` or
+`multiplicative`) and one phase A shape series. Its blocks share one `DeliveryGrid`:
+the clock, interval length and holiday calendar of their delivery profile.
+`BlockShaping.Prepare` selects every block constituent the window touches, compiles
+its whole delivery period, requires the blocks to cover every interval in the window
+exactly once (`interval_block_partition`) and every block interval to have a shape
+value with its exact boundaries (`interval_shape_coverage`; a withdrawn shape
+interval is a gap). `BlockShaping.Evaluate` then calibrates each block exactly under
+`duration_weighted_block_mean_v1` and `block_shape_v1`: additive
+`Pᵢ = M + oᵢ − Σ(dⱼ·oⱼ)/Σdⱼ`, multiplicative `Pᵢ = M·fᵢ·Σdⱼ/Σ(dⱼ·fⱼ)`, so each block's
+duration-weighted mean equals its mark, and a non-positive weighted factor mean is
+`interval_shape`. Prepared inputs are evaluated per market scenario: with a base
+build of the same definition, a block whose mark, mark lineage and shape values and
+revisions are unchanged is reused, so a block-mark shock recalibrates only its block.
+Each price keeps its block mark's observations and the revision that last set its
+shape interval at the cutoff. Prices stay exact fractions; the API adds a six-place,
+ties-to-even display string (`half_even_6dp_display_v1`).
+
+**Actual and projected resolution.** `curve_actual_rules` gives a curve that has a
+collected-price source ([0063](../db/migrations/0063_power_curve_settlement_sources.sql))
+the instant each interval's actual is due: its start or end plus an offset of up to
+seven days (`interval_actual_due_v1`). `IntervalPricing.Resolve` is bitemporal: an
+interval that has ended at the valuation instant takes an actual known by the
+cutoff, while one still live then takes only an actual already known at the
+valuation instant (a day-ahead fixing), so no later publication prices it in
+hindsight. Otherwise an interval whose actual is due is refused
+(`interval_actual_missing`), an ended one is `Unresolved` with no price, and a live
+one takes its pinned mark. Actuals come from the existing collected-price reader at
+the cutoff and must be in the curve's exact price unit; one known after the cutoff
+is refused. `IntervalPricing.Aggregate` returns duration-weighted means
+(`duration_weighted_price_mean_v1`) per whole local hour, the repeated hour twice, or
+per whole operating day; a window that cuts one is refused (`interval_aggregate`).
+Each keeps its native intervals and has no mean while one is unresolved. Cash with varying quantities stays Σ(MWh × price) in
+`PowerSettlement`.
+
+**Reads.** `POST /api/interval-curves/catalog` lists the marked and shaped curves of
+the selected frame, with the database clock as `knownAt`; `POST
+/api/interval-curves/values` returns the points of a window of at most 35,136
+intervals whose ends are grid boundaries of the curve's clock and whose every
+interval is one of the curve's (`interval_curve_coverage`). Marks come from the
+frame's pins. Like a close, a frame selects only the interval contracts live at its
+valuation instant; an ended interval comes from the curve definition and has no mark,
+so a plain marked read refuses a window that includes one (`interval_delivered`) and
+`resolve` prices it from its actual. A shaped curve's shape and a resolved curve's actuals are read as known
+at an explicit `knownAt`: a frame's cutoff is its valuation instant, earlier than
+any shape revision or collection certified since, so the knowledge time is a request
+input that a plain marked read refuses (`interval_curve_cutoff`). `resolve` uses the
+frame's valuation instant, and `aggregate` (`hour` or `day`) requires it. Both routes
+need ReadMarketData, authenticate before reading the snapshot and refuse a historical
+session (`interval_curve_historical`), because TOU products and shape series are
+current definitions. Every request member is required, `null` where it does not
+apply, and unknown members are refused (`request_format`), as for interval series.
+The catalog lists a curve whose definition cannot be resolved, such as a block
+period its holiday calendar does not cover, as `unavailable` with its reason; it
+neither drops it nor fails the other curves. A shaped or resolved read also returns
+the knowledge contexts its shape or actual reads used. Points carry their labelled `interval`, an exact `price` with its
+display string, and their lineage: observations, block and shape revision, or state,
+due time and the actual's provider revision and knowledge time.
+
+**Screen.** Market data › Interval curves reads the market date chosen in the header.
+It offers a curve, a From and To in the profile's time zone, Known at (pre-filled with
+the catalog's database time and needed only for a shaped or resolved read), Resolve
+for curves with a due rule, and an hour or day aggregate. A chart (the shared chart,
+without point symbols and sampled for display) and a table show each native
+interval, the repeated hour with its UTC offset. Choosing a row or an aggregate states
+where its price came from, without internal identifiers. An unavailable curve is
+listed with its reason and cannot be read.
+
+### Shared price resolution and balance blocks
+
+Phase C slice 1 (D194) adds `PreparedCurve` and `IntervalPriceResolver`. Each
+request prepares exact sources, shape revisions, actuals, coverage, valuation and
+knowledge inputs once, partitioned by operating month. Resolvers retain those same
+immutable inputs per scenario. Unaffected months reuse their base arrays; a changed
+month reuses unchanged block calibrations. New requests cannot borrow a prior
+request's cache, even when their curve codes match. `ExactQuantity.Times(ExactUnitPrice)`
+produces exact money with the quote multiplier applied once.
+
+[Migration 0090](../db/migrations/0090_interval_price_sources.sql) adds shaped actual
+rules, explicit period/balance membership and opt-in `freeze_final_settlement_v1`.
+The collected-source predicate is shared without changing its accepted inputs.
+Sealed balance definitions retain exact quote, commodity, location, profile, product
+membership and operating-day coverage. A selected live balance calibrates its own
+complete period; actuals replace individual cells unchanged. Overlapping selected
+live anchors for the same product interval and missing coverage are refused.
+
+An expired opted-in block requires the exact selected final contract settlement;
+there is no last-mark fallback. Its source, final role/state, expiry condition,
+market cutoff and certified publication knowledge must qualify. A live cell cannot
+use a final learned after valuation, even at a later research cutoff. Derived cells
+are `Modeled`, labelled `final_settlement_anchor` and `frozen_anchor_only`, explicitly
+reporting missing live market-risk coverage. A raw shaped read refuses frozen
+anchors so it cannot omit these labels. Ended cells before the actual deadline
+remain `Unresolved` with an optional estimate; due missing actuals are refused.
+
+`POST /api/period-curves/values` consumes whole date-only periods of single-index
+curves under the same authorized read operation. Live marks are `Projected`;
+qualified due index fixings are `PublishedFixing` through the existing swap
+eligibility helper. Missing due fixings and expired marks without a qualified
+fixing fail. The managed period consumer also supports explicit empty fixing
+schedules; the HTTP factory currently requires a single-index settlement target.
+The interval screen shows resolved shaped states, estimates, anchors and missing
+live coverage; optional exact quote shocks use the shared scenario engine.
+
+Verification includes 385 managed check groups, 208 web tests, 84 interval storage
+checks, 51 HTTP checks and 22 Chrome checks, plus the unchanged 23-check collected
+source suite. A separate Python `Fraction`/`ZoneInfo` oracle matches 8,528 exact
+HTTP cells across ten additive, multiplicative, frozen and base/up/down comparisons.
+The 20-year hourly reuse workload covers 240 months, 480 unique block contracts and
+24 factor pairs: each shock recalibrates one block and reuses 239 whole months.
+This is a curve-consumer measurement, excluding database, API, authorization, trades
+and portfolios; it does not qualify production throughput.
+
+### Asset quantities and exact contract factors
+
+Phase C slice 2 (D195) implements the quantity foundation, using migration
+[0091](../db/migrations/0091_ppa_reference.sql). Generation assets, effective
+capacity/accreditation versions, volume sources and location/attribute assignments
+are sealed market definitions with exact reference foreign keys and current
+authorization checks. There is no runtime definition-write API. Reads retain one
+selected definition/reference bundle; they do not choose a policy for future
+bindings across revisions.
+
+`AssetVolumes` computes whole-asset MWh from capacity-factor forecasts and native
+interval duration, applying only explicitly selected forecast adjustments. Meters
+are already MWh. Requested generated/delivered stage conversion applies exactly
+once. Sources pin their series, clock, grid, stages and `meter_due_v1` elapsed-minute
+deadline. Delivered readings and corrections follow the certified knowledge cutoff;
+live intervals always use forecasts. Before a missing meter's deadline, only explicit
+`estimate_until_actual_v1` permits an estimate. At deadline equality and afterwards,
+both pending policies refuse missing meters. Price deadlines remain independent.
+
+`CapacityNormalization` sums every declared asset's energy at the requested stage,
+then divides by the sum of those same assets' MW capacity bases in force. Explicit
+zero energy retains its capacity denominator; missing or duplicate contributions
+fail. Each asset retains its own normalized contribution, source revision and
+capacity version. Daily accreditation uses summed accredited MW over summed basis
+MW, requiring explicit accreditation for every asset. External contract MW scales
+the result once. `ContractProfileQuantity` instead compiles per-contract-MW energy
+on all-hours or exact published peak/off-peak profiles without asset normalization.
+
+`anniversary_step_v1` uses an explicit non-February-29 base. Escalation `(1+r)^t`
+and degradation `(1-r)^t` use bounded exact fractions, including twenty-year
+powers that exceed eighteen decimal places. `LocationValuation` requires one exact
+assignment across each consumed interval or operating day, retaining its declared
+additive adjustment and price unit. It refuses gaps, overlaps and subdivisions.
+
+Authorized current-session `POST /api/ppa/quantities`, `/api/ppa/capacity` and
+`/api/ppa/profile` consume these definitions and return exact rational quantities
+with version/source lineage. The interval read window is at most 365 elapsed days,
+at 15 or 60 minutes; an asset set contains 1–100 distinct assets. These operations
+provide quantity previews, not schedule amounts or instrument valuations.
+
+Independent managed acceptance adds 26 behavior groups covering the same-asset
+numerator/denominator, zero versus missing contributions, capacity-version changes,
+exact compounding, DST, deadline equality and later-known corrections. Adversarial
+regressions cover exact identities, immutable prepared rows, certified revision
+ordering and multi-year holiday calendars. All 411 managed PASS groups and 208 web
+tests pass, including the preserved slice 1 checks. Another 76 native PostgreSQL
+storage checks and 32 HTTP checks exercise seals, authority, certified reads and
+endpoint contracts. The slice 1 interval/storage/browser/oracle and collected-source
+suites also pass against migration 0091.
+
+### Managed covered side valuation
+
+The managed consumer adds physical energy, fixed and indexed payments, certificate
+holdings and whole-month capacity agreements. Each side generates a schedule and
+values exact quantity/price components through the shared resolver; `SidedInstrument`
+applies membership signs. The shared portfolio then applies binding MW once.
+Physical, virtual, indexed and basis compositions have explicit role and quantity
+validation. Price multipliers precede adders; anniversary and stepped strikes retain
+their original dates across coverage boundaries.
+
+Bindings retain the full instrument term and select native half-open delivery
+coverage. Payment dates come from original complete operating months. Earlier
+coverage retains outstanding amounts and current marks for its original certificate
+vintages, including annual vintages. Capacity sums daily accredited-MW/basis ratios
+into one MW-day period row with asset/location contributions. It requires complete
+operating months and one price assignment covering each component's whole month.
+
+`ValueExcludingOverdue` includes future dated PV and current holding value. Known
+and estimated overdue cash remain separately visible, without PV, and make
+`CompletePv` unavailable even when their net balance is zero. Historical physical
+value is separate. Commodity risk preserves these base companion measures and
+reports their contributing bindings. Holdings remain exposed to their exact vintage
+marks. Input and scope receipts retain source/policy pins, native coverage, scenario
+and resolved factors even when no row detail is requested.
+
+Preparation requires an explicit coverage map for every selected instrument. Its
+union selects native quantity cells before meter admission; uncovered history does
+not create a meter or price requirement. Complete declared price blocks still
+calibrate using their full shape. Valuation outside prepared coverage is refused.
+An explicit profile mask may select no delivery cells and has a zero result.
+
+One request owns its prepared quantities, raw prices and covered unit calculations.
+Raw source/month work is shared; normalization remains instrument-specific and is
+not counted as normalized-row reuse. A complete side value is evaluated within its instrument and sibling context. Unit
+cache admission compares resolved factors as well as immutable input/coverage
+identity; commodity scenarios reject a changed factor context. The managed consumer
+admits at most two million evaluated rows per scenario session and 35,136 detailed
+rows per unit request before row valuation. Selected-coverage quantity/input preparation
+remains eager; native grid compilation may still visit unselected months.
+D198 adds HTTP work and response limits; D200 adds durable admission limits.
+These bound admitted work, not every preparation allocation or completion time.
+
+Checkpoint B correctness verification passes 474 managed PASS groups (490 internal
+runner checks), including 45 independent acceptance groups and 14 preparation
+groups. A separately implemented Python Fraction/ZoneInfo oracle matches all 122
+managed outputs across the 12 accepted cases and nine additional example families.
+The rates suite passes 76 checks; the API builds with zero warnings/errors. Existing
+swap, draft and pilot-close checks retain their financial expectations, and the
+slice 1/2 native storage, HTTP, browser and oracle checks remain green. Independent
+review reproduced and resolved scaling, factor-context, vintage, coverage-admission,
+composition and receipt defects before closure.
+
+Checkpoint B reuse measurements use one 20-year hourly five-side instrument,
+175,320 hours, 100 trades at 80 MW, five books, 720 unique market contracts and
+49 scenarios. Three fresh-input Release samples per workload ran on an Apple M4
+Pro (14 logical processors, 48 GiB), macOS 26.6.2 Arm64 and .NET 10.0.13. Full-term
+bindings have one scope, 49 unit calls and 245 side calculations; 50 full-term trades
+plus 50 two-segment trades have three scopes, 101 unit calls, 46 unchanged scenario
+values reused and 505 side calculations. Both perform 240 raw source/month
+computations, resolve 528 curve months and reuse 22,992. Evaluated rows are
+42,953,400 and 65,748,490 respectively. Every sample matches independent exact
+base/delta/gamma expectations and work counters.
+
+Full-term total samples take 77.695/121.953/109.983 seconds; amended samples take
+121.155/114.473/138.711 seconds. Median totals are 109.983/121.155 seconds and
+scenario-stage medians 35.701/52.862 seconds. Median cumulative managed allocation
+is 84,478,248,384/117,711,909,032 bytes. The complete benchmark process peaks at
+1,320,943,616 resident bytes, measured by the OS; that is not a separate workload
+peak. Preparation is included, synthetic fixture creation excluded, and there is
+no explicit warm-up. Preparation variability and substantial allocation traffic
+limit performance conclusions. This completes Checkpoint B. At that checkpoint service work remained deferred; D197 subsequently
+accepts R3 policy without implementing its booking or whole-book operations.
+
+The subsequent bounded optimization prepares immutable quantity-series indexes
+once per request. Exact series content, captured clock rules and the fixed knowledge
+context govern reuse. Consumer headers still validate on every use; complete supplied
+cells retain native-grid, duplicate/revision and certification checks before cutoff
+selection, including cells outside selected coverage. Meter deadlines remain per
+interval. The index caches observations, not normalized quantities or side values.
+Standalone quantity calls use fresh owners, and reader withdrawal/authority behavior
+is unchanged.
+
+A runtime work-count check first failed with four full-series validations/selections
+across two months, two instruments and four sides, then passed with two: one forecast
+and one meter per request. Twelve independent preservation groups, all prior managed
+checks and the 122-output independent oracle pass. Native PPA, interval/browser,
+collected-source, stored-swap, draft and pilot-worker regressions also pass. The full
+managed run contains 487 PASS groups (492 runner checks).
+
+For one five-side instrument, one 80 MW binding and base valuation only, three
+fresh-process Release samples reduce median 20-year hourly time from 31.984 to
+5.126 seconds and cumulative allocation from 23.814 to 5.757 GB. The 10-year native
+quarter-hour case falls from 35.802 to 9.072 seconds and from 29.602 to 11.438 GB.
+The workloads evaluate 876,600 and 1,753,440 side rows over 720 and 360 unique market
+contracts, with one scenario, one unit calculation and five side calculations each.
+Whole-series validation and selection pass counts fall from 480/240 to two in both
+cases; raw source/month and numerical row work remain unchanged.
+
+Maximum observed process RSS across each control and three instrumented samples is
+0.932 to 0.930 GB hourly and 1.969 to 1.791 GB quarter-hour. This includes fixture
+construction and report output, whereas elapsed/allocation measurements exclude
+them. Allocations are cumulative traffic, not retained memory. Measurements use the
+same M4 Pro, 48 GiB, 14-processor, .NET 10.0.13 Release environment described above.
+They establish the stated in-process base workloads only, without a service latency
+or preparation-memory guarantee. No secondary optimization is implemented.
+
+### Not done and limits
+
+- Synchronous PPA HTTP previews provide base valuation. Read-only existing-close
+  book risk has authorized HTTP admission, worker execution and persisted typed
+  reports (D200/D201). Legacy generated-close operations still refuse PPA
+  positions; generated-close cutover is unimplemented. No operation publishes a
+  supported subset as a complete incompatible-book total. Settlement acceptance
+  and payment recording remain unimplemented; realised valuation is not payment.
+- The measured reuse workload is synthetic in-process arithmetic, not service
+  throughput or production qualification. Selected-input preparation is eager; detail limits
+  apply before valuation but do not establish a preparation memory bound.
+- There is no historical session mode. Knowledge times are explicit per request,
+  not pinned in a frame.
+- A live interval priced by an actual known at the valuation instant (a day-ahead
+  fixing) is evidenced by managed checks only: the collection worker certifies
+  actuals at the database clock, after every synthetic frame.
+- Live balance and frozen-anchor pricing require explicitly admitted definitions
+  and selections. Frozen-only coverage is a limited valuation model, not complete
+  remaining-period market-risk coverage. Real publisher final schedules and usage
+  rights require separate qualification.
+- Block holidays come from the delivery profile's calendar, which must cover each
+  block period (`power_calendar`).
+- The screen was measured on the synthetic shaped curve's widest span, 1,465 hourly
+  intervals, not a multi-year window.
+
+
+
 ## Nested stress and background risk
 
-The futures risk operation accepts up to sixteen signed absolute quote stresses
+The portfolio risk operation accepts up to sixteen signed absolute quote stresses
 in parent order. Immutable managed scenarios retain the original snapshot and
 derive a distinct identity for each child; removing a child leaves its parent
 usable. Up/down risk is measured around that stressed base. Work receipts include
 market preparation, shared unit evaluations and book quantity applications.
 
 The header's resolved effective/knowledge context and exact market frame feed
-both immediate calculations and queued jobs. Migration 0036 retains authorized
+both immediate calculations and queued jobs. Migrations 0073 and 0074 retain authorized
 request identities, exact context/book/observation/curve-membership references,
 financial choices and the engine fingerprint. The UI supports queueing, truthful
 cancellation status, uncertain-submit reconciliation, recent owned jobs and
@@ -1204,119 +2159,362 @@ cross-run caching and process-death confirmation for an unacknowledged
 cancellation remain unsupported. See [risk engine](risk-engine.md) for contracts,
 worker provisioning, limits and the isolated verification entry point.
 
-### Applicable selectors and data-backed calendars
 
-Futures entry narrows its authorized priced catalog by commodity, exchange,
-product, delivery start and exact pricing curve. Swap selectors expose searchable
-commodity-linked indices, explicit quote-unit defaults and reset-specific delivery
-periods whose pinned market inputs can actually be priced. Missing observations
-remove choices; structural errors remain failures. Parent changes clear
-incompatible selections and draft results. Power product/hour/grid choices come
-from executable presets; empty reference categories and unavailable market curves
-are omitted.
+The `/api/portfolio/risk` operation and its catalog/jobs routes use the common
+portfolio materialization and calculation path also consumed by D169 generated
+closes. The current eight futures and sixteen swaps can be selected together.
+Exact market partitions preserve supplemental definition revisions, observation
+uses and curve memberships through migration 0074's foreign keys; current
+reference visibility and actor/service authority apply throughout. The earlier
+futures routes retain their original numerical and valuation contracts. Recent
+portfolio job history selects the portfolio operation convention.
 
-Market-date calendars use the user's zone and retain exact observation/correction
-identities in the selected day's time list. Swap/futures delivery dates remain
-contractual dates. Migration `0038_available_delivery_dates.sql` supplies certified,
-scoped collected-price dates; the managed service also supplies contiguous range
-limits. The browser filters these supplied values without deriving financial
-calendars. Historical knowledge cutoffs and schedule authoring retain their
-separate semantics. No deployment or publication is implied by these local changes.
+This enforces the existing D95/D145/D148 boundary (D181): instruments implement
+`PV()` and a required complete `Declare()`, while the generic risk engine compares
+returned values under shared scenarios. `Side.GenerateSchedule()` and `Side.PV()`
+are implemented abstract contracts; universal instrument schedule generation
+remains proposed. Futures retain their explicit execution-P&L measure. A PV-only
+model needs no artificial discount provider; actual side discount inputs remain
+mandatory when the side consumes them.
+
+The explicit rational policy supports holding detail as well as book summaries,
+including nonterminating PV and sensitivities. The backend returns exact decimal
+or fraction strings alongside display values rounded to twelve decimal places,
+ties to even. Futures execution P&L and swap PV stay separate measures, and rates
+remain fixed under commodity shocks. Unaffected market partitions retain every
+requested holding with zero sensitivity. The common engine's existing decimal
+policy continues to reject unrepresentable output instead of changing its meaning.
+
+### Guided PPA booking and inspection
+
+The PPA page uses the installed composition and reference catalog, with explicit
+parties, book, delivery coverage, contract MW, independent components and payment
+conventions. Validation and base valuation precede a reviewed booking. Amendments
+preserve the original revision pins and label the replacement-only preview;
+termination shows the exact boundary and retained bindings. An uncertain submission
+keeps its operation identity and exact body in actor/workspace-scoped browser session
+storage for status recovery or identical retry. Browser storage grants no authority.
+
+The PPA blotter pages authorized retained trades separately from other products.
+Individual valuation is an explicit subset; complete-book valuation refuses every
+incompatible binding under R3. The page displays all four C7 measures, economic
+classes, original payment periods and historical bindings. Exact fractional amounts
+remain fractional strings. Native inspection pages show selected interval quantities,
+prices, units, states, gross values and provenance, including both repeated DST
+hours. The inspector is read-only and does not imply cash settlement.
+
+`POST /api/ppa/directory` admits the selected books before returning at most 64
+trades. `POST /api/ppa/inspect` accepts one trade, binding, side and detail month,
+returning at most 128 interval rows. The existing full-request limits and current
+authority rechecks apply. Neither route introduces cross-request valuation reuse
+or changes the bounded consumer's economic policies. The guided browser suite is
+part of `tools/check_all.py` and uses only the launcher's owned synthetic database.
+
+Migration 0093 supplies the narrowly authorized authoring directory and historical
+binding projection. Authoring choices are current-known and eligible at the selected
+frame's effective instant, matching the existing booking execution contract. The
+migration preserves private visibility helpers, actor-owned operation recovery and
+all prior row-security rules; it introduces no tables or write permissions.
+
+Local qualification passed 30 browser checks against the owned enlarged synthetic
+fixture, 215 frontend tests, 493 managed core checks, the durable booking and
+temporal storage checks, 43 independent economic HTTP checks, 18 R3 checks and
+8 UI API groups. Browser evidence covers physical and virtual booking, original
+payments and retained certificate holdings, separate known/estimated overdue
+amounts, repeated DST hours, revision refusals, duplicate clicks and recovery after
+a lost reply and reload. MW-only amendment preserves independent component
+quantities, exact links and normalization assets. Current authority/context changes
+clear retained views; another authorized reader can inspect history without
+accessing the submitting actor's private operation receipt. Enlarged-fixture
+navigation and a 390 px mobile layout pass, with no uncaught browser errors.
+Independent adversarial review closed with no unresolved blocker.
+
+This qualifies the synthetic local browser flow, not every browser/device,
+production authentication, accessibility certification or concurrent deployment.
+Wide detail tables scroll locally; the four primary measures remain visible at
+390 px. No new long-term performance measurement or secondary optimization is
+claimed. The existing-close risk consumer is described below.
 
 
-### Financial swap notional and trade review
+### Existing-close PPA book risk
 
-The ticket labels its sole supported quantity basis as **Total for each side’s
-delivery period**. Compatible units are available from the authorized commodity
-catalog before an exact projection curve is selected. The amount is converted by
-`Quantity.ConvertTo` into the selected quote’s exact quantity specification;
-booking persists that canonical external trade quantity. The original entry unit
-is not stored. Fixed and floating sides remain reusable unit definitions. Daily
-observations average prices into one payment; each side's independent delivery
-month receives the full total even when the periods differ. No schedule duration
-or reset count multiplies notional. The existing instrument/side implementation
-versions retain this meaning; no booked economics or financial schema changes.
+`POST /api/jobs/close-book-risk/create` admits the explicit one-off
+`close_book_risk_v1` operation. It selects an existing recorded close and complete
+books, not a set of generated marks. The admitted receipt retains the close,
+certified context, trading publication head, valuation-instant PPA knowledge
+cutoff, economic/numerical policies and resolved native bump list. Replays return
+the original admission. Retries prepare against those exact retained inputs and
+check the resulting factors and declared work against the receipt.
 
-Managed Price, booking Preview and Editor responses now identify the application
-basis and return resolved quantity, signed trade cash and signed trade payment PV.
-Those fields scale exact normalized payment values by the membership coefficient
-and external trade quantity once. Primary review shows those rows, contractual
-prices and fixed/projected states. Normalized quantities/weights and technical
-lineage stay expandable. Narrow screens show complete payment summaries without
-requiring horizontal scrolling for cash, date, DF or PV.
+The managed portfolio adapter includes coverage-bound PPA positions in the shared
+base/up/down valuation engine. Complete-scope admission checks authorization and
+exact bundle compatibility before product-specific reads can hide positions.
+Incompatible or unsupported bindings refuse the whole operation with authorized
+binding diagnostics. Held certificates keep their native vintage-mark sensitivity;
+known and estimated overdue balances remain separate from outstanding value.
+Report mode distinguishes an existing close from a generated close. Typed receipt
+rows retain interval input revisions, shape and collected actual sources, asset
+versions and payment discount provenance.
 
-Agreed fixed pricing requires an entered price. Explicit par mode alone requires
-calculation precision and submits the existing versioned par policy; booking
-retains the reviewed concrete price. Negative agreed prices remain supported.
-Fixed-side observation placeholders are removed. Ownership and exact-version
-parties are grouped before valuation review. Financial input and selection changes
-invalidate prepared confirmation and displayed valuation; asynchronous formatting
-cannot restore stale results. Incompatible units remain unresolved until explicit
-selection, and incompatible quote-unit changes clear affected price/spread inputs.
+Migration 0094 adds the admission and report relationships. The new claim overload
+accepts an explicit supported-operation list. Old signatures keep their historical
+operation set, and a generated-v1 occurrence containing PPA positions is blocked
+before a legacy worker can omit them. Existing jobs, runs and reports are not
+renamed. The existing-close processor shares the report phase and cannot publish
+market prices. Retained reads reuse certified contexts instead of certifying later
+corrections. Current owner/service authority and the live occurrence fence remain
+mandatory, including after blocking reads and before report publication.
 
-Recurring settlements, daily notional rates, MW integration, physical gas/power
-booking remain unsupported by this ticket. Actual/projected fixing valuation is
-implemented under its separate version described below. The unsaved
-power interval preview and futures lot entry retain their separate contracts.
+Bound admission needs exact immutable series headers before a worker profile
+exists. The metadata helper is owned by `openetrm_interval_metadata_reader`, a
+`NOLOGIN`, `NOBYPASSRLS` role inheriting runtime policies. Only that helper's
+metadata read has a current-read exception; scoped, reference and additional
+restrictive policies remain active. Runtime roles cannot assume the helper role.
+Ordinary historical raw headers, revisions and values remain hidden. A hidden
+required header hides the source binding, and callers explicitly refuse missing
+header metadata. This replaces an owner-based read that bypassed additional
+restrictive policies, detected by the preserved PPA storage regression.
+
+Admission ceilings are 128 selected books, 256 PPA bindings, 4,096 native factors
+and 2,000,000,000 declared PPA row-scenario evaluations. The latter sums each
+unique instrument/coverage unit's rows times its base and affected factor scenarios;
+unrelated monthly factors do not consume that unit's budget. Existing two-million
+schedule-row and four-million quantity-preparation bounds also apply. Admission
+prepares and validates inputs; it refuses excessive scenario work before PV risk
+evaluation or creation of a claimable job.
+
+At the initial slice-6 qualification, the worker used a maximum 120-second lease
+without renewal during a portfolio transaction. The full 480-factor measurements
+below therefore qualified the managed engine and reuse counters, not durable-job
+completion, HTTP latency or production throughput. D201 subsequently qualifies
+renewable existing-close completion for the separately identified workload below.
+The resource ceiling still does not promise that every admitted workload finishes
+within its explicit overall deadline. Generated-close cutover, settlement and
+further performance changes remain outside this implementation.
+
+The following synthetic measurements used three fresh processes per case, Release
+.NET 10.0.13 on macOS 26.6.2 Arm64, 14 logical processors and 48 GiB RAM. Up to four
+samples overlapped, with other local build/test work on the same host. These are
+observed elapsed times under that schedule, not isolated latency comparisons.
+Samples used frozen binaries. A subsequent change added explicit selected-factor
+validation/filtering to the admission work-count helper; source-hash comparison
+verified that the timed valuation implementation was unchanged.
+Managed timing includes preparation and exact risk evaluation, but excludes fixture
+construction, subsequent oracle assertions, database reads, HTTP and queueing.
+Allocations are cumulative managed allocation traffic, not retained memory. Peak
+resident memory is the maximum OS process-lifetime measurement, including fixture
+and assertion work. GB below means decimal gigabytes. Swap usage was unchanged at
+611.56 MiB between the recorded start and end snapshots.
+
+| Workload | Median seconds (range) | Median allocated GB | Maximum resident GB | Row-scenario evaluations |
+| --- | ---: | ---: | ---: | ---: |
+| 20-year hourly, one binding, base only | 6.149 (6.072–6.203) | 6.446 | 0.935 | 876,600 |
+| 20-year hourly, shared instrument | 886.614 (875.950–889.397) | 1,604.687 | 1.865 | 842,412,600 |
+| 20-year hourly, amended coverage | 471.861 (470.588–473.572) | 812.662 | 1.777 | 423,404,780 |
+| 20-year hourly, two distinct instruments | 1,723.645 (1,703.622–1,729.349) | 3,193.364 | 2.512 | 1,684,825,200 |
+| 10-year quarter-hour, one binding, base only | 10.770 (10.654–10.913) | 12.792 | 1.745 | 1,753,440 |
+
+Each instrument has five independent sides. The hourly term has 240 months and
+175,320 native intervals; the quarter-hour term has 120 months and 350,688 native
+intervals. The three risk cases use 100 trades across five books, 720 market
+contracts and 480 explicit peak/off-peak energy bumps, producing 961 scenarios.
+Certificate vintages remain inputs but are not bumped in this benchmark. The
+amended case splits every trade at a mid-month boundary into two adjacent scopes
+(200 bindings, one instrument). The distinct case has two actual strikes, 40 and
+41; it does not represent 100 distinct economic contracts.
+
+| Risk case | Unit-pricer calls | Side calculations | Quantity applications | Resolved / reused curve months | Calibrated / reused blocks |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Shared | 961 | 4,805 | 4,805 | 1,440 / 459,840 | 1,440 / 960 |
+| Amended | 966 | 4,830 | 4,830 | 1,440 / 231,360 | 1,440 / 960 |
+| Two distinct | 1,922 | 9,610 | 9,610 | 1,440 / 459,840 | 1,440 / 960 |
+
+Quantity applications scale reused unit results by net book holdings; repeated
+trades do not materialize their own schedules. The amended scopes reuse 956
+unaffected unit-scenario values. Independent calendar arithmetic, full repricing
+of selected factors and raw-output review verified exact values and invariant
+work counters in all 15 samples. These measurements support the declared work
+accounting. At that qualification, each of the three risk cases exceeded the
+nonrenewing 120-second worker lease; the admission ceiling and overall timeout
+were not raised. These original engine samples were not rerun as durable jobs by
+the bounded D201 completion fix.
+
+The complete local synthetic gate passed on 2026-10-22 with stock PostgreSQL 16,
+the pinned .NET SDK and Node versions, and Chrome. It includes 497 managed core
+checks, 215 frontend tests, 43 independent PPA HTTP economic checks, 18 R3 checks,
+30 PPA browser checks, enlarged-fixture navigation, the actual existing-close
+worker and unchanged generated-close regressions. Independent adversarial review
+also passed current owner/service revocation, missing/later retained-context
+refusals without certification writes, restrictive metadata policies, helper-role
+isolation, cancellation and natural lease expiry during blocked reads. The
+pre-upgrade comparison preserves historical jobs, runs, reports and financial
+rows. No unresolved correctness finding remains in this bounded local scope;
+the original long-running completion gap is addressed only by the specific D201
+qualification below; broader workload and deployment limits remain open.
 
 
-Fixed-side delivery date entry is independent of projected-market coverage. Native
-date inputs and the schedule helper submit literal dates; the managed fixed-side
-and payment-rule contracts validate the interval. Floating-side calendars still
-require exact definitions and prices for projected observations; due observations
-require eligible final fixings. This permits independently dated
-fixed and floating sides without manufacturing a fixed-side curve dependency.
+### Renewable existing-close completion qualification
 
-### Actual/projected financial swap observations
+D201 separates preparation, immutable CPU valuation and atomic publication.
+The first failing actual-worker regression observed no renewal of a 15-second
+lease during real ten-year hourly risk work. A second failing HTTP regression
+observed a version conflict when cancellation followed committed success; the
+narrow completed-outcome reconciliation now preserves that success.
 
-The separate side implementation `index_actual_projected_v1` resolves each
-observation against a declared UTC fixing boundary and an exact index/source/
-quote/interval identity. The selected policy is
-`latest_eligible_final_by_context_v1`: among final revisions published by valuation
-time and known at the certified cutoff, select the latest eligible revision.
-Preliminary corrections do not replace a final fixing. Due observations without
-an eligible final fixing fail explicitly; they never fall back to forward marks.
-Future observations retain their own projected prices and averaging weights.
+A real one-instrument, five-side, one-binding, one-book workload covering
+2031-11-01 through 2041-11-01 completed in 326.922 seconds. The recovery run killed
+a calculating worker after renewal, waited for natural expiry, replaced it under
+a higher fence with the original deadline/pins, and introduced a later forecast
+correction. The replacement completed in 329.441 seconds. A Unix-domain
+PostgreSQL wire proxy dropped its successful COMMIT acknowledgement only after
+an independent direct query observed one report and terminal success. The worker
+reconciled that committed occurrence and exited successfully. Repeated execution
+and later cancellation retained exactly one report and one success audit event.
 
-Index fixings have their own immutable identities and correction chains in the
-existing commit-certified market knowledge stream. They are not forward-mark
-series. `index-fixings/import` admits source event/revision identities with working
-import authority, exact reference foreign keys and idempotent conflict checks.
-Reads use an explicit retained context and recheck current market/reference
-access. Each resolved actual retains publication time, certified knowledge time,
-revision, predecessor and source identity.
+Independent civil-time/Fraction integration counted 87,672 delivery hours and
+41,744 peak hours, giving exact base value 40,408,960. All 360 monthly energy and
+certificate factor results matched independent up/down, delta and zero-gamma
+checks. The 721 scenarios required 721 unit calls, 3,605 side calculations and
+316,057,560 row evaluations. Quantity preparation ran once per month (120), with
+960 resolved and 172,080 reused curve-months, and 1,080 rebuilt and 258,480 reused
+curve nodes. These sum to the independently counted scenario/month work. No
+numerical or reuse implementation changed.
 
-Price, preview and editor results retain immutable valuation receipts containing
-contract terms, result schema/policy, exact market-observation pins and fixing
-revision lineage through exact foreign keys. Receipt reads recheck current
-trading, market and reference authority. Historical replay selects the original
-eligible revision; later-context valuations can change after a final correction.
-Ordinary risk uses the same immutable actual inputs and shocks only remaining
-projected quote factors. Fully fixed swaps have an exact base valuation and zero
-live commodity factors under the explicitly selected commodity-only risk policy;
-interest rates remain fixed. Risk results also retain fixing-aware receipts.
+The explicitly selected 15-second lease renewed every five seconds. During the
+replacement, 62 observed lease advances ranged from 5.002430 to 5.016796 seconds
+(median 5.004067); observation began after preparation. Original deadline, input
+profile, cutoff and economic policies remained unchanged. Renewal failure,
+cancellation and service-authority loss stopped CPU work in 3.553, 3.237 and
+2.795 seconds respectively, without a report. The 45-second overall-deadline case
+also produced no report; post-exit cleanup had committed within 0.501 seconds of
+the original deadline. Database publication refuses expired ownership immediately;
+physical cessation remains cooperative, bounded by renewal cadence/call latency
+and calculation cancellation checks, not a zero-lag process-kill guarantee.
 
-The ticket explicitly chooses projection-only or actual/projected resolution.
-Actual/projected entry requires a source and every observation boundary; loading
-managed observation intervals leaves fixing times blank. Quantity, averaging and
-payment terms stay independent. Actual/projected prices and retained lineage
-are inspectable, source/boundary edits invalidate confirmation, and amendments
-cannot change a due observation's identity or boundary. Repeated memberships of
-one reusable side are checked independently. Generated zero-lag payment rules
-retain their original semantics.
+Observed worker startup, claim and preparation took 22.155–22.615 seconds in the
+fault cases. Preparation retains the authorization epoch share lock during its
+transaction, so authority edits can queue during that phase. Job/run ownership
+rows are free: independent tests renewed in 0.015 seconds and cancelled in 0.014
+seconds while a bound preparation transaction remained open. CPU valuation has
+no database transaction. During CPU work, authority loss and cancellation changes
+committed in 0.010 and 0.015 seconds. Publication retains short fenced locks and
+commits the validated report and terminal success atomically. SQL timeouts bound
+individual calls, not the total preparation duration.
 
-Legacy `prefixing_index_projection_v1` definitions retain their first-fixing
-rejection and original economics. Their SQL lookup cannot reuse a fixing-aware
-side merely because visible projection/payment terms coincide. New fixing terms
-have typed schedule/boundary relationships and explicit implementation identity;
-no old definitions, events or quantities are rewritten. Catalogs distinguish
-legacy priced delivery availability from fixing-aware definition intervals, so
-an expired observation contract can still supply an explicitly resolved actual
-without allowing an expired projected source to price.
+Affected regressions passed: 497 managed core checks; independent PPA HTTP/R3
+oracles; existing-close held-certificate, overdue and discount receipts; legacy
+actual workers, historical identity and report recovery; automation ownership and
+control; and verification-entry checks. Independent adversarial review passed
+post-lock expiry, replacement fencing, deadline clamp, current owner/service
+revocation, lock behavior, outcome replay and actual lost-acknowledgement recovery.
+The earlier 44-stage complete gate remains historical evidence; the new renewable
+completion stage is included in the now 45-stage gate and was run separately with
+the affected suites for this bounded fix. No new complete-gate run is claimed.
 
-Valuation receipt retention never posts or corrects invoices, settlements,
-payments or banked cash. Those lifecycle operations remain separate and
-unimplemented. This increment supports one full delivery month per side with
-monthly-index or calendar-day arithmetic observations. Recurring contracts,
-quantity-rate/allocation entry and booked MW schedules are subsequent increments,
-not physical-booking prerequisites.
+Measurements use Release .NET 10.0.13, stock PostgreSQL 16 and macOS Arm64 on the
+same 14-logical-processor, 48-GiB host; some local regression work overlapped.
+These are completion/recovery observations, not repeated throughput or memory
+benchmarks. Other previously measured large books have not been rerun end to
+end. Legacy generated-close leases remain unchanged. Production deployment,
+generated-close cutover and settlement remain unqualified/outside this change.
+
+
+## Final Phase C scope
+
+[Phase C qualification](ppa-phase-c.md) reconciles the five supported catalog
+compositions, durable booking and guided UI, existing-close risk, renewable
+completion and remaining limits. Final review adds descriptive unsupported-feature
+metadata and aligns managed slot ordinals with the existing storage range 0–7;
+neither change alters financial arithmetic or accepted policies. Current API
+validation, persisted terms and catalog limits use the same bound. The
+[next settlement task](ppa-settlement-next.md) is a proposal only.
+
+
+Final Phase C qualification subsequently ran the entire expanded 45-stage gate on
+the corrected tree: all stages passed in 1,532.375 seconds. The narrow final worker
+fix contains cancellation callback AggregateExceptions after cancellation is
+requested, joins renewal and preserves the authoritative exact-outcome lookup;
+callback failure never implies a successful commit. Deterministic throwing-callback
+checks, current-authority/caller-cancellation refusals and the actual long recovery
+case pass. Replacement with lost acknowledgement completed in 332.465 seconds with
+one report/success audit and unchanged exact value/work counts. 62 lease advances
+had median 5.003870 seconds. Renewal-loss/cancellation/authority-loss stopping was
+observed in 2.003/1.736/1.121 seconds after control; preparation took 23.307–24.550 seconds.
+These are recovery observations, not new throughput or allocation benchmarks.
+Independent whole-branch review is closed with no open material finding; all
+remaining limits in the qualification record still apply.
+
+
+### Shared meter-finality prerequisite (D202)
+
+[Meter-finality operations and boundaries](meter-finality.md) describe migration
+0096. Immutable final/suspended/withdrawn heads, exact source/raw/calendar foreign
+keys, current scoped verification authority, complete-payload idempotency and
+commit-certified temporal selection are implemented as authenticated runtime
+database operations. A retained source definition covers the original operating
+cell; later verification does not switch to a current source. The existing-close
+worker context shortcut remains unchanged. No HTTP endpoint/capability, cash
+acceptance, obligation, payment, settlement worker or gas implementation is added.
+Existing Phase C quantity and valuation consumers do not consume this evidence yet.
+
+
+### Bounded payment planning and gross preview (D203)
+
+[Implementation and qualification](settlement-preview.md) cover migration 0097,
+`MonthlyGrossPreview`, `SettlementPreview` and two authorized HTTP operations.
+They add immutable explicit lineage mappings and read-only complete-month cash
+previews with exact evidence and once-per-occurrence rounding. The capability
+catalog advertises policies, permission, limits and exclusions. No existing
+booking is automatically opted in and no role receives the proposal permission
+by default. Existing Phase C valuation and finality publication are unchanged.
+No approved/persisted cash proposal, acceptance, obligation, payment or worker is
+implemented. Global S1/S2 and gas remain open.
+
+
+D204 resets the current PPA MVP to settlement calculations, exact draft break-even
+pricing and an extension of the existing graphical editor. The
+[pricing and graphical workbench record](ppa-break-even.md) records its implemented scope
+and independent evidence. Approvals, accepted-cash accounting, payments, reversals
+and automated correction adjustments are deferred, not pricing prerequisites.
+Trade amendments remain contractual changes; market/meter corrections remain
+versioned inputs. Earlier lifecycle specifications are retained for future work;
+they do not authorize a separate settlement approval workflow or claim global
+settlement-phase completion.
+
+
+The experimental PPA checkpoint reuses the immutable native quantity/evidence
+rows of a single explicitly linked delivery slot. It validates distinct native
+starts and explicit quantity states before reuse; multi-slot exact aggregation
+remains unchanged. Migration 0099 removes one duplicate complete authority
+evaluation from each existing-close worker context check without caching
+authority or changing timeout/lease limits.
+
+
+### Swap ticket economics and private reference intake
+
+The persisted swap ticket describes its total notional per independent side
+period, exposes compatible quantity references before projection selection, and
+keeps fixed-side delivery dates independent of floating coverage. Entry separates
+delivery, quantity, pricing, observations and payment rules while retaining the
+common trade/party section, entry templates, qualified index conventions and
+custom projection authoring.
+
+Agreed and par fixed pricing are explicit. A missing agreed price fails;
+calculation precision is required only for par. Managed review rows expose
+resolved allocated quantity, signed trade cash, payment date, discount factor and
+trade PV. Price/state rows remain primary; normalized interval widgets and exact
+lineage remain expandable. Input/change events and asynchronous formatting cannot
+restore an invalidated confirmation. Incompatible quote bases clear price/spread
+amounts instead of reinterpreting them.
+
+Correction-following index reads keep the latest eligible final revision when a
+later preliminary correction exists. Exact saved snapshots and explicitly frozen
+pins are unchanged. Certified context visibility and the existing immutable
+observation correction chain supply retained result lineage.
+
+Private capture/import commands replay source bytes into existing inactive
+reference intake storage. Managed and database checks cover source identity,
+unknown native facts, exact quantities, idempotency and current authority.
+API, collection, scheduler and pilot-runtime startup reject trusted-importer
+membership. These commands do not activate imported contracts or qualify an
+installation's data rights or deployment.

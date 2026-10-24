@@ -9,6 +9,7 @@ if (args is ["--benchmark"] or ["--benchmark", _])
 }
 if (args.Length != 0) throw new ArgumentException("Use no arguments for checks, or --benchmark [output-path].");
 UserTimeChecks.Run();
+DependencyPlanChecks.Run();
 
 var passed = 0;
 void Check(string name, Action action) { action(); passed++; Console.WriteLine($"PASS {name}"); }
@@ -213,6 +214,7 @@ Check("explicit autumn grid preserves both repeated hours as distinct UTC slots"
 });
 passed += ScheduleChecks.Run();
 passed += BitemporalChecks.Run();
+passed += IntegerRoundingChecks.Run();
 Console.WriteLine($"{passed} shared temporal checks passed.");
 
 sealed record NamedDates(string Name, DateSet Dates);

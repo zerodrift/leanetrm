@@ -11,7 +11,7 @@ test('uncertain administrative retries retain exact identity and payload',()=>{
 });
 test('only explicit rejected outcomes may discard an administrative retry identity',()=>{
   for(const code of [undefined,'request_failed','response_unknown','administration_outcome_unknown','gateway_failure'])assert.equal(knownAdministrationRejection(code),false);
-  for(const code of ['admin_conflict','access_denied','request_token','last_administrator','request_format'])assert.equal(knownAdministrationRejection(code),true);
+  for(const code of ['admin_conflict','access_denied','request_token','last_administrator','request_format','request_too_large','agent_managed'])assert.equal(knownAdministrationRejection(code),true,code);
   const body={roles:['viewer']},pending=new PendingAdministration();pending.begin('admin/create',body,()=> 'original');body.roles.push('access_administrator');
   assert.deepEqual(pending.command.body.roles,['viewer']);
 });

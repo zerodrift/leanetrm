@@ -16,11 +16,11 @@ export async function run({command,wait,click,set,submit,check,evaluate,idle,url
  await check('reopening a deal keeps advanced settings closed and the saved money display',"!document.querySelector('#trade-amount-format details').open&&document.querySelector('#trade-amount-format-trade-money').value==='1'");
  await click('#trade-editor-close');
  await check('numeric grid retains raw exact strings separately from formatted cell text',"[...document.querySelectorAll('#futures-holdings .tabulator-cell span[title]')].some(s=>s.title!==s.textContent&&/^-?\\d+(\\.\\d+)?$/.test(s.title))");
- await click('#nav-reference');await set('#reference-table','units');
+ await click('#nav-reference');await set('#reference-table','units');await wait(idle);
  await check('common unit catalog and quantity conversion controls are visible',"!document.querySelector('#unit-converter').hidden&&document.querySelector('#reference').textContent.includes('MMBtu (IT)')&&document.querySelector('#reference').textContent.includes('bbl (42 US gal)')");
  await set('#unit-commodity','test_power');
  const supplemental=await evaluate("[...document.querySelector('#unit-from').options].some(o=>o.value==='test_power_catalog_only')");
- if(supplemental){await click('#nav-reference');await set('#reference-table','quantity_specifications');await check('supplemental quantity definitions resolve labels in their own exact unit catalog',"document.querySelector('#reference').innerText.includes('Catalog kWh')&&document.querySelector('#error').hidden");await click('#nav-reference');await set('#reference-table','units');}
+ if(supplemental){await click('#nav-reference');await set('#reference-table','quantity_specifications');await wait(idle);await check('supplemental quantity definitions resolve labels in their own exact unit catalog',"document.querySelector('#reference').innerText.includes('Catalog kWh')&&document.querySelector('#error').hidden");await click('#nav-reference');await set('#reference-table','units');await wait(idle);}
  await set('#unit-commodity','test_power');await set('#unit-from','test_power_gigajoule');await set('#unit-to','test_power_quantity');await set('#unit-value','1');await submit('#unit-conversion-form');
  await check('nonterminating conversion fails visibly with no successful default result',"!document.querySelector('#error').hidden&&document.querySelector('#unit-conversion-result').textContent===''");
  await set('#unit-rounding','round');await set('#unit-decimals','6');await submit('#unit-conversion-form');

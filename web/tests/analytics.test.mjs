@@ -43,8 +43,9 @@ test('position bars use a zero baseline while price lines can scale to their ran
  assert.equal(chartOptions({...spec,kind:'bar'}).yAxis.scale,false);
  assert.equal(chartOptions({...spec,kind:'line'}).yAxis.scale,true);
 });
+test('custom curve chart accepts the served category axis name',()=>{const option=chartOptions({title:'Rolling curve',axis:'category',axisName:'Contract position',unit:'USD/MMBtu',series:[]});assert.equal(option.xAxis.name,'Contract position');});
 
-test('short plots avoid redundant zoom controls and units stay above large axis labels',()=>{
+test('short plots hide redundant zoom sliders and units stay above large axis labels',()=>{
  const spec={title:'Positions',axis:'category',unit:'MWh',kind:'bar',series:[{name:'Book A',points:[{x:'a',y:'4000000'}]}]};
  const option=chartOptions(spec);assert.equal(option.yAxis.nameLocation,'end');assert.equal(option.dataZoom[1].show,false);
  const long=chartOptions({...spec,series:[{name:'Book A',points:Array.from({length:12},(_,i)=>({x:String(i),y:'1'}))}]});
@@ -94,4 +95,24 @@ test('heatmaps preserve missing cells and show exact safe tooltip values',()=>{
  const tooltip=option.tooltip.formatter({value:option.series[0].data[0]});
  assert.ok(tooltip.includes('-0.000000000000000001'));assert.ok(!tooltip.includes('<Book A>'));
  assert.equal(option.visualMap.min,-option.visualMap.max);
+});
+
+test('rational server amounts sort exactly and plot approximate pixels with exact tooltips',()=>{
+ assert.equal(compareDecimalStrings('1/3','0.333333333333333333'),1);
+ assert.equal(compareDecimalStrings('-2/3','-0.6'),-1);
+ const option=chartOptions({title:'Exact mean',axis:'delivery',unit:'TST/EA',series:[{name:'Mean',points:[{x:'Jan',y:'1/3'}]}]});
+ assert.ok(Math.abs(option.series[0].data[0]-1/3)<Number.EPSILON);
+ assert.match(option.tooltip.formatter([{seriesName:'Mean',seriesIndex:0,dataIndex:0,axisValue:'Jan'}]),/1\/3/);
+});
+
+test('a bounded large rational plots its finite ratio without overflowing either integer',()=>{
+ const n='1'+'0'.repeat(399)+'1',d='1'+'0'.repeat(400);
+ const option=chartOptions({title:'Near one',axis:'delivery',unit:'TST/EA',series:[{name:'Exact',points:[{x:'Jan',y:n+'/'+d}]}]});
+ assert.equal(option.series[0].data[0],1);
+});
+
+test('finite rational chart coordinates remain finite at the Number exponent boundary',()=>{
+ const value='1'+'0'.repeat(399)+'/'+'9'+'0'.repeat(90);
+ const option=chartOptions({title:'Large ratio',axis:'delivery',unit:'TST/EA',series:[{name:'Exact',points:[{x:'Jan',y:value}]}]});
+ assert.ok(Number.isFinite(option.series[0].data[0])&&option.series[0].data[0]>1e308);
 });

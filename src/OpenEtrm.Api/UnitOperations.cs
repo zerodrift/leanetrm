@@ -14,8 +14,10 @@ public static class UnitOperations
             data.References["unit_conversions"].Select(c => new UnitConversion(R(c.Text("from_unit_code")), R(c.Text("to_unit_code")), c.Number("factor_numerator"), c.Number("factor_denominator"))).ToImmutableArray(),
             data.References["quantity_specifications"].Select(q => new QuantitySpecification(R(q.Text("code")), R(q.Text("commodity_code")), R(q.Text("basis_code")), R(q.Text("unit_code")), R(q.Text("dimension_code")))).ToImmutableArray());
     }
-    public static object Convert(UnitCatalogData data, UnitConvertRequest body)
+    public static object Convert(UnitCatalogData data, UnitConvertRequest body,ReferenceDisplayData? referenceDisplay=null)
     {
+        if(referenceDisplay is not null&&referenceDisplay.SourceRevision!=data.Revision)
+            throw new MarketDataException("reference_display","The display labels belong to another unit reference revision.");
         if (body.Value is null || body.From is null || body.To is null ||
             body.DecimalPlaces is null && body.TieRule is not null || body.DecimalPlaces is not null && body.TieRule is not("to_even" or "away_from_zero"))
             throw new MarketDataException("unit_conversion", "Choose source and target quantities and either exact conversion or explicit final precision/tie rule.");
@@ -24,7 +26,14 @@ public static class UnitOperations
         AmountFormat? rounding = body.DecimalPlaces is {} places ? new(places, body.TieRule == "to_even" ? CashTieRule.ToEven : CashTieRule.AwayFromZero, false, false) : null;
         var result = source.ConvertTo(new(data.Revision, body.To), converter, rounding);
         var display = rounding ?? new AmountFormat(18, CashTieRule.ToEven, true, true);
-        var text = result.ToString(display, new(result.Specification, converter.Symbol(result.Specification)));
+        var symbol=converter.Symbol(result.Specification);
+        if(referenceDisplay is not null&&referenceDisplay.References.TryGetValue("units",out var labels))
+        {
+            var quantity=data.References["quantity_specifications"].Single(q=>q.Text("code")==result.Specification.Code);
+            var label=labels.SingleOrDefault(u=>u.Text("code")==quantity.Text("unit_code"));
+            if(label.ValueKind==System.Text.Json.JsonValueKind.Object)symbol=label.Text("symbol");
+        }
+        var text = result.ToString(display, new(result.Specification,symbol));
         bool exact;
         try { exact = source.ConvertTo(result.Specification, converter).Amount == result.Amount; }
         catch (MarketDataException e) when (e.Code == "precision_loss") { exact = false; }

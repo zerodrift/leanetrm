@@ -3,12 +3,12 @@ import {deliveryLabel,curveName,friendly} from './market-view.js';
 import type {ChartSpec} from './chart-view.js';
 /** Ordering and reshaping displayed values only; no pricing or aggregation. */
 export function compareDecimalStrings(a:string,b:string):number{
-  const parts=(value:string)=>{if(!/^-?\d+(\.\d+)?$/.test(value))throw Error('A numeric column requires exact decimal strings.');const [integer,fraction='']=value.replace(/^-/,'').split('.');const whole=integer.replace(/^0+(?=\d)/,'');const decimal=fraction.replace(/0+$/,'');return {negative:value.startsWith('-')&&(whole!=='0'||decimal!==''),whole,decimal};};
-  const x=parts(a),y=parts(b);if(x.negative!==y.negative)return x.negative?-1:1;
-  const sign=x.negative?-1:1;
-  if(x.whole.length!==y.whole.length)return Math.sign(x.whole.length-y.whole.length)*sign;
-  if(x.whole!==y.whole)return (x.whole<y.whole?-1:1)*sign;
-  const length=Math.max(x.decimal.length,y.decimal.length),xf=x.decimal.padEnd(length,'0'),yf=y.decimal.padEnd(length,'0');return xf===yf?0:(xf<yf?-1:1)*sign;
+  const parts=(value:string):[bigint,bigint]=>{
+    if(!/^-?\d+(?:\.\d+|\/[1-9]\d*)?$/.test(value))throw Error('A numeric column requires exact decimal or rational strings.');
+    if(value.includes('/')){const [n,d]=value.split('/');return [BigInt(n),BigInt(d)];}
+    const [integer,fraction='']=value.split('.');return [BigInt(integer+fraction),10n**BigInt(fraction.length)];
+  };
+  const [an,ad]=parts(a),[bn,bd]=parts(b),difference=an*bd-bn*ad;return difference===0n?0:difference<0n?-1:1;
 }
 export type PivotGroup=Record<string,unknown>;
 export type MatrixColumn={key:string;title:string;numeric:boolean;measure?:string;groupKey?:string;groupTitle?:string;measureTitle?:string};

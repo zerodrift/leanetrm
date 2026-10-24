@@ -4,8 +4,8 @@ from uuid import uuid4
 from preview_client import PreviewClient
 
 
-def run_checks(url):
-    c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
+def run_checks(url,client=None):
+    c=client or PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     frame=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
     context={'snapshotId':frame['id'],'convention':'independent_side_financial_swap_v2','knowledgeMode':'current'}
     catalog=c.call('swaps/catalog',context)
@@ -21,7 +21,7 @@ def run_checks(url):
           'definitionRevisionId':index['definitionRevisionId'],'quantity':'100','fixedCoefficient':'-1','discounting':False,
           'fixed':{'price':'3','currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':lag},
           'floating':{'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01',
-                      'firstFixingAt':'2020-12-31T12:00:00Z','paymentSchedule':following,'resetFrequency':'daily','averagingMethod':'arithmetic'}}
+                      'paymentSchedule':following,'resetFrequency':'daily','averagingMethod':'arithmetic'}}
     passed=0
     def check(name,ok=True):
         nonlocal passed
@@ -29,10 +29,10 @@ def run_checks(url):
         passed+=1;print('PASS schedule booking: '+name,flush=True)
     # A second session publishes after this editor captured its catalog. Neither
     # the picker names nor resolution may advance to that later knowledge.
-    author=PreviewClient(url);author.bootstrap();author.call('profile',{'profile':'editor'})
+    publisher=PreviewClient(url);publisher.bootstrap();publisher.call('profile',{'profile':'editor'})
     symbol='oe.late_'+uuid4().hex[:12]
-    draft=author.call('date-schedules/save',{'definition':{'name':'Synthetic late anchors','symbol':symbol,'firstMonth':'2020-12','lastMonth':'2021-03','anchor':'day','day':1,'shortMonth':'reject','adjustment':'unadjusted','calendar':None},'calendar':next(c['reference'] for c in author.call('date-schedules')['calendars'] if c['reference']['code']=='test_business'),'selection':'context_month','effectiveFrom':'2020-12-01','effectiveTo':'2021-04-01'})
-    publisher=PreviewClient(url);publisher.bootstrap();publisher.call('profile',{'profile':'approver'})
+    draft=publisher.call('date-schedules/save',{'definition':{'name':'Synthetic late anchors','symbol':symbol,'firstMonth':'2020-12','lastMonth':'2021-03','anchor':'day','day':1,'shortMonth':'reject','adjustment':'unadjusted','calendar':None},'calendar':next(c['reference'] for c in publisher.call('date-schedules')['calendars'] if c['reference']['code']=='test_business'),'selection':'context_month','effectiveFrom':'2020-12-01','effectiveTo':'2021-04-01'})
+    publisher.call('profile',{'profile':'approver'})
     publisher.call('date-schedules/publish',{key:draft[key] for key in ['id','version','generation']})
     frozen=c.call('date-schedules/catalog',{'context':catalog['context']})
     latest=c.call('swaps/catalog',context)['context']

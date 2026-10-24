@@ -39,7 +39,7 @@ public static class SchedulePreview
             }
             var first = Milestone("first_trading"); var last = Milestone("last_trading");
             if (RequiredMilestoneInstant(last) != contract.Expiry) throw new MarketDataException("sequence_definition", "The contract expiry differs from its selected last-trading milestone.");
-            return new ContractSequenceEntry(i + 1, contract, FuturesAdmission.EligibleFrom(System.Text.Json.JsonSerializer.SerializeToElement(new{code=series.Code}),data.References),
+            return new ContractSequenceEntry(i + 1, contract, FuturesStore.Binding(data,coverage.Curve,contract.Key.Id,contract.Key.Id,data.FuturesConvention).EligibleFrom,
                 DateOnly.ParseExact(last.Text("business_date"), "yyyy-MM-dd", CultureInfo.InvariantCulture));
         });
         return new(new(revision, coverage.Curve), references, coverage.From, coverage.To, entries);

@@ -1,6 +1,7 @@
 import {renderRegularTable} from './regular-table.js';
 import {displayInstant,publicText,friendly} from './market-view.js';
 import {PendingCommand as PendingAdministration} from './pending-command.js';
+import {inForceRow,historyRow,type WorkspaceGrants} from './agent-grants.js';
 import type {RequestCommand as AdministrativeCommand} from './pending-command.js';
 export {PendingCommand as PendingAdministration} from './pending-command.js';
 export type {RequestCommand as AdministrativeCommand} from './pending-command.js';
@@ -8,11 +9,12 @@ export type {RequestCommand as AdministrativeCommand} from './pending-command.js
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Member={id:string;login:string;name:string;kind:string;enabled:boolean;version:number;roles:string[]};
 type Audit={operationId:string;at:string;actor:string;action:string;before:Member|null;after:Member};
-type Directory={members:Member[];roles:{code:string;name:string;permissions:string[]}[];audit:Audit[];kinds:{code:string;name:string}[];canCreate?:boolean};
+// Every role and kind is listed so each account can be named; only assignable roles and creatable kinds are offered.
+type Directory={members:Member[];roles:{code:string;name:string;permissions:string[];assignable:boolean}[];audit:Audit[];kinds:{code:string;name:string;creatable:boolean}[];canCreate?:boolean};
 
 export function knownAdministrationRejection(code:string|undefined):boolean{
-  return !!code&&['admin_conflict','admin_input','last_administrator','self_access_change','admin_limit',
-    'access_denied','request_format','request_token','definition_rejected'].includes(code);
+  return !!code&&['admin_conflict','admin_input','last_administrator','self_access_change','admin_limit','agent_managed',
+    'access_denied','request_format','request_too_large','request_token','definition_rejected'].includes(code);
 }
 export function accessChange(before:Member|null,after:Member):string{
   if(!before)return 'Account created';
@@ -22,15 +24,22 @@ export function accessChange(before:Member|null,after:Member):string{
   if(JSON.stringify(before.roles)!==JSON.stringify(after.roles))changes.push('Roles changed');
   return changes.join(' · ')||'Details saved';
 }
+// The workspace's agent grants follow its members (docs/ai-assistant.md §7.1).
 export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,api:Api,busy:()=>boolean,zone:()=>string,profile:()=>string,updated:()=>Promise<void>){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=publicText(text);return node;};
-  let directory:Directory|undefined,selected:Member|undefined;
-  const pending=new PendingAdministration();
+  let directory:Directory|undefined,selected:Member|undefined,grants:WorkspaceGrants|undefined;
+  const pending=new PendingAdministration(knownAdministrationRejection);
   const storageKey=()=>`openetrm.admin.request.${profile()}`;
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* In-memory retry identity is still retained for this visit. */}}
   function pendingNote(){get('admin-pending').hidden=!pending.command;}
+  function clearDirectory(){
+    directory=undefined;selected=undefined;grants=undefined;get<HTMLFormElement>('admin-form').reset();get('admin-form').hidden=true;
+    get('admin-new').hidden=true;
+    for(const id of ['admin-members','admin-audit','admin-roles','admin-grants','admin-grant-history'])get(id).replaceChildren();
+    for(const id of ['admin-grants-card','admin-grant-history-card'])get(id).hidden=true;
+  }
   function fill(member?:Member){
     selected=member;get<HTMLFormElement>('admin-form').reset();
     get('admin-form').hidden=directory?.canCreate===false&&!member;
@@ -49,41 +58,59 @@ export function setupAdministration(run:(work:()=>Promise<void>)=>Promise<void>,
     if(!directory)return;
     get('admin-new').hidden=directory.canCreate===false;
     const kind=field('admin-kind').value,first=el('option','Choose a kind…');first.value='';
-    get('admin-kind').replaceChildren(first,...directory.kinds.map(k=>{const o=el('option',k.name);o.value=k.code;return o;}));field('admin-kind').value=directory.kinds.some(k=>k.code===kind)?kind:'';
-    get('admin-roles').replaceChildren(...directory.roles.map(role=>{
+    const kinds=directory.kinds.filter(k=>k.creatable);
+    get('admin-kind').replaceChildren(first,...kinds.map(k=>{const o=el('option',k.name);o.value=k.code;return o;}));field('admin-kind').value=kinds.some(k=>k.code===kind)?kind:'';
+    get('admin-roles').replaceChildren(...directory.roles.filter(role=>role.assignable).map(role=>{
       const block=el('div'),label=el('label'),box=el('input');box.type='checkbox';box.value=role.code;box.checked=selected?.roles.includes(role.code)??false;
       label.append(box,document.createTextNode(' '+role.name));const details=el('details');details.append(el('summary','Permissions'),el('p',role.permissions.map(friendly).join(' · ')));block.className='admin-role';block.append(label,details);return block;
     }));
-    renderRegularTable(get('admin-members'),'admin-members',profile(),['Name','Kind','Workspace access','Roles',''],directory.members.map(m=>[m.name,kindName(m.kind),m.enabled?'Active':'Suspended',m.roles.map(roleName).join(', ')||'No roles',button('Edit',()=>fill(m))]),[],busy);
+    renderRegularTable(get('admin-members'),'admin-members',profile(),['Name','Kind','Workspace access','Roles',''],directory.members.map(m=>[m.name,kindName(m.kind),m.enabled?'Active':'Suspended',m.roles.map(roleName).join(', ')||'No roles',m.kind==='agent'?'Managed as an agent':button('Edit',()=>fill(m))]),[],busy);
     renderRegularTable(get('admin-audit'),'admin-audit',profile(),['Saved','By','Account','Change'],directory.audit.map(a=>[displayInstant(a.at,zone()),a.actor,a.after.name,accessChange(a.before,a.after)]),[],busy);
+    renderGrants();
     fill(selected&&directory.members.find(m=>m.id===selected?.id));pendingNote();
+  }
+  // Read-only: each person grants and revokes their own.
+  function renderGrants(){
+    if(!grants)return;const shown=grants,instant=(at:string)=>displayInstant(at,zone());
+    renderRegularTable(get('admin-grants'),'admin-grants',profile(),['Person','Agent','Model','Reads','Allowed','Until'],shown.current.map(g=>inForceRow(g,shown.vendors,instant)),[],busy);
+    renderRegularTable(get('admin-grant-history'),'admin-grant-history',profile(),['Recorded','Person','Agent','Model','Reads','Until','Change','By'],
+      shown.history.map(r=>historyRow(r,shown.vendors,instant)),[],busy);
+    for(const id of ['admin-grants-card','admin-grant-history-card'])get(id).hidden=false;
   }
   async function load(){
     // A denied reload must not leave a cached directory visible.
-    const selectedId=selected?.id;selected=undefined;get<HTMLFormElement>('admin-form').reset();get('admin-form').hidden=true;get('admin-pending').hidden=true;
-    directory=undefined;get('admin-members').replaceChildren();get('admin-audit').replaceChildren();get('admin-roles').replaceChildren();
+    const selectedId=selected?.id;clearDirectory();get('admin-pending').hidden=true;
     directory=await api<Directory>('admin');
     selected=directory.members.find(m=>m.id===selectedId);get('admin-form').hidden=false;
-    try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?JSON.parse(stored):undefined;}catch{pending.clear();}
+    try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}
     render();
+    // The workspace's agent grants follow the directory; a refusal means access ended, so nothing read stays.
+    try{grants=await api<WorkspaceGrants>('assistant/grants/workspace');}
+    catch(error){if((error as {code?:string}).code==='access_denied')clearDirectory();throw error;}
+    renderGrants();
   }
   async function send(command:AdministrativeCommand){
+    const owner=profile(),previouslyUncertain=pending.sending();store();let member:Member;
     try{
-      const member=await api<Member>(command.path,{...command.body,operationId:command.operationId});
-      pending.clear();store();selected=member;await updated();await load();
+      member=await api<Member>(command.path,{...command.body,operationId:command.operationId});
+      if(owner!==profile()||pending.command!==command)return;
     }catch(error){
+      if(owner!==profile()||pending.command!==command)return;
       const code=(error as {code?:string}).code;
-      if(knownAdministrationRejection(code)){pending.clear();store();}
-      pendingNote();throw error;
+      if(code==='access_denied')clearDirectory();
+      pending.failed(code,previouslyUncertain);store();pendingNote();throw error;
     }
+    pending.clear();store();selected=member;await updated();await load();
   }
   get<HTMLFormElement>('admin-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
+    if(pending.command)throw Error('Reconcile the outstanding request before starting another account change.');
+    if(!directory)throw Error('Reload accounts to verify current administrative access.');
     const roles=[...get('admin-roles').querySelectorAll<HTMLInputElement>('input:checked')].map(n=>n.value).sort();
     const body:Record<string,unknown>=selected?{id:selected.id,expectedVersion:selected.version,name:field('admin-name').value,enabled:get<HTMLInputElement>('admin-enabled').checked,roles}:{login:field('admin-login').value,name:field('admin-name').value,kind:field('admin-kind').value,roles};
     const command=pending.begin(selected?'admin/update':'admin/create',body);store();pendingNote();await send(command);
   });};
   get('admin-retry').onclick=()=>void run(async()=>{if(pending.command)await send(pending.command);});
   get('admin-discard').onclick=()=>{if(busy())return;pending.clear();store();pendingNote();};
-  get('admin-new').onclick=()=>{if(!busy())fill();};get('admin-refresh').onclick=()=>void run(load);
-  return {load,reset(){directory=undefined;selected=undefined;pending.clear();get('admin-members').replaceChildren();get('admin-audit').replaceChildren();get('admin-roles').replaceChildren();get<HTMLFormElement>('admin-form').reset();},refresh(){render();}};
+  get('admin-new').onclick=()=>{if(!busy()&&directory&&!pending.command)fill();};get('admin-refresh').onclick=()=>void run(load);
+  return {load,unconfirmed:()=>!!pending.command,reset(){clearDirectory();pending.clear();},refresh(){render();}};
 }

@@ -21,8 +21,8 @@ def seed_positions(url,run_id,owned_root):
     catalog=c.call('futures/catalog',context)
     selected={}
     for contract in sorted(catalog['contracts'],key=lambda v:v['deliveryFrom']):
-        if contract['curve']!='test_calendar_day_gas':selected.setdefault(contract['curve'],contract)
-    if len(selected)!=19:raise ValueError('The bounded exchange example requires nineteen verified families.')
+        selected.setdefault(contract['curve'],contract)
+    if len(selected)!=12:raise ValueError('The bounded exchange example requires twelve source-listed monthly families.')
     results=[]
     for n,(curve,contract) in enumerate(sorted(selected.items())):
         operation=str(uuid5(UUID('ed032a31-883e-447a-809a-66a4d583a124'),manifest['catalogId']+':'+curve))

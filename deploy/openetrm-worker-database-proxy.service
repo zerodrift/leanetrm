@@ -1,0 +1,30 @@
+[Unit]
+Description=Private database transport for the job scheduler
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/openetrm/scheduler/database-transport.env
+ExecStart=/usr/bin/socat -T600 TCP4-LISTEN:${LISTEN_PORT},bind=${LISTEN_ADDRESS},reuseaddr,fork,max-children=8,range=${WORKER_ADDRESS}/32 TCP4:${DATABASE_ADDRESS}:5432
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+TasksMax=16
+MemoryMax=64M
+CPUQuota=10%
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

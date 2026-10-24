@@ -21,6 +21,9 @@ public sealed record FuturesBlotterView(string? Mode,ImmutableArray<Guid> BookId
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesBlotterRequest(FuturesReadRequest Context,FuturesBlotterView View);
 
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record TradingWorkspaceRequest(FuturesReadRequest Context,FuturesBlotterView View,string? BookingCatalog=null);
+
 public sealed partial class FuturesStore(PreviewManifest manifest)
 {
     private static MarketDataException Error(string code,string message)=>new(code,message);
@@ -33,18 +36,18 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
         row:throw Error("futures_definition","The exact futures reference is unavailable.");
     public static FuturesMarketBinding Binding(PreviewData data,string curve,Guid contractId,Guid id,string implementation)
     {
-        var c=One(data.Definitions["curves"].Where(c=>c.Text("code")==curve));
+        var c=One(data.DefinitionRows("curves","code",curve));
         if(c.Text("rule")!="direct" ||
-            !data.Definitions["curve_members"].Any(m=>m.Text("curve_code")==curve&&m.Id("contract_id")==contractId))
+            !data.HasCurveMember(curve,contractId))
             throw Error("futures_definition","Select an exact dated member of a directly observed futures curve.");
-        var contract=data.Contracts.SingleOrDefault(c=>c.Key.Id==contractId)??throw Error("futures_definition","Select a retained futures contract.");
+        var contract=data.ContractRows(contractId).SingleOrDefault()??throw Error("futures_definition","Select a retained futures contract.");
         if(contract.FuturesSeries is not {} key)throw Error("futures_definition","The selected member is not a future.");
-        var series=One(data.References["futures_series"].Where(s=>s.Text("code")==key.Code));
-        var product=One(data.References["futures_products"].Where(p=>p.Text("code")==series.Text("product_code")));
-        var eligibleFrom=data.Admission.Require(product,series,c,implementation);
+        var series=One(data.ReferenceRows("futures_series","code",key.Code));
+        var product=One(data.ReferenceRows("futures_products","code",series.Text("product_code")));
+        var eligibleFrom=data.ExecutionPolicies.Resolve(product,series,c,implementation);
         if(product.Text("location_code")!=c.Text("location_code") || product.Text("commodity_code")!=c.Text("commodity_code"))
             throw Error("futures_definition","The selected futures curve must preserve the exact product commodity and location.");
-        var quote=data.Quotes.Single(q=>q.Key.Code==c.Text("quote_code"));
+        var quote=data.QuoteRows(c.Text("quote_code")).Single();
         return data.Model.BindFutures(id,new(new(contract.Key.Revision,curve),contract.Key),product.Text("settlement_method"),implementation,eligibleFrom);
     }
     public async Task<ImmutableArray<JsonElement>> Books(NpgsqlConnection connection,CancellationToken ct)=>
@@ -54,33 +57,50 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
             WHERE b.catalog_id=$1 ORDER BY b.name,b.id)r
             """,[manifest.CatalogId],ct);
 
+    private sealed record BookingDirectory(ImmutableArray<JsonElement> Books,JsonElement BookingActor,
+        ImmutableArray<TradeParties.Choice> LegalEntities,ImmutableArray<TradeParties.Choice> Counterparties);
+    private async Task<BookingDirectory> ReadBookingDirectory(NpgsqlConnection connection,CancellationToken ct)=>
+        new(await Books(connection,ct),await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),
+            await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),await TradeParties.Catalog(connection,manifest.CatalogId,false,ct));
+
+    public async Task<object> Directory(NpgsqlConnection connection,CancellationToken ct)
+    {
+        var directory=await ReadBookingDirectory(connection,ct);
+        return new {kind="directory",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=manifest.FuturesConvention};
+    }
+
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
     {
-        var contracts=data.Definitions["curve_members"].Where(m=>data.Contracts.Any(c=>c.Key.Id==m.Id("contract_id")&&c.Kind==ContractKind.Future))
+        var contracts=data.Definitions["curve_members"].Where(m=>data.ContractRows(m.Id("contract_id")).Any(c=>c.Kind==ContractKind.Future))
             .Select(m=>Binding(data,m.Text("curve_code"),m.Id("contract_id"),m.Id("contract_id"),manifest.FuturesConvention))
             .Where(s=>s.EligibleFrom<=frame.At&&frame.At<s.Contract.Expiry).OrderBy(s=>s.Contract.DeliveryFrom).ToArray();
-        var market=contracts.Length==0?null:data.Model.Build(data.Snapshot(frame),contracts.Select(s=>s.Market).ToImmutableArray());
-        return new {books=await Books(connection,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),contracts=contracts.Select(s=>
+        var prices=contracts.Length==0?null:data.Model.Build(data.Snapshot(frame),contracts.Select(s=>s.Market).ToImmutableArray()).Values.ToLookup(v=>v.Request);
+        var directory=await ReadBookingDirectory(connection,ct);
+        return new {kind="priced_contracts",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,contracts=contracts.Select(s=>
         {
-            var series=One(data.References["futures_series"].Where(v=>v.Text("code")==s.Series.Key.Code));
-            var product=One(data.References["futures_products"].Where(v=>v.Text("code")==series.Text("product_code")));
-            var commodity=One(data.References["commodities"].Where(v=>v.Text("code")==product.Text("commodity_code")));
-            var exchange=One(data.References["exchanges"].Where(v=>v.Text("code")==product.Text("exchange_code")));
-            var quantity=One(data.References["quantity_specifications"].Where(v=>v.Text("code")==s.Quote.Quantity.Code));
-            var unit=One(data.References["units"].Where(v=>v.Text("code")==quantity.Text("unit_code")));
-            var currency=One(data.References["currencies"].Where(v=>v.Text("code")==s.Quote.Currency.Code));
-            var source=data.References["sources"].SingleOrDefault(v=>v.Text("code")==product.Text("code"));
-            var index=data.References["futures_product_terms"].SingleOrDefault(v=>v.Text("product_code")==product.Text("code"));
+            var series=One(data.ReferenceRows("futures_series","code",s.Series.Key.Code));
+            var product=One(data.ReferenceRows("futures_products","code",series.Text("product_code")));
+            var commodity=One(data.ReferenceRows("commodities","code",product.Text("commodity_code")));
+            var exchange=One(data.ReferenceRows("exchanges","code",product.Text("exchange_code")));
+            var quantity=One(data.ReferenceRows("quantity_specifications","code",s.Quote.Quantity.Code));
+            var unit=One(data.ReferenceRows("units","code",quantity.Text("unit_code")));
+            var currency=One(data.ReferenceRows("currencies","code",s.Quote.Currency.Code));
+            var source=data.ReferenceRows("sources","code",product.Text("code")).SingleOrDefault();
+            var selectedCurve=One(data.DefinitionRows("curves","code",s.Market.Curve.Code));
+            var priceSource=One(data.ReferenceRows("sources","code",selectedCurve.Text("direct_source_code")));
+            var firstMilestone=One(data.ReferenceRows("futures_milestones","series_code",series.Text("code")).Where(v=>v.Text("milestone")=="first_trading"));
+            var index=data.ReferenceRows("futures_product_terms","product_code",product.Text("code")).SingleOrDefault();
             return new {quoteKind=s.Quote.Kind==QuoteKind.Basis?"basis":"outright",basisSettlement=s.Series.BasisSettlement,sourceUrl=source.ValueKind==JsonValueKind.Undefined?null:source.Text("locator"),index=s.Series.BasisSettlement?.Index.Code??(index.ValueKind==JsonValueKind.Undefined?null:index.OptionalText("index_code")),
-                eligibilityNote=product.Text("definition_state")=="candidate"?"Sourced contract terms admitted for sample trading with generated closing marks. Eligibility is separate from the exchange first-trade timestamp. Official settlements, variation margin and delivery are not processed.":manifest.FuturesConvention==FuturesMarketBinding.GeneralImplementation?"Synthetic admission starts on 1 October 2026; this is not the exchange first-listing date. Prices and available date range are illustrative. Exchange product facts and published lot totals are retained separately.":null,
-                id=s.Contract.Key.Id,instrumentId=s.Instrument.Id,curve=s.Market.Curve.Code,name=product.Text("name"),
-                commodity=commodity.Text("code"),commodityName=commodity.Text("name"),exchange=exchange.Text("code"),exchangeName=exchange.Text("name"),product=product.Text("code"),deliveryFrom=Date(s.Contract.DeliveryFrom),deliveryTo=Date(s.Contract.DeliveryTo),
-                firstTrading=s.Series.FirstTradingAt is {} first?Instant(first):null,eligibleFrom=Instant(s.EligibleFrom),lastTrading=Instant(s.Contract.Expiry),contractSize=s.LotSize.Amount.ToString(),nominalSize=s.Series.ContractSize.ToString(),nominalUnit=One(data.References["units"].Where(u=>u.Text("code")==product.Text("lot_unit_code"))).Text("symbol"),lotFactor=s.Series.LotResolution?.Factor.ToString(),lotResolution=s.Series.LotResolution?.Implementation,
+                eligibilityNote="Execution eligibility is a selected application policy, separate from the exchange first-trading fact.",
+                firstTradingDate=firstMilestone.OptionalText("business_date"),priceRole=selectedCurve.Text("direct_role"),
+                priceSource=new{code=priceSource.Text("code"),kind=priceSource.Text("kind"),locator=priceSource.Text("locator")},
+                id=s.Contract.Key.Id,instrumentId=s.Instrument.Id,curve=s.Market.Curve.Code,name=product.Text("name"),commodity=commodity.Text("code"),commodityName=commodity.Text("name"),exchange=exchange.Text("code"),exchangeName=exchange.Text("name"),product=product.Text("code"),deliveryFrom=Date(s.Contract.DeliveryFrom),deliveryTo=Date(s.Contract.DeliveryTo),
+                firstTrading=s.Series.FirstTradingAt is {} first?Instant(first):null,eligibleFrom=Instant(s.EligibleFrom),lastTrading=Instant(s.Contract.Expiry),contractSize=s.LotSize.Amount.ToString(),nominalSize=s.Series.ContractSize.ToString(),nominalUnit=One(data.ReferenceRows("units","code",product.Text("lot_unit_code"))).Text("symbol"),lotFactor=s.Series.LotResolution?.Factor.ToString(),lotResolution=s.Series.LotResolution?.Implementation,
                 unit=unit.Text("symbol"),currency=currency.Text("display_code"),quoteMultiplier=s.Quote.Multiplier.ToString(),tick=s.Quote.TradingTick.ToString(),
                 clearingIncrement=s.Quote.ClearingIncrement.ToString(),minimumPrice=s.Quote.Minimum.ToString(),maximumPrice=s.Quote.Maximum.ToString(),
                 contract=s.Contract.Key,series=s.Series.Key,quote=s.Quote.Key,lotQuantity=s.Series.LotQuantity,
                 priceUnit=new {s.Quote.Currency,s.Quote.Quantity,multiplier=s.Quote.Multiplier.ToString()},
-                lotBasis=product.Text("lot_basis"),settlementMethod=s.SettlementMethod,mark=market!.Values.Single(v=>v.Request==s.Market).Price.Value.ToString()};
+                lotBasis=product.Text("lot_basis"),settlementMethod=s.SettlementMethod,mark=prices![s.Market].Single().Price.Value.ToString()};
         }).ToArray(),convention=manifest.FuturesConvention};
     }
     public async Task<object> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
@@ -93,7 +113,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
         var dimensions=ImmutableArray<BlotterDimension>.Empty;var measures=ImmutableArray<BlotterMeasure>.Empty;
         if(view is not null)
         {
-            if(view.PriceNumericalPolicy is not null||view.Mode is not("trades" or "pivot") || view.BookIds.IsDefault || view.PortfolioIds.IsDefault || view.GroupBy.IsDefault || view.Measures.IsDefault ||
+            if(view.Mode is not("trades" or "pivot") || view.BookIds.IsDefault || view.PortfolioIds.IsDefault || view.GroupBy.IsDefault || view.Measures.IsDefault ||
                 view.BookIds.Distinct().Count()!=view.BookIds.Length || view.PortfolioIds.Distinct().Count()!=view.PortfolioIds.Length ||
                 view.BookIds.Any(id=>!books.Any(b=>b.Id("id")==id)) || view.PortfolioIds.Any(id=>!books.Any(b=>b.Id("portfolio_id")==id)))
                 throw Error("blotter_view","Choose an explicit view and available exact books/portfolios.");
@@ -124,7 +144,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
                 deliveryTo=g.Key.Contract is {} endContract?Date(data.Contracts.Single(c=>c.Key==endContract).DeliveryTo):null,
                 tradeCount=g.TradeCount,lots=g.Lots?.ToString(),quantity=g.Quantity?.Amount.ToString(),executionPnl=g.ExecutionPnl?.Amount.ToString(),
                 quantitySpecification=g.Key.Quantity,unit=Unit(g.Key.Quantity),currencyReference=g.Key.Currency,currency=Currency(g.Key.Currency)}).ToArray(),
-            convention=manifest.FuturesConvention,evaluatedContracts=build?.EvaluatedConstituents??0,
+            convention=manifest.FuturesConvention,evaluatedContracts=build?.Evaluations.Length??0,
             holdings=holdings.Select(h=>new {booking=TradeParties.State(manifest.CatalogId,rows.Single(r=>r.Id("trade_id")==h.TradeId)),bookingFacts=TradeAnnotations.Facts(rows.Single(r=>r.Id("trade_id")==h.TradeId)),traderId=rows.Single(r=>r.Id("trade_id")==h.TradeId).Id("booker_id"),trader=rows.Single(r=>r.Id("trade_id")==h.TradeId).Text("booker_name"),traderCode=rows.Single(r=>r.Id("trade_id")==h.TradeId).Text("booker_login"),memo=rows.Single(r=>r.Id("trade_id")==h.TradeId).OptionalText("memo"),tradeId=h.TradeId,tradeReference=TradingReference.Trade(rows.Single(r=>r.Id("trade_id")==h.TradeId)),instrumentReference=TradingReference.Instrument(rows.Single(r=>r.Id("trade_id")==h.TradeId)),revision=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Number("revision").ToString(),revisionEffectiveAt=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("revision_effective_at"),bookId=h.BookId,book=Name(h.BookId),portfolioId=books.Single(b=>b.Id("id")==h.BookId).Id("portfolio_id"),portfolio=books.Single(b=>b.Id("id")==h.BookId).Text("portfolio"),bindingId=h.BindingId,instrumentId=h.InstrumentId,pricingBindingId=h.PricingBindingId,canonicalInstrumentId=sides[h.PricingBindingId].Instrument.Id,priceTick=sides[h.PricingBindingId].Quote.TradingTick.ToString(),markTick=sides[h.PricingBindingId].Quote.ClearingIncrement.ToString(),quoteMultiplier=sides[h.PricingBindingId].Quote.Multiplier.ToString(),contractId=h.Contract.Id,
                 curve=sides[h.PricingBindingId].Market.Curve.Code,deliveryFrom=Date(sides[h.PricingBindingId].Contract.DeliveryFrom),deliveryTo=Date(sides[h.PricingBindingId].Contract.DeliveryTo),
                 lots=rows.Single(r=>r.Id("trade_id")==h.TradeId&&r.Id("binding_id")==h.BindingId).Text("lots"),quantity=h.Quantity.Amount.ToString(),unit=Unit(h.Quantity.Specification),

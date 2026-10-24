@@ -5,6 +5,7 @@ import {renderRegularTable} from './regular-table.js';
 import {publicText,displayInstant,timeLabels,curveName,deliveryLabel} from './market-view.js';
 import {futuresContractKey,type FuturesContract} from './futures-contract.js';
 import type {RequestCommand} from './pending-command.js';
+import {trackEdits} from './edit-tracking.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type TradeState=Annotation&{tradeReference:string;instrumentReference:string;tradeId:string;revision:number;bookId:string;bindingId:string;instrumentId:string;curve:string;contractId:string;lots:string;executionPrice:string;executedAt:string;effectiveAt:string;recordedAt:string;kind:string;reason:string;settlement:string};
 type Detail={state:TradeState;history:TradeState[];catalog:PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];contracts:FuturesContract[]};asOf:string;canAmend:boolean;amendUnavailableReason:string|null;amendmentConvention:string};
@@ -13,15 +14,16 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
  const text=(id:string,value:string)=>{get(id).textContent=publicText(value);};
- const dialog=get<HTMLDialogElement>('trade-editor');
+ const dialog=get<HTMLDialogElement>('trade-editor'),amendEdits=trackEdits(get('trade-amend-form'));
  const annotations=tradeAnnotations('trade',options.zone);
  const instrument=futuresInstrumentEditor(get('trade-instrument'),{contract:'trade-contract',lots:'trade-lots',price:'trade-price',terms:'trade-side-fields'});
  const display=dealFormatEditor(get('trade-amount-format'),{api:options.api,act:options.act,busy:options.busy,changed:async()=>{if(detail)await display.prepare(detail,'trade',detail.catalog.contracts.find(c=>c.id===detail!.state.contractId)?.clearingIncrement);terms();}});
  let detail:Detail|undefined,prepared:RequestCommand|undefined,selection:{tradeId:string;revision:number|null}|undefined;
  let generation=0,previewGeneration=0;
+ let failedLiveSelection:{tradeId:string;revision:number|null}|undefined;
  const contextKey=()=>JSON.stringify(options.context());
  function invalidate(){previewGeneration++;prepared=undefined;get('trade-preview-result').hidden=true;get<HTMLInputElement>('trade-confirm').checked=false;sync();}
- function reset(){instrument.clear();display.reset();annotations.reset();generation++;if(dialog.open)dialog.close();detail=undefined;selection=undefined;invalidate();get('trade-history').replaceChildren();for(const id of ['trade-revision','trade-book','trade-contract'])field(id).replaceChildren();for(const id of ['trade-preview-values','trade-effective'])text(id,'');get<HTMLFormElement>('trade-amend-form').reset();text('trade-editor-reference','');text('trade-editor-terms','');get('trade-side-fields').replaceChildren();text('trade-editor-mode','');text('trade-error','');get('trade-error').hidden=true;}
+ function reset(){instrument.clear();failedLiveSelection=undefined;display.reset();annotations.reset();generation++;if(dialog.open)dialog.close();detail=undefined;selection=undefined;amendEdits.clear();invalidate();get('trade-history').replaceChildren();for(const id of ['trade-revision','trade-book','trade-contract'])field(id).replaceChildren();for(const id of ['trade-preview-values','trade-effective'])text(id,'');get<HTMLFormElement>('trade-amend-form').reset();text('trade-editor-reference','');text('trade-editor-terms','');get('trade-side-fields').replaceChildren();text('trade-editor-mode','');text('trade-error','');get('trade-error').hidden=true;}
  async function safe(work:()=>Promise<void>){const started=generation;try{get('trade-error').hidden=true;await work();}catch(error){if(started!==generation)return;text('trade-error',error instanceof Error?error.message:'The trade operation failed.');get('trade-error').hidden=false;if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}throw error;}}
  function sync(){instrument.sync(options.busy()||!detail?.canAmend||!!options.pending());display.sync();
   const waiting=options.pending()?.path==='futures/amend';
@@ -43,8 +45,9 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   text('trade-editor-reference',`${state.tradeReference} · ${state.instrumentReference} · Revision ${state.revision}`);
   field('trade-revision').replaceChildren(...detail.history.map(h=>new Option(`Revision ${h.revision} · ${h.kind==='booked'?'Booked':'Amended'}`,String(h.revision))));field('trade-revision').value=String(state.revision);
   field('trade-book').replaceChildren(...books.map(b=>new Option(publicText(`${b.portfolio} · ${b.name}`),b.id)));field('trade-book').value=state.bookId;
-  instrument.populate(detail.catalog.contracts,JSON.stringify([state.curve,state.contractId]));
-  field('trade-lots').value=state.lots;field('trade-price').value=state.executionPrice;field('trade-reason').value='';
+  const key=JSON.stringify([state.curve,state.contractId]);instrument.populate(detail.catalog.contracts,key);
+  if(!detail.catalog.contracts.some(c=>futuresContractKey(c)===key)){const retained=new Option('Retained dated contract',key);retained.disabled=true;field('trade-contract').append(retained);field('trade-contract').value=key;}
+  field('trade-lots').value=state.lots;field('trade-price').value=state.executionPrice;field('trade-reason').value='';amendEdits.clear();
   text('trade-editor-mode',detail.canAmend?`Current revision ${state.revision} · unprocessed futures`:detail.amendUnavailableReason??'Read-only trade revision');
   text('trade-effective',`Amendment effective time: ${displayInstant(detail.asOf,options.zone())} · ${options.zone()}. Earlier revisions remain unchanged.`);
   const labels=timeLabels(detail.history.flatMap(h=>[h.effectiveAt,h.recordedAt]),options.zone());
@@ -52,6 +55,7 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   terms();invalidate();
  }
  async function open(tradeId:string,revision:number|null){
+  failedLiveSelection=undefined;
   const started=++generation,key=contextKey();
   invalidate();detail=undefined;selection={tradeId,revision};
   try{
@@ -79,5 +83,8 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
  get<HTMLInputElement>('trade-confirm').onchange=sync;
  get('trade-submit').onclick=()=>void options.act(()=>safe(async()=>{if(!prepared||!get<HTMLInputElement>('trade-confirm').checked)throw Error('Preview and confirm the exact amendment first.');await options.queue(prepared);}));
  get('trade-editor-retry').onclick=options.retry;get('trade-editor-reconcile').onclick=options.reconcile;
- return{open,reset,sync,refresh(){annotations.refresh();if(detail){terms();invalidate();}}};
+ return{open,reset,sync,async liveRefresh(){const requested=failedLiveSelection??(dialog.open?selection:undefined);if(!requested)return;try{await open(requested.tradeId,requested.revision);}catch(error){if((error as {code?:string}).code!=='access_denied')failedLiveSelection=requested;throw error;}},refresh(){annotations.refresh();if(detail){terms();invalidate();}},
+  // The futures trade the dialog shows, and amendment edits not yet sent.
+  shown:()=>detail&&dialog.open?{tradeId:detail.state.tradeId,instrumentType:'future' as const,revision:detail.state.revision,reference:detail.state.tradeReference}:undefined,
+  unsaved:()=>dialog.open&&amendEdits.edited()};
 }

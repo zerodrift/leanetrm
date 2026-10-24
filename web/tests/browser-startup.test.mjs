@@ -7,7 +7,6 @@ import {run as risk} from '../../tests/browser/risk.mjs';
 import {run as tradeEditor} from '../../tests/browser/trade-editor.mjs';
 import {run as swaps} from '../../tests/browser/swaps.mjs';
 import {run as tableInteractions} from '../../tests/browser/table-interactions.mjs';
-import {run as profileDialog} from '../../tests/browser/profile-dialog.mjs';
 
 async function startupCondition(run) {
   const stop = new Error('Captured the first readiness condition');
@@ -28,7 +27,7 @@ const states = [
   {name: 'after application initialization completes', busy: 'false', body: true, profile: true, status: 'Ready', ready: true},
 ];
 
-for (const [name, run] of Object.entries({futures, risk, tradeEditor, swaps, tableInteractions, profileDialog})) {
+for (const [name, run] of Object.entries({futures, risk, tradeEditor, swaps, tableInteractions})) {
   for (const state of states) {
     test(`${name} waits safely ${state.name}`, async () => {
       const expression = await startupCondition(run);

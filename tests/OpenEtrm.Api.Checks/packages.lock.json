@@ -27,9 +27,16 @@
         "type": "Project",
         "dependencies": {
           "Npgsql": "[10.0.3, )",
+          "OpenEtrm.Automation": "[1.0.0, )",
           "OpenEtrm.MarketData": "[1.0.0, )",
           "OpenEtrm.Rates": "[1.0.0, )",
           "OpenEtrm.Shared": "[1.0.0, )"
+        }
+      },
+      "openetrm.automation": {
+        "type": "Project",
+        "dependencies": {
+          "Npgsql": "[10.0.3, )"
         }
       },
       "openetrm.marketdata": {

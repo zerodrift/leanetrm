@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {prepareAmountDisplay,amountText,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
 import {newPreferences,parsePreferences} from '../dist/preferences.js';
 test('display adapter sends exact text and tick choice, keeping raw financial values untouched',async()=>{
@@ -52,6 +53,18 @@ test('money and quantity with the same value and places keep separate display ca
  assert.equal(amountText('417','money'),'417.000');
  assert.equal(amountText('417','quantity'),'417');
 });
+// The corpus the managed checks assert for tool results (tool_amount_display_v1): what this page requests for each payload.
+const corpus=JSON.parse(readFileSync(new URL('../../tests/fixtures/amount-display-cases.json',import.meta.url),'utf8'));
+const requested=r=>JSON.stringify([r.value,r.decimalPlaces,r.tick,r.trimTrailingZeros]);
+test('the page requests exactly the displays the shared corpus states for each payload',async()=>{
+ for(const example of corpus.cases){
+  selectDisplayPrecision(initialDisplayPrecision());
+  const displays=new Map(example.amounts.map(a=>[requested(a.request),a.display])),before=JSON.stringify(example.payload),sent=[];
+  await prepareAmountDisplay(example.payload,async body=>{sent.push(...body);return body.map(r=>displays.get(requested(r)));},example.tick,example.format);
+  assert.equal(JSON.stringify(example.payload),before,example.name);
+  assert.deepEqual(sent.map(requested).sort(),[...displays.keys()].sort(),example.name);
+ }
+});
 
 test('price pivot measures use backend price formatting while keeping their exact values',async()=>{
  selectDisplayPrecision(initialDisplayPrecision());const requests=[];
@@ -60,13 +73,4 @@ test('price pivot measures use backend price formatting while keeping their exac
  assert.equal(requests.length,3);assert.ok(requests.every(r=>r.decimalPlaces===4&&r.tick===null));
  assert.equal(amountText(source.groups[0].executionPriceMean,'price'),'0.1235');
  assert.equal(source.groups[0].executionPriceMean,'0.123456789012345678');
-});
-
-test('trade cashflows and resolved period quantities request managed formatting',async()=>{
- selectDisplayPrecision(initialDisplayPrecision());const requests=[];
- await prepareAmountDisplay({tradeCashAmount:'-1001/7',tradePresentValue:'-899/7',resolvedQuantity:'9123'},async body=>{requests.push(...body);return body.map(r=>`formatted ${r.value}`);});
- assert.equal(requests.length,3);
- assert.equal(requests.find(r=>r.value==='-1001/7').trimTrailingZeros,false);
- assert.equal(requests.find(r=>r.value==='9123').trimTrailingZeros,true);
- assert.equal(amountText('-899/7','money'),'formatted -899/7');
 });

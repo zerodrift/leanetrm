@@ -1,0 +1,33 @@
+export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
+ await persona('viewer');
+ await check('market readers can open the shared contract-date library',"!document.querySelector('#nav-configuration').hidden");
+ await persona('editor');await click('#nav-configuration');await set('#date-context-on','2021-01-15');await click('#date-context-latest');
+ await set('#curve-dates-example-kind','daily_power');await click('#curve-dates-example');
+ await set('#curve-dates-code','browser_daily_dates');await set('#curve-dates-name','Synthetic shared daily dates');
+ await submit('#curve-dates-form');await click('#curve-dates-keep');
+ await check('reviewed literal daily dates save as a shared draft',"document.querySelector('#error').hidden&&document.querySelector('#curve-dates-saved').textContent.includes('Synthetic shared daily dates')&&document.querySelector('#curve-dates-version').textContent.includes('draft')","({error:document.querySelector('#error').textContent,state:document.querySelector('#curve-dates-version').textContent,library:document.querySelector('#curve-dates-saved').textContent})");
+ await click('#curve-dates-reload');
+ await check('the draft survives reloading the library',"document.querySelector('#curve-dates-saved').textContent.includes('Synthetic shared daily dates')");
+ await evaluate(`window.contractDateCommands=[];window.corruptContractSave=true;window.failContractLibrary=false;{const original=window.fetch;window.fetch=async(...args)=>{const path=String(args[0]);if(path.endsWith('/contracts/save'))window.contractDateCommands.push(JSON.parse(args[1].body));const response=await original(...args);if(path.endsWith('/contracts/save')&&response.ok&&window.corruptContractSave){window.corruptContractSave=false;return new Response(JSON.stringify({...await response.json(),requestId:'different-request'}),{status:200,headers:{'Content-Type':'application/json'}});}if(path.endsWith('/date-schedules')&&window.failContractLibrary){window.failContractLibrary=false;return new Response(JSON.stringify({code:'read_unavailable'}),{status:503,headers:{'Content-Type':'application/json'}});}return response;};}`);
+ await set('#curve-dates-name','Synthetic shared daily dates revised');await click('#curve-dates-keep');
+ await check('a malformed accepted response retains the original command',"!document.querySelector('#curve-dates-pending').hidden&&!document.querySelector('#error').hidden");
+ await click('#curve-dates-retry');
+ await check('retry reconciles the committed save using the same request identity',"document.querySelector('#curve-dates-pending').hidden&&document.querySelector('#error').hidden&&window.contractDateCommands.length===2&&window.contractDateCommands[0].requestId===window.contractDateCommands[1].requestId&&document.querySelector('#curve-dates-name').value==='Synthetic shared daily dates revised'");
+ await evaluate('window.failContractLibrary=true');await set('#curve-dates-name','Synthetic shared daily dates');await click('#curve-dates-keep');
+ await check('a failed library refresh after confirmed save does not offer a mutation retry',"document.querySelector('#curve-dates-pending').hidden&&!document.querySelector('#error').hidden&&document.querySelector('#curve-dates-status').textContent.includes('Saved draft')");
+ await click('#curve-dates-reload');
+ await check('reload opens the actual saved generation after a read failure',"document.querySelector('#error').hidden&&document.querySelector('#curve-dates-name').value==='Synthetic shared daily dates'");
+ // The API refuses an expired request token before any write, so the page keeps no request.
+ await evaluate("window.contractTokenSaves=[];window.staleContractToken=true;{const original=window.fetch;window.fetch=async(input,init)=>{if(!window.staleContractToken||!String(input).endsWith('/contracts/save'))return original(input,init);window.staleContractToken=false;const response=await original(input,{...init,headers:{...init.headers,'X-Preview-CSRF':'synthetic-stale-token'}});window.contractTokenSaves.push(response.status+' '+(await response.clone().json()).code);return response;};}");
+ await set('#curve-dates-name','Synthetic shared daily dates with a stale token');await click('#curve-dates-keep');
+ await check('a save refused for an expired request token keeps no request',"window.contractTokenSaves.join()==='400 request_token'&&!document.querySelector('#error').hidden&&document.querySelector('#curve-dates-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.contract-dates.request.'))");
+ await persona('approver');await click('#nav-configuration');
+ await evaluate("[...document.querySelectorAll('#curve-dates-saved .shortcut-saved-row')].find(row=>row.textContent.includes('Synthetic shared daily dates')).querySelector('button').click()");await wait(idle);
+ await click('#curve-dates-publish');
+ await check('a separate publisher publishes the retained draft',"document.querySelector('#error').hidden&&document.querySelector('#curve-dates-version').textContent.includes('published')");
+ await persona('viewer');await set('#date-context-on','2021-01-15');await click('#date-context-latest');await click('#nav-configuration');
+ await check('readers see the published library with authoring disabled',"document.querySelector('#curve-dates-saved').textContent.includes('Synthetic shared daily dates')&&document.querySelector('#curve-dates-fields').disabled&&document.querySelector('#curve-dates-keep').hidden");
+ await evaluate("[...document.querySelectorAll('#curve-dates-saved .shortcut-saved-row')].find(row=>row.textContent.includes('Synthetic shared daily dates')).querySelector('[data-resolve]').click()");await wait(idle);
+ await check('an exact published version resolves under the selected context',"document.querySelector('#error').hidden&&!document.querySelector('#curve-dates-result').hidden&&document.querySelectorAll('#curve-dates-table tbody tr').length===2&&document.querySelector('#curve-dates-spec').textContent.includes('version 1')","({error:document.querySelector('#error').textContent,hidden:document.querySelector('#curve-dates-result').hidden,rows:document.querySelectorAll('#curve-dates-table tbody tr').length,receipt:document.querySelector('#curve-dates-spec').textContent})");
+}

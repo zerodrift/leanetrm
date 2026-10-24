@@ -1,0 +1,133 @@
+{
+  "description": "Synthetic payloads and the amount displays the page requests for them (web/src/amount-display.ts), which tool results carry as tool_amount_display_v1. A case may name the tick and the deal format its walk starts from, as an editor's walk does; otherwise the walk starts from no tick and the default format. Each amount names its path in the payload, the display request the page sends and the display the backend returns.",
+  "cases": [
+    {
+      "name": "a futures holding shows its mark by the contract tick, its money padded and its quantity trimmed",
+      "payload": {"holdings": [{"priceTick": "0.025", "mark": "3.1", "presentValue": "12345678901234567890.125", "quantity": "1000"}]},
+      "amounts": [
+        {"path": ["holdings", 0, "mark"], "request": {"value": "3.1", "decimalPlaces": 4, "tick": "0.025", "trimTrailingZeros": true}, "display": "3.100"},
+        {"path": ["holdings", 0, "presentValue"], "request": {"value": "12345678901234567890.125", "decimalPlaces": 3, "tick": null, "trimTrailingZeros": false}, "display": "12,345,678,901,234,567,890.125"},
+        {"path": ["holdings", 0, "quantity"], "request": {"value": "1000", "decimalPlaces": 3, "tick": null, "trimTrailingZeros": true}, "display": "1,000"}
+      ]
+    },
+    {
+      "name": "two deals keep their own formats for the same amount",
+      "payload": [
+        {"amountFormat": {"money": 2, "price": 4, "quantity": 1, "factor": 6}, "quantity": "123.45"},
+        {"amountFormat": {"money": 2, "price": 4, "quantity": 3, "factor": 6}, "quantity": "123.45"}
+      ],
+      "amounts": [
+        {"path": [0, "quantity"], "request": {"value": "123.45", "decimalPlaces": 1, "tick": null, "trimTrailingZeros": true}, "display": "123.4"},
+        {"path": [1, "quantity"], "request": {"value": "123.45", "decimalPlaces": 3, "tick": null, "trimTrailingZeros": true}, "display": "123.45"}
+      ]
+    },
+    {
+      "name": "a settlement mark keeps its clearing increment apart from the execution tick",
+      "payload": {"priceTick": "0.001", "markTick": "0.0001", "mark": "3.1001", "executionPrice": "3.101"},
+      "amounts": [
+        {"path": ["mark"], "request": {"value": "3.1001", "decimalPlaces": 4, "tick": "0.0001", "trimTrailingZeros": true}, "display": "3.1001"},
+        {"path": ["executionPrice"], "request": {"value": "3.101", "decimalPlaces": 4, "tick": "0.001", "trimTrailingZeros": true}, "display": "3.101"}
+      ]
+    },
+    {
+      "name": "only money keeps its trailing zeros, and every price in a row shows by its tick",
+      "payload": {"presentValue": "123.45678", "quantity": "1000", "fixedPrice": "3.1", "discountFactor": "0.95", "priceTick": "0.025", "executionPrice": "3.1"},
+      "amounts": [
+        {"path": ["presentValue"], "request": {"value": "123.45678", "decimalPlaces": 3, "tick": null, "trimTrailingZeros": false}, "display": "123.457"},
+        {"path": ["quantity"], "request": {"value": "1000", "decimalPlaces": 3, "tick": null, "trimTrailingZeros": true}, "display": "1,000"},
+        {"path": ["fixedPrice"], "request": {"value": "3.1", "decimalPlaces": 4, "tick": "0.025", "trimTrailingZeros": true}, "display": "3.100"},
+        {"path": ["discountFactor"], "request": {"value": "0.95", "decimalPlaces": 6, "tick": null, "trimTrailingZeros": true}, "display": "0.95"},
+        {"path": ["executionPrice"], "request": {"value": "3.1", "decimalPlaces": 4, "tick": "0.025", "trimTrailingZeros": true}, "display": "3.100"}
+      ]
+    },
+    {
+      "name": "a fixed price shows by the deal's fixed format",
+      "payload": {"amountFormat": {"money": 3, "price": 4, "quantity": 3, "factor": 6}, "fixedAmountFormat": {"money": 2, "price": 2, "quantity": 0, "factor": 6}, "fixedPrice": "3.14159", "price": "3.14159"},
+      "amounts": [
+        {"path": ["fixedPrice"], "request": {"value": "3.14159", "decimalPlaces": 2, "tick": null, "trimTrailingZeros": true}, "display": "3.14"},
+        {"path": ["price"], "request": {"value": "3.14159", "decimalPlaces": 4, "tick": null, "trimTrailingZeros": true}, "display": "3.1416"}
+      ]
+    },
+    {
+      "name": "a rational amount is displayed and never stored rounded",
+      "payload": {"presentValue": "1/3"},
+      "amounts": [
+        {"path": ["presentValue"], "request": {"value": "1/3", "decimalPlaces": 3, "tick": null, "trimTrailingZeros": false}, "display": "0.333"}
+      ]
+    },
+    {
+      "name": "a price takes the nearest enclosing tick",
+      "payload": {"priceTick": "0.5", "positions": [{"price": "2.25"}]},
+      "amounts": [
+        {"path": ["positions", 0, "price"], "request": {"value": "2.25", "decimalPlaces": 4, "tick": "0.5", "trimTrailingZeros": true}, "display": "2.2"}
+      ]
+    },
+    {
+      "name": "a deal's format applies to the amounts below its row",
+      "payload": {"amountFormat": {"money": 1, "price": 2, "quantity": 2, "factor": 2}, "legs": [{"cashAmount": "10.25", "multiplier": "1.005"}]},
+      "amounts": [
+        {"path": ["legs", 0, "cashAmount"], "request": {"value": "10.25", "decimalPlaces": 1, "tick": null, "trimTrailingZeros": false}, "display": "10.2"},
+        {"path": ["legs", 0, "multiplier"], "request": {"value": "1.005", "decimalPlaces": 2, "tick": null, "trimTrailingZeros": true}, "display": "1"}
+      ]
+    },
+    {
+      "name": "money rounds a tie to even and keeps its places",
+      "payload": {"cashAmount": "2.0005", "executionPnl": "-1234.5"},
+      "amounts": [
+        {"path": ["cashAmount"], "request": {"value": "2.0005", "decimalPlaces": 3, "tick": null, "trimTrailingZeros": false}, "display": "2.000"},
+        {"path": ["executionPnl"], "request": {"value": "-1234.5", "decimalPlaces": 3, "tick": null, "trimTrailingZeros": false}, "display": "-1,234.500"}
+      ]
+    },
+    {
+      "name": "a factor rounds to six places and trims",
+      "payload": {"delta": "0.1234567", "gamma": "2"},
+      "amounts": [
+        {"path": ["delta"], "request": {"value": "0.1234567", "decimalPlaces": 6, "tick": null, "trimTrailingZeros": true}, "display": "0.123457"},
+        {"path": ["gamma"], "request": {"value": "2", "decimalPlaces": 6, "tick": null, "trimTrailingZeros": true}, "display": "2"}
+      ]
+    },
+    {
+      "name": "values the page does not format are left as they are",
+      "payload": {"price": "3.1e5", "quantity": 12, "name": "3.1", "value": null, "mark": " 3.1", "weight": "1,000", "lineage": ["3.1"]},
+      "amounts": []
+    },
+    {
+      "name": "an editor's walk starts from its contract's settlement-price increment and the deal's saved format",
+      "tick": "0.001",
+      "format": {"money": 2, "price": 2, "quantity": 1, "factor": 4},
+      "payload": {"state": {"executionPrice": "3.1", "lots": "2"}, "valuation": {"presentValue": "1234.5678", "quantity": "10.25", "discountFactor": "0.987654"}},
+      "amounts": [
+        {"path": ["state", "executionPrice"], "request": {"value": "3.1", "decimalPlaces": 2, "tick": "0.001", "trimTrailingZeros": true}, "display": "3.100"},
+        {"path": ["valuation", "presentValue"], "request": {"value": "1234.5678", "decimalPlaces": 2, "tick": null, "trimTrailingZeros": false}, "display": "1,234.57"},
+        {"path": ["valuation", "quantity"], "request": {"value": "10.25", "decimalPlaces": 1, "tick": null, "trimTrailingZeros": true}, "display": "10.2"},
+        {"path": ["valuation", "discountFactor"], "request": {"value": "0.987654", "decimalPlaces": 4, "tick": null, "trimTrailingZeros": true}, "display": "0.9877"}
+      ]
+    },
+    {
+      "name": "a row's own tick and format replace the ones its walk started from",
+      "tick": "0.001",
+      "format": {"money": 2, "price": 2, "quantity": 1, "factor": 4},
+      "payload": {"rows": [{"priceTick": "0.5", "amountFormat": {"money": 0, "price": 4, "quantity": 3, "factor": 6}, "price": "2.25", "cashAmount": "10.5"}]},
+      "amounts": [
+        {"path": ["rows", 0, "price"], "request": {"value": "2.25", "decimalPlaces": 4, "tick": "0.5", "trimTrailingZeros": true}, "display": "2.2"},
+        {"path": ["rows", 0, "cashAmount"], "request": {"value": "10.5", "decimalPlaces": 0, "tick": null, "trimTrailingZeros": false}, "display": "10"}
+      ]
+    },
+    {
+      "name": "a null deal format leaves the enclosing one in force",
+      "payload": {"amountFormat": {"money": 1, "price": 2, "quantity": 3, "factor": 6}, "rows": [{"amountFormat": null, "fixedAmountFormat": null, "cashAmount": "2.25", "fixedPrice": "3.14159"}]},
+      "amounts": [
+        {"path": ["rows", 0, "cashAmount"], "request": {"value": "2.25", "decimalPlaces": 1, "tick": null, "trimTrailingZeros": false}, "display": "2.2"},
+        {"path": ["rows", 0, "fixedPrice"], "request": {"value": "3.14159", "decimalPlaces": 2, "tick": null, "trimTrailingZeros": true}, "display": "3.14"}
+      ]
+    },
+    {
+      "name": "an amount's field holding an object is walked as a row",
+      "payload": {"resets": [{"price": "3.1", "quantity": {"code": "synthetic_quantity", "multiplier": "1000"}}]},
+      "amounts": [
+        {"path": ["resets", 0, "price"], "request": {"value": "3.1", "decimalPlaces": 4, "tick": null, "trimTrailingZeros": true}, "display": "3.1"},
+        {"path": ["resets", 0, "quantity", "multiplier"], "request": {"value": "1000", "decimalPlaces": 6, "tick": null, "trimTrailingZeros": true}, "display": "1,000"}
+      ]
+    }
+  ]
+}

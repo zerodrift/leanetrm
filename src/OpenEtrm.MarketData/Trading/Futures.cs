@@ -24,7 +24,7 @@ public sealed record FuturesMarketBinding
     public Quantity UnitQuantity => Instrument.UnitQuantity;
     public ImmutableArray<CurveRequest> Dependencies => [Market];
     public FuturesMarketBinding(Guid id, CurveRequest market, MarketContract contract, FuturesSeriesSpecification series,
-        QuoteSpecification quote, string settlementMethod, string implementation, FuturesContract? instrument = null, DateTimeOffset? eligibleFrom = null)
+        QuoteSpecification quote, string settlementMethod, string implementation, FuturesContract? instrument = null,DateTimeOffset? eligibleFrom = null)
     {
         if (contract is null || series is null || quote is null)
             throw Error("futures_definition", "Explicit dated contract, series and quote terms are required.");
@@ -32,9 +32,9 @@ public sealed record FuturesMarketBinding
             implementation == Implementation && (settlementMethod != "cash" || series.LotBasis != LotBasis.FixedTotal || series.LotQuantity != series.QuoteQuantity || quote.Kind != QuoteKind.Outright))
             throw Error("futures_convention", "Select the supported fixed-total cash convention with identical lot and quote quantity bases.");
         var from=eligibleFrom??series.FirstTradingAt;
-        if(from is not {} resolvedFrom||!TradingInstant.IsSupported(resolvedFrom)||resolvedFrom>=contract.Expiry||series.FirstTradingAt is {} sourceFirst&&resolvedFrom<sourceFirst)
+        if(from is not {} resolved||!TradingInstant.IsSupported(resolved)||resolved>=contract.Expiry||series.FirstTradingAt is {} sourceFirst&&resolved<sourceFirst)
             throw Error("futures_definition","Explicit qualified eligibility is required when the source first-trading instant is unknown.");
-        EligibleFrom=resolvedFrom;
+        EligibleFrom=resolved;
         if (id == Guid.Empty || contract.Key.Id == Guid.Empty || contract.Key.Revision.CatalogId == Guid.Empty ||
             contract.Key.Revision.RevisionId == Guid.Empty || contract.Kind != ContractKind.Future || market.Contract != contract.Key ||
             market.Curve.Revision != contract.Key.Revision || string.IsNullOrWhiteSpace(market.Curve.Code) ||
@@ -48,7 +48,7 @@ public sealed record FuturesMarketBinding
             quote.Minimum.CompareTo(quote.Maximum) > 0 ||
             series.DeliveryFrom != contract.DeliveryFrom || series.DeliveryTo != contract.DeliveryTo || series.LastTradingAt != contract.Expiry ||
             contract.DeliveryFrom >= contract.DeliveryTo || contract.DeliveryTo >= new DateOnly(9999, 12, 31) ||
-            series.FirstTradingAt is {} knownFirst&&(!TradingInstant.IsSupported(knownFirst)||knownFirst>=contract.Expiry) || !TradingInstant.IsSupported(contract.Expiry))
+            series.FirstTradingAt is {} first&&(!TradingInstant.IsSupported(first)||first>=contract.Expiry) || !TradingInstant.IsSupported(contract.Expiry))
             throw Error("futures_definition", "The exact dated contract, quote, series and trading interval must agree.");
         _ = PriceUnit.FromQuote(quote);
         Id = id; Market = market; Contract = contract; Instrument = instrument ?? new(series);
@@ -97,7 +97,7 @@ public sealed record FuturesContract : Instrument
         if (series is null || series.SettlementMethod is not ("cash" or "physical") || !Enum.IsDefined(series.LotBasis) ||
             series.ContractSize.CompareTo(default) <= 0 || series.Multiplier.CompareTo(default) <= 0 || series.TradingTick.CompareTo(default) <= 0 ||
             series.DeliveryFrom >= series.DeliveryTo ||
-            series.FirstTradingAt is {} knownFirst&&(!TradingInstant.IsSupported(knownFirst)||knownFirst>=series.LastTradingAt) || !TradingInstant.IsSupported(series.LastTradingAt))
+            series.FirstTradingAt is {} first&&(!TradingInstant.IsSupported(first)||first>=series.LastTradingAt) || !TradingInstant.IsSupported(series.LastTradingAt))
             throw FuturesMarketBinding.Error("futures_definition", "An exact supported futures series and settlement convention are required.");
         foreach (var key in new[] {series.Key,series.QuoteQuantity,series.Currency,series.Location,series.DeliveryProfile,series.LotQuantity})
             if (key.Revision != series.Key.Revision || string.IsNullOrWhiteSpace(key.Code)) throw FuturesMarketBinding.Error("futures_definition", "Contract terms require one exact reference revision.");

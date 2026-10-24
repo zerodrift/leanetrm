@@ -12,9 +12,31 @@ import tempfile
 from release_bundle import COMMIT, REPOSITORY, inspect_image, require, sha256
 
 
+def prepare_context(root, api, worker, web, context):
+    # Validate both executable outputs before any Docker build or publication.
+    for source, assembly in [(api, 'OpenEtrm.Api'), (worker, 'OpenEtrm.Worker')]:
+        require((source / (assembly + '.dll')).is_file() and
+                (source / (assembly + '.deps.json')).is_file(), 'API or worker publish output is missing')
+    context.mkdir()
+    for name, source, assembly in [('api', api, 'OpenEtrm.Api'), ('worker', worker, 'OpenEtrm.Worker')]:
+        target = context / name
+        shutil.copytree(source, target)
+        dependencies = json.loads((target / (assembly + '.deps.json')).read_text())['libraries']
+        providers = [entry.removeprefix('Npgsql/') for entry in dependencies if entry.startswith('Npgsql/')]
+        require(len(providers) == 1 and all(char.isdigit() or char == '.' for char in providers[0]), 'provider license version is ambiguous')
+        notice = root / 'LICENSES' / ('Npgsql-' + providers[0] + '.txt')
+        require(notice.is_file(), 'version-matched provider license is missing')
+        shutil.copyfile(notice, target / 'Npgsql-LICENSE.txt')
+        require((target / 'Npgsql.dll').is_file(), 'required provider binary missing')
+    shutil.copytree(web, context / 'web')
+    shutil.copyfile(root / 'deploy/Dockerfile', context / 'Dockerfile')
+    shutil.copyfile(root / 'LICENSE', context / 'LICENSE')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--api', type=Path, required=True)
+    parser.add_argument('--worker', type=Path, required=True)
     parser.add_argument('--web', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--repository', required=True)
@@ -28,18 +50,8 @@ def main():
     root = Path(__file__).resolve().parents[1]
     tag = 'openetrm-release:' + args.commit
     with tempfile.TemporaryDirectory(prefix='openetrm-package-') as temporary:
-        context = Path(temporary) / 'context'; context.mkdir()
-        shutil.copytree(args.api, context / 'api')
-        shutil.copytree(args.web, context / 'web')
-        dependencies = json.loads((context / 'api/OpenEtrm.Api.deps.json').read_text())['libraries']
-        providers = [name.removeprefix('Npgsql/') for name in dependencies if name.startswith('Npgsql/')]
-        require(len(providers) == 1 and all(char.isdigit() or char == '.' for char in providers[0]), 'provider license version is ambiguous')
-        notice = root / 'LICENSES' / ('Npgsql-' + providers[0] + '.txt')
-        require(notice.is_file(), 'version-matched provider license is missing')
-        shutil.copyfile(notice, context / 'api/Npgsql-LICENSE.txt')
-        require((context / 'api/Npgsql.dll').is_file() and (context / 'api/Npgsql-LICENSE.txt').is_file(), 'required provider binary/license missing')
-        shutil.copyfile(root / 'deploy/Dockerfile', context / 'Dockerfile')
-        shutil.copyfile(root / 'LICENSE', context / 'LICENSE')
+        context = Path(temporary) / 'context'
+        prepare_context(root, args.api, args.worker, args.web, context)
         subprocess.run(['docker', 'build', '--platform', 'linux/amd64', '--label', 'org.opencontainers.image.revision=' + args.commit,
                         '--label', 'org.opencontainers.image.source=https://github.com/' + args.repository,
                         '-t', tag, str(context)], check=True)

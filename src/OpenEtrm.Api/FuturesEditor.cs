@@ -53,12 +53,12 @@ public sealed partial class FuturesStore
         executedAt=row.Text("booked_at"),economicEffectiveAt=row.Text("effective_at"),effectiveAt=row.Text("revision_effective_at"),recordedAt=row.Text("recorded_at"),
         eventId=row.Id("event_id"),eventSchema=row.Text("event_schema"),kind=row.Text("event_kind"),reason=row.Text("reason"),settlement=row.Text("settlement_state")};
 
-    public async Task<object> Editor(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesEditorRequest body,CancellationToken ct)
+    public async Task<object> Editor(NpgsqlConnection connection,PreviewData data,InputFrame frame,Guid tradeId,int? revision,CancellationToken ct)
     {
-        if(body.TradeId==Guid.Empty||body.Revision is <1)throw Error("futures_trade","Choose a retained trade and version.");
-        var rows=await RevisionRows(connection,body.TradeId,true,ct);
+        if(tradeId==Guid.Empty||revision is <1)throw Error("futures_trade","Choose a retained trade and version.");
+        var rows=await RevisionRows(connection,tradeId,true,ct);
         if(rows.IsEmpty)throw Error("futures_trade","The trade is unavailable in the selected context.");
-        var selected=body.Revision??rows.Max(Revision);
+        var selected=revision??rows.Max(Revision);
         var state=One(rows.Where(r=>Revision(r)==selected));
         var side=Binding(data,state.Text("curve_code"),state.Id("contract_id"),state.Id("side_id"),state.Text("implementation"));
         var lifecycleEligible=state.Text("settlement_state")=="unprocessed"&&side.EligibleFrom<=frame.At&&frame.At<side.Contract.Expiry&&frame.At>=state.Instant("revision_effective_at");

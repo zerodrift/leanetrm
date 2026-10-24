@@ -1,12 +1,49 @@
 #!/usr/bin/env python3
-"""Prepare a fresh private pilot catalog and one-time owner invitation; never connect to a database."""
+"""Prepare a fresh private pilot catalog, one-time owner invitation and page-assistant credential key files, or only the key
+files for an existing installation; never connect to a database."""
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import secrets
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
+
+
+KEY_FILES = ('credential.key', 'credential-retry.key')
+
+
+def credential_keys(directory, uid, gid):
+    """Writes the page assistant's two 32-byte credential key files into a private directory, owned by the account the API
+    runs as and readable by it alone (docs/ai-assistant.md §5.2, §11). Each appears only once complete: written to a
+    temporary file, flushed to disk and linked into place, which never replaces a file. Neither may exist already, and no
+    key is shown."""
+    directory = Path(directory)
+    paths = [directory / name for name in KEY_FILES]
+    for path in paths:
+        if path.exists() or path.is_symlink():
+            raise FileExistsError(f'{path.name} already exists. Key files are written once per installation; remove one an '
+                                  'interrupted run left only while no provider key has been entered since.')
+    staged = []
+    try:
+        for path in paths:
+            temporary = directory / f'.{path.name}.{secrets.token_hex(8)}'
+            with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb') as key:
+                staged.append(temporary)
+                os.fchown(key.fileno(), uid, gid); os.fchmod(key.fileno(), 0o600)
+                key.write(secrets.token_bytes(32)); key.flush(); os.fsync(key.fileno())
+        for temporary, path in zip(staged, paths):
+            os.link(temporary, path)
+    finally:
+        for temporary in staged:
+            temporary.unlink(missing_ok=True)
+        listing = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(listing)
+        finally:
+            os.close(listing)
 
 
 def prepare(origin, installation, tzdb, directory, collection=None):
@@ -45,7 +82,7 @@ INSERT INTO security.reference_catalog_scopes VALUES('{r}','{t}','{w}','owner');
 INSERT INTO security.principals VALUES('{owner}','human',true);
 INSERT INTO security.identity_bindings VALUES('{origin}/local','{owner}','{owner}','human_interactive');
 INSERT INTO security.workspace_memberships VALUES('{t}','{w}','{owner}','pending_owner','Pending private invitation',true,1);
-INSERT INTO security.role_grants SELECT gen_random_uuid(),'{owner}',id,'{t}','{w}',clock_timestamp(),'9999-12-31',false FROM security.roles;
+INSERT INTO security.role_grants SELECT gen_random_uuid(),'{owner}',id,'{t}','{w}',clock_timestamp(),'9999-12-31',false FROM security.roles WHERE code IN('viewer','trader','risk_analyst','market_data_editor','market_data_approver','access_administrator');
 INSERT INTO security.hosted_accounts(principal_id,issuer,tenant_id,workspace_id) VALUES('{owner}','{origin}/local','{t}','{w}');
 INSERT INTO security.hosted_invitations(token_digest,principal_id,purpose,expires_at) VALUES('{digest}','{owner}','claim',clock_timestamp()+interval '24 hours');
 INSERT INTO trading.publications VALUES('{c}',1,pg_current_xact_id());
@@ -62,16 +99,28 @@ COMMIT;
               'frames':[],'example':None,'identityIssuer':origin+'/local','futuresConvention':'fixed_total_cash_execution_pnl_v1'}
     for name,content in [('seed.sql',sql),('manifest.json',json.dumps(manifest,indent=2)+'\n'),('owner-invitation.txt',origin+'/auth#invite='+token+'\n'),('installation.json',json.dumps({'installationId':installation,**ids},indent=2)+'\n')]:
         path=directory/name;path.write_text(content);path.chmod(0o600)
+    credential_keys(directory,os.getuid(),os.getgid())
     return ids
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--origin',required=True);parser.add_argument('--installation-id',required=True)
-    parser.add_argument('--tzdb',required=True);parser.add_argument('--output',required=True,type=Path)
+    parser.add_argument('--origin');parser.add_argument('--installation-id')
+    parser.add_argument('--tzdb');parser.add_argument('--output',type=Path)
     parser.add_argument('--collection',type=Path,help='Private explicit source/job mapping contract')
-    args=parser.parse_args();prepare(args.origin,args.installation_id,args.tzdb,args.output,json.loads(args.collection.read_text()) if args.collection else None)
-    print('Prepared private seed, exact manifest and owner invitation. No database was modified.')
+    parser.add_argument('--credential-keys',type=Path,help="An existing installation's private application directory, to write only the two credential key files")
+    parser.add_argument('--owner',help='UID:GID of the account the API runs as, with --credential-keys')
+    args=parser.parse_args()
+    if args.credential_keys:
+        if any((args.origin,args.installation_id,args.tzdb,args.output,args.collection)) or not re.fullmatch(r'[0-9]+:[0-9]+',args.owner or ''):
+            parser.error('--credential-keys takes only --owner UID:GID.')
+        uid,gid=(int(n) for n in args.owner.split(':'))
+        credential_keys(args.credential_keys,uid,gid)
+        print('Wrote the two credential key files. No key was shown.');return
+    if not all((args.origin,args.installation_id,args.tzdb,args.output)):
+        parser.error('Supply --origin, --installation-id, --tzdb and --output, or --credential-keys with --owner.')
+    prepare(args.origin,args.installation_id,args.tzdb,args.output,json.loads(args.collection.read_text()) if args.collection else None)
+    print('Prepared private seed, exact manifest, owner invitation and credential key files. No database was modified.')
 
 
 if __name__=='__main__':main()

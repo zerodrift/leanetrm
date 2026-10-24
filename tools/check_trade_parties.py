@@ -4,8 +4,8 @@ import json
 from preview_client import PreviewClient
 
 
-def run_checks(url, query, manifest):
-    c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
+def run_checks(url, query, manifest, client=None):
+    c = client or PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
     frame = next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
     context = {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'}
     catalog = c.call('futures/catalog', context)
@@ -55,7 +55,7 @@ def run_checks(url, query, manifest):
             'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
-                         'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'firstFixingAt': '2020-12-31T12:00:00Z',
+                         'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01',
                          'paymentSchedule': rule, 'resetFrequency': 'monthly', 'averagingMethod': 'none'}}
     c.call('swaps/preview', swap); booked = c.call('swaps/book', swap)
     edit = {**swap, **booking(other_entity, other_party), 'tradeId': booked['tradeId'],

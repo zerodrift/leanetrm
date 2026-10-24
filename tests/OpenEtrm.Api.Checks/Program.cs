@@ -3,11 +3,34 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
-
-if(args is ["--futures-admission"]){FuturesAdmissionChecks.Run();return;}
-if(args is ["--reference-capture"]){await ReferenceCaptureChecks.Run();return;}
-if(args is ["--reference-import"]){await ReferenceImportChecks.Run();return;}
+if(args is ["--reference-intake"]){await ReferenceCaptureChecks.Run();await ReferenceImportChecks.Run();return;}
 if(args is ["--reference-import-plan",var referenceOutput]){await ReferenceImportChecks.Run(referenceOutput);return;}
+if(args is ["--legacy-swap-editor"]){await LegacySwapEditorChecks.Run();return;}
+if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChecks.Run();return;}
+if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
+if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
+if(args is ["--live-calculation"]){LiveContextChecks.Run();return;}
+
+if(args is ["--close-risk"]){CloseRiskChecks.Run();return;}
+if(args is ["--ppa-limits"]){PpaLimitChecks.Run();return;}
+if(args is ["--preview-data"]){PreviewDataChecks.Run();return;}
+if(args is ["--portfolio-risk-scope",var portfolioScopeFixture]){await SwapRiskHoldingChecks.Scope(portfolioScopeFixture);return;}
+if(args is ["--swap-risk-holdings",var swapRiskFixture]){await SwapRiskHoldingChecks.Run(swapRiskFixture,false);return;}
+if(args is ["--swap-risk-holdings-denied",var deniedSwapRiskFixture]){await SwapRiskHoldingChecks.Run(deniedSwapRiskFixture,true);return;}
+if(args is ["--swap-risk-holdings-expired",var expiredSwapRiskFixture]){await SwapRiskHoldingChecks.Run(expiredSwapRiskFixture,false,true);return;}
+if(args is ["--ppa-portfolio",var ppaPortfolioFixture]){await PpaPortfolioChecks.Run(ppaPortfolioFixture);return;}
+if(args is ["--ppa-portfolio-denied",var deniedPpaPortfolioFixture]){await PpaPortfolioChecks.Run(deniedPpaPortfolioFixture,true);return;}
+
+if (args is ["--automation"])
+{
+    AutomationChecks.Run();return;
+}
+if(args is ["--automation-controller",var connectionFile,var profileId])
+{
+    await AutomationChecks.Controller(connectionFile,profileId);return;
+}
+
+if(args is ["--futures-execution"]){FuturesExecutionChecks.Run();return;}
 
 if (args is ["--hosted-access"])
 {
@@ -15,28 +38,42 @@ if (args is ["--hosted-access"])
     return;
 }
 if(args is ["--power-collection"]){Environment.ExitCode=await PowerImportChecks.MalformedCollection();return;}
+if(args is ["--direct-reads",var readFixture]){await DirectReadChecks.Run(readFixture);return;}
+if(args is ["--stored-credentials",var credentialFixture]){CredentialCustodyChecks.Stored(credentialFixture);return;}
 if (args is ["--power-imports"])
 {
     PowerImportChecks.Run();return;
 }
+if(args is ["--model-providers"]){await ModelProviderChecks.Run();return;}
+if(args is ["--turn-streams"]){await TurnStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
-    FuturesAdmissionChecks.Run();
-    await ReferenceCaptureChecks.Run();
-    await ReferenceImportChecks.Run();
+    CurveActivationInputChecks.Run();
+    ConnectedSampleChecks.Run();
+    FuturesExecutionChecks.Run();
     HostedAccessChecks.Run();
+    HostedConfigurationChecks.Run();
+    CredentialCustodyChecks.Run();
+    await ModelProviderChecks.Run();
+    TurnWorkerChecks.Run();
+    AgentToolChecks.Run();
+    await TurnStreamChecks.Run();
     PowerImportChecks.Run();
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();
     SchedulePublicationChecks.Run();
+    DirectReadChecks.ReportsDifferences();
+    PpaLimitChecks.Run();
+    CloseRiskChecks.Run();
     return;
 }
 
-SwapSelectionChecks.Run();
 TradePartyChecks.Run();
 AmountJsonChecks.Run();
+PilotReportChecks.Run();
 TableViewChecks.Run();
+PpaLimitChecks.Run();
 
 var cat=Guid.NewGuid(); var revision=Guid.NewGuid(); var reference=Guid.NewGuid(); var referenceRevision=Guid.NewGuid();
 var manifest=new PreviewManifest("local-synthetic-preview",cat,revision,reference,referenceRevision,Guid.NewGuid(),Guid.NewGuid(),[],new(DateTimeOffset.UtcNow,"local_power"));
@@ -68,7 +105,6 @@ if(args.Length==1)
         {
             CultureInfo.CurrentCulture=CultureInfo.GetCultureInfo(culture);
             var data=new PreviewData(realManifest,definitions,references,observations);
-            SwapSelectionChecks.Coverage(data,frame);
             var result=data.Build(frame,"local_power");
             if(result.Values[0].Price.Value.ToString()!="29.1" || data.Definitions["contracts"].Any(c=>c.Text("delivery_from").Length!=10))throw new Exception("Culture changed adapter values");
             Console.WriteLine($"PASS full PostgreSQL adapter fixture under {culture}");passed++;
@@ -77,6 +113,8 @@ if(args.Length==1)
         }
     }
     finally {CultureInfo.CurrentCulture=previous;}
+    passed+=PowerContractSelectionChecks.Run(new PreviewData(realManifest,definitions,references,observations),frame);
+    CurveRiskAxisChecks.Run(new PreviewData(realManifest,definitions,references,observations),frame);passed++;
     // A power curve settled on an index difference is unsupported by the hour preview; it must not hide the other curves.
     JsonElement With(JsonElement row,string field,string value){var copy=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(row)!;copy[field]=JsonSerializer.SerializeToElement(value);return JsonSerializer.SerializeToElement(copy);}
     var target=references["settlement_targets"].Single(r=>r.Text("code")=="test_power_target");
@@ -87,11 +125,21 @@ if(args.Length==1)
     var catalog=JsonSerializer.SerializeToElement(PowerPreview.Catalog(mixed,frame,new([],[])));
     var listed=catalog.GetProperty("curves").EnumerateArray().Select(c=>c.GetProperty("code").GetString()).ToArray();
     if(listed.Contains("local_power_all_in") || listed.Length==0)throw new Exception("Unsupported power curve hid or polluted the catalog");
-    JsonElement RenameCommodity(JsonElement row)=>JsonSerializer.Deserialize<JsonElement>(row.GetRawText().Replace("\"test_power\"","\"electricity\"",StringComparison.Ordinal));
-    var namedPower=new PreviewData(realManifest,definitions.ToDictionary(p=>p.Key,p=>p.Value.Select(RenameCommodity).ToImmutableArray()),references.ToDictionary(p=>p.Key,p=>p.Value.Select(RenameCommodity).ToImmutableArray()),observations);
-    var namedCatalog=JsonSerializer.SerializeToElement(PowerPreview.Catalog(namedPower,frame,new([],[])));
-    if(namedCatalog.GetProperty("quantityChoices").GetArrayLength()==0)throw new Exception("Power quantity choices depend on a fixture commodity code");
-    Console.WriteLine("PASS power catalog derives amount choices from the curve commodity instead of fixture names");passed++;
     Console.WriteLine("PASS power catalog lists only single-index curves without failing the rest");passed++;
+    // Commodity identities are reference data. Rename this one consistently in
+    // the retained fixture while preserving its exact MW/MWh specifications.
+    const string relabeledCommodity="synthetic_electricity";
+    JsonElement Relabel(JsonElement row)=>JsonSerializer.Deserialize<JsonElement>(row.GetRawText().Replace("\"test_power\"","\""+relabeledCommodity+"\"",StringComparison.Ordinal));
+    Dictionary<string,ImmutableArray<JsonElement>> RelabelRows(Dictionary<string,ImmutableArray<JsonElement>> rows)=>rows.ToDictionary(p=>p.Key,p=>p.Value.Select(Relabel).ToImmutableArray());
+    var relabeled=new PreviewData(realManifest,RelabelRows(definitions),RelabelRows(references),observations);
+    var powerCatalog=JsonSerializer.SerializeToElement(PowerPreview.Catalog(relabeled,frame,new([],[])));
+    var quantityChoices=powerCatalog.GetProperty("quantityChoices").EnumerateArray().ToArray();
+    if(!quantityChoices.Select(q=>q.GetProperty("basis").GetString()).ToHashSet().SetEquals(["flat_power","total_energy"]))
+        throw new Exception("A compatible reference commodity lost its MW/MWh quantity choices");
+    if(quantityChoices.Any(q=>q.GetProperty("commodityCode").GetString()!=relabeledCommodity)||
+        powerCatalog.GetProperty("curves").EnumerateArray().Any(c=>c.GetProperty("commodityCode").GetString()!=relabeledCommodity)||
+        !PowerPreview.CurveCodes(relabeled).Contains("local_power")||PowerPreview.CurveCodes(relabeled).Contains("base_forward"))
+        throw new Exception("Power eligibility lost its exact commodity identity or included a non-MWh curve");
+    Console.WriteLine("PASS power eligibility follows commodity references rather than fixture identifiers");passed++;
 }
 Console.WriteLine($"{passed} preview adapter checks passed.");

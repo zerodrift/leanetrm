@@ -13,6 +13,7 @@ static class PowerImportChecks
         Require(selection["2026-01-01"]=="2026-01-02"&&selection["2026-01-04"]=="2026-01-04","delivery ranges stop at missing operating dates");
         var longSelection=PowerHistory.SelectableThrough(Enumerable.Range(0,40).Select(i=>new DateOnly(2026,1,1).AddDays(i)).ToArray());
         Require(longSelection["2026-01-01"]=="2026-01-31","delivery range selector honors the supported 31-day window");
+        Require(PowerHistory.SelectableThrough([DateOnly.MaxValue])["9999-12-31"]=="9999-12-31","last supported operating date does not overflow availability");
         var priorCulture=System.Globalization.CultureInfo.CurrentCulture;
         try
         {
@@ -28,6 +29,12 @@ static class PowerImportChecks
         Require(parsed.Price.Value.ToString()=="-17.125"&&parsed.Price.Unit==unit&&parsed.Start==DateTimeOffset.Parse("2026-11-01T05:00:00Z"),"PJM exact negative price and UTC interval");
         Reject(()=>PowerImportProtocol.Pjm(pjm,"DA","51217",60,unit));
         var source=TimeZoneDatabase.Installed();
+        foreach(var offset in new object[]{-18000,"-18000"})
+        {
+            var row=JsonSerializer.SerializeToElement(new{code="synthetic_fixed",kind="fixed_offset",fixed_offset_seconds=offset,iana_zone=(string?)null,tzdb_version=(string?)null});
+            var retained=ReferenceClockJson.Read(row);
+            Require(PowerClock.FromRule(retained,source).StartOfDay(new(2026,11,2))==DateTimeOffset.Parse("2026-11-02T05:00:00Z"),"raw and exact-string clock rows retain the same operating-day boundary");
+        }
         var clock=PowerClock.FromRule(new("ercot","iana",null,"America/Chicago",source.Version()),source);
         var fall=PowerImportProtocol.Window(new(2026,11,1),new(2026,11,1),clock,60);
         Require(PowerImportProtocol.Window(new(2026,10,2),new(2026,11,1),clock,60).Length==745,"31 operating days crossing fall DST have 745 hours");

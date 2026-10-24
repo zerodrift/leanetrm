@@ -21,6 +21,9 @@ choices. Update the decision record when a decision changes.
 - Do not include customer/company names, competing business-product names or
   comparisons in source, documentation, fixtures or commit messages. Retain the
   exact technical identifiers and attribution required by dependencies/licenses.
+- As an exception (D150), the model-provider vendor names Anthropic, OpenAI,
+  Google, xAI and Meta and their public API identifiers may appear in source,
+  documentation, fixtures and commit messages. Ship no real token prices.
 - Public market, exchange and market-operator names are permitted. Use synthetic
   observations; external datasets require verified distribution rights.
 - Inspect the complete staged diff, generated files and commit identity before

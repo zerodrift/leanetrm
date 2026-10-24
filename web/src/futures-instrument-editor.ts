@@ -1,5 +1,5 @@
-import {curveName,displayInstant,publicText} from './market-view.js';
-import {futuresSelection,futuresContractKey,type FuturesContract} from './futures-contract.js';
+import {curveName,displayInstant,displayDate,publicText} from './market-view.js';
+import {firstTradingText,futuresSelection,futuresContractKey,type FuturesContract} from './futures-contract.js';
 import {createAvailableDatePicker} from './available-date-picker.js';
 
 // Product-specific presentation shared by booking and amendment. Catalog terms
@@ -39,9 +39,9 @@ export function futuresInstrumentEditor(host:HTMLElement,ids:{contract:string;lo
    ['Contract size',`${c.contractSize} ${c.unit} per lot`],['Nominal size',`${c.nominalSize} ${c.nominalUnit}`],['Quantity basis',c.lotBasis],
    ['Currency',c.currency],['Settlement',c.settlementMethod],['Settlement index',c.index??'Physical delivery contract'],['Quote type',c.quoteKind??'outright'],
    ...(c.basisSettlement?[["Basis benchmark",c.basisSettlement.benchmarkSeries.code] as const]:[]),
-   ['Example admission',c.eligibilityNote??'Project-authored synthetic terms'],['Lot factor',c.lotFactor??'Fixed contract total'],['Specification source',c.sourceUrl??'Project-authored synthetic specification'],
+   ['Eligibility source',c.eligibilityNote??'No additional source note supplied'],['Lot factor',c.lotFactor??'Fixed contract total'],['Specification source',c.sourceUrl??'Source URL unavailable'],
    ['Quote multiplier',c.quoteMultiplier],['Execution tick',c.tick],['Settlement-price increment',c.clearingIncrement],['Minimum price',c.minimumPrice],['Maximum price',c.maximumPrice],
-   [`First trading · ${zone}`,c.firstTrading?displayInstant(c.firstTrading,zone):"Source time unavailable"],[`Eligible from · ${zone}`,displayInstant(c.eligibleFrom,zone)],[`Last trading (exclusive) · ${zone}`,displayInstant(c.lastTrading,zone)],['Selected curve price',mark(c.mark,c.clearingIncrement)]
+   [c.firstTrading===null&&c.firstTradingDate?'First trading date':c.firstTrading?`Actual first trading · ${zone}`:'Actual first trading',c.firstTrading===null&&c.firstTradingDate?`${displayDate(c.firstTradingDate)} · exact time unknown`:firstTradingText(c.firstTrading,zone)],[`Trading eligibility from · ${zone}`,displayInstant(c.eligibleFrom,zone)],[`Last trading (exclusive) · ${zone}`,displayInstant(c.lastTrading,zone)],[c.priceSource?.kind==='synthetic'?'Generated price':'Selected curve price',mark(c.mark,c.clearingIncrement)]
   ]:[];
   terms.replaceChildren(...rows.map(([label,value])=>{const row=document.createElement('div'),name=document.createElement('dt'),content=document.createElement('dd');row.className='side-term';name.textContent=label;content.textContent=publicText(value);row.append(name,content);return row;}));
  }};

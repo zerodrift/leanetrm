@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from uuid import UUID, uuid5
 from preview_client import PreviewClient
-from seed_preview_positions import BOOKS, EXECUTIONS
+from seed_preview_positions import BOOKS, execution_frames
 from preview_fixture import CAT, REV, WORKSPACE
 from swap_fixture import REVISION
 
@@ -21,18 +21,18 @@ def seed_swaps(url, run_id, owned_root, client=None):
         raise ValueError('The application does not match the owner marker.')
     client.bootstrap(); client.call('profile', {'profile': 'trader'})
     workspace = client.call('workspace')
-    frames = [f for f in workspace['frames'] if f['id'] in workspace['initialFrameIds']]
-    if sorted(f['at'][:10] for f in frames) != [row[0] for row in EXECUTIONS]:
-        raise ValueError('Expected the four explicit weekday market dates.')
-    choices = [('test_gas', REV, 'monthly_index_price', '3', BOOKS[0], True),
-               ('test_power', REV, 'monthly_index_price', '40', BOOKS[1], True),
-               ('test_gas', REVISION, 'calendar_day_arithmetic', '3', BOOKS[0], False),
-               ('test_power', REVISION, 'calendar_day_arithmetic', '40', BOOKS[1], False)]
+    frames = execution_frames(workspace)
+    # Book B contains mixed holdings; Book A provides a separate futures-only scope.
+    book = BOOKS[1]
+    choices = [('test_gas', REV, 'monthly_index_price', '3', True),
+               ('test_power', REV, 'monthly_index_price', '40', True),
+               ('test_gas', REVISION, 'calendar_day_arithmetic', '3', False),
+               ('test_power', REVISION, 'calendar_day_arithmetic', '40', False)]
     commands = []
     for frame in sorted(frames, key=lambda f: f['at']):
         context = {'snapshotId': frame['id'], 'convention': 'independent_side_financial_swap_v2', 'knowledgeMode': 'current'}
         catalog = client.call('swaps/catalog', context)
-        for commodity, revision, averaging, strike, book, discounting in choices:
+        for commodity, revision, averaging, strike, discounting in choices:
             eligible = sorted((i for i in catalog['indices'] if i['commodity'] == commodity and i['definitionRevisionId'] == revision and averaging in i['averaging']), key=lambda i: i['curve'])
             if not eligible or book not in [b['id'] for b in catalog['books']]:
                 raise ValueError('Required exact synthetic index, curve or book is unavailable.')
@@ -43,7 +43,7 @@ def seed_swaps(url, run_id, owned_root, client=None):
             commands.append({**context, **trade_booking(), 'operationId': operation, 'definitionRevisionId': revision, 'commodity':commodity, 'bookId': book,
                 'quantity': '1000000' if averaging == 'monthly_index_price' else '100', 'fixedCoefficient': '-1', 'discounting': discounting,
                 'fixed': {'price': strike, 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule':{'frequency':'monthly','rule':'day_of_following_month','days':None,'dayOfMonth':18,'dayBasis':None,'shortMonth':'reject','adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}},
-                'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'firstFixingAt': '2020-12-31T12:00:00Z', 'paymentSchedule':{'frequency':'monthly','rule':'days_after_period_end','days':46,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}, 'resetFrequency':'monthly' if averaging=='monthly_index_price' else 'daily','averagingMethod':'none' if averaging=='monthly_index_price' else 'arithmetic'}})
+                'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule':{'frequency':'monthly','rule':'days_after_period_end','days':46,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}, 'resetFrequency':'monthly' if averaging=='monthly_index_price' else 'daily','averagingMethod':'none' if averaging=='monthly_index_price' else 'arithmetic'}})
     # Resolve all commands and their exact schedules before the first mutation.
     for body in commands:
         status = client.call('swaps/status', {'operationId': body['operationId']})

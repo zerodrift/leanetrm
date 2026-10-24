@@ -36,6 +36,12 @@ settlement evidence is an error, never a last-price substitution or zero.
 | RSK02 | Ten thousand eligible holdings share three unit calls for base/up/down; distinct books and execution bases stay independent; affected curves rebuild once | `RiskChecks.cs`, `FuturesChecks.cs`, `RiskBenchmark.cs` |
 | RSK03 | Nonlinear and zero-delta examples retain gamma and actual scenario values; exact quotient, unit/domain and missing-input failures do not become rounded/zero risk | `RiskChecks.cs` |
 | RSK04 | A risk analyst uses the blotter's retained context; current revocation blocks recalculation/export, edits clear results and Trader gains no scenario authority | `check_risk_preview.py`, `tests/browser/risk.mjs` |
+| RSK05 | Nested signed quote shifts compose on the parent; siblings, observed facts and failed-parent recovery stay isolated. Nonlinear risk reprices the complete stressed baseline | `NestedScenarioChecks.cs`, `check_risk_preview.py`, `tests/browser/risk.mjs` |
+| RSK06 | Durable risk jobs pin financial context and exact inputs, reconcile identical admission, fence stale workers and preserve cancellation/completion ordering under current authority | `check_risk_jobs.py`, `check_risk_jobs_db.py`, `tests/browser/risk.mjs` |
+| RSK07 | Common instrument PV and declared dependencies support nonlinear nested risk; mixed futures/swaps retain exact rational holding and book values, explicit measures and supplemental market pins in immediate and queued runs | `InstrumentRiskChecks.cs`, `check_portfolio_risk.py`, `check_portfolio_risk_authority.py`, `tests/browser/risk.mjs` |
+| SWP01 | Actual index fixings replace only their own projected observations, retain correction history and remain frozen under live quote shocks | `IndexFixingChecks.cs`, `check_index_fixings.py` |
+| SWP02 | Managed multi-year monthly strips preserve explicit quantity allocation, per-payment discount inputs and shared-trade scenario values | `MonthlySwapChecks.cs` |
+| CLOSE01 | Generated-close reports retain futures execution P&L and swap PV as separate measures while sharing commodity quote scenarios | `PilotCloseChecks.cs`, `check_pilot_close.py` |
 
 The HTTP futures example has a fixed size of 40 units per lot and mark 3.00.
 Book A holds +2 lots executed at 2.90 and +1 at 2.95; Book B holds −1 at 3.10.
@@ -76,9 +82,11 @@ run and environment separately from application capability claims.
 
 ## Next settlement/roll acceptance scenarios
 
-These are required tests for **unimplemented** behavior, with independently stated
-answers. They should fail until the relevant business operation exists; they are
-not empty passing placeholders or skipped tests counted as coverage.
+These independently stated acceptance cases distinguish implemented pricing
+foundations from remaining lifecycle operations. SET01 records existing fixing
+valuation and the remaining exact two-day oracle; SET02 and ROLL04 still require
+their business operations. Planned cases are not passing placeholders or skipped
+tests counted as coverage.
 
 ### SET01 — Daily OTC fixings replace only their own unresolved periods
 
@@ -101,6 +109,14 @@ weights and revision policy belong to the settlement definition. Index differenc
 must resolve both required components. Averaging/TOU/partial publication requires
 its own explicit supported weights and coverage; it must not emerge from matching
 contract labels. A corrected actual is a new fact/knowledge context, not a shock.
+
+D165 and D172 now implement this mechanism for monthly and 31-day daily periods.
+`check_index_fixings.py` and `IndexFixingChecks.cs` cover partly fixed periods,
+missing and wrong actuals, frozen actuals under shocks and corrections. A
+pre-correction snapshot, retained context or certified cutoff keeps the original
+value. This exact two-day oracle is not yet a check. Fixing publication, accepted
+trade fixings and cash obligations are designed in the
+[settlement plan](settlement-plan.md) (P39).
 
 ### SET02 — Futures daily settlement preserves open exposure
 
@@ -139,10 +155,10 @@ This integration remains unimplemented; ROLL01–03 cover its separate foundatio
 
 ## Power curves and settlement acceptance cases
 
-These additions are **proposed** specification/acceptance work. Existing generic
-power curve pricing and signed-money tests are executable; hourly/subhourly
-contract activation, price shaping, index-fixing aggregation and operator billing
-are not implemented by them. Official market research informs the requirements;
+These cases include executable interval pricing, explicit block shaping,
+actual-price resolution and rate-to-energy checks (D174). Booked interval sides,
+settlement obligations and operator billing remain work. Each case states its
+current evidence separately. Official market research informs the requirements;
 public examples remain fictional and do not redistribute actual market definitions.
 
 ### One curve engine, explicit power specifications
@@ -158,9 +174,9 @@ all-in price. Published hub observations are not inferred from geographic proxim
 
 A constituent retains its dated start/end and selected profile. Monthly peak,
 monthly off-peak and hourly forward curves can be separate curves with explicit
-mappings. The existing date-only MarketContract bounds cannot represent an hourly
-or subhourly contract; compile explicit market-clock start/end schedules to retained
-UTC intervals before enabling that support. Keep operating dates and market hour
+mappings. Date-only MarketContract bounds do not represent an hourly or subhourly
+contract. The implemented interval-curve path retains exact UTC interval bounds
+separately. Keep operating dates and market hour
 labels as separate calendar metadata. User display time zones do not change them.
 
 Delivery/quantity profiles, price-shaping rules and settlement aggregation weights
@@ -172,11 +188,11 @@ Cross-resolution mappings must account for the precise included intervals and
 coverage. Realized index samples are interval observations; not every five-minute
 sample needs to become a separately tradable forward contract.
 
-The initial power scope is **hourly curves**. The first example uses
-independently supplied hourly forward marks and explicit interval fixing targets.
-Separate day-ahead and real-time specifications exercise identity without an
-inferred relationship. Monthly/peak/off-peak views and price shaping follow later;
-no monthly mark is silently disaggregated into synthetic hourly market inputs.
+The implemented interval-price path supports hourly and subhourly curves with
+independent interval marks or explicit monthly peak/off-peak block shaping.
+Separate day-ahead and real-time specifications preserve identity without an
+inferred relationship. A monthly mark is disaggregated only under its selected
+shape and calibration contract, preserving the exact block average.
 No regional peak definition, holiday set, DST rule, feed resolution or averaging
 method is supplied as a default. Initial scope need not include physical scheduling,
 capacity/ancillary services, transmission rights, uplift or a complete market invoice.
@@ -203,8 +219,8 @@ already be known for an upcoming hour; a final real-time index may be known only
 after the hour. Resolve the exact contractual index, observation period, permitted
 status and retained knowledge context. Do not choose live versus fixed by testing
 only `now >= end`. Trading/listing eligibility and cash settlement stay separate.
-This extends the existing expiry-specific frozen-future primitive; it is not yet
-a generic realized-index resolver.
+Interval-price resolution implements its explicit due rule and certified actual
+history. Booked interval-side settlement remains separate work.
 
 ### PWR01 — A partially fixed hourly power contract
 
@@ -227,6 +243,12 @@ interval is finally fixed at 40; second remains a forward mark of 60.
 
 This uses the same fixed/variable input and scenario mechanism as gas, with power
 interval/quantity definitions. It is a planned settlement/pricer test, not current PV.
+Status (D174): verified at the interval-price level. The fixed and marked intervals
+value at 0, a +1 mark shock gives +10 with the fixed interval unchanged, an ended
+interval before its due actual is unresolved, a due missing actual is refused, a
+day-ahead actual known before its hour is used, an actual published after the
+valuation instant never prices an interval still live then, and a later correction
+appears only at a later knowledge time. Sides, cash and payment remain phases C and D.
 
 ### PWR02 — Subhourly quantities, clocks and TOU
 
@@ -240,8 +262,12 @@ interval/quantity definitions. It is a planned settlement/pricer test, not curre
   the user's display zone changes none of these amounts or TOU membership.
 - Peak/off-peak membership comes from the selected versioned calendar/profile.
   Mixed peak/off-peak or incomplete hourly coverage cannot silently form a full block.
-- Exact UTC-grid duration/DST primitives are already tested in Shared. The above
-  rate-to-energy and complete power-curve/settlement integration remains planned.
+- Exact UTC-grid duration/DST primitives are already tested in Shared. Status
+  (D174): the rate-to-energy cases above are verified by managed checks (5- and
+  30-minute intervals, 23-, 24- and 25-hour days and a fixed-offset day), and
+  peak/off-peak blocks come from published TOU versions, with incomplete or
+  overlapping coverage refused. Complete power-curve/settlement integration
+  remains planned.
 
 ### PWR03 — Price identity, components and averaging
 
@@ -278,10 +304,13 @@ oracle for a future explicitly configured balancing workflow, not current billin
 ## Shared scenario contract and remaining qualification
 
 The bounded implementation now qualifies live quote-input overlays, affected-node
-reuse, black-box unit execution, exact position differences and the RSK01–04
-cases above. This contract also covers remaining scope: parameter/rate and joint
-curve shocks, durable receipts, general PV/lifecycle consumers and broader models
-are not implemented merely because the generic contracts describe them.
+reuse, black-box unit execution, exact position differences, nested quote stresses
+and durable portfolio jobs in RSK01–07. The [risk engine](risk-engine.md) records
+their supported API, context and worker boundaries. Parameter/rate shocks,
+relative or derived-output curve shifts, distributed partitions of one run and
+full futures settlement PV remain work. Interactive portfolio risk and
+generated-close jobs share the mixed futures-and-swaps valuation adapter, while
+retaining their separate operation and publication contracts.
 
 1. **Capture once.** Pin effective/knowledge context, definitions, actual/fixing
    state, numerical policy and model versions. Resolve every prompt alias to a
@@ -289,7 +318,9 @@ are not implemented merely because the generic contracts describe them.
    including potentially exercised branches, not only currently nonzero exposure.
 2. **Use typed hypothetical overlays.** A scenario names the base snapshot and
    an immutable map from exact dated primitive factor identity to a typed shock.
-   The implemented bump is an explicit absolute live price-input shift;
+   Nested children compose signed absolute live quote shifts on their parent;
+   returning to a parent discards only its child. The finite-difference bump is
+   an explicit positive symmetric absolute live price-input shift;
    rate/parameter shifts remain future scope. In every case,
    currency, quote multiplier, quantity basis and rate representation remain
    explicit. Unsupported relative/cross-unit shocks fail. Source observations
@@ -317,9 +348,9 @@ are not implemented merely because the generic contracts describe them.
    not bump every upstream base/spread or silently reinterpret the request.
 7. **Reuse only equivalent calculations.** Cache unit-pricer work by complete
    economic inputs, date shape, calendars, payment/settlement state, model and
-   context/scenario identity. Apply trade quantity only under an explicit validated
-   quantity-scaling capability. Market nonlinearity and quantity scaling are
-   separate capabilities. Identical names or a common underlying are insufficient.
+   context/scenario identity. Instruments own unit valuations and books apply
+   external trade quantities under the shared contract. Market nonlinearity does
+   not prevent eligible unit reuse. Identical names or a common underlying are insufficient.
 8. **Retain authoritative results and work counts.** Save base/up/down results,
    exact factor bindings, bump units/magnitude, finite-difference convention,
    numerical policy, eligible reuse and actual node/pricer execution counts.
@@ -342,12 +373,13 @@ For an explicitly linear 10,000-unit instrument, fixed price 29.10 and discount
 factor 1: base PV 0, up PV +7,000, down PV −7,000, gas delta +70,000 in the declared
 price/quantity units, central gamma 0. Eligible repeated quantities share unit
 pricing. Different dates/payment state must not collide. This instrument/risk
-workflow is planned; current curve-only tests do not prove its PV behavior.
+workflow is covered by RSK01 and the shared unit-valuation checks; the curve-price
+oracle alone would not prove its PV behavior.
 
-Additional required risk cases: frozen-final future plus still-floating basis;
-partially fixed OTC periods from SET01; futures open risk from SET02; parameter
-and zero-rate factor shocks; parallel shifts with shared dependencies; positive/
-negative/zero quantities where supported; nonzero nonlinear gamma from an
-independent black-box fixture; unsupported bump/precision errors; concurrent
-scenario isolation and exact replay; current permission revocation; and work
-counts matching actual evaluated nodes rather than an estimated fan-out.
+Existing checks also cover frozen-final inputs, partially fixed OTC valuation,
+signed and offset quantities, nonlinear gamma, invalid bump/precision errors,
+nested/concurrent scenario isolation, current authority and measured work counts.
+Remaining acceptance work includes the settlement reset in SET02, parameter and
+zero-rate shocks, broader parallel-curve commands and single-run distributed
+aggregation. Each new consumer must reconcile to independent repricing before
+its results are represented as complete portfolio risk.
