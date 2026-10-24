@@ -28,7 +28,7 @@ static class PageReports
         ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1"],"Blotter"),
         ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1"],"Custom curves"),
         ["blotter_risk"]=Unsupported(),["delivery_prices"]=Unsupported(),["interval_series"]=Unsupported(),
-        ["interval_curves"]=Unsupported(),["jobs"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported()
+        ["interval_curves"]=Unsupported(),["jobs"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported(),["ppa"]=Unsupported()
     }.ToImmutableDictionary(StringComparer.Ordinal);
 
     static Page Unsupported()=>new(null,[],null);
