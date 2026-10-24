@@ -268,7 +268,7 @@ fixed price, kept as an exact rational where the mark is one. It is null for a m
 for a position the close cannot value and for a swap whose floating side has no single mark.
 Commodity is also a pivot dimension, a column choice, a saved-view dimension and a grouping the
 assistant's Blotter read accepts. The desk shows a position's commodity beside its market and its
-direction beside its size, and does not yet show mark minus price. `tools/run_preview.py --check --desk-fields-check`
+direction beside its size, and the side panel shows its mark minus price. `tools/run_preview.py --check --desk-fields-check`
 qualifies the fields on the seeded example, adding a receive-fixed swap, a floating/floating swap
 and an amendment that changes a direction.
 
@@ -330,6 +330,43 @@ a desk too narrow even for a lone tile the figure shrinks to the desk's width. T
 shows its whole label wherever the toolbar has room for it. The browser checks assert that, at 1440
 by 900 and at 1280 by 800, the first position starts above the fold, at 1366 and 1280 that no money
 total is clipped, and at 1280 that a total of twenty characters or more stays on one line and whole.
+
+A row, or Enter on a focused row, opens its position in the desk's side panel (blotter-desk.md, Side
+panel), and Escape closes it and returns focus to the row. The panel shell (`side-panel.ts`) holds
+one mode at a time, here a position at a revision. It is docked beside the charts and the positions,
+under the tiles, when the main area is 1180 pixels wide or more and the assistant is closed;
+otherwise it is a drawer over the window's right edge, left of the assistant, and a full-width sheet
+at 760 pixels and below. Opening it moves focus into it and never moves the tiles. A docked panel
+takes the grid's width, so the grid leaves out its Mark and Curve columns, which the panel shows for
+the position, while it is docked. A switch of mode or position asks first, inside the panel, when it
+holds unsaved edits, which for now are an amendment in progress, tracked by the editors
+(`trackEdits`). The editors are still modal dialogs, so the application does not ask yet; the
+shell's question is qualified by its unit tests and a browser check on a copy of its markup.
+
+The position view shows the instrument, trade reference, revision and book, the market, delivery,
+side and size, the value with its measure or the reason the close cannot value the position, and the
+backend's `markMinusPrice`, labeled `Mark − executed` or `Mark − fixed` and left out where the
+backend has none. Its tabs are a tablist that the arrow, Home and End keys move along. Curve draws
+the desk's own curve-shapes response for the position's market, which is never read again for the
+panel, with the delivery period's contracts marked and the trade's price as a dashed reference line
+when the curve is quoted in the price's unit; it says why when it is not, or when the curve cannot
+be shown. Terms and History come from one read of the amend editor's own endpoint (`futures/editor`
+or `swaps/editor`) in the desk's market context, made when either tab is first shown. Terms lists
+the booking facts, the position and the contract terms of a future, or the structure and each side
+of a swap, each side titled by its own direction; History is the editor's revisions table. Risk says
+that a risk run's results for the position will show there, and shows none yet.
+
+Amend opens the existing amend dialogs for the position until amendment moves into the panel (D215);
+they open read-only, and say why, for an account or a revision that cannot be amended. Open curve
+opens Curves & prices on the position's curve with the price history of its contract: a future's
+own, or a swap's when its delivery period holds exactly one. It is unavailable, and says why, for a
+market Curves & prices does not list. A new read, a change of context or an access denial closes the
+panel; a newer drawing of the same read, including a live refresh, redraws it, and closes it with a
+notice when the read no longer holds its position. The assistant's page report does not yet name the
+panel's position, and the new trade and risk report modes of the panel are not built. The browser
+checks assert the placement at 1440 by 900 (the first position above the fold, the tiles unmoved),
+at 1100, with the assistant open and at 760, the keyboard behavior, the tabs, the reads and Open
+curve; `--live-calculation-check` asserts that a live refresh draws the panel again.
 
 The desk's money totals come from a second pivot convention (D217). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

@@ -38,7 +38,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   async function open(revision=1){
     await set('#blotter-filters .table-search',tradeReference);
     await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(row=>row.getClientRects().length);return ${idle}&&rows.length===1&&rows[0].querySelector('.desk-reference')?.textContent===${JSON.stringify(tradeReference)};})()`);
+    // A row opens its position in the side panel; Amend opens the trade's editor from there.
     await click('#desk-positions .tabulator-row:not(.tabulator-group)');
+    await click('#side-panel-amend');
     await wait(`(()=>{const state=window.__editorReplies.filter(r=>r.path==='/api/futures/editor').at(-1)?.data.state;return document.querySelector('#trade-editor').open&&state?.tradeId===${JSON.stringify(bookedTrade)}&&state.revision===${revision};})()`);
   }
   await open();
@@ -67,8 +69,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate("window.__holdPreview=true;document.querySelector('#trade-amend-form').requestSubmit()");await wait('!!window.__releaseEditor');
   await evaluate("document.querySelector('#trade-editor').dispatchEvent(new Event('cancel'));window.__releaseEditor()");await wait(idle);
   await check('late preview cannot restore cleared economics or prepared amendment',"!document.querySelector('#trade-editor').open&&document.querySelector('#trade-preview-result').hidden&&document.querySelector('#trade-preview-values').textContent===''&&document.querySelector('#trade-effective').textContent===''");
-  await evaluate("window.__denyEditor=true");await click('#desk-positions .tabulator-row:not(.tabulator-group)');
-  await check('denied editor clears prior business names and all trade surfaces',"document.querySelector('#trade-book').options.length===0&&document.querySelector('#trade-contract').options.length===0&&document.querySelector('#trade-revision').options.length===0&&document.querySelector('#desk-positions').children.length===0");
+  await evaluate("window.__denyEditor=true");await click('#desk-positions .tabulator-row:not(.tabulator-group)');await click('#side-panel-amend');
+  await check('denied editor clears prior business names and all trade surfaces',"document.querySelector('#trade-book').options.length===0&&document.querySelector('#trade-contract').options.length===0&&document.querySelector('#trade-revision').options.length===0&&document.querySelector('#desk-positions').children.length===0&&document.querySelector('#side-panel').hidden");
+  // The panel's Terms read is the editor's read: when the account may not make it, the page is cleared as for the editor.
+  await click('#futures-refresh');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await evaluate("window.__denyEditor=true");await click('#side-panel-tabs-terms');
+  await wait("document.querySelector('#desk-positions').children.length===0");
+  await check('a denied Terms read clears the page and closes the panel, as a denied editor read does',"document.querySelector('#side-panel').hidden&&document.querySelector('#desk-positions').children.length===0&&document.querySelector('#side-panel-body').children.length===0");
   await click('#futures-refresh');await click('#date-context>summary');await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
   await check('historical mode visibly explains disabled booking and offers working return',"document.querySelector('#workspace-mode-label').textContent.includes('Historical view')&&!document.querySelector('#return-working').hidden&&document.querySelector('#futures-new').disabled&&document.querySelector('#futures-book-submit').disabled&&document.querySelector('#futures-booking-availability').textContent.includes('Historical view')");
   // Reading a historical close, the desk reads its curves in that same context and draws them beside the positions.

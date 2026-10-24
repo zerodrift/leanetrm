@@ -8,14 +8,25 @@ import {plotNumber} from './plot-number.js';
  * receive-fixed swap's booked quantity).
  */
 export type ChartPoint={x:string;y:string|null;label?:string;color?:string;marker?:string;text?:string;direction?:'positive'|'negative'};
+/**
+ * `marked` names the points (by `x`) a chart emphasizes, such as the contracts of a position's delivery period. `reference` is a
+ * dashed line across a vertical chart at an exact value, labeled with its own text, and the value axis always includes it.
+ */
 export type ChartSpec={title:string;subtitle?:string;axis:'delivery'|'observation'|'maturity'|'category';categoryTitle?:string;axisName?:string;dense?:boolean;unit:string;exportImage?:(download:()=>void)=>void;kind?:'line'|'bar'|'heatmap';
-  orientation?:'vertical'|'horizontal';colorBySign?:boolean;series:{id?:string;name:string;points:ChartPoint[]}[]};
+  orientation?:'vertical'|'horizontal';colorBySign?:boolean;marked?:string[];reference?:{value:string;label:string};series:{id?:string;name:string;points:ChartPoint[]}[]};
 // Validated categorical order. The last two sit under 3:1 contrast on white, so a chart that reaches them keeps its table view.
 export const palette=['#2f8a66','#2a78d6','#eb6834','#6250d6','#e87ba4','#eda100'];
 // Gains, losses and neither, as the CSS tokens --gain, --loss and --text-3 name them, and the --gain-ink and --loss-ink
 // text steps. A bar's sign and direction always accompany its color.
 export const polarity={gain:'#1f8a5b',loss:'#d6453d',none:'#68776f'};
 const ink={gain:'#0f6b3c',loss:'#b3261e'};
+// The dot of a marked point and the line of a reference: the dark green the chart's emphasis already uses.
+const markColor='#203d30';
+// The extent of an axis that reaches a reference line: the data and the line, with a little room beyond them.
+function reach(range:{min:number;max:number},reference:number){
+  const low=Math.min(range.min,reference),high=Math.max(range.max,reference),room=((high-low)||Math.abs(high)||1)*.08;
+  return {low:low-room,high:high+room};
+}
 // The pixel extent of a diverging axis: the largest magnitude, rounded up to a round step of its power of ten.
 function axisEnd(range:{min:number;max:number}){
   const largest=Math.max(Math.abs(range.min),Math.abs(range.max));if(!(largest>0))return 1;
@@ -25,6 +36,8 @@ const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;'
 export function chartOptions(spec:ChartSpec){
   for(const series of spec.series)if(new Set(series.points.map(p=>p.x)).size!==series.points.length)throw Error('A chart series needs distinct category identities.');
   const categories=[...new Set(spec.series.flatMap(s=>s.points.map(p=>p.x)))];
+  const marked=new Set(spec.marked);
+  if([...marked].some(x=>!categories.includes(x)))throw Error('A chart can only mark points it draws.');
   const horizontal=spec.orientation==='horizontal';
   const zoom=!horizontal&&categories.length>6;
   // Each series' points and each category's label are found by their category, from Maps built once, not searched for at every draw.
@@ -47,12 +60,15 @@ export function chartOptions(spec:ChartSpec){
     return point.direction==='negative'?-value:value;
   };
   const tone=(value:number|null)=>value===null||value===0?'none':value>0?'gain':'loss';
+  const reference=spec.reference&&plotNumber(spec.reference.value);
   // A point drawn with its own color or direction; other points stay plain values.
   const styled=spec.colorBySign||all.some(p=>p.color||p.direction);
   const datum=(point:ChartPoint|undefined)=>{
-    const value=placed(point);if(!styled||value===null||!point)return value;
+    const value=placed(point);if(value===null||!point||!styled&&!marked.has(point.x))return value;
     const color=spec.colorBySign?polarity[tone(value)]:point.color;
-    return {value,...(color?{itemStyle:{color,...(spec.kind==='bar'?{borderRadius:horizontal?(value<0?[3,0,0,3]:[0,3,3,0]):(value<0?[0,0,3,3]:[3,3,0,0])}:{})}}:{})};
+    // A marked point is a larger dot with a ring, drawn over its neighbors.
+    const emphasis=marked.has(point.x)?{symbol:'circle',symbolSize:12,z:3,itemStyle:{color:markColor,borderColor:'#fff',borderWidth:2}}:undefined;
+    return {value,...(color?{itemStyle:{color,...(spec.kind==='bar'?{borderRadius:horizontal?(value<0?[3,0,0,3]:[0,3,3,0]):(value<0?[0,0,3,3]:[3,3,0,0])}:{})}}:{}),...emphasis};
   };
   // A horizontal chart lists its points' texts in a column right of the bars, where they never meet a bar or an axis.
   const texts=horizontal&&texted.size>0;
@@ -67,6 +83,8 @@ export function chartOptions(spec:ChartSpec){
   const valueAxis={type:'value' as const,name:spec.unit,nameLocation:'end' as const,nameGap:18,scale:spec.kind!=='bar',nameTextStyle:{color:'#607457',align:'left' as const,fontSize:11},axisLabel:{color:'#6c7e63',fontSize:10},splitLine:{lineStyle:{color:'#e8eee3'}},
     // Diverging bars keep zero in the middle, so a gain and a loss of one size are drawn alike, between round axis ends.
     ...(horizontal&&spec.kind==='bar'?{min:(v:{min:number;max:number})=>-axisEnd(v),max:axisEnd}:{}),
+    // A reference line is part of the picture: the axis reaches it however far the data lies from it.
+    ...(reference!==undefined?{min:(v:{min:number;max:number})=>reach(v,reference).low,max:(v:{min:number;max:number})=>reach(v,reference).high}:{}),
     // A horizontal chart's caption states its unit, so the axis has no name. Bars with their values listed beside them
     // need no tick labels; others keep a few, apart from each other.
     ...(horizontal?{name:'',splitNumber:4,axisLabel:texts?{show:false}:{color:'#6c7e63',fontSize:10,hideOverlap:true}}:{})};
@@ -86,7 +104,8 @@ export function chartOptions(spec:ChartSpec){
     yAxis:horizontal?(texts?[{...categoryAxis,inverse:true,nameGap:0,name:''},textAxis]:{...categoryAxis,inverse:true,nameGap:0,name:''}):valueAxis,
     dataZoom:[{type:'inside',filterMode:'none',disabled:!zoom},{type:'slider',show:zoom,labelFormatter:(_value:number,label:string)=>categoryLabel(label),height:16,bottom:10,borderColor:'#e1e8da',backgroundColor:'#f6f8f4',fillerColor:'#256b521a',handleStyle:{color:'#256b52'},moveHandleStyle:{color:'#256b52',opacity:.35},
       dataBackground:{lineStyle:{color:'#a9bea4'},areaStyle:{color:'#e3ece0'}},selectedDataBackground:{lineStyle:{color:'#256b52'},areaStyle:{color:'#256b5226'}},emphasis:{handleStyle:{color:'#1d5641'},moveHandleStyle:{color:'#256b52',opacity:.6}},textStyle:{color:'#6c7e63',fontSize:10}}],
-    series:spec.series.map((s,index)=>({id:s.id??String(index),name:seriesName(index),type:spec.kind??'line',connectNulls:false,showSymbol:!spec.dense,...(spec.dense?{sampling:'lttb'}:{}),symbolSize:7,lineStyle:{width:2.5},barMaxWidth:horizontal?18:44,itemStyle:{borderRadius:spec.kind==='bar'&&!horizontal?[3,3,0,0]:0},emphasis:{focus:'series'},data:categories.map(x=>datum(points[index].get(x)))})),
+    series:spec.series.map((s,index)=>({id:s.id??String(index),name:seriesName(index),type:spec.kind??'line',connectNulls:false,showSymbol:!spec.dense,...(spec.dense?{sampling:'lttb'}:{}),symbolSize:7,lineStyle:{width:2.5},barMaxWidth:horizontal?18:44,itemStyle:{borderRadius:spec.kind==='bar'&&!horizontal?[3,3,0,0]:0},emphasis:{focus:'series'},data:categories.map(x=>datum(points[index].get(x))),
+      ...(index===0&&reference!==undefined?{markLine:{silent:true,symbol:'none',animation:false,lineStyle:{type:'dashed',color:markColor,width:1.5},label:{show:true,position:'insideEndTop',color:markColor,fontSize:11,formatter:publicText(spec.reference!.label).replace(/[{}|]/g,'')},data:[{yAxis:reference}]}}:{})})),
   };
   if(spec.kind!=='heatmap')return option;
   const cells:number[][]=[];let magnitude=0,negative=false;

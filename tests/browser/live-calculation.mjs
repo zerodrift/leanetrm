@@ -62,11 +62,17 @@ export async function run({command,evaluate,wait,click,persona,set,check,shot,id
  await check('a read the desk refuses leaves the desk it had whole, with no new totals or rows beside its old charts',`${deskNow}===${JSON.stringify(deskBefore)}&&!document.querySelector('#desk').textContent.includes('4,242.500')&&!document.querySelector('#desk-positions').textContent.includes('9.995')`,deskNow);
  await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  const reference=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>h.instrumentType==='financial_swap').tradeReference");
- await set('#blotter-filters .table-search',reference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#swap-editor').open");
+ await set('#blotter-filters .table-search',reference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
+ // A risk analyst cannot amend, and reaches the swap's editor read-only through Amend, whose button says so.
+ await check('an account that cannot amend still opens the editor from Amend, and the button says it will be read-only',"!document.querySelector('#side-panel-amend').disabled&&document.querySelector('#side-panel-amend').title.includes('opens read-only')");
+ await click('#side-panel-amend');await wait("document.querySelector('#swap-editor').open");
+ const readsAtOpen=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length");
  await evaluate('window.failLiveEditor=true');await correct('base','3.4');
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);await click('#live-retry');
  await wait("document.querySelector('#swap-editor').open&&document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  await check('failed booked-side refresh retries the requested editor before reporting Live',"document.querySelector('#swap-schedules').children.length>0&&document.querySelector('#swap-error').hidden");
  await click('#swap-close');
+ // The side panel behind the editor follows the live refresh: it shows its position from the newest read of the desk.
+ await check('the side panel is drawn again from the newest read when a live correction refreshes the desk',`(()=>{const reads=window.liveResponses.filter(r=>r.path==='/api/trading/workspace'),h=reads.at(-1).data.blotter.holdings.find(h=>h.tradeReference===${JSON.stringify(reference)});return reads.length>${readsAtOpen}&&!document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(reference)}&&document.querySelector('.side-panel-value .kpi-value').title===h.presentValue+' '+h.currency;})()`);
  console.log('LIVE browser synthetic workload:',JSON.stringify(await evaluate("({requests:window.liveRequests.length,longTasks:window.liveTasks.length,maxLongTaskMilliseconds:Math.max(0,...window.liveTasks),heapBytes:performance.memory?.usedJSHeapSize})")));
 }

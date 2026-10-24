@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,commodityColors,signOf,valueFields,priceUnit} from '../dist/desk-model.js';
+import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,commodityColors,signOf,valueFields,priceUnit,holdingFormats,quantityText} from '../dist/desk-model.js';
+import {prepareAmountDisplay,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
 setCurveNames(fixture.curveNames);
@@ -298,4 +299,30 @@ test('a curve the close cannot shape says why, quietly, and never draws a defaul
  assert.deepEqual(curvePoints({...unread,unavailableReason:'other_code'},rows[4]),{state:'unavailable',reason:'Curve shape unavailable'});
  assert.deepEqual(curvePoints({...fixture.shapes[0],points:[]},rows[0]),{state:'unavailable',reason:'Curve shape unavailable · no contracts at this close'});
  assert.deepEqual(curvePoints({...fixture.shapes[0],points:fixture.shapes[0].points.map(p=>({...p,price:null,unavailableReason:'missing_observation'}))},rows[0]),{state:'unavailable',reason:'Curve shape unavailable · no prices at this close'});
+});
+
+test('a position formats its amounts by its own deal: its swap price by the fixed side\'s precision, its marks by the clearing increment',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());
+ const deal={money:2,price:4,quantity:1,factor:6};
+ const future={...fixture.holdings[1],priceTick:'0.025',markTick:'0.001',amountFormat:deal,fixedAmountFormat:{...deal,price:2}};
+ const swap={...fixture.holdings[0],fixedAmountFormat:{...deal,price:6},amountFormat:deal};
+ // Stands in for the backend: it states the places and increment each request asked for.
+ await prepareAmountDisplay({holdings:[future,swap]},async body=>body.map(r=>`${r.value}@${r.decimalPlaces}/${r.tick}`));
+ const f=holdingFormats(future),s=holdingFormats(swap);
+ assert.deepEqual([f.price('3.315'),f.mark('3.3'),f.markMinusPrice('-0.015'),f.money('-37.5'),f.quantity('2500')],['3.315@4/0.025','3.3@4/0.001','-0.015@4/0.001','-37.5@2/null','2500@1/null']);
+ assert.deepEqual([s.price('3.5'),s.mark('3.49'),s.markMinusPrice('-0.01')],['3.5@6/null','3.49@4/null','-0.01@4/null']);
+});
+
+test('a size is signed for a future and unsigned for a swap, whose direction its side label states',()=>{
+ const rows=positionRows(fixture.holdings);
+ assert.equal(quantityText(rows[1],v=>v),'+2500');
+ assert.equal(quantityText(rows[2],v=>v),'−2500');
+ assert.equal(quantityText(rows[0],v=>v),'1000');
+ assert.equal(quantityText({...rows[0],quantity:'-1000'},v=>v),'−1000');
+ assert.equal(quantityText({...rows[1],quantity:'0'},v=>v),'0');
+});
+
+test('a read that holds one trade revision twice is refused, because a panel names a position by trade and revision',()=>{
+ assert.throws(()=>positionRows([fixture.holdings[0],{...fixture.holdings[0],bindingId:'another'}]),{message:'The Blotter returned the same trade revision more than once.'});
+ assert.equal(positionRows([fixture.holdings[0],{...fixture.holdings[0],revision:'2'}]).length,2,'two revisions of one trade are two positions');
 });

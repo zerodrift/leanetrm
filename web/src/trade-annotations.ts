@@ -6,6 +6,13 @@ export type Booking={tradeDate:string|null;legalEntityId:string|null;legalEntity
 export type Annotation=Booking&{booking?:Booking;traderId:string|null;traderRevision:number|null;memo:string|null;trader?:string|null;traderCode?:string|null;executedAt?:string;bookingFacts?:{implementation:string;labelCapturedAt:string}};
 type Editable=Pick<Annotation,'memo'|'legalEntityId'|'legalEntityRevision'|'counterpartyId'|'counterpartyRevision'>;
 
+/** The booking facts of a trade revision as a read view lists them: who, when and with whom, as the editors' header fields hold them. */
+export function bookingRows(state:Annotation,zone:string):(readonly [string,string])[]{
+ const booking=state.booking??state;
+ return [['Trader',state.trader??'None'],['Trade date',booking.tradeDate??'Not recorded'],['Legal entity',booking.legalEntity??'None'],['Counterparty',booking.counterparty??'None'],
+  ['Executed',state.executedAt?displayInstant(state.executedAt,zone):'Not recorded'],['Memo',state.memo??'None']];
+}
+
 // Shared trade header. Identity and dates are returned by the server, never read
 // from controls into a command. Each product editor owns its instrument quantity.
 export function tradeAnnotations(prefix:string,zone:()=>string){

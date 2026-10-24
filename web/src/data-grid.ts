@@ -1,4 +1,4 @@
-import {TabulatorFull,type GridGroup} from './vendor/tabulator.js';
+import {TabulatorFull,type GridGroup,type GridRow} from './vendor/tabulator.js';
 import {compareDecimalStrings} from './analytics-model.js';
 import {matchesTableRow,columnValues,validNumericFilter} from './regular-table.js';
 import {publicText} from './market-view.js';
@@ -10,8 +10,9 @@ export const emptyGridLayout=():GridLayout=>({order:[],widths:{},sort:[]});
 // group: rows under headers, in the order given: each source row's group key and the header drawn for each key.
 // stretch: the last column fills the grid's remaining width.
 // toolbarHost: where the filter toolbar (search, column filters, row count) is drawn, when not above the table.
+// collapsed: columns, by index, the grid leaves out for now, as a consumer that takes room from it asks; `collapse` changes them while the grid stands.
 type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void;
-  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:{keys:string[];order:string[];header:(key:string,count:number)=>HTMLElement};rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement};
+  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:{keys:string[];order:string[];header:(key:string,count:number)=>HTMLElement};rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;collapsed?:readonly number[]};
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[],isBusy:()=>boolean,options:GridOptions){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=publicText(value);return n;};
   const values=rows.map(row=>row.map(cell=>publicText(typeof cell==='string'?cell:cell.textContent??'')));
@@ -49,20 +50,38 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   document.addEventListener('scroll',cancelGesture,true);
   const field=(i:number)=>'c'+i;
   const ordered=[...options.layout.order.filter(k=>options.keys.includes(k)),...options.keys.filter(k=>!options.layout.order.includes(k))];
+  // The columns left out now, and those the table has been drawn without: they differ until `applyCollapsed` has run.
+  let collapsed=new Set(options.collapsed),applied=collapsed;
+  const shown=(i:number)=>options.visible?.[i]!==false&&!collapsed.has(i);
   const definitions:Record<string,unknown>[]=[],groups=new Map<string,{columns:Record<string,unknown>[]} >();
   for(const key of ordered){
     const i=options.keys.indexOf(key),group=options.columnGroups?.[key],title=publicText(group?.measureTitle??headers[i]);
-    const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:options.visible?.[i]!==false,minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:!options.visual?.includes(i),hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const index=Number(cell.getRow().getData().__sourceIndex),rich=options.cells?.(index,i);if(rich)return rich;const span=document.createElement('span');span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.cellTitles?.[index]?.[i]!==undefined)span.title=publicText(options.cellTitles[index][i]);else if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return span;},headerWordWrap:true,
+    const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:shown(i),minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:!options.visual?.includes(i),hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const index=Number(cell.getRow().getData().__sourceIndex),rich=options.cells?.(index,i);if(rich)return rich;const span=document.createElement('span');span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.cellTitles?.[index]?.[i]!==undefined)span.title=publicText(options.cellTitles[index][i]);else if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return span;},headerWordWrap:true,
       sorter:numeric.includes(i)?(a:string,b:string)=>a===''?(b===''?0:-1):b===''?1:compareDecimalStrings(a,b):'string'};
     if(!group){definitions.push(definition);continue;}
     let parent=groups.get(group.key);if(!parent){const title=publicText(group.title);parent={columns:[]};groups.set(group.key,parent);definitions.push({...parent,title,titleFormatter:()=>document.createTextNode(title),headerHozAlign:'center',cssClass:'pivot-column-group'});}
     parent.columns.push(definition);
   }
+  // Draws the table with the columns left out now, once it can be: a change asked for before it was built is made when it is.
+  function applyCollapsed(){
+    if(!ready||!alive||applied===collapsed)return;
+    applied=collapsed;
+    for(let i=0;i<headers.length;i++){const column=table.getColumn(field(i));if(column){if(shown(i))column.show();else column.hide();}}
+    table.redraw(true);
+  }
+  // The row the consumer has open, which it names by source index: marked whenever its element is drawn.
+  let opened:number|null=null;
+  const sourceIndex=(row:GridRow)=>Number(row.getData().__sourceIndex);
+  function markOpen(row:GridRow){const target=row.getElement(),isOpen=sourceIndex(row)===opened;target.classList.toggle('open-row',isOpen);if(isOpen)target.setAttribute('aria-current','true');else target.removeAttribute('aria-current');}
   const table=new TabulatorFull(container,{
     // Grouped rows start in the order of their groups, which Tabulator keeps as it meets them; a group the filters empty disappears.
     data:values.map((row,index)=>({...Object.fromEntries(row.map((cell,i)=>[field(i),cell])),__sourceIndex:String(index)}))
       .sort((a,b)=>options.group?options.group.order.indexOf(options.group.keys[Number(a.__sourceIndex)])-options.group.order.indexOf(options.group.keys[Number(b.__sourceIndex)]):0),
-    rowFormatter:options.onRowOpen?(row:any)=>{const target=row.getElement() as HTMLElement;target.tabIndex=0;target.classList.add('openable-row');target.setAttribute('aria-label','Open row details');target.onkeydown=event=>{if(event.target===target&&['Enter',' '].includes(event.key)){event.preventDefault();openRow(row);}};}:undefined,
+    rowFormatter:(row:any)=>{
+      const target=row.getElement() as HTMLElement;
+      if(options.onRowOpen){target.tabIndex=0;target.classList.add('openable-row');target.setAttribute('aria-label','Open row details');target.onkeydown=event=>{if(event.target===target&&['Enter',' '].includes(event.key)){event.preventDefault();openRow(row);}};}
+      markOpen(row);
+    },
     columns:definitions,
     layout:options.stretch?'fitDataStretch':'fitDataFill',height:Math.min(560,Math.max(140,rows.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)))+'px',movableColumns:true,columnDefaults:{tooltip:false},placeholder:'No rows match this selection.',
     ...(options.group?{groupBy:(data:Record<string,string>)=>options.group!.keys[Number(data.__sourceIndex)],groupHeader:(key:string,count:number,_rows:unknown,group:GridGroup)=>{
@@ -94,7 +113,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // fitDataFill refits every column without a definition width whenever the
   // grid is redrawn for a new size, so a user's resize becomes that width.
   table.on('columnResized',(column:any)=>{column.getDefinition().width=column.getWidth();});
-  table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;apply();options.onReady?.();});
+  table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;applyCollapsed();apply();options.onReady?.();});
   for(const event of ['columnMoved','columnResized','dataSorted'])table.on(event,()=>{if(ready&&current())options.onLayout(layout());});
   search.oninput=()=>{if(!current())return;state.query=search.value;apply();};
   toggle.onclick=()=>{if(!current())return;filterPanel.hidden=!filterPanel.hidden;toggle.setAttribute('aria-expanded',String(!filterPanel.hidden));};
@@ -114,6 +133,25 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
      * (Cell.setValue); a Tabulator upgrade has to keep that behavior, or this has to change with it.
      */
     redrawCells(column:number){if(ready&&alive)for(const row of table.getRows()){const cell=row.getCell(field(column));if(cell)cell.setValue(row.getData()[field(column)]);}},
+    /** Leaves out exactly these columns, showing again any it left out before that the view has not hidden. */
+    collapse(indices:readonly number[]){
+      const next=new Set(indices);
+      if(next.size===collapsed.size&&[...next].every(i=>collapsed.has(i)))return;
+      collapsed=next;applyCollapsed();
+    },
+    /** Marks the row of a source index as the open one (null: none), and keeps it marked as the grid draws its rows again. */
+    selectRow(index:number|null){opened=index;if(ready&&alive)for(const row of table.getRows())markOpen(row);},
+    /**
+     * Moves focus to the row of a source index, scrolling it into view first, once the grid has drawn again: a change of the
+     * grid's width, such as a closing panel's, redraws its rows in the frame after it, which would take focus from a row focused sooner.
+     */
+    focusRow(index:number){
+      if(!ready||!alive)return;
+      void new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))).then(()=>{
+        const row=alive?table.getRows().find(candidate=>sourceIndex(candidate)===index):undefined;
+        return row?.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive)row.getElement().focus({preventScroll:true});});
+      });
+    },
     destroy(){if(!alive)return;alive=false;gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }

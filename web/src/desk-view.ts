@@ -2,7 +2,7 @@
 // grid. It draws what desk-model selected; every figure is a backend string shown in the backend's display format.
 import {compareDecimalStrings} from './analytics-model.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
-import {curvePoints,signOf,signedText,type CurveShape,type DeskRow,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
+import {curvePoints,minus,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
 import {publicText} from './market-view.js';
 import {divergingBar,sparklineGeometry} from './mini-charts.js';
 
@@ -16,14 +16,10 @@ function shape<K extends keyof SVGElementTagNameMap>(tag:K,attributes:Record<str
 function tooltip(element:SVGElement,text:string){const title=shape('title',{});title.textContent=publicText(text);element.prepend(title);return element;}
 // A space between neighbouring pieces of text, so the text a screen reader gets keeps them apart as the layout does.
 const space=()=>document.createTextNode(' ');
-const minus=(text:string)=>text.replace(/^-/,'−');
 // The largest magnitude among exact amounts, for a shared bar scale: chosen by exact comparison, never computed.
 function largest(values:readonly string[]){
   let top='0';for(const value of values){const magnitude=value.replace(/^-/,'');if(compareDecimalStrings(magnitude,top)>0)top=magnitude;}return top;
 }
-
-/** The display text of an exact amount, as the backend formats it for the row or the read. */
-export type Format=(value:string)=>string;
 
 function label(text:string,aside?:string){const row=node('div','desk-tile-label');row.append(node('span',undefined,text),...(aside?[space(),node('span',undefined,aside)]:[]));return row;}
 /**
@@ -181,7 +177,7 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
           if(bar.width>0)track.append(shape('rect',{x:row.exposure==='short'?56-bar.x-bar.width:bar.x,y:2,width:bar.width,height:8,rx:2,fill:color}));
         }
         // A future's quantity carries its sign; a swap's booked quantity has none, and its side label states its direction.
-        const figure=exact(node('span','desk-figure',row.instrumentType==='future'?signedText(row.quantity,v=>formats.quantity(index,v)):minus(formats.quantity(index,row.quantity))),row.quantity);
+        const figure=exact(node('span','desk-figure',quantityText(row,v=>formats.quantity(index,v))),row.quantity);
         // The unit and the side or lots sit under the figure, so figures of different units keep their right edges aligned.
         const line=node('span','desk-line'),under=node('small','desk-sub');line.append(track,figure);under.append(node('span','desk-unit',row.unit),` · ${publicText(row.side)}`);cell.append(line,under);return cell;}
       case 'executionPrice':{if(row.price===null){cell.append(node('span','desk-muted','None'),node('small','desk-sub','No fixed price'));return cell;}

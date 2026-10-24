@@ -85,6 +85,35 @@ test('a diverging axis keeps zero in the middle between round ends',()=>{
  assert.deepEqual([o.xAxis.min({min:0,max:4000000}),o.xAxis.max({min:0,max:4000000})],[-4000000,4000000]);
  assert.deepEqual([o.xAxis.min({min:-2.5,max:1}),o.xAxis.max({min:-2.5,max:1})],[-2.5,2.5]);
 });
+test('a line chart emphasizes the points it marks and draws a reference line at an exact value, which its value axis then includes',()=>{
+ const spec={title:'Gas forward',axis:'delivery',unit:'USD/MMBtu (IT)',kind:'line',series:[{name:'Curve',points:[{x:'jan',label:'Jan 2021',y:'3.1'},{x:'feb',label:'Feb 2021',y:'3.15'},{x:'mar',label:'Mar 2021',y:null}]}],
+  marked:['feb'],reference:{value:'3.5',label:'Fixed 3.500 USD/MMBtu (IT)'}};
+ const o=chartOptions(spec),[jan,feb,mar]=o.series[0].data;
+ assert.equal(jan,3.1,'a point that is not marked stays a plain value');assert.equal(mar,null,'a gap stays a gap');
+ assert.equal(feb.value,3.15);assert.ok(feb.symbolSize>o.series[0].symbolSize,'a marked point is drawn larger');
+ const line=o.series[0].markLine;
+ assert.deepEqual(line.data,[{yAxis:3.5}]);assert.equal(line.label.formatter,'Fixed 3.500 USD/MMBtu (IT)');assert.equal(line.symbol,'none');
+ // The axis holds the data and the line with a little room beyond them, whichever side the line is on.
+ const reaching=(range,low,high)=>{const [min,max]=[o.yAxis.min(range),o.yAxis.max(range)],room=(high-low)*.1;return min<=low&&min>low-room&&max>=high&&max<high+room;};
+ assert.ok(reaching({min:3.1,max:3.15},3.1,3.5));
+ assert.ok(reaching({min:3.8,max:4},3.5,4));
+ assert.ok(o.yAxis.max({min:3.5,max:3.5})>o.yAxis.min({min:3.5,max:3.5}),'a line on the only value still has room around it');
+});
+test('a chart without marks or a reference line draws neither, and its axis is the data axis',()=>{
+ const o=chartOptions({title:'Gas forward',axis:'delivery',unit:'USD/MMBtu (IT)',kind:'line',series:[{name:'Curve',points:[{x:'jan',y:'3.1'},{x:'feb',y:'3.15'}]}]});
+ assert.deepEqual(o.series[0].data,[3.1,3.15]);assert.equal(o.series[0].markLine,undefined);
+ assert.equal(o.yAxis.min,undefined);assert.equal(o.yAxis.max,undefined);
+});
+test('a chart marks only points it draws, and a reference line needs an exact value',()=>{
+ const spec={title:'t',axis:'delivery',unit:'USD',kind:'line',series:[{name:'a',points:[{x:'jan',y:'3.1'}]}]};
+ assert.throws(()=>chartOptions({...spec,marked:['feb']}),{message:'A chart can only mark points it draws.'});
+ assert.throws(()=>chartOptions({...spec,reference:{value:'three',label:'x'}}),{message:'A plot needs exact finite decimal or rational strings.'});
+});
+test('a reference line given as a rational is placed by its ratio, and its label stays text',()=>{
+ const o=chartOptions({title:'t',axis:'delivery',unit:'USD',kind:'line',series:[{name:'a',points:[{x:'jan',y:'1'}]}],reference:{value:'7/2',label:'Fixed 3.5 {not|rich}'}});
+ // Plot coordinates place pixels only: the ratio is within rounding of its exact value.
+ assert.equal(o.series[0].markLine.data.length,1);assert.ok(Math.abs(o.series[0].markLine.data[0].yAxis-3.5)<1e-9);assert.equal(o.series[0].markLine.label.formatter,'Fixed 3.5 notrich');
+});
 // The muted text of the desk's rows and group headers, on every background it sits on, hovered rows and headers included.
 test('the muted text of the desk meets AA contrast on the rows and group headers it sits on, hovered or not',()=>{
  const colorOf=selector=>{const body=css.match(new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\{([^}]*)\\}'))?.[1];return body&&resolved(body.match(/(?:^|[;\s])color:\s*([^;]+)/)?.[1].trim());};

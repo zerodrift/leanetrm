@@ -6,10 +6,12 @@ import {draftValuation} from './draft-valuation.js';
 import {mountSwapSideEditor,mountFirstFloatingEditor} from './swap-side-editor.js';
 import {dealFormatEditor} from './deal-format-editor.js';
 import {amountText} from './amount-display.js';
-import {tradeAnnotations,type PartyCatalog,type Trader,type Annotation} from './trade-annotations.js';
+import {tradeAnnotations,bookingRows,type PartyCatalog,type Trader,type Annotation} from './trade-annotations.js';
 import {createScheduleDatePicker} from './schedule-date-picker.js';
 import type {Context} from './date-editor.js';
-import {PaymentDateRule,PaymentDayBasis,DateAdjustment,Discounting,type PaymentInput,type PaymentOptions} from './swap-contract.js';
+import {PaymentDateRule,PaymentDayBasis,DateAdjustment,Discounting,type Choice,type PaymentInput,type PaymentOptions} from './swap-contract.js';
+import {minus,priceUnit,type HoldingFormats} from './desk-model.js';
+import type {DetailView,TermSection} from './position-panel.js';
 import {trackEdits} from './edit-tracking.js';
 import {projectionReference,type CustomProjection,type ProjectionChoice} from './swap-projections.js';
 import {publicText,displayInstant,deliveryLabel,curveName,friendly} from './market-view.js';
@@ -25,7 +27,62 @@ type Terms={swapType:string;firstCoefficient:string|null;firstFloating:FloatingT
 type State=Annotation&{tradeId:string;tradeReference:string;instrumentReference:string;revision:number;quantity:string;kind:string;reason:string;effectiveAt:string;recordedAt:string;terms:Terms};
 type Valuation={presentValue:string;instrumentPresentValue:string;quantity:string;sides:{slot:number;kind:string;coefficient:string;presentValue:string;contribution:string;payments:{deliveryFrom:string;deliveryTo:string;paymentDate:string;cashAmount:string;discountFactor:string;presentValue:string;discountMappingId:string|null;discountCurve:unknown;discountPolicy:string;pillars:unknown;observationSchedule:ObservationInspection|null;resets:{spread:string|null;lookup:unknown;lineage:unknown;from:string;to:string;price:string;weight:string;cashContribution:string;fixingState:string;fixing?:unknown}[]}[]}[]};
 type Detail={state:State;history:State[];catalog:Catalog;valuation:Valuation;canAmend:boolean;amendUnavailableReason:string|null;asOf:string;context:Context};
+export type SwapDetail=Detail;
 const convention='independent_side_financial_swap_v2';
+/** The editor's read of one swap revision (null: the latest), in the market context the page reads in. */
+export const readSwapDetail=(api:Api,context:Record<string,unknown>,tradeId:string,revision:number|null)=>api<Detail>('swaps/editor',{context:{...context,convention},tradeId,revision});
+/** A side's title, as the editor and the position panel name it: which side, and whether it is paid or received. A coefficient of another sign is shown as it is. */
+export const sideTitle=(side:{slot:number;kind:string;coefficient:string},floatingPair:boolean)=>
+ `${side.kind==='fixed'?'Fixed':floatingPair?(side.slot===0?'First floating':'Second floating'):'Floating'} side · ${side.coefficient==='-1'?'Pay':side.coefficient==='1'?'Receive':`coefficient ${side.coefficient}`}`;
+const swapTypeLabels:Readonly<Record<string,string>>={financial_fixed_floating:'Fixed for floating',financial_floating_floating:'Floating for floating'};
+const discountingLabels:Readonly<Record<Discounting,string>>={[Discounting.CurrencyDefault]:'Currency default curve',[Discounting.None]:'Explicitly undiscounted'};
+/** The revisions of a swap as the editor's revisions table lists them. */
+export function swapHistoryTable(detail:Detail,zone:string){
+ return {headers:['Revision','Event','Effective','Recorded','Quantity','Trader ID','Memo','Trade date','Legal entity','Counterparty','Reason'],numeric:[0,4],
+  rows:detail.history.map(s=>[String(s.revision),s.kind,displayInstant(s.effectiveAt,zone),displayInstant(s.recordedAt,zone),s.quantity,s.traderCode??'',s.memo??'',s.booking?.tradeDate??'',s.booking?.legalEntity??'',s.booking?.counterparty??'',s.reason])};
+}
+const choiceLabel=(choices:Choice[],value:string)=>choices.find(c=>c.value===value)?.label??friendly(value);
+// A payment schedule's terms, in the words of the catalog's own payment choices.
+function paymentRows(payment:PaymentInput,options:PaymentOptions):(readonly [string,string])[]{
+ const rule=payment.rule===PaymentDateRule.DaysAfterPeriodEnd&&payment.days!==null?` · ${payment.days} days`:payment.rule===PaymentDateRule.DayOfFollowingMonth&&payment.dayOfMonth!==null?` · day ${payment.dayOfMonth}`:'';
+ return [['Payment frequency',choiceLabel(options.frequencies,payment.frequency)],['Payment rule',choiceLabel(options.rules,payment.rule)+rule],
+  ...(payment.dayBasis?[['Day basis',choiceLabel(options.dayBases,payment.dayBasis)] as const]:[]),...(payment.shortMonth?[['Short months',choiceLabel(options.shortMonths,payment.shortMonth)] as const]:[]),
+  ['Adjustment',choiceLabel(options.adjustments,payment.adjustment)],...(payment.calendar?[['Calendar',friendly(payment.calendar)] as const]:[])];
+}
+/** The terms of a swap revision as a read view lists them: its booking facts, its structure, and each of its sides with its own terms. */
+export function swapTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSection[]{
+ const s=detail.state,t=s.terms,catalog=detail.catalog,book=catalog.books.find(b=>b.id===t.bookId),pair=t.swapType==='financial_floating_floating';
+ const indexOf=(side:FloatingTerms)=>{const found=catalog.indices.find(i=>i.definitionRevisionId===t.definitionRevisionId&&i.curve===side.curve&&i.index===side.index);if(!found)throw Error('The retained exact index definition is unavailable.');return found;};
+ const currency=(code:string)=>catalog.indices.find(i=>i.currencyCode===code)?.currency??code;
+ // Every price of a swap is per its instrument quantity unit, which is the unit of its second floating side's index.
+ const quantityIndex=indexOf(t.floating),payments=(payment:PaymentInput|null)=>payment?paymentRows(payment,catalog.paymentOptions):[];
+ const common=(terms:{currency:string;deliveryFrom:string;deliveryTo:string;paymentSchedule:PaymentInput|null})=>[['Currency',currency(terms.currency)] as const,['Delivery',deliveryLabel(terms.deliveryFrom,terms.deliveryTo)] as const,...payments(terms.paymentSchedule)];
+ const sides=detail.valuation.sides.map(side=>{
+  const title=sideTitle(side,pair);
+  if(side.kind==='fixed'){
+   const fixed=t.fixed;if(!fixed)throw Error('The retained swap terms do not hold a side that its valuation does.');
+   const unit=priceUnit({currency:currency(fixed.currency),unit:quantityIndex.unit,quoteMultiplier:quantityIndex.quoteMultiplier});
+   return {title,rows:[['Fixed price',`${minus(formats.price(fixed.price))} ${unit}`] as const,...common(fixed)]};
+  }
+  const floating=pair&&side.slot===0?t.firstFloating:t.floating;if(!floating)throw Error('The retained swap terms do not hold a side that its valuation does.');
+  const index=indexOf(floating),unit=priceUnit({currency:currency(floating.currency),unit:index.unit,quoteMultiplier:index.quoteMultiplier});
+  return {title,rows:[['Index',friendly(floating.index)] as const,['Projection curve',curveName(floating.curve)] as const,['Reset frequency',friendly(floating.resetFrequency)] as const,['Averaging',friendly(floating.averagingMethod)] as const,
+   ['Spread',`${floating.spread??'None'} ${unit}`] as const,['Projected prices',floating.customProjection?`Retained custom output · v${floating.customProjection.version}`:'Contractual projection curve'] as const,...common(floating)]};
+ });
+ return [
+  {title:'Trade',rows:[['Trade',`${s.tradeReference} · ${s.instrumentReference}`],['Revision',`${s.revision} · ${friendly(s.kind)}`],['Book',book?`${book.portfolio} · ${book.name}`:'Unavailable book'],...bookingRows(s,zone)]},
+  {title:'Structure',rows:[['Type',swapTypeLabels[t.swapType]??friendly(t.swapType)],['Commodity',catalog.commodities.find(c=>c.code===t.commodity)?.name??friendly(t.commodity)],['Quantity',`${minus(formats.quantity(s.quantity))} ${quantityIndex.unit}`],
+   ['Discounting',discountingLabels[t.discounting?Discounting.CurrencyDefault:Discounting.None]]]},
+  ...sides,
+ ];
+}
+/** What the position panel's Terms and History tabs show of a swap revision: the same read the editor makes. */
+export const swapDetailView=(detail:Detail,zone:string,formats:HoldingFormats):DetailView=>({terms:swapTerms(detail,zone,formats),history:swapHistoryTable(detail,zone),
+ amend:{allowed:detail.canAmend,reason:detail.canAmend?null:detail.amendUnavailableReason??'Read-only revision'}});
+export async function readSwapView(api:Api,context:Record<string,unknown>,tradeId:string,revision:number,formats:HoldingFormats){
+ const detail=await readSwapDetail(api,context,tradeId,revision);
+ return (zone:string)=>swapDetailView(detail,zone,formats);
+}
 export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;onDenied:()=>void}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -197,7 +254,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   visibleValuation=value;
   const i=selectedIndex();text('swap-pv',`Trade PV: ${display.text(value.presentValue,'money')} ${i?.currency??''} · instrument unit PV: ${display.text(value.instrumentPresentValue,'money')} ${i?.currency??''}/${i?.unit??''} · trade quantity: ${display.text(value.quantity,'quantity')} ${i?.unit??''}. Side values below are per normalized unit.`);
   const host=get('swap-schedules');clearSchedules();
-  for(const side of value.sides){const section=document.createElement('section');section.className='swap-schedule';const title=document.createElement('h3');title.textContent=`${side.kind==='fixed'?'Fixed':floatingPair()?(side.slot===0?'First floating':'Second floating'):'Floating'} side · ${side.coefficient==='-1'?'Pay':'Receive'}`;const sum=document.createElement('p');sum.className='field-help';sum.textContent=`Side unit PV: ${display.text(side.presentValue,'money',side.kind)} ${i?.currency??''}/${i?.unit??''}; signed contribution: ${display.text(side.contribution,'money',side.kind)} ${i?.currency??''}/${i?.unit??''}.`;const payments=document.createElement('div');payments.className='table-wrap';section.append(title,sum,payments);
+  for(const side of value.sides){const section=document.createElement('section');section.className='swap-schedule';const title=document.createElement('h3');title.textContent=sideTitle(side,floatingPair());const sum=document.createElement('p');sum.className='field-help';sum.textContent=`Side unit PV: ${display.text(side.presentValue,'money',side.kind)} ${i?.currency??''}/${i?.unit??''}; signed contribution: ${display.text(side.contribution,'money',side.kind)} ${i?.currency??''}/${i?.unit??''}.`;const payments=document.createElement('div');payments.className='table-wrap';section.append(title,sum,payments);
    const chart=document.createElement('div');section.insertBefore(chart,payments);host.append(section);
    const widget=mountIntervalDataWidget({table:payments,chart,key:`swap-${side.slot}-payments`,busy:options.busy});scheduleWidgets.push(widget);
    widget.show(sideScheduleData(side.payments,JSON.stringify(side),`${i?.currency}/${i?.unit}`,(amount,kind)=>display.text(amount,kind,side.kind)));
@@ -222,11 +279,12 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   field('swap-discounting').value=t.discounting?Discounting.CurrencyDefault:Discounting.None;field('swap-reason').value='';direction();
   text('swap-reference',`${state.tradeReference} · ${state.instrumentReference} · Revision ${state.revision}`);text('swap-mode',value.canAmend?'Latest revision · amendment appends a retained event':value.amendUnavailableReason??'Read-only revision');text('swap-effective',`Amendment effective: ${displayInstant(value.asOf,options.zone())}. Prior revisions remain unchanged.`);
   choose('swap-revision',value.history.map(s=>({value:String(s.revision),label:`Revision ${s.revision} · ${s.kind}`})),String(state.revision));get('swap-revisions').hidden=false;get('swap-amendment').hidden=false;get<HTMLInputElement>('swap-reason').required=value.canAmend;
-  renderRegularTable(get('swap-history'),'swap-history',JSON.stringify(value.history),['Revision','Event','Effective','Recorded','Quantity','Trader ID','Memo','Trade date','Legal entity','Counterparty','Reason'],value.history.map(s=>[String(s.revision),s.kind,displayInstant(s.effectiveAt,options.zone()),displayInstant(s.recordedAt,options.zone()),s.quantity,s.traderCode??'',s.memo??'',s.booking?.tradeDate??'',s.booking?.legalEntity??'',s.booking?.counterparty??'',s.reason]),[0,4],options.busy);get('swap-history-panel').hidden=false;
+  const history=swapHistoryTable(value,options.zone());
+  renderRegularTable(get('swap-history'),'swap-history',JSON.stringify(value.history),history.headers,history.rows,history.numeric,options.busy);get('swap-history-panel').hidden=false;
   prepared=undefined;get('swap-confirmation').hidden=true;valuation(value.valuation);sync();
  }
  async function openNew(){reset();const started=generation,source=key();await safe(async()=>{const response=await options.api<Catalog>('swaps/catalog',context());if(started!==generation||source!==key())return;catalog=response;populateCatalog();await refreshObservations();if(started!==generation||source!==key())return;text('swap-mode','Choose a swap type and enter each independent side.');typeControls();get<HTMLInputElement>('swap-reason').required=false;sync();dialog.showModal();});}
- async function open(tradeId:string,revision:number|null){reset();const started=++generation,source=key();invalidate();await safe(async()=>{const response=await options.api<Detail>('swaps/editor',{context:context(),tradeId,revision});if(started!==generation||source!==key())return;await display.load(response.state.tradeId,context(),response.canAmend,response.state.terms.firstFloating?['trade','floating']:['trade','fixed','floating']);await prepare(response.valuation);if(started!==generation||source!==key())return;renderDetail(response);await refreshObservations();if(started!==generation||source!==key())return;if(!dialog.open)dialog.showModal();});}
+ async function open(tradeId:string,revision:number|null){reset();const started=++generation,source=key();invalidate();await safe(async()=>{const response=await readSwapDetail(options.api,options.context(),tradeId,revision);if(started!==generation||source!==key())return;await display.load(response.state.tradeId,context(),response.canAmend,response.state.terms.firstFloating?['trade','floating']:['trade','fixed','floating']);await prepare(response.valuation);if(started!==generation||source!==key())return;renderDetail(response);await refreshObservations();if(started!==generation||source!==key())return;if(!dialog.open)dialog.showModal();});}
  get('swap-close').onclick=()=>{if(!options.busy())reset();};dialog.addEventListener('cancel',reset);
  field('swap-quantity-unit').onchange=quantityUnitLabel;
  get('swap-type-choices').querySelectorAll<HTMLButtonElement>('button').forEach(button=>button.onclick=()=>{field('swap-type').value=button.dataset.swapType!;field('swap-type').dispatchEvent(new Event('change',{bubbles:true}));});

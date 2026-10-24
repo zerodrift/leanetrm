@@ -23,7 +23,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // The grid ignores a press that a scroll interrupts, and the desk is tall enough for this to scroll: let it settle first.
   await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
   const point=await evaluate("(()=>{const rect=document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) .tabulator-cell').getBoundingClientRect();return {x:rect.left+12,y:rect.top+rect.height/2};})()");
-  await command('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});await wait("document.querySelector('#swap-editor').open&&"+idle);
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
+  // The press opens the position in the side panel; Amend opens the swap's editor from there.
+  await wait("!document.querySelector('#side-panel').hidden");await click('#side-panel-amend');await wait("document.querySelector('#swap-editor').open&&"+idle);
  }
  let index=await start();
  const projection=JSON.stringify([index.definitionRevisionId,index.curve,index.index]);

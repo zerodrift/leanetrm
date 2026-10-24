@@ -189,11 +189,20 @@
           <section id="desk-tile-risk" class="desk-tile desk-tile-risk" aria-label="Risk at this close"></section>
         </div>
       </div>
-      <div id="desk-charts" class="desk-charts">
-        <section id="desk-chart-pv" class="desk-chart" aria-labelledby="desk-chart-pv-title"><h3 id="desk-chart-pv-title" class="desk-chart-title">Swap PV by market</h3></section>
-        <section id="desk-chart-position" class="desk-chart" aria-labelledby="desk-chart-position-title"><h3 id="desk-chart-position-title" class="desk-chart-title">Long and short by market</h3></section>
-      </div>
     </div>
+    <div id="desk-charts" class="desk-charts" hidden>
+      <section id="desk-chart-pv" class="desk-chart" aria-labelledby="desk-chart-pv-title"><h3 id="desk-chart-pv-title" class="desk-chart-title">Swap PV by market</h3></section>
+      <section id="desk-chart-position" class="desk-chart" aria-labelledby="desk-chart-position-title"><h3 id="desk-chart-position-title" class="desk-chart-title">Long and short by market</h3></section>
+    </div>
+    <aside id="side-panel" class="side-panel" aria-label="Position" tabindex="-1" hidden>
+      <div class="side-panel-frame">
+        <div id="side-panel-prompt" class="side-panel-prompt" role="alertdialog" aria-label="Unsaved changes" hidden></div>
+        <button id="side-panel-close" type="button" class="icon-button side-panel-close" aria-label="Close the panel">×</button>
+        <div id="side-panel-head" class="side-panel-head"></div>
+        <div id="side-panel-tabs" class="side-panel-tabs" role="tablist"></div>
+        <div id="side-panel-body" class="side-panel-body" role="tabpanel" tabindex="0"></div>
+      </div>
+    </aside>
     <section id="blotter-chart-card" class="card blotter-analysis" hidden><div class="analysis-heading"><div><div class="eyebrow">BLOTTER ANALYTICS</div><h3>Visual analysis</h3><p id="blotter-chart-scope" class="field-help"></p></div><div class="plot-style-controls" role="group" aria-label="Chart style"><button type="button" data-plot-kind="bar" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M8 16v-5m5 5V7m5 9V4"/></svg>Bars</button><button type="button" data-plot-kind="line" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M7 15l5-7 4 3 5-7"/></svg>Line</button><button type="button" data-plot-kind="heatmap" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM4 10h16m-16 5h16M10 4v16m5-16v16"/></svg>Heatmap</button></div></div><div id="blotter-chart"></div><p class="analysis-footnote">Hover for exact values. Use the legend to isolate a series and the slider to zoom. Empty cells indicate unavailable values.</p></section>
     <div class="table-workspace-footer"><p id="futures-summary" role="status">Choose a market date above.</p><details class="blotter-scope"><summary>Calculation scope</summary><p class="field-help">Futures show execution P&amp;L; financial swaps show projected PV. These are separate measures. Blank values are unavailable. Futures PV and daily settlement remain separate work. Values use the selected saved market inputs; no live feed is connected.</p></details></div>
     <section id="risk-card" class="card" hidden>

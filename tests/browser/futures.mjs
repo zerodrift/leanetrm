@@ -1,6 +1,7 @@
 import {chooseFutures} from './futures-selection.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
 import {swapPvCard,groupHeadersReadApart} from './desk-cards.mjs';
+import {sidePanelChecks} from './side-panel-checks.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url}){
   const rawSet=set;set=async(selector,value)=>{if(selector==='#futures-contract'){const c=await evaluate(`window.__tradingCatalogs(window.__futuresResponses).at(-1).data.contracts.find(c=>JSON.stringify([c.curve,c.id])===${JSON.stringify(value)})`);if(!c)throw Error('Missing selected futures contract');await chooseFutures({evaluate,set:rawSet,click},c);}else await rawSet(selector,value);};
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
@@ -105,6 +106,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a group header closes its positions from the keyboard and says so',`document.activeElement===${firstHeader}&&${firstHeader}.getAttribute('aria-expanded')==='false'&&${positionRows}<${rowsOpen}`,`[document.activeElement.className,${firstHeader}.getAttribute('aria-expanded'),${positionRows}]`);
   await press(' ',' ',32,' ');
   await check('and opens them again with the space bar',`document.activeElement===${firstHeader}&&${firstHeader}.getAttribute('aria-expanded')==='true'&&${positionRows}===${rowsOpen}`,`[document.activeElement.className,${firstHeader}.getAttribute('aria-expanded'),${positionRows}]`);
+  await sidePanelChecks({evaluate,wait,click,set,check,idle,press,settle,rowsRead});
   // Curves that arrive after the rows are drawn into their own cells; the rest of each row is left as it was.
   await evaluate('window.__holdShapes=true');await click('#futures-refresh');
   await wait("typeof window.__releaseShapes==='function'&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) .desk-pill')");

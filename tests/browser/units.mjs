@@ -13,7 +13,7 @@ export async function run({command,wait,click,set,submit,check,evaluate,idle,url
  await click('#blotter-column-choices input[value="priceUnit"]');await click('#blotter-columns>summary');
  await check('futures decimal prices retain their 0.025 tick precision',"[...document.querySelectorAll('#desk-positions [tabulator-field=c3] .desk-figure')].some(n=>/^-?\\d+\\.\\d{3}$/.test(n.textContent))");
  await click('#profile-open');await check('Profile contains no amount precision controls',"!document.querySelector('#precision-money')&&!document.querySelector('#precision-quantity')");await click('#profile-close');
- await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#trade-editor').open&&!document.querySelector('#trade-amount-format').hidden");
+ await click('#desk-positions .tabulator-row:not(.tabulator-group)');await click('#side-panel-amend');await wait("document.querySelector('#trade-editor').open&&!document.querySelector('#trade-amount-format').hidden");
  await check('money display settings are collapsed below the main trade workflow',"!document.querySelector('#trade-amount-format details').open&&document.querySelector('#trade-amount-format-trade-money').value==='3'&&!document.querySelector('#trade-amount-format-trade-price')&&!document.querySelector('#trade-amount-format-trade-quantity')&&Boolean(document.querySelector('#trade-amend-form').compareDocumentPosition(document.querySelector('#trade-amount-format'))&Node.DOCUMENT_POSITION_FOLLOWING)");
  const revision=await evaluate("document.querySelector('#trade-revision').value");
  await click('#trade-amount-format summary');await set('#trade-amount-format-trade-money','1');await click('#trade-amount-format button[data-role="trade"]');
@@ -21,7 +21,7 @@ export async function run({command,wait,click,set,submit,check,evaluate,idle,url
  await click('#trade-editor-close');await click('#futures-refresh');
  await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
  await check('noncash quantities stay numeric while prices retain tick places',figures+"&&[...document.querySelectorAll('#desk-positions [tabulator-field=c3] .desk-figure')].some(n=>/^-?\\d+\\.\\d{3}$/.test(n.textContent))");
- await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#trade-editor').open&&!document.querySelector('#trade-amount-format').hidden");
+ await click('#desk-positions .tabulator-row:not(.tabulator-group)');await click('#side-panel-amend');await wait("document.querySelector('#trade-editor').open&&!document.querySelector('#trade-amount-format').hidden");
  await check('reopening a deal keeps advanced settings closed and the saved money display',"!document.querySelector('#trade-amount-format details').open&&document.querySelector('#trade-amount-format-trade-money').value==='1'");
  await click('#trade-editor-close');
  await check('numeric grid retains raw exact strings separately from formatted cell text',"[...document.querySelectorAll('#desk-positions .desk-figure[title]')].some(s=>s.title!==s.textContent&&/^-?\\d+(\\.\\d+)?$/.test(s.title))");

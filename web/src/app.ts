@@ -643,7 +643,7 @@ const referenceEditor=setupReferenceEditor({host:$('reference-editor'),api,act,b
 }});
 const power=setupPowerView({api,act,zone:()=>prefs.timeZone,name:curveName,source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');const f=frame();return {snapshotId:f.id,curve,name:instant(f.at)};}});
 const unitConverter=setupUnitConverter({api,act,busy:()=>busy});
-const futures=setupFutures({newPpa:async()=>{await setPage('ppa');await ppa.load();$('page-title').tabIndex=-1;$('page-title').focus();},api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>contextDirty?'Apply the changed historical context first.':historicalContext()?'Historical view is read-only. Return to working data to book or amend.':!permissions.includes('BookTrade')?'Your current role does not have Book Trade permission.':'Choose an As of date to book a trade.',zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+const futures=setupFutures({newPpa:async()=>{await setPage('ppa');await ppa.load();$('page-title').tabIndex=-1;$('page-title').focus();},api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>contextDirty?'Apply the changed historical context first.':historicalContext()?'Historical view is read-only. Return to working data to book or amend.':!permissions.includes('BookTrade')?'Your current role does not have Book Trade permission.':'Choose an As of date to book a trade.',zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
 const touProducts=setupTouProducts(act,api,()=>busy,()=>prefs.timeZone,async()=>{power.reset();if(select('snapshot').value)await power.load();});
 $('reference-table').onchange=()=>void act(async()=>{$<HTMLInputElement>('reference-search').value='';await loadReference();});
 $('reference-search-form').onsubmit=event=>{event.preventDefault();void act(()=>loadReference(0,$<HTMLInputElement>('reference-search').value));};
@@ -765,6 +765,16 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       return;
     default:return showPage(next);
   }
+}
+// Opens Curves & prices on a curve, and the price history of one of its contracts when a contract is named. A contract the close
+// does not price leaves only the curve, and says so.
+async function openCurve(code:string,contractId:string|null){
+  await showTarget('curves',{view:'prices',curve:code});
+  if(contractId===null)return;
+  if(!result){notice("Choose a market date to see this contract's price history.");return;}
+  const point=result.points.find(p=>(p.seriesId??p.contractId)===contractId);
+  if(!point){notice('That contract has no price at this close, so its price history is not shown.');return;}
+  contract=pointIdentity(point);await history();
 }
 // Selects knowledge and an As of frame, as a target pins them or a place showed them, before a page opens there.
 async function selectContext(knowledge:TargetContext|{mode:'current'|'retained';contextId:string|null;frameId:string|null}){

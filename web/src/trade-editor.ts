@@ -1,15 +1,42 @@
 import {dealFormatEditor} from './deal-format-editor.js';
-import {tradeAnnotations,type PartyCatalog,type Trader,type Annotation} from './trade-annotations.js';
-import {futuresInstrumentEditor} from './futures-instrument-editor.js';
+import {tradeAnnotations,bookingRows,type PartyCatalog,type Trader,type Annotation} from './trade-annotations.js';
+import {futuresInstrumentEditor,futuresTermRows} from './futures-instrument-editor.js';
 import {renderRegularTable} from './regular-table.js';
 import {publicText,displayInstant,timeLabels,curveName,deliveryLabel} from './market-view.js';
 import {futuresContractKey,type FuturesContract} from './futures-contract.js';
 import type {RequestCommand} from './pending-command.js';
 import {trackEdits} from './edit-tracking.js';
+import {minus,type HoldingFormats} from './desk-model.js';
+import type {DetailView,HistoryTable,TermSection} from './position-panel.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type TradeState=Annotation&{tradeReference:string;instrumentReference:string;tradeId:string;revision:number;bookId:string;bindingId:string;instrumentId:string;curve:string;contractId:string;lots:string;executionPrice:string;executedAt:string;effectiveAt:string;recordedAt:string;kind:string;reason:string;settlement:string};
 type Detail={state:TradeState;history:TradeState[];catalog:PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];contracts:FuturesContract[]};asOf:string;canAmend:boolean;amendUnavailableReason:string|null;amendmentConvention:string};
+export type TradeDetail=Detail;
 type Preview={before:{quantity:string;unit:string;currency:string;executionPnl:string};after:{quantity:string;unit:string;currency:string;executionPnl:string};change:string};
+/** The editor's read of one trade revision (null: the latest), in the market context the page reads in. */
+export const readTradeDetail=(api:Api,context:Record<string,unknown>,tradeId:string,revision:number|null)=>api<Detail>('futures/editor',{context,tradeId,revision});
+/** The revisions of a trade as the editor's revisions table lists them. */
+export function tradeHistoryTable(detail:Detail,zone:string):HistoryTable{
+ const books=detail.catalog.books,labels=timeLabels(detail.history.flatMap(h=>[h.effectiveAt,h.recordedAt]),zone);
+ return {headers:['Revision','Event','Effective','Recorded','Book','Lots','Execution price','Trader ID','Memo','Trade date','Legal entity','Counterparty','Reason'],numeric:[0,5,6],
+  rows:detail.history.map((h,i)=>[String(h.revision),h.kind==='booked'?'Booked':'Amended',labels[2*i],labels[2*i+1],books.find(b=>b.id===h.bookId)?.name??'Unavailable book',h.lots,h.executionPrice,h.traderCode??'',h.memo??'',h.booking?.tradeDate??'',h.booking?.legalEntity??'',h.booking?.counterparty??'',h.reason])};
+}
+/** The terms of a trade revision as a read view lists them: its booking facts, its position, and its dated contract's terms. */
+export function tradeTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSection[]{
+ const s=detail.state,book=detail.catalog.books.find(b=>b.id===s.bookId),key=JSON.stringify([s.curve,s.contractId]),contract=detail.catalog.contracts.find(c=>futuresContractKey(c)===key);
+ return [
+  {title:'Trade',rows:[['Trade',`${s.tradeReference} · ${s.instrumentReference}`],['Revision',`${s.revision} · ${s.kind==='booked'?'Booked':'Amended'}`],['Book',book?`${book.portfolio} · ${book.name}`:'Unavailable book'],...bookingRows(s,zone)]},
+  {title:'Position',rows:[['Lots',minus(s.lots)],['Execution price',minus(formats.price(s.executionPrice))]]},
+  {title:'Contract',rows:contract?futuresTermRows(contract,zone,value=>formats.mark(value)):[['Contract terms','Retained contract terms are unavailable in this selectable catalog.']]},
+ ];
+}
+/** What the position panel's Terms and History tabs show of a trade revision: the same read the editor makes. */
+export const tradeDetailView=(detail:Detail,zone:string,formats:HoldingFormats):DetailView=>({terms:tradeTerms(detail,zone,formats),history:tradeHistoryTable(detail,zone),
+ amend:{allowed:detail.canAmend,reason:detail.canAmend?null:detail.amendUnavailableReason??'Read-only trade revision'}});
+export async function readTradeView(api:Api,context:Record<string,unknown>,tradeId:string,revision:number,formats:HoldingFormats){
+ const detail=await readTradeDetail(api,context,tradeId,revision);
+ return (zone:string)=>tradeDetailView(detail,zone,formats);
+}
 export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;retry:()=>void;reconcile:()=>void;onDenied:()=>void}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -50,8 +77,8 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   field('trade-lots').value=state.lots;field('trade-price').value=state.executionPrice;field('trade-reason').value='';amendEdits.clear();
   text('trade-editor-mode',detail.canAmend?`Current revision ${state.revision} · unprocessed futures`:detail.amendUnavailableReason??'Read-only trade revision');
   text('trade-effective',`Amendment effective time: ${displayInstant(detail.asOf,options.zone())} · ${options.zone()}. Earlier revisions remain unchanged.`);
-  const labels=timeLabels(detail.history.flatMap(h=>[h.effectiveAt,h.recordedAt]),options.zone());
-  renderRegularTable(get('trade-history'),'trade-history',JSON.stringify([state.tradeId,state.revision,detail.asOf]),['Revision','Event','Effective','Recorded','Book','Lots','Execution price','Trader ID','Memo','Trade date','Legal entity','Counterparty','Reason'],detail.history.map((h,i)=>[String(h.revision),h.kind==='booked'?'Booked':'Amended',labels[2*i],labels[2*i+1],books.find(b=>b.id===h.bookId)?.name??'Unavailable book',h.lots,h.executionPrice,h.traderCode??'',h.memo??'',h.booking?.tradeDate??'',h.booking?.legalEntity??'',h.booking?.counterparty??'',h.reason]),[0,5,6],options.busy);
+  const history=tradeHistoryTable(detail,options.zone());
+  renderRegularTable(get('trade-history'),'trade-history',JSON.stringify([state.tradeId,state.revision,detail.asOf]),history.headers,history.rows,history.numeric,options.busy);
   terms();invalidate();
  }
  async function open(tradeId:string,revision:number|null){
@@ -59,7 +86,7 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   const started=++generation,key=contextKey();
   invalidate();detail=undefined;selection={tradeId,revision};
   try{
-   const response=await options.api<Detail>('futures/editor',{context:options.context(),tradeId,revision});
+   const response=await readTradeDetail(options.api,options.context(),tradeId,revision);
    if(started!==generation||key!==contextKey())return;
    detail=response;render();await display.load(response.state.tradeId,options.context(),response.canAmend,['trade']);await display.prepare(response,'trade',response.catalog.contracts.find(c=>c.id===response.state.contractId)?.clearingIncrement);if(started!==generation||key!==contextKey())return;terms();if(!dialog.open)dialog.showModal();
   }catch(error){if(started!==generation||key!==contextKey())return;reset();if((error as {code?:string}).code==='access_denied')options.onDenied();throw error;}

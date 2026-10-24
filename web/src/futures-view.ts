@@ -1,8 +1,8 @@
 import {draftValuation} from './draft-valuation.js';
 import {amountText} from './amount-display.js';
 import {tradeAnnotations,type PartyCatalog,type Trader} from './trade-annotations.js';
-import {setupSwapEditor} from './swap-editor.js';
-import {setupTradeEditor} from './trade-editor.js';
+import {setupSwapEditor,readSwapView} from './swap-editor.js';
+import {setupTradeEditor,readTradeView} from './trade-editor.js';
 import {futuresContractDescription,futuresContractKey,type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {knownTradeRejection} from './trade-requests.js';
@@ -18,7 +18,9 @@ import {isPriceMeasure,priceMeanPolicy,blotterColumns,deskFields,groupChoices,me
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
-import {commodityColors,deskGroups,deskSummaryViews,positionChartPanels,positionRows,positionsTile,priceUnit,pvChartPanels,summaryTiles,valueFields,type CurveShape,type Holding,type Summary} from './desk-model.js';
+import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,pvChartPanels,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
+import {askLeave,panelPlacement,setupSidePanel} from './side-panel.js';
+import {setupPositionPanel,type PositionInput} from './position-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile} from './desk-view.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
@@ -30,7 +32,7 @@ type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 // A stored view an earlier release saved is listed with this label. It cannot be applied, and choosing it says why.
 const earlierFormatLabel='Earlier format · save again';
 const earlierFormatNote=(name:string)=>`Saved view "${name}" is in an earlier format and cannot be applied. Set up the Blotter as you want it and save it again under this name, or delete it.`;
-const curveColumn=deskColumns.findIndex(([key])=>key==='curve');
+const curveColumn=deskColumns.findIndex(([key])=>key==='curve'),markColumn=deskColumns.findIndex(([key])=>key==='mark');
 // How the Group by control names each row grouping; a view without one is a flat list.
 const rowGroupLabels:Readonly<Record<NonNullable<RowGroup>,string>>={book:'Book',market:'Market',instrumentType:'Instrument type'};
 const rowGroupLabel=(group:RowGroup)=>group===null?'None':rowGroupLabels[group];
@@ -41,7 +43,9 @@ const curvesPerShapeRead=64;
 
 export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;notice:(message:string)=>void;
   // The definition revision of the curves the selected close prices; positions of another revision get no shape from it.
-  definitionRevision:()=>string;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}}}){
+  definitionRevision:()=>string;
+  // Whether Curves & prices lists a market, and opens it with one of its contracts' price history shown when a contract is named.
+  curveListed:(curve:string)=>boolean;openCurve:(curve:string,contractId:string|null)=>Promise<void>;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}}}){
   const {api,act,busy}=options;
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -50,7 +54,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
     scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Shocks'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>void act(load),
-    lead:get('desk'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),
+    lead:get('desk'),overview:get('desk-charts'),aside:get('side-panel'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),
   });
   // Existing booking controls share the table toolbar.
   get('blotter-refresh').id='futures-refresh';get('blotter-new').id='futures-new';get('blotter-rows').id='desk-positions';
@@ -69,6 +73,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const bookingEdits=trackEdits(get('futures-form'));
   let lastReadRequest:unknown;
   let chartState:{panels:ChartSpec[];request:{context:unknown;view:unknown}}|undefined;
+  // What the trade rows' desk drew from the read on screen, which the side panel draws its position from.
+  let drawn:{rows:DeskRow[];colors:ReadonlyMap<string,string>}|undefined;
   let view=newBlotterView(),savedViews:BlotterView[]=[],table:ReturnType<typeof renderDataGrid>|undefined,tableColumns:string[]=[];
   // Columns the current read shows that a saved view never keeps: each pivot group's count of positions it leaves out, and the desk's curve shapes.
   let transientKeys:ReadonlySet<string>=new Set();
@@ -89,6 +95,27 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
 
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
+  // The side panel beside the positions: a position's curve, terms, risk and history. Opening a row opens it; Amend still reaches
+  // today's amend dialogs until amendment moves into the panel.
+  const main=document.querySelector('main')!;
+  const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
+  // The row the panel was opened from, which focus returns to when the person closes it.
+  let openedAt:number|undefined;
+  const panel=setupSidePanel(get('side-panel'),{
+    // What the panel holds that switching would lose: an amendment of its position in progress.
+    unsaved:()=>editor.unsaved()||swapEditor.unsaved(),confirmLeave:askLeave(get('side-panel')),docked,
+    // A docked panel takes the grid's width, so the grid leaves out the columns the panel shows for its position: its mark and curve.
+    changed:()=>table?.collapse(dockedColumns()),
+    closed:()=>{const row=openedAt;dropPosition();if(row!==undefined)table?.focusRow(row);}});
+  const dockedColumns=()=>panel.current()!==null&&docked()?[markColumn,curveColumn]:[];
+  // The panel docks or overlays by the width the main area has: it is placed again when that changes, not when only its height does.
+  let mainWidth=main.clientWidth;
+  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;panel.place();}}).observe(main);
+  new MutationObserver(()=>panel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
+  const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
+    read:(h,formats)=>h.instrumentType==='financial_swap'?readSwapView(api,readContext(),h.tradeId,Number(h.revision),formats):readTradeView(api,readContext(),h.tradeId,Number(h.revision),formats),
+    amend:h=>void act(()=>h.instrumentType==='financial_swap'?swapEditor.open(h.tradeId,Number(h.revision)):editor.open(h.tradeId,Number(h.revision))),
+    openCurve:(curve,contractId)=>void act(()=>options.openCurve(curve,contractId))});
   const kindDialog=get<HTMLDialogElement>('trade-kind');
   get('trade-kind-close').onclick=()=>kindDialog.close();
   get('trade-kind-ppa').onclick=()=>{kindDialog.close();void act(options.newPpa);};
@@ -153,9 +180,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     renderRiskTile(get('desk-tile-risk'),{state:risk.shown()?'results':get('risk-card').hidden?'none':'open',denial:options.canRunRisk()?null:riskDenied,busy:busy()},
       ()=>{if(get('risk-card').hidden)void act(risk.open);else get('risk-card').scrollIntoView({block:'start'});});
   }
-  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
-  function clearDesk(){get('desk').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
-  function clear(){instrument.clear();generation++;chartState=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;table=undefined;lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
+  function sync(){instrument.sync(busy()||!pricedCatalog());draft.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());text('futures-booking-availability',pending.command?'A trade request is retained. Reconcile or retry it before creating another.':catalog?.canBook?'Working data · booking is enabled at the selected As of time.':catalog?.bookingUnavailableReason??options.bookingUnavailableReason());get('futures-new').setAttribute('aria-describedby','futures-booking-availability');get<HTMLFieldSetElement>('futures-fields').disabled=busy()||!pricedCatalog();get('futures-form').hidden=!pricedCatalog();get<HTMLButtonElement>('futures-book-submit').disabled=busy()||!pricedCatalog()?.canBook;get('futures-pending').hidden=!pending.command;get<HTMLButtonElement>('futures-new').disabled=busy()||!catalog||!!pending.command;get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
+  function clear(){instrument.clear();generation++;chartState=undefined;drawn=undefined;draft.reset();editor.reset();swapEditor.reset();if(kindDialog.open)kindDialog.close();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;table=undefined;panel.reset();dropPosition();lastReadRequest=undefined;choose('futures-contract',[],'');get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('futures-booking').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');text('futures-terms','Select a dated contract to see its terms.');sync();}
   function reset(){selectedContract='';clear();restore();forgetViews();viewControls();snapshot='';get<HTMLFormElement>('futures-form').reset();get('futures-pending').hidden=true;}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   const contractKey=futuresContractKey;
@@ -194,7 +221,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       {label:'Columns',values:view.splitBy.map(d=>groupChoices.find(c=>c[0]===d)![1])},
       {label:'Values',values:view.measures.map(m=>measureChoices.find(c=>c[0]===m)![1])},
     ]:[]);
-    text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();
+    text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();syncPanel();
   }
   // What the trade rows' desk shows, selected from the read: its rows, their trade fields, its group headers and its two charts.
   function planDesk(colors:ReadonlyMap<string,string>){
@@ -211,31 +238,51 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const numeric=tableColumns.flatMap((key,i)=>i>=deskColumns.length?(numericFields.includes(key)?[i]:[]):['quantity','executionPrice','mark','presentValue'].includes(key)?[i]:[]);
     const values=rows.map((row,i)=>[row.reference,row.market,row.quantity,row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
     const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
-    const own=(i:number)=>held[i];
-    const cells=deskCells(rows,colors,{
-      money:(i,value)=>amountText(value,'money',undefined,own(i).amountFormat),
-      quantity:(i,value)=>amountText(value,'quantity',undefined,own(i).amountFormat),
-      price:(i,value)=>amountText(value,'price',own(i).priceTick,own(i).instrumentType==='financial_swap'?own(i).fixedAmountFormat:own(i).amountFormat),
-      mark:(i,value)=>amountText(value,'price',own(i).markTick,own(i).amountFormat),
-    },i=>{
-      if(!shapes)return undefined;
-      if('unavailable' in shapes)return shapes.unavailable;
-      if(held[i].definitionRevisionId!==shapes.revision)return 'Curve shape unavailable · this market is defined in another revision than the curves of this close';
-      return shapes.curves.get(held[i].curve)??'Curve shape unavailable';
-    });
+    const formats=held.map(holdingFormats);
+    const cells=deskCells(rows,colors,{money:(i,value)=>formats[i].money(value),quantity:(i,value)=>formats[i].quantity(value),price:(i,value)=>formats[i].price(value),mark:(i,value)=>formats[i].mark(value)},i=>shapeOf(held[i]));
     table=workspace.render('desk-positions',scope+JSON.stringify([view.mode,view.rowGroup,view.bookIds,view.portfolioIds,view.query,view.columnFilters]),columns.map(c=>c[1]),values,numeric,busy,{
-      keys:tableColumns,cells,searchText:rows.map(row=>row.words),visual:[curveColumn],rowHeight:46,stretch:true,visible:columns.map(([key],i)=>i<deskColumns.length||view.columns.includes(key)),layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
+      keys:tableColumns,cells,searchText:rows.map(row=>row.words),visual:[curveColumn],collapsed:dockedColumns(),rowHeight:46,stretch:true,visible:columns.map(([key],i)=>i<deskColumns.length||view.columns.includes(key)),layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
       group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>groupHeader(headers.get(key)!,count,money)}:undefined,
       initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
-      onRowOpen:index=>{const row=held[index];if(row)void act(()=>row.instrumentType==='financial_swap'?swapEditor.open(row.tradeId,Number(row.revision)):editor.open(row.tradeId,Number(row.revision)));}});
+      onRowOpen:index=>void openPosition(index)});
     workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
       if(busy())return;captureLayout();view.columns=selected;render();
     },[...deskFields]);
     renderDeskCharts(get('desk-chart-pv'),plan.pvPanels,'No swaps in the selected books');
     renderDeskCharts(get('desk-chart-position'),plan.positionPanels,'No positions in the selected books');
+    drawn={rows,colors};
+  }
+  // The curve shape a position's market has at this read: its shape, why it has none, or nothing yet while the shapes are read.
+  function shapeOf(h:Holding):CurveShape|string|undefined{
+    if(!shapes)return undefined;
+    if('unavailable' in shapes)return shapes.unavailable;
+    if(h.definitionRevisionId!==shapes.revision)return 'Curve shape unavailable · this market is defined in another revision than the curves of this close';
+    return shapes.curves.get(h.curve)??'Curve shape unavailable';
+  }
+  // The position at a row of the read on screen, as the side panel draws it.
+  function positionInput(index:number):PositionInput{
+    const h=holdings!.holdings[index],row=drawn!.rows[index];
+    return {holding:h,row,formats:holdingFormats(h),shape:shapeOf(h),color:drawn!.colors.get(row.commodity)!};
+  }
+  async function openPosition(index:number){
+    const read=holdings,h=read?.holdings[index];
+    if(!read||!h||!drawn)return;
+    const opened=await panel.show({kind:'position',tradeId:h.tradeId,revision:Number(h.revision)});
+    // A read that replaced this one while the person was asked has taken the panel with it.
+    if(!opened||holdings!==read)return;
+    openedAt=index;position.show(positionInput(index));table?.selectRow(index);
+  }
+  function dropPosition(){position.clear();openedAt=undefined;table?.selectRow(null);}
+  // The panel follows each newer drawing of the read it was opened from, and closes, saying so, when the read no longer holds its position.
+  function syncPanel(){
+    const mode=panel.current();
+    if(mode?.kind!=='position')return;
+    const index=holdings?.holdings.findIndex(h=>h.tradeId===mode.tradeId&&Number(h.revision)===mode.revision)??-1;
+    if(index<0||!drawn){panel.reset();dropPosition();options.notice('The position the panel showed is not in this read, so the panel was closed.');return;}
+    openedAt=index;position.update(positionInput(index));table?.selectRow(index);
   }
   function renderPivot(scope:string){
-    const read=holdings!;
+    const read=holdings!;drawn=undefined;
     // A pivot has no desk charts: free those the trade rows drew.
     clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));
     const pivotKeys=pivotColumns(view.groupBy,view.measures);
@@ -308,7 +355,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     }
   }
   // Every row's curve unavailable, with the reason.
-  function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};table?.redrawCells(curveColumn);}
+  function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};table?.redrawCells(curveColumn);syncPanel();}
   // Sparklines follow the first render: the held curves of the close's definitions, at most 64 to a read, in the market
   // context the positions were read in. A failed read leaves each of its curves unavailable with the reason, and never
   // blanks the positions.
@@ -332,7 +379,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       }
       if(!current())return;
     }
-    shapes={revision,curves:found};table?.redrawCells(curveColumn);
+    shapes={revision,curves:found};table?.redrawCells(curveColumn);syncPanel();
   }
   async function loadChart(reportRequest:{context:unknown;view:unknown},started:number,scope:string){
     // Trade rows have the desk's charts; a pivot keeps its configurable chart.

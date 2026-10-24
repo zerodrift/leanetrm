@@ -2,7 +2,7 @@
 // presents, and in which words. It selects, orders and labels exact server values; it never adds, nets, converts
 // or infers them (AGENTS.md: TypeScript is presentation only).
 import {compareDecimalStrings,type PivotGroup} from './analytics-model.js';
-import type {DisplayPrecision} from './amount-display.js';
+import {amountText,type DisplayPrecision} from './amount-display.js';
 import type {RowGroup} from './blotter-layout.js';
 import {palette,type ChartPoint,type ChartSpec} from './chart-view.js';
 import {curveName,deliveryLabel} from './market-view.js';
@@ -186,13 +186,26 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
     .sort((a,b)=>a.label.localeCompare(b.label)||byText(a.key,b.key))};
 }
 
+/** The display text of an exact amount, as the backend formats it for the row or the read. */
+export type Format=(value:string)=>string;
+/** How one position's amounts read: each by the precision and increment of its own deal, as its row carries them. */
+export type HoldingFormats={money:Format;quantity:Format;price:Format;mark:Format;markMinusPrice:Format};
+export function holdingFormats(h:Holding):HoldingFormats{
+  // A swap's price is its fixed price, which has a precision of its own; a mark, and a mark less a price, take the contract's clearing increment.
+  const price=h.instrumentType==='financial_swap'?h.fixedAmountFormat:h.amountFormat;
+  return {money:value=>amountText(value,'money',undefined,h.amountFormat),quantity:value=>amountText(value,'quantity',undefined,h.amountFormat),
+    price:value=>amountText(value,'price',h.priceTick,price),mark:value=>amountText(value,'price',h.markTick,h.amountFormat),markMinusPrice:value=>amountText(value,'price',h.markTick,h.amountFormat)};
+}
+
 /** How an exact amount's sign reads, for color and for its text: gain, loss or neither. */
 export const signOf=(value:string):'positive'|'negative'|'zero'=>/^-?0+(?:\.0+)?(?:\/\d+)?$/.test(value)?'zero':value.startsWith('-')?'negative':'positive';
 /** A display amount with its sign always shown: + for a gain, − for a loss, none for zero. */
-export function signedText(value:string,format:(value:string)=>string):string{
+export function signedText(value:string,format:Format):string{
   const shown=format(value),sign=signOf(value);
   return sign==='zero'?shown:sign==='negative'?'−'+shown.replace(/^-/,''):'+'+shown;
 }
+/** A display amount whose own minus sign is the typographic one. */
+export const minus=(text:string)=>text.replace(/^-/,'−');
 
 /**
  * Swap PV by market: one horizontal panel per currency, gains right and losses left, largest gain first, each market
@@ -276,12 +289,17 @@ export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'
 /** The unit of a position's price and mark: its currency per quantity unit, with the quote multiplier when it is not one. */
 export const priceUnit=(h:{currency:string;unit:string;quoteMultiplier?:string})=>`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`;
 const sides:Readonly<Record<string,string>>={pay_fixed:'Pay fixed',receive_fixed:'Receive fixed',multi_side:'Multi-side'};
+/** A position's size as the desk shows it: a future's quantity carries its sign; a swap's booked quantity has none, and its side label states its direction. */
+export const quantityText=(row:Pick<DeskRow,'instrumentType'|'quantity'>,format:Format)=>row.instrumentType==='future'?signedText(row.quantity,format):minus(format(row.quantity));
 /**
  * The position rows: instrument pill, market and delivery, size with lots or the swap's direction, price and mark in their unit,
  * and value with its measure, or the reason the close cannot value it. A valued position states its value, and a valued
  * future its mark; a swap without one mark says so. A swap's bar side is its backend direction: pay fixed is long.
  */
 export function positionRows(holdings:readonly Holding[]):DeskRow[]{
+  // The side panel names a position by its trade and revision, so a read that holds one twice cannot be shown.
+  const named=new Set(holdings.map(h=>JSON.stringify([h.tradeId,h.revision])));
+  if(named.size!==holdings.length)throw Error('The Blotter returned the same trade revision more than once.');
   return holdings.map(h=>{
     const type=instrument(h.instrumentType),value=h[type.measure];
     let side:string,exposure:DeskRow['exposure'];

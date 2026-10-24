@@ -34,7 +34,14 @@ export function futuresInstrumentEditor(host:HTMLElement,ids:{contract:string;lo
   if(current){choose(commodity.control as HTMLSelectElement,[{value:current.commodity,name:current.commodityName}],current.commodity);choose(exchange.control as HTMLSelectElement,[{value:current.exchange,name:current.exchangeName}],current.exchange);choose(product.control as HTMLSelectElement,[{value:current.product,name:current.name}],current.product);date.set([current.deliveryFrom],current.deliveryFrom);}
   refresh();select.value=current?selected:'';
  },clear(){catalog=[];for(const control of [commodity.control,exchange.control,product.control,select])(control as HTMLSelectElement).value='';date.set([],'');refresh();},render(c:FuturesContract|undefined,zone:string,mark:(value:string,tick:string)=>string){
-  const rows:readonly (readonly [string,string])[]=c?[
+  const rows=c?futuresTermRows(c,zone,mark):[];
+  terms.replaceChildren(...rows.map(([label,value])=>{const row=document.createElement('div'),name=document.createElement('dt'),content=document.createElement('dd');row.className='side-term';name.textContent=label;content.textContent=publicText(value);row.append(name,content);return row;}));
+ }};
+}
+
+/** A dated contract's terms as the editor and the position panel list them, each exact; `mark` formats the contract's curve price. */
+export function futuresTermRows(c:FuturesContract,zone:string,mark:(value:string,tick:string)=>string):(readonly [string,string])[]{
+  return [
    ['Product',c.name],['Curve',curveName(c.curve)],['Delivery start',c.deliveryFrom],['Delivery end (exclusive)',c.deliveryTo],
    ['Contract size',`${c.contractSize} ${c.unit} per lot`],['Nominal size',`${c.nominalSize} ${c.nominalUnit}`],['Quantity basis',c.lotBasis],
    ['Currency',c.currency],['Settlement',c.settlementMethod],['Settlement index',c.index??'Physical delivery contract'],['Quote type',c.quoteKind??'outright'],
@@ -42,7 +49,5 @@ export function futuresInstrumentEditor(host:HTMLElement,ids:{contract:string;lo
    ['Eligibility source',c.eligibilityNote??'No additional source note supplied'],['Lot factor',c.lotFactor??'Fixed contract total'],['Specification source',c.sourceUrl??'Source URL unavailable'],
    ['Quote multiplier',c.quoteMultiplier],['Execution tick',c.tick],['Settlement-price increment',c.clearingIncrement],['Minimum price',c.minimumPrice],['Maximum price',c.maximumPrice],
    [c.firstTrading===null&&c.firstTradingDate?'First trading date':c.firstTrading?`Actual first trading · ${zone}`:'Actual first trading',c.firstTrading===null&&c.firstTradingDate?`${displayDate(c.firstTradingDate)} · exact time unknown`:firstTradingText(c.firstTrading,zone)],[`Trading eligibility from · ${zone}`,displayInstant(c.eligibleFrom,zone)],[`Last trading (exclusive) · ${zone}`,displayInstant(c.lastTrading,zone)],[c.priceSource?.kind==='synthetic'?'Generated price':'Selected curve price',mark(c.mark,c.clearingIncrement)]
-  ]:[];
-  terms.replaceChildren(...rows.map(([label,value])=>{const row=document.createElement('div'),name=document.createElement('dt'),content=document.createElement('dd');row.className='side-term';name.textContent=label;content.textContent=publicText(value);row.append(name,content);return row;}));
- }};
+  ];
 }
