@@ -19,7 +19,7 @@ public sealed partial class SwapStore
             { SettlementDeterminationId=h.Settlement?.Contributions.Any(c=>c.DiscountKey==p.Key)==true?p.Key.SideId:null }))
             .Distinct().ToImmutableArray();
 
-    // Resolves every held swap in scope except exactly the excluded ones (D216).
+    // Resolves every held swap in scope except exactly the excluded ones (D217).
     internal async Task<ImmutableArray<ResolvedSwapHolding>> ReadRiskHoldings(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ImmutableArray<Guid> bookIds,ImmutableArray<ExcludedPosition> excluded,CancellationToken ct,MarketSnapshot? snapshot=null,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default)

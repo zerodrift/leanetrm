@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
-// D219: desk money totals add money of one currency across quantity units, and never currencies, instrument types or
+// D220: desk money totals add money of one currency across quantity units, and never currencies, instrument types or
 // quantities. The preview example holds one currency, so a second currency, a second currency revision and a second
 // definition revision are exercised here, on synthetic positions.
 static class TradingBlotterChecks
@@ -115,7 +115,7 @@ static class TradingBlotterChecks
             "A market dimension merged the definition revisions of its market, or split a definition revision by unit");
         Console.WriteLine("PASS dimensions that name a market keep its definition revisions apart");
 
-        // D219: a group kept apart by definition revision says which revision it is, so two groups of one market are never indistinguishable.
+        // D220: a group kept apart by definition revision says which revision it is, so two groups of one market are never indistinguishable.
         Require(gasSwaps.Select(group=>Text(group,"definitionRevisionId")).Order(StringComparer.Ordinal).SequenceEqual(["d1","d2"]),
             "Two groups of one market did not state the definition revision that keeps them apart");
         var byMarket=new[]{TradingBlotter.Groups(Pivot(TotalsConvention,["market"],["presentValue","quantity"]),Positions()),markets};

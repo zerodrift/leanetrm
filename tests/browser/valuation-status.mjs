@@ -1,4 +1,4 @@
-/** D216 at Dec 31, 2020, a close that values some positions and not others: every total says what it leaves out. */
+/** D217 at Dec 31, 2020, a close that values some positions and not others: every total says what it leaves out. */
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
   const loaded="document.querySelector('#desk-positions .tabulator-row')&&!document.querySelector('#blotter-export').disabled";

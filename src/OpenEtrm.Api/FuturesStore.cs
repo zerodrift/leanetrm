@@ -130,7 +130,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
         var priced=(build is null?ImmutableArray<FuturesHolding>.Empty:FuturesHoldings.Price([..trades.Where(t=>t.Instruments.Any(Valued))
             .Select(t=>t.Instruments.All(Valued)?t:new FuturesTrade(t.Id,t.BookId,[..t.Instruments.Where(Valued)],t.Booking))],snapshot,build,manifest.FuturesConvention))
             .ToDictionary(h=>(h.TradeId,h.BindingId));
-        // Every held binding in trade order, with its valuation or the reason the close cannot value it (D216).
+        // Every held binding in trade order, with its valuation or the reason the close cannot value it (D217).
         var positions=trades.SelectMany(t=>t.Instruments.Select(p=>(Trade:t,Position:p,Holding:priced.GetValueOrDefault((t.Id,p.Id)),
             Reason:unvalued.GetValueOrDefault(p.MarketBinding.Market)))).ToImmutableArray();
         string Name(Guid id)=>books.Single(b=>b.Id("id")==id).Text("name");
