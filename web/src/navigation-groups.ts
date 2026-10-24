@@ -1,7 +1,8 @@
 import {aiTabs} from './agent-settings.js';
 
-// The sidebar's groups in order, each with the pages it lists. A page is named by the id of its sidebar entry
-// (`nav-<page>`); its group's label is the eyebrow above the page title.
+// The sidebar's groups in order, each with the pages it lists. A page is named by the id of its entry (`nav-<page>`),
+// a sidebar button, or for the hourly prices of Curves & prices the switch beside its contract prices; its group's
+// label is the eyebrow above the page title.
 export type NavigationGroup={id:'trading'|'markets'|'operations'|'settings'|'admin';label:string;pages:readonly string[]};
 export const navigationGroups:readonly NavigationGroup[]=[
  {id:'trading',label:'Trading',pages:['futures','ppa']},

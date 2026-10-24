@@ -914,3 +914,11 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 .available-date-grid button:disabled{color:#8b95a3;background:#f1f3f5;cursor:not-allowed;border-color:transparent}
 .available-date-grid button[aria-pressed=true]{background:var(--accent,#175cd3);color:white}
 .available-date-grid button:focus-visible{outline:2px solid var(--accent,#175cd3);outline-offset:1px}
+
+.curve-price-navigation { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+.curve-price-navigation[hidden] { display:none; }
+.curve-price-navigation button[aria-pressed="true"] { background:var(--accent); color:white; }
+
+.interval-widget-status { color:var(--muted); font-size:12px; margin:8px 0; }
+.interval-widget-controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.interval-widget-controls label { display:flex; gap:8px; align-items:center; }

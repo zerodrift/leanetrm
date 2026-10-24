@@ -51,7 +51,7 @@ export function askKnowledge(context:PageContext){
 
 const pageNames:Record<string,string>={curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',delivery_prices:'Delivery prices',
-  custom_curves:'Custom curves',interval_series:'Interval series',interval_curves:'Interval curves',jobs:'Jobs & Infrastructure',users_access:'Users & access',
+  custom_curves:'Custom curves',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
   settings_ai:'AI',ppa:'PPA bookings'};
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
 const counted=(n:number,noun:string)=>`${n} ${noun}${n===1?'':'s'}`;

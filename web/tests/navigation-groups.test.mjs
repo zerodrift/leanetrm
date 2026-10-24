@@ -59,9 +59,16 @@ test('a page the sidebar does not know is refused instead of listed',()=>{
 });
 
 const markup=readFileSync(new URL('../src/index.html',import.meta.url),'utf8');
-test('the sidebar markup lists each group and its pages in the navigationGroups order',()=>{
+// Pages entered from the switch beside the contract prices of Curves & prices, not from a sidebar button.
+const switched=['interval-curves'];
+test('the sidebar markup lists each group and its pages in the navigationGroups order, but for the pages a switch enters',()=>{
  const shown=[...markup.matchAll(/<details id="nav-group-([a-z]+)"[^>]*><summary>([^<]+)<\/summary>(.*?)<\/details>/gs)]
   .map(([,id,label,body])=>({id,label,pages:[...body.matchAll(/<button id="nav-([a-z-]+)"/g)].map(m=>m[1])}));
- assert.deepEqual(shown,navigationGroups.map(({id,label,pages})=>({id,label,pages:[...pages]})));
+ assert.deepEqual(shown,navigationGroups.map(({id,label,pages})=>({id,label,pages:pages.filter(page=>!switched.includes(page))})));
  assert.doesNotMatch(markup,/id="(market|settings|trading)-menu"/);
+});
+test('the pages a switch enters have their entries in that switch, named as the navigation names them',()=>{
+ const [,switchMarkup]=markup.match(/<nav id="curve-price-navigation"[^>]*>(.*?)<\/nav>/s);
+ assert.deepEqual([...switchMarkup.matchAll(/<button id="(?:nav-|curve-price-)([a-z-]+)"/g)].map(m=>m[1]),['contracts',...switched]);
+ for(const page of switched)assert.ok(allPages.includes(page));
 });

@@ -463,3 +463,18 @@ versions or enablement. Meta's documented Responses usage now permits its own
 confirmed mapping, replacing the earlier unconfirmed status under D150. Synthetic
 conformance does not close real-provider qualification O09 or authorize a hosted
 schema/application deployment.
+
+## D212 — Shared interval data, masks and exact column arithmetic
+
+Keep the audited interval-value store independent of TOUs, schedules and trades.
+Reuse the shared UTC grid and bitmask foundation for TOU selection, alignment and
+overlap. Request-owned compact C# columns hold factors, offsets, forecasts and
+meter quantities with exact wide-value fallback and separate retained lineage.
+Explicit kernels provide masked sums, products, dot products and aligned column
+cross-products; they do not infer units, fill gaps, normalize weights or advance
+knowledge. Current consumers are block shaping and PPA quantity preparation.
+Hourly pricing is a calculated view under Curves & prices, and both interval
+screens share a reusable table/plot widget with optional explicit refresh. Swap
+Side payment schedules also consume that widget, retaining exact table values
+and separate formatted displays alongside per-payment cash/PV plots.
+[Interval data](interval-data.md) records contracts, measured workloads and limits.
