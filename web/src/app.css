@@ -739,6 +739,15 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .side-panel-form .instrument-choices button{white-space:normal;min-width:0}
 .side-panel-form .available-date-calendar{width:min(21rem,100%)}
 .side-panel-form select,.side-panel-form input:not([type=checkbox]),.side-panel-form textarea{width:100%}
+/* The swap tickets and the settlement view take the panel's one column too (D218): each side's terms stack, and a payment table too wide
+   for the panel gives way to its one-line summary of each payment, as it does on a phone. */
+.side-panel-form .swap-term-columns,.side-panel-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
+/* The swap ticket's way to the scheduled ticket has a long name, which wraps in the panel's column rather than widen it. */
+.side-panel-form #swap-scheduled-open{max-width:100%;white-space:normal}
+.side-panel .swap-payment-summary{display:block;line-height:1.7}.side-panel .swap-payment-table{display:none}
+.scheduled-swap-heading,.swap-settlement-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 8px}
+.scheduled-swap-heading h3,.swap-settlement-heading h3{margin:0;min-width:0;overflow-wrap:anywhere}
+.side-panel-terms-actions{margin:0 0 12px}
 /* New trade (blotter-desk.md, Side panel). Under the toolbar, why New trade is not offered; in the panel's head, the switch of the product, a segmented
    control with none of its two choices made for the person. */
 .table-workspace-note{margin:0;padding:8px 16px;border-top:1px solid var(--border);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
@@ -1047,11 +1056,9 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 .swap-term-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:16px;margin:16px 0}
 .swap-term-columns>section{min-width:0;padding:16px;border:1px solid #dce5d5;border-radius:8px;background:#f9fbf8}
 .swap-term-columns input,.swap-term-columns select{width:100%;min-width:0}
-.swap-editor .swap-sides{grid-template-rows:none;grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;overflow:visible}
-.swap-editor .swap-sides .instrument-side{display:block;grid-row:auto}
-.swap-editor #swap-quantity-terms{padding:16px;background:#f4f7f0;border-radius:8px}
+#swap-quantity-terms{padding:16px;background:#f4f7f0;border-radius:8px}
 .swap-payment-summary{display:none}
-@media(max-width:650px){.swap-term-columns,.swap-editor .swap-sides{grid-template-columns:minmax(0,1fr)}.swap-payment-summary{display:block;line-height:1.7}.swap-payment-table{display:none}}
+@media(max-width:650px){.swap-term-columns{grid-template-columns:minmax(0,1fr)}.swap-payment-summary{display:block;line-height:1.7}.swap-payment-table{display:none}}
 
 .scheduled-side-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
 #scheduled-swap-editor .scheduled-period { margin-block:1rem; padding:1rem; min-width:0; }
@@ -1064,11 +1071,6 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 #scheduled-swap-editor input[type=checkbox] { width:auto; }
 #scheduled-swap-editor .scheduled-period { border:1px solid var(--border); border-radius:8px; }
 #scheduled-swap-editor section { overflow-wrap:anywhere; }
-#scheduled-swap-editor .dialog-heading::before { left:-24px; right:-24px; }
-@media(max-width:480px) { #scheduled-swap-editor .dialog-heading::before { left:-18px; right:-18px; } }
 #swap-settlement>*{min-width:0;max-width:100%;box-sizing:border-box}
 #swap-settlement form>div{display:grid;gap:6px;margin-block:12px;min-width:0}
 #swap-settlement input,#swap-settlement select{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
-#swap-settlement .dialog-heading h2{min-width:0;overflow-wrap:anywhere}
-#swap-settlement .dialog-heading::before{left:-24px;right:-24px}
-@media(max-width:480px){#swap-settlement .dialog-heading::before{left:-18px;right:-18px}}

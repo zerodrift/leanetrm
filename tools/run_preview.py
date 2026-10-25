@@ -695,16 +695,19 @@ def main():
                 from check_market_read_authority import run_checks as check_market_authority
                 check_market_authority(query,manifest)
             elif args.valuation_status_check:
-                from check_blotter_valuation_status import run_checks as check_valuation_status, run_risk_checks as check_valuation_status_risk
+                from check_blotter_valuation_status import run_checks as check_valuation_status, run_risk_checks as check_valuation_status_risk, run_scheduled_checks as check_scheduled_valuation_status
                 worker_env=prepare_risk_worker()
                 def run_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
-                check_valuation_status_risk(check_valuation_status(url),run_worker)
+                valuation_session=check_valuation_status(url)
+                check_valuation_status_risk(valuation_session,run_worker)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--valuation-status'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned valuation status browser checks failed')
+                # Last, as it books a scheduled swap beside the seeded positions the checks above count.
+                check_scheduled_valuation_status(valuation_session)
             elif args.desk_fields_check:
                 from check_blotter_desk_fields import run_checks as check_desk_fields
                 check_desk_fields(url)

@@ -250,6 +250,7 @@ test('long and short by market is one panel per quantity unit; swaps are drawn o
  assert.deepEqual(gas.map(p=>[p.label,p.y,p.color,p.direction??null]),[['Gas forward · Swaps · mixed directions',null,'#eb6834',null],['Gas future · Futures','0','#eb6834',null]]);
  assert.deepEqual(power.map(p=>[p.label,p.y,p.direction??null,p.text]),[['Power euro forward · Swaps','50','negative','#50 receive fixed'],['Power forward · Swaps · multi-side',null,null,undefined]]);
  assert.equal(gas[1].text,'#0');
+ assert.deepEqual(panels.map(p=>p.subtitle),['Not drawn: Gas forward · Swaps · mixed directions','Not drawn: Power forward · Swaps · multi-side'],'each panel names the markets it draws no bar for');
 });
 test('a market held in more than one unit or currency is refused with a message of the desk, not drawn as one bar',()=>{
  const message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
@@ -351,4 +352,56 @@ test('a delivery period over several contracts marks each, and one the curve doe
 test('a curve the close cannot draw says why, in the words a row says it in',()=>{
  assert.deepEqual(curveChart(fixture.shapes[1],draftTarget),{state:'unavailable',reason:"Curve shape unavailable · this market's curve is not in the definitions of this close"});
  assert.deepEqual(curveChart({...fixture.shapes[0],points:[]},draftTarget),{state:'unavailable',reason:'Curve shape unavailable · no contracts at this close'});
+});
+
+// A scheduled swap (D214) holds quantities and prices by period, and a swap whose settlement lifecycle is under way is valued by it.
+// The desk states what the backend gives for them and, where the backend gives no single figure, says why: it never makes one up.
+const scheduled=changes=>({...fixture.holdings[0],tradeId:'t0000000-0000-0000-0000-000000000008',bindingId:'b0000000-0000-0000-0000-000000000008',tradeReference:'TR-000008',
+ contractIdentityKind:'scheduled_swap_instrument',quantity:null,fixedPrice:null,mark:null,markMinusPrice:null,deliveryTo:'2021-03-01',projectionCurves:['gas_forward'],...changes});
+
+test('a scheduled swap has no single quantity, fixed price or mark: its row says each is by period, draws no size bar, and keeps its side',()=>{
+ const [row]=positionRows([scheduled()]);
+ assert.deepEqual([row.quantity,row.quantityNote,row.exposure,row.side],[null,'By period',null,'Pay fixed']);
+ assert.deepEqual([row.price,row.priceNote,row.mark,row.markNote,row.value],[null,'By period',null,'By period','-10']);
+ assert.equal(row.words,'SWAP Jan 1, 2021 – Feb 28, 2021 By period MMBtu (IT) Pay fixed By period Fixed · USD/MMBtu (IT) By period PV · USD');
+ const common=positionRows([scheduled({fixedPrice:'3'})])[0];
+ assert.deepEqual([common.price,common.priceNote],['3',null],'a fixed price every fixed period shares is the row\'s price');
+ const floating=positionRows([scheduled({direction:'multi_side'})])[0];
+ assert.deepEqual([floating.price,floating.priceNote],[null,null],'two floating sides have no fixed price at all');
+});
+
+test('a swap is refused without the backend\'s quantity, or with a single quantity its kind does not have, or without its kind',()=>{
+ assert.throws(()=>positionRows([{...fixture.holdings[0],quantity:null}]),{message:'The Blotter returned a swap without its quantity.'});
+ assert.throws(()=>positionRows([scheduled({quantity:'100'})]),{message:'The Blotter returned a single quantity for a scheduled swap.'});
+ assert.throws(()=>positionRows([{...fixture.holdings[0],contractIdentityKind:undefined}]),{message:'The Blotter returned a swap without its instrument kind.'});
+ assert.throws(()=>positionRows([{...fixture.holdings[0],settlement:'settled'}]),{message:'The Blotter returned a swap in an unknown valuation state.'});
+});
+
+test('a swap valued by its settlement lifecycle states no curve mark, and says so rather than claiming several',()=>{
+ const [row]=positionRows([{...fixture.holdings[0],settlement:'Active',mark:null,markMinusPrice:null,presentValue:'-5'}]);
+ assert.deepEqual([row.mark,row.markNote,row.value,row.price,row.quantity],[null,'Settlement lifecycle','-5','3.5','1000']);
+});
+
+test('a scheduled swap whose periods project from several curves is one market of those curves together, never its first period\'s',()=>{
+ const key=JSON.stringify(['gas_forward','power_forward']);
+ const held=scheduled({marketKey:key,marketLabel:'Gas forward / Power forward',projectionCurves:['gas_forward','power_forward']});
+ const [row]=positionRows([held]);
+ assert.deepEqual([row.market,row.curve,row.severalCurves],['Gas forward / Power forward','gas_forward',true]);
+ assert.equal(positionRows([scheduled()])[0].severalCurves,false);
+ const summaries=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],market:key,marketLabel:'Gas forward / Power forward',quantity:null,presentValue:'-10',tradeCount:1,unvaluedPositions:0}]);
+ const groups=deskGroups('market',summaries,[...fixture.holdings,held]);
+ assert.equal(groups.keys.at(-1),`${key}|${held.definitionRevisionId}`);
+ assert.deepEqual(groups.headers.filter(h=>h.key===groups.keys.at(-1)).map(h=>[h.label,h.positions]),[['Gas forward / Power forward',1]]);
+ const pv=pvChartPanels(summaries,commodityColors(['test_gas','test_power']),format).find(p=>p.unit==='USD').series[0].points;
+ assert.ok(pv.some(p=>p.label==='Gas forward / Power forward'&&p.y==='-10'));
+});
+
+test('the long and short chart draws no bar for a market the backend gives no single quantity, and says why; a future is never without one',()=>{
+ const colors=commodityColors(['test_gas','test_power']),message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
+ const summaries=changed(fixture.summaries,3,groups=>groups.map(g=>g.market==='power_euro'?{...g,quantity:null}:g));
+ const held=fixture.holdings.map(h=>h.curve==='power_euro'?{...h,contractIdentityKind:'scheduled_swap_instrument',quantity:null,fixedPrice:null,mark:null,markMinusPrice:null,projectionCurves:['power_euro']}:h);
+ const panel=positionChartPanels(summaries,held,colors,format).find(p=>p.unit==='MWh'),euro=panel.series[0].points.find(p=>p.x.startsWith('power_euro'));
+ assert.deepEqual([euro.y,euro.label,euro.text,euro.direction],[null,'Power euro forward · Swaps · no single quantity',undefined,undefined]);
+ assert.equal(panel.subtitle,'Not drawn: Power euro forward · Swaps · no single quantity; Power forward · Swaps · multi-side','a panel with no bar left still says why');
+ assert.throws(()=>positionChartPanels(changed(fixture.summaries,3,groups=>groups.map(g=>g.market==='gas_future'?{...g,quantity:null}:g)),fixture.holdings,colors,format),{message});
 });

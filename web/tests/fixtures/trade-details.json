@@ -521,5 +521,1010 @@
   "asOf": "2020-12-18T16:00:00+00:00",
   "canAmend": true,
   "amendUnavailableReason": null
+ },
+ "scheduledSwap": {
+  "state": {
+   "booking": {
+    "tradeDate": "2026-10-24",
+    "legalEntityId": "d4000000-0000-0000-0000-000000000001",
+    "legalEntityRevision": 1,
+    "legalEntity": "Synthetic entity 1",
+    "counterpartyId": "d5000000-0000-0000-0000-000000000001",
+    "counterpartyRevision": 1,
+    "counterparty": "Synthetic party 1"
+   },
+   "bookingFacts": {
+    "implementation": "server_booking_utc_v1",
+    "labelCapturedAt": "2026-10-24T05:53:40.367991+00:00"
+   },
+   "traderId": "c0000000-0000-0000-0000-000000000005",
+   "traderRevision": 1,
+   "trader": "Synthetic trader",
+   "traderCode": "trader",
+   "executedAt": "2026-10-24T05:53:40.367991+00:00",
+   "memo": null,
+   "tradeId": "039879aa-1a63-4efa-a0c3-283344909fc0",
+   "tradeReference": "TR-000021",
+   "instrumentId": "dbc7abf3-c8ef-4e0f-a454-107db203c3bc",
+   "instrumentReference": "IN-000021",
+   "revision": 1,
+   "eventId": "74043aa7-7692-4fe9-8e70-704964668a75",
+   "kind": "booked",
+   "effectiveAt": "2020-12-15T16:00:00+00:00",
+   "recordedAt": "2026-10-24T05:53:40.36909+00:00",
+   "reason": "Initial booking",
+   "quantity": "300",
+   "terms": {
+    "bookId": "d1000000-0000-0000-0000-000000000002",
+    "executedAt": "2020-12-15T16:00:00+00:00",
+    "quantity": "300",
+    "fixedCoefficient": null,
+    "discounting": false,
+    "fixed": null,
+    "floating": null,
+    "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
+    "commodity": "test_gas",
+    "memo": null,
+    "tradeDate": "2026-10-24",
+    "legalEntityId": "d4000000-0000-0000-0000-000000000001",
+    "legalEntityRevision": 1,
+    "counterpartyId": "d5000000-0000-0000-0000-000000000001",
+    "counterpartyRevision": 1,
+    "firstFloating": null,
+    "swapType": "scheduled_financial_swap",
+    "firstCoefficient": "-1",
+    "scheduled": {
+     "implementation": "independent_scheduled_financial_swap_v1",
+     "first": {
+      "basis": "period_total",
+      "quantity": {
+       "revision": {
+        "catalogId": "10000000-0000-0000-0000-000000000001",
+        "revisionId": "20000000-0000-0000-0000-000000000001"
+       },
+       "code": "test_gas_quantity"
+      },
+      "amount": null,
+      "allocation": null,
+      "priceApplication": "period_average_times_quantity_v1",
+      "power": null,
+      "periods": [
+       {
+        "amount": "100",
+        "fixed": {
+         "price": "3",
+         "currency": "usd",
+         "deliveryFrom": "2021-01-01",
+         "deliveryTo": "2021-02-01",
+         "paymentSchedule": {
+          "frequency": "monthly",
+          "rule": "day_of_following_month",
+          "days": null,
+          "dayOfMonth": 18,
+          "dayBasis": null,
+          "shortMonth": "reject",
+          "adjustment": "unadjusted",
+          "calendar": null,
+          "implementation": "monthly_payment_date_rules_v1"
+         }
+        },
+        "floating": null
+       },
+       {
+        "amount": "200",
+        "fixed": {
+         "price": "3.2",
+         "currency": "usd",
+         "deliveryFrom": "2021-02-01",
+         "deliveryTo": "2021-03-01",
+         "paymentSchedule": {
+          "frequency": "monthly",
+          "rule": "day_of_following_month",
+          "days": null,
+          "dayOfMonth": 18,
+          "dayBasis": null,
+          "shortMonth": "reject",
+          "adjustment": "unadjusted",
+          "calendar": null,
+          "implementation": "monthly_payment_date_rules_v1"
+         }
+        },
+        "floating": null
+       }
+      ]
+     },
+     "second": {
+      "basis": "period_total",
+      "quantity": {
+       "revision": {
+        "catalogId": "10000000-0000-0000-0000-000000000001",
+        "revisionId": "20000000-0000-0000-0000-000000000001"
+       },
+       "code": "test_gas_quantity"
+      },
+      "amount": null,
+      "allocation": null,
+      "priceApplication": "period_average_times_quantity_v1",
+      "power": null,
+      "periods": [
+       {
+        "amount": "150",
+        "fixed": null,
+        "floating": {
+         "curve": "daily_gas",
+         "index": "test_price",
+         "currency": "usd",
+         "deliveryFrom": "2021-01-01",
+         "deliveryTo": "2021-02-01",
+         "paymentSchedule": {
+          "frequency": "monthly",
+          "rule": "day_of_following_month",
+          "days": null,
+          "dayOfMonth": 18,
+          "dayBasis": null,
+          "shortMonth": "reject",
+          "adjustment": "unadjusted",
+          "calendar": null,
+          "implementation": "monthly_payment_date_rules_v1"
+         },
+         "resetFrequency": "monthly",
+         "averagingMethod": "none",
+         "spread": "0"
+        }
+       },
+       {
+        "amount": "100",
+        "fixed": null,
+        "floating": {
+         "curve": "daily_gas",
+         "index": "test_price",
+         "currency": "usd",
+         "deliveryFrom": "2021-02-01",
+         "deliveryTo": "2021-03-01",
+         "paymentSchedule": {
+          "frequency": "monthly",
+          "rule": "day_of_following_month",
+          "days": null,
+          "dayOfMonth": 18,
+          "dayBasis": null,
+          "shortMonth": "reject",
+          "adjustment": "unadjusted",
+          "calendar": null,
+          "implementation": "monthly_payment_date_rules_v1"
+         },
+         "resetFrequency": "monthly",
+         "averagingMethod": "none",
+         "spread": "0"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  "history": [
+   {
+    "booking": {
+     "tradeDate": "2026-10-24",
+     "legalEntityId": "d4000000-0000-0000-0000-000000000001",
+     "legalEntityRevision": 1,
+     "legalEntity": "Synthetic entity 1",
+     "counterpartyId": "d5000000-0000-0000-0000-000000000001",
+     "counterpartyRevision": 1,
+     "counterparty": "Synthetic party 1"
+    },
+    "bookingFacts": {
+     "implementation": "server_booking_utc_v1",
+     "labelCapturedAt": "2026-10-24T05:53:40.367991+00:00"
+    },
+    "traderId": "c0000000-0000-0000-0000-000000000005",
+    "traderRevision": 1,
+    "trader": "Synthetic trader",
+    "traderCode": "trader",
+    "executedAt": "2026-10-24T05:53:40.367991+00:00",
+    "memo": null,
+    "tradeId": "039879aa-1a63-4efa-a0c3-283344909fc0",
+    "tradeReference": "TR-000021",
+    "instrumentId": "dbc7abf3-c8ef-4e0f-a454-107db203c3bc",
+    "instrumentReference": "IN-000021",
+    "revision": 1,
+    "eventId": "74043aa7-7692-4fe9-8e70-704964668a75",
+    "kind": "booked",
+    "effectiveAt": "2020-12-15T16:00:00+00:00",
+    "recordedAt": "2026-10-24T05:53:40.36909+00:00",
+    "reason": "Initial booking",
+    "quantity": "300",
+    "terms": {
+     "bookId": "d1000000-0000-0000-0000-000000000002",
+     "executedAt": "2020-12-15T16:00:00+00:00",
+     "quantity": "300",
+     "fixedCoefficient": null,
+     "discounting": false,
+     "fixed": null,
+     "floating": null,
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
+     "commodity": "test_gas",
+     "memo": null,
+     "tradeDate": "2026-10-24",
+     "legalEntityId": "d4000000-0000-0000-0000-000000000001",
+     "legalEntityRevision": 1,
+     "counterpartyId": "d5000000-0000-0000-0000-000000000001",
+     "counterpartyRevision": 1,
+     "firstFloating": null,
+     "swapType": "scheduled_financial_swap",
+     "firstCoefficient": "-1",
+     "scheduled": {
+      "implementation": "independent_scheduled_financial_swap_v1",
+      "first": {
+       "basis": "period_total",
+       "quantity": {
+        "revision": {
+         "catalogId": "10000000-0000-0000-0000-000000000001",
+         "revisionId": "20000000-0000-0000-0000-000000000001"
+        },
+        "code": "test_gas_quantity"
+       },
+       "amount": null,
+       "allocation": null,
+       "priceApplication": "period_average_times_quantity_v1",
+       "power": null,
+       "periods": [
+        {
+         "amount": "100",
+         "fixed": {
+          "price": "3",
+          "currency": "usd",
+          "deliveryFrom": "2021-01-01",
+          "deliveryTo": "2021-02-01",
+          "paymentSchedule": {
+           "frequency": "monthly",
+           "rule": "day_of_following_month",
+           "days": null,
+           "dayOfMonth": 18,
+           "dayBasis": null,
+           "shortMonth": "reject",
+           "adjustment": "unadjusted",
+           "calendar": null,
+           "implementation": "monthly_payment_date_rules_v1"
+          }
+         },
+         "floating": null
+        },
+        {
+         "amount": "200",
+         "fixed": {
+          "price": "3.2",
+          "currency": "usd",
+          "deliveryFrom": "2021-02-01",
+          "deliveryTo": "2021-03-01",
+          "paymentSchedule": {
+           "frequency": "monthly",
+           "rule": "day_of_following_month",
+           "days": null,
+           "dayOfMonth": 18,
+           "dayBasis": null,
+           "shortMonth": "reject",
+           "adjustment": "unadjusted",
+           "calendar": null,
+           "implementation": "monthly_payment_date_rules_v1"
+          }
+         },
+         "floating": null
+        }
+       ]
+      },
+      "second": {
+       "basis": "period_total",
+       "quantity": {
+        "revision": {
+         "catalogId": "10000000-0000-0000-0000-000000000001",
+         "revisionId": "20000000-0000-0000-0000-000000000001"
+        },
+        "code": "test_gas_quantity"
+       },
+       "amount": null,
+       "allocation": null,
+       "priceApplication": "period_average_times_quantity_v1",
+       "power": null,
+       "periods": [
+        {
+         "amount": "150",
+         "fixed": null,
+         "floating": {
+          "curve": "daily_gas",
+          "index": "test_price",
+          "currency": "usd",
+          "deliveryFrom": "2021-01-01",
+          "deliveryTo": "2021-02-01",
+          "paymentSchedule": {
+           "frequency": "monthly",
+           "rule": "day_of_following_month",
+           "days": null,
+           "dayOfMonth": 18,
+           "dayBasis": null,
+           "shortMonth": "reject",
+           "adjustment": "unadjusted",
+           "calendar": null,
+           "implementation": "monthly_payment_date_rules_v1"
+          },
+          "resetFrequency": "monthly",
+          "averagingMethod": "none",
+          "spread": "0"
+         }
+        },
+        {
+         "amount": "100",
+         "fixed": null,
+         "floating": {
+          "curve": "daily_gas",
+          "index": "test_price",
+          "currency": "usd",
+          "deliveryFrom": "2021-02-01",
+          "deliveryTo": "2021-03-01",
+          "paymentSchedule": {
+           "frequency": "monthly",
+           "rule": "day_of_following_month",
+           "days": null,
+           "dayOfMonth": 18,
+           "dayBasis": null,
+           "shortMonth": "reject",
+           "adjustment": "unadjusted",
+           "calendar": null,
+           "implementation": "monthly_payment_date_rules_v1"
+          },
+          "resetFrequency": "monthly",
+          "averagingMethod": "none",
+          "spread": "0"
+         }
+        }
+       ]
+      }
+     }
+    }
+   }
+  ],
+  "catalog": {
+   "bookingActor": {
+    "id": "c0000000-0000-0000-0000-000000000005",
+    "code": "trader",
+    "kind": "human",
+    "name": "Synthetic trader",
+    "revision": 1,
+    "implementation": "server_booking_utc_v1"
+   },
+   "books": [
+    {
+     "id": "d1000000-0000-0000-0000-000000000001",
+     "name": "Book A",
+     "portfolio_id": "d0000000-0000-0000-0000-000000000001",
+     "portfolio": "Synthetic portfolio"
+    },
+    {
+     "id": "d1000000-0000-0000-0000-000000000002",
+     "name": "Book B",
+     "portfolio_id": "d0000000-0000-0000-0000-000000000001",
+     "portfolio": "Synthetic portfolio"
+    }
+   ],
+   "legalEntities": [],
+   "counterparties": [],
+   "commodities": [
+    {
+     "code": "test_gas",
+     "name": "Synthetic gas",
+     "reference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas"
+     }
+    }
+   ],
+   "indices": [
+    {
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
+     "curve": "daily_gas",
+     "index": "test_price",
+     "commodity": "test_gas",
+     "currencyCode": "usd",
+     "currency": "USD",
+     "unit": "MMBtu (IT)",
+     "quoteMultiplier": "1",
+     "quantityCode": "test_gas_quantity",
+     "quantityChoices": [
+      {
+       "specification": {
+        "revision": {
+         "catalogId": "10000000-0000-0000-0000-000000000001",
+         "revisionId": "20000000-0000-0000-0000-000000000001"
+        },
+        "code": "test_gas_quantity"
+       },
+       "unit": "MMBtu (IT)"
+      }
+     ]
+    }
+   ],
+   "paymentOptions": {
+    "frequencies": [
+     {
+      "value": "monthly",
+      "label": "Monthly"
+     }
+    ],
+    "rules": [
+     {
+      "value": "days_after_period_end",
+      "label": "Days after last delivery day"
+     },
+     {
+      "value": "day_of_following_month",
+      "label": "Day of the following month"
+     }
+    ],
+    "dayBases": [
+     {
+      "value": "calendar_days",
+      "label": "Calendar days"
+     },
+     {
+      "value": "business_days",
+      "label": "Business days"
+     }
+    ],
+    "shortMonths": [
+     {
+      "value": "reject",
+      "label": "Reject a missing day"
+     },
+     {
+      "value": "clamp",
+      "label": "Use last day of month"
+     }
+    ],
+    "adjustments": [
+     {
+      "value": "unadjusted",
+      "label": "Unadjusted"
+     },
+     {
+      "value": "following",
+      "label": "Following"
+     },
+     {
+      "value": "preceding",
+      "label": "Preceding"
+     },
+     {
+      "value": "modified_following",
+      "label": "Modified following"
+     }
+    ],
+    "implementation": "monthly_payment_date_rules_v1"
+   },
+   "scheduledOptions": {
+    "implementation": "independent_scheduled_financial_swap_v1",
+    "priceApplication": "period_average_times_quantity_v1",
+    "maximumPeriods": 120,
+    "powerQuantities": [],
+    "clocks": []
+   }
+  },
+  "valuation": {
+   "presentValue": "-119.5",
+   "instrumentPresentValue": "-119.5",
+   "quantity": "300",
+   "sides": [
+    {
+     "slot": 0,
+     "kind": "fixed",
+     "coefficient": "-1",
+     "presentValue": "3.133333",
+     "contribution": "-3.133333",
+     "payments": [
+      {
+       "deliveryFrom": "2021-01-01",
+       "deliveryTo": "2021-02-01",
+       "paymentDate": "2021-02-18",
+       "resolvedQuantity": "100",
+       "tradeCashAmount": "-300",
+       "tradePresentValue": "-300",
+       "cashAmount": "3",
+       "discountFactor": "1",
+       "presentValue": "3",
+       "discountMappingId": null,
+       "discountCurve": null,
+       "discountPolicy": "explicitly_undiscounted_v1",
+       "pillars": [],
+       "observationSchedule": null,
+       "resets": [
+        {
+         "currency": {
+          "code": "usd"
+         },
+         "quantity": {
+          "code": "test_gas_quantity"
+         },
+         "multiplier": "1",
+         "spread": null,
+         "lookup": null,
+         "lineage": [],
+         "from": "2021-01-01",
+         "to": "2021-02-01",
+         "price": "3",
+         "weight": "1",
+         "cashContribution": "3",
+         "fixingState": "Fixed"
+        }
+       ]
+      },
+      {
+       "deliveryFrom": "2021-02-01",
+       "deliveryTo": "2021-03-01",
+       "paymentDate": "2021-02-18",
+       "resolvedQuantity": "200",
+       "tradeCashAmount": "-640",
+       "tradePresentValue": "-640",
+       "cashAmount": "3.2",
+       "discountFactor": "1",
+       "presentValue": "3.2",
+       "discountMappingId": null,
+       "discountCurve": null,
+       "discountPolicy": "explicitly_undiscounted_v1",
+       "pillars": [],
+       "observationSchedule": null,
+       "resets": [
+        {
+         "currency": {
+          "code": "usd"
+         },
+         "quantity": {
+          "code": "test_gas_quantity"
+         },
+         "multiplier": "1",
+         "spread": null,
+         "lookup": null,
+         "lineage": [],
+         "from": "2021-02-01",
+         "to": "2021-03-01",
+         "price": "3.2",
+         "weight": "1",
+         "cashContribution": "3.2",
+         "fixingState": "Fixed"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "slot": 1,
+     "kind": "floating",
+     "coefficient": "1",
+     "presentValue": "3.1",
+     "contribution": "3.1",
+     "payments": [
+      {
+       "deliveryFrom": "2021-01-01",
+       "deliveryTo": "2021-02-01",
+       "paymentDate": "2021-02-18",
+       "resolvedQuantity": "150",
+       "tradeCashAmount": "465",
+       "tradePresentValue": "465",
+       "cashAmount": "3.1",
+       "discountFactor": "1",
+       "presentValue": "3.1",
+       "discountMappingId": null,
+       "discountCurve": null,
+       "discountPolicy": "explicitly_undiscounted_v1",
+       "pillars": [],
+       "observationSchedule": null,
+       "resets": [
+        {
+         "currency": {
+          "code": "usd"
+         },
+         "quantity": {
+          "code": "test_gas_quantity"
+         },
+         "multiplier": "1",
+         "spread": null,
+         "lookup": null,
+         "lineage": [],
+         "from": "2021-01-01",
+         "to": "2021-02-01",
+         "price": "3.1",
+         "weight": "1",
+         "cashContribution": "3.1",
+         "fixingState": "Projected"
+        }
+       ]
+      },
+      {
+       "deliveryFrom": "2021-02-01",
+       "deliveryTo": "2021-03-01",
+       "paymentDate": "2021-02-18",
+       "resolvedQuantity": "100",
+       "tradeCashAmount": "355.5",
+       "tradePresentValue": "355.5",
+       "cashAmount": "3.555",
+       "discountFactor": "1",
+       "presentValue": "3.555",
+       "discountMappingId": null,
+       "discountCurve": null,
+       "discountPolicy": "explicitly_undiscounted_v1",
+       "pillars": [],
+       "observationSchedule": null,
+       "resets": [
+        {
+         "currency": {
+          "code": "usd"
+         },
+         "quantity": {
+          "code": "test_gas_quantity"
+         },
+         "multiplier": "1",
+         "spread": null,
+         "lookup": null,
+         "lineage": [],
+         "from": "2021-02-01",
+         "to": "2021-03-01",
+         "price": "3.555",
+         "weight": "1",
+         "cashContribution": "3.555",
+         "fixingState": "Projected"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "asOf": "2020-12-18T16:00:00+00:00",
+  "canAmend": true,
+  "amendUnavailableReason": null,
+  "quantityInputs": [
+   {
+    "slot": 0,
+    "basis": "period_total",
+    "power": null,
+    "periods": [
+     {
+      "amount": "100"
+     },
+     {
+      "amount": "200"
+     }
+    ]
+   },
+   {
+    "slot": 1,
+    "basis": "period_total",
+    "power": null,
+    "periods": [
+     {
+      "amount": "150"
+     },
+     {
+      "amount": "100"
+     }
+    ]
+   }
+  ]
+ },
+ "settledSwap": {
+  "state": {
+   "booking": {
+    "tradeDate": "2026-10-24",
+    "legalEntityId": "d4000000-0000-0000-0000-000000000001",
+    "legalEntityRevision": 1,
+    "legalEntity": "Synthetic entity 1",
+    "counterpartyId": "d5000000-0000-0000-0000-000000000001",
+    "counterpartyRevision": 1,
+    "counterparty": "Synthetic party 1"
+   },
+   "bookingFacts": {
+    "implementation": "server_booking_utc_v1",
+    "labelCapturedAt": "2026-10-24T05:53:40.367991+00:00"
+   },
+   "traderId": "c0000000-0000-0000-0000-000000000005",
+   "traderRevision": 1,
+   "trader": "Synthetic trader",
+   "traderCode": "trader",
+   "executedAt": "2026-10-24T05:53:40.367991+00:00",
+   "memo": null,
+   "tradeId": "039879aa-1a63-4efa-a0c3-283344909fc0",
+   "tradeReference": "TR-000011",
+   "instrumentId": "dbc7abf3-c8ef-4e0f-a454-107db203c3bc",
+   "instrumentReference": "IN-000004",
+   "revision": 1,
+   "eventId": "74043aa7-7692-4fe9-8e70-704964668a75",
+   "kind": "booked",
+   "effectiveAt": "2020-12-15T16:00:00+00:00",
+   "recordedAt": "2026-10-24T05:53:40.36909+00:00",
+   "reason": "Initial booking",
+   "quantity": "100",
+   "terms": {
+    "bookId": "d1000000-0000-0000-0000-000000000002",
+    "executedAt": "2020-12-15T16:00:00+00:00",
+    "quantity": "100",
+    "fixedCoefficient": "-1",
+    "discounting": false,
+    "fixed": {
+     "price": "3",
+     "currency": "usd",
+     "deliveryFrom": "2021-01-01",
+     "deliveryTo": "2021-02-01",
+     "paymentAt": null,
+     "paymentSchedule": {
+      "frequency": "monthly",
+      "rule": "day_of_following_month",
+      "days": null,
+      "dayOfMonth": 18,
+      "dayBasis": null,
+      "shortMonth": "reject",
+      "adjustment": "unadjusted",
+      "calendar": null,
+      "implementation": "monthly_payment_date_rules_v1"
+     }
+    },
+    "floating": {
+     "curve": "daily_gas",
+     "index": "test_price",
+     "currency": "usd",
+     "deliveryFrom": "2021-01-01",
+     "deliveryTo": "2021-02-01",
+     "firstFixingAt": null,
+     "paymentAt": null,
+     "averaging": null,
+     "paymentSchedule": {
+      "frequency": "monthly",
+      "rule": "days_after_period_end",
+      "days": 46,
+      "dayOfMonth": null,
+      "dayBasis": "calendar_days",
+      "shortMonth": null,
+      "adjustment": "unadjusted",
+      "calendar": null,
+      "implementation": "monthly_payment_date_rules_v1"
+     },
+     "resetFrequency": "daily",
+     "averagingMethod": "arithmetic",
+     "spread": "0"
+    },
+    "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
+    "commodity": "test_gas",
+    "memo": null,
+    "tradeDate": "2026-10-24",
+    "legalEntityId": "d4000000-0000-0000-0000-000000000001",
+    "legalEntityRevision": 1,
+    "counterpartyId": "d5000000-0000-0000-0000-000000000001",
+    "counterpartyRevision": 1,
+    "firstFloating": null,
+    "swapType": "financial_fixed_floating",
+    "firstCoefficient": null
+   }
+  },
+  "history": [
+   {
+    "booking": {
+     "tradeDate": "2026-10-24",
+     "legalEntityId": "d4000000-0000-0000-0000-000000000001",
+     "legalEntityRevision": 1,
+     "legalEntity": "Synthetic entity 1",
+     "counterpartyId": "d5000000-0000-0000-0000-000000000001",
+     "counterpartyRevision": 1,
+     "counterparty": "Synthetic party 1"
+    },
+    "bookingFacts": {
+     "implementation": "server_booking_utc_v1",
+     "labelCapturedAt": "2026-10-24T05:53:40.367991+00:00"
+    },
+    "traderId": "c0000000-0000-0000-0000-000000000005",
+    "traderRevision": 1,
+    "trader": "Synthetic trader",
+    "traderCode": "trader",
+    "executedAt": "2026-10-24T05:53:40.367991+00:00",
+    "memo": null,
+    "tradeId": "039879aa-1a63-4efa-a0c3-283344909fc0",
+    "tradeReference": "TR-000011",
+    "instrumentId": "dbc7abf3-c8ef-4e0f-a454-107db203c3bc",
+    "instrumentReference": "IN-000004",
+    "revision": 1,
+    "eventId": "74043aa7-7692-4fe9-8e70-704964668a75",
+    "kind": "booked",
+    "effectiveAt": "2020-12-15T16:00:00+00:00",
+    "recordedAt": "2026-10-24T05:53:40.36909+00:00",
+    "reason": "Initial booking",
+    "quantity": "100",
+    "terms": {
+     "bookId": "d1000000-0000-0000-0000-000000000002",
+     "executedAt": "2020-12-15T16:00:00+00:00",
+     "quantity": "100",
+     "fixedCoefficient": "-1",
+     "discounting": false,
+     "fixed": {
+      "price": "3",
+      "currency": "usd",
+      "deliveryFrom": "2021-01-01",
+      "deliveryTo": "2021-02-01",
+      "paymentAt": null,
+      "paymentSchedule": {
+       "frequency": "monthly",
+       "rule": "day_of_following_month",
+       "days": null,
+       "dayOfMonth": 18,
+       "dayBasis": null,
+       "shortMonth": "reject",
+       "adjustment": "unadjusted",
+       "calendar": null,
+       "implementation": "monthly_payment_date_rules_v1"
+      }
+     },
+     "floating": {
+      "curve": "daily_gas",
+      "index": "test_price",
+      "currency": "usd",
+      "deliveryFrom": "2021-01-01",
+      "deliveryTo": "2021-02-01",
+      "firstFixingAt": null,
+      "paymentAt": null,
+      "averaging": null,
+      "paymentSchedule": {
+       "frequency": "monthly",
+       "rule": "days_after_period_end",
+       "days": 46,
+       "dayOfMonth": null,
+       "dayBasis": "calendar_days",
+       "shortMonth": null,
+       "adjustment": "unadjusted",
+       "calendar": null,
+       "implementation": "monthly_payment_date_rules_v1"
+      },
+      "resetFrequency": "daily",
+      "averagingMethod": "arithmetic",
+      "spread": "0"
+     },
+     "reason": null,
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
+     "commodity": "test_gas",
+     "memo": null,
+     "tradeDate": "2026-10-24",
+     "legalEntityId": "d4000000-0000-0000-0000-000000000001",
+     "legalEntityRevision": 1,
+     "counterpartyId": "d5000000-0000-0000-0000-000000000001",
+     "counterpartyRevision": 1,
+     "firstFloating": null,
+     "swapType": "financial_fixed_floating",
+     "firstCoefficient": null
+    }
+   }
+  ],
+  "catalog": {
+   "bookingActor": {
+    "id": "c0000000-0000-0000-0000-000000000005",
+    "code": "trader",
+    "kind": "human",
+    "name": "Synthetic trader",
+    "revision": 1,
+    "implementation": "server_booking_utc_v1"
+   },
+   "books": [
+    {
+     "id": "d1000000-0000-0000-0000-000000000001",
+     "name": "Book A",
+     "portfolio_id": "d0000000-0000-0000-0000-000000000001",
+     "portfolio": "Synthetic portfolio"
+    },
+    {
+     "id": "d1000000-0000-0000-0000-000000000002",
+     "name": "Book B",
+     "portfolio_id": "d0000000-0000-0000-0000-000000000001",
+     "portfolio": "Synthetic portfolio"
+    }
+   ],
+   "legalEntities": [],
+   "counterparties": [],
+   "commodities": [
+    {
+     "code": "test_gas",
+     "name": "Synthetic gas",
+     "reference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas"
+     }
+    }
+   ],
+   "indices": [
+    {
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
+     "curve": "daily_gas",
+     "index": "test_price",
+     "commodity": "test_gas",
+     "currencyCode": "usd",
+     "currency": "USD",
+     "unit": "MMBtu (IT)",
+     "quoteMultiplier": "1",
+     "quantityCode": "test_gas_quantity"
+    }
+   ],
+   "paymentOptions": {
+    "frequencies": [
+     {
+      "value": "monthly",
+      "label": "Monthly"
+     }
+    ],
+    "rules": [
+     {
+      "value": "days_after_period_end",
+      "label": "Days after last delivery day"
+     },
+     {
+      "value": "day_of_following_month",
+      "label": "Day of the following month"
+     }
+    ],
+    "dayBases": [
+     {
+      "value": "calendar_days",
+      "label": "Calendar days"
+     },
+     {
+      "value": "business_days",
+      "label": "Business days"
+     }
+    ],
+    "shortMonths": [
+     {
+      "value": "reject",
+      "label": "Reject a missing day"
+     },
+     {
+      "value": "clamp",
+      "label": "Use last day of month"
+     }
+    ],
+    "adjustments": [
+     {
+      "value": "unadjusted",
+      "label": "Unadjusted"
+     },
+     {
+      "value": "following",
+      "label": "Following"
+     },
+     {
+      "value": "preceding",
+      "label": "Preceding"
+     },
+     {
+      "value": "modified_following",
+      "label": "Modified following"
+     }
+    ],
+    "implementation": "monthly_payment_date_rules_v1"
+   }
+  },
+  "valuation": null,
+  "asOf": "2020-12-18T16:00:00+00:00",
+  "canAmend": false,
+  "amendUnavailableReason": "This retained state is outside the supported live, unprocessed futures lifecycle. Settlement must be handled separately.",
+  "settlementValuation": {
+   "remainingValue": "-50",
+   "determinedOutstanding": "-50",
+   "determinedPv": "-50",
+   "dueBalance": "0",
+   "realized": "50",
+   "unrealized": "0",
+   "netCash": "100",
+   "corrections": "0",
+   "roundingEffect": "0",
+   "estimatedRemainingPv": "0",
+   "payments": []
+  }
  }
 }

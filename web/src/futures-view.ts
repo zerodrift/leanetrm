@@ -18,7 +18,7 @@ import {isPriceMeasure,priceMeanPolicy,blotterColumns,deskFields,groupChoices,me
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
-import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,pvChartPanels,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
+import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
 import {askLeave,liveRefreshPlan,panelPlacement,sameMode,setupSidePanel,type PanelMode} from './side-panel.js';
 import {setupPositionPanel,type PositionInput} from './position-panel.js';
 import {bookedPosition,followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
@@ -141,7 +141,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;panel.place();}}).observe(main);
   new MutationObserver(()=>panel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
-    read:(h,formats)=>h.instrumentType==='financial_swap'?readSwapView(api,readContext(),h,formats,busy):readTradeView(api,readContext(),h,formats),
+    read:(h,formats)=>h.instrumentType==='financial_swap'?readSwapView(api,readContext(),h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,readContext(),h,formats),
     amendment:{
       open:h=>void act(()=>h.instrumentType==='financial_swap'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision))),
       // A future's form is open for its binding, a swap's for its instrument.
@@ -163,6 +163,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
   // control disabled. `kept` hears that the person kept them, for a control that has already changed.
   function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
+  // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
+  function settle(h:Holding){guarded(()=>swapEditor.openSettlement(h));}
   // New trade (D218) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
@@ -285,11 +287,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
-    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,...fields}=h;
-    return {...fields,priceUnit:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
+    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,...fields}=h;
+    return {...fields,priceUnit:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
   // What a trade row's value cell says when the close cannot value it, on screen and in exports (D217).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
+  // What a trade row's cell says where the backend states no single figure for a reason of the position's own: a scheduled swap's
+  // quantities and prices by period, or a mark a lifecycle valuation does not state. Exports say it as the cells do.
+  function noted(row:DeskRow|undefined,key:string){return (key==='quantity'?row?.quantityNote:key==='fixedPrice'?row?.priceNote:key==='mark'?row?.markNote:null)??undefined;}
   // Trade columns a desk view can add beside its own; the fields its own present are always on.
   const tradeColumns=blotterColumns.filter(([key])=>key!=='tradeCount'&&!isPriceMeasure(key));
   const money=(value:string)=>amountText(value,'money'),quantity=(value:string)=>amountText(value,'quantity');
@@ -330,7 +335,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const columns=[...deskColumns,...details];
     tableColumns=columns.map(c=>c[0]);transientKeys=new Set(['curve']);
     const numeric=tableColumns.flatMap((key,i)=>i>=deskColumns.length?(numericFields.includes(key)?[i]:[]):['quantity','executionPrice','mark','presentValue'].includes(key)?[i]:[]);
-    const values=rows.map((row,i)=>[row.reference,row.market,row.quantity,row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
+    const values=rows.map((row,i)=>[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
     const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
     const formats=held.map(holdingFormats);
     const cells=deskCells(rows,colors,{money:(i,value)=>formats[i].money(value),quantity:(i,value)=>formats[i].quantity(value),price:(i,value)=>formats[i].price(value),mark:(i,value)=>formats[i].mark(value)},i=>shapeOf(held[i]));
@@ -351,6 +356,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(!shapes)return undefined;
     if('unavailable' in shapes)return shapes.unavailable;
     if(h.definitionRevisionId!==shapes.revision)return otherRevision;
+    if(projectsFromSeveralCurves(h))return severalCurvesShape;
     return shapes.curves.get(h.curve)??'Curve shape unavailable';
   }
   // The position at a row of the read on screen, as the side panel draws it; nothing while the desk draws no positions.
@@ -562,7 +568,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // A trade-row export states the trade fields of the rows the filters show, the desk's own and the added columns, exactly.
   function tradeExport(grid:ReturnType<typeof renderDataGrid>):{headers:string[];rows:string[][];numeric:number[]}{
     const read=holdings!,columns=tradeColumns.filter(([key])=>(deskFields as readonly string[]).includes(key)||key==='currency'||view.columns.includes(key));
-    const rows=grid.shownRows().map(i=>{const h=read.holdings[i],fields=tradeFields(h);return columns.map(([key])=>notValued(h,key)??fields[key]??'');});
+    const rows=grid.shownRows().map(i=>{const h=read.holdings[i],fields=tradeFields(h);return columns.map(([key])=>notValued(h,key)??noted(drawn?.rows[i],key)??fields[key]??'');});
     return {headers:columns.map(c=>c[1]),rows,numeric:columns.flatMap(([key],i)=>numericFields.includes(key)?[i]:[])};
   }
   get('blotter-export').onclick=()=>{if(busy()||!table||!holdings||!lastReadRequest)return;const pivot=view.mode==='pivot';const metadata=[['Blotter snapshot'],['As of',holdings.asOf],['Knowledge cutoff',holdings.context.knownAt],['Convention',holdings.convention],['Display',view.mode],['Grouping',pivot?view.groupBy.join(' / '):rowGroupLabel(view.rowGroup)],['Measures',pivot?view.measures.join(' / '):'Trade rows'],['Portfolios',view.portfolioIds.length?catalog!.books.filter(b=>view.portfolioIds.includes(b.portfolio_id)).map(b=>b.portfolio).filter((v,i,a)=>a.indexOf(v)===i).join(' / '):'All authorized portfolios'],['Books',view.bookIds.length?catalog!.books.filter(b=>view.bookIds.includes(b.id)).map(b=>b.name).join(' / '):'All books in selected portfolios'],['Search',table.state().query],['Column filters',JSON.stringify(Object.fromEntries(table.state().columns.flatMap((v,i)=>v===null?[]:[[tableColumns[i],v]])))],['Numerical policy',holdings.pivotNumericalPolicy],['Pivot convention',pivot?'trading_blotter_totals_v1':'Not applicable'],['Positions not valued at this close',String(excludedPositions(holdings.unvaluedPositions))],[]];

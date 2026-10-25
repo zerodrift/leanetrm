@@ -171,15 +171,15 @@ const swapApi=seen=>async(path,body)=>{
 };
 test('a swap is read from its own trade revision, and the read must hold the instrument the position is in',async()=>{
  const seen=[],api=swapApi(seen);
- const read=await readSwapView(api,{market:'context'},heldSwap(),formats,()=>false);
+ const read=await readSwapView(api,{market:'context'},heldSwap(),formats,{busy:()=>false,act:async work=>work(),settle:()=>{}});
  assert.deepEqual(seen[0],['swaps/editor',{context:{market:'context',convention:'independent_side_financial_swap_v2'},tradeId:details.swap.state.tradeId,revision:1}]);
  assert.deepEqual(read.amend,{allowed:true,reason:null});
  assert.deepEqual(read.view('UTC').terms.map(s=>s.title),['Trade','Structure','Fixed side · Pay','Floating side · Receive']);
- await assert.rejects(readSwapView(api,{},heldSwap({contractId:'c0000000-0000-0000-0000-0000000000c2'}),formats,()=>false),{message:'The editor read holds another instrument of the trade than the position.'});
+ await assert.rejects(readSwapView(api,{},heldSwap({contractId:'c0000000-0000-0000-0000-0000000000c2'}),formats,{busy:()=>false,act:async work=>work(),settle:()=>{}}),{message:'The editor read holds another instrument of the trade than the position.'});
 });
 
 test('a swap\'s read view also draws its valuation and schedules, from the deal\'s own display formats, which are read with it',async()=>{
- const seen=[],read=await readSwapView(swapApi(seen),{market:'context'},heldSwap(),formats,()=>false);
+ const seen=[],read=await readSwapView(swapApi(seen),{market:'context'},heldSwap(),formats,{busy:()=>false,act:async work=>work(),settle:()=>{}});
  assert.deepEqual(seen.find(([path])=>path==='trade-formats/read'),['trade-formats/read',{tradeId:details.swap.state.tradeId,context:{market:'context',convention:'independent_side_financial_swap_v2'}}]);
  assert.equal(typeof read.view('UTC').schedules,'function','the view has schedules to draw into the panel\'s Terms');
  assert.equal(typeof tradeDetailView(details.future,'UTC',formats,unit).schedules,'undefined','a future has none');
@@ -270,4 +270,55 @@ test('two floating sides of one market and one delivery period are one market on
  const side={curve:'daily_gas',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'};
  assert.equal(swapDraftMarkets({definitionRevisionId:'r1',floating:side,firstFloating:{...side},fixed:null}).length,1);
  assert.equal(swapDraftMarkets({definitionRevisionId:'r1',floating:side,firstFloating:{...side,deliveryTo:'2021-03-01'},fixed:null}).length,2,'another period of the same market is marked too');
+});
+
+// What the app's api answers the read of one swap with: its editor read, the deal's display formats and the amounts' display text.
+const readOf=detail=>async(path,body)=>path==='trade-formats/read'?{roles:['trade','fixed','floating'].map(role=>({role,revision:1,format:{money:3,price:4,quantity:3,factor:6}}))}:path==='amounts/display'?body.map(request=>request.value):detail;
+// A scheduled swap (D214) holds its quantities and prices by period: its terms state each side's quantity basis, unit and periods,
+// and terms its periods share once, without one figure for the whole trade that the backend does not state.
+test('a scheduled swap\'s terms are its booking facts, its structure by period, and each side with its basis, unit and every period',()=>{
+ const sections=swapTerms(details.scheduledSwap,'UTC',formats);
+ assert.deepEqual(sections.map(s=>s.title),['Trade','Structure','First side · Pay','Second side · Receive']);
+ assert.equal(rowsOf(sections,'Trade').Trade,'TR-000021 · IN-000021');
+ assert.deepEqual(rowsOf(sections,'Structure'),{Type:'Scheduled fixed for floating',Commodity:'Synthetic gas',Quantity:'By period',
+  'Price application':'Period-average price × period quantity',Discounting:'Explicitly undiscounted'});
+ assert.deepEqual(rowsOf(sections,'First side · Pay'),{'Quantity basis':'Explicit total for each period','Quantity unit':'MMBtu (IT)',Periods:'2 monthly · Jan 1, 2021 – Feb 28, 2021',
+  'Jan 2021':'q:100 MMBtu (IT) · fixed p:3 USD/MMBtu (IT)','Feb 2021':'q:200 MMBtu (IT) · fixed p:3.2 USD/MMBtu (IT)',
+  'Payment frequency':'Monthly','Payment rule':'Day of the following month · day 18','Short months':'Reject a missing day',Adjustment:'Unadjusted'});
+ assert.deepEqual(rowsOf(sections,'Second side · Receive'),{'Quantity basis':'Explicit total for each period','Quantity unit':'MMBtu (IT)',Periods:'2 monthly · Jan 1, 2021 – Feb 28, 2021',
+  'Jan 2021':'q:150 MMBtu (IT) · Price · Daily gas','Feb 2021':'q:100 MMBtu (IT) · Price · Daily gas','Reset frequency':'Monthly',Averaging:'None',Spread:'0 USD/MMBtu (IT)',
+  'Payment frequency':'Monthly','Payment rule':'Day of the following month · day 18','Short months':'Reject a missing day',Adjustment:'Unadjusted'});
+});
+
+test('a scheduled side whose periods differ in a term says it is by period, and a contract total names its allocation',()=>{
+ const varied=clone(details.scheduledSwap),second=varied.state.terms.scheduled.second;
+ second.periods[1].floating.spread='0.1';second.periods[1].floating.paymentSchedule={...second.periods[1].floating.paymentSchedule,dayOfMonth:20};
+ Object.assign(varied.state.terms.scheduled.first,{basis:'contract_total',amount:'300',allocation:'calendar_days'});for(const p of varied.state.terms.scheduled.first.periods)p.amount=null;
+ const sections=swapTerms(varied,'UTC',formats),first=rowsOf(sections,'First side · Pay'),floating=rowsOf(sections,'Second side · Receive');
+ assert.deepEqual([floating.Spread,floating['Payment rules'],floating['Payment rule']],['By period','By period',undefined]);
+ assert.deepEqual([first['Quantity basis'],first['Contract total'],first['Jan 2021']],['One total for this side’s whole contract','q:300 MMBtu (IT) · Proportion to calendar days in each monthly period','fixed p:3 USD/MMBtu (IT)']);
+});
+
+test('a scheduled swap\'s revisions say its quantity is by period, and its view also draws its review',async()=>{
+ assert.equal(rowsOf(swapHistory(details.scheduledSwap,'UTC',formats),'Revision 1 · Booked').Quantity,'By period');
+ const read=await readSwapView(readOf(details.scheduledSwap),{},{...heldSwap(),contractId:details.scheduledSwap.state.instrumentId},formats,{busy:()=>false,act:async work=>work(),settle:()=>{}});
+ assert.equal(typeof read.view('UTC').schedules,'function');
+});
+
+// A swap whose settlement lifecycle is under way (D215) is valued by it: its read has no pure valuation, and Terms states the lifecycle's measures.
+test('a swap valued by its settlement lifecycle shows its terms, sides from its own directions, and the lifecycle\'s measures, and offers its settlement view',async()=>{
+ const settled=details.settledSwap,settle=[];
+ const read=await readSwapView(readOf(settled),{},heldSwap(),formats,{busy:()=>false,act:async work=>work(),settle:()=>settle.push('settle')});
+ const view=read.view('UTC');
+ assert.deepEqual(view.terms.map(s=>s.title),['Trade','Structure','Fixed side · Pay','Floating side · Receive','Settlement lifecycle']);
+ assert.deepEqual(rowsOf(view.terms,'Settlement lifecycle')['Remaining contractual value'],'$:-50 USD');
+ assert.equal(view.schedules,undefined,'a lifecycle valuation has no pure schedules to draw');
+ assert.deepEqual(view.actions.map(a=>[a.id,a.label]),[['side-panel-settlement','Settlement and P&L']]);
+ view.actions[0].run();assert.deepEqual(settle,['settle']);
+ assert.deepEqual(read.amend,{allowed:false,reason:settled.amendUnavailableReason});
+});
+
+test('every swap\'s Terms offer its settlement and P&L view',async()=>{
+ const read=await readSwapView(swapApi([]),{},heldSwap(),formats,{busy:()=>false,act:async work=>work(),settle:()=>{}});
+ assert.deepEqual(read.view('UTC').actions.map(a=>a.label),['Settlement and P&L']);
 });

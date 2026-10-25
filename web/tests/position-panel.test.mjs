@@ -76,10 +76,10 @@ test('a mark minus price on a position the close cannot value is a conflict the 
 
 test('the facts are the position\'s own price, mark, size and settlement, each in its unit, and a mark the close cannot give is left out',()=>{
  const facts=reference=>Object.fromEntries(summary(reference).facts.map(f=>[f.label,[f.text,f.unit]]));
- assert.deepEqual(facts('TR-000001'),{'Fixed price':['3.5','USD/MMBtu (IT)'],Mark:['3.49','USD/MMBtu (IT)'],Quantity:['1000','MMBtu (IT)']});
- assert.deepEqual(facts('TR-000002'),{'Executed price':['3.315','USD/MMBtu (IT)'],Mark:['3.3','USD/MMBtu (IT)'],Quantity:['+2500','MMBtu (IT)']});
- assert.deepEqual(facts('TR-000004'),{'Fixed price':['None',null],Mark:['Several marks',null],Quantity:['100','MWh']});
- assert.deepEqual(facts('TR-000003'),{'Executed price':['3.4','USD/MMBtu (IT)'],Quantity:['−2500','MMBtu (IT)']});
+ assert.deepEqual(facts('TR-000001'),{'Fixed price':['3.5','USD/MMBtu (IT)'],Mark:['3.49','USD/MMBtu (IT)'],Quantity:['1000','MMBtu (IT)'],Settlement:['Projection',null]});
+ assert.deepEqual(facts('TR-000002'),{'Executed price':['3.315','USD/MMBtu (IT)'],Mark:['3.3','USD/MMBtu (IT)'],Quantity:['+2500','MMBtu (IT)'],Settlement:['Unprocessed',null]});
+ assert.deepEqual(facts('TR-000004'),{'Fixed price':['None',null],Mark:['Several marks',null],Quantity:['100','MWh'],Settlement:['Projection',null]});
+ assert.deepEqual(facts('TR-000003'),{'Executed price':['3.4','USD/MMBtu (IT)'],Quantity:['−2500','MMBtu (IT)'],Settlement:['Unprocessed',null]});
  const settled={...held['TR-000002'],settlement:'unprocessed'};
  assert.deepEqual(positionSummary(settled,rows['TR-000002'],formats).facts.at(-1),{label:'Settlement',text:'Unprocessed',unit:null});
 });
@@ -167,4 +167,33 @@ test('Amend is shown only when the account may amend, and while the form is open
 test('Open curve says in words when there is no curve to open: for a market Curves & prices does not list',()=>{
  assert.equal(curveNote(true),null);
  assert.equal(curveNote(false),"Curves & prices does not list this position's market, so there is no curve to open.");
+});
+
+// A scheduled swap (D214) holds its quantities, fixed prices and marks by period; the panel says so where the desk row does, and
+// a position whose periods project from several curves has no one curve to draw or to open.
+const scheduledHeld=changes=>({...held['TR-000001'],contractIdentityKind:'scheduled_swap_instrument',quantity:null,fixedPrice:null,mark:null,markMinusPrice:null,projectionCurves:['gas_forward'],...changes});
+const scheduledSummary=changes=>{const h=scheduledHeld(changes);return positionSummary(h,positionRows([h])[0],formats);};
+
+test('a scheduled swap\'s title and facts say its quantity, fixed price and mark are by period, each in its unit',()=>{
+ const view=scheduledSummary();
+ assert.equal(view.subtitle,'Jan 2021 · Pay fixed · By period MMBtu (IT)');
+ assert.deepEqual(view.facts,[{label:'Fixed price',text:'By period',unit:'USD/MMBtu (IT)'},{label:'Mark',text:'By period',unit:null},{label:'Quantity',text:'By period',unit:'MMBtu (IT)'},{label:'Settlement',text:'Projection',unit:null}]);
+ assert.equal(view.markMinusPrice,null);
+ assert.equal(scheduledSummary({fixedPrice:'3'}).facts[0].text,'3','a price every fixed period shares is stated');
+});
+
+test('a swap valued by its settlement lifecycle says it has no curve mark, and its settlement state',()=>{
+ const h={...held['TR-000001'],settlement:'Active',mark:null,markMinusPrice:null};
+ const facts=positionSummary(h,positionRows([h])[0],formats).facts;
+ assert.deepEqual(facts.find(f=>f.label==='Mark'),{label:'Mark',text:'Settlement lifecycle',unit:null});
+ assert.deepEqual(facts.at(-1),{label:'Settlement',text:'Active',unit:null});
+});
+
+test('a position that projects from several curves draws none of them, and Open curve says there is no one curve to open',()=>{
+ const h=scheduledHeld({marketKey:JSON.stringify(['gas_forward','power_forward']),marketLabel:'Gas forward / Power forward',projectionCurves:['gas_forward','power_forward']});
+ const row=positionRows([h])[0];
+ assert.deepEqual(curveView('Curve shape unavailable · this position projects from several curves',h,row,formats),{state:'unavailable',reason:'Curve shape unavailable · this position projects from several curves'});
+ assert.equal(curveNote(true,true),'This position projects from several curves, so there is no one curve to open.');
+ assert.equal(curveNote(false,true),'This position projects from several curves, so there is no one curve to open.');
+ assert.equal(curveNote(true,false),null);
 });

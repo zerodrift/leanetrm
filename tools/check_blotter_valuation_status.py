@@ -6,12 +6,13 @@ discount rates the monthly swaps need. The daily swap bundle publishes its price
 only, so the daily swaps share their book totals with monthly swaps the close cannot value. One synthetic
 future on the custom monthly NG curve, observed at every close, is booked here to do the same for futures.
 Curve shapes state per contract what a curve at that close cannot price, where reading the curve fails.
+A scheduled swap (D214) on the standard monthly curve is booked last, so the counts above stay the seeded example's.
 """
 from collections import defaultdict
 from fractions import Fraction
 import json
 from uuid import UUID, uuid4, uuid5
-from check_blotter_desk_fields import DESK_SUMMARIES, MIXED_SUMMARIES, SEEDED_DIRECTION, check_money_totals, exact, money_view, total, unvalued
+from check_blotter_desk_fields import DESK_SUMMARIES, MIXED_SUMMARIES, SEEDED_DIRECTION, SWAP_CONVENTION, check_money_totals, exact, money_view, total, unvalued
 from check_portfolio_risk import financial, reconcile
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
@@ -23,6 +24,60 @@ BY_BOOK = {**TRADES, 'mode': 'pivot', 'groupBy': ['book'], 'measures': ['present
            'pivotConvention': 'trading_blotter_totals_v1'}
 BOOKED = ('instrumentType', 'bookId', 'curve', 'contractId', 'deliveryFrom', 'deliveryTo', 'lots', 'quantity', 'unit',
           'quantitySpecification', 'currencyReference', 'currency', 'quoteMultiplier', 'executionPrice', 'fixedPrice', 'revision')
+OPERATIONS = UUID('e1000000-0000-0000-0000-000000000003')
+
+
+def close_context(frame):
+    """The trading context of a close, with current knowledge."""
+    return {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
+
+
+def blotter(c, frame, view=TRADES):
+    """A Blotter read at a close, and the retained context it was read under."""
+    read = c.call('trading/blotter', {'context': close_context(frame), 'view': view})
+    return read, {**close_context(frame), 'knowledgeMode': 'retained', 'contextId': read['context']['contextId']}
+
+
+def book_key(item):
+    """What a book total keeps apart: book, instrument type, quantity specification and currency."""
+    return (item['bookId'], item['instrumentType'], json.dumps(item['quantitySpecification'], sort_keys=True),
+            json.dumps(item['currencyReference'], sort_keys=True))
+
+
+def key(item):
+    return item['tradeId'], item['bindingId']
+
+
+def unvalued_rows(rows):
+    """The positions a Blotter read reports unvalued, as a risk run lists them."""
+    return sorted(({'tradeId': r['tradeId'], 'bindingId': r['bindingId'], 'tradeReference': r['tradeReference'],
+                    'instrumentType': r['instrumentType'], 'reason': r['unavailableReason']}
+                   for r in rows if r['unavailableReason'] is not None), key=key)
+
+
+def excluded(report):
+    return sorted(report['excludedPositions'], key=key)
+
+
+def values(report):
+    """Each position's values under a run's first factor."""
+    return {key(p): p['values'] for p in report['factors'][0]['positions']}
+
+
+def risk_catalog(c, context):
+    return c.call('portfolio/risk/catalog', {'context': context, 'bookIds': [], 'portfolioIds': []})
+
+
+def ng_factor(choices):
+    """The factor of the February contract on the custom monthly NG curve, which every close observes."""
+    return next(f['factor'] for f in choices['factors'] if f['curves'] == ['ng_monthly'] and f['deliveryFrom'] == '2021-02-01')
+
+
+def risk_request(choices, context, factor, books=(), size='0.1'):
+    """A run of one bump on one factor under the policies the catalog offers."""
+    return {'context': context, 'bookIds': list(books), 'portfolioIds': [], 'detail': 'holdings', 'stress': [],
+            'convention': choices['convention'], 'numericalPolicy': choices['numericalPolicy'], 'pricingPolicy': choices['pricingPolicy'],
+            'bumps': [{'factor': factor, 'size': size, 'convention': choices['bumpConvention']}]}
 
 
 def run_checks(url, session=None):
@@ -39,25 +94,20 @@ def run_checks(url, session=None):
     ng = next(k for k in catalog['contracts'] if k['curve'] == 'ng_monthly' and k['deliveryFrom'] == '2021-02-01')
     booked = c.call('futures/book', {**futures, **trade_booking(), 'snapshotId': dec18['id'], 'bookId': BOOKS[0], 'curve': 'ng_monthly',
                                      'contractId': ng['id'], 'lots': '3', 'executionPrice': '3.05',
-                                     'operationId': str(uuid5(UUID('e1000000-0000-0000-0000-000000000003'), 'valuation_status_v1:ng_monthly:2021-02'))})
-
-    def context(frame):
-        return {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
+                                     'operationId': str(uuid5(OPERATIONS, 'valuation_status_v1:ng_monthly:2021-02'))})
 
     def report(frame, view):
-        return c.call('trading/blotter', {'context': context(frame), 'view': view})
+        return blotter(c, frame, view)[0]
 
     def partitions(rows):
         groups = defaultdict(list)
         for r in rows:
-            groups[(r['bookId'], r['instrumentType'], json.dumps(r['quantitySpecification'], sort_keys=True),
-                    json.dumps(r['currencyReference'], sort_keys=True))].append(r)
+            groups[book_key(r)].append(r)
         return groups
 
     def check_totals(name, rows, read):
         expected = partitions(rows)
-        actual = {(g['bookId'], g['instrumentType'], json.dumps(g['quantitySpecification'], sort_keys=True),
-                   json.dumps(g['currencyReference'], sort_keys=True)): g for g in read['groups']}
+        actual = {book_key(g): g for g in read['groups']}
         check(name+': book totals keep instrument types, units and currencies apart', actual.keys() == expected.keys())
         check(name+': PV and execution P&L add only valued positions; trades count every booked position',
               all(exact(g['presentValue']) == total(expected[k], 'presentValue') and exact(g['executionPnl']) == total(expected[k], 'executionPnl')
@@ -71,7 +121,7 @@ def run_checks(url, session=None):
                   for t in read['totals'] for selected in [[r for r in futures_rows if (r['book'], r['currency']) == (t['book'], t['currency'])]]))
         check(name+': the report counts every position it leaves out', read['unvaluedPositions'] == unvalued(rows))
 
-    late = c.call('trading/workspace', {'context': context(dec31), 'view': TRADES, 'bookingCatalog': 'directory'})['blotter']
+    late = c.call('trading/workspace', {'context': close_context(dec31), 'view': TRADES, 'bookingCatalog': 'directory'})['blotter']
     rows = late['holdings']
     check('the Blotter reads a close that cannot value every position', len(rows) == 25)
     check('every position states whether the close values it, with a position-specific code',
@@ -131,7 +181,7 @@ def run_checks(url, session=None):
 
     # The desk's groupings, taken from the one valuation of its own read at this close, equal the same views read on their own,
     # while some positions are unvalued: the groups state what they leave out, and one values none.
-    retained = {**context(dec31), 'knowledgeMode': 'retained', 'contextId': late['context']['contextId']}
+    retained = {**close_context(dec31), 'knowledgeMode': 'retained', 'contextId': late['context']['contextId']}
     desk = c.call('trading/workspace', {'context': retained, 'view': TRADES, 'bookingCatalog': 'directory', 'summaries': DESK_SUMMARIES})
     on_their_own = [c.call('trading/blotter', {'context': retained, 'view': view}) for view in DESK_SUMMARIES]
     check('at this close the desk summaries equal the same views read on their own, over the same rows',
@@ -163,7 +213,7 @@ def run_checks(url, session=None):
     check('the futures pivot counts lots and quantity of every position and execution P&L of valued ones',
           len(futures_report['groups']) == 3 and all(futures_group(g) for g in futures_report['groups']))
 
-    valued = c.call('trading/workspace', {'context': context(dec18), 'view': TRADES, 'bookingCatalog': 'directory'})['blotter']
+    valued = c.call('trading/workspace', {'context': close_context(dec18), 'view': TRADES, 'bookingCatalog': 'directory'})['blotter']
     check('Dec 18, 2020 values every position', len(valued['holdings']) == 25 and all(r['unavailableReason'] is None for r in valued['holdings']))
     check_totals('Dec 18, 2020', valued['holdings'], {**report(dec18, BY_BOOK), 'totals': valued['totals'], 'unvaluedPositions': valued['unvaluedPositions']})
     check_money_totals(lambda view: report(dec18, view), check, valued['holdings'], 'Dec 18, 2020')
@@ -187,39 +237,14 @@ def run_risk_checks(session, run_worker):
     workspace = c.call('workspace')
     dec18, dec31 = initial_frame(workspace, '2020-12-18'), initial_frame(workspace, '2020-12-31')
 
-    def blotter(frame):
-        current = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
-        read = c.call('trading/blotter', {'context': current, 'view': TRADES})
-        return read, {**current, 'knowledgeMode': 'retained', 'contextId': read['context']['contextId']}
-
-    def catalog(context):
-        return c.call('portfolio/risk/catalog', {'context': context, 'bookIds': [], 'portfolioIds': []})
-
-    def key(item):
-        return item['tradeId'], item['bindingId']
-
-    def unvalued_rows(rows):
-        """The positions a Blotter read reports unvalued, as a risk run lists them."""
-        return sorted(({'tradeId': r['tradeId'], 'bindingId': r['bindingId'], 'tradeReference': r['tradeReference'],
-                        'instrumentType': r['instrumentType'], 'reason': r['unavailableReason']}
-                       for r in rows if r['unavailableReason'] is not None), key=key)
-
-    def excluded(report):
-        return sorted(report['excludedPositions'], key=key)
-
-    def values(report):
-        return {key(p): p['values'] for p in report['factors'][0]['positions']}
-
-    early, early_context = blotter(dec18)
-    choices = catalog(early_context)
-    ng = next(f['factor'] for f in choices['factors'] if f['curves'] == ['ng_monthly'] and f['deliveryFrom'] == '2021-02-01')
+    early, early_context = blotter(c, dec18)
+    choices = risk_catalog(c, early_context)
+    ng = ng_factor(choices)
 
     def request(context, factor, books=(), size='0.1'):
-        return {'context': context, 'bookIds': list(books), 'portfolioIds': [], 'detail': 'holdings', 'stress': [],
-                'convention': choices['convention'], 'numericalPolicy': choices['numericalPolicy'], 'pricingPolicy': choices['pricingPolicy'],
-                'bumps': [{'factor': factor, 'size': size, 'convention': choices['bumpConvention']}]}
+        return risk_request(choices, context, factor, books, size)
 
-    late, late_context = blotter(dec31)
+    late, late_context = blotter(c, dec31)
     rows = late['holdings']
     valued = [r for r in rows if r['unavailableReason'] is None]
     held = {key(r): r for r in valued}
@@ -244,7 +269,7 @@ def run_risk_checks(session, run_worker):
     check('each position it keeps has its Blotter value at that close and moves only with its own contract',
           sum(r['curve'] == 'ng_monthly' for r in valued) == 1 and all(alone(k, v) for k, v in values(report).items()))
 
-    late_choices = catalog(late_context)
+    late_choices = risk_catalog(c, late_context)
     check('the risk catalog at that close lists the same positions and offers the valued future\'s contract',
           excluded(late_choices) == excluded(report) and ng in [f['factor'] for f in late_choices['factors']])
     daily = next(f['factor'] for f in late_choices['factors'] if f['curves'] == ['daily_gas'])
@@ -269,3 +294,81 @@ def run_risk_checks(session, run_worker):
     check('a run at that close lists none and keeps all 25 positions',
           full['excludedPositions'] == [] and full['work']['positionCount'] == 25 and len(early['holdings']) == 25)
     print(f'{passed} valuation status risk checks passed.', flush=True)
+
+
+def run_scheduled_checks(session):
+    """A scheduled swap (D214) a close cannot value is reported, totalled and left out of risk runs like any other position (D217).
+
+    It is booked at Dec 18, 2020 on the standard monthly curve with discounting, as the seeded monthly swaps are, so Dec 18
+    values it and Dec 31 cannot, for the reason it cannot value them. Its two sides state a quantity for each month and so
+    no single quantity, and one fixed price that both fixed months share.
+    """
+    passed = 0
+    def check(name, condition=True):
+        nonlocal passed
+        assert condition, name
+        passed += 1; print('PASS valuation status scheduled swap: '+name, flush=True)
+    c = session; c.call('profile', {'profile': 'trader'})
+    workspace = c.call('workspace')
+    dec18, dec31 = initial_frame(workspace, '2020-12-18'), initial_frame(workspace, '2020-12-31')
+    context = {'snapshotId': dec18['id'], 'convention': SWAP_CONVENTION, 'knowledgeMode': 'current'}
+    index = next(i for i in c.call('swaps/catalog', context)['indices'] if i['curve'] == 'base_forward')
+
+    def payment(days):
+        return {'frequency': 'monthly', 'rule': 'days_after_period_end', 'days': days, 'dayOfMonth': None, 'dayBasis': 'calendar_days',
+                'shortMonth': None, 'adjustment': 'unadjusted', 'calendar': None, 'implementation': 'monthly_payment_date_rules_v1'}
+
+    def side(amounts, terms):
+        return {'basis': 'period_total', 'quantity': index['quantityChoices'][0]['specification'], 'amount': None, 'allocation': None,
+                'priceApplication': 'period_average_times_quantity_v1', 'power': None,
+                'periods': [{'amount': amount, **terms(start, end)} for (start, end), amount in zip((('2021-01-01', '2021-02-01'), ('2021-02-01', '2021-03-01')), amounts)]}
+
+    def fixed(start, end):
+        return {'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': start, 'deliveryTo': end, 'paymentSchedule': payment(18)}, 'floating': None}
+
+    def floating(start, end):
+        return {'fixed': None, 'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': start,
+                                            'deliveryTo': end, 'paymentSchedule': payment(46), 'resetFrequency': 'monthly', 'averagingMethod': 'none', 'spread': '0'}}
+
+    booked = c.call('swaps/book', {**context, **trade_booking(), 'operationId': str(uuid5(OPERATIONS, 'valuation_status_v1:scheduled:base_forward')),
+                                   'bookId': BOOKS[1], 'executedAt': None, 'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
+                                   'swapType': 'scheduled_financial_swap', 'firstCoefficient': '-1', 'discounting': True,
+                                   'quantity': None, 'fixedCoefficient': None, 'fixed': None, 'floating': None,
+                                   'scheduled': {'implementation': 'independent_scheduled_financial_swap_v1',
+                                                 'first': side(('100', '200'), fixed), 'second': side(('150', '100'), floating)}})
+    early, early_context = blotter(c, dec18)
+    late, late_context = blotter(c, dec31)
+    before, after = (next(r for r in read['holdings'] if r['tradeId'] == booked['tradeId']) for read in (early, late))
+    own = c.call('swaps/editor', {'context': context, 'tradeId': booked['tradeId'], 'revision': None})['valuation']
+    check('Dec 18, 2020 values it as its own valuation does, with no single quantity, mark or mark minus price',
+          before['unavailableReason'] is None and Fraction(before['presentValue']) == Fraction(own['presentValue'])
+          and before['contractIdentityKind'] == 'scheduled_swap_instrument'
+          and before['quantity'] is None and before['mark'] is None and before['markMinusPrice'] is None)
+    seeded = {r['unavailableReason'] for r in late['holdings'] if r['curve'] == 'base_forward' and r['tradeId'] != booked['tradeId']}
+    check('at Dec 31, 2020 it is unvalued for the reason the seeded monthly swaps on its curve are',
+          seeded == {'missing_observation'} and after['unavailableReason'] == 'missing_observation')
+    check('it then has blank mark, mark minus price, P&L and PV, never zero',
+          all(after[f] is None for f in ('mark', 'markMinusPrice', 'executionPnl', 'presentValue')))
+    check('it keeps the facts it was booked with: its direction, its months\' envelope, their shared fixed price and no single quantity',
+          all(after[f] == before[f] for f in (*BOOKED, 'direction', 'commodity', 'contractIdentityKind'))
+          and (after['direction'], after['deliveryFrom'], after['deliveryTo'], after['fixedPrice'], after['quantity']) == ('pay_fixed', '2021-01-01', '2021-03-01', '3', None))
+
+    rows = late['holdings']
+    group = next(g for g in blotter(c, dec31, DESK_SUMMARIES[1])[0]['groups'] if book_key(g) == book_key(after))
+    held = [r for r in rows if book_key(r) == book_key(after)]
+    check('its book total states no quantity, as it has none, adds the PV of the valued swaps beside it and counts it as left out',
+          len(held) > 1 and group['quantity'] is None and exact(group['presentValue']) == total(held, 'presentValue')
+          and group['tradeCount'] == len({r['tradeId'] for r in held}) and group['unvaluedPositions'] == unvalued(held))
+    check_money_totals(lambda view: blotter(c, dec31, view)[0], check, rows, 'Dec 31, 2020 with a scheduled swap')
+
+    c.call('profile', {'profile': 'risk'})
+    choices = risk_catalog(c, early_context)
+    full = c.call('portfolio/risk', risk_request(choices, early_context, ng_factor(choices)))
+    check('a risk run at Dec 18, 2020 keeps it at its Blotter value, unmoved by a contract it does not price from',
+          full['excludedPositions'] == [] and full['work']['positionCount'] == len(early['holdings'])
+          and Fraction(values(full)[key(before)]['base']) == Fraction(before['presentValue']) and Fraction(values(full)[key(before)]['delta']) == 0)
+    report = c.call('portfolio/risk', risk_request(choices, late_context, ng_factor(choices)))
+    check('a risk run at Dec 31, 2020 lists it with the Blotter\'s reason among the positions that close cannot value, and runs the rest',
+          key(after) in {key(e) for e in report['excludedPositions']} and excluded(report) == unvalued_rows(rows)
+          and report['work']['positionCount'] == sum(r['unavailableReason'] is None for r in rows) and key(after) not in values(report))
+    print(f'{passed} valuation status scheduled swap checks passed.', flush=True)

@@ -63,7 +63,12 @@
    "executionPnl": null,
    "presentValue": "-10",
    "direction": "pay_fixed",
-   "unavailableReason": null
+   "unavailableReason": null,
+   "contractIdentityKind": "swap_instrument",
+   "settlement": "Projection",
+   "marketKey": null,
+   "marketLabel": null,
+   "projectionCurves": null
   },
   {
    "tradeId": "t0000000-0000-0000-0000-000000000002",
@@ -110,7 +115,8 @@
    "executionPnl": "-37.5",
    "presentValue": null,
    "direction": null,
-   "unavailableReason": null
+   "unavailableReason": null,
+   "settlement": "unprocessed"
   },
   {
    "tradeId": "t0000000-0000-0000-0000-000000000003",
@@ -157,7 +163,8 @@
    "executionPnl": null,
    "presentValue": null,
    "direction": null,
-   "unavailableReason": "source_expired"
+   "unavailableReason": "source_expired",
+   "settlement": "unprocessed"
   },
   {
    "tradeId": "t0000000-0000-0000-0000-000000000004",
@@ -204,7 +211,12 @@
    "executionPnl": null,
    "presentValue": "230",
    "direction": "multi_side",
-   "unavailableReason": null
+   "unavailableReason": null,
+   "contractIdentityKind": "swap_instrument",
+   "settlement": "Projection",
+   "marketKey": null,
+   "marketLabel": null,
+   "projectionCurves": null
   },
   {
    "tradeId": "t0000000-0000-0000-0000-000000000005",
@@ -251,7 +263,12 @@
    "executionPnl": null,
    "presentValue": "15",
    "direction": "receive_fixed",
-   "unavailableReason": null
+   "unavailableReason": null,
+   "contractIdentityKind": "swap_instrument",
+   "settlement": "Projection",
+   "marketKey": null,
+   "marketLabel": null,
+   "projectionCurves": null
   },
   {
    "tradeId": "t0000000-0000-0000-0000-000000000006",
@@ -298,7 +315,12 @@
    "executionPnl": null,
    "presentValue": null,
    "direction": "receive_fixed",
-   "unavailableReason": "missing_observation"
+   "unavailableReason": "missing_observation",
+   "contractIdentityKind": "swap_instrument",
+   "settlement": "Projection",
+   "marketKey": null,
+   "marketLabel": null,
+   "projectionCurves": null
   }
  ],
  "summaries": [

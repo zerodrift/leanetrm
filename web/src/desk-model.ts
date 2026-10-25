@@ -15,8 +15,12 @@ export type Reference={revision:{catalogId:string;revisionId:string};code:string
 export type Holding={booking:Booking;commodity:{code:string;name:string};priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;
   instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;
   bookId:string;book:string;portfolioId:string;portfolio:string;contractId:string;revision:string;curve:string;definitionRevisionId:string;deliveryFrom:string;deliveryTo:string;
-  lots:string|null;quantity:string;unit:string;quantitySpecification:Reference;executedAt:string;executionPrice:string|null;fixedPrice:string|null;mark:string|null;markMinusPrice:string|null;
-  executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|null;unavailableReason:ValuationReason|null};
+  lots:string|null;quantity:string|null;unit:string;quantitySpecification:Reference;executedAt:string;executionPrice:string|null;fixedPrice:string|null;mark:string|null;markMinusPrice:string|null;
+  executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|null;unavailableReason:ValuationReason|null;
+  /** A swap's instrument kind: a scheduled one (D214) holds its quantities and prices by period. Futures state none. */
+  contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument';
+  /** For a scheduled swap whose periods project from several curves: the markets together, as the backend keys and names them. */
+  marketKey?:string|null;marketLabel?:string|null;projectionCurves?:string[]|null};
 export type Summary={view:{groupBy:string[];measures:string[];pivotConvention:string|null};groups:PivotGroup[]};
 
 const moneyTotals='trading_blotter_money_totals_v1',quantityTotals='trading_blotter_totals_v1';
@@ -99,8 +103,12 @@ const referenceIdentity=(label:string,reference:unknown):Identity=>{const {code,
 const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),referenceIdentity(text(g,'currency'),g.currencyReference)])),'revision');
 const unitLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.quantitySpecification),referenceIdentity(text(g,'unit'),g.quantitySpecification)])),'revision');
 const marketKey=(market:string,revision:string)=>`${market}|${revision}`;
+// The market a position is grouped under: its curve, or the several curves of a scheduled swap together as the backend keys them.
+const marketOf=(h:Pick<Holding,'curve'|'marketKey'|'definitionRevisionId'>)=>marketKey(h.marketKey??h.curve,h.definitionRevisionId);
+// A market's name: its curve's, or the backend's name of several curves together.
+const marketName=(group:PivotGroup)=>typeof group.marketLabel==='string'?group.marketLabel:curveName(text(group,'market'));
 // A market is identified by its code and definition revision; only names that two such markets share say which.
-const marketLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[marketKey(text(g,'market'),text(g,'definitionRevisionId')),{label:curveName(text(g,'market')),code:text(g,'market'),revision:text(g,'definitionRevisionId')}])),'definition');
+const marketLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[marketKey(text(g,'market'),text(g,'definitionRevisionId')),{label:marketName(g),code:text(g,'market'),revision:text(g,'definitionRevisionId')}])),'definition');
 
 /** What a total leaves out: nothing, some positions, or every position, when it has no value at all. */
 function totalNote(total:string|null,excluded:number):string|null{
@@ -177,7 +185,7 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
     if(rowGroup==='market'&&header.subtotals.some(s=>s.measure===label))throw Error(inconsistent);
     header.subtotals.push({measure:label,amount:total,currency:currencies.get(referenceKey(group.currencyReference))!,excluded,note:totalNote(total,excluded)});headers.set(key,header);
   }
-  const keys=holdings.map(h=>rowGroup==='book'?h.bookId:rowGroup==='market'?marketKey(h.curve,h.definitionRevisionId):h.instrumentType);
+  const keys=holdings.map(h=>rowGroup==='book'?h.bookId:rowGroup==='market'?marketOf(h):h.instrumentType);
   if(keys.some(key=>!headers.has(key)))throw Error(missingSummaries);
   const order=['PV','P&L'],sizes=new Map<string,number>();
   for(const key of keys)sizes.set(key,(sizes.get(key)??0)+1);
@@ -234,8 +242,9 @@ export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<st
 /**
  * Long and short by market: one horizontal panel per quantity unit, each bar in its commodity's color, captioned by its unit.
  * A future's backend quantity is signed. A swap's is its unsigned booked quantity, so its bar takes the side the backend's
- * direction states (pay fixed long, receive fixed short) where every swap of that market and unit shares one; otherwise it
- * is not drawn. A market held in two currencies of one unit would be two bars of one name: that is refused.
+ * direction states (pay fixed long, receive fixed short) where every swap of that market and unit shares one, and where the
+ * market has one quantity, which it has not where a swap of it is scheduled by period; otherwise it is not drawn, and its panel
+ * says why. A market held in two currencies of one unit would be two bars of one name: that is refused.
  */
 export function positionChartPanels(summaries:readonly Summary[],holdings:readonly Holding[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),labels=marketLabels(markets),units=unitLabels(markets);
@@ -243,15 +252,17 @@ export function positionChartPanels(summaries:readonly Summary[],holdings:readon
   const directions=new Map<string,Set<Holding['direction']>>();
   for(const h of holdings){
     if(instrument(h.instrumentType)!==instruments.financial_swap)continue;
-    const key=JSON.stringify([marketKey(h.curve,h.definitionRevisionId),referenceKey(h.quantitySpecification),referenceKey(h.currencyReference)]);
+    const key=JSON.stringify([marketOf(h),referenceKey(h.quantitySpecification),referenceKey(h.currencyReference)]);
     directions.set(key,(directions.get(key)??new Set()).add(h.direction));
   }
   const panels=new Map<string,ChartPoint[]>();
   for(const group of markets){
     const market=marketKey(text(group,'market'),text(group,'definitionRevisionId')),type=instrument(group.instrumentType),unit=referenceKey(group.quantitySpecification),currency=referenceKey(group.currencyReference);
-    const quantity=amount(group,'quantity');if(quantity===null)throw Error(inconsistent);
+    const quantity=amount(group,'quantity');
     const point:ChartPoint={x:`${market}|${type.pill}`,label:`${labels.get(market)} · ${type.plural}`,y:quantity,color:colors.get(commodityOf(group).code)};
-    if(type===instruments.future)point.text=signedText(quantity,format);
+    // A market's swaps have no single quantity where one of them is scheduled by period; a future always has one.
+    if(quantity===null){if(type===instruments.future)throw Error(inconsistent);point.label+=' · no single quantity';}
+    else if(type===instruments.future)point.text=signedText(quantity,format);
     else{
       const stated=directions.get(JSON.stringify([market,unit,currency]));
       if(!stated)throw Error(missingSummaries);
@@ -265,7 +276,10 @@ export function positionChartPanels(summaries:readonly Summary[],holdings:readon
     .sort((a,b)=>a.unit.localeCompare(b.unit))
     .map(({unit,points})=>{
       if(new Set(points.map(p=>p.x)).size!==points.length)throw Error(inconsistent);
-      return {title:`${unit} · bar right = long`,axis:'category',categoryTitle:'Market',unit,kind:'bar',orientation:'horizontal',series:[{name:'Quantity',points}]} satisfies ChartSpec;
+      // The markets a panel draws no bar for, with why, which a panel with no bar left would not otherwise show.
+      const undrawn=points.filter(p=>p.y===null).map(p=>p.label);
+      return {title:`${unit} · bar right = long`,...(undrawn.length?{subtitle:`Not drawn: ${undrawn.join('; ')}`}:{}),axis:'category',categoryTitle:'Market',unit,kind:'bar',orientation:'horizontal',
+        series:[{name:'Quantity',points}]} satisfies ChartSpec;
     });
 }
 
@@ -282,33 +296,67 @@ export function commodityColors(codes:Iterable<string>):Map<string,string>{
 type Valuation={value:string;unavailable:null}|{value:null;unavailable:string};
 export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP';reference:string;
   market:string;commodity:string;commodityName:string;curve:string;delivery:string;deliveryFrom:string;deliveryTo:string;
-  quantity:string;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
-  price:string|null;priceLabel:'Executed'|'Fixed';priceUnit:string;mark:string|null;markNote:string|null;measure:'P&L'|'PV';currency:string;
+  quantity:string|null;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
+  price:string|null;priceLabel:'Executed'|'Fixed';priceUnit:string;mark:string|null;measure:'P&L'|'PV';currency:string;
+  /**
+   * Why the position has no single quantity, fixed price or mark the backend states, where it has none for a reason of its own: a
+   * scheduled swap holds them by period, and a swap valued by its settlement lifecycle states no curve mark.
+   */
+  quantityNote:string|null;priceNote:string|null;markNote:string|null;
+  /** Whether the position projects from several curves together, as a scheduled swap can: it then has no one curve of its own. */
+  severalCurves:boolean;
   /** The words its cells draw beside their exact amounts, which the grid's row search reads. */
   words:string}&Valuation;
 /** The unit of a position's price and mark: its currency per quantity unit, with the quote multiplier when it is not one. */
 export const priceUnit=(h:{currency:string;unit:string;quoteMultiplier?:string})=>`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`;
 const sides:Readonly<Record<string,string>>={pay_fixed:'Pay fixed',receive_fixed:'Receive fixed',multi_side:'Multi-side'};
-/** A position's size as the desk shows it: a future's quantity carries its sign; a swap's booked quantity has none, and its side label states its direction. */
-export const quantityText=(row:Pick<DeskRow,'instrumentType'|'quantity'>,format:Format)=>row.instrumentType==='future'?signedText(row.quantity,format):minus(format(row.quantity));
+// The kinds of swap instrument and the valuation states of a swap the Blotter states; any other is refused, never shown as one of them.
+const swapKinds:readonly unknown[]=['swap_instrument','scheduled_swap_instrument'],swapValuations:readonly unknown[]=['Projection','Active'];
+const byPeriod='By period';
+// What each note in place of a figure means, in full: the words a cell's tooltip and the position panel give it.
+const notes:Readonly<Record<string,string>>={
+  [byPeriod]:'This scheduled swap holds it by period: the panel\'s Terms list each period.',
+  'Several marks':'No single curve price for this position at this close.',
+  'Settlement lifecycle':'Valued by its settlement lifecycle, which states no single curve price.',
+};
+/** Whether a position projects from several curves together, as a scheduled swap can (D214): it then has no one curve of its own. */
+export const projectsFromSeveralCurves=(h:Pick<Holding,'projectionCurves'>)=>(h.projectionCurves?.length??0)>1;
+/** Why such a position has no curve shape to draw: no one curve is its own. */
+export const severalCurvesShape='Curve shape unavailable · this position projects from several curves';
+/** What a row's note in place of a figure means. */
+export function noteMeaning(note:string){if(!Object.hasOwn(notes,note))throw Error('The desk has no meaning for this note.');return notes[note];}
+/**
+ * A position's size as the desk shows it: a future's quantity carries its sign; a swap's booked quantity has none, and its side label
+ * states its direction. A scheduled swap has no single quantity, and says why.
+ */
+export function quantityText(row:Pick<DeskRow,'instrumentType'|'quantity'|'quantityNote'>,format:Format){
+  if(row.quantity===null){if(row.quantityNote===null)throw Error('A position without a quantity must say why.');return row.quantityNote;}
+  return row.instrumentType==='future'?signedText(row.quantity,format):minus(format(row.quantity));
+}
 /**
  * The position rows: instrument pill, market and delivery, size with lots or the swap's direction, price and mark in their unit,
  * and value with its measure, or the reason the close cannot value it. A valued position states its value, and a valued
- * future its mark; a swap without one mark says so. A swap's bar side is its backend direction: pay fixed is long.
+ * future its mark; a swap without one mark says why. A swap's bar side is its backend direction: pay fixed is long. A scheduled
+ * swap (D214) has its quantities, prices and marks by period, and the market of the curves its periods project from together.
  */
 export function positionRows(holdings:readonly Holding[]):DeskRow[]{
   return holdings.map(h=>{
     const type=instrument(h.instrumentType),value=h[type.measure];
-    let side:string,exposure:DeskRow['exposure'];
+    let side:string,exposure:DeskRow['exposure'],scheduledSwap=false;
     if(type===instruments.future){
       if(h.direction!==null)throw Error('The Blotter returned a future with a swap direction.');
       if(typeof h.lots!=='string'||!/^-?\d+$/.test(h.lots))throw Error('The Blotter returned a future without its lots.');
+      if(h.quantity===null)throw Error('The Blotter returned a future without its quantity.');
       const lots=h.lots.replace(/^-/,''),unit=lots==='1'?'lot':'lots';
       side=signOf(h.lots)==='zero'?`0 ${unit}`:h.lots.startsWith('-')?`−${lots} ${unit}`:`+${lots} ${unit}`;
       exposure=signOf(h.quantity)==='zero'?'flat':h.quantity.startsWith('-')?'short':'long';
     }else{
       if(typeof h.direction!=='string'||!Object.hasOwn(sides,h.direction))throw Error('The Blotter returned a swap without its direction.');
-      side=sides[h.direction];exposure=h.direction==='pay_fixed'?'long':h.direction==='receive_fixed'?'short':null;
+      if(!swapKinds.includes(h.contractIdentityKind))throw Error('The Blotter returned a swap without its instrument kind.');
+      if(!swapValuations.includes(h.settlement))throw Error('The Blotter returned a swap in an unknown valuation state.');
+      scheduledSwap=h.contractIdentityKind==='scheduled_swap_instrument';
+      if(scheduledSwap!==(h.quantity===null))throw Error(scheduledSwap?'The Blotter returned a single quantity for a scheduled swap.':'The Blotter returned a swap without its quantity.');
+      side=sides[h.direction];exposure=h.quantity===null?null:h.direction==='pay_fixed'?'long':h.direction==='receive_fixed'?'short':null;
     }
     let valuation:Valuation;
     if(h.unavailableReason!==null){
@@ -320,11 +368,15 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
       valuation={value,unavailable:null};
     }
     const price=h[type.price],unitOfPrice=priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo);
-    const markNote=valuation.unavailable===null&&h.mark===null?'Several marks':null;
+    // A scheduled swap states a fixed price only where every fixed period shares it; two floating sides have none at all.
+    const quantityNote=h.quantity===null?byPeriod:null,priceNote=scheduledSwap&&price===null&&h.direction!=='multi_side'?byPeriod:null;
+    const markNote=valuation.unavailable!==null||h.mark!==null?null:h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
     return {tradeId:h.tradeId,revision:h.revision,instrumentType:h.instrumentType,pill:type.pill,reference:h.tradeReference,
-      market:curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
-      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark:h.mark,markNote,measure:type.label,currency:h.currency,...valuation,
-      words:[type.pill,delivery,h.unit,side,price===null?'No fixed price':`${type.priceLabel} · ${unitOfPrice}`,...(markNote?[markNote]:[]),valuation.unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${valuation.unavailable}`].join(' ')};
+      market:h.marketLabel??curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
+      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark:h.mark,measure:type.label,currency:h.currency,...valuation,
+      quantityNote,priceNote,markNote,severalCurves:projectsFromSeveralCurves(h),
+      words:[type.pill,delivery,...(quantityNote?[quantityNote]:[]),h.unit,side,...(priceNote?[priceNote]:[]),price===null&&priceNote===null?'No fixed price':`${type.priceLabel} · ${unitOfPrice}`,...(markNote?[markNote]:[]),
+        valuation.unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${valuation.unavailable}`].join(' ')};
   });
 }
 

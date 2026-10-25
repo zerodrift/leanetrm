@@ -2,7 +2,7 @@
 // grid. It draws what desk-model selected; every figure is a backend string shown in the backend's display format.
 import {compareDecimalStrings} from './analytics-model.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
-import {curvePoints,minus,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
+import {curvePoints,minus,noteMeaning,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
 import {publicText} from './market-view.js';
 import {divergingBar,sparklineGeometry} from './mini-charts.js';
 
@@ -158,7 +158,7 @@ function sparklineSvg(shown:CurveShape|string,row:DeskRow,color:string):SVGEleme
 export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,string>,formats:CellFormats,curve:(index:number)=>CurveShape|string|undefined){
   // Size bars share a scale per quantity unit and instrument type: a swap's booked notional never dwarfs a future's lots.
   const scaleKey=(row:DeskRow)=>`${row.quantityKey}|${row.instrumentType}`,scale=new Map<string,string>();
-  for(const key of new Set(rows.map(scaleKey)))scale.set(key,largest(rows.filter(r=>scaleKey(r)===key).map(r=>r.quantity)));
+  for(const key of new Set(rows.map(scaleKey)))scale.set(key,largest(rows.filter(r=>scaleKey(r)===key).flatMap(r=>r.quantity===null?[]:[r.quantity])));
   const exact=(element:HTMLElement,value:string)=>{element.title=value;return element;};
   return (index:number,column:number):Node|null=>{
     const row=rows[index];if(!row)return null;
@@ -171,20 +171,24 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
       case 'quantity':{
         cell.classList.add('desk-size');
         const track=shape('svg',{class:'desk-size-bar',width:56,height:12,viewBox:'0 0 56 12','aria-hidden':'true'});track.append(shape('line',{x1:28,x2:28,y1:0,y2:12,class:'desk-axis'}));
-        if(row.exposure==='long'||row.exposure==='short'){
+        if(row.quantity!==null&&(row.exposure==='long'||row.exposure==='short')){
           // A swap's booked quantity is unsigned; its bar takes the side its backend direction states.
           const bar=divergingBar(row.quantity.replace(/^-/,''),scale.get(scaleKey(row))!,56);
           if(bar.width>0)track.append(shape('rect',{x:row.exposure==='short'?56-bar.x-bar.width:bar.x,y:2,width:bar.width,height:8,rx:2,fill:color}));
         }
-        // A future's quantity carries its sign; a swap's booked quantity has none, and its side label states its direction.
-        const figure=exact(node('span','desk-figure',quantityText(row,v=>formats.quantity(index,v))),row.quantity);
+        // A future's quantity carries its sign; a swap's booked quantity has none, and its side label states its direction. A
+        // scheduled swap has no single quantity, and its cell says why.
+        const figure=node('span',row.quantity===null?'desk-figure desk-muted':'desk-figure',quantityText(row,v=>formats.quantity(index,v)));
+        figure.title=row.quantity??noteMeaning(row.quantityNote!);
         // The unit and the side or lots sit under the figure, so figures of different units keep their right edges aligned.
         const line=node('span','desk-line'),under=node('small','desk-sub');line.append(track,figure);under.append(node('span','desk-unit',row.unit),` · ${publicText(row.side)}`);cell.append(line,under);return cell;}
-      case 'executionPrice':{if(row.price===null){cell.append(node('span','desk-muted','None'),node('small','desk-sub','No fixed price'));return cell;}
+      case 'executionPrice':{
+        if(row.price===null&&row.priceNote!==null){cell.title=noteMeaning(row.priceNote);cell.append(node('span','desk-muted',row.priceNote),node('small','desk-sub',`${row.priceLabel} · ${row.priceUnit}`));return cell;}
+        if(row.price===null){cell.append(node('span','desk-muted','None'),node('small','desk-sub','No fixed price'));return cell;}
         cell.append(exact(node('span','desk-figure',minus(formats.price(index,row.price))),row.price),node('small','desk-sub',`${row.priceLabel} · ${row.priceUnit}`));return cell;}
       case 'mark':{
         // A position the close cannot value leaves its mark blank; its reason is in its Value cell.
-        if(row.mark===null){if(row.markNote!==null){cell.title='No single curve price for this position at this close';cell.append(node('span','desk-muted',row.markNote));}return cell;}
+        if(row.mark===null){if(row.markNote!==null){cell.title=noteMeaning(row.markNote);cell.append(node('span','desk-muted',row.markNote));}return cell;}
         cell.append(exact(node('span','desk-figure',minus(formats.mark(index,row.mark))),row.mark),node('small','desk-sub',`Mark · ${row.priceUnit}`));return cell;}
       case 'presentValue':{
         if(row.unavailable!==null){cell.classList.add('desk-unvalued');cell.append(node('span','desk-chip','Not valued'),node('small','desk-sub',row.unavailable));return cell;}

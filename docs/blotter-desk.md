@@ -237,7 +237,9 @@ open; the breakpoint is the builder's call. Modes:
      opens Curves & prices with that curve and contract selected.
    - **Terms**: today's editor content (`trade-editor`, `swap-editor`) as a read
      view. **Amend** makes it editable in place, with the amendment reason and
-     effective time as today.
+     effective time as today. A scheduled swap (D214) amends in its own ticket,
+     and a swap's settlement and P&L view (D215) opens from Terms, each in the
+     panel in place of the terms.
    - **Risk**: this position's results from the current run (base, up, down,
      delta, gamma, and which factor moved by how much), or a run for this
      position alone.

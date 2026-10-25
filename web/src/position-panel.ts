@@ -38,7 +38,8 @@ export function positionSummary(h:Holding,row:DeskRow,formats:HoldingFormats):Po
   const value:PositionSummary['value']=row.unavailable===null?{label,currency:row.currency,amount:signed(row.value,formats.money),unavailable:null}:{label,currency:row.currency,amount:null,unavailable:row.unavailable};
   const markMinusPrice=h.markMinusPrice===null?null:{text:signedText(h.markMinusPrice,formats.markMinusPrice),exact:h.markMinusPrice,label:`Mark − ${row.priceLabel.toLowerCase()}`,unit:row.priceUnit};
   const facts:PositionSummary['facts']=[
-    {label:`${row.priceLabel} price`,text:row.price===null?'None':minus(formats.price(row.price)),unit:row.price===null?null:row.priceUnit},
+    // A scheduled swap whose fixed periods differ in price states none, by period, in that price unit; a swap with no fixed side has none.
+    {label:`${row.priceLabel} price`,text:row.price!==null?minus(formats.price(row.price)):row.priceNote??'None',unit:row.price===null&&row.priceNote===null?null:row.priceUnit},
     ...(row.mark!==null?[{label:'Mark',text:minus(formats.mark(row.mark)),unit:row.priceUnit}]:row.markNote!==null?[{label:'Mark',text:row.markNote,unit:null}]:[]),
     {label:'Quantity',text:quantityText(row,formats.quantity),unit:row.unit},
     ...(typeof h.settlement==='string'?[{label:'Settlement',text:settlementText(h.settlement),unit:null}]:[]),
@@ -87,6 +88,8 @@ export type DetailView={
   terms:TermSection[];history:TermSection[];
   /** Draws more of a revision into the Terms tab after its sections, as a swap's valuation and schedules are; returns what takes it down again. */
   schedules?:(host:HTMLElement)=>()=>void;
+  /** What the Terms tab offers beside the revision's terms, as a swap's settlement and P&L view is offered; each opens in the panel's form part. */
+  actions?:readonly {id:string;label:string;run:()=>void}[];
 };
 /** Whether the editor can amend the revision, and why not when it cannot. */
 export type AmendState={allowed:true;reason:null}|{allowed:false;reason:string};
@@ -110,8 +113,12 @@ export function amendControl(state:{accountCanAmend:boolean;revision:AmendState|
   const note=amendNote(state.accountCanAmend,state.revision);
   return note===null?{label:'Amend',note:null}:{label:null,note};
 }
-/** What Open curve says beside its button when there is no curve to open: for a market Curves & prices does not list. */
-export const curveNote=(listed:boolean)=>listed?null:"Curves & prices does not list this position's market, so there is no curve to open.";
+/**
+ * What Open curve says beside its button when there is no curve to open: for a position that projects from several curves together,
+ * or for a market Curves & prices does not list.
+ */
+export const curveNote=(listed:boolean,severalCurves=false)=>severalCurves?'This position projects from several curves, so there is no one curve to open.'
+  :listed?null:"Curves & prices does not list this position's market, so there is no curve to open.";
 
 /** What the panel draws a position from: the workspace row and its desk row, how its amounts read, its market's curve shape and its commodity's color. */
 export type PositionInput={holding:Holding;row:DeskRow;formats:HoldingFormats;shape:CurveShape|string|undefined;color:string};
@@ -203,6 +210,11 @@ export function setupPositionPanel(shell:SidePanel,o:{
       return void host.append(status(detail.message,'side-panel-status side-panel-error'),retry);
     }
     const read=detail.read.view(o.zone());
+    if(tab==='terms'&&read.actions?.length){
+      const row=el('div','side-panel-actions side-panel-terms-actions');
+      for(const action of read.actions){const button=el('button','secondary',action.label);button.type='button';button.id=action.id;button.disabled=o.busy();button.onclick=()=>action.run();row.append(button);}
+      host.append(row);
+    }
     drawSections(host,tab==='terms'?read.terms:read.history);
     if(tab==='terms'&&read.schedules)drawnSchedules=read.schedules(host);
   }
@@ -282,9 +294,10 @@ export function setupPositionPanel(shell:SidePanel,o:{
     if(o.busy())held=focused()??held;
     actions.amend.hidden=control.label===null;if(control.label!==null)actions.amend.textContent=control.label;
     actions.amend.disabled=o.busy();
+    for(const button of view().querySelectorAll<HTMLButtonElement>('.side-panel-terms-actions button'))button.disabled=o.busy();
     actions.note.hidden=control.note===null;actions.note.textContent=control.note===null?'':publicText(control.note);
-    const listed=o.curveListed(at.holding.curve);
-    actions.open.disabled=o.busy()||!listed;say(actions.openNote,actions.open,curveNote(listed));
+    const several=at.row.severalCurves,listed=!several&&o.curveListed(at.holding.curve);
+    actions.open.disabled=o.busy()||!listed;say(actions.openNote,actions.open,curveNote(listed,several));
     if(!o.busy())refocus();
   }
   // Shows a reason beside a button, and points the button at it for assistive technology; nothing shown and nothing pointed at for none.
