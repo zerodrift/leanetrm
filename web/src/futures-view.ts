@@ -153,11 +153,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     },
     openCurve:(curve,contractId)=>guarded(()=>options.openCurve(curve,contractId))});
   const deskPanel=setupDeskPanel({shell:panel,position,holdings:()=>holdings?.holdings,input:positionInput,grid:()=>table,notice:options.notice});
-  // Gives the forms the panel hosts up, without asking.
-  function resetForms(){editor.reset();swapEditor.reset();booking.reset();}
+  // Gives the forms the panel hosts up, without asking, and places the panel again for what it then shows: a panel left by its settlement
+  // view, however it is left, a switch of mode among the ways, has its own width again.
+  function resetForms(){editor.reset();swapEditor.reset();booking.reset();panel.place();}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
-  // A new trade has nothing but its form, so the panel it was in is closed with it; a panel that stays is placed again for what it shows.
-  function dropForms(){resetForms();closeNew();panel.place();options.reported();}
+  // A new trade has nothing but its form, so the panel it was in is closed with it.
+  function dropForms(){resetForms();closeNew();options.reported();}
   function closeNew(){if(panel.current()?.kind==='new')panel.reset();}
   // Asks whether to give up what the panel holds unsaved, when it holds any, and closes its form once the person agrees: false means they
   // kept it. The panel asks for a switch of its own mode; this is the question every other way out of the form asks too.

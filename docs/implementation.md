@@ -338,15 +338,18 @@ several bindings, the Blotter lists each, and each is its own position (`desk-pa
 position in each read the desk draws, and opens the row asked for). The panel is docked beside the
 charts and the positions, under the tiles, when the main area is 1180 pixels wide or more and the
 assistant is closed; otherwise it is a drawer over the window's right edge, left of the assistant,
-and a full-width sheet at 760 pixels and below. A swap's settlement view opens it wide: off a phone,
-a 720-pixel drawer over the desk, which keeps its layout beneath, docked or not, until the view is
-closed. Opening it moves focus into it and never moves the tiles. A docked panel takes the grid's width, so the grid gives up its Curve column, and then its
-Mark column, which the panel shows for the position, for as long as the columns it shows do not fit
-the room it has. It measures that room, so how much it gives up depends on what the rows say and on
-the width the navigation leaves: a window wide enough for all seven keeps all seven (about 1700),
-and a narrower one gives up Curve before Mark, never gives up a column it has room for, and takes
-a column back when the room returns. The sheet is the only part of the page in reach while it is
-open: everything behind it is inert, except dialogs, and the page is given back when the sheet
+and a full-width sheet at 760 pixels and below. While a swap's settlement view is in it, the panel
+is wide off a phone: a drawer of up to 720 pixels over the desk, which keeps its layout beneath,
+docked or not, never over the navigation and, with the assistant open, left of it, so narrower where
+the window beside them has less room. Leaving the view, by closing it, opening another position or
+New trade, gives the panel its own width again. Opening the panel moves focus into it and never
+moves the tiles. A docked panel takes the grid's width, so the grid gives up its Curve column, and
+then its Mark column, which the panel shows for the position, for as long as the columns it shows do
+not fit the room it has. It measures that room, so how much it gives up depends on what the rows say
+and on the width the navigation leaves: a window wide enough for all seven keeps all seven (about
+1700), and a narrower one gives up Curve before Mark, never gives up a column it has room for, and
+takes a column back when the room returns. The sheet is the only part of the page in reach while it
+is open: everything behind it is inert, except dialogs, and the page is given back when the sheet
 closes, stops covering the page or the Blotter is left. A switch of mode or position asks first,
 inside the panel, when it holds unsaved edits, which are what a person has typed or chosen in the
 form of an amendment or of a new trade, tracked by the forms (`trackEdits`). A calendar or the date
@@ -571,9 +574,9 @@ A swap's Terms, and either ticket, offer Settlement and P&L (`swap-settlement.ts
 form part in place of the terms, with the head's Close editor, after the panel has asked about a
 ticket's edits; there it also settles selected gross contributions of the trade by one net amount,
 and reconciles P&L from a captured opening under an explicitly chosen contractual-change policy
-(D216). Off a phone the view has the wide panel, where figures of up to 17 characters, and every
+(D216). Where the wide drawer has its 720 pixels, figures of up to 17 characters, and every
 payment's action, are read without scrolling sideways (checked at 1440 by 900 and 1280 by 800
-pixels); at phone width the sheet may scroll a table sideways, and each figure and action can be
+pixels); elsewhere, as on a phone, a table may scroll sideways, and each figure and action can be
 scrolled to. Its tables wrap their labels and keep each figure on one line, and five of them stack a
 row's identifying facts in one column beside its figures: payments (with each payment's action),
 balances, net candidates, cash history and period transitions; a stacked column has no column
