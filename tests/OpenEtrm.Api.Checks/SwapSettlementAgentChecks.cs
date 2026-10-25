@@ -82,6 +82,24 @@ internal static class SwapSettlementAgentChecks
         await operations.RecordCash(agent,frame,payment,CancellationToken.None);
         var current=Json(await operations.Inspect(agent,frame,new(context,preview.TradeId,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None));
         if(current.GetProperty("value").GetProperty("settlement").GetProperty("version").GetInt32()!=2)throw new Exception("Agent cash did not share the durable settlement ledger.");
+        var netTrade=fixture.Id("netTradeId");
+        var netState=Json(await operations.Inspect(agent,frame,new(context,netTrade,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None)).GetProperty("value");
+        var gross=netState.GetProperty("balances").EnumerateArray().OrderBy(b=>b.GetProperty("membershipOrdinal").GetInt32()).ToArray();
+        var netRequest=new SwapNetPreviewRequest(context,netTrade,1,netState.GetProperty("settlement").GetProperty("version").GetInt32(),preview.Currency,"2",
+            [new(gross[0].Id("determinationId"),"-10"),new(gross[1].Id("determinationId"),"12")],SwapNetSettlement.Policy,null);
+        var netPreview=Json(await operations.PreviewNet(agent,frame,netRequest,CancellationToken.None));
+        var netCommand=new SwapNetRecordRequest(netRequest,Guid.NewGuid(),netPreview.GetProperty("value").Text("previewHash"),frame.At.ToString("O"),"Synthetic delegated net settlement");
+        await Denied(()=>operations.RecordNet(new("synthetic_settlement_readonly",fixture.Id("readonlyDelegation")),frame,netCommand,CancellationToken.None));
+        await Denied(()=>operations.RecordNet(agent,frame,netCommand with{PreviewHash="stale"},CancellationToken.None),"settlement_stale_preview");
+        var netResult=Json(await operations.RecordNet(agent,frame,netCommand,CancellationToken.None));
+        if(Json(await operations.RecordNet(agent,frame,netCommand,CancellationToken.None)).GetRawText()!=netResult.GetRawText())throw new Exception("Delegated net retry changed its financial result.");
+        var reverseNet=netRequest with{ExpectedVersion=netRequest.ExpectedVersion+1,Amount=null,Allocations=[],ReversesId=netResult.Id("paymentId")};
+        var reversePreview=Json(await operations.PreviewNet(agent,frame,reverseNet,CancellationToken.None));
+        await operations.RecordNet(agent,frame,new(reverseNet,Guid.NewGuid(),reversePreview.GetProperty("value").Text("previewHash"),frame.At.ToString("O"),"Synthetic delegated exact net reversal"),CancellationToken.None);
+        var historicalNet=Json(await operations.Inspect(agent,frame,new(context with{KnowledgeMode="retained",ContextId=netPreview.GetProperty("context").Id("contextId")},netTrade,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None));
+        if(historicalNet.GetProperty("value").GetProperty("settlement").GetProperty("version").GetInt32()!=netRequest.ExpectedVersion)throw new Exception("Net historical replay substituted later cash.");
+        await Denied(()=>operations.RecordNet(agent,frame,netCommand with{Preview=netRequest with{Context=context with{KnowledgeMode="retained",ContextId=netPreview.GetProperty("context").Id("contextId")}}},CancellationToken.None),"historical_read_only");
+        Console.WriteLine("PASS delegated net preview/record/reversal, exact retry, stale refusal and historical/current authority separation");
         var oldContext=context with{KnowledgeMode="retained",ContextId=result.GetProperty("context").Id("contextId")};
         var historical=Json(await operations.Inspect(agent,frame,new(oldContext,preview.TradeId,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None));
         if(historical.GetProperty("value").GetProperty("settlement").GetProperty("version").GetInt32()!=0)throw new Exception("Agent historical replay substituted current settlement.");

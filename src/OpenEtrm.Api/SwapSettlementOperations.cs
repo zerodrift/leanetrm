@@ -17,6 +17,8 @@ public sealed class SwapSettlementOperations(PreviewDatabase database)
         new("swap_settlement.inspect_v1",["ReadTrades","ReadMarketData"],false),
         new("swap_settlement.preview_v1",["ReadTrades","ReadMarketData"],false),
         new("swap_settlement.determine_v1",["ReadTrades","ReadMarketData","AmendTrade"],true),
+        new("swap_settlement.net_preview_v1",["ReadTrades","ReadMarketData"],false),
+        new("swap_settlement.net_v1",["ReadTrades","ReadMarketData","AmendTrade"],true),
         new("swap_settlement.cash_v1",["ReadTrades","ReadMarketData","AmendTrade"],true),
         new("swap_settlement.status_v1",["ReadTrades","ReadMarketData"],false),
         new("swap_settlement.pnl_v1",["ReadTrades","ReadMarketData"],false)
@@ -78,6 +80,21 @@ public sealed class SwapSettlementOperations(PreviewDatabase database)
             return await store.RecordSwapCash(connection,frame,request,cancellation);
         },ct);
 
+    public Task<object> PreviewNet(AgentIdentity agent,InputFrame frame,SwapNetPreviewRequest request,CancellationToken ct) =>
+        Agent(agent,"swap_settlement.net_preview_v1",async(connection,cancellation)=>
+        {
+            var view=await View(connection,frame,request.Context,cancellation);
+            var value=await reads.Read(connection,view,data=>store.PreviewSwapNet(connection,data,view.CalculationFrame,request,cancellation),cancellation);
+            return JsonSerializer.SerializeToElement(new{context=view.Context,value},RiskJobs.Json);
+        },ct);
+    public Task<object> RecordNet(AgentIdentity agent,InputFrame frame,SwapNetRecordRequest request,CancellationToken ct) =>
+        Agent(agent,"swap_settlement.net_v1",async(connection,cancellation)=>
+        {
+            Current(frame,request.Preview?.Context);
+            await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(cancellation);
+            return await store.RecordSwapNet(connection,frame,request,cancellation);
+        },ct);
+
     public Task<object> Status(AgentIdentity agent,Guid operation,CancellationToken ct) =>
         Agent(agent,"swap_settlement.status_v1",async(connection,cancellation)=>
         {
@@ -94,15 +111,15 @@ public sealed class SwapSettlementOperations(PreviewDatabase database)
     internal async Task<object> Reconcile(NpgsqlConnection connection,TradingView opening,TradingView closing,SwapPnlRequest request,CancellationToken ct)
     {
         if(opening.Frame.At>closing.Frame.At)throw new MarketDataException("settlement_bridge","The closing instant must not precede the opening instant.");
-        async Task<SwapPnlSide> Side(TradingView view)
+        async Task<SwapPnlSide> Side(TradingView view,SwapPnlSide? first=null)
         {
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT swap_pnl_side"))await save.ExecuteNonQueryAsync(ct);
-            var result=(SwapPnlSide)await reads.Read(connection,view,data=>store.PnlRead(connection,data,view.CalculationFrame,request,ct),ct);
+            var result=(SwapPnlSide)await reads.Read(connection,view,data=>store.PnlRead(connection,data,view.CalculationFrame,request,ct,first),ct);
             await using(var rollback=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT swap_pnl_side"))await rollback.ExecuteNonQueryAsync(ct);
             await using(var release=ScheduleStore.Command(connection,"RELEASE SAVEPOINT swap_pnl_side"))await release.ExecuteNonQueryAsync(ct);
             return result;
         }
-        var first=await Side(opening);var last=await Side(closing);
+        var first=await Side(opening);var last=await Side(closing,first);
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct)||!await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
         return new{openingContext=opening.Context,closingContext=closing.Context,report=SwapStore.ReconcilePnl(first,last,request)};
     }

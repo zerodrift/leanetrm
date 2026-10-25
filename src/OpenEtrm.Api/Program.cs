@@ -100,7 +100,7 @@ app.Use(async (context,next)=>
             PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
             PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "settlement_version_conflict" or "settlement_operation_conflict" => (409,p.MessageText,"Reconcile the original operation or reload the settlement version."),
-            MarketDataException m when m.Code=="settlement_stale_preview" => (409,m.Code,m.Message),
+            MarketDataException m when m.Code is "settlement_stale_preview" or "settlement_version_conflict" => (409,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"Settlement requires compatible, final, certified evidence and explicit policies."),
             CloseRiskInputsException c => (422,CloseRiskInputsException.Code,c.Message),
             AutomationException a => (422,a.Code,a.Message),
@@ -1033,6 +1033,16 @@ api.MapPost("/swaps/settlement/determine",(HttpContext c,SwapSettlementDetermine
  c.Items["swap_attempted"]=true;
  await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);
  return Results.Ok(await swapStore.DetermineSettlement(connection,Frame(session,context.SnapshotId),body,ct));
+},c.RequestAborted)));
+api.MapPost("/swaps/settlement/net-preview",(HttpContext c,SwapNetPreviewRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("settlement_context","Supply the selected certified context."),
+ (connection,data,frame,ct)=>swapStore.PreviewSwapNet(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
+api.MapPost("/swaps/settlement/net",(HttpContext c,SwapNetRecordRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
+{
+ if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before recording net settlement.");
+ if(body.Preview?.Context is not {} context)throw new MarketDataException("settlement_context","Supply the selected recording context.");
+ c.Items["swap_attempted"]=true;
+ await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);
+ return Results.Ok(await swapStore.RecordSwapNet(connection,Frame(session,context.SnapshotId),body,ct));
 },c.RequestAborted)));
 api.MapPost("/swaps/settlement/payment",(HttpContext c,SwapCashRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
 {

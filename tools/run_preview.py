@@ -304,7 +304,7 @@ def main():
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
-            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_observation_check);query(swap_market)
+            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_observation_check or args.scheduled_swap_check,scheduled_periods=args.scheduled_swap_check);query(swap_market)
             if args.connected_portfolio_check:
                 # The primary daily-consumer fixture also visits January. Its
                 # unrelated secondary bundle explicitly supplies no inputs there.

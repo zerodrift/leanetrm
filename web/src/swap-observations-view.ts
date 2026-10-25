@@ -40,7 +40,7 @@ export function setupSwapObservationControls(options:{prefix:string;enabled:()=>
  async function refresh(){
   sync();
   const started=++generation,request=options.request(),scope=JSON.stringify(request);
-  const previous=new Map((rows??[]).map((row,index)=>[rowKey(row),inputs[index]?.value??'']));
+  const baseline=new Map((rows??[]).map((row,index)=>[rowKey(row),inputs[index]?.value??'']));
   const selected=retained?.calendar?JSON.stringify(retained.calendar):calendar.value;
   pending=true;status.textContent='Checking observation compatibility…';sync();
   try{
@@ -51,6 +51,7 @@ export function setupSwapObservationControls(options:{prefix:string;enabled:()=>
    current=result;requestKey=scope;options.apply(result);
    calendar.replaceChildren(new Option('Choose…',''),...result.observationCalendars.map(choice=>new Option(publicText(`${choice.name} · ${choice.from} to ${choice.to}`),JSON.stringify(choice.reference))));
    calendar.value=[...calendar.options].some(option=>option.value===selected)?selected:'';
+   const previous=new Map((rows??[]).map((row,index)=>[rowKey(row),inputs[index]?.value??'']));
    rows=result.observations;inputs=[];weights.replaceChildren();
    if(options.choice()?.requiresQuantityWeights&&rows){
     const label=document.createElement('p');label.className='field-help';label.textContent=`Enter a positive ${options.unit()} quantity for every backend-planned interval. The backend determines the resulting averaging weights.`;weights.append(label);
@@ -60,7 +61,8 @@ export function setupSwapObservationControls(options:{prefix:string;enabled:()=>
     for(const row of rows){const tr=body.insertRow();tr.insertCell().textContent=row.from;tr.insertCell().textContent=row.to;
      const input=document.createElement('input');input.type='text';input.inputMode='decimal';input.autocomplete='off';input.dataset.from=row.from;input.dataset.to=row.to;
      input.setAttribute('aria-label',`Positive quantity · ${row.from} to ${row.to} · ${options.unit()}`);
-     input.value=retained?.quantities?.find(value=>rowKey({...value,quantitySpecification:value.quantity.specification})===rowKey(row))?.quantity.value??previous.get(rowKey(row))??'';
+     const key=rowKey(row),edited=previous.has(key)&&previous.get(key)!==baseline.get(key);
+     input.value=edited?previous.get(key)!:retained?.quantities?.find(value=>rowKey({...value,quantitySpecification:value.quantity.specification})===key)?.quantity.value??previous.get(key)??'';
      tr.insertCell().append(input);inputs.push(input);
     }
     const scroll=document.createElement('div');scroll.className='regular-table-scroll';scroll.append(table);weights.append(scroll);

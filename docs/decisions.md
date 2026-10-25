@@ -559,3 +559,32 @@ Existing booked PV is not rewritten. Scheduled amendments stop before any retain
 fixing/payment is due; due-payment processing, interval-price settlement and
 implicit legacy upgrades remain unsupported. See [quantity contracts and numerical
 checks](financial-swap-quantities.md). Standalone physical delivery remains later scope.
+
+## D216 — Qualified swap authoring, intra-trade allocations and contractual P&L changes
+
+Extend qualified monthly financial-swap authoring through the shared observation
+capability catalog and explicit published projection references. Bulk edits name
+the source, selected target periods and selected term groups before applying;
+delivery dates and unselected terms remain independent. Observation quantities
+are authored for their exact planned intervals, never inferred from delivery.
+
+The bounded netting contract requires one trade, identical exact legal parties,
+currency revision, contractual precision/lifecycle policies and contribution due
+instant. Every gross allocation is explicit and direction/balance constrained.
+A zero-net discharge is a retained noncash settlement record. Its gross
+allocations reverse exactly; it creates no cash receipt or trading profit.
+
+Under `closing_context_contract_changes_v1`, contractual changes use the selected
+closing market and certified context. New-trade economics are its closing
+remaining value plus its contractual cash. Future undetermined amendments are
+revised minus prior terms valued in that same context. Continuing-contract
+movement is evaluated independently using the prior terms; no residual is labeled
+market P&L. Book transfers, settled-period rewrites and ambiguous continuity remain
+unsupported. D215's gross rounding, finality and correction policies are retained.
+Future-amendment qualification examines every intervening revision, including
+new-trade amendments and unchanged endpoint round trips. A changed period must
+start after the amendment's effective instant (UTC midnight for date-only terms;
+retained first delivery interval for clocked power), and must not already have a
+determination. Exact currency and quantity basis remain unchanged through the
+whole chain. Prior/revised definition bundles resolve independently under closing
+authority. Capability documents record the implemented gates and limits.

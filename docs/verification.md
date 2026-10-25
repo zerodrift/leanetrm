@@ -2849,3 +2849,15 @@ Independent adversarial review has no remaining material finding. This records
 local synthetic evidence, not real-provider/account availability, browser rendering
 or hosted schema/application deployment qualification. No real token prices or
 credentials ship in migration 0104. See [the adapter contract](provider-adapters.md).
+
+## Financial swap authoring, net settlement and contractual bridge (D216)
+
+The D216 local increment passed all required matrix gates across owned runs,
+including 621 managed core checks, 84 rate checks, 328 frontend checks, 173
+combined-schema checks and the focused 62-check swap browser workflow. The
+standard browser gate required a fresh-browser retry after Chrome closed its
+automation connection; the retry and every subsequent gate passed. Earlier
+preparation and managed/schema results were retained from the preceding full run.
+See [settlement capability and verification](swap-settlement.md#d216-local-verification)
+for supported combinations, independent numerical oracles and enforced limits.
+This is synthetic local verification, not deployment qualification.

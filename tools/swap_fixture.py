@@ -6,14 +6,14 @@ from preview_fixture import CAT, RCAT, RREV, identity
 REVISION = '60000000-0000-0000-0000-000000000002'
 
 
-def fixture(fixing_frames=False, observation_guards=False):
+def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=False):
     m = f"'{CAT}','{REVISION}'"; r = f"'{RCAT}','{RREV}'"
     rows = ['BEGIN;', f"INSERT INTO market_data.revisions VALUES ({m},{r},'draft',0);"]
     prices = []
     for n, commodity, quote, target in [(0, 'gas', 'test_gas_outright', 'test_index_target'), (1, 'power', 'test_power_outright', 'test_power_target')]:
         curve = 'daily_'+commodity
         rows.append(f"INSERT INTO market_data.curves VALUES ({m},'{curve}',{r},'test_{commodity}','test_hub_a','{quote}','test_uniform','{target}','direct','fixture','trader_mark','Daily {commodity}');")
-        for day in (range(0, 33) if observation_guards else range(1, 32)):
+        for day in (range(0,61) if scheduled_periods else range(0, 33) if observation_guards else range(1, 32)):
             start = date(2021, 1, 1)+timedelta(days=day-1); end = start+timedelta(days=1)
             cid = identity('5', 2000+n*100+day); sid = identity('9', 2000+n*100+day)
             fixing_at=f'{start-timedelta(days=1)}T12:00:00Z'
