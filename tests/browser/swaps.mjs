@@ -218,6 +218,15 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  // A floating side's delivery dates are chosen from its calendar of observed periods; the fixed side's are typed.
  await leaveAsks('a date chosen in a swap\'s calendar',async()=>{await click('#swap-floating-from-calendar');await evaluate("document.querySelector('#swap-floating-from-calendar').parentElement.querySelector('[data-date]:not(:disabled)').click()");await wait(idle);});
  await leaveAsks('a date applied from the date lookup',async()=>{await click('#swap-date-lookup>summary');await set('#swap-date-lookup-target','swap-fixed-from');await set('#swap-date-lookup-expression','oe.editor_anchors[1]');await click('#swap-date-lookup-resolve');await click('#swap-date-lookup-apply');await wait(idle);});
+ // The trade's settlement view opens from its ticket, in the ticket's place, once the panel has asked about the ticket's edits.
+ const settlementOpen="(()=>{const view=document.querySelector('#swap-settlement'),form=document.querySelector('#side-panel-form');return !!view&&!view.hidden&&form.contains(view)&&!form.hidden;})()";
+ await reopen();await typeInto('#swap-quantity','151');await click('#swap-settlement-open');await asks();
+ await check('opening the trade\'s settlement view from its swap ticket asks first about the ticket\'s edits',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#swap-editing').hidden`,`[${prompt}.textContent,document.querySelector('#swap-editing').hidden]`);
+ await answer(0);
+ await check('keeping them leaves the swap ticket as it was',`!document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-quantity').value==='151'&&!document.querySelector('#swap-settlement')?.getClientRects().length`);
+ await click('#swap-settlement-open');await asks();await answer(1);await wait(settlementOpen);await wait(idle);
+ await check('discarding them opens the trade\'s settlement view in the ticket\'s place',`${settlementOpen}&&document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-settlement-title').textContent.includes(${JSON.stringify(reference)})`);
+ await click('#side-panel-amend');await wait("!document.querySelector('#swap-settlement')?.getClientRects().length&&"+idle);
  await set('#blotter-filters .table-search',reference);await reopen();
  // A swap amendment whose outcome is not known is kept, named in the panel by the trade it belongs to, and reconciled from there.
  await reopen();await set('#swap-quantity','250');await set('#swap-reason','Synthetic lost swap amendment');await submit('#swap-form');await evaluate('window.__loseSwap=true');await click('#swap-confirm');await click('#swap-submit');

@@ -318,6 +318,16 @@ test('a swap valued by its settlement lifecycle shows its terms, sides from its 
  assert.deepEqual(read.amend,{allowed:false,reason:settled.amendUnavailableReason});
 });
 
+// D207: every swap's two memberships hold opposite directions, which the backend states; the page never works one out from the terms.
+test('a swap valued by its settlement lifecycle takes each side\'s kind and direction from its read, and a read that states none is refused',()=>{
+ const settled=details.settledSwap;
+ assert.deepEqual(swapTerms(settled,'UTC',formats).map(s=>s.title).slice(2,4),['Fixed side · Pay','Floating side · Receive']);
+ const reversed=clone(settled);reversed.memberships=reversed.memberships.map(m=>({...m,coefficient:m.coefficient==='-1'?'1':'-1'}));
+ assert.deepEqual(swapTerms(reversed,'UTC',formats).map(s=>s.title).slice(2,4),['Fixed side · Receive','Floating side · Pay'],'the read\'s directions, not the terms\'');
+ const unstated=clone(settled);delete unstated.memberships;
+ assert.throws(()=>swapTerms(unstated,'UTC',formats),{message:'The swap read did not state its sides.'});
+});
+
 test('every swap\'s Terms offer its settlement and P&L view',async()=>{
  const read=await readSwapView(swapApi([]),{},heldSwap(),formats,{busy:()=>false,act:async work=>work(),settle:()=>{}});
  assert.deepEqual(read.view('UTC').actions.map(a=>a.label),['Settlement and P&L']);

@@ -396,6 +396,12 @@ test('a scheduled swap whose periods project from several curves is one market o
  assert.ok(pv.some(p=>p.label==='Gas forward / Power forward'&&p.y==='-10'));
 });
 
+test('a market the backend gives no single quantity, when none of its held swaps lacks one, is refused rather than said to have none',()=>{
+ const colors=commodityColors(['test_gas','test_power']),message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
+ const summaries=changed(fixture.summaries,3,groups=>groups.map(g=>g.market==='power_euro'?{...g,quantity:null}:g));
+ assert.throws(()=>positionChartPanels(summaries,fixture.holdings,colors,format),{message});
+});
+
 test('the long and short chart draws no bar for a market the backend gives no single quantity, and says why; a future is never without one',()=>{
  const colors=commodityColors(['test_gas','test_power']),message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
  const summaries=changed(fixture.summaries,3,groups=>groups.map(g=>g.market==='power_euro'?{...g,quantity:null}:g));

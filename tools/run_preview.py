@@ -633,7 +633,10 @@ def main():
                 check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id)
             elif args.scheduled_swap_check:
                 from check_scheduled_swaps import run_checks as check_scheduled
-                settlement_fixture=check_scheduled(url,query,manifest)
+                worker_env=prepare_risk_worker()
+                def run_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                settlement_fixture=check_scheduled(url,query,manifest,run_worker=run_worker)
                 from check_swap_settlement_agents import prepare as prepare_settlement_agent
                 agent_fixture=temporary/'settlement-agent.json'
                 agent_fixture.write_text(json.dumps(prepare_settlement_agent(query,settlement_fixture)))

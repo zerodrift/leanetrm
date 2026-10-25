@@ -248,20 +248,23 @@ export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<st
  */
 export function positionChartPanels(summaries:readonly Summary[],holdings:readonly Holding[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),labels=marketLabels(markets),units=unitLabels(markets);
-  // The directions the swaps of each market, unit and currency state, from one pass over the positions.
-  const directions=new Map<string,Set<Holding['direction']>>();
+  // The directions the swaps of each market, unit and currency state, and which of them hold a swap without a single quantity, from one
+  // pass over the positions.
+  const directions=new Map<string,Set<Holding['direction']>>(),unquantified=new Set<string>();
   for(const h of holdings){
     if(instrument(h.instrumentType)!==instruments.financial_swap)continue;
     const key=JSON.stringify([marketOf(h),referenceKey(h.quantitySpecification),referenceKey(h.currencyReference)]);
     directions.set(key,(directions.get(key)??new Set()).add(h.direction));
+    if(h.quantity===null)unquantified.add(key);
   }
   const panels=new Map<string,ChartPoint[]>();
   for(const group of markets){
     const market=marketKey(text(group,'market'),text(group,'definitionRevisionId')),type=instrument(group.instrumentType),unit=referenceKey(group.quantitySpecification),currency=referenceKey(group.currencyReference);
     const quantity=amount(group,'quantity');
     const point:ChartPoint={x:`${market}|${type.pill}`,label:`${labels.get(market)} · ${type.plural}`,y:quantity,color:colors.get(commodityOf(group).code)};
-    // A market's swaps have no single quantity where one of them is scheduled by period; a future always has one.
-    if(quantity===null){if(type===instruments.future)throw Error(inconsistent);point.label+=' · no single quantity';}
+    // A market's swaps have no single quantity where one of them is scheduled by period, which a held swap without one shows; a future
+    // always has one.
+    if(quantity===null){if(type===instruments.future||!unquantified.has(JSON.stringify([market,unit,currency])))throw Error(inconsistent);point.label+=' · no single quantity';}
     else if(type===instruments.future)point.text=signedText(quantity,format);
     else{
       const stated=directions.get(JSON.stringify([market,unit,currency]));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {knownTradeRejection,retainedText} from '../dist/trade-requests.js';
+import {knownTradeRejection,restorable,retainedText,retryAllowed} from '../dist/trade-requests.js';
 
 test('only refusals that prove nothing was written release a retained booking or amendment',()=>{
   for(const code of ['futures_input','scheduled_quantity','scheduled_swap_input','scheduled_power','swap_input','trade_operation_conflict','access_denied','request_format','request_too_large','request_token'])assert.equal(knownTradeRejection(code),true,code);
@@ -11,4 +11,20 @@ test('a request whose outcome is not known is named by what it is, so it can be 
   assert.equal(retainedText({label:'Swap amendment of TR-000016'}),'Swap amendment of TR-000016 · its outcome is not known. The identical request is retained: check its committed outcome or retry it before entering another booking.');
   assert.equal(retainedText({label:'New futures trade'}).startsWith('New futures trade · '),true);
   assert.equal(retainedText({}).startsWith('A trade request · '),true,'a request kept by an earlier visit that had no name still says what it is');
+});
+
+test('a retained settlement command is retried by an account that may amend trades, as an amendment is, and a booking by one that may book',()=>{
+  const catalog=(canBook,canAmendTrades)=>({canBook,canAmendTrades});
+  for(const path of ['swaps/settlement/determine','swaps/settlement/payment','futures/amend','swaps/amend']){
+    assert.equal(retryAllowed(path,catalog(false,true)),true,path);assert.equal(retryAllowed(path,catalog(true,false)),false,path);
+  }
+  for(const path of ['futures/book','swaps/book']){assert.equal(retryAllowed(path,catalog(true,false)),true,path);assert.equal(retryAllowed(path,catalog(false,true)),false,path);}
+  assert.equal(retryAllowed('swaps/book',undefined),false,'nothing is retried before a catalog says what the account may do');
+});
+
+test('a request kept by an earlier visit is restored when it is one the page sends, a settlement command among them, and nothing else is',()=>{
+  const saved=path=>({path,operationId:'synthetic-operation',body:{},label:'Synthetic request'});
+  for(const path of ['futures/book','futures/amend','swaps/book','swaps/amend','swaps/settlement/determine','swaps/settlement/payment'])assert.equal(restorable(saved(path)),true,path);
+  for(const value of [null,'text',{},saved('swaps/settlement/preview'),saved('admin/create'),{...saved('swaps/book'),operationId:7},{...saved('swaps/book'),body:null},{...saved('swaps/book'),body:'text'}])
+    assert.equal(restorable(value),false,JSON.stringify(value));
 });

@@ -542,29 +542,45 @@ price, a fixed price only when every fixed period shares one, its delivery as th
 periods and, when its periods project from several curves, those curves (`projectionCurves`) and the
 market they make together (`marketKey`, `marketLabel`), by which pivots group it. `settlement` is
 `Projection`, or `Active` once a settlement determination exists: an active swap's PV is its
-lifecycle's remaining value, with that lifecycle's measures (`lifecycle`), and its other facts are
-those it states before. A scheduled or lifecycle valuation that fails with one of the two
-position-specific codes leaves the position unvalued with that code (D217), and a risk run leaves it
-out and lists it. The desk refuses a swap kind or valuation state it does not define. A scheduled
-swap's quantity reads By period, as does its fixed price where its fixed periods differ, and its
-mark; a lifecycle-valued swap's mark reads Settlement lifecycle. Each says what it means in its
-tooltip. The long and short chart draws no bar for a market whose swaps have no single quantity, as
-where one of them is scheduled, and each of its panels names under its caption the markets it draws
-no bar for and why, as it does for swaps of mixed directions or of two floating sides. A position
-that projects from several curves has no curve shape and no Open curve, and says why. In the panel,
-Terms lists a scheduled swap's structure, with no single quantity, and each side's quantity basis
-and unit and every period's quantity and price or index, a term every period shares once and any
-other By period, with the quantity review beneath; a lifecycle-valued swap adds its lifecycle's
-measures. Amend of a scheduled swap opens its ticket (`scheduled-swap-editor.ts`) in the form part,
-as any amendment opens, and the swap ticket's Multi-month contracts and scheduled quantities opens
-it for a new swap. A swap's Terms offer Settlement and P&L (`swap-settlement.ts`), which takes the
-form part in place of the terms, with the head's Close editor; a determination or cash record being
-entered is an edit the panel asks about, and one whose outcome is not known is kept in the panel's
-card. `--valuation-status-check` books a scheduled swap after its other checks and qualifies it
-valued at Dec 18 and unvalued at Dec 31, with its booked facts, its totals and its risk exclusion;
-`--scheduled-swap-check` drives the scheduled ticket, its review and the settlement view in the
-panel. No fixture has a close at which a lifecycle under way cannot be valued, so that path has no
-executable check.
+lifecycle's remaining value, with that lifecycle's measures (`lifecycle`), it has no mark, and its
+other facts are those its projection stated (P41). A scheduled or lifecycle valuation that fails
+with one of the two position-specific codes leaves the position unvalued with that code (D217), and
+a risk run leaves it out and lists it. The read's `work.swapValuations` counts the valuations it
+attempts: one for each distinct single-period unit, which the positions holding it share, and one
+for each scheduled swap and each swap valued by its lifecycle, which are valued for their own
+binding, whether or not the close can value them. The desk refuses a swap kind or valuation state it
+does not define. A scheduled swap's quantity reads By period, as does its fixed price where its
+fixed periods differ, and its mark; a lifecycle-valued swap's mark reads Settlement lifecycle. Each
+says what it means in its tooltip. The long and short chart draws no bar for a market whose swaps
+have no single quantity, as where one of them is scheduled, and refuses a market the backend gives
+none when no held swap of it lacks one; each of its panels names under its caption the markets it
+draws no bar for and why, as it does for swaps of mixed directions or of two floating sides. A
+position that projects from several curves has no curve shape and no Open curve, and says why. In
+the panel, Terms lists a scheduled swap's structure, with no single quantity, and each side's
+quantity basis and unit and every period's quantity and price or index, a term every period shares
+once and any other By period, with the quantity review beneath; a lifecycle-valued swap adds its
+lifecycle's measures. Each side's kind and direction are the read's: its valuation's, or, for a
+revision valued by its lifecycle, which has no pure valuation, the `memberships` the read states
+(D207); the page works none out. Amend of a scheduled swap opens its ticket
+(`scheduled-swap-editor.ts`) in the form part, as any amendment opens, and the swap ticket's
+Multi-month contracts and scheduled quantities opens it for a new swap; generating period rows over
+entered ones asks in the panel first, before the page is busy. A swap's Terms, and either ticket,
+offer Settlement and P&L (`swap-settlement.ts`), which takes the form part in place of the terms,
+with the head's Close editor, after the panel has asked about a ticket's edits. A cash record being
+entered, and a correction's due instant, are edits the panel asks about; a determination the backend
+refuses keeps its calculation and due instant, with the reason. A settlement command that goes
+through clears risk results run before it, with a note, and reads the Blotter again as a live
+correction does, so that the panel and the view stay, and the view reads its state again. One whose
+outcome is not known is kept in the panel's card, named for what it was, across a reload too; Check
+status settles it, and Retry, which needs AmendTrade as an amendment's does, sends it again, each
+with the view left open. `--valuation-status-check` books a scheduled swap after its other checks
+and qualifies it valued at Dec 18 and unvalued at Dec 31, with its booked facts, its totals and its
+risk exclusion. `--scheduled-swap-check` compares each swap's row before and after its first
+determination (P41), and adds a close after the January determinations that pins no February future,
+at which a swap whose lifecycle is under way is unvalued with `missing_observation` and keeps its
+facts, its book total leaves it out, and a risk run, the same run queued and the risk catalog list
+it; its browser checks drive the scheduled ticket, its review, the settlement view and its retained
+commands in the panel.
 
 The desk's money totals come from a second pivot convention (D220). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and

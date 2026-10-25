@@ -6,6 +6,13 @@ from preview_client import PreviewClient
 from preview_fixture import trade_booking, CAT, R, REV, identity, installed_tzdb
 from datetime import datetime, timezone
 import json
+from check_blotter_desk_fields import exact, total, unvalued
+from check_blotter_valuation_status import BY_BOOK, blotter, book_key, excluded, key, risk_catalog, risk_request, unvalued_rows
+from check_swap_settlement import check_settlement_keeps_facts, check_stated_sides, held_row
+
+# A close after the January determinations whose pins leave out the February future, so that no swap still projecting February can be
+# valued there. The scheduled power markets are observed there as at every close.
+UNPRICED_FEBRUARY='2021-01-16T08:00:00'
 
 
 def prepare(market,manifest):
@@ -13,6 +20,10 @@ def prepare(market,manifest):
     base=next(f for f in manifest['frames'] if f['at'].startswith('2021-01-31T08:00:00'))
     for at in ('2021-02-01T08:00:00Z','2021-03-18T00:00:00Z','2021-03-19T08:00:00Z','2021-03-20T00:00:00Z'):
         manifest['frames'].append({**base,'at':at,'observationIds':list(base['observationIds'])})
+    partial=next(f for f in manifest['frames'] if f['at'].startswith('2021-01-15T08:00:00'))
+    february_future=identity('7',4000000+1*10000+101)
+    assert february_future in partial['observationIds']
+    manifest['frames'].append({**partial,'at':UNPRICED_FEBRUARY+'Z','observationIds':[o for o in partial['observationIds'] if o!=february_future]})
     reference=f"INSERT INTO ref_data.quantity_specifications VALUES ({R},'synthetic_gas_energy_b','test_gas','test_gas_energy','energy_b','energy');\nINSERT INTO ref_data.measurement_bases VALUES ({R},'synthetic_power_rate','test_power','power');\nINSERT INTO ref_data.quantity_specifications VALUES ({R},'synthetic_power_mw','test_power','synthetic_power_rate','megawatt','power');\nINSERT INTO ref_data.clock_rules(catalog_id,revision_id,code,kind,iana_zone,tzdb_version) VALUES ({R},'synthetic_london','iana','Europe/London','{installed_tzdb()}');"
     reference+=f"\nINSERT INTO ref_data.clock_rules(catalog_id,revision_id,code,kind,iana_zone,tzdb_version) VALUES ({R},'synthetic_new_york','iana','America/New_York','{installed_tzdb()}');"
     market=market.replace('UPDATE ref_data.revisions SET',reference+'\nUPDATE ref_data.revisions SET',1)
@@ -32,7 +43,42 @@ def prepare(market,manifest):
     return market
 
 
-def run_checks(url,query=None,manifest=None):
+def check_unvalued_lifecycle(c,workspace,trade,run_worker):
+    """A swap whose settlement lifecycle is under way, at a close that cannot value what remains of it (D217).
+
+    Its row states why, with no PV, mark or lifecycle measures, and every other fact it states where the close values it; totals leave
+    it out, and a risk run, the same run queued and the risk catalog list it with that reason.
+    """
+    def frame(at):return next(f for f in workspace['frames'] if f['at'].startswith(at))
+    valued,_=blotter(c,frame('2021-01-15T08:00:00'))
+    late,late_context=blotter(c,frame(UNPRICED_FEBRUARY))
+    before,after=(next(r for r in read['holdings'] if r['tradeId']==trade) for read in (valued,late))
+    assert before['settlement']=='Active' and before['unavailableReason'] is None and before['lifecycle'] is not None,before
+    assert after['unavailableReason']=='missing_observation' and after['settlement']=='Active',after
+    assert after['presentValue'] is None and after['mark'] is None and after['lifecycle'] is None,after
+    changed={k for k in before.keys()|after.keys() if before.get(k)!=after.get(k)}
+    assert changed<={'presentValue','mark','lifecycle','unavailableReason'},sorted(changed)
+    rows=late['holdings']
+    group=next(g for g in blotter(c,frame(UNPRICED_FEBRUARY),BY_BOOK)[0]['groups'] if book_key(g)==book_key(after))
+    held=[r for r in rows if book_key(r)==book_key(after)]
+    assert group['unvaluedPositions']==unvalued(held)>0 and exact(group['presentValue'])==total(held,'presentValue'),group
+    assert late['unvaluedPositions']==unvalued(rows)
+    c.call('profile',{'profile':'risk'})
+    choices=risk_catalog(c,late_context)
+    factor=choices['factors'][0]['factor']
+    report=c.call('portfolio/risk',risk_request(choices,late_context,factor))
+    assert key(after) in {key(e) for e in report['excludedPositions']} and excluded(report)==unvalued_rows(rows),report['excludedPositions']
+    assert report['work']['positionCount']==sum(r['unavailableReason'] is None for r in rows)
+    assert excluded(choices)==excluded(report)
+    job=c.call('portfolio/risk/jobs',{'requestId':str(uuid4()),'request':risk_request(choices,late_context,factor)})
+    run_worker()
+    completed=c.call('portfolio/risk/jobs/'+job['id'])
+    assert completed['state']=='completed' and completed['result']['excludedPositions']==report['excludedPositions'],completed['state']
+    c.call('profile',{'profile':'trader'})
+    print('PASS a swap whose settlement lifecycle the close cannot value states why with no PV or mark and keeps its facts; totals, a risk run, its job and the risk catalog leave it out and list it')
+
+
+def run_checks(url,query=None,manifest=None,*,run_worker):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     w=c.call('workspace');f=next(f for f in w['frames'] if f['at'].startswith('2020-12-18'))
     context=dict(snapshotId=f['id'],knowledgeMode='current',convention='independent_side_financial_swap_v2')
@@ -215,6 +261,7 @@ def run_checks(url,query=None,manifest=None):
         correctionPolicy='swap_explicit_correction_due_v1',correctionDueAt=None)
     inspect=dict(context=settlement_context,tradeId=thirds_saved['tradeId'],revision=None,duePolicy=determine['duePolicy'],recognitionPolicy=determine['recognitionPolicy'])
     initial_lifecycle=c.call('swaps/settlement/inspect',inspect)
+    projected=held_row(c,settlement_context,thirds_saved['tradeId'])
     accepted=c.call('swaps/settlement/determine',determine)
     assert accepted['total']=='58.33' and accepted['adjustment']=='58.33' and accepted['version']==1
     assert c.call('swaps/settlement/determine',determine)==accepted
@@ -252,12 +299,17 @@ def run_checks(url,query=None,manifest=None):
         assert old['remainingValue']==new['remainingValue']
     assert F(lifecycle['valuation']['remainingValue'])+F(lifecycle['valuation']['netCash'])-F(initial_lifecycle['valuation']['remainingValue'])==F('-1/300')
     blotter=c.call('trading/blotter',dict(context={**settlement_context,'convention':'trading_workspace_v1'},view=dict(mode='trades',bookIds=[],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None)))
-    assert next(h for h in blotter['holdings'] if h['tradeId']==thirds_saved['tradeId'])['presentValue']==lifecycle['valuation']['remainingValue']
+    settled=next(h for h in blotter['holdings'] if h['tradeId']==thirds_saved['tradeId'])
+    assert settled['presentValue']==lifecycle['valuation']['remainingValue']
     print('PASS settlement-aware HTTP and blotter: paid January excluded once, later months unchanged, currency rounding conserved')
+    check_settlement_keeps_facts(projected,settled,'a scheduled swap')
+    check_stated_sides(c,settlement_context,thirds_saved['tradeId'],[{'slot':0,'kind':'fixed','coefficient':'-1'},{'slot':1,'kind':'floating','coefficient':'1'}])
+    print('PASS a scheduled swap whose settlement starts keeps its Blotter facts, and its read states its sides\' kinds and directions')
     bridge=c.call('swaps/settlement/pnl',dict(opening={**settlement_context,'knowledgeMode':'retained','contextId':initial_lifecycle['context']['contextId']},
         closing=settlement_context,tradeIds=[thirds_saved['tradeId']],bookIds=[],contractChanges='reject_contract_changes_v1',
         duePolicy=determine['duePolicy'],recognitionPolicy=determine['recognitionPolicy']))['report']['trades'][0]['bridge']
     assert F(bridge['economicPnl'])==F('-1/300') and F(bridge['roundingEffectMovement'])==F('-1/300')
+    check_unvalued_lifecycle(c,w,thirds_saved['tradeId'],run_worker)
     from check_swap_settlement import run_lifecycle,run_foundation,run_late_cash
     run_lifecycle(c,w,context,legacy_saved['tradeId'],value['currency'])
     run_foundation(c,query,url,body,context,settlement_context,f['at'],value['currency'])

@@ -32,7 +32,9 @@ type State=Annotation&{tradeId:string;tradeReference:string;instrumentId:string;
 export type Valuation={presentValue:string;instrumentPresentValue:string;quantity:string;sides:{slot:number;kind:string;coefficient:string;presentValue:string;contribution:string;payments:{deliveryFrom:string;deliveryTo:string;paymentDate:string;resolvedQuantity:string;tradeCashAmount:string;tradePresentValue:string;cashAmount:string;discountFactor:string;presentValue:string;discountMappingId:string|null;discountCurve:unknown;discountPolicy:string;pillars:unknown;observationSchedule:ObservationInspection|null;resets:{currency:{code:string};quantity:{code:string};multiplier:string;spread:string|null;lookup:unknown;lineage:unknown;from:string;to:string;price:string;weight:string;cashContribution:string;fixingState:string;fixing?:unknown}[]}[]}[]};
 type Detail={state:State;history:State[];catalog:Catalog&{scheduledOptions?:{powerQuantities:{specification:{code:string};unit:string}[];clocks:{reference:{code:string};label:string}[]}};
  /** The pure valuation of the revision; none while its settlement lifecycle values it, which its own measures state. */
- valuation:Valuation|null;settlementValuation?:Record<string,unknown>;quantityInputs?:QuantityReview[];canAmend:boolean;amendUnavailableReason:string|null;asOf:string;context:Context};
+ valuation:Valuation|null;settlementValuation?:Record<string,unknown>;
+ /** Each membership's side kind and direction, which the read states when it has no pure valuation to state them in. */
+ memberships?:{slot:number;kind:string;coefficient:string}[];quantityInputs?:QuantityReview[];canAmend:boolean;amendUnavailableReason:string|null;asOf:string;context:Context};
 export type SwapDetail=Detail;
 const convention='independent_side_financial_swap_v2';
 /** The editor's read of one swap revision (null: the latest), in the market context the page reads in. */
@@ -78,16 +80,13 @@ function tradeSection(detail:Detail,zone:string):TermSection{
  return {title:'Trade',rows:[['Trade',`${s.tradeReference} · ${s.instrumentReference}`],['Revision',`${s.revision} · ${friendly(s.kind)}`],['Book',book?`${book.portfolio} · ${book.name}`:'Unavailable book'],...bookingRows(s,zone)]};
 }
 /**
- * A swap's sides with their kind and direction: as its valuation states them, and for a revision valued by its settlement lifecycle,
- * which states no pure valuation, as its terms do: the first side's own stored coefficient, and the opposite one for the second
- * side, which the two memberships of every swap hold (D207).
+ * A swap's sides with their kind and direction, as the backend states them: in its valuation, or, for a revision valued by its
+ * settlement lifecycle, which has no pure valuation, in the read's memberships. None is worked out from the terms here.
  */
 function sidesOf(detail:Detail):{slot:number;kind:string;coefficient:string}[]{
- if(detail.valuation)return detail.valuation.sides;
- const t=detail.state.terms,firstFloating=t.scheduled?!t.scheduled.first.periods[0]?.fixed:t.swapType==='financial_floating_floating';
- const first=t.scheduled||firstFloating?t.firstCoefficient:t.fixedCoefficient,second=first==='-1'?'1':first==='1'?'-1':null;
- if(first===null||second===null)throw Error('The retained swap terms do not state their direction.');
- return [{slot:0,kind:firstFloating?'floating':'fixed',coefficient:first},{slot:1,kind:'floating',coefficient:second}];
+ const sides=detail.valuation?.sides??detail.memberships;
+ if(!sides)throw Error('The swap read did not state its sides.');
+ return sides;
 }
 const direction=(coefficient:string)=>coefficient==='-1'?'Pay':coefficient==='1'?'Receive':`coefficient ${coefficient}`;
 /**
@@ -285,6 +284,8 @@ type Position=Pick<Holding,'tradeId'|'contractId'|'revision'>;
 export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;onDenied:()=>void;host:()=>HTMLElement;
  /** Asks whether to give up what the panel holds unsaved, when it holds any: false means the person kept it. */
  leave:()=>Promise<boolean>;
+ /** Asks the person a question of a ticket's own in the panel, before the page is busy: true means they chose to go on. */
+ ask:(question:{text:string;keep:string;go:string})=>Promise<boolean>;
  /** The shape of a market's curve at the close, for the form's Price before booking. */
  shape:(market:DraftMarket)=>Promise<CurveShape|string>;
  /** Hears each time the form starts or stops holding unsaved edits. */
@@ -583,6 +584,8 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
    else if(mounted()){catalog=await options.api<Catalog>('swaps/catalog',context());await refreshObservations();previewGeneration++;prepared=undefined;get('swap-result').hidden=true;get('swap-confirmation').hidden=true;dates.invalidate();dates.sync();await draft.liveRefresh();sync();}
   },
   refresh(){settlement.refresh();scheduled.refresh();annotations.refresh();dates.invalidate();dates.sync();invalidate();},
+  /** Reads the settlement view's state again when it is open, after a settlement command it may not have sent went through. */
+  async reloadSettlement(){if(settlement.isOpen())await settlement.liveRefresh();},
   // The position whose ticket or settlement view is in the host (none for a new swap), and the revision it shows.
   shown:()=>mounted()||scheduled.isOpen()||settlement.isOpen()?position:undefined,
   displayedRevision:()=>mounted()?detail?.state.revision:scheduled.revision()??settlement.revision(),

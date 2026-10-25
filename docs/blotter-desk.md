@@ -180,8 +180,11 @@ the Blotter's own read.
   horizontal bars, with gains right and losses left, signed labels, and the
   commodity marked beside each market.
 - Long and short by market: one card; per quantity unit a captioned panel of
-  diverging bars in the commodity color. After a risk run this chart becomes
-  "Change if each contract moves up".
+  diverging bars in the commodity color. A market whose swaps have no single
+  quantity (one of them is scheduled by period, D214), or no single direction, gets
+  no bar, and the panel names each such market and why under its caption
+  ("Not drawn: …"). After a risk run this chart becomes "Change if each contract
+  moves up".
 - Each card has one heading and a caption per currency or unit, bars about 20px
   tall, and the values of its bars as text beside the canvas.
 
@@ -195,15 +198,16 @@ heading, **Group by**, the search and the row count on one line.
 | --- | --- |
 | Trade | Instrument-type pill and trade reference |
 | Market | Commodity dot, market name, delivery period |
-| Position | Diverging size bar on a fixed track, signed quantity, and under it the unit with lots (futures) or pay/receive fixed from the trade's sides (swaps, backend field) |
-| Price | Execution or fixed price, labeled with its price unit (for example "Executed · USD/MMBtu (IT)") |
-| Mark | Curve price at the selected close, labeled with its price unit; **Several marks** when a valued swap has no single curve price |
+| Position | Diverging size bar on a fixed track, signed quantity, and under it the unit with lots (futures) or pay/receive fixed from the trade's sides (swaps, backend field); **By period**, with no bar, for a scheduled swap (D214) |
+| Price | Execution or fixed price, labeled with its price unit (for example "Executed · USD/MMBtu (IT)"); **By period** for a scheduled swap whose fixed periods differ in price |
+| Mark | Curve price at the selected close, labeled with its price unit; **Several marks** when a valued swap has no single curve price, **By period** for a scheduled swap and **Settlement lifecycle** for a swap valued by its lifecycle (D215) |
 | Value | PV or execution P&L with its measure tag; blank with a chip when not valued |
 | Curve | Sparkline of the market's forward curve with the delivery period marked; gaps preserved |
 
 The Position column shows the backend's signed exposure. A swap whose sides do
 not reduce to one fixed and one floating side shows **Multi-side** in the table
-and each side's direction in the panel (designer's call).
+and each side's direction in the panel (designer's call). Each note in place of
+a figure says what it means in its tooltip and in the panel.
 
 Clicking a row, or pressing Enter on it, opens it in the side panel. **Group
 by** offers Book (default), Market, Instrument type and None (a flat list); it
@@ -234,7 +238,9 @@ open; the breakpoint is the builder's call. Modes:
    minus price. Tabs:
    - **Curve**: the market's forward curve at the selected close, the delivery
      period marked, and the trade's price as a reference line. **Open curve**
-     opens Curves & prices with that curve and contract selected.
+     opens Curves & prices with that curve and contract selected. A scheduled
+     swap whose periods project from several curves has no one curve: it has no
+     curve shape and no Open curve, and says why.
    - **Terms**: today's editor content (`trade-editor`, `swap-editor`) as a read
      view. **Amend** makes it editable in place, with the amendment reason and
      effective time as today. A scheduled swap (D214) amends in its own ticket,

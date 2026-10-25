@@ -208,6 +208,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
   return first.Coefficient==ExactDecimal.Parse("-1")?"pay_fixed":first.Coefficient==ExactDecimal.Parse("1")?"receive_fixed":
    throw Error("swap_instrument","The fixed side's coefficient is neither pay (-1) nor receive (1).");
  }
+ // Each membership's side kind and direction, which a read with no pure valuation to state them in states this way (D207).
+ private static object[] Memberships(SidedInstrument instrument)=>instrument.Sides.Select((membership,slot)=>(object)new{slot,
+  kind=membership.Side is FixedSide or ScheduledSwapSide{IsFixed:true}?"fixed":"floating",coefficient=membership.Coefficient.ToString()}).ToArray();
  // The mark less the fixed price, exactly. A swap without one fixed price or without one mark states none.
  private static string? MarkMinusPrice(SidedInstrument instrument,ExactUnitPrice? mark)=>
   mark is not null&&instrument.Sides[0].Side is FixedSide fixedSide?ExactPrice(mark.Subtract(ExactUnitPrice.FromPrice(fixedSide.Price))):null;
@@ -391,7 +394,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   {
    if(selected!=int.Parse(rows[^1].Text("revision"),CultureInfo.InvariantCulture))throw Error("settlement_revision","Select the effective trade head or its original certified historical context.");
    var lifecycle=await EvaluateLifecycle(connection,data,frame,row,Terms(data,row,frame.Id),settlement,ct);
-   return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=(object?)null,
+   return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=(object?)null,memberships=Memberships(lifecycle.Instrument),
     settlementValuation=LifecycleValue(lifecycle.Value),settlement,catalog=await Catalog(connection,data,frame,ct,Terms(data,row,frame.Id)),lifecycleEligible=false};
   }
   var terms=Terms(data,row,frame.Id);var value=await Price(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);

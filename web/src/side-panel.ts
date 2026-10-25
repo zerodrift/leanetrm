@@ -145,16 +145,21 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
     if(mode){host.setAttribute('aria-label',modeLabel(mode));place();}else{contain();o.changed?.();}
   }
   /**
-   * Asks whether to leave the unsaved edits the panel holds, when it holds any: false means the person kept them. It is a question, not
-   * a move. Only one question is asked at a time; a request made while one is open is refused.
+   * Asks the person a question in the panel with `asker`: true only for an answer to go on that arrives before the page resets the
+   * panel. Only one question is asked at a time; a request made while one is open is refused.
    */
+  async function ask(asker:(abandoned:AbortSignal)=>Promise<boolean>):Promise<boolean>{
+    if(question)return false;
+    const asking=question=new AbortController();
+    let going=false;
+    try{going=await asker(asking.signal);}finally{if(question===asking)question=undefined;}
+    return going&&!asking.signal.aborted;
+  }
+  /** Asks whether to leave the unsaved edits the panel holds, when it holds any: false means the person kept them. It is a question, not a move. */
   async function leave():Promise<boolean>{
     if(question)return false;
     if(mode===null||!o.unsaved())return true;
-    const asking=question=new AbortController();
-    let leaving=false;
-    try{leaving=await o.confirmLeave(asking.signal);}finally{if(question===asking)question=undefined;}
-    return leaving&&!asking.signal.aborted;
+    return ask(o.confirmLeave);
   }
   /** Switches the panel to `next`, asking first when it holds unsaved edits: false means the person kept them and the panel is as it was. */
   async function show(next:PanelMode):Promise<boolean>{
@@ -170,24 +175,29 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
   async function close(){if(mode!==null&&await show(null))o.closed?.();}
   part('close').onclick=()=>void close();
   host.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();void close();}});
-  return {show,leave,form,reveal,focusForm,reset,place,current:()=>mode,element};
+  return {show,leave,ask,form,reveal,focusForm,reset,place,current:()=>mode,element};
 }
 
 export type SidePanel=ReturnType<typeof setupSidePanel>;
 
-/** Asks inside the panel whether to discard what it holds unsaved. Escape keeps the edits, as the first button does. */
-export function askLeave(host:HTMLElement){
+/**
+ * Asks a question inside the panel: what it asks, the answer that keeps things as they are, which has focus, and the one that goes on.
+ * Escape keeps, as the first button does.
+ */
+export function askInPanel(host:HTMLElement,question:{text:string;keep:string;go:string}){
   const slot=host.querySelector<HTMLElement>('#side-panel-prompt')!;
   return (abandoned:AbortSignal)=>new Promise<boolean>(resolve=>{
-    const button=(label:string,leave:boolean)=>{const b=document.createElement('button');b.type='button';b.textContent=label;if(!leave)b.className='secondary';b.onclick=()=>finish(leave);return b;};
-    function finish(leave:boolean){
+    const button=(label:string,going:boolean)=>{const b=document.createElement('button');b.type='button';b.textContent=label;if(!going)b.className='secondary';b.onclick=()=>finish(going);return b;};
+    function finish(going:boolean){
       abandoned.removeEventListener('abort',abort);slot.onkeydown=null;slot.replaceChildren();slot.hidden=true;
-      if(!abandoned.aborted)host.focus({preventScroll:true});resolve(leave&&!abandoned.aborted);
+      if(!abandoned.aborted)host.focus({preventScroll:true});resolve(going&&!abandoned.aborted);
     }
     const abort=()=>finish(false);
-    const text=document.createElement('p');text.textContent='This panel has unsaved changes. Leaving discards them.';
-    const actions=document.createElement('div'),keep=button('Keep editing',false);actions.className='side-panel-prompt-actions';actions.append(keep,button('Discard changes',true));
+    const text=document.createElement('p');text.textContent=question.text;
+    const actions=document.createElement('div'),keep=button(question.keep,false);actions.className='side-panel-prompt-actions';actions.append(keep,button(question.go,true));
     slot.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();finish(false);}};
     slot.replaceChildren(text,actions);slot.hidden=false;keep.focus();abandoned.addEventListener('abort',abort);
   });
 }
+/** Asks inside the panel whether to discard what it holds unsaved. */
+export const askLeave=(host:HTMLElement)=>askInPanel(host,{text:'This panel has unsaved changes. Leaving discards them.',keep:'Keep editing',go:'Discard changes'});

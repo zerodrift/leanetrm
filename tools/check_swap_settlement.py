@@ -5,6 +5,30 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from preview_client import PreviewClient
 
+TRADES={'mode':'trades','bookIds':[],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}
+# When settlement starts, a swap's Blotter row changes only what its lifecycle now values: its PV is the remaining value, it has no
+# curve mark and so no mark minus price, and it states its settlement and lifecycle. Every other fact stays as the projection stated it.
+SETTLEMENT_VALUES={'presentValue','mark','markMinusPrice','settlement','lifecycle'}
+
+
+def held_row(c,context,trade):
+    """A trade's Blotter row at the close of a swap context."""
+    report=c.call('trading/blotter',dict(context={**context,'convention':'trading_workspace_v1'},view=TRADES))
+    return next(h for h in report['holdings'] if h['tradeId']==trade)
+
+
+def check_settlement_keeps_facts(projected,settled,what):
+    """The row of a swap before its first determination and after it differ only in what the lifecycle values."""
+    changed=sorted(k for k in projected.keys()|settled.keys() if projected.get(k)!=settled.get(k))
+    assert (projected['settlement'],settled['settlement'])==('Projection','Active') and settled['mark'] is None and settled['unavailableReason'] is None,(what,projected,settled)
+    assert set(changed)<=SETTLEMENT_VALUES,(what,[(k,projected.get(k),settled.get(k)) for k in changed])
+
+
+def check_stated_sides(c,context,trade,expected):
+    """A read with no pure valuation, as a swap valued by its lifecycle has, states each membership's kind and direction (D207)."""
+    read=c.call('swaps/editor',dict(context=context,tradeId=trade,revision=None))
+    assert read['valuation'] is None and read.get('memberships')==expected,read.get('memberships')
+
 
 def run_foundation(c,query,url,body,before,after,before_at,currency):
     terms=deepcopy(body);terms['operationId']=str(uuid4())
@@ -76,9 +100,13 @@ def run_lifecycle(c, workspace, context, trade, currency):
             reference='Synthetic contractual cash',reversesId=None))
     january=at('2021-01-15T08:00:00')
     first=inspect(january)
+    projected=held_row(c,january,trade)
     fixed=c.call('swaps/settlement/determine',determine(january,0,0))
     floating=c.call('swaps/settlement/determine',determine(january,1,1))
     assert fixed['total']=='-300' and floating['total']=='350'
+    check_settlement_keeps_facts(projected,held_row(c,january,trade),'a single-period swap')
+    check_stated_sides(c,january,trade,[{'slot':0,'kind':'fixed','coefficient':'-1'},{'slot':1,'kind':'floating','coefficient':'1'}])
+    print('PASS a single-period swap whose settlement starts keeps its Blotter facts, and its read states its sides\' kinds and directions')
     cash(january,floating['determinationId'],'100',2)
     partial=inspect(january)
     assert partial['valuation']['remainingValue']=='-50' and partial['valuation']['realized']=='0'

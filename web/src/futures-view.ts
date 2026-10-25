@@ -4,7 +4,7 @@ import {setupSwapEditor,readSwapView} from './swap-editor.js';
 import {setupTradeEditor,readTradeView} from './trade-editor.js';
 import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
-import {knownTradeRejection,retainedText} from './trade-requests.js';
+import {knownTradeRejection,restorable,retainedText,retryAllowed} from './trade-requests.js';
 import {setupRisk,riskDenied} from './risk-view.js';
 import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
@@ -19,7 +19,7 @@ import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
 import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
-import {askLeave,liveRefreshPlan,panelPlacement,sameMode,setupSidePanel,type PanelMode} from './side-panel.js';
+import {askInPanel,askLeave,liveRefreshPlan,panelPlacement,sameMode,setupSidePanel,type PanelMode} from './side-panel.js';
 import {setupPositionPanel,type PositionInput} from './position-panel.js';
 import {bookedPosition,followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile} from './desk-view.js';
@@ -101,6 +101,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
+    ask:question=>panel.ask(askInPanel(get('side-panel'),question)),
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The form of a new future, which the panel hosts as it hosts the forms of the amendments. What it books is kept as the request it was first sent as.
   const booking=setupFuturesBooking({api,act,busy,zone:options.zone,context:readContext,catalog:()=>catalog,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
@@ -263,7 +264,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function restore(){
     if(owner===options.profile())return;
     owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();forgetViews();draftBase=undefined;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Positions');workspace.closeMenus();viewControls();
-    try{const saved=JSON.parse(sessionStorage.getItem(storageKey())??'null');if(saved&&['futures/book','futures/amend','swaps/book','swaps/amend'].includes(saved.path)&&typeof saved.operationId==='string'&&saved.body&&typeof saved.body==='object'){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
+    try{const saved=JSON.parse(sessionStorage.getItem(storageKey())??'null');if(restorable(saved)){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
   }
   // Today's risk report opens below the positions; the tile says whether it is open or has results. The report tells the
   // page whenever that changes, including its own Close and a queued job that finishes on its own timer.
@@ -280,7 +281,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     button.disabled=busy()||!control.enabled;
     if(control.reason===null)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby','new-trade-availability');
   }
-  function sync(){booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!(pending.command?.path.endsWith('/amend')?catalog?.canAmendTrades:catalog?.canBook);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function sync(){booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
   function clear(){generation++;chartState=undefined;drawn=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
   function reset(){clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
@@ -504,11 +505,18 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // What was sent is no longer an edit: the read that follows closes the form without asking.
     done(command);
     pending.clear();uncertain=false;store();
-    // A settlement command reads the Blotter again as a live correction does: the panel, and the settlement view the command was
-    // sent from, stay, and that view reads its own state again.
-    if(command.path.startsWith('swaps/settlement/')){await load('directory',true);return;}
+    if(command.path.startsWith('swaps/settlement/')){await settled();return;}
     await load();
     await follow(amended,receipt);await followBooked(command,receipt);
+  }
+  // A settlement command that went through changes what its swap is valued at: risk results run before it no longer hold, and are
+  // cleared, with a note when there were any (D218). The Blotter is read again as a live correction reads it, so that the panel, and
+  // the settlement view the command was sent from, stay, and that view reads its state again.
+  async function settled(){
+    const shown=risk.shown();risk.reset();
+    if(shown)options.notice('Risk results cleared · a settlement record changed the values they were run on');
+    await load('directory',true);
+    await swapEditor.reloadSettlement();
   }
   // The position the panel shows of the trade an amendment was made to, if it shows it.
   function amendedPosition(command:RequestCommand){const h=deskPanel.shown();return command.path.endsWith('/amend')&&h?.tradeId===command.body.tradeId?h:undefined;}
@@ -529,14 +537,20 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(found.index!==null)await deskPanel.open(found.index);
     if(found.note)options.notice(found.note);
   }
-  get('futures-retry').onclick=()=>guarded(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
-  get('futures-reconcile').onclick=()=>guarded(async()=>{
+  // A retained settlement command is retried or checked with the settlement view it came from left open, as its outcome reads the
+  // Blotter again as a live correction does. Any other retained request is settled by a new read, which closes the panel, so the
+  // panel asks about its edits first.
+  function retainedAction(work:()=>Promise<void>){if(pending.command?.path.startsWith('swaps/settlement/')){if(!busy())void act(work);}else guarded(work);}
+  get('futures-retry').onclick=()=>retainedAction(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
+  get('futures-reconcile').onclick=()=>retainedAction(async()=>{
     if(!pending.command)throw Error('No retained booking to reconcile.');
     try{
       const result=await api<Receipt>(pending.command.path.startsWith('swaps/settlement/')?'swaps/settlement/status':pending.command.path.startsWith('swaps/')?'swaps/status':'futures/status',{operationId:pending.command.operationId});
       if(!result.tradeId)throw Error('No committed outcome is visible yet. Retry the original request with the same identity.');
       const command=pending.command,amended=amendedPosition(command);
-      pending.clear();uncertain=false;store();await load();
+      pending.clear();uncertain=false;store();
+      if(command.path.startsWith('swaps/settlement/')){await settled();return;}
+      await load();
       await follow(amended,result);await followBooked(command,result);
     }catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}
   });

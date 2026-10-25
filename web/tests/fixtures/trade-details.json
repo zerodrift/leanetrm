@@ -1510,6 +1510,18 @@
    }
   },
   "valuation": null,
+  "memberships": [
+   {
+    "slot": 0,
+    "kind": "fixed",
+    "coefficient": "-1"
+   },
+   {
+    "slot": 1,
+    "kind": "floating",
+    "coefficient": "1"
+   }
+  ],
   "asOf": "2020-12-18T16:00:00+00:00",
   "canAmend": false,
   "amendUnavailableReason": "This retained state is outside the supported live, unprocessed futures lifecycle. Settlement must be handled separately.",

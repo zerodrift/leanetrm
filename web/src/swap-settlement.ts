@@ -18,7 +18,8 @@ export const lifecycleMeasures=[['Remaining contractual value','remainingValue']
 /**
  * A financial swap's settlement and P&L view (D215), which the side panel hosts as it hosts the swap ticket (D218): its occurrences,
  * determinations, balances, cash and P&L bridge, and the commands that write them. `host` is the panel's form part; the view is kept on
- * the page's shelf until it opens there, and goes back when it is reset. What is typed into its payment form is an edit.
+ * the page's shelf until it opens there, and goes back when it is reset. What is typed into its payment form, and a correction's due
+ * instant, are edits. A command it sends that goes through, or one the page settles for it, makes the page read the view again.
  */
 export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Context;
  queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;host:()=>HTMLElement;unsavedChanged:()=>void}){
@@ -45,6 +46,8 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  root.append(heading,status,error,refresh,summary,node('h3','Contractual payment occurrences'),payments,evidence,node('h3','Determined balances and adjustments'),balances,
   form,node('h3','Cash history'),cashHistory,pnl);shelf.append(root);
  const edits=trackEdits(form,[],options.unsavedChanged);
+ // A correction's due instant is entered in the calculation it was asked for, and goes with it.
+ const dueEdits=trackEdits(evidence,[],options.unsavedChanged);
  let detail:Detail|undefined,tradeId:string|undefined,selectedKey='',generation=0;
  let opening:{tradeId:string;context:Context;asOf:string}|undefined;
  const key=()=>JSON.stringify(options.context()),context=()=>({...options.context(),convention:'independent_side_financial_swap_v2'});
@@ -57,8 +60,10 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   payments.querySelectorAll<HTMLButtonElement>('button[data-eligible]').forEach(button=>button.disabled=!canWrite()||button.dataset.eligible!=='true');
   const determine=evidence.querySelector<HTMLButtonElement>('#swap-settlement-determine');if(determine)determine.disabled=!canWrite()||determine.dataset.eligible!=='true';
  }
- function invalidate(){generation++;evidence.replaceChildren();bridge.replaceChildren();sync();}
- async function run(work:()=>Promise<void>){await options.act(async()=>{error.textContent='';try{await work();}catch(e){invalidate();error.textContent=(e as Error).message;}});sync();}
+ function invalidate(){generation++;evidence.replaceChildren();dueEdits.clear();bridge.replaceChildren();sync();}
+ // A failed action drops the calculation shown, as its inputs may have changed; a refused determination keeps the calculation it was
+ // asked from, with its due instant, and says why.
+ async function run(work:()=>Promise<void>,keep=false){await options.act(async()=>{error.textContent='';try{await work();}catch(e){if(!keep)invalidate();error.textContent=(e as Error).message;}});sync();}
  function table(host:HTMLElement,id:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[]){host.replaceChildren();renderRegularTable(host,id,JSON.stringify(detail?.context),headers,rows,numeric,options.busy);}
  async function load(){
   if(!tradeId)return;invalidate();const version=generation,scope=key();const result=await options.api<Detail>('swaps/settlement/inspect',{context:context(),tradeId,revision:null,duePolicy,recognitionPolicy});
@@ -78,7 +83,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   sync();
  }
  async function preview(payment:Payment){
-  const report=current(),version=generation,scope=key();evidence.replaceChildren();
+  const report=current(),version=generation,scope=key();evidence.replaceChildren();dueEdits.clear();
   const request={context:context(),tradeId:report.state.tradeId,expectedRevision:report.state.revision,membershipOrdinal:payment.membershipOrdinal,paymentOrdinal:payment.ordinal,
    currency:report.currency,decimalPlaces:report.decimalPlaces,roundingPolicy:report.roundingPolicy};
   const value=await options.api<Preview>('swaps/settlement/preview',request);if(version!==generation||scope!==key())return;
@@ -90,7 +95,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   const determine=node('button',correction?'Record correction adjustment':'Determine gross payment');determine.id='swap-settlement-determine';determine.type='button';determine.dataset.eligible=String(value.inputsChanged);determine.disabled=!value.inputsChanged;
   determine.onclick=()=>void run(async()=>{current();if(!value.inputsChanged||!report.canAmend||version!==generation||scope!==key()||options.pending())throw Error('The preview changed or has no new final inputs. Recalculate before submitting.');if(correction&&!due.value)throw Error('Enter an explicit correction due instant.');
    await options.queue({operationId:crypto.randomUUID(),path:'swaps/settlement/determine',label:`Settlement ${correction?'correction':'determination'} of ${report.state.tradeReference}`,body:{preview:request,expectedVersion:report.settlement.version,previewHash:value.previewHash,
-    duePolicy,recognitionPolicy,correctionPolicy,correctionDueAt:correction?due.value:null}});await load();});
+    duePolicy,recognitionPolicy,correctionPolicy,correctionDueAt:correction?due.value:null}});},true);
   const details=node('details'),caption=node('summary','Calculation and final fixing evidence'),raw=node('pre');raw.className='swap-evidence';raw.textContent=JSON.stringify(value.calculation,null,2);details.append(caption,raw);
   evidence.append(heading,text);if(!value.inputsChanged)evidence.append(node('p','These final fixing inputs are already determined.'));if(correction)label(evidence,'Correction due instant · UTC',due);else evidence.append(node('p',`Contractual payment: ${displayInstant(value.calculation.paymentAt,options.zone())}.`));evidence.append(details,determine);
  }
@@ -102,7 +107,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   if(!reversing&&(!target.value||!amount.value))throw Error('Choose a contribution and enter the signed cash amount.');
   await options.queue({operationId:crypto.randomUUID(),path:'swaps/settlement/payment',label:`Settlement ${reversing?'cash reversal':'cash'} of ${report.state.tradeReference}`,body:{context:context(),tradeId:report.state.tradeId,expectedRevision:report.state.revision,
    expectedVersion:report.settlement.version,determinationId:movement?.determinationId??target.value,amount:movement?.reversalAmount??amount.value,currency:report.currency,
-   effectiveAt:effective.value,reference:reference.value,reversesId:movement?.id??null}});amount.value='';reference.value='';effective.value='';edits.clear();await load();
+   effectiveAt:effective.value,reference:reference.value,reversesId:movement?.id??null}});amount.value='';reference.value='';effective.value='';edits.clear();
  }
  form.onsubmit=e=>{e.preventDefault();void run(()=>record(false));};reverse.onclick=()=>void run(()=>record(true));reversal.onchange=sync;
  baseline.onclick=()=>{const report=current();opening={tradeId:report.state.tradeId,asOf:report.asOf,context:{...context(),knowledgeMode:'retained',contextId:report.context.contextId}};openingLabel.textContent=`Opening: ${displayInstant(report.asOf,options.zone())} · retained knowledge context.`;sync();};
@@ -117,6 +122,6 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   reset(){invalidate();detail=undefined;tradeId=undefined;form.reset();edits.clear();shelf.append(root);root.hidden=true;},sync,
   refresh(){invalidate();if(mounted()){detail=undefined;status.textContent='Financial context changed. Refresh settlement before continuing.';}},
   async liveRefresh(){if(mounted())await load();},isOpen:mounted,
-  unsaved:()=>mounted()&&edits.edited(),
+  unsaved:()=>mounted()&&(edits.edited()||dueEdits.edited()),
   revision:()=>mounted()?detail?.state.revision:undefined};
 }

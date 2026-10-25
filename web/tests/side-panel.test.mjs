@@ -256,6 +256,22 @@ test('while the person is being asked, leaving is refused too, and a reset answe
  assert.equal(await asking,false);
 });
 
+test('the panel asks a question of its own as it asks about edits: one at a time, and a reset answers it no',async()=>{
+ const {host}=markup();let release,signal,asked=0;
+ const shell=setupSidePanel(host,{unsaved:()=>true,confirmLeave:async()=>true,docked:()=>true});
+ await shell.show(position('t1'));
+ const question=abandoned=>{asked++;signal=abandoned;return new Promise(resolve=>{release=resolve;});};
+ const asking=shell.ask(question);
+ assert.equal(await shell.ask(async()=>true),false,'a second question is refused while one is open');
+ assert.equal(await shell.leave(),false,'and leaving is too');
+ release(true);
+ assert.equal(await asking,true);assert.equal(asked,1);
+ const declined=shell.ask(question);release(false);assert.equal(await declined,false);
+ const reset=shell.ask(question);shell.reset();
+ assert.equal(signal.aborted,true);release(true);
+ assert.equal(await reset,false,'an answer after a reset is no');
+});
+
 const note='Risk results cleared · live corrections changed the inputs';
 test('a live correction leaves a panel with unsaved edits alone and clears a risk run with a note',()=>{
  const open={kind:'position',tradeId:'t',bindingId:'b',revision:1};
