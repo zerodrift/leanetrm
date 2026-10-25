@@ -2861,3 +2861,11 @@ preparation and managed/schema results were retained from the preceding full run
 See [settlement capability and verification](swap-settlement.md#d216-local-verification)
 for supported combinations, independent numerical oracles and enforced limits.
 This is synthetic local verification, not deployment qualification.
+
+The weighted two-month booking browser check uses an explicit 35-second operation
+wait for the booking write and populated holdings refresh, allowing two API
+request deadlines plus rendering. Ordinary page readiness retains its ten-second
+budget. Eighteen owned-browser helper checks cover delayed completion without
+resubmission, ordinary timeout refusal, finite overrides and invalid budgets
+refused before an action. Booking and refresh errors still fail the workflow;
+the independent 86.5 cash oracle remains mandatory.

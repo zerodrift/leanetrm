@@ -107,11 +107,18 @@ async function connect(socket,errors){
   socket.onclose=()=>abandon('Browser connection closed.');
   function command(method,params={}){const id=++sequence;return new Promise((accept,reject)=>{const timeout=setTimeout(()=>{pending.delete(id);reject(Error('Browser command timed out: '+method));},20000);pending.set(id,{accept,reject,timeout});socket.send(JSON.stringify({id,method,params}));});}
   async function evaluate(expression){const response=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(response.exceptionDetails)throw Error(JSON.stringify(response.exceptionDetails));return response.result.value;}
-  async function wait(expression){for(let i=0;i<200;i++){if(await evaluate(expression))return;await delay(50);}throw Error('Timed out: '+expression);}
-  async function click(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);await wait(idle);}
-  async function set(selector,value){await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
-  async function submit(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);await wait(idle);}
+  const {wait,click,set,submit}=browserPageActions(evaluate);
   return {command,evaluate,wait,click,set,submit,abandon};
+}
+
+// Page actions share the same evaluator for the primary page and owned tabs.
+export function browserPageActions(evaluate,{pause=delay,now=()=>performance.now()}={}){
+  const budget=(milliseconds=10000)=>{if(!Number.isFinite(milliseconds)||milliseconds<=0||milliseconds>60000)throw Error('Page action wait must be finite, positive and at most 60 seconds.');return milliseconds;};
+  async function wait(expression,milliseconds){const duration=budget(milliseconds),until=now()+duration;while(now()<until){if(await evaluate(expression))return;await pause(Math.max(0,Math.min(50,until-now())));}throw Error('Timed out after '+duration+'ms: '+expression);}
+  async function click(selector,milliseconds){const duration=budget(milliseconds);await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);await wait(idle,duration);}
+  async function set(selector,value){await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
+  async function submit(selector,milliseconds){const duration=budget(milliseconds);await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);await wait(idle,duration);}
+  return {wait,click,set,submit};
 }
 
 export async function withOwnedBrowser(targetFile,browserPath,run){
