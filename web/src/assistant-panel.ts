@@ -17,7 +17,7 @@ type Listed={id:string;agentName:string;unread:boolean;latestTurn:Turn};
 // A target's notice: whether the page moved there, the place Back restores, why it waits, and the action the person was
 // told leaves the unsaved changes of a page, which that page's next click of it then takes.
 type Notice={moved:boolean;key?:string;reason?:string;confirm?:{action:'go'|'back';page:string}};
-export type PanelOptions={api:Api;root:string;identity:()=>string;zone:()=>string;available:()=>boolean;pageBusy:()=>boolean;
+export type PanelOptions={launcherHidden?:()=>boolean;api:Api;root:string;identity:()=>string;zone:()=>string;available:()=>boolean;pageBusy:()=>boolean;
   act:(work:()=>Promise<void>)=>Promise<void>;place:()=>Place;names:()=>Names;trade:()=>string|undefined;unsaved:()=>boolean;
   // Moves the page to a target in the context it shows; selects a target's context, then moves; and restores a place.
   open:(target:Target)=>Promise<void>;go:(target:Target)=>Promise<void>;restore:(place:Place)=>Promise<void>};
@@ -401,7 +401,7 @@ export function setupAssistant(options:PanelOptions){
     }
   }
   function sync(){
-    launcher.hidden=!options.available()||!agents.length;launcher.disabled=false;get('assistant-dot').hidden=!unread;
+    launcher.hidden=!options.available()||!agents.length||!!options.launcherHidden?.();get('assistant-hide').hidden=launcher.hidden||opened;launcher.disabled=false;get('assistant-dot').hidden=!unread;
     launcher.setAttribute('aria-label',unread?'Assistant · a new answer':'Assistant');
     if(panel.hidden)return;
     renderLooking();

@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["workspace", "ppa", "recovery"]
+        group: ["workspace", "trading", "ppa", "recovery"]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:

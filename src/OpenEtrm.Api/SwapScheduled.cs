@@ -230,10 +230,7 @@ public sealed partial class SwapStore
         var row=One(rows.Where(r=>int.Parse(r.Text("revision"),CultureInfo.InvariantCulture)==selected));
         if(row.OptionalId("scheduled_first_id") is null)throw Error("scheduled_quantity","This trade has no scheduled quantity contract.");
         var intervals=await PreviewDatabase.Rows(connection,"""
-         SELECT jsonb_build_object('slot',p.slot,'period',p.period_ordinal,'ordinal',p.ordinal,'start',p.starts_at,'end',p.ends_at,'operatingDate',p.operating_date,
-          'energyNumerator',p.energy_numerator::text,'energyDenominator',p.energy_denominator::text,'energyQuantity',q.energy_quantity_code)::text
-         FROM trading.swap_power_quantity_intervals p JOIN trading.swap_quantity_amounts q ON(q.catalog_id,q.trade_id,q.revision,q.slot,q.ordinal)=(p.catalog_id,p.trade_id,p.revision,p.slot,p.period_ordinal)
-         WHERE(p.catalog_id,p.trade_id,p.revision)=($1,$2,$3) ORDER BY p.slot,p.period_ordinal,p.ordinal
+         SELECT value::text FROM jsonb_array_elements(security.read_swap_power_quantity_intervals($1,$2,$3))
          """,[manifest.CatalogId,trade,selected],ct);
         return new{tradeId=trade,revision=selected,quantityInputs=await RetainedQuantityInputs(connection,row,ct),
             intervals=intervals.Select(p=>new{slot=int.Parse(p.Text("slot"),CultureInfo.InvariantCulture),period=int.Parse(p.Text("period"),CultureInfo.InvariantCulture),ordinal=int.Parse(p.Text("ordinal"),CultureInfo.InvariantCulture),

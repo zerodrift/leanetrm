@@ -118,7 +118,7 @@ class CheckAllTests(unittest.TestCase):
             return result
 
         complete = commands('all')
-        groups = {name: commands(name) for name in ('workspace', 'ppa', 'recovery')}
+        groups = {name: commands(name) for name in ('workspace', 'trading', 'ppa', 'recovery')}
         self.assertEqual(set().union(*(set(value) for value in groups.values())), set(complete))
         for name, selected in groups.items():
             with self.subTest(group=name):
@@ -133,12 +133,20 @@ class CheckAllTests(unittest.TestCase):
         self.assertIn('--close-risk-lease-check', groups['recovery'][-1])
         self.assertTrue(any('--close-risk-check' in c for c in groups['ppa']))
         self.assertTrue(any('--side-observation-check' in c and '--browser-check' in c
-                            for c in groups['workspace']))
-        for name in ('ppa', 'recovery'):
+                            for c in groups['trading']))
+        for name in ('workspace', 'ppa', 'recovery'):
             self.assertFalse(any('--side-observation-check' in c for c in groups[name]))
+        # The long trading workflows must not consume the workspace job's budget.
+        for flag in ('--draft-check', '--scheduled-swap-check', '--index-fixing-check',
+                     '--swap-risk-holdings-check', '--pilot-close-check',
+                     '--connected-portfolio-check', '--valuation-status-check', '--desk-fields-check'):
+            self.assertTrue(any(flag in c for c in groups['trading']), flag)
+            self.assertFalse(any(flag in c for c in groups['workspace']), flag)
+        self.assertTrue(any('--hosted-check' in c for c in groups['workspace']))
+        self.assertTrue(any('--risk-jobs-check' in c for c in groups['workspace']))
 
     def test_failed_or_interrupted_group_never_claims_completion(self):
-        for group in ('workspace', 'ppa', 'recovery'):
+        for group in GROUPS:
             for failure in (subprocess.CalledProcessError(17, ['required']), KeyboardInterrupt()):
                 with self.subTest(group=group, failure=type(failure).__name__):
                     output = io.StringIO()

@@ -61,7 +61,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  function fillCatalog(selectedId:string|undefined){
   if(!catalog)return;
   choose('interval-series-select',catalog.series.length?'Choose a series…':'No series defined yet',catalog.series.map(s=>[s.id,`${s.name} · ${s.code}`]));
-  if(selectedId&&catalog.series.some(s=>s.id===selectedId))choice('interval-series-select').value=selectedId;
+  choice('interval-series-select').value=selectedId&&catalog.series.some(s=>s.id===selectedId)?selectedId:catalog.series.find(s=>s.head>0)?.id??catalog.series[0]?.id??'';
   choose('interval-series-kind','Choose a kind…',Object.keys(catalog.choices.specifications).map(kind=>[kind,friendly(kind)]));
   choose('interval-series-clock','Choose a clock…',catalog.choices.clocks.map(code=>[code,friendly(code)]));
   choose('interval-series-minutes','Choose a resolution…',catalog.choices.resolutions.map(minutes=>[String(minutes),`${minutes} minutes`]));
@@ -104,7 +104,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   const count=reading.rows.length,labels=timeLabels([...reading.rows.map(r=>r.start),...reading.rows.map(r=>r.end)],zone);
   // Knowledge times show seconds, with an offset where a repeated clock makes two of them alike. A revision has one Known from, shared by its change rows.
   const known=timeLabels([reading.knownAt,...log.revisions.map(r=>r.knownFrom)],zone,true),knownFrom=new Map(log.revisions.map((r,i)=>[r.revision,known[i+1]]));
-  get('interval-series-values-note').textContent=`${count} ${count===1?'interval has':'intervals have'} a value · latest revision ${reading.head} known at ${known[0]}${catalog?.canRevise&&!current?' · Reload to correct current values.':''}`;
+  get('interval-series-values-note').textContent=`${count===0?'No records available. ':''}${count} ${count===1?'interval has':'intervals have'} a value · latest revision ${reading.head} known at ${known[0]}${catalog?.canRevise&&!current?' · Reload to correct current values.':''}`;
   const title=series()?.name??'Interval data',unit=friendly(series()?.specification??'');
   widget.show({scope,title,caption:`${friendly(series()?.kind??'')} · ${unit}`,headers:['Start','End','Value','Revision'],
    rows:reading.rows.map((r,i)=>[labels[i],labels[count+i],r.value,String(r.revision)]),numeric:[2,3],
@@ -117,6 +117,14 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   renderRegularTable(get('interval-series-changes'),'interval-series-changes',scope,['Start','End','Revision','Previous value','New value','Changed by','Reason','Known from'],
    log.rows.map((r,i)=>[spans[i],spans[changed+i],String(r.revision),r.previousRevision===null?'None':r.previousValue??'Withdrawn',r.value??'Withdrawn',r.actor,r.reason,knownFrom.get(r.revision)??displayInstant(r.knownFrom,zone,true)]),[2,3,4],o.busy,{noColumnFilter:[0,1,3,4,7]});
   sync();
+ }
+ async function readLatest(){
+  clearResults();const selected=series(),owner=catalog,started=generation;
+  if(!selected){get('interval-series-values-note').textContent='No records available. No interval series have been defined.';return;}
+  const result=await o.api<{window:{from:string;to:string}|null}>('interval-series/latest',{seriesId:selected.id,knownAt:await known.instant()});
+  if(owner!==catalog||started!==generation)return;
+  if(!result.window){from.clear();to.clear();get('interval-series-values-note').textContent='No records available for this series at the selected knowledge cutoff.';return;}
+  from.set(result.window.from);to.set(result.window.to);await read();
  }
  async function read(){
   const selected=requireSeries(),owner=catalog,started=generation;
@@ -189,9 +197,12 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   for(const id of ['interval-series-correct','interval-series-withdraw'])get<HTMLButtonElement>(id).disabled=busy||reviseLost||!chosen;
  }
 
- choice('interval-series-select').onchange=()=>{latest=undefined;clearResults();describe();sync();};
+ choice('interval-series-select').onchange=()=>{generation++;latest=undefined;clearResults();describe();sync();void o.act(readLatest);};
  choice('interval-series-kind').onchange=()=>{specifications();sync();};
- get('interval-series-refresh').onclick=()=>void o.act(async()=>{if(await fetchCatalog()&&windowComplete())await read();});
+ get('interval-series-refresh').onclick=()=>void o.act(async()=>{if(await fetchCatalog())await readLatest();});
+ for(const event of ['input','change'])get('interval-series-form').addEventListener(event,()=>{
+  generation++;clearResults();get('interval-series-values-note').textContent='Selection changed · choose Show values.';
+ });
  get<HTMLFormElement>('interval-series-form').onsubmit=event=>{event.preventDefault();if(o.busy())return;void o.act(async()=>{clearResults();await read();});};
  get<HTMLFormElement>('interval-series-define-form').onsubmit=event=>{event.preventDefault();if(o.busy())return;void o.act(async()=>{
   get('interval-series-defined').textContent='';
@@ -230,7 +241,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
    // An outstanding save is reviewed against its own series.
    const lost=revision.pending.command?.body.seriesId;
    if(typeof lost==='string'&&catalog?.series.some(s=>s.id===lost)){choice('interval-series-select').value=lost;describe();}
-   sync();
+   sync();await readLatest();
   },
   reset(){
    unload();for(const h of holders)h.pending.clear();

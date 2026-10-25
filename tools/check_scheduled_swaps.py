@@ -221,6 +221,23 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     lineage=c.call('swaps/quantity-schedule',dict(context=context,tradeId=power_saved['tradeId'],revision=1))
     assert [q['slot'] for q in lineage['quantityInputs']]==[0,1] and lineage['intervals'][0]['slot']==0 and lineage['intervals'][0]['period']==0
     assert len(lineage['intervals'])==2930 and lineage['quantityInputs'][0]['periods'][0]['deliveryHours']=='745'
+    retained_context={**context,'knowledgeMode':'retained','contextId':retained['context']['contextId']}
+    replay=c.call('swaps/quantity-schedule',dict(context=retained_context,tradeId=power_saved['tradeId'],revision=1))
+    assert replay['intervals']==lineage['intervals'] and replay['quantityInputs']==lineage['quantityInputs']
+    assert lineage['canBook'] and not replay['canBook']
+    if query:
+        # The narrow bulk reader must not turn an unbound runtime into an owner read.
+        query(f"""SET SESSION AUTHORIZATION preview_runtime; DO $$BEGIN
+         BEGIN PERFORM security.read_swap_power_quantity_intervals('{CAT}','{power_saved['tradeId']}',1);
+          RAISE EXCEPTION 'Unbound quantity read succeeded';
+         EXCEPTION WHEN insufficient_privilege THEN NULL;END;
+        END$$; RESET SESSION AUTHORIZATION;""")
+        query('REVOKE EXECUTE ON FUNCTION security.read_swap_power_quantity_intervals(uuid,uuid,integer) FROM openetrm_runtime;')
+        try:
+            assert c.call('swaps/quantity-schedule',dict(context=context,tradeId=power_saved['tradeId'],revision=1),expected=403)['code']=='access_denied'
+        finally:
+            query('GRANT EXECUTE ON FUNCTION security.read_swap_power_quantity_intervals(uuid,uuid,integer) TO openetrm_runtime;')
+    print('PASS retained power quantity read: 2930 exact intervals fit the normal request deadline; unbound authority refuses',flush=True)
     assert retained['quantityInputs'][1]['periods'][1]['deliveryHours']=='720'
     new_york=next(q['reference'] for q in catalog['scheduledOptions']['clocks'] if q['reference']['code']=='synthetic_new_york')
     clocked=deepcopy(power);clocked['operationId']=str(uuid4())

@@ -375,8 +375,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('disposing before vendor initialization cannot reattach financial rows',"window.__gridDestroyed===true");
   await persona('admin');
   await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();return await(await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'layout_browser',name:'Synthetic layout account',kind:'human',roles:['trader']})})).json();})()`);
-  // An account opens on the newest close its calendar offers. This one's calendar offers none, so it has no market date and
-  // no read to replace the prior layout: the layout must clear at the switch itself.
+  await persona('layout_browser');
+  await check('a new account starts on the Blotter at a market date, with none of the prior account\'s views',"document.querySelector('#snapshot').value!==''&&document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''");
+  // An account opens on the newest close its calendar offers. Here the calendar offers none, so the account has no market date
+  // and no read to replace the layout it showed: the layout must clear at the switch itself.
   await evaluate(`(()=>{const send=window.fetch;window.__noCloses=true;window.fetch=async(input,init)=>{const response=await send(input,init);if(!window.__noCloses||input!=='/api/market/dates'||!response.ok)return response;const data=await response.json();return new Response(JSON.stringify({...data,dates:[],unavailable:[],minDate:null,maxDate:null}),{status:200,headers:{'Content-Type':'application/json'}});};})()`);
   await persona('layout_browser');await evaluate('window.__noCloses=false');await click('#nav-futures');
   await check('switching accounts without a market date clears the prior layout immediately',"document.querySelector('#snapshot').value===''&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''&&document.querySelector('#blotter-column-choices').children.length===0&&document.querySelector('#blotter-mode').value==='trades'");

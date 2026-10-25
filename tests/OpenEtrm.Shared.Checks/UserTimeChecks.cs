@@ -16,6 +16,12 @@ internal static class UserTimeChecks
         Reject("time_zone",()=>UserTime.Inspect("2020-12-18T10:00","missing/zone"));
         Reject("time_format",()=>UserTime.Inspect("2020-12-18T10:00Z","America/Chicago"));
         Equal(UserTime.Inspect("2020-12-19T00:15:30","Asia/Kathmandu")[0].Instant,new DateTimeOffset(2020,12,18,18,30,30,TimeSpan.Zero));
-        Console.WriteLine("8 user time conversion checks passed.");
+        // Independent UTC boundaries: the short and long local days end at different offsets.
+        Equal(UserTime.EndOfDay(new DateOnly(2026,3,8),"America/Chicago"),
+            new DateTimeOffset(2026,3,9,5,0,0,TimeSpan.Zero).AddTicks(-10));
+        Equal(UserTime.EndOfDay(new DateOnly(2026,11,1),"America/Chicago"),
+            new DateTimeOffset(2026,11,2,6,0,0,TimeSpan.Zero).AddTicks(-10));
+        Reject("time_zone",()=>UserTime.EndOfDay(new DateOnly(2026,1,1),"missing/zone"));
+        Console.WriteLine("11 user time conversion checks passed.");
     }
 }

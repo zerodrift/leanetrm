@@ -469,6 +469,7 @@ Task<IResult> IntervalSeriesOperation<T>(HttpContext c,string permission,Func<Np
 api.MapGet("/interval-series",(Func<HttpContext,Task<IResult>>)(c=>IntervalSeriesOperation(c,"ReadMarketData",intervalSeries.Catalog)));
 api.MapPost("/interval-series/define",(HttpContext c,IntervalSeriesDefineRequest body)=>IntervalSeriesOperation(c,"WriteMarketDefinitions",(connection,ct)=>intervalSeries.Define(connection,body,ct)));
 api.MapPost("/interval-series/revise",(HttpContext c,IntervalSeriesReviseRequest body)=>IntervalSeriesOperation(c,"ImportObservations",(connection,ct)=>intervalSeries.Revise(connection,body,ct)));
+api.MapPost("/interval-series/latest",(HttpContext c,IntervalSeriesLatestRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Latest(connection,body,ct)));
 api.MapPost("/interval-series/values",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Values(connection,body,ct)));
 api.MapPost("/interval-series/changes",(HttpContext c,IntervalSeriesReadRequest body)=>IntervalSeriesOperation(c,"ReadMarketData",(connection,ct)=>intervalSeries.Changes(connection,body,ct)));
 var intervalCurves=new IntervalCurvesStore(marketReads,touStore);

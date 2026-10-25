@@ -7,7 +7,7 @@ import {chooseFutures} from './futures-selection.mjs';
 // preview. An administrator's independent session publishes this run's agents; the page asks them as a trader, and the
 // fake provider answers exactly as this scenario scripts it through its control listener, holding an answer where a
 // check needs a turn in flight. Every answer scripted here is one model call the run must make.
-export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,fitsWidth,url,provider,tab}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url,provider,tab}){
   const control=new URL(provider);
   if(control.protocol!=='http:'||control.hostname!=='127.0.0.1'||!control.port||control.pathname!=='/'||control.search)throw Error('The fake provider control must be the owned loopback listener.');
   const script=async(...answers)=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('The fake provider refused a scripted answer.');};
@@ -73,7 +73,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('the launcher is hidden from a person without UseAgents, who reads no agents',`${q('#assistant-launcher')}.hidden&&!${agentsRead}`);
   await persona('editor');await wait("window.__requests.some(r=>r.path==='/api/assistant/agents'&&r.agents===0)");await pause(50);
   await check('and from a person who uses agents but may use none of them',`${q('#assistant-launcher')}.hidden&&${q('#assistant-agent')}.options.length===1`);
-  await persona('trader');await wait(shown('#assistant-launcher'));await click('#nav-market');await clearDate();
+  await persona('trader');await wait(shown('#assistant-launcher'));await click('#nav-market');
+  await check('Assistant launcher floats at the lower right',"(()=>{const n=document.querySelector('#assistant-launcher'),r=n.getBoundingClientRect();return getComputedStyle(n).position==='fixed'&&innerWidth-r.right<50&&innerHeight-r.bottom<50;})()");
+  await click('#assistant-hide');await check('the floating launcher can be hidden',q('#assistant-launcher')+'.hidden&&'+q('#assistant-hide')+'.hidden');
+  await click('#profile-open');await evaluate("document.querySelector('#show-assistant').checked=true");await submit('#preferences-form');
+  await check('Profile restores the floating launcher',shown('#assistant-launcher'));
+
   await click('#assistant-launcher');
   const guideChoice=`${guided.id}:1`,secondChoice=`${seconded.id}:1`;
   await wait(`[...${q('#assistant-agent')}.options].some(o=>o.value===${JSON.stringify(guideChoice)})`);
@@ -86,8 +91,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await evaluate(`${q('#assistant-resize')}.focus();${q('#assistant-resize')}.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))`);
   await check('its left edge widens it by keyboard, and this browser remembers the width',
     `${q('#assistant-panel')}.getBoundingClientRect().width===${width+16}&&localStorage.getItem('openetrm.assistant.width')==='${width+16}'&&${q('#assistant-resize')}.getAttribute('aria-valuenow')==='${width+16}'`);
-  await check('Looking at names the page, what it shows and that working data needs an As of date to be asked about',
-    `JSON.stringify(${looking})===${JSON.stringify(JSON.stringify(['Curves & prices','Curve directory','Working data · choose an As of date to ask about it']))}`,looking);
+  await check('Looking at names the page and its automatically selected latest market date',
+    `${looking}[0]==='Curves & prices'&&${looking}[1]==='Curve directory'&&${looking}[2].startsWith('Working data · As of ')&&!!${q('#snapshot')}.value`,looking);
   const [first,later]=await evaluate(`[...${q('#snapshot')}.options].map(o=>o.value).filter(Boolean)`);
   if(!later)throw Error('The standard fixture needs two As of dates for the panel checks.');
   await set('#snapshot',first);await wait(idle);await set('#assistant-agent',guideChoice);
@@ -358,7 +363,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
 
   // A target pinned to a historical view waits for Go from working data; Go selects that view again by its id, and Back
   // returns to working data (§10.1, D191).
-  await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
+  await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
   await wait(`${q('#workspace-mode-label')}.textContent==='Historical view · read only'&&${idle}`);
   const dated=await evaluate(`[...${q('#snapshot')}.options].map(o=>o.value).find(Boolean)`);await set('#snapshot',dated);await wait(idle);
   await script({hold:'retained',text:'From history. ',tools:[['toolu_panel_12','navigate',{page:'schedules',target:null}]]},{text:'There it is.'});
@@ -382,10 +387,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await reload(`${shown('#assistant-panel')}&&document.querySelectorAll('#assistant-turns > li').length>1`);
   const curveTarget=`document.querySelectorAll('#assistant-turns > li')[1].querySelector('.assistant-target')`;
   await check('after a reload every target of the conversation waits for Go, with no Back',`[...document.querySelectorAll('.assistant-target')].every(t=>[...t.querySelectorAll('button')].map(b=>b.textContent).join()==='Go')`);
+  const restoredFrame=await evaluate(`${q('#snapshot')}.value`);
   await evaluate('window.__failEvaluate=true');await evaluate(`[...${curveTarget}.querySelectorAll('button')].find(b=>b.textContent==='Go').click()`);
   await wait(`${shown('#error')}&&${idle}&&[...${curveTarget}.querySelectorAll('button')].map(b=>b.textContent).join()==='Go,Back'`);
   await check('a Go whose page read then fails says so on the page and keeps Go and Back',`${q('#snapshot')}.value===${JSON.stringify(first)}&&${q('#page-title')}.textContent==='Curves & prices'`);
-  await evaluate(`[...${curveTarget}.querySelectorAll('button')].find(b=>b.textContent==='Back').click()`);await wait(`${q('#snapshot')}.value===''&&${idle}`);
+  await evaluate(`[...${curveTarget}.querySelectorAll('button')].find(b=>b.textContent==='Back').click()`);await wait(`${q('#snapshot')}.value===${JSON.stringify(restoredFrame)}&&${idle}`);
   await check('Back from it restores the As of date and what the page showed',`${q('#assistant-looking-shows')}.textContent==='Curve directory'&&${q('#error')}.hidden`);
 
   // Another agent starts a new conversation, and the picker preselects the last explicit choice only while it is listed (§10.1).
@@ -415,7 +421,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   const curveAgent=await publish(await create('Browser curve guide '+stamp),['read_custom_curves','prepare_custom_curve','navigate'],['market_data_editor','trader']);
   await persona('editor');await click('#example');await click('#nav-custom-curves');
   await click('#assistant-launcher');await set('#assistant-agent',curveAgent.id+':1');
-  await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
+  await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
   const historicalFrame=await evaluate(`[...${q('#snapshot')}.options].map(o=>o.value).find(Boolean)`);await set('#snapshot',historicalFrame);await wait(idle);
   const definition={code:'browser_agent_proposal',name:'Synthetic agent proposal',output:'out',nodes:[
    {id:'source',kind:'source',parameters:{curve:'future'},inputs:{}},

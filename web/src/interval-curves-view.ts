@@ -108,11 +108,13 @@ export function setupIntervalCurves(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
   field('interval-curves-resolve').disabled=!c?.resolvable;
   choice('interval-curves-aggregate').disabled=!resolving();
   field('interval-curves-known').disabled=!needsKnownAt();
+  if(needsKnownAt())field('interval-curves-known').dataset.contextCoordinate='Knowledge cutoff';else delete field('interval-curves-known').dataset.contextCoordinate;
  }
  function unload(){generation++;catalog=undefined;clearResults();choice('interval-curves-select').replaceChildren();describe();sync();}
 
  choice('interval-curves-select').onchange=()=>{field('interval-curves-resolve').checked=false;choice('interval-curves-aggregate').value='';clearResults();describe();sync();};
  field('interval-curves-resolve').onchange=()=>{if(!resolving())choice('interval-curves-aggregate').value='';sync();};
+ for(const event of ['input','change'])get('interval-curves-form').addEventListener(event,()=>{generation++;clearResults();});
  get<HTMLFormElement>('interval-curves-form').onsubmit=event=>{event.preventDefault();if(o.busy())return;void o.act(async()=>{clearResults();await read();});};
 
  return{

@@ -78,7 +78,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  for(const key of ['name','latitude','longitude'])await set('#reference-edit-'+key,originalPoint[key]);await click('#reference-edit-save');
  const originalPointVersion=await evaluate("window.referenceRequests.filter(r=>r.path.endsWith('/reference/save')).at(-1).payload.revisionId");
  await persona('approver');await editor('locations');await set('#reference-edit-version',originalPointVersion);await click('#reference-edit-apply');
- await click('#date-context>summary');await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');await editor();
+ await click('#date-context>summary');await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');await editor();
  await check('historical reference views are read-only and retain their original metadata',"document.querySelector('#reference-edit-save').disabled&&document.querySelector('#reference-edit-apply').disabled&&document.querySelector('#reference-editor').textContent.includes('Historical references')&&document.querySelector('#error').hidden");
  await persona('viewer');await editor();await check('ordinary readers cannot save or activate reference versions',"document.querySelector('#reference-edit-save').disabled&&document.querySelector('#reference-edit-apply').disabled");
 }

@@ -19,6 +19,8 @@ public sealed record IntervalSeriesSegmentInput([property:JsonRequired]string St
 public sealed record IntervalSeriesReviseRequest([property:JsonRequired]Guid RequestId,[property:JsonRequired]Guid SeriesId,[property:JsonRequired]int ExpectedRevision,
     [property:JsonRequired]string Reason,[property:JsonRequired]IntervalSeriesSegmentInput[] Segments);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record IntervalSeriesLatestRequest([property:JsonRequired]Guid SeriesId,[property:JsonRequired]string KnownAt);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record IntervalSeriesReadRequest([property:JsonRequired]Guid SeriesId,[property:JsonRequired]string From,[property:JsonRequired]string To,[property:JsonRequired]string KnownAt);
 public sealed record IntervalSeriesCommandReceipt(Guid RequestId,Guid SeriesId,int Revision,int Intervals);
 
@@ -112,6 +114,48 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
             request.SeriesId,request.RequestId,Digest(request),request.ExpectedRevision,request.Reason,
             intervals.Select(i=>i.Start).ToArray(),intervals.Select(i=>i.End).ToArray(),intervals.Select(i=>i.Value?.ToString()).ToArray());
         return Receipt(await command.ExecuteScalarAsync(ct));
+    }
+
+    // A trailing 24-hour browsing window ends at the last non-withdrawn interval.
+    // RLS and the exact requested cutoff apply before choosing that endpoint.
+    public async Task<object> Latest(NpgsqlConnection connection,IntervalSeriesLatestRequest request,CancellationToken ct)
+    {
+        var cutoff=ParseInstant(request.KnownAt);
+        await RequireReadableSeries(connection,request.SeriesId,ct);
+        _=await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
+            new(cutoff.UtcDateTime.ToString("yyyy-MM-dd"),request.KnownAt,"at"),ct);
+        await using var command=ScheduleStore.Command(connection,"""
+            SELECT max(ends_at) FROM (
+              SELECT DISTINCT ON(v.starts_at) v.ends_at,v.value
+              FROM market_data.interval_series_values v
+              JOIN market_data.interval_series_revisions r USING(catalog_id,series_id,revision)
+              JOIN market_data.interval_series_knowledge_receipts k
+                ON(k.catalog_id,k.publication_order,k.publication_xid)=(r.catalog_id,r.publication_order,r.publication_xid)
+              WHERE v.series_id=$1 AND v.catalog_id=$3 AND k.known_from<=$2
+              ORDER BY v.starts_at,v.revision DESC
+            ) latest WHERE value IS NOT NULL
+            """,request.SeriesId,cutoff,database.Manifest.CatalogId);
+        var result=await command.ExecuteScalarAsync(ct);
+        if(result is null or DBNull)
+        {
+            await RequireReadableSeries(connection,request.SeriesId,ct);
+            return new{window=(object?)null};
+        }
+        var end=(DateTime)result;
+        var to=new DateTimeOffset(DateTime.SpecifyKind(end,DateTimeKind.Utc));
+        var from=to.AddDays(-1);
+        // Use the ordinary read to validate cutoff, grid, certification and authority even for browsing.
+        _=await Values(connection,request.SeriesId,from,to,cutoff,ct);
+        return new{window=(object)new{from=from.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ"),to=to.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")}};
+    }
+
+    private async Task RequireReadableSeries(NpgsqlConnection connection,Guid series,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"""
+            SELECT security.reference_access(reference_catalog_id,'ReadMarketData')
+            FROM market_data.interval_series WHERE id=$1 AND catalog_id=$2
+            """,series,database.Manifest.CatalogId);
+        if(await command.ExecuteScalarAsync(ct) is not true)throw new PreviewDeniedException();
     }
 
     public Task<JsonElement> Values(NpgsqlConnection connection,IntervalSeriesReadRequest request,CancellationToken ct)=>

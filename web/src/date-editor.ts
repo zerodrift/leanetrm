@@ -94,6 +94,15 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
       try{for(const {target,type} of changes)target.dispatchEvent(new Event(type,{bubbles:true}));}finally{replaying=false;}
     });
   },true);
+  async function sameDayKnowledge(){
+    const date=value('date-context-on'),started=fence();
+    pinnedContext=undefined;exactKnownAt=undefined;knownInput.clear();
+    if(!date)return;
+    const snapshot=await api<Snapshot>('date-schedules/context',{effectiveOn:date,knownAt:null,mode:'end_of_day',timeZone:zone()});
+    if(!current(started)||date!==value('date-context-on'))return;
+    showContext(snapshot.context);
+  }
+  get('date-context-on').addEventListener('change',()=>void run(sameDayKnowledge));
   function showContext(context:Context){pinnedContext=context;exactKnownAt=context.knownAt;set('date-context-on',context.effectiveOn);if(context.knownAt)knownInput.set(context.knownAt);else knownInput.clear();settle();}
   function setContext(context:Context){onContextChanged();showContext(context);}
   async function context():Promise<Context>{
@@ -244,6 +253,11 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   get('curve-dates-new').onclick=()=>{if(isBusy()||!library.canEdit)return;contractSelected=undefined;contractDirty=false;curveForm.reset();get('curve-dates-rows').replaceChildren();clearCurve();contractState();};
   get('curve-dates-reload').onclick=()=>void run(async()=>{const id=contractSelected?.id,version=contractSelected?.version;await load();const fresh=library.contractDefinitions.find(v=>v.id===id&&v.version===version);if(fresh)openContract(fresh);});
   return {load,context,setContext,showContext,sync:contractState,
+    async initialize(effectiveOn:string){
+      if(value('date-context-on')||!effectiveOn)return;
+      const started=fence(),snapshot=await api<Snapshot>('date-schedules/context',{effectiveOn,knownAt:null,mode:'current'});
+      if(current(started)&&!value('date-context-on'))showContext(snapshot.context);
+    },
     // Unsaved edits: a contract-date definition, or a command whose outcome is unconfirmed; and a date schedule.
     contractsUnsaved:()=>contractDirty||!!pending.command,datesUnsaved:dateEdits.edited,
     clearContext(){pinnedContext=undefined;exactKnownAt=undefined;set('date-context-on','');knownInput.clear();settle();},refresh(){knownInput.refresh();settle();if(shownDates)showDates(shownDates);if(shownCurve)showCurve(shownCurve);},reset(){generation++;pending.clear();contractSelected=undefined;contractDirty=false;get('curve-dates-status').textContent='';library=empty();selected=undefined;form.reset();dateEdits.clear();curveForm.reset();get<HTMLFormElement>('date-expression-form').reset();set('date-context-on','');set('date-context-view','');pinnedContext=undefined;exactKnownAt=undefined;knownInput.clear();settle();options('curve-dates-schedule',[],'Choose a published schedule…');options('curve-dates-example-kind',[],'Choose an example…');clearDates();clearCurve();clearExpression();get('curve-dates-rows').replaceChildren();get('dates-table').replaceChildren();get('curve-dates-table').replaceChildren();list();versionLabel();}};
