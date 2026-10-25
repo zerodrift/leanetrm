@@ -8,7 +8,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate("[...document.querySelectorAll('#jobs-table button')].find(b=>b.textContent==='View close report').click()");await wait(idle);
  await set('#date-context-on','2020-12-18');
  await check('changing history clears the financial report immediately',"document.querySelector('#pilot-report').hidden&&document.querySelector('#pilot-close-source').options.length===0&&document.querySelector('#jobs-table').textContent.includes('Synthetic mixed-book pilot close')");
- await click('#current-view-context');
+ await wait(idle);await click('#current-view-context');
  await check('new generated-close setup starts collapsed',"document.querySelector('#pilot-close-editor')?.open===false");
  await click('#pilot-close-editor summary');await click('#pilot-close-load');
  await check('pilot setup loads backend policies without choosing financial inputs',"document.querySelector('#error').hidden&&document.querySelector('#pilot-close-source').options.length>1&&document.querySelector('#pilot-close-source').value===''&&document.querySelector('#pilot-close-policy').value===''&&document.querySelector('#pilot-close-prior').value===''","({error:document.querySelector('#error').textContent,sources:[...document.querySelector('#pilot-close-source').options].map(o=>({value:o.value,label:o.textContent})),policy:document.querySelector('#pilot-close-policy').value,prior:document.querySelector('#pilot-close-prior').value})");

@@ -2,7 +2,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await persona('viewer');
  await check('market readers can open the shared contract-date library',"!document.querySelector('#nav-configuration').hidden");
- await persona('editor');await click('#nav-configuration');await set('#date-context-on','2021-01-15');await click('#date-context-latest');
+ await persona('editor');await click('#nav-configuration');await set('#date-context-on','2021-01-15');await wait(idle);await click('#date-context-latest');
  await set('#curve-dates-example-kind','daily_power');await click('#curve-dates-example');
  await set('#curve-dates-code','browser_daily_dates');await set('#curve-dates-name','Synthetic shared daily dates');
  await submit('#curve-dates-form');await click('#curve-dates-keep');
@@ -26,7 +26,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate("[...document.querySelectorAll('#curve-dates-saved .shortcut-saved-row')].find(row=>row.textContent.includes('Synthetic shared daily dates')).querySelector('button').click()");await wait(idle);
  await click('#curve-dates-publish');
  await check('a separate publisher publishes the retained draft',"document.querySelector('#error').hidden&&document.querySelector('#curve-dates-version').textContent.includes('published')");
- await persona('viewer');await set('#date-context-on','2021-01-15');await click('#date-context-latest');await click('#nav-configuration');
+ await persona('viewer');await set('#date-context-on','2021-01-15');await wait(idle);await click('#date-context-latest');await click('#nav-configuration');
  await check('readers see the published library with authoring disabled',"document.querySelector('#curve-dates-saved').textContent.includes('Synthetic shared daily dates')&&document.querySelector('#curve-dates-fields').disabled&&document.querySelector('#curve-dates-keep').hidden");
  await evaluate("[...document.querySelectorAll('#curve-dates-saved .shortcut-saved-row')].find(row=>row.textContent.includes('Synthetic shared daily dates')).querySelector('[data-resolve]').click()");await wait(idle);
  await check('an exact published version resolves under the selected context',"document.querySelector('#error').hidden&&!document.querySelector('#curve-dates-result').hidden&&document.querySelectorAll('#curve-dates-table tbody tr').length===2&&document.querySelector('#curve-dates-spec').textContent.includes('version 1')","({error:document.querySelector('#error').textContent,hidden:document.querySelector('#curve-dates-result').hidden,rows:document.querySelectorAll('#curve-dates-table tbody tr').length,receipt:document.querySelector('#curve-dates-spec').textContent})");
