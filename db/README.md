@@ -1345,3 +1345,19 @@ payload; changing it appends a capability version. Both policies use the existin
 exact served-identifier checks and pinned price revisions. Deploy matching API
 and web assets only after separately qualifying the schema update. No provider,
 key, account attestation, model enablement or token price is supplied.
+
+Migration `0112_risk_job_runs.sql` lets each queued part of a portfolio risk run state the run it is a
+part of, and every queued job the books and portfolios it was asked for (D220). A `BEFORE INSERT` trigger
+on `risk.jobs`, `risk.guard_run()` (security definer, owned by `openetrm_security_owner`), checks a
+frame's `run` (`id`, `part`, `parts`, with 1 ≤ part ≤ parts ≤ 256) and, under a transaction advisory lock
+per actor and run, refuses with `risk_job_run` a part at another catalog or retained context, for another
+`scope`, with another part count, or a part number already taken. `risk.summary` adds each job's `run` and
+`scope`, so every job read and the recent-job list state them. No table changes; retained jobs keep their
+frames, and those queued before the migration state neither. Release order: apply the migration first,
+then the API and web assets. The earlier API works unchanged on the new schema, but this release's web
+reads `run` from every job, and its API would admit the parts of a run unchecked on the earlier schema.
+As a new migration it stops automatic hosted updates until the operator qualifies a new baseline (D135).
+`CREATE INDEX risk_jobs_run` is partial but not concurrent: it reads every retained job while holding a
+lock that blocks new jobs, within the migration's 5 s lock and 15 s statement timeouts. An installation
+with a large job history applies it with job admission stopped; a build that exceeds the timeout rolls
+the whole migration back.

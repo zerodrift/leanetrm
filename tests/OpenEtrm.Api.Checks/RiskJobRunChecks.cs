@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
@@ -27,6 +28,11 @@ static class RiskJobRunChecks
             Require(Code(()=>RiskJobs.RunFrame(invalid))=="risk_job_run",$"A run with {why} is refused before it is retained.");
         Require(RiskJobs.RunFrame(new RiskJobRun(run,RiskJobRun.MaxParts,RiskJobRun.MaxParts))["part"]!.GetValue<int>()==RiskJobRun.MaxParts,
             "The last part of the largest run is retained.");
-        Console.WriteLine("PASS risk job runs: a queued part states its run, its part and the run's part count, each checked before it is retained");
+        // Every job keeps the books and portfolios its run was asked for, as chosen, so that its results are shown only against them.
+        var books=ImmutableArray.Create(Guid.NewGuid(),Guid.NewGuid());var portfolios=ImmutableArray.Create(Guid.NewGuid());
+        Require(RiskJobs.ScopeFrame(books,portfolios).ToJsonString()==JsonSerializer.Serialize(new{bookIds=books,portfolioIds=portfolios},RiskJobs.Json)
+                &&RiskJobs.ScopeFrame(books,[]).ToJsonString()==JsonSerializer.Serialize(new{bookIds=books,portfolioIds=Array.Empty<Guid>()},RiskJobs.Json),
+            "A job's frame keeps the books and portfolios its run was asked for, in the order chosen, and an empty choice as empty.");
+        Console.WriteLine("PASS risk job runs: a queued part states its run, its part and the run's part count, each checked before it is retained, and every job its books and portfolios");
     }
 }

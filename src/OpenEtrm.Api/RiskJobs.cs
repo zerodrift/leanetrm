@@ -62,6 +62,8 @@ public static class RiskJobs
         pinnedFrame["scenarioAxes"]=JsonSerializer.SerializeToNode(CurveRiskAxes.Retained(prepared),Json);
         // The worker leaves out exactly the positions this submission left out (D218).
         pinnedFrame["excludedPositions"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Excluded,Json);
+        // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D220).
+        pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds);
         if(run is not null)pinnedFrame["run"]=run;
         await using var command=ScheduleStore.Command(connection,
             "SELECT risk.submit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
@@ -77,6 +79,10 @@ public static class RiskJobs
             throw new MarketDataException("risk_job_run",$"State the run's identity, its part count of at most {RiskJobRun.MaxParts} and the number of this part within it.");
         return JsonSerializer.SerializeToNode(run,Json)!.AsObject();
     }
+
+    /// <summary>The books and portfolios a run was asked for, in the order they were chosen, as its retained frame keeps them.</summary>
+    internal static JsonObject ScopeFrame(ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds)=>
+        JsonSerializer.SerializeToNode(new{bookIds,portfolioIds},Json)!.AsObject();
 
     internal static JsonObject PinFrame(InputFrame frame)
     {

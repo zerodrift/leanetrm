@@ -86,13 +86,19 @@ export type TileBar={value:string;title:string};
  * A run's results as the risk tile shows them (blotter-desk.md, Desk layout): what it ran, how many shocks it has results for, and per
  * currency its largest move, which position it is and why, and each position's own largest move as a small bar; and what it leaves out.
  */
-export type RiskTileResults={label:string;count:string;rows:{currency:string;text:string;exact:string;sign:'positive'|'negative'|'zero';hint:string;bars:TileBar[];scale:string}[];note:string|null};
-/** What the risk tile says: `denial` is why this account cannot run a risk report, when it cannot. */
-export type RiskTile={state:'none'|'open'|'running'|'elsewhere';denial:string|null;busy:boolean}|{state:'results';denial:string|null;busy:boolean;results:RiskTileResults};
+export type RiskTileResults={label:string;count:string;rows:{currency:string;text:string;exact:string;sign:'positive'|'negative'|'zero';hint:string;bars:TileBar[];scale:string}[];
+  empty:string|null;note:string|null};
+/**
+ * What the risk tile says: no run, its report open, a queued run under way, or a run made elsewhere; a run whose results are refused, or
+ * which has none, with why; or a run's results. `denial` is why this account cannot run a risk report, when it cannot.
+ */
+export type RiskTile={state:'none'|'open'|'running'|'elsewhere';denial:string|null;busy:boolean}|{state:'refused'|'empty';reason:string;denial:string|null;busy:boolean}
+  |{state:'results';denial:string|null;busy:boolean;results:RiskTileResults};
 const riskWords={none:['Not run at this close','Revalue the books on screen under shared market shocks.','Run risk report'],
   open:['Set up in the panel','The risk report is open in the side panel.','Go to the risk report'],
   running:['Running','A queued risk run is under way. Its results will show here and in the positions.','Go to the risk report'],
-  elsewhere:['Results at another context','The run on screen was made at another market context than the Blotter read on screen. Export downloads its results.','Go to the risk report']} as const;
+  elsewhere:['Results made elsewhere','The run on screen was made at another close, context or books than the Blotter read on screen. Export downloads its results.','Go to the risk report'],
+  refused:['Results not shown','','Go to the risk report'],empty:['No results','','Go to the risk report']} as const;
 // Each position's own largest move, as one small bar of a strip: up for a gain and down for a loss, on one scale, its sign in its title.
 function moveBars(bars:readonly TileBar[],scale:string){
   const width=150,height=34,gap=2,band=Math.max(2,Math.min(8,(width-gap*Math.max(0,bars.length-1))/Math.max(1,bars.length)));
@@ -122,6 +128,7 @@ export function renderRiskTile(host:HTMLElement,risk:RiskTile,run:()=>void){
   note.hidden=!shown?.note;note.textContent=shown?.note?publicText(shown.note):'';
   if(risk.state==='results'){
     const rows=risk.results.rows;
+    if(risk.results.empty!==null){moves.replaceChildren(node('p','desk-risk-none',risk.results.empty));return;}
     moves.replaceChildren(...rows.map(row=>{
       const block=node('div','desk-tile-row'),figure=kpi(row.text,row.currency);figure.dataset.sign=row.sign;figure.title=`${row.exact} ${row.currency}`;
       if(rows.length>1)block.append(node('p','desk-tile-currency',row.currency));
@@ -131,7 +138,7 @@ export function renderRiskTile(host:HTMLElement,risk:RiskTile,run:()=>void){
   }
   moves.replaceChildren();
   const [state,hint,action]=riskWords[risk.state],denied=risk.state==='none'&&risk.denial!==null;
-  part('.desk-risk-state').textContent=publicText(state);part('.desk-tile-hint').textContent=publicText(denied?risk.denial!:hint);
+  part('.desk-risk-state').textContent=publicText(state);part('.desk-tile-hint').textContent=publicText(denied?risk.denial!:'reason' in risk?risk.reason:hint);
   button.textContent=publicText(action);button.disabled=risk.busy||denied;button.onclick=run;
 }
 
@@ -212,10 +219,10 @@ export const deskColumns=[['tradeReference','Trade'],['market','Market'],['quant
 export const riskColumns=[['tradeReference','Trade'],['market','Market'],['quantity','Position'],['riskShock','Shock'],['riskUp','Up'],['riskDown','Down'],['riskDelta','Delta']] as const;
 export type CellFormats={money:(index:number,value:string)=>string;quantity:(index:number,value:string)=>string;price:(index:number,value:string)=>string;mark:(index:number,value:string)=>string;factor:(index:number,value:string)=>string};
 /**
- * What the Risk lens shows of a row: the shocks that move its position, with the bar scale of its currency; or that the run leaves it
- * out, with its row's own reason; or that no shock of the run moves it.
+ * What the Risk lens shows of a row: the shocks that move its position, with the bar scale of its currency; that the run leaves it out,
+ * with its row's own reason; that no shock of the run moves it; or, while a part of the run has no results, that it is not known, and why.
  */
-export type LensRowView={state:'shocks';shocks:readonly LensShock[];scale:string|undefined}|{state:'left';reason:string}|{state:'unmoved'};
+export type LensRowView={state:'shocks';shocks:readonly LensShock[];scale:string|undefined}|{state:'left';reason:string}|{state:'unmoved'}|{state:'unknown';reason:string};
 // The sizes of a row's shocks, each once, as the Shock cell states them under a count.
 const sizesOf=(shocks:readonly LensShock[])=>[...new Set(shocks.map(s=>`±${s.bump} ${s.unit}`))].join('; ');
 const sparkWidth=84,sparkHeight=22;
@@ -299,6 +306,10 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
       if(key!=='riskShock')return null;
       cell.classList.add('desk-unvalued');cell.title=publicText('This close cannot value this position, so the run leaves it out');
       cell.append(node('span','desk-chip','Left out'),sub(risk.reason));return cell;
+    }
+    if(risk.state==='unknown'){
+      if(key!=='riskShock')return null;
+      cell.title=publicText(`Whether this run's shocks move this position is not known: ${risk.reason}`);cell.append(node('span','desk-muted','Not known'),sub(risk.reason));return cell;
     }
     if(risk.state==='unmoved'){
       if(key!=='riskShock')return null;

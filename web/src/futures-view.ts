@@ -6,7 +6,8 @@ import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {releasesRetained,retainedText,retryAllowed} from './trade-requests.js';
 import {setupRisk,riskDenied,type RunView} from './risk-view.js';
-import {changeChart,changeScales,largestMove,lensCells,positionKey,runBar,runExclusions,runSummary,type LensCell} from './risk-lens.js';
+import {changeChart,changeScales,gapsText,largestMove,lensCells,madeHere,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,tileWords,unmovedNote,
+  type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
 import type {ExcludedPosition,RiskReport} from './risk-report.js';
 import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
@@ -41,7 +42,7 @@ const riskGiveUp=['riskShock','riskDelta'].map(key=>riskColumns.findIndex(([colu
 // The Risk lens columns, which a saved view never keeps.
 const riskKeys=riskColumns.flatMap(([key])=>key.startsWith('risk')?[key]:[]);
 // What a new read of the Blotter says of the risk run it clears (D220): changing the close, the context or the book scope says so in the
-// design's words; any other new read, a Refresh, another Display or grouping, or the Blotter opened again, says it was read again, each
+// design's words; any other new read, a Refresh, another Display or pivot, or the Blotter opened again, says it was read again, each
 // read at current knowledge being made at a context of its own.
 const readNotes={inputs:'Risk results cleared · the close or books changed',read:'Risk results cleared · the Blotter was read again'} as const;
 type ReadCause=keyof typeof readNotes;
@@ -50,11 +51,12 @@ const knowledgeWords={working:'current knowledge',historical:'historical view',l
 // What the risk tile calls the report a run was set up as; a retained run does not record one.
 const tileReports={held:'every held contract',parallel:'every held curve',custom:'custom scenario'} as const;
 /**
- * A run's results as the desk shows them inline (D220), by the key of the results they are: made at another market context than the
- * read on screen, refused with why, or shown, with each position's cell, what the run leaves out and its summary.
+ * A run's results as the desk shows them inline (D220), by the key of the results they are: made at another close, context or books than
+ * the read on screen, refused with why, or shown, with each position's cell, what the run leaves out, its summary and the parts that have
+ * no results.
  */
 type Inline={key:string;state:'elsewhere'}|{key:string;state:'failed';reason:string}
-  |{key:string;state:'shown';run:number;cells:Map<string,LensCell>;excluded:ExcludedPosition[];summary:ReturnType<typeof runSummary>;scales:Map<string,string>;missing:number;parts:number};
+  |{key:string;state:'shown';run:number;cells:Map<string,LensCell>;excluded:ExcludedPosition[];summary:ReturnType<typeof runSummary>;scales:Map<string,string>;gaps:RunGap[]};
 // How the Group by control names each row grouping; a view without one is a flat list.
 const rowGroupLabels:Readonly<Record<NonNullable<RowGroup>,string>>={book:'Book',market:'Market',instrumentType:'Instrument type'};
 const rowGroupLabel=(group:RowGroup)=>group===null?'None':rowGroupLabels[group];
@@ -103,8 +105,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     },
   });
   let lastReadRequest:unknown;
-  // The close, the context chosen and the book scope of the read on screen, which tell a read at other inputs from one made again.
-  let readInputs:string|undefined;
+  // The close, the context chosen and the book scope of the read on screen, which tell a read at other inputs from one made again; and
+  // where the read was made, which a run's results must have been made at to be drawn against it (D220).
+  let readInputs:string|undefined,readPlace:ReadPlace|undefined;
   let chartState:{panels:ChartSpec[];request:{context:unknown;view:unknown}}|undefined;
   // What the trade rows' desk drew from the read on screen, which the side panel draws its position from.
   let drawn:{rows:DeskRow[];colors:ReadonlyMap<string,string>}|undefined;
@@ -323,9 +326,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // own timer.
   function renderRisk(){
     if(!holdings)return;
-    const denial=options.canRunRisk()?null:riskDenied,shown=inline?.state==='shown'?inline:undefined;
+    const denial=options.canRunRisk()?null:riskDenied,shown=inline?.state==='shown'?inline:undefined,run=risk.current();
+    // A run on the desk is stated as it stands: its results, refused or made elsewhere; or none at all, as no part has any.
     const tile:RiskTile=shown?{state:'results',denial,busy:busy(),results:tileResults(shown)}
-      :{state:inline?.state==='elsewhere'?'elsewhere':risk.running()?'running':panel.current()?.kind==='risk'?'open':'none',denial,busy:busy()};
+      :inline?.state==='failed'?{state:'refused',reason:inline.reason,denial,busy:busy()}
+      :inline?.state==='elsewhere'?{state:'elsewhere',denial,busy:busy()}
+      :run&&!run.running&&!run.parts.some(p=>p.report)?{state:'empty',reason:gapsText(runGaps(run)),denial,busy:busy()}
+      :{state:risk.running()?'running':panel.current()?.kind==='risk'?'open':'none',denial,busy:busy()};
     renderRiskTile(get('desk-tile-risk'),tile,()=>void openRiskReport());
     showRunBar();
   }
@@ -342,23 +349,25 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function resultsKey(run:RunView|undefined){
     if(!run||run.running||!holdings||!run.parts.some(p=>p.report))return '';
     const id=(report:RiskReport)=>{let number=reportIds.get(report);if(number===undefined)reportIds.set(report,number=++reports);return number;};
-    return JSON.stringify([run.key,holdings.context.contextId,run.parts.map(p=>p.report?id(p.report):p.failure!==undefined?'failed':'none')]);
+    return JSON.stringify([run.key,readPlace?.snapshotId??null,holdings.context.contextId,
+      run.parts.map(p=>p.report?id(p.report):p.failure!==undefined?'failed':p.unknown?'unknown':p.unlisted?'unlisted':'none')]);
   }
   /**
-   * A run's results as the desk shows them: not against a read at another market context than the one they were run at, and only once
-   * every part says which positions it leaves out, the same ones, and the positions match the read on screen. Their display text is the
-   * backend's, in each position's own deal format, prepared before they are shown.
+   * A run's results as the desk shows them: only against the read of the close, context and books they were run at, and only once every
+   * part says which positions it leaves out, the same ones, and the positions it values and leaves out are those of the read on screen.
+   * Their display text is the backend's, in each position's own deal format, prepared before they are shown.
    */
   async function inlineResults(run:RunView,key:string):Promise<Inline>{
     const read=holdings!,parts=run.parts.flatMap(p=>p.report?[p.report]:[]);
-    if(run.context?.contextId!==read.context.contextId)return {key,state:'elsewhere'};
+    if(!readPlace||!madeHere(run,readPlace))return {key,state:'elsewhere'};
     try{
-      const excluded=runExclusions(parts),cells=lensCells(parts),held=new Set(read.holdings.map(positionKey));
-      if(read.holdings.some(h=>cells.has(positionKey(h))===(h.unavailableReason!==null))||[...cells.keys()].some(k=>!held.has(k)))
+      const excluded=runExclusions(parts),cells=lensCells(parts),held=new Set(read.holdings.map(positionKey)),left=new Set(excluded.map(positionKey));
+      if(read.holdings.some(h=>cells.has(positionKey(h))===(h.unavailableReason!==null)||left.has(positionKey(h))!==(h.unavailableReason!==null))
+        ||[...cells.keys(),...left].some(k=>!held.has(k)))
         throw Error('The results of this run do not match the positions of the Blotter on screen. Run it again.');
       await prepareAmountDisplay({rows:read.holdings.flatMap(h=>(cells.get(positionKey(h))?.shocks??[]).map(shock=>({amountFormat:h.amountFormat,
         upPnl:shock.up,downPnl:shock.down,basePv:shock.base,upPv:shock.upValue,downPv:shock.downValue,delta:shock.delta,gamma:shock.gamma})))},body=>api<string[]>('amounts/display',body));
-      return {key,state:'shown',run:run.key,cells,excluded,summary:runSummary(parts,excluded),scales:changeScales(cells),missing:run.parts.length-parts.length,parts:run.parts.length};
+      return {key,state:'shown',run:run.key,cells,excluded,summary:runSummary(parts,excluded),scales:changeScales(cells),gaps:runGaps(run)};
     }catch(error){
       if((error as {code?:string}).code==='access_denied')throw error;
       return {key,state:'failed',reason:error instanceof Error&&error.message?error.message:'The results of this run could not be shown.'};
@@ -387,27 +396,29 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // The Risk lens shows a run's results in the trade rows; a pivot view has no lens.
   const lensShown=()=>lens==='risk'&&inline?.state==='shown'&&view.mode==='trades';
-  // What the risk tile shows of a run's results: its largest move in each currency, which position it is and why, and each position's own
-  // largest move as a small bar, with what the run leaves out and which parts have no results.
+  // What the risk tile shows of a run's results: its largest move in each currency, the largest known one while a part has no results,
+  // which position it is and why, and each position's own largest move as a small bar; or that nothing moves; with what the run leaves out,
+  // which positions are not known and why.
   function tileResults(shown:Extract<Inline,{state:'shown'}>):RiskTileResults{
     const held=holdings!.holdings,rows=positionRows(held),at=new Map(held.map((h,i)=>[positionKey(h),i])),run=risk.current();
-    const notes=[...(shown.excluded.length?[`Leaves out ${shown.excluded.length} position${shown.excluded.length===1?'':'s'} this close cannot value`]:[]),
-      ...(shown.missing?[`${shown.missing} of the run's ${shown.parts} parts ${shown.missing===1?'has':'have'} no results`]:[])];
-    return {label:`Risk · ${run?.setup?tileReports[run.setup.report]:'retained run'}`,count:`${shown.summary.factors} shock${shown.summary.factors===1?'':'s'}`,note:notes.length?notes.join(' · '):null,
+    const unknown=shown.gaps.length?[...shown.cells.values()].filter(cell=>!cell.shocks.length).length:0;
+    const words=tileWords({largest:shown.summary.largest.length,gaps:shown.gaps,unknown,excluded:shown.excluded.length});
+    return {label:`Risk · ${run?.setup?tileReports[run.setup.report]:'retained run'}`,count:`${shown.summary.factors} shock${shown.summary.factors===1?'':'s'}`,note:words.note,empty:words.empty,
       rows:shown.summary.largest.map(largest=>{
         const index=at.get(largest.positionKey)!,money=holdingFormats(held[index]).money;
         const bars=held.flatMap(h=>{const key=positionKey(h),cell=shown.cells.get(key),move=cell&&largestMove(key,cell);
           return move&&move.shock.currencyKey===largest.shock.currencyKey?[{value:move.change,title:`${move.tradeReference} · ${signedText(move.change,holdingFormats(h).money)} ${move.shock.currency} if ${move.shock.label} moves ${move.direction}`}]:[];});
         return {currency:largest.currency,text:signedText(largest.change,money),exact:largest.change,sign:signOf(largest.change),
-          hint:`Largest move: ${largest.tradeReference} · ${rows[index].market}, if ${largest.shock.label} moves ${largest.direction}`,bars,scale:largest.change.replace(/^-/,'')};
+          hint:`${words.lead}: ${largest.tradeReference} · ${rows[index].market}, if ${largest.shock.label} moves ${largest.direction}`,bars,scale:largest.change.replace(/^-/,'')};
       })};
   }
-  // What the Risk lens shows of a position: the shocks that move it, or that nothing moves it; one the run leaves out says so with the
-  // reason its own row states, which is why the run leaves it out (D218).
+  // What the Risk lens shows of a position: the shocks that move it; that nothing moves it, or, while a part has no results, that it is
+  // not known; one the run leaves out says so with the reason its own row states, which is why the run leaves it out (D218).
   function lensRow(shown:Extract<Inline,{state:'shown'}>,h:Holding,row:DeskRow):LensRowView{
     const cell=shown.cells.get(positionKey(h));
     if(!cell)return {state:'left',reason:row.unavailable??'Not valued at this close'};
-    return cell.shocks.length?{state:'shocks',shocks:cell.shocks,scale:shown.scales.get(cell.shocks[0].currencyKey)}:{state:'unmoved'};
+    const moves=positionMoves(cell,shown.gaps);
+    return moves.state==='shocks'?{state:'shocks',shocks:moves.shocks,scale:shown.scales.get(moves.shocks[0].currencyKey)}:moves;
   }
   // What the run on screen says of the position at a row, for its panel's Risk tab.
   function positionRisk(h:Holding,row:DeskRow):PositionRisk{
@@ -416,7 +427,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(inline?.state!=='shown')return risk.running()?{state:'running'}:{state:'none'};
     const cell=inline.cells.get(positionKey(h));
     if(!cell)return {state:'left',reason:row.unavailable??'Not valued at this close'};
-    return {state:'shown',cell,factors:inline.summary.factors,...(inline.missing?{missing:{parts:inline.missing,of:inline.parts}}:{})};
+    return {state:'shown',cell,factors:inline.summary.factors,gaps:inline.gaps};
   }
   // Risk report opens the panel in its Risk report mode, asking first about edits the panel holds, before the page is busy, and reads the
   // risk catalog of the read on screen unless the report already holds one.
@@ -442,13 +453,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   function sync(){syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();syncRiskReport();workspace.busy(busy());syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
-  function clear(){generation++;readInputs=undefined;chartState=undefined;drawn=undefined;lens='values';inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
+  function clear(){generation++;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
   // Starts the Blotter afresh: for another close or context, or for the Blotter opened again, each of which says so of a risk run it
   // clears; or, for another account, saying nothing, as everything the page held goes.
   function reset(cause:ReadCause|null){if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
   // A new read of the Blotter replaces the one a run on screen was made at: the run is cleared and the page says why (D220). A live
   // correction and a settlement record say so in their own words.
-  function replaceRead(cause:ReadCause){if(risk.shown()||risk.running())options.notice(readNotes[cause]);clear();}
+  function replaceRead(cause:ReadCause){if(risk.current())options.notice(readNotes[cause]);clear();}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
@@ -504,7 +515,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const lenses=shown?held.map((h,i)=>lensRow(shown,h,rows[i])):undefined;
     // A lens cell sorts and filters by its exact amount, which only a position one shock moves has; the others by their words.
     const single=(i:number)=>lenses?.[i].state==='shocks'&&lenses[i].shocks.length===1?lenses[i].shocks[0]:undefined;
-    const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='unmoved'?'Not moved':lens.shocks.length>1?`${lens.shocks.length} shocks`:`±${lens.shocks[0].bump} ${lens.shocks[0].unit}`;};
+    const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='unmoved'?'Not moved':lens.state==='unknown'?'Not known'
+      :lens.shocks.length>1?`${lens.shocks.length} shocks`:`±${lens.shocks[0].bump} ${lens.shocks[0].unit}`;};
     const values=rows.map((row,i)=>shown?[row.reference,row.market,row.quantity??'',lensWords(i),single(i)?.up??'',single(i)?.down??'',single(i)?.delta??'',...details.map(([key])=>fields[i][key]??'')]
       :[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
     const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
@@ -531,7 +543,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(shown){
       const change=changeChart(rows.map((row,i)=>({key:positionKey(held[i]),reference:row.reference,market:row.market,commodity:row.commodity})),shown.cells,colors,(i,value)=>formats[i].money(value));
       const excluded=valuationNote(shown.excluded.length);
-      renderDeskCharts(get('desk-chart-position'),change.panels,'No position moves under this run',[...(excluded?[excluded]:[]),...(change.unmoved.length?[`Not moved by any shock: ${change.unmoved.join(', ')}`]:[])]);
+      const unmoved=unmovedNote(change.unmoved,shown.gaps);
+      renderDeskCharts(get('desk-chart-position'),change.panels,'No position moves under this run',[...(excluded?[excluded]:[]),...(unmoved?[unmoved]:[])]);
     }else renderDeskCharts(get('desk-chart-position'),plan.positionPanels,'No positions in the selected books');
     drawn={rows,colors};
   }
@@ -606,10 +619,11 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(!selected.contextId||selected.contextId!==reported.contextId||selected.effectiveOn!==reported.effectiveOn||selected.knownAt!==reported.knownAt||combined.catalog.asOf!==combined.blotter.asOf)throw Error('The trading workspace returned inconsistent market contexts. Refresh and try again.');
       if(!Array.isArray(combined.summaries)||combined.summaries.length!==summaryViews.length)throw Error('The trading workspace did not return the desk summaries. Refresh and try again.');
       // A read the desk refuses leaves the desk it had, and the read that desk was drawn from, as they were.
-      const previous={catalog,holdings,summaries,shapes,lastReadRequest};
+      const previous={catalog,holdings,summaries,shapes,lastReadRequest,readPlace};
       catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=undefined;drafts.reset();
       const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;
-      try{viewControls();render();}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest}=previous);throw error;}
+      readPlace={contextId:selected.contextId,asOf:combined.blotter.asOf,snapshotId:request.snapshotId,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
+      try{viewControls();render();}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest,readPlace}=previous);throw error;}
       readInputs=inputs;
       shapesRead=view.mode==='trades'?loadShapes(started,scope,source):Promise.resolve();
       await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);workspace.closeMenus();
@@ -703,7 +717,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // and that view clears what the command consumed and reads its state again: also when the Blotter cannot be read, as a form still
   // holding a command that went through would offer it a second time.
   async function settled(command:RequestCommand){
-    const plan=riskRefreshPlan({open:panel.current()?.kind==='risk',edited:risk.edited(),run:risk.shown()||risk.running(),retained:risk.unconfirmed()},'settlement');
+    const plan=riskRefreshPlan({open:panel.current()?.kind==='risk',edited:risk.edited(),run:!!risk.current(),retained:risk.unconfirmed()},'settlement');
     inputsChanged(plan);
     try{await load('directory',true);}finally{await swapEditor.reloadSettlement(command.operationId);}
     if(plan.reopen)await risk.open();
@@ -806,7 +820,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // report at the corrected inputs, carrying a setup's choices over; it clears a risk run with a note. No live view can book, so no form of
     // a new trade is held while corrections arrive.
     async liveRefresh(){
-      const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:risk.shown()||risk.running(),riskRetained:risk.unconfirmed()});
+      const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:!!risk.current(),riskRetained:risk.unconfirmed()});
       inputsChanged(plan.risk);
       await load(catalog?.kind??'directory',true);
       if(plan.risk.reopen)await risk.open();

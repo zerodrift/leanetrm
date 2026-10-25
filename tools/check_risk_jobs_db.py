@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 from uuid import uuid4
 
 from preview_fixture import fixture, trading_fixture
@@ -72,9 +73,12 @@ def run_checks(query, manifest, psql=None, environment=None):
     def literal(value):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
 
-    def submit(operation=None, payload=None, selected_frame=None, selected_context=None):
+    def submit_sql(operation=None, payload=None, selected_frame=None, selected_context=None):
         retained = selected_context or context
-        return json.loads(user(f"SELECT security.use_market_context('{catalog}','{retained}');SELECT security.use_trading_context('{catalog}','{at}');SELECT risk.submit('{catalog}','{operation or uuid4()}','{retained}','{revision}','{at}',{literal(payload or request)},{literal(selected_frame or frame)})"))
+        return f"SELECT security.use_market_context('{catalog}','{retained}');SELECT security.use_trading_context('{catalog}','{at}');SELECT risk.submit('{catalog}','{operation or uuid4()}','{retained}','{revision}','{at}',{literal(payload or request)},{literal(selected_frame or frame)})"
+
+    def submit(operation=None, payload=None, selected_frame=None, selected_context=None):
+        return json.loads(user(submit_sql(operation, payload, selected_frame, selected_context)))
 
     def worker(sql, login='synthetic_risk_worker'):
         return query(f"SET SESSION AUTHORIZATION {login};{sql};")
@@ -239,20 +243,23 @@ def run_checks(query, manifest, psql=None, environment=None):
     user(f"SELECT risk.cancel('{corrected_job['jobId']}')")
     print('PASS generic risk temporal pins: later corrections require a later context and UUID casing preserves frozen input use', flush=True)
 
-    # A part of a run made in parts (D220) states its run in its frame: the run's identity, the part and the run's part count. The store
-    # keeps one run at one retained context, each part once, whatever the API checked first. No worker claims this engine's jobs.
+    # A part of a run made in parts (D220) states its run in its frame: the run's identity, the part and the run's part count, and every
+    # job the books and portfolios its run was asked for. The store keeps one run at one retained context, for one scope, each part once,
+    # whatever the API checked first. No worker claims this engine's jobs.
     run_request = {**request, 'engineVersion': 'synthetic_run_engine_v1'}
     run_id = str(uuid4())
-    def part(number, parts=2, run=None):
-        return {**frame, 'run': run if run is not None else {'id': run_id, 'part': number, 'parts': parts}}
+    scope = {'bookIds': books, 'portfolioIds': []}
+    def part(number, parts=2, run=None, scope=scope, run_id=run_id):
+        return {**frame, 'scope': scope, 'run': run if run is not None else {'id': run_id, 'part': number, 'parts': parts}}
     for invalid in ({'id': run_id, 'part': 0, 'parts': 2}, {'id': run_id, 'part': 3, 'parts': 2}, {'id': run_id, 'part': 1, 'parts': 0},
                     {'id': run_id, 'part': 1, 'parts': 257}, {'id': run_id, 'part': 1}, {'id': run_id, 'part': 1, 'parts': 2, 'label': 'synthetic'},
                     {'id': 'synthetic', 'part': 1, 'parts': 2}, {'id': run_id, 'part': '1', 'parts': 2}, {'id': run_id, 'part': 1.5, 'parts': 2}, [], 'run', None):
         reject(lambda: submit(payload=run_request, selected_frame={**frame, 'run': invalid}), 'risk_job_run')
     first_part = submit(payload=run_request, selected_frame=part(1))
-    assert first_part['run'] == {'id': run_id, 'part': 1, 'parts': 2}, 'A part states its run'
+    assert first_part['run'] == {'id': run_id, 'part': 1, 'parts': 2} and first_part['scope'] == scope, 'A part states its run and the books it was asked for'
     alone = submit(payload=run_request)
-    assert alone['run'] is None, 'A job queued on its own states no run'
+    assert alone['run'] is None and alone['scope'] is None, 'A job queued on its own states no run, and a frame without a scope states none'
+    reject(lambda: submit(payload=run_request, selected_frame=part(2, scope={'bookIds': books, 'portfolioIds': [str(uuid4())]})), 'risk_job_run')
     reject(lambda: submit(payload=run_request, selected_frame=part(1)), 'risk_job_run')
     reject(lambda: submit(payload=run_request, selected_frame=part(2, parts=3)), 'risk_job_run')
     elsewhere = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
@@ -262,9 +269,58 @@ def run_checks(query, manifest, psql=None, environment=None):
     listed = {row['jobId']: row['run'] for row in json.loads(user(f"SELECT risk.list('{catalog}')"))}
     assert listed[first_part['jobId']]['part'] == 1 and listed[second_part['jobId']] == {'id': run_id, 'part': 2, 'parts': 2}, 'Job history lists each part with its run'
     assert json.loads(user(f"SELECT risk.read('{second_part['jobId']}')"))['run'] == second_part['run']
+    assert json.loads(user(f"SELECT risk.read('{second_part['jobId']}')"))['scope'] == scope, 'A job read states the books and portfolios its run was asked for'
     for queued in (first_part, second_part, alone):
         user(f"SELECT risk.cancel('{queued['jobId']}')")
-    print('PASS risk job runs: a part states one run, its part and the part count, at one retained context and once, in its retained frame', flush=True)
+    print('PASS risk job runs: a part states one run, its part and the part count, at one retained context, for one scope and once, in its retained frame', flush=True)
+
+    if psql is not None:
+        # Two sessions sending parts of one run at once are admitted one at a time: the second waits until the first commits and then sees
+        # its part, so a run never holds parts at two retained contexts, or one part twice.
+        def outcome(work):
+            try:
+                work()
+                return ''
+            except RuntimeError as error:
+                return str(error)
+
+        def raced(first_frame, second):
+            process = subprocess.Popen([str(x) for x in psql], cwd=ROOT, env=environment,
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            result = {}
+            racer = threading.Thread(target=lambda: result.update(error=outcome(second)))
+            try:
+                process.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');{submit_sql(payload=run_request, selected_frame=first_frame)};\n")
+                process.stdin.flush()
+                held = None
+                while held is None:
+                    assert select.select([process.stdout], [], [], 10)[0], 'The first part was not admitted'
+                    line = process.stdout.readline()
+                    held = json.loads(line) if line.startswith('{') else None
+                racer.start()
+                racer.join(2)
+                waited = racer.is_alive()
+                process.stdin.write('COMMIT;\n\\q\n')
+                process.stdin.flush()
+                assert process.wait(timeout=10) == 0
+                racer.join(30)
+                assert waited and not racer.is_alive() and 'risk_job_run' in result.get('error', ''), (waited, result)
+                return held
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=10)
+                if racer.is_alive():
+                    racer.join(30)
+
+        racing = str(uuid4())
+        held_first = raced(part(1, run_id=racing), lambda: submit(payload={**run_request, 'context': {**run_request['context'], 'contextId': elsewhere}},
+                                                                 selected_frame={**part(2, run_id=racing), 'contextId': elsewhere}, selected_context=elsewhere))
+        twice = str(uuid4())
+        held_twice = raced(part(1, run_id=twice), lambda: submit(payload=run_request, selected_frame=part(1, run_id=twice)))
+        for queued in (held_first, held_twice):
+            user(f"SELECT risk.cancel('{queued['jobId']}')")
+        print('PASS risk job run concurrency: a part sent while another of its run is uncommitted waits for it, so no run holds parts at two contexts or a part twice', flush=True)
 
     operation = str(uuid4())
     reject(lambda: submit(selected_frame={**frame, 'frozenObservationIds': [str(uuid4())]}), 'risk_job_input')

@@ -140,38 +140,43 @@ test('Open curve names the curve and the one contract the position is in, or the
  assert.deepEqual(openCurveTarget(held['TR-000001'],rows['TR-000001'],'Curve shape unavailable'),{curve:'gas_forward',contractId:null});
 });
 
-test('the tabs are Curve, Terms, Risk and History, and the Risk tab says its results are not here yet',()=>{
+test('the tabs are Curve, Terms, Risk and History, and the Risk tab says its results come from the desk\'s run, which is not there yet',()=>{
  assert.deepEqual(positionTabs.map(([id,label])=>[id,label]),[['curve','Curve'],['terms','Terms'],['risk','Risk'],['history','History']]);
- assert.equal(riskEmpty,"A risk run's results for this position will show here.");
+ assert.equal(riskEmpty,"This position's risk comes from the risk run on the desk, and there is none yet. Run one from the Risk report.");
 });
 
-// One shock of a run that moves a position, as the lens states it, in exact strings.
+// One shock of a run that moves a position, as the lens states it, in exact strings; and a part of the run that has no results.
 const shock=o=>({factor:'jan',label:'Synthetic future · Jan 2021',bump:'0.05',unit:'1 USD / MMBtu (IT)',up:'25',down:'-25',delta:'500',deltaUnit:'USD / (1 USD / MMBtu (IT))',
  gamma:'0',gammaUnit:'USD / (1 USD / MMBtu (IT))²',base:'-37.5',upValue:'-12.5',downValue:'-62.5',measureLabel:'Futures execution P&L',currency:'USD',currencyKey:'usd',...o});
 const riskFormats={...formats,factor:v=>v};
+const gap={part:2,parts:5,text:'Part 2 of 5 failed: Synthetic refusal'},unlisted={part:4,parts:5,text:'Part 4 of 5 is missing from the job history'};
 
-test('the Risk tab lists each shock that moves the position, with its base, up and down values, changes, delta and gamma, never combined',()=>{
- const view=riskTabView({state:'shown',factors:65,cell:{tradeReference:'TR-000002',shocks:[shock(),shock({factor:'feb',label:'Synthetic future · Feb 2021',up:'7',down:'-7',delta:'140',upValue:'-30.5',downValue:'-44.5'})]}},riskFormats);
- assert.equal(view.note,"2 of this run's 65 shocks move this position, each on its own: nothing is added across them.");
+test('the Risk tab lists each shock of the desk\'s run that moves the position, with its base, up and down values, changes, delta and gamma, never combined',()=>{
+ const view=riskTabView({state:'shown',factors:65,gaps:[],cell:{tradeReference:'TR-000002',shocks:[shock(),shock({factor:'feb',label:'Synthetic future · Feb 2021',up:'7',down:'-7',delta:'140',upValue:'-30.5',downValue:'-44.5'})]}},riskFormats);
+ assert.equal(view.note,"From the risk run on the desk: 2 of its 65 shocks move this position, each on its own: nothing is added across them.");
  assert.deepEqual(view.shocks.map(s=>s.title),['Synthetic future · Jan 2021','Synthetic future · Feb 2021']);
  assert.equal(view.shocks[0].detail,'Shocked up and down by ±0.05 1 USD / MMBtu (IT), everything else held · Futures execution P&L in USD');
  assert.deepEqual(view.shocks[0].facts.map(f=>[f.label,f.text,f.unit,f.exact]),[['Base','−37.5','USD','-37.5'],['Up','−12.5','USD','-12.5'],['Down','−62.5','USD','-62.5'],
   ['Up change','+25','USD','25'],['Down change','−25','USD','-25'],['Delta','+500','USD / (1 USD / MMBtu (IT))','500'],['Gamma','0','USD / (1 USD / MMBtu (IT))²','0']]);
  assert.deepEqual(view.shocks[0].facts.map(f=>f.sign??null),[null,null,null,'positive','negative',null,null],'only a change is told as a gain or a loss');
- assert.equal(riskTabView({state:'shown',factors:65,cell:{tradeReference:'TR-000002',shocks:[shock()]}},riskFormats).note,"One of this run's 65 shocks moves this position.");
- assert.equal(riskTabView({state:'shown',factors:65,missing:{parts:1,of:5},cell:{tradeReference:'TR-000002',shocks:[shock()]}},riskFormats).note,
-  "One of this run's 65 shocks moves this position. 1 of the run's 5 parts has no results, so no shock of it is listed.",'a run with a part missing says so, as a shock of that part may move the position too');
+ assert.equal(riskTabView({state:'shown',factors:65,gaps:[],cell:{tradeReference:'TR-000002',shocks:[shock()]}},riskFormats).note,"From the risk run on the desk: one of its 65 shocks moves this position.");
+ assert.equal(riskTabView({state:'shown',factors:65,gaps:[gap],cell:{tradeReference:'TR-000002',shocks:[shock()]}},riskFormats).note,
+  "From the risk run on the desk: one shock of the parts with results moves this position. Part 2 of 5 failed: Synthetic refusal, so no shock of it is listed.",'a run with a part missing says so, as a shock of that part may move the position too');
+ assert.equal(riskTabView({state:'shown',factors:65,gaps:[gap,unlisted],cell:{tradeReference:'TR-000002',shocks:[shock(),shock({factor:'feb'})]}},riskFormats).note,
+  "From the risk run on the desk: 2 shocks of the parts with results move this position, each on its own: nothing is added across them. Parts 2 and 4 of 5 have no results, so no shock of them is listed.");
 });
 
-test('the Risk tab says why it lists no results: no run, a run under way, a run at another context, a position left out or one no shock moves',()=>{
+test('the Risk tab says why it lists no results: no run, a run under way, made elsewhere or refused, a position left out, one no shock moves, or one not known',()=>{
  const note=risk=>{const view=riskTabView(risk,riskFormats);assert.deepEqual(view.shocks,[]);return view.note;};
  assert.equal(note({state:'none'}),riskEmpty);
- assert.equal(note({state:'running'}),"A queued risk run is under way: this position's results show here once it completes.");
- assert.equal(note({state:'elsewhere'}),'The risk run on screen was made at another market context than this Blotter read, so its results are not shown for this position.');
+ assert.equal(note({state:'running'}),"The risk run on the desk is under way: this position's results show here once it completes.");
+ assert.equal(note({state:'elsewhere'}),'The risk run on the desk was made at another close, context or books than this Blotter read, so its results are not shown for this position.');
  assert.equal(note({state:'failed',reason:'The parts of this run leave out different positions, so its results are not shown. Run it again.'}),'The parts of this run leave out different positions, so its results are not shown. Run it again.');
- assert.equal(note({state:'left',reason:'Contract expired · awaiting settlement'}),'This close cannot value this position, so the run leaves it out: Contract expired · awaiting settlement.');
- assert.equal(note({state:'shown',factors:65,cell:{tradeReference:'TR-000002',shocks:[]}}),"None of this run's 65 shocks moves this position.");
- assert.equal(note({state:'shown',factors:1,cell:{tradeReference:'TR-000002',shocks:[]}}),"This run's one shock does not move this position.");
+ assert.equal(note({state:'left',reason:'Contract expired · awaiting settlement'}),'The risk run on the desk leaves this position out, as this close cannot value it: Contract expired · awaiting settlement.');
+ assert.equal(note({state:'shown',factors:65,gaps:[],cell:{tradeReference:'TR-000002',shocks:[]}}),"From the risk run on the desk: none of its 65 shocks moves this position.");
+ assert.equal(note({state:'shown',factors:1,gaps:[],cell:{tradeReference:'TR-000002',shocks:[]}}),"From the risk run on the desk: its one shock does not move this position.");
+ assert.equal(note({state:'shown',factors:49,gaps:[gap],cell:{tradeReference:'TR-000002',shocks:[]}}),
+  "From the risk run on the desk: whether its shocks move this position is not known, as part 2 of 5 failed: Synthetic refusal.",'missing results are never read as moving nothing');
 });
 
 test('Amend says in words why it is not offered: for the account first, then for the revision once the editor has been read',()=>{

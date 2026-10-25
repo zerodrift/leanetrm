@@ -26,8 +26,10 @@ type Request=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioS
 export type JobState='queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';
 /** The run a queued part belongs to (D220): the run's identity, which part this is and how many parts the run has. */
 type JobRun={id:string;part:number;parts:number};
+/** The books and portfolios a run was asked for, as they were chosen. */
+type RunScope={bookIds:readonly string[];portfolioIds:readonly string[]};
 type Job={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;context?:FinancialContext;asOf?:string;
-  finishedAt?:string|null;run:JobRun|null};
+  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null};
 /**
  * A part of a run and what became of it: the report it returned, or the job it was queued as, or why it failed. A queued part's
  * submission is kept as its `recovery` until its outcome is known. A retained job read from the history has no request of its own, and a
@@ -43,18 +45,20 @@ type RunSetup={report:Choice;label:string;sizes:Record<string,string>;withoutTar
 /**
  * A run on screen: run now or queued, its parts in the order of its shocks, the context it was made at, and its setup, which a retained
  * job read from the history does not record. `key` tells one run on screen from another; `id` is the identity a run queued in parts
- * states with each part; `making` is a run made now that is under way, and `finishedAt` when a run made now finished.
+ * states with each part; `scope` the books and portfolios it was asked for, which a job read from the history states too; `making` is a
+ * run made now that is under way, and `finishedAt` when a run made now finished.
  */
-type Run={key:number;queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string;setup?:RunSetup;id?:string;making?:boolean;finishedAt?:string};
+type Run={key:number;queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string;setup?:RunSetup;id?:string;scope?:RunScope;making?:boolean;finishedAt?:string};
 /** A part of the run on screen as the desk shows it: its report once it has one, or what became of it. */
 export type RunPart={report?:RiskReport;job?:{state:JobState;finishedAt?:string|null};failure?:string;unknown:boolean;unlisted:boolean};
 /**
  * The run on screen as the desk shows it (D220): what it was set up as, in words; whether it was queued, whether a queued part of it is
  * still under way, and whether it is retained, a job of the history or an unconfirmed submission shown under the context it was captured
- * at; where and when it was made; how many shocks it was asked for, when that is known; and its parts.
+ * at; where and when it was made, and for which books and portfolios, when that is known; how many shocks it was asked for, when that is
+ * known; and its parts.
  */
 export type RunView={key:number;queued:boolean;running:boolean;retained:boolean;setup?:RunSetup;setupText:string;context?:FinancialContext;asOf?:string;finishedAt?:string;
-  factors:number|null;parts:readonly RunPart[]};
+  scope?:RunScope;factors:number|null;parts:readonly RunPart[]};
 /**
  * The person's choices in the setup, carried over to a catalog read at changed inputs: the report, the sizes, the custom scenario's own
  * fields and its stresses, and each chosen scenario target by the catalog's id, with its label to name it by when it is no longer offered.
@@ -391,6 +395,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     // What was run is no longer an edit: the run answers it, and the setup it was carried over in is the run's.
     edits.clear();get('risk-carried').hidden=true;
     const current:Run={key:++runs,queued,making:!queued,parts:plan.parts.map(request=>({request})),context:catalog!.context,asOf:catalog!.asOf,setup:plan.setup,
+      scope:{bookIds:[...scope!.bookIds],portfolioIds:[...scope!.portfolioIds]},
       ...(queued&&plan.parts.length>1?{id:crypto.randomUUID()}:{})};
     run=current;
     sync();
@@ -496,7 +501,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       :`Risk run of ${total} parts, each queued as its own job. Each uses the financial context captured at submission.`;
     get('risk-job-parts').replaceChildren(...(total>1?current.parts.map((part,index)=>{
       const item=document.createElement('li'),state=part.recovery?.command?'Submission outcome unknown':part.job?`${jobLabels[part.job.state]??part.job.state}${part.job.state==='cancellation_requested'?' · waiting for the worker to stop':''}`
-        :part.failure!==undefined?'Not queued':'Not yet queued';
+        :part.failure!==undefined?'Not queued':part.unlisted?'Missing from the job history':'Not yet queued';
       item.textContent=publicText(`Part ${index+1} of ${total} · ${state}${part.failure?` · ${part.failure}`:''}`);
       if(part.failure||part.recovery?.command)item.className='risk-part-attention';
       return item;
@@ -532,8 +537,10 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(!job)return {unlisted:true};
       const part:Part={};take(part,job);return part;
     });
-    const first=[...read.values()][0];
-    run={key:++runs,queued:true,parts,context:first.context,asOf:first.asOf,...(runId===undefined?{}:{id:runId})};showRun();
+    // The books and portfolios the run was asked for, which every part states alike, or none when a part does not say.
+    const jobs=[...read.values()],first=jobs[0],stated=first.scope??undefined;
+    const runScope=stated&&jobs.every(j=>JSON.stringify(j.scope)===JSON.stringify(stated))?stated:undefined;
+    run={key:++runs,queued:true,parts,context:first.context,asOf:first.asOf,...(runScope?{scope:runScope}:{}),...(runId===undefined?{}:{id:runId})};showRun();
   });
   get('risk-job-return').onclick=()=>{if(!catalog||submissions.has(options.profile()))void options.act(open);else{edit();renderStress();}};
 
@@ -567,7 +574,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function current():RunView|undefined{
     if(!run||run.making)return undefined;
     const requested=run.parts.every(p=>p.request)?run.parts.reduce((count,p)=>count+p.request!.bumps.length,0):null;
-    return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,factors:requested,
+    return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,scope:run.scope,factors:requested,
       parts:run.parts.map(p=>({report:p.report,job:p.job&&{state:p.job.state,finishedAt:p.job.finishedAt??null},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
   }
 
@@ -610,8 +617,6 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     inputsChanged(carrying:boolean){const kept=carrying?carried??choicesNow():undefined;reset();carry(kept);},
     edited,
     unconfirmed:()=>submissions.has(options.profile()),
-    /** Whether results of a run are on screen, which a later change of the inputs they were run on clears. */
-    shown:()=>!!run&&run.parts.some(p=>p.report),
     /** Whether a queued part of the run on screen is still under way. */
     running,
     current,download,

@@ -72,6 +72,9 @@ def run_checks(Client, check, run_worker):
     listed = {item['id']: item['run'] for item in risk.call('portfolio/risk/jobs')}
     check('job history lists each part with its run, so that after a reload the parts are shown as one run',
           all(listed.get(item['id']) == item['run'] for item in queued))
+    scopes = {item['id']: item['scope'] for item in risk.call('portfolio/risk/jobs')}
+    check('every job read states the books and portfolios its run was asked for, as they were chosen, the job history included',
+          all(item['scope'] == {'bookIds': [], 'portfolioIds': []} and scopes.get(item['id']) == item['scope'] for item in queued))
     check('a part sent again with its request identity returns the job it queued', risk.call('portfolio/risk/jobs', parts[0])['id'] == queued[0]['id'])
     def refused(body, code, status=422):
         return risk.call('portfolio/risk/jobs', body, expected=status).get('code') == code
@@ -83,6 +86,10 @@ def run_checks(Client, check, run_worker):
           refused({'requestId': str(uuid4()), 'request': request, 'run': {'id': run, 'part': 3, 'parts': 3}}, 'risk_job_run'))
     check('a request identity keeps the run it was first sent with',
           refused({**parts[0], 'run': {'id': str(uuid4()), 'part': 1, 'parts': 2}}, 'risk_job_conflict', 409))
+    scoped = str(uuid4())
+    first_scoped = risk.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': request, 'run': {'id': scoped, 'part': 1, 'parts': 2}})
+    check('every part of a run is asked for the same books and portfolios',
+          refused({'requestId': str(uuid4()), 'request': {**request, 'bookIds': [catalog['books'][0]['bookId']]}, 'run': {'id': scoped, 'part': 2, 'parts': 2}}, 'risk_job_run'))
     later = risk.call('portfolio/risk/catalog', {'context': {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'},
                                                  'bookIds': [], 'portfolioIds': []})['context']['contextId']
     split = str(uuid4())
@@ -90,5 +97,5 @@ def run_checks(Client, check, run_worker):
     check('every part of a run is made at its one retained context',
           later != context['contextId'] and refused({'requestId': str(uuid4()), 'request': {**request, 'context': {**context, 'contextId': later}},
                                                       'run': {'id': split, 'part': 2, 'parts': 2}}, 'risk_job_run'))
-    for item in [*queued, first]:
+    for item in [*queued, first, first_scoped]:
         risk.call('portfolio/risk/jobs/' + item['id'] + '/cancel', {})

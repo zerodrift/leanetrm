@@ -521,41 +521,52 @@ they are left, as a form's are, and a run takes them as its own. The page report
 A run's results come back inline (D220, `risk-lens.ts`). A run bar above the tiles states the report
 the run was set up as, with its size for each price unit and the held prices or curves it did not
 shock, how many it shocked, the close, the knowledge the read was made at and when it ran, or how its
-queued jobs stand, and its notes: a nested stress, the positions it leaves out, a part that failed or
-has no result, and why results are not shown. Edit shocks opens the Risk report mode on the run's
-choices, Export downloads every part's report read again under current authority (it needs every
-part, and results that are refused are not offered), and Clear takes the run off the desk. The trade
-rows' Values | Risk lens turns to Risk when a run's results first arrive: Shock, Up, Down and Delta in
-place of Price, Mark, Value and Curve, each change with a small diverging bar on one scale per
-currency and its exact amount, and **n shocks** for a position several factors move; a factor moves a
-position when its up or down change is not zero. The risk tile shows each currency's largest move, picked
-by exact comparison of magnitudes, its position and factor, the number of factors and each position's own
-largest move as a small bar; the long and short chart becomes Change if each contract moves up, a bar for
-each position one factor moves, naming those several factors move and those none moves; and a position's
-Risk tab lists each factor that moves it with its base, up and down values, changes, delta and gamma.
-Nothing is added across factors, parts or positions. The run bar, the tile, the chart and the lens's book
-and instrument-type headers say what the run leaves out, from its own list and the book each entry names,
-and a row it leaves out says so with its own reason. Results are shown in each position's own deal format,
-prepared by the backend's amount display, only once every part states the same positions it leaves out and
-those match the read on screen, and only against a read at the market context the run was made at; a queued
-run shows them once none of its parts is under way, and a retained run made at another context is stated
-by the run bar and exported, never drawn against other positions. A pivot view has no lens, and the run
-bar points to Export and to a run made on trade rows. Every new read of the Blotter clears a run: a change
-of close, context or book scope with "Risk results cleared · the close or books changed", any other new read
-(Refresh, another Display or grouping, the Blotter opened again) with "Risk results cleared · the Blotter was
-read again", and a change of account with none. The page report states the lens: trade rows under the Risk lens are
-`blotter_risk_lens`, which the assistant does not read, after the panel's risk report, a new trade and a
-position. A run for one position alone is not built: the portfolio risk operation scopes runs by books.
+queued jobs stand, and its notes: a nested stress, the positions it leaves out, a part that failed, has
+no known outcome, is missing from the job history or is not yet queued, and why results are not shown.
+Edit shocks opens the Risk report mode on the run's choices, Export downloads every part's report read
+again under current authority (it needs every part, and results that are refused are not offered), and
+Clear takes the run off the desk. The trade rows' Values | Risk lens turns to Risk when a run's results
+first arrive: Shock, Up, Down and Delta in place of Price, Mark, Value and Curve, each change with a small
+diverging bar on one scale per currency and its exact amount, and **n shocks** for a position several
+factors move; a factor moves a position when its up or down change is not zero. The risk tile shows each
+currency's largest move, picked by exact comparison of magnitudes, its position and factor, the number of
+factors and each position's own largest move as a small bar, or says that no position moves; it states a
+run whose results are refused, with why, and a run no part of which has results. The long and short chart
+becomes Change if each contract moves up, a bar for each position one factor moves, naming those several
+factors move and those none moves; and a position's Risk tab says its results come from the risk run on
+the desk, points to the Risk report, and lists each factor that moves it with its base, up and down values,
+changes, delta and gamma. Nothing is added across factors, parts or positions. Missing results are never
+facts: while a part has no results, a position no shock with results moves is Not known, with the part and
+why, in the lens, the chart, the tile and its Risk tab, and the tile's largest move is the largest known
+one. The run bar, the tile, the chart and the lens's book and instrument-type headers say what the run
+leaves out, from its own list and the book each entry names, and a row it leaves out says so with its own
+reason. Results are shown in each position's own deal format, prepared by the backend's amount display, only
+against the read they were run at: its market context, its close, by time and by the frame each part's
+report names, as every close of one date in a historical view shares the view's context, and its books and
+portfolios, which each queued job keeps in its frame; and only once every part states the same positions
+it leaves out and the positions valued and left out are those of the read. Anything else is made
+elsewhere, stated by the run bar and exported, never drawn against other positions; a queued run shows its
+results once none of its parts is under way, and results prepared late, for a run no longer on screen, are
+dropped. A pivot view has no lens, and the run bar points to Export and to a run made on trade rows. Every
+new read of the Blotter clears a run, with or without results: a change of close, context or book scope
+with "Risk results cleared · the close or books changed", any other new read (Refresh, another Display or
+pivot, the Blotter opened again) with "Risk results cleared · the Blotter was read again", and a change of
+account with none. The page report states the lens: trade rows under the Risk lens are `blotter_risk_lens`,
+which the assistant does not read, after the panel's risk report, a new trade and a position. A run for one
+position alone is not built: the portfolio risk operation scopes runs by books.
 `tools/run_preview.py --check --risk-jobs-check --browser-check` drives each preset, the split run made
 now and queued with its run identity, the run bar, the lens, the tile, the change chart and a position's
-Risk tab, the Values lens and Clear, a part that fails, is refused or loses its reply, polling that does
-not place the panel again, the prefilled sizes, which a refused run does not change, what a preset leaves
-out in its setup, results and download, the catalogs and results that do not say what they leave out, a
-rational change and its exact amount, a pivot's note, the question asked before the setup's edits are
-left, the notes a Refresh, another book scope and another close leave, the retained submissions and the job history before and
-after a reload. The settlement netting check settles a retained record from its card while the setup
-holds typed sizes, and the valuation-status check reads the positions a close cannot value in the setup,
-the run bar, the lens, its book headers, the tile and the change chart.
+Risk tab, the Values lens and Clear, a part that fails, is refused or loses its reply and the positions
+only it could move, a run with no results and one that moves nothing, results prepared late, polling that
+does not place the panel again, the prefilled sizes, which a refused run does not change, what a preset
+leaves out in its setup, results and download, the catalogs and results that do not say what they leave
+out, a rational change and its exact amount, a pivot's note, the question asked before the setup's edits
+are left, the notes a Refresh, another book scope and another close leave, the retained submissions and
+the job history before and after a reload; and, in a historical view with two closes of one date, a run
+from the job history made at the other close, which is made elsewhere, the same run at its own close, and a
+part the job history no longer lists. The settlement netting check settles a retained record from its card
+while the setup holds typed sizes, and the valuation-status check reads the positions a close cannot value
+in the setup, the run bar, the lens, its book headers, the tile and the change chart.
 
 New trade (D219) opens the side panel on a head with the title New trade, a Future | Swap switch of
 two buttons with neither pressed, and the way to PPA bookings, which are booked on their own page.

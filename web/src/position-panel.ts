@@ -4,41 +4,47 @@
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
 import {curveChart,curvePoints,minus,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type Holding,type HoldingFormats} from './desk-model.js';
 import {publicText} from './market-view.js';
-import type {LensCell} from './risk-lens.js';
+import {gapsText,type LensCell,type RunGap} from './risk-lens.js';
 import {clearTabs,setupTabs,type SidePanel} from './side-panel.js';
 
 export const positionTabs=[['curve','Curve'],['terms','Terms'],['risk','Risk'],['history','History']] as const;
 export type PositionTab=typeof positionTabs[number][0];
-export const riskEmpty="A risk run's results for this position will show here.";
+// The Risk tab's results come from the risk run on the desk (D220), and the Risk report sets one up.
+export const riskEmpty="This position's risk comes from the risk run on the desk, and there is none yet. Run one from the Risk report.";
 
 /**
- * What the run on screen says of a position (D220): no run; a queued run under way; a run made at another market context than the read,
- * or one whose results are refused, with why; a position the run leaves out, with its row's reason; or its shocks, among the run's
- * factors with results, and the parts that have none.
+ * What the run on the desk says of a position (D220): no run; a queued run under way; a run made at another close, context or books than
+ * the read, or one whose results are refused, with why; a position the run leaves out, with its row's reason; or its shocks, among the
+ * run's factors with results, and the parts that have none.
  */
 export type PositionRisk={state:'none'}|{state:'running'}|{state:'elsewhere'}|{state:'failed';reason:string}|{state:'left';reason:string}
-  |{state:'shown';cell:LensCell;factors:number;missing?:{parts:number;of:number}};
+  |{state:'shown';cell:LensCell;factors:number;gaps:readonly RunGap[]};
 /** A figure of a shock's results: its display text, exact amount and unit, and, for a change, whether it is a gain or a loss. */
 export type RiskFact={label:string;text:string;exact:string;unit:string;sign?:'positive'|'negative'|'zero'};
 export type RiskTabView={note:string;shocks:{title:string;detail:string;facts:RiskFact[]}[]};
 /**
- * The Risk tab: each shock that moves the position, with its size and unit, its base, up and down values, its changes, delta and gamma,
- * each with its exact amount; or why it lists none. Each shock is its own, and nothing is added across them.
+ * The Risk tab: the results of the risk run on the desk for the position, which it says they come from; each shock that moves it, with its
+ * size and unit, its base, up and down values, its changes, delta and gamma, each with its exact amount; or why it lists none. Each shock
+ * is its own, and nothing is added across them; a part of the run with no results is named, and never read as moving nothing.
  */
 export function riskTabView(risk:PositionRisk,formats:Pick<HoldingFormats,'money'|'factor'>):RiskTabView{
   switch(risk.state){
     case 'none':return {note:riskEmpty,shocks:[]};
-    case 'running':return {note:"A queued risk run is under way: this position's results show here once it completes.",shocks:[]};
-    case 'elsewhere':return {note:'The risk run on screen was made at another market context than this Blotter read, so its results are not shown for this position.',shocks:[]};
+    case 'running':return {note:"The risk run on the desk is under way: this position's results show here once it completes.",shocks:[]};
+    case 'elsewhere':return {note:'The risk run on the desk was made at another close, context or books than this Blotter read, so its results are not shown for this position.',shocks:[]};
     case 'failed':return {note:risk.reason,shocks:[]};
-    case 'left':return {note:`This close cannot value this position, so the run leaves it out: ${risk.reason}.`,shocks:[]};
+    case 'left':return {note:`The risk run on the desk leaves this position out, as this close cannot value it: ${risk.reason}.`,shocks:[]};
   }
-  const {cell,factors,missing}=risk,moved=cell.shocks.length;
-  const note=moved===0?(factors===1?"This run's one shock does not move this position.":`None of this run's ${factors} shocks moves this position.`)
-    :moved===1?`One of this run's ${factors} shocks moves this position.`:`${moved} of this run's ${factors} shocks move this position, each on its own: nothing is added across them.`;
-  const left=missing?` ${missing.parts} of the run's ${missing.of} parts ${missing.parts===1?'has':'have'} no results, so no shock of ${missing.parts===1?'it':'them'} is listed.`:'';
+  const {cell,factors,gaps}=risk,moved=cell.shocks.length,from='From the risk run on the desk: ',gap=gapsText(gaps);
+  const several='each on its own: nothing is added across them.',missing=gaps.length?` ${gap}, so no shock of ${gaps.length===1?'it':'them'} is listed.`:'';
+  let note:string;
+  if(moved===0)note=gaps.length?`${from}whether its shocks move this position is not known, as ${gap.charAt(0).toLowerCase()}${gap.slice(1)}.`
+    :factors===1?`${from}its one shock does not move this position.`:`${from}none of its ${factors} shocks moves this position.`;
+  else if(gaps.length)note=moved===1?`${from}one shock of the parts with results moves this position.${missing}`
+    :`${from}${moved} shocks of the parts with results move this position, ${several}${missing}`;
+  else note=moved===1?`${from}one of its ${factors} shocks moves this position.`:`${from}${moved} of its ${factors} shocks move this position, ${several}`;
   const fact=(label:string,exact:string,format:Format,unit:string,change=false):RiskFact=>({label,text:signedText(exact,format),exact,unit,...(change?{sign:signOf(exact)}:{})});
-  return {note:note+left,shocks:cell.shocks.map(s=>({title:s.label,detail:`Shocked up and down by ±${s.bump} ${s.unit}, everything else held · ${s.measureLabel} in ${s.currency}`,
+  return {note,shocks:cell.shocks.map(s=>({title:s.label,detail:`Shocked up and down by ±${s.bump} ${s.unit}, everything else held · ${s.measureLabel} in ${s.currency}`,
     facts:[fact('Base',s.base,formats.money,s.currency),fact('Up',s.upValue,formats.money,s.currency),fact('Down',s.downValue,formats.money,s.currency),
       fact('Up change',s.up,formats.money,s.currency,true),fact('Down change',s.down,formats.money,s.currency,true),
       fact('Delta',s.delta,formats.factor,s.deltaUnit),fact('Gamma',s.gamma,formats.factor,s.gammaUnit)]}))};

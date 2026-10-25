@@ -116,7 +116,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   // The tab strip's keys below start from Terms, whichever tab the press left the panel on.
   await click('#side-panel-tabs-terms');await evaluate("document.querySelector('#side-panel-tabs-terms').focus()");
   await press('ArrowRight','ArrowRight',39);
-  await check('Risk says its results will show here, without claiming a run',`document.activeElement.id==='side-panel-tabs-risk'&&document.querySelector('#side-panel-view').textContent==="A risk run's results for this position will show here."`);
+  await check('Risk says its results come from the risk run on the desk, without claiming one, and points to the Risk report',`document.activeElement.id==='side-panel-tabs-risk'&&document.querySelector('#side-panel-view').textContent==="This position's risk comes from the risk run on the desk, and there is none yet. Run one from the Risk report."`);
   await press('ArrowRight','ArrowRight',39);
   await wait("!!document.querySelector('#side-panel-view .side-panel-section')");
   await check('History lists the trade\'s revisions one by one, each with its facts, from the same read, and in the width of the panel',

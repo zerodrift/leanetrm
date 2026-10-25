@@ -77,6 +77,65 @@ export function runExclusions(reports:readonly RiskReport[]):ExcludedPosition[]{
   return lists[0];
 }
 
+/** Where a Blotter read was made: its market context, its close's time and frame, and the books and portfolios it was asked for. */
+export type ReadPlace={contextId:string;asOf:string;snapshotId:string;bookIds:readonly string[];portfolioIds:readonly string[]};
+const sameIds=(a:readonly string[],b:readonly string[])=>{const x=[...a].sort(byText),y=[...b].sort(byText);return x.length===y.length&&x.every((id,i)=>id===y[i]);};
+/**
+ * Whether a run's results belong to the read on screen (D220): made at its market context and close, each part's report at its close's
+ * frame, which a context shared by every close of a date cannot tell apart, and asked for its books and portfolios. A run that does not
+ * state its books is never taken for the read's: anything else is made elsewhere.
+ */
+export function madeHere(run:RunView,read:ReadPlace):boolean{
+  return run.context?.contextId===read.contextId&&run.asOf===read.asOf&&run.scope!==undefined&&sameIds(run.scope.bookIds,read.bookIds)
+    &&sameIds(run.scope.portfolioIds,read.portfolioIds)&&run.parts.every(p=>!p.report||p.report.snapshotId===read.snapshotId);
+}
+
+/** A part of a run that returned no results, once none of its parts is under way, and why, in the words the desk states it with. */
+export type RunGap={part:number;parts:number;text:string};
+const underWay=new Set(['queued','running','cancellation_requested']);
+/**
+ * Each part of a run with no results and why: it failed or was refused, its submission has no known outcome, the job history no longer
+ * lists it, or it is not yet queued. A part still under way has results to come, so it is no gap.
+ */
+export function runGaps(run:Pick<RunView,'parts'>):RunGap[]{
+  const total=run.parts.length;
+  return run.parts.flatMap((part,index)=>{
+    if(part.report||part.job&&underWay.has(part.job.state))return [];
+    const name=total===1?'The run':`Part ${index+1} of ${total}`;
+    const text=part.failure!==undefined?`${name} failed: ${part.failure.replace(/\.$/,'')}`:part.unknown?`${name} has no known outcome`
+      :part.unlisted?`${name} is missing from the job history`:`${name} is not yet queued`;
+    return [{part:index+1,parts:total,text}];
+  });
+}
+/** What a run's gaps say in a line: one part's own reason, or which parts have no results. */
+export function gapsText(gaps:readonly RunGap[]):string{
+  if(gaps.length<2)return gaps[0]?.text??'';
+  const numbers=gaps.map(g=>g.part);
+  return `Parts ${numbers.slice(0,-1).join(', ')} and ${numbers.at(-1)} of ${gaps[0].parts} have no results`;
+}
+/**
+ * What the lens says of a position the run values: the shocks that move it; that none does, once every part has results; or, while a
+ * part has none, that it is not known, with that part and why. Missing results are never read as moving nothing.
+ */
+export function positionMoves(cell:LensCell,gaps:readonly RunGap[]):{state:'shocks';shocks:LensShock[]}|{state:'unmoved'}|{state:'unknown';reason:string}{
+  return cell.shocks.length?{state:'shocks',shocks:cell.shocks}:gaps.length?{state:'unknown',reason:gapsText(gaps)}:{state:'unmoved'};
+}
+const lowerFirst=(text:string)=>text.charAt(0).toLowerCase()+text.slice(1);
+/** What the change chart says of the positions no shock with results moves: that none moves them, or that it is not known, and why. */
+export function unmovedNote(unmoved:readonly string[],gaps:readonly RunGap[]):string|null{
+  if(!unmoved.length)return null;
+  return gaps.length?`Not known, as ${lowerFirst(gapsText(gaps))}: ${unmoved.join(', ')}`:`Not moved by any shock: ${unmoved.join(', ')}`;
+}
+/**
+ * The words of the risk tile beside a run's moves: the largest move's lead, the largest known one while a part has no results; what it
+ * says when nothing moves; and its note: what the run leaves out, how many positions are not known and why.
+ */
+export function tileWords(o:{largest:number;gaps:readonly RunGap[];unknown:number;excluded:number}):{lead:string;empty:string|null;note:string|null}{
+  const gaps=o.gaps.length?gapsText(o.gaps):null;
+  const notes=[...(o.excluded?[`Leaves out ${plural(o.excluded,'position')} this close cannot value`]:[]),...(gaps&&o.unknown?[`Not known for ${plural(o.unknown,'position')}`]:[]),...(gaps?[gaps]:[])];
+  return {lead:gaps?'Largest known move':'Largest move',empty:o.largest?null:gaps?`No known move: ${gaps}`:"No position moves by this run's shocks.",note:notes.length?notes.join(' · '):null};
+}
+
 /** The largest magnitude among the changes the lens draws as bars, by currency, for one bar scale: chosen by exact comparison, never computed. */
 export function changeScales(cells:ReadonlyMap<string,LensCell>):Map<string,string>{
   const scales=new Map<string,string>();
@@ -117,7 +176,7 @@ export function changeChart(rows:readonly ChangeRow[],cells:ReadonlyMap<string,L
 export type RunNote={kind:'note'|'failed'|'missing'|'alert';text:string};
 /**
  * Where a run's results stand on the desk: none yet; shown in the positions, or in a pivot view, which has no lens; refused, with why;
- * or made at another market context than the read on screen, against whose positions they are never shown.
+ * or made at another close, context or books than the read on screen, against whose positions they are never shown.
  */
 export type RunResults={state:'none'|'elsewhere'}|{state:'shown'|'pivot';excluded:readonly ExcludedPosition[]}|{state:'failed';reason:string};
 const reportNouns={held:'held contract',parallel:'held curve',custom:'shock'} as const;
@@ -135,7 +194,7 @@ export function runBar(run:RunView,o:{zone:string;knowledge:string|null;results:
   if(!run.queued)when=`ran ${run.finishedAt?instant(run.finishedAt):'at an unstated time'}${total>1?` · ${total} parts`:''}`;
   else{
     const jobs=total===1?'queued as a job':`queued as ${total} jobs`,states=new Map<string,number>();
-    for(const part of run.parts){const state=part.unknown?'outcome unknown':part.job?part.job.state.replaceAll('_',' '):part.failure!==undefined?'not queued':'not yet queued';states.set(state,(states.get(state)??0)+1);}
+    for(const part of run.parts){const state=part.unknown?'outcome unknown':part.job?part.job.state.replaceAll('_',' '):part.failure!==undefined?'not queued':part.unlisted?'missing from the job history':'not yet queued';states.set(state,(states.get(state)??0)+1);}
     when=states.size===1&&states.has('completed')?`${jobs}, completed ${finished?instant(finished):'at an unstated time'}`:`${jobs}: ${[...states].map(([state,n])=>`${n} ${state}`).join(', ')}`;
   }
   const notes:RunNote[]=[];
@@ -149,10 +208,11 @@ export function runBar(run:RunView,o:{zone:string;knowledge:string|null;results:
     const name=total===1?'The run':`Part ${index+1} of ${total}`;
     if(part.failure!==undefined)notes.push({kind:'failed',text:`${name} failed: ${part.failure}`});
     else if(!part.report&&part.unknown)notes.push({kind:'missing',text:`${name} has no results: its submission has no known outcome.`});
+    else if(!part.report&&part.unlisted)notes.push({kind:'missing',text:`${name} has no results: it is missing from the job history.`});
     else if(!part.report&&!part.job)notes.push({kind:'missing',text:`${name} has no results: it is not yet queued.`});
   });
   if(o.results.state==='failed')notes.push({kind:'alert',text:o.results.reason});
-  if(o.results.state==='elsewhere')notes.push({kind:'note',text:'This run was made at another market context than the Blotter read on screen, so its results are not shown in the positions. Export downloads them.'});
+  if(o.results.state==='elsewhere')notes.push({kind:'note',text:'This run was made at another close, context or books than the Blotter read on screen, so its results are not shown in the positions. Export downloads them.'});
   // Changing Display reads the Blotter again, which clears the run: a pivot's note points to the download, and to a run made on trade rows.
   if(o.results.state==='pivot')notes.push({kind:'note',text:"Risk results are by position, which totals do not show. Export downloads them for every factor; a run made with Display set to Individual trades shows each position's shocks in its row and in the Risk tab of its panel."});
   const noun=run.setup?reportNouns[run.setup.report]:'shock',complete=total>0&&run.parts.every(p=>p.report);

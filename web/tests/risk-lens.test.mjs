@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {changeChart,changeScales,largestMove,lensCells,positionKey,runBar,runExclusions,runSummary} from '../dist/risk-lens.js';
+import {changeChart,changeScales,gapsText,largestMove,lensCells,madeHere,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,tileWords,unmovedNote} from '../dist/risk-lens.js';
 
 // Synthetic reports as a portfolio risk run states them: each factor lists every holding it was run over, an unaffected one with
 // unchanged values, and the run lists the positions its close cannot value.
@@ -143,9 +143,62 @@ test('the run bar says which part failed or has no result, and why its results a
  const retained=runBar(run({retained:true,setup:undefined,setupText:'A retained run: its report and sizes are not recorded with it, and each shock states its size.',factors:null,finishedAt:undefined,queued:true,
   parts:[{report:report([factor('jan',gas,'0.05',[])]),job:{state:'completed',finishedAt:'2026-10-25T15:44:00Z'},unknown:false}]}),{zone:'UTC',knowledge:null,results:{state:'elsewhere'}});
  assert.equal(retained.detail,'1 shock · Dec 18, 2020, 9:00 PM close · known at Oct 25, 2026, 3:41 PM · queued as a job, completed Oct 25, 2026, 3:44 PM');
- assert.deepEqual(retained.notes,[{kind:'note',text:'This run was made at another market context than the Blotter read on screen, so its results are not shown in the positions. Export downloads them.'}]);
+ assert.deepEqual(retained.notes,[{kind:'note',text:'This run was made at another close, context or books than the Blotter read on screen, so its results are not shown in the positions. Export downloads them.'}]);
  const stressed=report([]);stressed.scenario={depth:2,isBase:false};
  assert.deepEqual(runBar(run({parts:[{report:stressed,unknown:false}]}),{zone:'UTC',knowledge:'current knowledge',results:{state:'pivot',excluded:[]}}).notes,
   [{kind:'note',text:'Around 2 nested stresses: the base, up and down values all include them.'},
    {kind:'note',text:"Risk results are by position, which totals do not show. Export downloads them for every factor; a run made with Display set to Individual trades shows each position's shocks in its row and in the Risk tab of its panel."}]);
+});
+
+test('a run is drawn only against a read of its own close, context and books: anything else is made elsewhere',()=>{
+ const here={contextId:'x1',asOf:at,snapshotId:'s1',bookIds:['b2','b1'],portfolioIds:[]};
+ const close=snapshotId=>({...report([]),snapshotId});
+ const made=o=>run({scope:{bookIds:['b1','b2'],portfolioIds:[]},parts:[{report:close('s1'),unknown:false},{report:close('s1'),unknown:false}],...o});
+ assert.equal(madeHere(made({}),here),true,'the same books in another order are the same books');
+ assert.equal(madeHere(made({parts:[{report:close('s1'),unknown:false},{report:close('s2'),unknown:false}]}),here),false,'a part made at another close of the date and context');
+ assert.equal(madeHere(made({asOf:'2020-12-17T21:00:00Z'}),here),false,'another close time');
+ assert.equal(madeHere(made({context:{...context,contextId:'x2'}}),here),false,'another market context');
+ assert.equal(madeHere(made({scope:{bookIds:['b1'],portfolioIds:[]}}),here),false,'other books');
+ assert.equal(madeHere(made({scope:{bookIds:['b1','b2'],portfolioIds:['p1']}}),here),false,'other portfolios');
+ assert.equal(madeHere(made({scope:undefined}),here),false,'a run that does not state its books is never taken for this read\'s');
+ assert.equal(madeHere(made({parts:[{report:close('s1'),unknown:false},{failure:'Synthetic refusal.',unknown:false}]}),here),true,'a part with no report states no close');
+});
+
+test('a part with no results says why, and several say which; a part still under way is not a gap',()=>{
+ const job=state=>({state,finishedAt:null});
+ const gaps=runGaps(run({parts:[{failure:'Synthetic refusal.',unknown:false},{report:report([]),unknown:false},{unknown:true},{unknown:false,unlisted:true},{unknown:false},{job:job('running'),unknown:false}]}));
+ assert.deepEqual(gaps.map(g=>[g.part,g.parts,g.text]),[[1,6,'Part 1 of 6 failed: Synthetic refusal'],[3,6,'Part 3 of 6 has no known outcome'],[4,6,'Part 4 of 6 is missing from the job history'],[5,6,'Part 5 of 6 is not yet queued']]);
+ assert.equal(gapsText(gaps.slice(0,1)),'Part 1 of 6 failed: Synthetic refusal');
+ assert.equal(gapsText(gaps),'Parts 1, 3, 4 and 5 of 6 have no results');
+ assert.equal(gapsText(gaps.slice(1,3)),'Parts 3 and 4 of 6 have no results');
+ assert.deepEqual(runGaps(run({parts:[{failure:'Synthetic refusal.',unknown:false}]})).map(g=>g.text),['The run failed: Synthetic refusal']);
+ assert.deepEqual(runGaps(run({})),[]);
+});
+
+test('the run bar names a part the job history no longer lists as missing from it, never as not yet queued',()=>{
+ const bar=runBar(run({parts:[{report:report([]),unknown:false},{unknown:false,unlisted:true},{unknown:false}]}),{zone:'UTC',knowledge:'current knowledge',results:{state:'none'}});
+ assert.deepEqual(bar.notes,[{kind:'missing',text:'Part 2 of 3 has no results: it is missing from the job history.'},{kind:'missing',text:'Part 3 of 3 has no results: it is not yet queued.'}]);
+ const retained=runBar(run({queued:true,retained:true,finishedAt:undefined,parts:[{report:report([]),job:{state:'completed',finishedAt:'2026-10-25T15:44:00Z'},unknown:false},{unknown:false,unlisted:true}]}),
+  {zone:'UTC',knowledge:null,results:{state:'none'}});
+ assert.ok(retained.detail.endsWith(' · queued as 2 jobs: 1 completed, 1 missing from the job history'),retained.detail);
+});
+
+test('a position no shock with results moves is not known while a part has no results, and not moved only when every part has results',()=>{
+ const [gap]=runGaps(run({parts:[{report:report([]),unknown:false},{failure:'Synthetic refusal.',unknown:false}]}));
+ const moved=lensCells([report([factor('jan',gas,'0.05',[holding(1,values('25','-25'))])])]).get(key(1));
+ assert.deepEqual(positionMoves(moved,[gap]),{state:'shocks',shocks:moved.shocks});
+ assert.deepEqual(positionMoves({tradeReference:'TR-000003',shocks:[]},[gap]),{state:'unknown',reason:'Part 2 of 2 failed: Synthetic refusal'});
+ assert.deepEqual(positionMoves({tradeReference:'TR-000003',shocks:[]},[]),{state:'unmoved'});
+ assert.equal(unmovedNote(['TR-000003','TR-000004'],[]),'Not moved by any shock: TR-000003, TR-000004');
+ assert.equal(unmovedNote(['TR-000003'],[gap]),'Not known, as part 2 of 2 failed: Synthetic refusal: TR-000003');
+ assert.equal(unmovedNote([],[gap]),null);
+});
+
+test('the risk tile says a move is the largest known one while a part has no results, and says so when nothing moves',()=>{
+ const [gap]=runGaps(run({parts:[{report:report([]),unknown:false},{unknown:false,unlisted:true}]}));
+ assert.deepEqual(tileWords({largest:1,gaps:[],unknown:0,excluded:0}),{lead:'Largest move',empty:null,note:null});
+ assert.deepEqual(tileWords({largest:0,gaps:[],unknown:0,excluded:2}),{lead:'Largest move',empty:"No position moves by this run's shocks.",note:'Leaves out 2 positions this close cannot value'});
+ assert.deepEqual(tileWords({largest:2,gaps:[gap],unknown:3,excluded:1}),{lead:'Largest known move',empty:null,note:'Leaves out 1 position this close cannot value · Not known for 3 positions · Part 2 of 2 is missing from the job history'});
+ assert.deepEqual(tileWords({largest:0,gaps:[gap],unknown:24,excluded:0}),{lead:'Largest known move',empty:'No known move: Part 2 of 2 is missing from the job history',note:'Not known for 24 positions · Part 2 of 2 is missing from the job history'});
+ assert.equal(tileWords({largest:1,gaps:[gap],unknown:0,excluded:0}).note,'Part 2 of 2 is missing from the job history');
 });
