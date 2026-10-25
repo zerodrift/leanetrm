@@ -25,3 +25,13 @@ export class PendingCommand {
     else this.command.uncertain=true;
   }
 }
+
+// A local receipt is untrusted transport state, never write authority. Preserve
+// the exact operation/body for status recovery or an authorized idempotent retry.
+export function restoreTradeRequest(value:unknown):RequestCommand|undefined{
+  if(!value||typeof value!=='object'||Array.isArray(value))return;
+  const saved=value as Record<string,unknown>;
+  if(typeof saved.path!=='string'||!['futures/book','futures/amend','swaps/book','swaps/amend','swaps/settlement/determine','swaps/settlement/payment','swaps/settlement/net'].includes(saved.path)||
+    typeof saved.operationId!=='string'||!saved.operationId||!saved.body||typeof saved.body!=='object'||Array.isArray(saved.body))return;
+  return{path:saved.path,operationId:saved.operationId,body:structuredClone(saved.body as Record<string,unknown>),...(saved.uncertain===true?{uncertain:true}:{})};
+}

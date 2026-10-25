@@ -55,6 +55,16 @@ def run_foundation(c,query,url,body,before,after,before_at,currency):
     bridge=dict(opening={**before,'knowledgeMode':'retained','contextId':original['context']['contextId']},closing=before,
         tradeIds=[booked['tradeId']],bookIds=[],contractChanges='reject_contract_changes_v1',duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_trading_pnl_v1')
     c.call('swaps/settlement/pnl',bridge,expected=422)
+    changed=c.call('swaps/settlement/pnl',{**bridge,'contractChanges':'closing_context_contract_changes_v1'})['report']
+    row=changed['trades'][0]
+    assert F(row['bridge']['contractualAmendment'])==-30
+    assert F(row['bridge']['continuingEconomics'])==0
+    assert F(row['bridge']['newTradeEconomics'])==0
+    assert F(row['bridge']['economicPnl'])==-30
+    assert F(row['bridge']['realizedTransfer'])+F(row['bridge']['unrealizedMovement'])==-30
+    assert row['openingRevision']==1 and row['closingRevision']==2
+    assert changed==c.call('swaps/settlement/pnl',{**bridge,'contractChanges':'closing_context_contract_changes_v1'})['report']
+    print('PASS closing-context amendment bridge: unchanged determined January plus independently valued future February quantity change')
     c.call('swaps/settlement/pnl',{**bridge,'opening':before,'tradeIds':[booked['tradeId'],str(uuid4())]},expected=422)
     c.call('swaps/settlement/pnl',{**bridge,'opening':after,'closing':before},expected=422)
     concurrent=deepcopy(terms);concurrent['operationId']=str(uuid4());other=c.call('swaps/book',concurrent)
@@ -176,3 +186,59 @@ def run_late_cash(c,monthly_body,opening_context,closing_context,currency,openin
     assert bridge['economicPnl']=='0' and bridge['periodCashReceived']=='0' and bridge['priorCashKnowledgeAdjustment']=='-100'
     assert bridge['remainingValueMovement']=='100' and bridge['netCashMovement']=='-100'
     print('PASS cash knowledge bridge: prior cash is separate from period cash; the undiscounted balance/cash movements reconcile without new earnings')
+
+
+def run_future_boundary(c,body,before,after):
+    """Independent side ranges must not make completed fixed terms amendable in a bridge."""
+    terms=deepcopy(body);terms['operationId']=str(uuid4())
+    first=terms['scheduled']['first'];second=terms['scheduled']['second']
+    first['periods']=first['periods'][:1];second['periods']=second['periods'][:1]
+    first['periods'][0]['fixed']['paymentSchedule']['days']=90
+    floating=second['periods'][0]['floating'];floating['deliveryFrom']='2021-03-01';floating['deliveryTo']='2021-04-01'
+    trade=c.call('swaps/book',terms)['tradeId']
+    inspection=dict(context=before,tradeId=trade,revision=None,duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_trading_pnl_v1')
+    initial=c.call('swaps/settlement/inspect',inspection)
+    amendment={**terms,**after,'operationId':str(uuid4()),'tradeId':trade,'expectedRevision':1,'effectiveAt':next(f['at'] for f in c.call('workspace')['frames'] if f['id']==after['snapshotId']),'reason':'Synthetic completed fixed period boundary'}
+    amendment['scheduled']=deepcopy(terms['scheduled']);amendment['scheduled']['first']['periods'][0]['fixed']['price']='4'
+    c.call('swaps/amend',amendment)
+    c.call('swaps/settlement/pnl',dict(opening={**before,'knowledgeMode':'retained','contextId':initial['context']['contextId']},closing=after,
+        tradeIds=[trade],bookIds=[],contractChanges='closing_context_contract_changes_v1',duePolicy=inspection['duePolicy'],recognitionPolicy=inspection['recognitionPolicy']),expected=422)
+    print('PASS contractual bridge refuses completed undetermined fixed-period rewrites with independent later floating delivery')
+
+
+def run_cross_market_bridge(c,legacy,context):
+    catalog=c.call('swaps/catalog',context)
+    source=next(i for i in catalog['indices'] if i['curve']=='daily_gas')
+    terms=deepcopy(legacy);terms.update(operationId=str(uuid4()),definitionRevisionId=source['definitionRevisionId'])
+    terms['floating'].update(curve='daily_gas',index=source['index'],resetFrequency='daily',averagingMethod='arithmetic')
+    trade=c.call('swaps/book',terms)['tradeId']
+    inspection=dict(context=context,tradeId=trade,revision=None,duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_trading_pnl_v1')
+    opening=c.call('swaps/settlement/inspect',inspection)
+    assert F(opening['valuation']['remainingValue'])==16
+    amendment={**deepcopy(legacy),'operationId':str(uuid4()),'tradeId':trade,'expectedRevision':1,
+        'effectiveAt':next(f['at'] for f in c.call('workspace')['frames'] if f['id']==context['snapshotId']),'reason':'Synthetic supplemental to primary market amendment'}
+    c.call('swaps/amend',amendment)
+    report=c.call('swaps/settlement/pnl',dict(opening={**context,'knowledgeMode':'retained','contextId':opening['context']['contextId']},closing=context,
+        tradeIds=[trade],bookIds=[],contractChanges='closing_context_contract_changes_v1',duePolicy=inspection['duePolicy'],recognitionPolicy=inspection['recognitionPolicy']))['report']['trades'][0]['bridge']
+    assert F(report['contractualAmendment'])==-6 and F(report['continuingEconomics'])==0 and F(report['economicPnl'])==-6
+    print('PASS closing-context amendment resolves supplemental prior and primary revised markets independently with a -6 cash oracle')
+
+
+def run_newtrade_basis_refusal(c,body,context):
+    opening=c.call('swaps/catalog',context)
+    terms=deepcopy(body);terms['operationId']=str(uuid4())
+    trade=c.call('swaps/book',terms)['tradeId']
+    source=next(i for i in opening['indices'] if i['curve']=='daily_power')
+    amendment={**terms,'operationId':str(uuid4()),'tradeId':trade,'expectedRevision':1,
+        'effectiveAt':next(f['at'] for f in c.call('workspace')['frames'] if f['id']==context['snapshotId']),
+        'reason':'Synthetic unsupported exact-basis transformation','definitionRevisionId':source['definitionRevisionId'],'commodity':source['commodity']}
+    amendment['scheduled']=deepcopy(terms['scheduled'])
+    for side in (amendment['scheduled']['first'],amendment['scheduled']['second']):
+        side['quantity']=source['quantityChoices'][0]['specification']
+        for period in side['periods']:
+            if period['fixed']:period['fixed'].update(price='40',currency=source['currencyCode'])
+            else:period['floating'].update(curve=source['curve'],index=source['index'],currency=source['currencyCode'],resetFrequency='daily',averagingMethod='arithmetic')
+    c.call('swaps/amend',amendment)
+    c.call('swaps/settlement/pnl',dict(opening={**context,'knowledgeMode':'retained','contextId':opening['context']['contextId']},closing=context,
+        tradeIds=[trade],bookIds=[],contractChanges='closing_context_contract_changes_v1',duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_trading_pnl_v1'),expected=422)
+    print('PASS newly visible amended trade refuses an intervening exact currency/quantity-basis transformation')

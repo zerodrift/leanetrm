@@ -1439,8 +1439,9 @@ what it showed and its As of date. A target pinned to an As of date the page no 
 shows waits for Go and says why, and Go selects that date and opens the curve. A live
 target that would leave unsaved booking edits waits and offers Go anyway, which moves,
 with Back, and Back from a page with unsaved edits says so first too, offering Back
-anyway. On Delivery prices Looking at says the page is not read, and Read current page
-is refused `page_not_supported` in plain words. During a turn Send becomes Stop with the
+anyway. On Delivery prices and PPA bookings Looking at says the page is not read, an ask
+from either is admitted with the page and no selection, and Read current page is refused
+`page_not_supported` in plain words. During a turn Send becomes Stop with the
 agent and conversation fixed, and Stop marks the answer incomplete. A send lost before it
 left keeps the draft with Retry and Discard, also after a reload, and Retry sends the same
 identity once; while an ask is in flight History offers no conversation to open. After a
@@ -2848,3 +2849,30 @@ Independent adversarial review has no remaining material finding. This records
 local synthetic evidence, not real-provider/account availability, browser rendering
 or hosted schema/application deployment qualification. No real token prices or
 credentials ship in migration 0104. See [the adapter contract](provider-adapters.md).
+
+## Financial swap authoring, net settlement and contractual bridge (D216)
+
+The D216 local increment passed all required matrix gates across owned runs,
+including 621 managed core checks, 84 rate checks, 328 frontend checks, 173
+combined-schema checks and the focused 62-check swap browser workflow. The
+standard browser gate required a fresh-browser retry after Chrome closed its
+automation connection; the retry and every subsequent gate passed. Earlier
+preparation and managed/schema results were retained from the preceding full run.
+See [settlement capability and verification](swap-settlement.md#d216-local-verification)
+for supported combinations, independent numerical oracles and enforced limits.
+This is synthetic local verification, not deployment qualification.
+
+Scheduled booking/amendment submissions use a bounded 35-second browser wait for
+the write and populated holdings refresh. Settlement determination, payment, net
+recording/reversal, reconciliation and operation-status recovery use explicit
+60-second workflow waits. Settlement writes also refresh workspace/chart and
+settlement inspection; the transport bounds each request at 20 seconds. Ordinary
+page readiness retains its ten-second budget. Waiting never repeats a command.
+
+The combined scheduled-swap browser command runs four owned suites (authoring,
+schedules, settlement and netting) under a ten-minute process deadline. Individual
+readiness deadlines, booking/refresh errors and financial assertions still fail
+the command. The independent 86.5 cash oracle remains mandatory. Nineteen helper
+checks cover delayed click and form completion with exactly one submission,
+ordinary timeout refusal, finite overrides and invalid budgets refused before an
+action. The form check independently simulates a 46-second write/refresh sequence.

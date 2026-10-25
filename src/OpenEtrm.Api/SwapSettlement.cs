@@ -34,8 +34,15 @@ public sealed record SwapSettlementReadRequest(FuturesReadRequest Context, Guid 
 public sealed record SwapPnlRequest(FuturesReadRequest Opening,FuturesReadRequest Closing,ImmutableArray<Guid> TradeIds,
     ImmutableArray<Guid> BookIds,string ContractChanges,string DuePolicy,string RecognitionPolicy);
 internal sealed record SwapPnlCash(DateTimeOffset At,ExactMoney Amount);
-internal sealed record SwapPnlHolding(Guid TradeId,Guid BookId,string ContractToken,SwapLifecycleValue Value,ImmutableArray<SwapPnlCash> Cash);
-internal sealed record SwapPnlSide(DateTimeOffset At,ImmutableArray<SwapPnlHolding> Holdings);
+internal sealed record SwapPnlHolding(Guid TradeId,Guid BookId,string ContractToken,SwapLifecycleValue Value,ImmutableArray<SwapPnlCash> Cash)
+{
+    public JsonElement Row {get;init;}
+    public SwapLifecycleValue? PriorTermsAtClosing {get;init;}
+}
+internal sealed record SwapPnlSide(DateTimeOffset At,ImmutableArray<SwapPnlHolding> Holdings)
+{
+    public ImmutableDictionary<Guid,Guid> VisibleBooks {get;init;}=ImmutableDictionary<Guid,Guid>.Empty;
+}
 
 public sealed partial class SwapStore
 {
@@ -207,8 +214,8 @@ public sealed partial class SwapStore
             var o = occurrences[d.Id("occurrence_id")];
             if (o.Text("due_policy") != "swap_due_nominal_v1" || o.Text("recognition_policy") != "swap_completed_period_trading_pnl_v1")
                 throw Error("settlement_policy","The retained lifecycle policy is unsupported.");
-            var applied = payments.Where(p => p.Id("determination_id") == d.Id("id"))
-                .Select(p => ExactMoney.Parse(p.Text("allocation"),currency)).Aggregate(zero,(a,b) => a.Add(b));
+            var applied = state.GetProperty("allocations").EnumerateArray().Where(p => p.Id("determination_id") == d.Id("id"))
+                .Select(p => ExactMoney.Parse(p.Text("amount"),currency)).Aggregate(zero,(a,b) => a.Add(b));
             return new SettlementContribution(d.Id("id"),o.GetProperty("membership_ordinal").GetInt32(),Date(o.Text("delivery_from")),Date(o.Text("delivery_to")),
                 d.GetProperty("ordinal").GetInt32(),d.Instant("due_at"),ExactMoney.Parse(d.Text("contribution"),currency),applied);
         }).ToImmutableArray();
@@ -254,7 +261,8 @@ public sealed partial class SwapStore
             currencyLabel=One(data.References["currencies"].Where(c=>c.Text("code")==result.Instrument.Currency.Code)).Text("display_code"),
             balances=result.Inputs.Contributions.Select(c=>new{determinationId=c.Id,c.MembershipOrdinal,deliveryFrom=Date(c.DeliveryFrom),deliveryTo=Date(c.DeliveryTo),
                 c.Ordinal,c.DueAt,amount=Exact(c.Amount),applied=Exact(c.Applied),outstanding=Exact(c.Outstanding)}),
-            cashMovements=state.GetProperty("payments").EnumerateArray().Select(p=>new{id=p.Id("id"),determinationId=p.Id("determination_id"),
+            cashMovements=state.GetProperty("payments").EnumerateArray().Select(p=>new{id=p.Id("id"),determinationId=p.OptionalId("determination_id"),recordKind=p.Text("record_kind"),
+                allocations=state.GetProperty("allocations").EnumerateArray().Where(a=>a.Id("payment_id")==p.Id("id")).Select(a=>new{determinationId=a.Id("determination_id"),amount=a.Text("amount")}),
                 amount=p.Text("amount"),reversalAmount=Exact(ExactMoney.Parse(p.Text("amount"),result.Instrument.Currency).Scale(ExactDecimal.Parse("-1"))),
                 effectiveAt=p.Text("cash_at"),reference=p.Text("reference"),canReverse=p.GetProperty("reverses_id").ValueKind==JsonValueKind.Null&&
                     !state.GetProperty("payments").EnumerateArray().Any(other=>other.OptionalId("reverses_id")==p.Id("id"))}),
@@ -272,15 +280,16 @@ public sealed partial class SwapStore
             contractualAmount=Exact(p.ContractualAmount),remainingValue=Exact(p.RemainingValue)})
     };
 
-    internal async Task<object> PnlRead(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapPnlRequest request,CancellationToken ct)
+    internal async Task<object> PnlRead(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapPnlRequest request,CancellationToken ct,SwapPnlSide? opening=null)
     {
         if(request.TradeIds.IsDefault||request.BookIds.IsDefault||request.TradeIds.Length>256||request.BookIds.Length>64||request.TradeIds.Distinct().Count()!=request.TradeIds.Length||
-            request.BookIds.Distinct().Count()!=request.BookIds.Length||request.ContractChanges!="reject_contract_changes_v1"||
+            request.BookIds.Distinct().Count()!=request.BookIds.Length||request.ContractChanges is not("reject_contract_changes_v1" or SwapContractBridge.Policy)||
             request.DuePolicy!="swap_due_nominal_v1"||request.RecognitionPolicy!="swap_completed_period_trading_pnl_v1")
             throw Error("settlement_bridge","Select explicit financial-swap scopes, due/recognition policies and the unchanged-contract bridge.");
         var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,request.BookIds,[]);
-        var rows=(await Rows(connection,null,ct)).GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!)
-            .Where(r=>(request.TradeIds.IsEmpty||request.TradeIds.Contains(r.Id("trade_id")))&&(request.BookIds.IsEmpty||request.BookIds.Contains(r.Id("book_id"))));
+        var allRows=await Rows(connection,null,ct);
+        var heads=allRows.GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!).ToArray();
+        var rows=heads.Where(r=>(request.TradeIds.IsEmpty||request.TradeIds.Contains(r.Id("trade_id")))&&(request.BookIds.IsEmpty||request.BookIds.Contains(r.Id("book_id"))));
         var results=ImmutableArray.CreateBuilder<SwapPnlHolding>();
         foreach(var row in rows)
         {
@@ -288,14 +297,31 @@ public sealed partial class SwapStore
             var value=await EvaluateLifecycle(connection,data,frame,row,Terms(data,row,frame.Id),state,ct);
             var token=SettlementHash(new{instrument=row.Id("instrument_id"),quantity=row.Text("quantity"),book=row.Id("book_id"),
                 parties=TradeParties.State(manifest.CatalogId,row)});
+            SwapLifecycleValue? prior=null;
+            var first=opening?.Holdings.SingleOrDefault(h=>h.TradeId==row.Id("trade_id"));
+            if(request.ContractChanges==SwapContractBridge.Policy&&first is not null&&first.Row.Text("revision")!=row.Text("revision"))
+                await QualifyBridgeAmendments(connection,data,frame,first.Row,row,allRows,state,ct);
+            if(request.ContractChanges==SwapContractBridge.Policy&&opening is not null&&first is null)
+            {
+                var original=allRows.Where(r=>r.Id("trade_id")==row.Id("trade_id")).MinBy(r=>r.Number("revision"));
+                if(original.Text("revision")!="1")throw Error("settlement_contract_change","New-trade history must include its original exact booking.");
+                if(row.Text("revision")!="1")await QualifyBridgeAmendments(connection,data,frame,original,row,allRows,state,ct);
+            }
+            if(request.ContractChanges==SwapContractBridge.Policy&&first is not null&&first.ContractToken!=token)
+            {
+                var visiblePrior=allRows.SingleOrDefault(r=>r.Id("trade_id")==first.TradeId&&r.Text("revision")==first.Row.Text("revision"));
+                if(visiblePrior.ValueKind==JsonValueKind.Undefined)throw Error("settlement_contract_change","Prior exact terms are unavailable under closing-context authority.");
+                prior=await PriorTermsAtClosing(connection,data,frame,first with{Row=visiblePrior},row,state,ct);
+            }
             results.Add(new(row.Id("trade_id"),row.Id("book_id"),token,value.Value,state.GetProperty("payments").EnumerateArray()
-                .Select(p=>new SwapPnlCash(p.Instant("cash_at"),ExactMoney.Parse(p.Text("amount"),value.Instrument.Currency))).ToImmutableArray()));
+                .Select(p=>new SwapPnlCash(p.Instant("cash_at"),ExactMoney.Parse(p.Text("amount"),value.Instrument.Currency))).ToImmutableArray()){Row=row,PriorTermsAtClosing=prior});
         }
-        return new SwapPnlSide(frame.At,results.ToImmutable());
+        return new SwapPnlSide(frame.At,results.ToImmutable()){VisibleBooks=heads.ToImmutableDictionary(r=>r.Id("trade_id"),r=>r.Id("book_id"))};
     }
 
     internal static object ReconcilePnl(SwapPnlSide opening,SwapPnlSide closing,SwapPnlRequest request)
     {
+        if(request.ContractChanges==SwapContractBridge.Policy)return ReconcileContractPnl(opening,closing,request);
         var old=opening.Holdings.ToDictionary(h=>h.TradeId);var current=closing.Holdings.ToDictionary(h=>h.TradeId);
         if(old.Count==0||!old.Keys.ToHashSet().SetEquals(current.Keys)||
             !request.TradeIds.IsEmpty&&!request.TradeIds.ToHashSet().SetEquals(current.Keys)||old.Any(p=>p.Value.ContractToken!=current[p.Key].ContractToken))

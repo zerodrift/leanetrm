@@ -66,7 +66,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate("(()=>{const field=document.querySelector('#scheduled-swap-editor [data-role=period-amount]');field.value='101';field.dispatchEvent(new Event('input',{bubbles:true}));})()");
  await check('dependent quantity edit invalidates prepared confirmation',"document.querySelector('#scheduled-confirm').parentElement.hidden&&document.querySelector('#scheduled-submit').disabled");
  await submit('#scheduled-swap-form');await wait(idle);await click('#scheduled-confirm');await check('reviewed fresh scheduled preview can be submitted',"!document.querySelector('#scheduled-submit').disabled");
- await click('#scheduled-submit');await wait(idle);
+ await click('#scheduled-submit',35000);await wait(idle);
  // The booked scheduled swap is the position the panel shows; the desk gives it no single quantity, fixed price or mark, and says why.
  await wait("document.querySelector('#side-panel').dataset.mode==='position'&&"+idle);
  const scheduledReference=await evaluate("document.querySelector('#side-panel-head .side-panel-reference').textContent");
@@ -126,7 +126,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});await evaluate("document.querySelector('#scheduled-confirm').scrollIntoView({block:'end'})");await shot('scheduled-power-desktop');await copyFile(join(dirname(process.argv[2]),'scheduled-power-desktop.png'),join(artifacts,'power-desktop.png'));
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("document.querySelector('#side-panel').dataset.placement==='overlay'");await evaluate("document.querySelector('#scheduled-confirm').scrollIntoView({block:'end'})");
  await check('the narrow power review is taken in the panel\'s sheet',"innerWidth===390&&document.querySelector('#side-panel').dataset.placement==='overlay'","[innerWidth,document.querySelector('#side-panel').dataset.placement]");await shot('scheduled-power-narrow');await copyFile(join(dirname(process.argv[2]),'scheduled-power-narrow.png'),join(artifacts,'power-narrow.png'));await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
- await click('#scheduled-confirm');await click('#scheduled-submit');await wait(idle);await reopenBooked();
+ await click('#scheduled-confirm');await click('#scheduled-submit',35000);await wait(idle);await reopenBooked();
  await check('retained MW editor preserves the exact basis and delivery evidence',"document.querySelector('#scheduled-swap-editor [data-role=quantity-basis]').value==='selected_interval_power'&&document.querySelector('#scheduled-swap-editor').textContent.includes('745 selected delivery hours')","({basis:document.querySelector('#scheduled-swap-editor [data-role=quantity-basis]').value,hours:[...document.querySelectorAll('#scheduled-swap-editor p')].map(n=>n.textContent).filter(t=>t.includes('hours'))})");
  await evaluate("document.querySelector('#scheduled-amount-format summary').click();document.querySelector('#scheduled-amount-format button').click()");await wait(idle);
  await check('retained interval inspection survives display-settings reload',"[...document.querySelectorAll('#scheduled-swap-editor button')].some(n=>n.textContent==='Inspect retained UTC delivery intervals')");

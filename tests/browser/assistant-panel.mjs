@@ -248,6 +248,16 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('Read current page on it is refused page_not_supported, which its step line says in plain words',
     `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
     +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'delivery_prices',selection:{}})`);
+  // Nor PPA bookings, whose ask names the page with no selection and is admitted like any other page of the closed set (§8).
+  await click('#nav-ppa');
+  await check('Looking at says the assistant does not read PPA bookings',
+    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['PPA bookings','The assistant does not read this page.']))}`,looking);
+  await script({tools:[['toolu_ppa_panel_01','read_current_page',{}]]},{text:'I do not read this page either.'});
+  await ask('What is on the PPA page?');await wait(finished);
+  await check('an ask from it is admitted with the page and no selection, and Read current page on it is refused page_not_supported',
+    `${q('#assistant-error')}.hidden&&${latest}.querySelector('.assistant-question').textContent==='What is on the PPA page?'`
+    +`&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
+    +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'ppa',selection:{}})`,`${q('#assistant-error')}.textContent`);
 
   // Send becomes Stop during a turn (§10.1).
   await script({hold:'stop',text:'Partial answer. ',tools:[['toolu_panel_07','read_current_page',{}]]});
@@ -393,7 +403,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await click('#assistant-history-open');await wait(`document.querySelectorAll('#assistant-history-list button').length>0`);
   // Every question of this run went to one conversation with the guide.
   await evaluate(`[...document.querySelectorAll('#assistant-history-list button')].find(b=>b.textContent.includes(${JSON.stringify(guide)})).click()`);
-  await wait(`document.querySelectorAll('#assistant-turns > li').length===18&&!!${latest}.querySelector('.assistant-usage')`);
+  await wait(`document.querySelectorAll('#assistant-turns > li').length===19&&!!${latest}.querySelector('.assistant-usage')`);
   await check('at 390 px the panel covers the width as a sheet that fits it, showing the conversation without identifiers',
     `${q('#assistant-panel')}.getBoundingClientRect().width===document.documentElement.clientWidth&&${fitsWidth}`
     +`&&!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(${q('#assistant-panel')}.innerText)&&${q('#assistant-agent')}.value===${JSON.stringify(guideChoice)}`,

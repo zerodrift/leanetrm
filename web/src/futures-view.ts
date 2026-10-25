@@ -3,8 +3,8 @@ import {type PartyCatalog,type Trader} from './trade-annotations.js';
 import {setupSwapEditor,readSwapView} from './swap-editor.js';
 import {setupTradeEditor,readTradeView} from './trade-editor.js';
 import {type FuturesContract as Contract} from './futures-contract.js';
-import {PendingCommand,type RequestCommand} from './pending-command.js';
-import {releasesRetained,restorable,retainedText,retryAllowed} from './trade-requests.js';
+import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
+import {releasesRetained,retainedText,retryAllowed} from './trade-requests.js';
 import {setupRisk,riskDenied} from './risk-view.js';
 import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
@@ -264,7 +264,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function restore(){
     if(owner===options.profile())return;
     owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();forgetViews();draftBase=undefined;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Positions');workspace.closeMenus();viewControls();
-    try{const saved=JSON.parse(sessionStorage.getItem(storageKey())??'null');if(restorable(saved)){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
+    try{const saved=restoreTradeRequest(JSON.parse(sessionStorage.getItem(storageKey())??'null'));if(saved){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
   }
   // Today's risk report opens below the positions; the tile says whether it is open or has results. The report tells the
   // page whenever that changes, including its own Close and a queued job that finishes on its own timer.

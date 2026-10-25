@@ -320,11 +320,17 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
         duePolicy=determine['duePolicy'],recognitionPolicy=determine['recognitionPolicy']))['report']['trades'][0]['bridge']
     assert F(bridge['economicPnl'])==F('-1/300') and F(bridge['roundingEffectMovement'])==F('-1/300')
     check_unvalued_lifecycle(c,w,thirds_saved['tradeId'],run_worker)
-    from check_swap_settlement import run_lifecycle,run_foundation,run_late_cash
+    from check_swap_netting import run as run_netting
+    net_fixture=run_netting(c,w,context,legacy,value['currency'],url)
+    from check_swap_settlement import run_lifecycle,run_foundation,run_late_cash,run_cross_market_bridge,run_newtrade_basis_refusal
+    run_cross_market_bridge(c,legacy,context)
+    run_newtrade_basis_refusal(c,body,context)
     run_lifecycle(c,w,context,legacy_saved['tradeId'],value['currency'])
     run_foundation(c,query,url,body,context,settlement_context,f['at'],value['currency'])
     february_context={**context,'snapshotId':next(frame['id'] for frame in w['frames'] if frame['at'].startswith('2021-02-01T08:00:00'))}
     run_late_cash(c,legacy,settlement_context,february_context,value['currency'],partial['at'])
+    from check_swap_settlement import run_future_boundary
+    run_future_boundary(c,body,context,february_context)
     gross=dict(context=settlement_context,tradeId=offset['tradeId'],expectedRevision=1,membershipOrdinal=0,paymentOrdinal=0,
         currency=value['currency'],decimalPlaces=2,roundingPolicy='currency_minor_units_to_even_v1')
     negative=c.call('swaps/settlement/preview',gross)
@@ -344,4 +350,6 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     print('PASS swap cash: partial receipt, exact retry, over-allocation refusal, reversal and full receipt')
     print('PASS swap settlement HTTP: exact gross final cash, rational quantity, currency rounding, certified context and stale-head refusal')
     print('PASS scheduled swap HTTP: period totals, daily rates, total allocation, cash/PV, replay and exact revision amendment')
-    return dict(frame=partial,tradeId=mixed_saved['tradeId'],currency=value['currency'])
+    from check_scheduled_observations import run as check_scheduled_observations
+    check_scheduled_observations(c,context,manifest)
+    return dict(frame=partial,tradeId=mixed_saved['tradeId'],currency=value['currency'],netTradeId=net_fixture['tradeId'])

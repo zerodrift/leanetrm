@@ -7,7 +7,7 @@ type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Context=Record<string,unknown>;
 type Payment={membershipOrdinal:number;ordinal:number;deliveryFrom:string;deliveryTo:string;paymentAt:string;completionAt:string;state:string;final:boolean;realized:boolean;contractualAmount:string;remainingValue:string};
 type Balance={determinationId:string;membershipOrdinal:number;deliveryFrom:string;deliveryTo:string;ordinal:number;dueAt:string;amount:string;applied:string;outstanding:string};
-type Cash={id:string;determinationId:string;amount:string;reversalAmount:string;effectiveAt:string;reference:string;canReverse:boolean};
+type Cash={id:string;determinationId:string|null;recordKind:string;allocations:{determinationId:string;amount:string}[];amount:string;reversalAmount:string;effectiveAt:string;reference:string;canReverse:boolean};
 type Detail={state:{tradeId:string;revision:number;tradeReference:string};context:{contextId:string};asOf:string;canAmend:boolean;currency:unknown;currencyLabel:string;decimalPlaces:number;roundingPolicy:string;
  settlement:{version:number;occurrences:unknown[];determinations:unknown[]};balances:Balance[];cashMovements:Cash[];
  valuation:Record<string,string|Payment[]>&{payments:Payment[]}};
@@ -31,7 +31,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  const heading=node('div');heading.className='swap-settlement-heading';const title=node('h3','Settlement and P&L');title.id='swap-settlement-title';heading.append(title);
  const status=node('p');status.setAttribute('role','status');const error=node('p');error.setAttribute('role','alert');
  const refresh=node('button','Refresh settlement');refresh.type='button';refresh.id='swap-settlement-refresh';
- const summary=node('div'),payments=node('div'),evidence=node('section'),balances=node('div'),cashHistory=node('div'),pnl=node('section');
+ const summary=node('div'),payments=node('div'),evidence=node('section'),balances=node('div'),cashHistory=node('div'),pnl=node('section');balances.id='swap-settlement-balances';cashHistory.id='swap-settlement-cash';
  const form=node('form');form.id='swap-settlement-payment-form';const target=node('select');target.id='swap-settlement-contribution';
  const amount=node('input');amount.id='swap-settlement-amount';amount.inputMode='decimal';amount.required=true;
  const effective=node('input');effective.id='swap-settlement-effective';effective.placeholder='YYYY-MM-DDTHH:mm:ssZ';effective.required=true;
@@ -42,11 +42,23 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  const reversal=node('select');reversal.id='swap-settlement-reversal';label(form,'Original cash movement to reverse',reversal);
  const reverse=node('button','Reverse selected movement');reverse.id='swap-settlement-reverse';reverse.type='button';form.append(reverse);
  form.append(node('p','A reversal uses the entered effective instant and reference and records the opposite cash amount. Each entry is fully allocated to one selected contribution.'));
+ const netForm=node('form');netForm.id='swap-net-form';netForm.append(node('h3','Settle selected gross contributions within this trade'),node('p','Select each contribution and enter its signed allocation explicitly. The backend requires the same exact parties, currency, due instant and supported terms. A zero net amount records a noncash discharge.'));
+ const netSelection=node('div');netSelection.id='swap-net-selection';netForm.append(netSelection);
+ const netAmount=node('input');netAmount.id='swap-net-amount';netAmount.inputMode='decimal';netAmount.required=true;
+ const netEffective=node('input');netEffective.id='swap-net-effective';netEffective.placeholder='YYYY-MM-DDTHH:mm:ssZ';netEffective.required=true;
+ const netReference=node('input');netReference.id='swap-net-reference';netReference.required=true;netReference.maxLength=200;
+ label(netForm,'Signed net cash amount · enter 0 for a zero-net discharge',netAmount);label(netForm,'Settlement effective instant · UTC',netEffective);label(netForm,'Settlement reference',netReference);
+ const netPreview=node('button','Preview gross / net allocation');netPreview.type='submit';netForm.append(netPreview);
+ const netReview=node('section');netReview.id='swap-net-review';
+ let netRows:{id:string;selected:HTMLInputElement;amount:HTMLInputElement}[]=[];
  const baseline=node('button','Use this view as opening');baseline.id='swap-settlement-opening';baseline.type='button';
  const reconcile=node('button','Reconcile opening to this view');reconcile.id='swap-settlement-reconcile';reconcile.type='button';
- const openingLabel=node('p'),bridge=node('div');pnl.append(node('h3','Trading P&L reconciliation'),baseline,openingLabel,reconcile,bridge);
+ const openingSnapshot=node('select');openingSnapshot.id='swap-pnl-opening-snapshot';const captureOpening=node('button','Capture selected opening snapshot');captureOpening.type='button';captureOpening.id='swap-pnl-capture-opening';
+ const contractPolicy=node('select');contractPolicy.id='swap-pnl-contract-policy';contractPolicy.append(new Option('Choose a contractual-change policy…',''),new Option('Unchanged contracts · bridge v1','reject_contract_changes_v1'),new Option('New trades / future amendments · closing-context v1','closing_context_contract_changes_v1'));
+ const openingLabel=node('p'),bridge=node('div');bridge.id='swap-settlement-bridge';pnl.append(node('h3','Trading P&L reconciliation'),baseline);label(pnl,'Opening market snapshot',openingSnapshot);pnl.append(captureOpening,openingLabel);label(pnl,'Contractual changes valued under',contractPolicy);pnl.append(reconcile,bridge);
+ pnl.append(node('p','Closing-context v1 values prior and revised terms in the closing market. New-trade economics, amendments and continuing economics reconcile to total trading P&L; payments and netting do not create earnings. Book transfers and unsupported transformations are refused.'));
  root.append(heading,status,error,refresh,summary,node('h3','Contractual payment occurrences'),payments,evidence,node('h3','Determined balances and adjustments'),balances,
-  form,node('h3','Cash history'),cashHistory,pnl);shelf.append(root);
+  form,netForm,netReview,node('h3','Cash history'),cashHistory,pnl);shelf.append(root);
  const edits=trackEdits(form,[],options.unsavedChanged);
  // A correction's due instant is entered in the calculation it was asked for, and goes with it: an action of the view that replaces
  // the calculation, another payment's, a refresh or a cash record that reads the view again, asks first, before the page is busy.
@@ -59,13 +71,13 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  const current=()=>{if(!detail||selectedKey!==key())throw Error('The financial context changed. Refresh and review settlement.');return detail;};
  const canWrite=()=>!!detail?.canAmend&&selectedKey===key()&&!options.busy()&&!options.pending();
  function sync(){
-  submit.disabled=!canWrite();reverse.disabled=!canWrite()||!reversal.value;refresh.disabled=options.busy();baseline.disabled=!detail||selectedKey!==key()||options.busy();
+  submit.disabled=!canWrite();netPreview.disabled=!canWrite();for(const field of [netAmount,netEffective,netReference,...netRows.flatMap(r=>[r.selected,r.amount])])field.disabled=!canWrite();const netRecord=netReview.querySelector<HTMLButtonElement>('#swap-net-record');if(netRecord)netRecord.disabled=!canWrite();reverse.disabled=!canWrite()||!reversal.value;refresh.disabled=options.busy();baseline.disabled=!detail||selectedKey!==key()||options.busy();
   reconcile.disabled=!detail||selectedKey!==key()||!opening||opening.tradeId!==tradeId||options.busy();
   for(const field of [target,amount,effective,reference,reversal])field.disabled=!canWrite();
   payments.querySelectorAll<HTMLButtonElement>('button[data-eligible]').forEach(button=>button.disabled=!canWrite()||button.dataset.eligible!=='true');
   const determine=evidence.querySelector<HTMLButtonElement>('#swap-settlement-determine');if(determine)determine.disabled=!canWrite()||determine.dataset.eligible!=='true';
  }
- function invalidate(){generation++;evidence.replaceChildren();dueEdits.clear();bridge.replaceChildren();sync();}
+ function invalidate(){generation++;netReview.replaceChildren();evidence.replaceChildren();dueEdits.clear();bridge.replaceChildren();sync();}
  // A failed action drops the calculation shown, as its inputs may have changed. A determination that fails keeps the calculation it was
  // asked from, with its due instant, when it was not sent or the backend refused it for good, and says why; any other failure of it has
  // read the view again (`sendCommand`).
@@ -76,6 +88,8 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   try{await options.queue(command);}
   catch(failure){if(!knownTradeRejection((failure as {code?:string}).code))await load().catch(()=>undefined);throw failure;}
  }
+ function contributionName(report:Detail,id:string){const b=report.balances.find(b=>b.determinationId===id);return b?`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} to ${b.deliveryTo} · ${b.ordinal===1?'original':'adjustment '+String(b.ordinal-1)}`:id;}
+ function allocationEvidence(report:Detail,allocations:Cash['allocations']){const details=node('details'),summary=node('summary',allocations.map(a=>`${contributionName(report,a.determinationId)}: ${a.amount}`).join('; ')),raw=node('pre');raw.className='swap-evidence';raw.textContent=JSON.stringify(allocations,null,2);details.append(summary,raw);return details;}
  function table(host:HTMLElement,id:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[]){host.replaceChildren();renderRegularTable(host,id,JSON.stringify(detail?.context),headers,rows,numeric,options.busy);}
  async function load(){
   if(!tradeId)return;invalidate();const version=generation,scope=key();const result=await options.api<Detail>('swaps/settlement/inspect',{context:context(),tradeId,revision:null,duePolicy,recognitionPolicy});
@@ -88,9 +102,17 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
    result.valuation.payments.map(p=>{const calculate=node('button',p.state==='Undetermined'?'Calculate final payment':'Review correction');calculate.type='button';calculate.dataset.membership=String(p.membershipOrdinal);calculate.dataset.payment=String(p.ordinal);calculate.dataset.eligible=String(p.final&&result.canAmend);calculate.disabled=!p.final||!result.canAmend;
     calculate.onclick=()=>replacing(()=>preview(p));return[String(p.membershipOrdinal+1),p.deliveryFrom,p.deliveryTo,displayInstant(p.completionAt,options.zone()),displayInstant(p.paymentAt,options.zone()),p.state,p.contractualAmount,p.remainingValue,p.realized?'Yes':'No',calculate];}),[0,6,7]);
   table(balances,'swap-settlement-balances',['Side','Delivery start','Contribution','Due instant','Determined','Applied','Outstanding'],result.balances.map(b=>[String(b.membershipOrdinal+1),b.deliveryFrom,b.ordinal===1?'Original':'Adjustment',displayInstant(b.dueAt,options.zone()),b.amount,b.applied,b.outstanding]),[0,4,5,6]);
+  netRows=[];
+  table(netSelection,'swap-net-candidates',['Select','Side / period / contribution','Due instant','Gross outstanding','Explicit signed allocation'],result.balances.filter(b=>b.outstanding!=='0').map(b=>{
+   const selected=node('input');selected.type='checkbox';selected.setAttribute('aria-label',`Select side ${b.membershipOrdinal+1} ${b.deliveryFrom} contribution ${b.ordinal}`);
+   const allocation=node('input');allocation.type='text';allocation.inputMode='decimal';allocation.setAttribute('aria-label',`Allocation to side ${b.membershipOrdinal+1} ${b.deliveryFrom} contribution ${b.ordinal}`);
+   netRows.push({id:b.determinationId,selected,amount:allocation});return[selected,`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal}`,displayInstant(b.dueAt,options.zone()),b.outstanding,allocation];}),[3]);
   target.replaceChildren(new Option('Choose a contribution…',''),...result.balances.filter(b=>b.outstanding!=='0').map(b=>new Option(`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal===1?'original':'adjustment'} · outstanding ${b.outstanding}`,b.determinationId)));
   reversal.replaceChildren(new Option('Choose an original cash movement…',''),...result.cashMovements.filter(p=>p.canReverse).map(p=>new Option(`${p.reference} · ${p.amount} · ${displayInstant(p.effectiveAt,options.zone())}`,p.id)));
-  table(cashHistory,'swap-settlement-cash',['Effective instant','Signed cash','Reference'],result.cashMovements.map(p=>[displayInstant(p.effectiveAt,options.zone()),p.amount,p.reference]),[1]);
+  table(cashHistory,'swap-settlement-cash',['Effective instant','Record','Signed cash','Reference','Gross allocations'],result.cashMovements.map(p=>[displayInstant(p.effectiveAt,options.zone()),p.recordKind==='zero_net_discharge_v1'?'Noncash zero-net discharge':'Cash movement',p.amount,p.reference,allocationEvidence(result,p.allocations)]),[2]);
+  const workspace=await options.api<{frames:{id:string;at:string}[]}>('workspace');
+  if(version!==generation||scope!==key())return;
+  const selectedOpening=openingSnapshot.value;openingSnapshot.replaceChildren(new Option('Choose…',''),...workspace.frames.map(f=>new Option(displayInstant(f.at,options.zone()),f.id)));openingSnapshot.value=selectedOpening;
   openingLabel.textContent=opening&&opening.tradeId===tradeId?`Opening: ${displayInstant(opening.asOf,options.zone())} · retained knowledge context.`:'Capture a view, then select the closing financial context and refresh.';
   sync();
  }
@@ -115,23 +137,42 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   const report=current();if(!report.canAmend||options.pending())throw Error('Refresh an authorized working view before recording cash.');
   if(!effective.value||!reference.value)throw Error('Enter a cash effective instant and reference.');
   const movement=reversing?report.cashMovements.find(p=>p.id===reversal.value&&p.canReverse):undefined;
+  if(movement&&!movement.determinationId){await previewNet(movement);return;}
   if(reversing&&!movement)throw Error('Choose an original cash movement.');
   if(!reversing&&(!target.value||!amount.value))throw Error('Choose a contribution and enter the signed cash amount.');
   await sendCommand({operationId:crypto.randomUUID(),path:'swaps/settlement/payment',label:`Settlement ${reversing?'cash reversal':'cash'} of ${report.state.tradeReference}`,body:{context:context(),tradeId:report.state.tradeId,expectedRevision:report.state.revision,
    expectedVersion:report.settlement.version,determinationId:movement?.determinationId??target.value,amount:movement?.reversalAmount??amount.value,currency:report.currency,
    effectiveAt:effective.value,reference:reference.value,reversesId:movement?.id??null}});amount.value='';reference.value='';effective.value='';edits.clear();
  }
+ async function previewNet(reversing?:Cash){
+  const report=current(),version=generation,scope=key();netReview.replaceChildren();
+  const request={context:context(),tradeId:report.state.tradeId,expectedRevision:report.state.revision,expectedVersion:report.settlement.version,
+   currency:report.currency,amount:reversing?null:netAmount.value,allocations:reversing?[]:netRows.filter(r=>r.selected.checked).map(r=>({determinationId:r.id,amount:r.amount.value})),policy:'explicit_same_due_swap_net_v1',reversesId:reversing?.id??null};
+  const value=await options.api<{previewHash:string;amount:string;grossPaid:string;grossReceived:string;recordKind:string;allocations:{determinationId:string;amount:string;remaining:string}[]}>('swaps/settlement/net-preview',request);
+  if(version!==generation||scope!==key())return;
+  netReview.append(node('h3',reversing?'Review exact settlement reversal':'Review selected gross allocations'),node('p',`Gross paid ${value.grossPaid} · gross received ${value.grossReceived} · net ${value.amount} ${report.currencyLabel}. ${value.recordKind==='zero_net_discharge_v1'?'Noncash discharge; no cash movement.':''}`));
+  const lines=node('div');netReview.append(lines);table(lines,'swap-net-lines',['Contribution identity','Signed allocation','Remaining balance'],value.allocations.map(a=>[contributionName(report,a.determinationId),a.amount,a.remaining]),[1,2]);
+  const at=reversing?effective.value:netEffective.value,ref=reversing?reference.value:netReference.value;
+  const record=node('button',reversing?'Record reviewed reversal':'Record reviewed net settlement');record.type='button';record.id='swap-net-record';
+  record.onclick=()=>void run(async()=>{current();if(version!==generation||scope!==key()||!report.canAmend||options.pending())throw Error('The allocation review changed; preview again.');
+   await options.queue({operationId:crypto.randomUUID(),path:'swaps/settlement/net',body:{preview:request,previewHash:value.previewHash,effectiveAt:at,reference:ref}});netForm.reset();if(reversing){amount.value='';effective.value='';reference.value='';}await load();});netReview.append(record);const lineage=node('details'),caption=node('summary','Exact allocation lineage and policy'),raw=node('pre');raw.className='swap-evidence';raw.textContent=JSON.stringify(value,null,2);lineage.append(caption,raw);netReview.append(lineage);
+ }
+ netForm.onsubmit=e=>{e.preventDefault();void run(()=>previewNet());};
+ for(const event of ['input','change']){netForm.addEventListener(event,()=>invalidate());form.addEventListener(event,()=>{generation++;netReview.replaceChildren();});}
  form.onsubmit=e=>{e.preventDefault();replacing(()=>record(false));};reverse.onclick=()=>replacing(()=>record(true));reversal.onchange=sync;
- baseline.onclick=()=>{const report=current();opening={tradeId:report.state.tradeId,asOf:report.asOf,context:{...context(),knowledgeMode:'retained',contextId:report.context.contextId}};openingLabel.textContent=`Opening: ${displayInstant(report.asOf,options.zone())} · retained knowledge context.`;sync();};
- reconcile.onclick=()=>void run(async()=>{const report=current();if(!opening||opening.tradeId!==tradeId)throw Error('Capture the opening view first.');
-  const value=await options.api<{report:{trades:{bridge:Record<string,string>;transitions:{membershipOrdinal:number;deliveryFrom:string;deliveryTo:string;openingState:string;closingState:string;forecastToFinal:boolean;openingPv:string;closingPv:string}[]}[];overlaps:string}}>('swaps/settlement/pnl',{opening:opening.context,closing:{...context(),knowledgeMode:'retained',contextId:report.context.contextId},tradeIds:[tradeId],bookIds:[],contractChanges:'reject_contract_changes_v1',duePolicy,recognitionPolicy});
-  const labels:Record<string,string>={economicPnl:'Economic P&L',remainingValueMovement:'Change in remaining value',netCashMovement:'Change in cumulative contractual cash',periodCashReceived:'Contractual cash received during the period',priorCashKnowledgeAdjustment:'Prior cash · change in knowledge',realizedTransfer:'Realized trading transfer',unrealizedMovement:'Change in unrealized trading P&L',contractualCashMovement:'Change in contractual cash',discountEffectMovement:'Change in discount effect',correctionsMovement:'Correction movement · overlapping detail',roundingEffectMovement:'Rounding movement · overlapping detail'};
+ baseline.onclick=()=>{const report=current();invalidate();opening={tradeId:report.state.tradeId,asOf:report.asOf,context:{...context(),knowledgeMode:'retained',contextId:report.context.contextId}};openingLabel.textContent=`Opening: ${displayInstant(report.asOf,options.zone())} · retained knowledge context.`;sync();};
+ captureOpening.onclick=()=>void run(async()=>{const report=current();invalidate();const version=generation,scope=key();if(!openingSnapshot.value)throw Error('Select the opening market snapshot.');const selected={...context(),snapshotId:openingSnapshot.value,knowledgeMode:'current',contextId:null};const saved=await options.api<{context:{contextId:string};asOf:string}>('swaps/catalog',selected);if(version!==generation||scope!==key())return;opening={tradeId:report.state.tradeId,asOf:saved.asOf,context:{...selected,knowledgeMode:'retained',contextId:saved.context.contextId}};openingLabel.textContent=`Opening: ${displayInstant(saved.asOf,options.zone())} · retained knowledge context.`;sync();});
+ contractPolicy.onchange=invalidate;openingSnapshot.onchange=invalidate;
+ reconcile.onclick=()=>void run(async()=>{const report=current();if(!contractPolicy.value)throw Error('Choose the explicit contractual-change valuation policy.');if(!opening||opening.tradeId!==tradeId)throw Error('Capture the opening view first.');const version=generation,scope=key(),policy=contractPolicy.value;
+  const value=await options.api<{report:{trades:{bridge:Record<string,string>;transitions:{membershipOrdinal:number;deliveryFrom:string;deliveryTo:string;openingState:string;closingState:string;forecastToFinal:boolean;openingPv:string;closingPv:string}[]}[];overlaps:string}}>('swaps/settlement/pnl',{opening:opening.context,closing:{...context(),knowledgeMode:'retained',contextId:report.context.contextId},tradeIds:[tradeId],bookIds:[],contractChanges:contractPolicy.value,duePolicy,recognitionPolicy});
+  if(version!==generation||scope!==key()||policy!==contractPolicy.value)return;
+  const labels:Record<string,string>={newTradeEconomics:'New-trade economics at closing',contractualAmendment:'Contractual amendment at closing',continuingEconomics:'Continuing economics under prior terms',economicPnl:'Economic P&L',remainingValueMovement:'Change in remaining value',netCashMovement:'Change in cumulative contractual cash',periodCashReceived:'Contractual cash received during the period',priorCashKnowledgeAdjustment:'Prior cash · change in knowledge',realizedTransfer:'Realized trading transfer',unrealizedMovement:'Change in unrealized trading P&L',contractualCashMovement:'Change in contractual cash',discountEffectMovement:'Change in discount effect',correctionsMovement:'Correction movement · overlapping detail',roundingEffectMovement:'Rounding movement · overlapping detail'};
   table(bridge,'swap-settlement-bridge',['Bridge measure',`Amount · ${report.currencyLabel}`],Object.entries(value.report.trades[0].bridge).map(([key,amount])=>[labels[key]??key,amount]),[1]);bridge.append(node('p',value.report.overlaps));
   const transitions=node('div');bridge.append(node('h3','Period transitions'),transitions);
   table(transitions,'swap-settlement-transitions',['Side','Delivery start','Delivery end · exclusive','Opening state','Closing state','Forecast became final','Opening PV','Closing PV'],value.report.trades[0].transitions.map(p=>[String(p.membershipOrdinal+1),p.deliveryFrom,p.deliveryTo,p.openingState,p.closingState,p.forecastToFinal?'Yes':'No',p.openingPv,p.closingPv]),[0,6,7]);});
  refresh.onclick=()=>replacing(load);
- return {async open(id:string){if(tradeId!==id){form.reset();edits.clear();if(opening?.tradeId!==id)opening=undefined;}tradeId=id;error.textContent='';detail=undefined;await load();if(detail&&tradeId===id&&!mounted()){options.host().append(root);root.hidden=false;}},
-  reset(){invalidate();detail=undefined;tradeId=undefined;form.reset();edits.clear();shelf.append(root);root.hidden=true;},sync,
+ return {async open(id:string){if(tradeId!==id){form.reset();edits.clear();netForm.reset();netReview.replaceChildren();netRows=[];if(opening?.tradeId!==id)opening=undefined;}tradeId=id;error.textContent='';detail=undefined;await load();if(detail&&tradeId===id&&!mounted()){options.host().append(root);root.hidden=false;}},
+  reset(){invalidate();detail=undefined;tradeId=undefined;form.reset();edits.clear();netForm.reset();netReview.replaceChildren();netRows=[];shelf.append(root);root.hidden=true;},sync,
   refresh(){invalidate();if(mounted()){detail=undefined;status.textContent='Financial context changed. Refresh settlement before continuing.';}},
   async liveRefresh(){if(mounted())await load();},isOpen:mounted,
   unsaved:()=>mounted()&&(edits.edited()||dueEdits.edited()),

@@ -309,8 +309,8 @@ def main():
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
             # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
-            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_observation_check,
-                closes=['2020-12-31T16:00:00Z'] if args.valuation_status_check else ());query(swap_market)
+            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_observation_check or args.scheduled_swap_check,
+                scheduled_periods=args.scheduled_swap_check,closes=['2020-12-31T16:00:00Z'] if args.valuation_status_check else ());query(swap_market)
             if args.connected_portfolio_check or args.valuation_status_check or args.with_custom_curves:
                 # The primary custom-curve fixture visits closes beyond the four standard weekdays.
                 # Its unrelated secondary bundle explicitly supplies no inputs there.
@@ -645,7 +645,9 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--scheduled-swaps'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned scheduled-swap browser checks failed')
+                    # Four owned browser suites: authoring, schedules, settlement and netting.
+                    # Keep an overall bound in addition to each action's readiness deadline.
+                    if browser_process.wait(timeout=600):raise RuntimeError('Owned scheduled-swap browser checks failed')
             elif args.draft_check:
                 from check_draft_pricing import run_checks as check_draft
                 check_draft(url,query,manifest)

@@ -305,7 +305,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const scheduled=setupScheduledSwapEditor({...options,reopen:revision=>replacing(()=>revision,()=>scheduled.keepRevision()),onSettlement:()=>settleFromForm()});
  const settlementButton=document.createElement('button');settlementButton.id='swap-settlement-open';settlementButton.type='button';settlementButton.className='secondary';settlementButton.textContent='Settlement and P&L';settlementButton.hidden=true;get('swap-mode').after(settlementButton);
  settlementButton.onclick=()=>settleFromForm();
- const scheduledButton=document.createElement('button');scheduledButton.id='swap-scheduled-open';scheduledButton.type='button';scheduledButton.className='secondary';scheduledButton.textContent='Multi-month contracts and scheduled quantities';get('swap-type-choices').after(scheduledButton);
+ const scheduledButton=document.createElement('button');scheduledButton.id='swap-scheduled-open';scheduledButton.type='button';scheduledButton.className='secondary';scheduledButton.textContent='Monthly schedules · one or more months';get('swap-type-choices').after(scheduledButton);
  scheduledButton.onclick=()=>scheduledFromForm();
  let visibleValuation:Valuation|undefined;
  const quoteUnits=new Map<string,string>();

@@ -75,6 +75,13 @@ The authorized [financial swap settlement MVP](swap-settlement.md) (D215) builds
 trade-owned determinations, payments and reconciliation before futures margining
 or physical settlement. Its explicit policies apply only to enrolled swaps;
 pure instrument pricing and existing physical policy contracts remain separate.
+D216 extends the same shared backend with qualified scheduled observation
+editing, explicit same-trade gross allocations, and closing-context contractual
+P&L contributions. Net settlement never changes reusable instrument identity.
+One cash header has one or more signed gross allocations; zero-net discharge is
+explicitly noncash. Prior and revised terms are valued under closing authority;
+only unchanged occurrences carry posted determinations into the counterfactual.
+See [implemented settlement contracts and limits](swap-settlement.md).
 
 Build an ETRM that an AI can use as a complete application. People, internal
 agents and external agents operate through the same business capabilities.

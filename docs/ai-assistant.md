@@ -645,7 +645,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Entities & counterparties | Read trade parties | `ReadTradeParties`, `ReadMarketData` | Pinned |
 | Blotter rows and holdings | Read trades | `ReadTrades`, `ReadMarketData` | Pinned |
 | Custom curves | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
-| Blotter risk results, Delivery prices, Interval series, Jobs & Infrastructure, Users & access, Settings › AI | none | | Not supported |
+| Blotter risk results, a new trade entered in the Blotter's panel, Delivery prices, Interval series, Jobs & Infrastructure, Users & access, Settings › AI, PPA bookings | none | | Not supported |
 
 - Read current page has no permissions of its own; if the dispatched tool is off it is
   refused with `tool_not_enabled`. On an unsupported page it returns
@@ -883,8 +883,8 @@ The tool set is fixed; each tool is switched on per agent version.
   assistant reads, and `blotter_risk`, `blotter_new_trade`, `blotter_new_future`,
   `blotter_new_swap` (a new trade being entered in the Blotter's panel, of its product,
   or of none while none is chosen), `delivery_prices`, `interval_series`,
-  `interval_curves`, `jobs`, `users_access` and `settings_ai`, which it does not. A
-  read page's selection is its read tool's input for a view the page shows; any other
+  `interval_curves`, `jobs`, `users_access`, `settings_ai` and `ppa`, which it does not.
+  A read page's selection is its read tool's input for a view the page shows; any other
   page's is empty. Before admission and writing nothing it refuses an invalid report
   (`page_report_invalid`, checked by the parser Read current page dispatches with), a
   conversation the principal does not own in this scope, answered like an unknown id
