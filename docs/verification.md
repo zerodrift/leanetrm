@@ -2862,17 +2862,17 @@ See [settlement capability and verification](swap-settlement.md#d216-local-verif
 for supported combinations, independent numerical oracles and enforced limits.
 This is synthetic local verification, not deployment qualification.
 
-The weighted two-month booking browser check uses an explicit 35-second operation
-wait for the booking write and populated holdings refresh, allowing two API
-request deadlines plus rendering. Ordinary page readiness retains its ten-second
-budget. Eighteen owned-browser helper checks cover delayed completion without
-resubmission, ordinary timeout refusal, finite overrides and invalid budgets
-refused before an action. Booking and refresh errors still fail the workflow;
-the independent 86.5 cash oracle remains mandatory.
+Scheduled booking/amendment submissions use a bounded 35-second browser wait for
+the write and populated holdings refresh. Settlement determination, payment, net
+recording/reversal, reconciliation and operation-status recovery use explicit
+60-second workflow waits. Settlement writes also refresh workspace/chart and
+settlement inspection; the transport bounds each request at 20 seconds. Ordinary
+page readiness retains its ten-second budget. Waiting never repeats a command.
 
-Every scheduled booking/amendment submission uses the same bounded 35-second
-write-and-refresh wait. The combined scheduled-swap browser command runs four
-owned suites (authoring, schedules, settlement and netting) under a ten-minute
-process deadline; individual readiness deadlines and failed assertions still
-stop the command. A CI run exposed the old three-minute process limit after
-authoring and schedule checks passed, before settlement checks could complete.
+The combined scheduled-swap browser command runs four owned suites (authoring,
+schedules, settlement and netting) under a ten-minute process deadline. Individual
+readiness deadlines, booking/refresh errors and financial assertions still fail
+the command. The independent 86.5 cash oracle remains mandatory. Nineteen helper
+checks cover delayed click and form completion with exactly one submission,
+ordinary timeout refusal, finite overrides and invalid budgets refused before an
+action. The form check independently simulates a 46-second write/refresh sequence.

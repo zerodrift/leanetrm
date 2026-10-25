@@ -170,3 +170,15 @@ test('page action wait overrides stay finite and reject invalid budgets before c
   }
   assert.equal(calls,0);
 });
+
+
+test('settlement form waits for write, holdings and inspection without submitting twice',async()=>{
+  let elapsed=0,submissions=0;
+  const actions=browserPageActions(async expression=>{
+    if(expression===idle)return elapsed>=46000;
+    assert.match(expression,/synthetic-payment-form/);assert.match(expression,/requestSubmit/);submissions++;
+  },{pause:async ms=>{elapsed+=ms;},now:()=>elapsed});
+  await actions.submit('#synthetic-payment-form',60000);
+  assert.equal(submissions,1,'refreshing financial state must never repeat the payment');
+  assert.equal(elapsed,46000);
+});
