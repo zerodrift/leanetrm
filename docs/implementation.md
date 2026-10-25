@@ -364,7 +364,7 @@ applied only once the person agrees: the As of select, which every read and comm
 from, stays on the close the Blotter shows while the question is open, and so do the calendar and
 the badge of a newer close, which is judged by that close and by no close that has only been chosen;
 another context, a live selection or Current inputs; another user or signing out; another market
-example in the sidebar, which loads another page; and the header's time controls, which clear the
+example in the sidebar, which loads another page; and the Context panel's time controls, which clear the
 Blotter as they are changed: opening them asks, and so do a change of their date or knowledge time
 and Use current knowledge once they are open. A dialog that is open keeps the panel, and the
 question, out of reach, so the profile dialog is closed for the question. The page asks before it is
@@ -781,9 +781,15 @@ under its name replaces it, and Delete view removes it. A stored view that fails
 other reason still fails the Blotter's load with that reason. A pivot that groups by instrument
 type lists the column once (`pivotColumns`), so it also saves as a view.
 
-The header distinguishes working knowledge, retained history, selected price date
-and actual today in the user's time zone. Disabled booking has an explanation and
-an explicit return to working inputs. Power TOUs and Reference data are under
+The floating context distinguishes working knowledge, retained history, the selected
+close and actual today in the user's time zone: the As of control and its close
+badge float beside the Context panel, whose summary names the knowledge in use and
+whose panel holds the time controls, actual today, the Blotter's read context and
+Follow live corrections. Return to working data floats beside them when a historical
+view is shown, and opens working data on its newest close (D217, D218). Panels that
+slide over the page keep that band clear, and the Assistant launcher steps aside from
+a docked side panel. Disabled booking has an explanation and an explicit return to
+working inputs. Power TOUs and Reference data are under
 Settings. Visible branding is LeanETRM. These presentation choices do not alter
 financial contexts or authorization.
 

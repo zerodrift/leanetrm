@@ -90,15 +90,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('keyboard navigation moves to an available day without selecting it',"document.activeElement?.dataset.date==='2020-12-17'&&document.querySelector('#market-date-grid button[aria-pressed=true]').dataset.date==='2020-12-18'");
  await click('#market-date-close');await click('#profile-open');await set('#zone','UTC');await submit('#preferences-form');await wait(settled);
  await persona('editor');
- await check('a newest date with several closes opens the calendar on it and selects nothing',`document.querySelector('#market-date-dialog').open&&document.querySelector('#snapshot').value===''&&document.querySelector('#market-date-month').value===window.newestDate.slice(0,7)&&document.querySelectorAll('.market-close-choice').length>=2&&document.querySelector('#market-date-closes h3').textContent.includes(window.newestLabel)&&${badge}.textContent==='Choose a close'&&document.querySelector('#error').hidden`);
+ await check('several closes at the latest instant, a close and its corrected version, open the calendar on their date and select nothing',`document.querySelector('#market-date-dialog').open&&document.querySelector('#snapshot').value===''&&document.querySelector('#market-date-month').value===window.newestDate.slice(0,7)&&document.querySelectorAll('.market-close-choice').length>=2&&document.querySelector('#market-date-closes h3').textContent.includes(window.newestLabel)&&${badge}.textContent==='Choose a close'&&document.querySelector('#error').hidden`);
  await click('#market-date-close');
  await evaluate('window.hideNewestDate=true');await persona('editor');
  await evaluate(`window.hideNewestDate=false;window.readsBeforeFocus=${dateReads};window.closeBeforeFocus=document.querySelector('#snapshot').value;window.dispatchEvent(new Event('focus'))`);
  await wait(settled+`&&${dateReads}===window.readsBeforeFocus+1`);
  await click('#market-date-badge button');
- await check('Newer close available over a date with several closes asks, and keeps the close until one is chosen',`document.querySelector('#market-date-dialog').open&&document.querySelectorAll('.market-close-choice').length>=2&&document.querySelector('#snapshot').value===window.closeBeforeFocus&&${badge}.textContent==='Newer close available'`);
+ await check('Newer close available over several closes at the latest instant asks, and keeps the close until one is chosen',`document.querySelector('#market-date-dialog').open&&document.querySelectorAll('.market-close-choice').length>=2&&document.querySelector('#snapshot').value===window.closeBeforeFocus&&${badge}.textContent==='Newer close available'`);
  await click('.market-close-choice:nth-of-type(1)');
- await check('choosing a close of the newest date shows Latest close',`!document.querySelector('#market-date-dialog').open&&document.querySelector('#snapshot').value!==window.closeBeforeFocus&&${badge}.textContent==='Latest close'&&document.querySelector('#error').hidden`);
+ await check('choosing either close at the latest instant shows Latest close',`!document.querySelector('#market-date-dialog').open&&document.querySelector('#snapshot').value!==window.closeBeforeFocus&&${badge}.textContent==='Latest close'&&document.querySelector('#error').hidden`);
  await click('#example');await evaluate(`window.readsBeforeNavigation=${dateReads}`);await click('#nav-custom-curves');await wait(settled);
  await check('opening a page checks the whole workspace for a newer close once, in the background',`${dateReads}===window.readsBeforeNavigation+1&&window.marketDateRequests.at(-1).body.curve===null&&window.marketDateRequests.at(-1).body.definition===null&&document.querySelector('#error').hidden`);
  await evaluate("window.callsBeforeEmpty=window.marketDateCalls.filter(p=>p.endsWith('/market/dates')).length");await click('#market-date-open');
@@ -127,7 +127,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the power workspace calendar follows its selected pricing curve',"window.marketDateRequests.at(-1).body.curve==='local_power'&&!window.marketDateRequests.at(-1).payload.dates.some(d=>d.date==='2020-12-11')");
  // A historical view the session kept is not working data: starting in it selects no close, reads no workspace calendar
  // and claims no newest close.
- await click('#market-date-close');await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
+ await click('#market-date-close');await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
  await wait("document.querySelector('#workspace-mode-label').textContent==='Historical view · read only'&&"+idle);
  const replaced=await evaluate('performance.timeOrigin');await command('Page.reload');
  await wait(`performance.timeOrigin!==${replaced}&&document.querySelector('#profile-label')?.textContent==='Market Data Editor'&&${idle}`);

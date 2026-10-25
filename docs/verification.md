@@ -1563,8 +1563,9 @@ individual command and owned-resource deadlines remain in force. The expanded
 51-stage sequential gate exceeded that job deadline on Ubuntu. The workspace
 partition subsequently exceeded it as trading and settlement coverage grew.
 The trading partition now owns swap pricing, settlement, observation schedules,
-portfolio valuation and close-worker checks, leaving the other workspace browser
-checks in their own job. Every preview stage still runs once across the matrix;
+portfolio valuation and close-worker checks, and the Blotter desk's valuation-status
+browser and desk-field checks, leaving the other workspace browser checks in their
+own job. Every preview stage still runs once across the matrix;
 this split does not establish a measured runtime for the new partitions.
 Group completion is reported separately from full-gate completion, and the final required check
 accepts only successful completion of every group. Failures, cancellation and

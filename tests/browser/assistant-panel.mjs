@@ -52,10 +52,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const agentsRead="window.__requests.some(r=>r.path==='/api/assistant/agents')";
   const buttons=`[...(${latest}?.querySelector('.assistant-target')?.querySelectorAll('button')??[])].map(b=>b.textContent).join()`;
   const press=label=>evaluate(`[...${latest}.querySelector('.assistant-target').querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);
-  // A person opens on the newest close, but these checks begin with no As of date chosen, so it is cleared.
-  const clearDate=async()=>{await set('#snapshot','');await wait(idle);};
-  // A trader opens on the Blotter, and the checks that follow a reload expect Curves & prices, so it is opened again.
-  const reload=async ready=>{const before=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${before}&&${idle}&&${ready}`);await click('#nav-market');await clearDate();};
+  // A trader opens on the Blotter, at the newest close, and the checks that follow a reload expect Curves & prices, so it is opened again.
+  const reload=async ready=>{const before=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${before}&&${idle}&&${ready}`);await click('#nav-market');};
   const pause=ms=>evaluate(`new Promise(r=>setTimeout(r,${ms}))`);
   // A check in another tab: its expression is evaluated there, and its outcome recorded here.
   const checkIn=async(page,label,expression)=>check(label,JSON.stringify(!!await page.evaluate(expression)));

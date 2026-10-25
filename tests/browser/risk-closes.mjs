@@ -14,7 +14,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await evaluate(`(()=>{const send=window.fetch;window.__riskReads=[];window.__riskJobs=[];window.fetch=async(input,init)=>{const path=String(input);if(path==='/api/portfolio/risk/jobs'&&init?.method==='POST')window.__riskJobs.push(JSON.parse(init.body));
     let response=await send(input,init);if(path==='/api/portfolio/risk/jobs'&&(init?.method??'GET')==='GET'&&window.__dropFromHistory&&response.ok){const jobs=await response.json();response=new Response(JSON.stringify(jobs.filter(j=>j.id!==window.__dropFromHistory)),{status:200,headers:{'Content-Type':'application/json'}});}
     try{window.__riskReads.push({path,data:await response.clone().json()});}catch{}return response;};})()`);
-  await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
+  await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
   await wait("document.querySelector('#workspace-mode-label').textContent.startsWith('Historical view')&&"+idle);
   const closes=await evaluate("[...document.querySelector('#snapshot').options].filter(o=>o.value&&o.textContent.startsWith('Dec 18, 2020')).map(o=>o.value)");
   // The job checks may have registered another close of the date already: any two of the date's closes share the view's context.

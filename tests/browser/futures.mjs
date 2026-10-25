@@ -378,7 +378,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('layout_browser');
   await check('a new account starts on the Blotter at a market date, with none of the prior account\'s views',"document.querySelector('#snapshot').value!==''&&document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''");
   // An account opens on the newest close its calendar offers. Here the calendar offers none, so the account has no market date
-  // and no read to replace the layout it showed: the layout must clear at the switch itself.
+  // and no read to replace the layout the page showed before the switch: that layout must clear at the switch itself.
+  await persona('admin');
   await evaluate(`(()=>{const send=window.fetch;window.__noCloses=true;window.fetch=async(input,init)=>{const response=await send(input,init);if(!window.__noCloses||input!=='/api/market/dates'||!response.ok)return response;const data=await response.json();return new Response(JSON.stringify({...data,dates:[],unavailable:[],minDate:null,maxDate:null}),{status:200,headers:{'Content-Type':'application/json'}});};})()`);
   await persona('layout_browser');await evaluate('window.__noCloses=false');await click('#nav-futures');
   await check('switching accounts without a market date clears the prior layout immediately',"document.querySelector('#snapshot').value===''&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''&&document.querySelector('#blotter-column-choices').children.length===0&&document.querySelector('#blotter-mode').value==='trades'");

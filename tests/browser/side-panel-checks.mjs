@@ -378,7 +378,8 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('a date typed in the open time controls asks before it clears the Blotter, and nothing has changed while it does',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${contextNote}===${JSON.stringify(noteBefore)}&&${positionsShown}>0`,`[${prompt}.textContent,${contextNote},${positionsShown}]`);
   await answer(0);
   await check('keeping the edits puts the controls back exactly as they were, and leaves the Blotter and the form',`JSON.stringify(${contextInputs})===${JSON.stringify(JSON.stringify(inputsBefore))}&&${contextNote}===${JSON.stringify(noteBefore)}&&document.querySelector('#date-context').open&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${positionsShown}>0`,`[${contextInputs},${contextNote},${positionsShown}]`);
-  await set('#date-context-on',otherDate);await asks();await answer(1);
+  // The change asks for that date's end-of-day knowledge (D217), which the page reads before anything else is done.
+  await set('#date-context-on',otherDate);await asks();await answer(1);await wait(idle);
   await check('agreeing lets the change through: the context is changed, the Blotter is cleared and the form is given up',`document.querySelector('#date-context-on').value===${JSON.stringify(otherDate)}&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden&&${positionsShown}===0`,`[${contextInputs},${contextNote},${positionsShown}]`);
   await restoreBlotter();
   // Use current knowledge changes the context as well. A date entered without an event, as a browser's autofill enters one, lets it run here.
@@ -402,7 +403,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await answer(0);
   await check('keeping the edits leaves the form and reads nothing',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${currentReads}===${currentBefore}`);
   await click('#current-view-context');await asks();await answer(1);await wait(idle);
-  await check('and agreeing reads the working context again and gives the form up',`${currentReads}>${currentBefore}&&document.querySelector('#trade-editing').hidden&&document.querySelector('#snapshot').value===''`,`[${currentReads},${currentBefore},document.querySelector('#snapshot').value]`);
+  await check('and agreeing reads the working context again, opens it on its newest close, and gives the form up',`${currentReads}>${currentBefore}&&document.querySelector('#trade-editing').hidden&&document.querySelector('#snapshot').value!==''&&document.querySelector('#market-date-badge').textContent==='Latest close'`,`[${currentReads},${currentBefore},document.querySelector('#snapshot').value,document.querySelector('#market-date-badge').textContent]`);
   await set('#snapshot',closeNow);await wait(redrawn(idle));
   // While the page is busy a question cannot be answered, so the controls stay closed and nothing is asked.
   await click('#close-view-context');
@@ -410,13 +411,14 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await evaluate("document.querySelector('#trade-amend-form').requestSubmit();document.querySelector('#date-context>summary').click()");await wait(idle);
   await check('opening the time controls while the page is busy asks nothing and leaves them closed',`${prompt}.hidden&&!document.querySelector('#date-context').open&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#date-context').open]`);
   // A change made while the page is busy cannot be asked about either, so it is not made: the control goes back as it was.
+  const [dateWhileBusy,noteWhileBusy]=await evaluate(`[document.querySelector('#date-context-on').value,${contextNote}]`);
   await evaluate("document.querySelector('#trade-amend-form').requestSubmit();const date=document.querySelector('#date-context-on');date.value='2020-12-16';date.dispatchEvent(new Event('input',{bubbles:true}));date.dispatchEvent(new Event('change',{bubbles:true}))");await wait(idle);
-  await check('a change in the time controls while the page is busy is not made: nothing can be asked, so the control goes back and the form stays',`${prompt}.hidden&&document.querySelector('#date-context-on').value===${JSON.stringify(inputsBefore[0])}&&${contextNote}===${JSON.stringify(noteBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#date-context-on').value,${contextNote}]`);
+  await check('a change in the time controls while the page is busy is not made: nothing can be asked, so the control goes back and the form stays',`${prompt}.hidden&&document.querySelector('#date-context-on').value===${JSON.stringify(dateWhileBusy)}&&${contextNote}===${JSON.stringify(noteWhileBusy)}&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#date-context-on').value,${contextNote}]`);
   await click('#side-panel-amend');await asks();await answer(1);
   // A form with no edits is given up by a change of context without a question.
   await amend(1,refB);
   await click('#date-context>summary');
-  await set('#date-context-on',otherDate);
+  await set('#date-context-on',otherDate);await wait(idle);
   await check('a change in the open time controls is made without a question when the form holds no edits',`${prompt}.hidden&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden`,`[${prompt}.textContent,${contextNote}]`);
   await restoreBlotter();await click('#close-view-context');
   // New trade for a PPA leaves the Blotter for the PPA bookings page.

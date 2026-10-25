@@ -447,8 +447,8 @@ dialog label{margin-top:16px}
 /* Trading workbench, shared time controls, charts and data grids (from the trading release). */
 .futures-fields{border:0;padding:0;margin:0;min-width:0}.futures-fields input,.futures-fields select{max-width:100%;box-sizing:border-box}
 /* Shared time controls and the trading workbench. */
-.header-actions{flex-wrap:wrap;align-items:center}.date-control #header-calculation-time{display:block;font-size:9px;max-width:360px}.header-context{position:relative;font-size:11px}.header-context>summary{cursor:pointer;color:#536e43;max-width:180px}.header-context-panel{position:absolute;top:calc(100% + 12px);right:0;z-index:20;background:#fff;border:1px solid #dce5d2;border-radius:9px;padding:18px;width:400px;max-width:calc(100vw - 40px);box-shadow:0 10px 35px #122b2020;box-sizing:border-box}.header-context-panel .schedule-fields{grid-template-columns:1fr}.header-context-panel input{width:100%;box-sizing:border-box}.profile-button{max-width:230px}.profile-button #profile-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:760px){.header-context[open]{flex-basis:100%}.header-context-panel{position:static;max-width:none;width:100%;max-height:none;margin-top:12px}.header-actions .date-control{flex-basis:100%}.profile-button{max-width:190px}}
+.header-actions{flex-wrap:wrap;align-items:center}.header-context{position:relative;font-size:11px}.header-context>summary{cursor:pointer;color:#536e43;max-width:180px}.header-context-panel{position:absolute;top:calc(100% + 12px);right:0;z-index:20;background:#fff;border:1px solid #dce5d2;border-radius:9px;padding:18px;width:400px;max-width:calc(100vw - 40px);box-shadow:0 10px 35px #122b2020;box-sizing:border-box}.header-context-panel .schedule-fields{grid-template-columns:1fr}.header-context-panel input{width:100%;box-sizing:border-box}.profile-button{max-width:230px}.profile-button #profile-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:760px){.header-context[open]{flex-basis:100%}.header-context-panel{position:static;max-width:none;width:100%;max-height:none;margin-top:12px}.profile-button{max-width:190px}}
 /* Reusable table workspace: compact controls, optional configuration panels. */
 .table-workspace{background:#fff;border:1px solid #dce5d8;border-radius:8px;min-width:0}
 .table-workspace-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid #e5ebdf;background:#f8faf6;border-radius:8px 8px 0 0}
@@ -478,8 +478,6 @@ dialog label{margin-top:16px}
 .table-field-choices .pivot-move{margin-left:auto;padding:0 4px;min-height:22px;font-size:13px;border:0;background:transparent;color:#5d7b4a}.table-field-choices .pivot-move:hover{background:#dcebd1}
 
 .standard-data-grid .tabulator-col-resize-handle:hover{border-color:#71905e;background:#dcebd1}
-
-.workspace-mode{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1rem;margin:-.25rem 0 .75rem;font-size:.8rem;color:var(--muted,#657080)}.workspace-mode strong{color:var(--ink,#182735)}
 
 .editing fieldset{border:0;padding:0;min-width:0}.openable-row{cursor:pointer}.openable-row:focus-visible{outline:2px solid #23674d;outline-offset:-2px}
 
@@ -518,7 +516,6 @@ dialog label{margin-top:16px}
 .example-switch{margin:10px 0 0}.example-switch label{color:var(--sidebar-muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
 .example-switch select{width:100%;background:var(--sidebar-2);color:var(--sidebar-text);border-color:#2f4b3e}
 .header-context>summary{color:var(--accent-text)}
-.workspace-mode{color:var(--text-3)}.workspace-mode strong{color:var(--text)}
 
 /* Blotter: headline strip, compact toolbar and a dense, scannable grid. */
 .table-workspace{border-color:var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:clip}
@@ -549,14 +546,11 @@ dialog label{margin-top:16px}
 .standard-data-grid .tabulator-col .tabulator-col-sorter{opacity:0;transition:opacity .12s}
 .standard-data-grid .tabulator-col:hover .tabulator-col-sorter,.standard-data-grid .tabulator-col[aria-sort=ascending] .tabulator-col-sorter,.standard-data-grid .tabulator-col[aria-sort=descending] .tabulator-col-sorter{opacity:1}
 .table-workspace-footer{padding:10px 4px 14px;color:var(--text-3)}
-.date-control #header-calculation-time{font-size:11px;color:var(--text-3)}
-@media(min-width:1200px){.date-control #header-calculation-time{white-space:nowrap;max-width:none}}
 .table-workspace .standard-data-grid .tabulator-row .tabulator-cell{border-right:0}
 @media(max-width:760px){.table-workspace-actions{border-left:0;padding-left:0}}
 /* Sidebar controls stay inside the rail; long labels truncate instead of overflowing. */
 .sidebar .nav-item,.sidebar select{box-sizing:border-box;max-width:100%;min-width:0}
 .sidebar .nav-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:760px){.date-control{flex-wrap:wrap}.date-control select{flex:1 1 0;min-width:0}.date-control #header-calculation-time{flex-basis:100%;max-width:none}}
 /* Curve-type filter as one segmented control. */
 .library-filters .filter-tabs{gap:2px;padding:3px;background:var(--surface-3);border-radius:8px}
 .library-filters .filter-tabs button{border:0;border-radius:6px;padding:5px 2px;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1133,16 +1127,43 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 #swap-settlement form>div{display:grid;gap:6px;margin-block:12px;min-width:0}
 #swap-settlement input,#swap-settlement select{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
 
-/* Shared temporal controls keep their screen's form and exact read contract. */
-.floating-context{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:35;font-size:12px;max-width:calc(100vw - 160px)}
-.floating-context>summary{background:var(--surface,#fff);color:var(--text,#182735);border:1px solid var(--border,#dce5d2);border-radius:24px;padding:10px 18px;box-shadow:0 3px 18px #122b2020;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(620px,calc(100vw - 170px))}
-.floating-context .header-context-panel{position:absolute;top:auto;bottom:calc(100% + 10px);left:50%;right:auto;transform:translateX(-50%);width:440px;max-width:calc(100vw - 32px);max-height:70vh;overflow:auto;background:var(--surface,#fff);color:var(--text,#182735);border:1px solid var(--border,#dce5d2);border-radius:12px;padding:18px;box-shadow:0 10px 35px #122b2020;box-sizing:border-box}
+/* Shared temporal controls keep their screen's form and exact read contract. The page keeps a band at its foot free
+   for them (D217): the As of control with its close badge floats beside the shared Context panel, whose summary names the
+   knowledge in use and whose panel holds the time controls and live corrections; a page's own context floats there too,
+   and the Assistant launcher at the lower right. Panels that slide over the page keep the band clear of their content,
+   and the launcher and the dock step aside from a docked side panel. */
+:root{--dock-band:84px;--launcher-right:24px;--launcher-room:132px}
+body{--dock-center:calc((var(--sidebar-width) + 100vw - var(--launcher-right) - var(--launcher-room)) / 2)}
+body.assistant-open{--launcher-right:calc(var(--assistant-width) + 16px)}
+body:has(#futures-page:not([hidden]) .side-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--panel-width) + 49px)}
+main{padding-bottom:calc(var(--dock-band) + 16px)}
+html{scroll-padding-bottom:var(--dock-band)}
+.floating-context{position:fixed;bottom:16px;left:var(--dock-center);transform:translateX(-50%);z-index:35;font-size:12px;max-width:calc(100vw - 160px)}
+.floating-context>summary{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:24px;padding:10px 18px;box-shadow:0 3px 18px #122b2020;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(620px,calc(100vw - 170px))}
+.floating-context .header-context-panel{position:absolute;top:auto;bottom:calc(100% + 10px);left:50%;right:auto;transform:translateX(-50%);width:440px;max-width:calc(100vw - 32px);max-height:min(70vh,calc(100vh - var(--dock-band) - 24px));overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:18px;box-shadow:0 10px 35px #122b2020;box-sizing:border-box}
 .floating-context .schedule-fields{grid-template-columns:1fr}
 .floating-context input,.floating-context select{max-width:100%;box-sizing:border-box}
-.assistant-launcher{position:fixed;right:24px;bottom:22px;z-index:40;border-radius:28px;box-shadow:0 4px 20px #122b2030;padding:13px 17px}
-.assistant-hide{position:fixed;right:15px;bottom:62px;z-index:41;border-radius:50%;width:24px;height:24px;background:var(--surface,#fff);box-shadow:0 2px 8px #122b2020}
-body.assistant-open .assistant-launcher{right:calc(var(--assistant-width) + 16px)}
+.context-dock{position:fixed;left:var(--sidebar-width);right:calc(var(--launcher-right) + var(--launcher-room));bottom:16px;z-index:35;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 12px;font-size:12px;pointer-events:none}
+.context-dock>*{pointer-events:auto}
+.context-dock .floating-context{position:relative;left:auto;bottom:auto;transform:none;flex:0 1 auto;min-width:120px;max-width:min(460px,100%)}
+.context-dock .floating-context>summary{max-width:100%;box-sizing:border-box}
+.context-dock .date-control{flex:0 0 auto;min-width:0;padding:5px 6px 5px 16px;background:var(--surface);border:1px solid var(--border);border-radius:28px;box-shadow:0 3px 18px #122b2020}
+.context-dock #market-date-calendar{gap:1px;max-width:none}
+.context-dock .market-date-trigger{min-width:0;padding:6px 12px;border-radius:18px}
+.context-dock .market-date-status{max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:12px}
+.context-kicker{margin-right:8px;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+#workspace-mode-label{font-weight:600;color:var(--text)}
+.context-values{color:var(--text-2)}.context-values:not(:empty)::before{content:' · '}
+.context-read:empty{display:none}
+.context-action{border-radius:24px;padding:9px 16px;box-shadow:0 3px 18px #122b2020}
+.context-dock .live-status{padding:8px 14px;box-shadow:0 3px 18px #122b2020}
+main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
+main:has(>section:not([hidden]) .floating-context) .context-dock{bottom:72px}
+header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{opacity:.55}
+.side-panel[data-placement=overlay],.side-panel[data-wide]{padding-bottom:var(--dock-band)}
+.assistant-launcher{position:fixed;right:var(--launcher-right);bottom:16px;z-index:40;border-radius:28px;box-shadow:0 4px 20px #122b2030;padding:13px 17px}
+.assistant-hide{position:fixed;right:calc(var(--launcher-right) - 9px);bottom:54px;z-index:41;border-radius:50%;width:24px;height:24px;background:var(--surface);box-shadow:0 2px 8px #122b2020}
 .assistant-preference{display:flex;gap:8px;align-items:center;margin-top:16px}
 .assistant-preference input{width:auto}
-main{padding-bottom:90px}
-@media(max-width:760px){.floating-context{left:16px;transform:none;max-width:calc(100vw - 110px)}.floating-context>summary{max-width:calc(100vw - 150px)}.floating-context .header-context-panel{left:0;transform:none}.assistant-launcher{right:16px}.assistant-hide{right:7px}body.assistant-open .assistant-launcher{right:16px}}
+@media(max-width:760px){:root,body.assistant-open{--launcher-right:16px}:root{--launcher-room:64px}body{--dock-center:16px}.floating-context{transform:none;max-width:calc(100vw - 110px)}.floating-context>summary{max-width:calc(100vw - 150px)}.floating-context .header-context-panel{left:0;transform:none}.context-dock{left:0;justify-content:flex-start}.context-dock .floating-context{position:static;max-width:100%}.context-dock .floating-context .header-context-panel{left:16px;right:16px;width:auto}.context-dock .floating-context>summary{max-width:100%}.context-dock .market-date-status{max-width:200px}.header-actions{width:auto}body.assistant-open .context-dock{display:none}}
+@media(max-width:480px){:root{--dock-band:124px}.context-dock{flex-wrap:wrap-reverse}.context-dock .date-control{flex:1 1 100%;padding-left:6px}.context-dock .floating-context{flex:1 1 100%}.context-dock .date-control>label,.context-dock .market-date-status{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.context-dock .market-date-trigger::after{display:none}}

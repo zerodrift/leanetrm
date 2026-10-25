@@ -253,12 +253,13 @@ Logical modules:
 
 Presentation uses familiar business names. Market data provides futures and
 forward curves with commodity-first or market-type-first browsing. A compact
-market-close calendar sits in the header (D162); user profiles hold time zone and
-other remembered display preferences. Minutes are enough for ordinary display;
-exact retained instants and selected versions remain unchanged underneath. Repeated
-local clock times must remain distinguishable, for example by showing an offset
-only when needed. Internal GUIDs, database fields and numerical implementation
-labels are not user-visible column names or calculation receipts.
+market-close calendar floats with the shared Context panel (D162, D217); user
+profiles hold time zone and other remembered display preferences. Minutes are
+enough for ordinary display; exact retained instants and selected versions remain
+unchanged underneath. Repeated local clock times must remain distinguishable, for
+example by showing an offset only when needed. Internal GUIDs, database fields and
+numerical implementation labels are not user-visible column names or calculation
+receipts.
 
 Ordinary table screens share the table renderer and a reusable table workspace
 for column, filter, pivot and named-view controls. Blotter displays the table
@@ -285,7 +286,9 @@ do not merge obligations. Saving a view does not save or choose market inputs,
 knowledge coordinates or authority. Effective/knowledge controls share a floating
 Context panel (D217). Native interval, delivery-price and PPA cutoffs use the same
 presentation while retaining their distinct backend read contracts. The market
-date remains in the header. The active user and current permissions are visible
+date, with the Blotter's close badge (D218), floats beside that panel, whose summary
+names the knowledge in use and whose panel holds live corrections; the header keeps
+the page title and profile. The active user and current permissions are visible
 in the profile, independently of the layout.
 
 Amount display precision belongs to a deal's shared current presentation, with

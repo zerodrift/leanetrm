@@ -101,17 +101,20 @@ moves into the workspace card at the foot of the sidebar.
 
 ## Opening on the newest close
 
-Decided by the owner (D218):
+Decided by the owner (D218), with the latest instant of master's browsing
+defaults (D217):
 
-1. Pages that read As of start from the newest date in the authorized
-   availability calendar (`market/dates`, `maxDate`) for the current scope.
-2. If that date has exactly one close, it is selected and the As-of control
-   shows a **Latest close** badge. If the date has several closes or correction
-   versions, the calendar opens on that date and asks. Nothing is selected
-   silently (D162).
-3. Choosing another close replaces the badge with **Selected close**. A reload
-   starts from the newest close again. (Builder's call: whether a session
-   remembers a chosen close, as long as the badge says which applies.)
+1. Pages that read As of start from the authorized availability calendar
+   (`market/dates`) for the current scope. Its newest date (`maxDate`) holds its
+   latest close.
+2. If one close has the latest instant, it is selected and the As-of control
+   shows a **Latest close** badge. If several closes share that instant, such as
+   a close and its correction versions, the calendar opens on that date and
+   asks. Nothing is selected silently (D162).
+3. Choosing another close replaces the badge with **Selected close**. A reload,
+   or a return to working data, starts from the newest close again.
+   (Builder's call: whether a session remembers a chosen close, as long as the
+   badge says which applies.)
 4. Knowledge mode stays working data at current knowledge, as today.
 5. If a newer close becomes available during a session, the control shows
    **Newer close available** with a one-click switch. It never switches by
@@ -148,15 +151,20 @@ returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
 ## Desk layout
 
 ```
-┌ sidebar ┐┌ header: Blotter · As of [Latest close ▾] · knowledge · profile ─────────┐
+┌ sidebar ┐┌ header: Blotter · profile ───────────────────────────────────────────────┐
 │ Trading ││ toolbar: book scope · view · Risk report · Scenario · New trade          │
 │ Markets ││ [run bar, after a risk run]                                              │
 │ ...     ││ ┌ Swap PV ┐┌ Futures P&L ┐┌ Positions ┐┌ Risk ┐                         │
 │         ││ ┌ chart: Swap PV by market ┐┌ chart: long/short by market ┐┌ side     ┐ │
 │         ││ Positions · grouped by book  Group by [Book]  [search]  24 of 24 rows    │
 │         ││ ┌ positions, grouped, Values | Risk lens ───────────────────┐│ panel    │ │
+│         ││ floating: As of [Latest close ▾] · Context ▴ · Assistant     │          │ │
 └─────────┘└───────────────────────────────────────────────────────────────┘└──────────┘
 ```
+
+The As of control, its badge, the knowledge in use and live corrections float
+with the shared Context panel at the foot of the page (D217), beside the
+Assistant launcher; the header keeps the page title and the profile.
 
 **Summary tiles**, one row per currency inside a tile, never added across
 currencies:
