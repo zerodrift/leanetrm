@@ -58,8 +58,8 @@ internal static class ContractIdentityChecks
         var snapshot=f.Snapshot() with {Selections=[selected with {Observation=selected.Observation with {Value=ExactDecimal.Parse("3.2")}},
             new(new(alternateSeries,InputUse.Variable),selected.Observation with {Key=new(f.Revision.CatalogId,Guid.NewGuid()),Series=alternateSeries,Value=ExactDecimal.Parse("4")})]};
         var book=Guid.NewGuid();
-        FuturesPosition Position(FuturesMarketBinding binding,Guid? alias=null)=>new(Guid.NewGuid(),binding,ExactDecimal.Parse("1"),new(ExactDecimal.Parse("3"),q),snapshot.ValuationAt,FuturesSettlementState.Unprocessed,alias);
-        var trades=ImmutableArray.Create(new FuturesTrade(Guid.NewGuid(),book,[Position(a)]),new FuturesTrade(Guid.NewGuid(),book,[Position(b)]));
+        TradeInstrument Position(FuturesMarketBinding binding,Guid? alias=null)=>FuturesExecution.Bind(Guid.NewGuid(),binding,ExactDecimal.Parse("1"),new(ExactDecimal.Parse("3"),q),snapshot.ValuationAt,FuturesSettlementState.Unprocessed,alias);
+        var trades=ImmutableArray.Create(new Trade(Guid.NewGuid(),book,[Position(a)]),new Trade(Guid.NewGuid(),book,[Position(b)]));
         var holdings=FuturesHoldings.Price(trades,snapshot,dual.Build(snapshot,[a.Market,b.Market]),FuturesMarketBinding.Implementation);
         if(string.Join(",",holdings.Select(h=>h.ExecutionPnl.Amount))!="8,40")throw new Exception("One contract's distinct explicit pricing bindings were conflated.");
         var bump=new QuoteBump(new(f.S(1),InputUse.Variable),q.Key,PriceUnit.FromQuote(q),ExactDecimal.Parse("0.1"),QuoteBump.Convention);
@@ -72,7 +72,7 @@ internal static class ContractIdentityChecks
         var otherTerms=terms with {Key=f.R("other_future")};
         var otherMember=member with {FuturesSeries=otherTerms.Key};
         var otherBinding=new FuturesMarketBinding(Guid.NewGuid(),a.Market,otherMember,otherTerms,q,"cash",FuturesMarketBinding.Implementation);
-        var conflicting=ImmutableArray.Create(trades[0],new FuturesTrade(Guid.NewGuid(),book,[Position(otherBinding,a.Instrument.Id)]));
+        var conflicting=ImmutableArray.Create(trades[0],new Trade(Guid.NewGuid(),book,[Position(otherBinding,a.Instrument.Id)]));
         try{FuturesHoldings.Price(conflicting,snapshot,dual.Build(snapshot,[a.Market]),FuturesMarketBinding.Implementation);throw new Exception("Conflicting retained alias accepted.");}
         catch(MarketDataException e)when(e.Code=="futures_identity"){}
         Console.WriteLine("PASS contract identity: curve futures resolve the shared leaf instrument by exact series key before booking");

@@ -181,6 +181,7 @@ internal static class ConnectedPortfolioChecks
 
     private sealed record CurvePv : Instrument
     {
+        public override bool SupportsQuantityScaling=>true;
         private readonly ImmutableArray<CurveRequest> dependencies;
         private readonly Func<SideValuationContext,ExactMoney> calculate;
         private readonly Action? factorRead;

@@ -166,6 +166,13 @@ public sealed record ResolvedSchedulePrice
 // It consumes only its own schedule, declared prices and explicit discount inputs.
 public sealed partial class SideValuationContext
 {
+    private readonly Dictionary<Side,SideValuation> sideValues=new(ReferenceEqualityComparer.Instance);
+    internal int EvaluatedSides=>sideValues.Count;
+    internal SideValuation Evaluate(Side side)
+    {
+        if(!sideValues.TryGetValue(side,out var value)){value=side.PV(this);sideValues.Add(side,value);}
+        return value;
+    }
     private readonly CurveBuild? market;
     private readonly ImmutableHashSet<CurveRequest>? permitted;
     private readonly ISideDiscounting? discounting;

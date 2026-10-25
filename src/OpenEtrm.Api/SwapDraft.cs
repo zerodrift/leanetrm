@@ -76,8 +76,7 @@ public sealed partial class SwapStore
             throw Error("risk_policy","Select the explicit quote-tick symmetric exact deal repricing policy.");
         var instrument=draft.Instrument;
         var connectedInputs=FinancialSwapValuation.CreateDiscounting(instrument,snapshot,draft.Discount);
-        var portfolio=new ValuationPortfolio([instrument],[new(instrument.Id,instrument.Id,instrument.Id,instrument.Id,draft.Quantity,
-            new(new Money(default,instrument.Currency),draft.Quantity.Specification),new(default,instrument.Currency))],
+        var portfolio=ValuationPortfolio.FromTrades([new Trade(instrument.Id,instrument.Id,[new TradeInstrument(instrument.Id,instrument,draft.Quantity)])],
             new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,connectedInputs));
         var prepared=RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,[portfolio],connected.Authority,ct);
         if(prepared.Factors.Length>128)throw Error("risk_factor","A draft supports at most 128 explicit live quote factors.");

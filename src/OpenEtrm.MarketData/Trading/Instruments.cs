@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -66,8 +67,28 @@ public abstract record Instrument
     public virtual DefinitionIdentity? PricingBindingIdentity => null;
     public abstract ReferenceKey Currency { get; }
     public abstract Quantity UnitQuantity { get; }
-    public abstract InstrumentValuation PV(SideValuationContext context);
+    public virtual bool SupportsQuantityScaling=>false;
+    public virtual InstrumentValuation PV(SideValuationContext context)=>
+        throw new MarketDataException("valuation_measure","This instrument requires its declared unit valuation context.");
     public abstract UnitPricingContract Declare(UnitValuationContext context);
+    // Common black-box entry point. The denominator remains explicit until the
+    // trade's typed quantity is applied. Value preserves existing pricer adapters.
+    public virtual UnitValuation PV(UnitValuationContext context)=>new(context,Value(context),UnitQuantity.Specification);
+    public virtual void ValidateBinding(Quantity quantity,DeliveryCoverage? coverage)
+    {
+        if(!SupportsQuantityScaling)
+            throw new MarketDataException("risk_quantity_scaling","This instrument has not declared linear scaling in booked quantity.");
+        if(coverage is not null)
+            throw new MarketDataException("ppa_segment_coverage","This instrument does not accept delivery coverage.");
+    }
+    internal virtual bool SupportsSettlement=>false;
+    internal virtual UnitPricingContract DeclareScope(UnitValuationContext context,bool lifecycle)=>Declare(context);
+    public virtual long WorkRows(UnitValuationContext context)=>0;
+    internal virtual void RequireSameDefinition(Instrument other)
+    {
+        if(EconomicIdentity!=other.EconomicIdentity||PricingBindingIdentity!=other.PricingBindingIdentity)
+            throw new MarketDataException("instrument_identity","An instrument identity cannot reinterpret economic terms or pricing bindings.");
+    }
     // Implementers own the declaration. Curve-consuming instruments can use
     // this common resolver; other supported models may override the method.
     public virtual ImmutableArray<QuoteFactor> MarketFactors(UnitValuationContext context)=>
@@ -90,6 +111,20 @@ public abstract record Instrument
 
 public abstract record SidedInstrument : Instrument
 {
+    public override bool SupportsQuantityScaling=>true;
+    internal override bool SupportsSettlement=>true;
+    internal override UnitPricingContract DeclareScope(UnitValuationContext context,bool lifecycle)
+    {
+        var contract=Declare(context);
+        return lifecycle&&contract is not null?contract with{ModelVersion="swap_binding_dispatch_v1/"+contract.ModelVersion}:contract!;
+    }
+    public override UnitValuation PV(UnitValuationContext context)
+    {
+        if(context.Settlement is not {} lifecycle)return base.PV(context);
+        if(context.Measure!=ValuationMeasure.PresentValue)
+            throw new MarketDataException("valuation_measure","Settlement valuation requires the explicit present-value measure.");
+        return new(context,lifecycle.Settlement.UnitValue(this,context.SideContext(lifecycle.Discounting)),UnitQuantity.Specification);
+    }
     [IdentityField]
     public ImmutableArray<SideMembership> Sides { get; }
     public ImmutableArray<CurveRequest> Dependencies =>
@@ -113,7 +148,7 @@ public abstract record SidedInstrument : Instrument
     public override InstrumentValuation PV(SideValuationContext context)
     {
         if (context is null) throw new MarketDataException("side_context", "An explicit valuation context is required.");
-        return new(this, context, Sides.Select(m => m.Side.PV(context)).ToImmutableArray());
+        return new(this, context, Sides.Select(m => context.Evaluate(m.Side)).ToImmutableArray());
     }
 
     // Legacy execution-P&L arithmetic; full PV delegates to the sides above.

@@ -20,7 +20,7 @@ internal static class IndexFixingChecks
         InstrumentValuation Value(FixingFixture f, MarketSnapshot s, FinancialSwapInstrument? instrument = null)
         {
             instrument ??= f.Swap();
-            return instrument.PV(new(f.Model.Build(s, instrument.DependenciesAt(s)),
+            return instrument.PV(new SideValuationContext(f.Model.Build(s, instrument.DependenciesAt(s)),
                 new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
         }
         Check("monthly actual replaces an expired projection at the exact explicit publication boundary", () =>
@@ -38,7 +38,7 @@ internal static class IndexFixingChecks
         Check("a fully fixed deal risk run prices its actuals once with no live quote scenarios", () =>
         {
             var s = monthly.Snapshot(monthly.Fixings[0].FixingAt, 1); var instrument = monthly.Swap();
-            ExactMoney Price(CurveBuild market) => instrument.PV(new(market,
+            ExactMoney Price(CurveBuild market) => instrument.PV(new SideValuationContext(market,
                 new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))).PresentValue;
             var risk = DealRisk.Calculate(monthly.Model, s, instrument.DependenciesAt(s), Price, DealRisk.BumpPolicy, DealRisk.NumericalPolicy);
             Equal(risk.Base.ToMoney().Amount.ToString(), "-5"); Equal(risk.Factors.Length, 0); Equal(risk.ScenarioCount, 1);
@@ -92,7 +92,7 @@ internal static class IndexFixingChecks
             using var cancelled = new CancellationTokenSource();
             ExactMoney Price(CurveBuild market)
             {
-                var result = instrument.PV(new(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))).PresentValue;
+                var result = instrument.PV(new SideValuationContext(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))).PresentValue;
                 cancelled.Cancel(); return result;
             }
             try { DealRisk.Calculate(monthly.Model, s, [], Price, DealRisk.BumpPolicy, DealRisk.NumericalPolicy, cancelled.Token); }
@@ -165,7 +165,7 @@ internal static class IndexFixingChecks
             var build = daily.Model.Build(snapshot, swap.DependenciesAt(snapshot));
             var bump = new QuoteBump(new(daily.Series[2].Key, InputUse.Variable), daily.Quote.Key, PriceUnit.FromQuote(daily.Quote), ExactDecimal.Parse("0.1"), QuoteBump.Convention);
             var pair = daily.Model.Scenarios(build, [bump]).Single();
-            InstrumentValuation Price(CurveBuild market) => swap.PV(new(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
+            InstrumentValuation Price(CurveBuild market) => swap.PV(new SideValuationContext(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
             Equal(Price(pair.Up).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "18.1");
             Equal(Price(pair.Down).PresentValue.Scale(ExactDecimal.Parse("3")).ToMoney().Amount.ToString(), "17.9");
             var actual = ((PaymentSideValuation)Price(pair.Up).Sides[1].Value).Payments[0].Prices[0];
@@ -179,7 +179,7 @@ internal static class IndexFixingChecks
             var legacy = new FloatingSide(Guid.NewGuid(), daily.Base.R("index"), daily.Quote, new(ExactDecimal.Parse("1"), daily.Quote.Quantity),
                 daily.From, daily.To, daily.Fixings[0].FixingAt, daily.Payment, FloatingAveraging.CalendarDayArithmetic,
                 daily.Projections, FloatingSide.Implementation);
-            Reject("swap_fixing_required", () => legacy.PV(new(snapshot,
+            Reject("swap_fixing_required", () => legacy.PV(new SideValuationContext(snapshot,
                 new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))));
             Equal(DefinitionIdentity.For(legacy).Version, "FloatingSide_v3");
             if (DefinitionIdentity.For(legacy).Canonical.Contains("IndexFixings")) throw new Exception("Legacy identity changed.");

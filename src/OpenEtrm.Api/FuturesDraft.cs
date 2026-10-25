@@ -14,10 +14,10 @@ public sealed record FuturesDraftRiskRequest(FuturesDraftRequest Draft,string Bu
 
 public sealed partial class FuturesStore
 {
-    private static (FuturesMarketBinding Binding,FuturesTrade Trade) Draft(PreviewData data,InputFrame frame,FuturesDraftRequest body)
+    private static (FuturesMarketBinding Binding,Trade Trade) Draft(PreviewData data,InputFrame frame,FuturesDraftRequest body)
     {
         var binding=Binding(data,body.Curve,body.ContractId,body.ContractId,body.Context.Convention!);
-        var position=new FuturesPosition(Guid.NewGuid(),binding,ExactDecimal.Parse(body.Lots??""),new(ExactDecimal.Parse(body.ExecutionPrice??""),binding.Quote),frame.At,FuturesSettlementState.Unprocessed);
+        var position=FuturesExecution.Bind(Guid.NewGuid(),binding,ExactDecimal.Parse(body.Lots??""),new(ExactDecimal.Parse(body.ExecutionPrice??""),binding.Quote),frame.At,FuturesSettlementState.Unprocessed);
         return(binding,new(Guid.NewGuid(),Guid.NewGuid(),[position]));
     }
     public Task<object> PriceDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesDraftRequest body,CancellationToken ct)
@@ -32,12 +32,15 @@ public sealed partial class FuturesStore
     public Task<object> RiskDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesDraftRiskRequest body,CancellationToken ct)
     {
         var draft=Draft(data,frame,body.Draft);var snapshot=data.Snapshot(frame);
-        // Qualify live eligibility against the actual base. Scenario marks are
-        // synthetic and use the same domain execution-P&L pricer directly.
-        _=FuturesHoldings.Price([draft.Trade],snapshot,data.Model.Build(snapshot,draft.Binding.Dependencies),body.Draft.Context.Convention!);
-        var position=draft.Trade.Instruments[0];
-        var risk=DealRisk.Calculate(data.Model,snapshot,draft.Binding.Dependencies,
-            market=>ExactMoney.FromMoney(draft.Binding.ExecutionPnl(market.Values.Single(v=>v.Request==draft.Binding.Market).Price,position.ExecutionPrice,position.Lots)),body.BumpPolicy,body.NumericalPolicy,ct);
+        if(body.BumpPolicy!=DealRisk.BumpPolicy||body.NumericalPolicy!=DealRisk.NumericalPolicy)
+            throw Error("risk_policy","Select the explicit quote-tick symmetric exact deal repricing policy.");
+        var (market,portfolio)=FuturesRisk.PreparePortfolio([draft.Trade],snapshot,data.Model,FuturesRisk.Implementation,ct);
+        var prepared=RiskEngine.Prepare(market,[portfolio],ct);
+        if(prepared.Factors.Length is <1 or >128)throw Error("risk_factor","A projected draft requires one to 128 live declared quote factors.");
+        var result=RiskEngine.CalculateExact(prepared,prepared.Factors.Select(f=>new QuoteBump(f.Input,f.Quote,f.Unit,f.TradingTick,QuoteBump.Convention)).ToImmutableArray(),
+            RiskEngine.ExactNumericalPolicy,ct);
+        var group=result.Groups.Single();
+        var risk=new DealRiskRun(group.BaseValues.Single().Value,group.Factors.Select((f,n)=>new DealFactorRisk(prepared.Factors[n],f.Bump,f.Totals.Single().Values)).ToImmutableArray(),result.Work.ScenarioCount);
         return Task.FromResult(DraftRisk.Result(data,risk,"execution_pnl"));
     }
 }
