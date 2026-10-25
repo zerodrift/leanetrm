@@ -563,16 +563,22 @@ lifecycle's measures. Each side's kind and direction are the read's: its valuati
 revision valued by its lifecycle, which has no pure valuation, the `memberships` the read states
 (D207); the page works none out. Amend of a scheduled swap opens its ticket
 (`scheduled-swap-editor.ts`) in the form part, as any amendment opens, and the swap ticket's
-Multi-month contracts and scheduled quantities opens it for a new swap, after the panel has asked
-about the swap ticket's edits; generating period rows over entered ones asks in the panel first,
-before the page is busy. A swap's Terms, and either ticket, offer Settlement and P&L
-(`swap-settlement.ts`), which takes the form part in place of the terms, with the head's Close
-editor, after the panel has asked about a ticket's edits. A cash record being entered, and a
-correction's due instant, are edits the panel asks about, and an action of the view that would
-replace a typed due instant (another payment's calculation, a refresh, a cash record) asks first; a
-determination the backend refuses for good keeps its calculation and due instant, with the reason,
-and after any other failure of a settlement command, which may follow one that went through, as when
-the Blotter cannot be read after it, the view is read again. A settlement command that goes through
+Monthly schedules · one or more months opens it for a new swap, after the panel has asked about the
+swap ticket's edits; generating period rows over entered ones asks in the panel first, before the
+page is busy, and D216's reviewed common-term edits of selected periods are made there too.
+A swap's Terms, and either ticket, offer Settlement and P&L (`swap-settlement.ts`), which takes the
+form part in place of the terms, with the head's Close editor, after the panel has asked about a
+ticket's edits; there it also settles selected gross contributions of the trade by one net amount,
+and reconciles P&L from a captured opening under an explicitly chosen contractual-change policy
+(D216). A cash record or a net settlement being entered, and a correction's due instant, are edits
+the panel asks about, and an action of the view that would replace a typed due instant (another
+payment's calculation, a refresh, a cash or net record) asks first, while an edit of the net form, a
+choice of opening or policy, and a net review, opening capture or reconciliation that fails keep it.
+A net settlement or its reversal is recorded only from the review of its exact allocations still
+shown, which an edit of the net or payment form removes. A determination the backend refuses for
+good keeps its calculation and due instant, with the reason, and after any other failure of a
+settlement command, which may follow one that went through, as when the Blotter cannot be read after
+it, the view is read again. A settlement command that goes through
 clears risk results run before it, with a note, and reads the Blotter again as a live correction
 does, so that the panel and the view stay, and the view reads its state again. One whose outcome is
 not known is kept in the panel's card, named for what it was, across a reload too; Check status
@@ -590,7 +596,8 @@ for a pay-fixed and a receive-fixed swap, and adds a close after the January det
 pins no February future, at which a swap whose lifecycle is under way is unvalued with
 `missing_observation` and keeps its facts, its book total and the desk's money totals (D221) leave
 it out, and a risk run, the same run queued and the risk catalog list it; its browser checks drive
-the scheduled ticket, its review, the settlement view and its retained commands in the panel.
+qualified authoring in the scheduled ticket, its review, the settlement view with net settlement
+and the contractual bridge, and their retained commands in the panel.
 
 The desk's money totals come from a second pivot convention (D221). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and
