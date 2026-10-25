@@ -2869,3 +2869,10 @@ budget. Eighteen owned-browser helper checks cover delayed completion without
 resubmission, ordinary timeout refusal, finite overrides and invalid budgets
 refused before an action. Booking and refresh errors still fail the workflow;
 the independent 86.5 cash oracle remains mandatory.
+
+Every scheduled booking/amendment submission uses the same bounded 35-second
+write-and-refresh wait. The combined scheduled-swap browser command runs four
+owned suites (authoring, schedules, settlement and netting) under a ten-minute
+process deadline; individual readiness deadlines and failed assertions still
+stop the command. A CI run exposed the old three-minute process limit after
+authoring and schedule checks passed, before settlement checks could complete.

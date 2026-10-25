@@ -636,7 +636,9 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--scheduled-swaps'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned scheduled-swap browser checks failed')
+                    # Four owned browser suites: authoring, schedules, settlement and netting.
+                    # Keep an overall bound in addition to each action's readiness deadline.
+                    if browser_process.wait(timeout=600):raise RuntimeError('Owned scheduled-swap browser checks failed')
             elif args.draft_check:
                 from check_draft_pricing import run_checks as check_draft
                 check_draft(url,query,manifest)
