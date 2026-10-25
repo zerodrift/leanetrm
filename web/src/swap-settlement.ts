@@ -1,4 +1,4 @@
-import {renderRegularTable} from './regular-table.js';
+import {renderRegularTable,tableFilterControls} from './regular-table.js';
 import {trackEdits} from './edit-tracking.js';
 import {knownTradeRejection} from './trade-requests.js';
 import {displayInstant} from './market-view.js';
@@ -32,7 +32,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  const heading=node('div');heading.className='swap-settlement-heading';const title=node('h3','Settlement and P&L');title.id='swap-settlement-title';heading.append(title);
  const status=node('p');status.setAttribute('role','status');const error=node('p');error.setAttribute('role','alert');
  const refresh=node('button','Refresh settlement');refresh.type='button';refresh.id='swap-settlement-refresh';
- const summary=node('div'),payments=node('div'),evidence=node('section'),balances=node('div'),cashHistory=node('div'),pnl=node('section');balances.id='swap-settlement-balances';cashHistory.id='swap-settlement-cash';
+ const summary=node('div'),payments=node('div'),evidence=node('section'),balances=node('div'),cashHistory=node('div'),pnl=node('section');payments.id='swap-settlement-payments';balances.id='swap-settlement-balances';cashHistory.id='swap-settlement-cash';
  const form=node('form');form.id='swap-settlement-payment-form';const target=node('select');target.id='swap-settlement-contribution';
  const amount=node('input');amount.id='swap-settlement-amount';amount.inputMode='decimal';amount.required=true;
  const effective=node('input');effective.id='swap-settlement-effective';effective.placeholder='YYYY-MM-DDTHH:mm:ssZ';effective.required=true;
@@ -60,7 +60,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  pnl.append(node('p','Closing-context v1 values prior and revised terms in the closing market. New-trade economics, amendments and continuing economics reconcile to total trading P&L; payments and netting do not create earnings. Book transfers and unsupported transformations are refused.'));
  root.append(heading,status,error,refresh,summary,node('h3','Contractual payment occurrences'),payments,evidence,node('h3','Determined balances and adjustments'),balances,
   form,netForm,netReview,node('h3','Cash history'),cashHistory,pnl);shelf.append(root);
- const edits=trackEdits(form,[],options.unsavedChanged),netEdits=trackEdits(netForm,[],options.unsavedChanged);
+ const edits=trackEdits(form,[],options.unsavedChanged),netEdits=trackEdits(netForm,[tableFilterControls],options.unsavedChanged);
  // A correction's due instant is entered in the calculation it was asked for, and goes with it: an action of the view that replaces
  // the calculation, another payment's, a refresh or a cash or net record that reads the view again, asks first, before the page is busy.
  const dueEdits=trackEdits(evidence,[],options.unsavedChanged);
@@ -83,14 +83,27 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  // asked from, with its due instant, when it was not sent or the backend refused it for good, and says why; any other failure of it has
  // read the view again (`sendCommand`). A net review, an opening or a reconciliation only reads: one that fails keeps the calculation.
  async function run(work:()=>Promise<void>,keep=false){await options.act(async()=>{error.textContent='';try{await work();}catch(e){if(!keep)invalidate();error.textContent=(e as Error).message;}});sync();}
- // Sends a settlement command through the page. A refusal for good wrote nothing; any other failure may follow a command that went
- // through, as when the Blotter could not be read after it, so the view is read again before the failure is said.
- async function sendCommand(command:RequestCommand){
+ // What each command sent from the view consumes of its forms, by operation: cleared once the command is known to have gone through,
+ // at once or when the page settles it later, as Check status or Retry does for one whose outcome was not known (`settle`). A form left
+ // holding nothing holds no edit.
+ const consumption=new Map<string,()=>void>();
+ const paymentEntered=()=>[target,amount,effective,reference,reversal].some(field=>field.value);
+ const netEntered=()=>[netAmount,netEffective,netReference].some(field=>field.value)||netRows.some(r=>r.selected.checked||r.amount.value);
+ function settle(operationId:string|undefined){
+  if(operationId===undefined)return;const consumed=consumption.get(operationId);if(!consumed)return;
+  consumption.delete(operationId);consumed();if(!paymentEntered())edits.clear();if(!netEntered())netEdits.clear();
+ }
+ // Sends a settlement command through the page. A refusal for good wrote nothing, and consumed nothing; any other failure may follow a
+ // command that went through, as when the Blotter could not be read after it, so the view is read again before the failure is said.
+ async function sendCommand(command:RequestCommand,consumes:()=>void=()=>{}){
+  consumption.set(command.operationId,consumes);
   try{await options.queue(command);}
-  catch(failure){if(!knownTradeRejection((failure as {code?:string}).code))await load().catch(()=>undefined);throw failure;}
+  catch(failure){const code=(failure as {code?:string}).code;if(knownTradeRejection(code))consumption.delete(command.operationId);else await load().catch(()=>undefined);throw failure;}
  }
  function contributionName(report:Detail,id:string){const b=report.balances.find(b=>b.determinationId===id);return b?`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} to ${b.deliveryTo} · ${b.ordinal===1?'original':'adjustment '+String(b.ordinal-1)}`:id;}
  function allocationEvidence(report:Detail,allocations:Cash['allocations']){const details=node('details'),summary=node('summary',allocations.map(a=>`${contributionName(report,a.determinationId)}: ${a.amount}`).join('; ')),raw=node('pre');raw.className='swap-evidence';raw.textContent=JSON.stringify(allocations,null,2);details.append(summary,raw);return details;}
+ // Offers a select new choices, keeping the one chosen while it is still offered.
+ function offer(select:HTMLSelectElement,...choices:HTMLOptionElement[]){const chosen=select.value;select.replaceChildren(...choices);select.value=choices.some(o=>o.value===chosen)?chosen:'';}
  function table(host:HTMLElement,id:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[]){host.replaceChildren();renderRegularTable(host,id,JSON.stringify(detail?.context),headers,rows,numeric,options.busy);}
  async function load(){
   if(!tradeId)return;invalidate();const version=generation,scope=key();const result=await options.api<Detail>('swaps/settlement/inspect',{context:context(),tradeId,revision:null,duePolicy,recognitionPolicy});
@@ -99,21 +112,33 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   summary.replaceChildren();
   table(summary,'swap-settlement-summary',['Measure','Amount'],lifecycleMeasures.map(([name,field])=>[name,String(result.valuation[field])]),[1]);
   summary.append(node('p','Amounts retain the contractual currency. Determined PV is included in remaining value; due cash is part of outstanding. Corrections and rounding are overlapping detail. Payments do not recognize profit again.'));
-  table(payments,'swap-settlement-payments',['Side','Delivery start','Delivery end · exclusive','Delivery completion','Payment instant','State',`Signed cash · ${result.currencyLabel}`,`Remaining PV · ${result.currencyLabel}`,'Realized','Action'],
+  // The panel has no room for a column per fact (D219): what identifies a payment or a contribution is read together, with a payment's
+  // action, beside the figures.
+  table(payments,'swap-settlement-payments',['Payment',`Signed cash · ${result.currencyLabel}`,`Remaining PV · ${result.currencyLabel}`],
    result.valuation.payments.map(p=>{const calculate=node('button',p.state==='Undetermined'?'Calculate final payment':'Review correction');calculate.type='button';calculate.dataset.membership=String(p.membershipOrdinal);calculate.dataset.payment=String(p.ordinal);calculate.dataset.eligible=String(p.final&&result.canAmend);calculate.disabled=!p.final||!result.canAmend;
-    calculate.onclick=()=>replacing(()=>preview(p));return[String(p.membershipOrdinal+1),p.deliveryFrom,p.deliveryTo,displayInstant(p.completionAt,options.zone()),displayInstant(p.paymentAt,options.zone()),p.state,p.contractualAmount,p.remainingValue,p.realized?'Yes':'No',calculate];}),[0,6,7]);
-  table(balances,'swap-settlement-balances',['Side','Delivery start','Contribution','Due instant','Determined','Applied','Outstanding'],result.balances.map(b=>[String(b.membershipOrdinal+1),b.deliveryFrom,b.ordinal===1?'Original':'Adjustment',displayInstant(b.dueAt,options.zone()),b.amount,b.applied,b.outstanding]),[0,4,5,6]);
-  netRows=[];
-  table(netSelection,'swap-net-candidates',['Select','Side / period / contribution','Due instant','Gross outstanding','Explicit signed allocation'],result.balances.filter(b=>b.outstanding!=='0').map(b=>{
+    calculate.onclick=()=>replacing(()=>preview(p));
+    const occurrence=node('div');occurrence.className='swap-settlement-stack';
+    occurrence.append(node('strong',`Side ${p.membershipOrdinal+1} · ${p.deliveryFrom} to ${p.deliveryTo}, end exclusive`),node('span',`${p.state} · ${p.realized?'P&L realized':'P&L not realized'}`),
+     node('span',`Delivery completes ${displayInstant(p.completionAt,options.zone())} · payment ${displayInstant(p.paymentAt,options.zone())}`),calculate);
+    return[occurrence,p.contractualAmount,p.remainingValue];}),[1,2]);
+  table(balances,'swap-settlement-balances',['Contribution','Determined','Outstanding'],result.balances.map(b=>{const contribution=node('div');contribution.className='swap-settlement-stack';
+   contribution.append(node('strong',`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal===1?'original':'adjustment'}`),node('span',`Due ${displayInstant(b.dueAt,options.zone())} · applied ${b.applied}`));return[contribution,b.amount,b.outstanding];}),[1,2]);
+  // What is chosen or typed in the forms is kept when the view is read again: each candidate's selection and allocation, by its
+  // contribution, and a chosen contribution, cash movement or opening that the new read still offers.
+  const typed=new Map(netRows.map(r=>[r.id,{selected:r.selected.checked,amount:r.amount.value}]));netRows=[];
+  table(netSelection,'swap-net-candidates',['Select','Contribution','Gross outstanding','Explicit signed allocation'],result.balances.filter(b=>b.outstanding!=='0').map(b=>{
    const selected=node('input');selected.type='checkbox';selected.setAttribute('aria-label',`Select side ${b.membershipOrdinal+1} ${b.deliveryFrom} contribution ${b.ordinal}`);
    const allocation=node('input');allocation.type='text';allocation.inputMode='decimal';allocation.setAttribute('aria-label',`Allocation to side ${b.membershipOrdinal+1} ${b.deliveryFrom} contribution ${b.ordinal}`);
-   netRows.push({id:b.determinationId,selected,amount:allocation});return[selected,`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal}`,displayInstant(b.dueAt,options.zone()),b.outstanding,allocation];}),[3]);
-  target.replaceChildren(new Option('Choose a contribution…',''),...result.balances.filter(b=>b.outstanding!=='0').map(b=>new Option(`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal===1?'original':'adjustment'} · outstanding ${b.outstanding}`,b.determinationId)));
-  reversal.replaceChildren(new Option('Choose an original cash movement…',''),...result.cashMovements.filter(p=>p.canReverse).map(p=>new Option(`${p.reference} · ${p.amount} · ${displayInstant(p.effectiveAt,options.zone())}`,p.id)));
-  table(cashHistory,'swap-settlement-cash',['Effective instant','Record','Signed cash','Reference','Gross allocations'],result.cashMovements.map(p=>[displayInstant(p.effectiveAt,options.zone()),p.recordKind==='zero_net_discharge_v1'?'Noncash zero-net discharge':'Cash movement',p.amount,p.reference,allocationEvidence(result,p.allocations)]),[2]);
+   const kept=typed.get(b.determinationId);if(kept){selected.checked=kept.selected;allocation.value=kept.amount;}
+   const contribution=node('div');contribution.className='swap-settlement-stack';contribution.append(node('strong',`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal}`),node('span',`Due ${displayInstant(b.dueAt,options.zone())}`));
+   netRows.push({id:b.determinationId,selected,amount:allocation});return[selected,contribution,b.outstanding,allocation];}),[2]);
+  offer(target,new Option('Choose a contribution…',''),...result.balances.filter(b=>b.outstanding!=='0').map(b=>new Option(`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal===1?'original':'adjustment'} · outstanding ${b.outstanding}`,b.determinationId)));
+  offer(reversal,new Option('Choose an original cash movement…',''),...result.cashMovements.filter(p=>p.canReverse).map(p=>new Option(`${p.reference} · ${p.amount} · ${displayInstant(p.effectiveAt,options.zone())}`,p.id)));
+  table(cashHistory,'swap-settlement-cash',['Cash movement','Signed cash'],result.cashMovements.map(p=>{const movement=node('div');movement.className='swap-settlement-stack';
+   movement.append(node('strong',p.reference),node('span',`${displayInstant(p.effectiveAt,options.zone())} · ${p.recordKind==='zero_net_discharge_v1'?'Noncash zero-net discharge':'Cash movement'}`),allocationEvidence(result,p.allocations));return[movement,p.amount];}),[1]);
   const workspace=await options.api<{frames:{id:string;at:string}[]}>('workspace');
   if(version!==generation||scope!==key())return;
-  const selectedOpening=openingSnapshot.value;openingSnapshot.replaceChildren(new Option('Choose…',''),...workspace.frames.map(f=>new Option(displayInstant(f.at,options.zone()),f.id)));openingSnapshot.value=selectedOpening;
+  offer(openingSnapshot,new Option('Choose…',''),...workspace.frames.map(f=>new Option(displayInstant(f.at,options.zone()),f.id)));
   openingLabel.textContent=opening&&opening.tradeId===tradeId?`Opening: ${displayInstant(opening.asOf,options.zone())} · retained knowledge context.`:'Capture a view, then select the closing financial context and refresh.';
   sync();
  }
@@ -143,7 +168,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   if(!reversing&&(!target.value||!amount.value))throw Error('Choose a contribution and enter the signed cash amount.');
   await sendCommand({operationId:crypto.randomUUID(),path:'swaps/settlement/payment',label:`Settlement ${reversing?'cash reversal':'cash'} of ${report.state.tradeReference}`,body:{context:context(),tradeId:report.state.tradeId,expectedRevision:report.state.revision,
    expectedVersion:report.settlement.version,determinationId:movement?.determinationId??target.value,amount:movement?.reversalAmount??amount.value,currency:report.currency,
-   effectiveAt:effective.value,reference:reference.value,reversesId:movement?.id??null}});amount.value='';reference.value='';effective.value='';edits.clear();
+   effectiveAt:effective.value,reference:reference.value,reversesId:movement?.id??null}},()=>{effective.value='';reference.value='';if(movement)reversal.value='';else{target.value='';amount.value='';}});
  }
  async function previewNet(reversing?:Cash){
   const report=current(),version=generation,scope=key();netReview.replaceChildren();
@@ -157,13 +182,16 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   const record=node('button',reversing?'Record reviewed reversal':'Record reviewed net settlement');record.type='button';record.id='swap-net-record';
   // What is recorded is the review the button is in: one removed while the person was asked first, as an edit removes it, is not.
   record.onclick=()=>replacing(async()=>{current();if(!record.isConnected||version!==generation||scope!==key()||!report.canAmend||options.pending())throw Error('The allocation review changed; preview again.');
-   await sendCommand({operationId:crypto.randomUUID(),path:'swaps/settlement/net',label:`Net settlement ${reversing?'reversal ':''}of ${report.state.tradeReference}`,body:{preview:request,previewHash:value.previewHash,effectiveAt:at,reference:ref}});
-   netForm.reset();netEdits.clear();if(reversing){amount.value='';effective.value='';reference.value='';edits.clear();}});netReview.append(record);const lineage=node('details'),caption=node('summary','Exact allocation lineage and policy'),raw=node('pre');raw.className='swap-evidence';raw.textContent=JSON.stringify(value,null,2);lineage.append(caption,raw);netReview.append(lineage);
+   // A net settlement consumes the net form's header and the contributions it allocates; a reversal, the instant and reference of the
+   // payment form and the movement chosen there.
+   const allocated=new Set(request.allocations.map(a=>a.determinationId));
+   await sendCommand({operationId:crypto.randomUUID(),path:'swaps/settlement/net',label:`Net settlement ${reversing?'reversal ':''}of ${report.state.tradeReference}`,body:{preview:request,previewHash:value.previewHash,effectiveAt:at,reference:ref}},
+    reversing?()=>{effective.value='';reference.value='';reversal.value='';}:()=>{for(const field of [netAmount,netEffective,netReference])field.value='';for(const r of netRows)if(allocated.has(r.id)){r.selected.checked=false;r.amount.value='';}});});netReview.append(record);const lineage=node('details'),caption=node('summary','Exact allocation lineage and policy'),raw=node('pre');raw.className='swap-evidence';raw.textContent=JSON.stringify(value,null,2);lineage.append(caption,raw);netReview.append(lineage);
  }
  netForm.onsubmit=e=>{e.preventDefault();void run(()=>previewNet(),true);};
  // A prepared allocation review is of the entries it was asked with: an edit to the net form, or to the payment form whose instant and
- // reference a reversal is recorded with, removes it.
- for(const event of ['input','change'])for(const entries of [form,netForm])entries.addEventListener(event,()=>netReview.replaceChildren());
+ // reference a reversal is recorded with, removes it; a filter of the candidates is no entry.
+ for(const event of ['input','change'])for(const entries of [form,netForm])entries.addEventListener(event,e=>{if(!(e.target as Element).closest(tableFilterControls))netReview.replaceChildren();});
  // A net settlement is reversed by reviewing its exact allocations first, which reads nothing again.
  const netReversal=()=>!!detail?.cashMovements.some(p=>p.id===reversal.value&&!p.determinationId);
  form.onsubmit=e=>{e.preventDefault();replacing(()=>record(false));};reverse.onclick=()=>netReversal()?void run(()=>record(true),true):replacing(()=>record(true));reversal.onchange=sync;
@@ -178,12 +206,14 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   const labels:Record<string,string>={newTradeEconomics:'New-trade economics at closing',contractualAmendment:'Contractual amendment at closing',continuingEconomics:'Continuing economics under prior terms',economicPnl:'Economic P&L',remainingValueMovement:'Change in remaining value',netCashMovement:'Change in cumulative contractual cash',periodCashReceived:'Contractual cash received during the period',priorCashKnowledgeAdjustment:'Prior cash · change in knowledge',realizedTransfer:'Realized trading transfer',unrealizedMovement:'Change in unrealized trading P&L',contractualCashMovement:'Change in contractual cash',discountEffectMovement:'Change in discount effect',correctionsMovement:'Correction movement · overlapping detail',roundingEffectMovement:'Rounding movement · overlapping detail'};
   table(bridge,'swap-settlement-bridge',['Bridge measure',`Amount · ${report.currencyLabel}`],Object.entries(value.report.trades[0].bridge).map(([key,amount])=>[labels[key]??key,amount]),[1]);bridge.append(node('p',value.report.overlaps));
   const transitions=node('div');bridge.append(node('h3','Period transitions'),transitions);
-  table(transitions,'swap-settlement-transitions',['Side','Delivery start','Delivery end · exclusive','Opening state','Closing state','Forecast became final','Opening PV','Closing PV'],value.report.trades[0].transitions.map(p=>[String(p.membershipOrdinal+1),p.deliveryFrom,p.deliveryTo,p.openingState,p.closingState,p.forecastToFinal?'Yes':'No',p.openingPv,p.closingPv]),[0,6,7]);},true);
+  table(transitions,'swap-settlement-transitions',['Period','Opening PV','Closing PV'],value.report.trades[0].transitions.map(p=>{const period=node('div');period.className='swap-settlement-stack';
+   period.append(node('strong',`Side ${p.membershipOrdinal+1} · ${p.deliveryFrom} to ${p.deliveryTo}, end exclusive`),node('span',`Opening ${p.openingState} · closing ${p.closingState}${p.forecastToFinal?' · forecast became final':''}`));return[period,p.openingPv,p.closingPv];}),[1,2]);},true);
  refresh.onclick=()=>replacing(load);
- return {async open(id:string){if(tradeId!==id){form.reset();edits.clear();netForm.reset();netEdits.clear();netRows=[];if(opening?.tradeId!==id)opening=undefined;}tradeId=id;error.textContent='';detail=undefined;await load();if(detail&&tradeId===id&&!mounted()){options.host().append(root);root.hidden=false;}},
-  reset(){invalidate();detail=undefined;tradeId=undefined;form.reset();edits.clear();netForm.reset();netEdits.clear();netRows=[];shelf.append(root);root.hidden=true;},sync,
+ return {async open(id:string){if(tradeId!==id){form.reset();edits.clear();netForm.reset();netEdits.clear();netRows=[];consumption.clear();contractPolicy.value='';openingSnapshot.value='';if(opening?.tradeId!==id)opening=undefined;}tradeId=id;error.textContent='';detail=undefined;await load();if(detail&&tradeId===id&&!mounted()){options.host().append(root);root.hidden=false;}},
+  reset(){invalidate();detail=undefined;tradeId=undefined;form.reset();edits.clear();netForm.reset();netEdits.clear();netRows=[];consumption.clear();shelf.append(root);root.hidden=true;},sync,
   refresh(){invalidate();if(mounted()){detail=undefined;status.textContent='Financial context changed. Refresh settlement before continuing.';}},
-  async liveRefresh(){if(mounted())await load();},isOpen:mounted,
+  /** Reads the view again when it is open; after the command `settled` went through, what it consumed is cleared first. */
+  async liveRefresh(settled?:string){if(!mounted())return;settle(settled);await load();},isOpen:mounted,
   unsaved:()=>mounted()&&(edits.edited()||netEdits.edited()||dueEdits.edited()),
   revision:()=>mounted()?detail?.state.revision:undefined};
 }

@@ -29,6 +29,10 @@ test('a refusal for good releases a retained request on a first send, and on a r
     }
     // A refusal of the caller rather than of the request says nothing of a retried original.
     for(const code of ['access_denied','request_token','historical_read_only'])assert.equal(releasesRetained(path,code,true),false,`${path} ${code} on a retry`);
+    // Nor does an operation identity the backend holds for another actor or payload, which may be the original's own outcome.
+    for(const code of ['trade_operation_conflict','settlement_operation_conflict']){
+      assert.equal(releasesRetained(path,code,true),false,`${path} ${code} on a retry`);assert.equal(releasesRetained(path,code,false),true,`${path} ${code}`);
+    }
   }
   // A futures booking or amendment is admitted before its earlier outcome is looked up, so a refused retry says nothing of the original.
   for(const path of ['futures/book','futures/amend'])for(const code of ['futures_execution_policy','futures_conflict','access_denied']){

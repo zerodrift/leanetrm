@@ -6,9 +6,9 @@ export function knownTradeRejection(code:string|undefined):boolean{
   return !!code&&((code.startsWith('swap_')||code.startsWith('scheduled_')||code.startsWith('settlement_'))&&!code.endsWith('outcome_unknown')||knownRejections.has(code));
 }
 
-// Refusals of the caller rather than of the request: its access, its request token, or a historical view it reads. They say nothing
-// of a retried original.
-const callerRefusals=new Set(['access_denied','request_token','historical_read_only']);
+// Refusals that say nothing of a retried original: of the caller rather than of the request (its access, its request token, or a
+// historical view it reads), and of an operation identity the backend holds for another actor or payload, which may be the original's.
+const unprovenOnRetry=new Set(['access_denied','request_token','historical_read_only','trade_operation_conflict','settlement_operation_conflict']);
 // The requests whose backend answers a retry with the original's outcome before it refuses one: swap bookings, amendments and
 // settlement commands. A futures booking or amendment is admitted (eligibility, the trading interval) before its earlier outcome is
 // looked up, so a refused retry of one says nothing of the original.
@@ -16,10 +16,10 @@ const replaysFirst=(path:string)=>path.startsWith('swaps/');
 
 /**
  * Whether a refusal releases the retained request it answers: a refusal for good means nothing was written, on a first send, and on a
- * retry where the backend replays the original's outcome before it refuses, unless the refusal is of the caller.
+ * retry where the backend replays the original's outcome before it refuses, unless the refusal says nothing of the original.
  */
 export function releasesRetained(path:string,code:string|undefined,retrying:boolean):boolean{
-  return knownTradeRejection(code)&&(!retrying||replaysFirst(path)&&!callerRefusals.has(code!));
+  return knownTradeRejection(code)&&(!retrying||replaysFirst(path)&&!unprovenOnRetry.has(code!));
 }
 
 /** What the page says of a request whose outcome it does not know: which request it is, and what can be done about it. */

@@ -732,6 +732,10 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .side-panel .table-filters{padding:0;margin:0 0 8px}
 .side-panel .regular-table-scroll{max-height:none}
 .side-panel table{font-size:12px}.side-panel th{font-size:10.5px;padding:8px 10px}.side-panel td{padding:8px 10px;white-space:nowrap}
+/* In the panel the settlement view's tables wrap their labels and keep each figure on one line, so that every figure, and each payment's
+   action, is read without scrolling sideways (D219). */
+.side-panel .swap-settlement-editing th,.side-panel .swap-settlement-editing td:not(.numeric){white-space:normal}
+.swap-settlement-stack{display:grid;gap:4px;justify-items:start}.swap-settlement-stack button{white-space:normal;text-align:left}
 /* The form of an amendment, or of a new swap, takes the tab panel in place of the tab's view, and its fields the panel's one column. */
 .side-panel-tabs:empty{display:none}
 .side-panel-form .schedule-fields,.side-panel-form .trade-annotation-fields,.side-panel-form .schedule-date-fields{grid-template-columns:minmax(0,1fr);gap:12px}

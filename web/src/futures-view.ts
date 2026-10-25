@@ -506,18 +506,18 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // What was sent is no longer an edit: the read that follows closes the form without asking.
     done(command);
     pending.clear();uncertain=false;store();
-    if(command.path.startsWith('swaps/settlement/')){await settled();return;}
+    if(command.path.startsWith('swaps/settlement/')){await settled(command);return;}
     await load();
     await follow(amended,receipt);await followBooked(command,receipt);
   }
   // A settlement command that went through changes what its swap is valued at: risk results run before it no longer hold, and are
   // cleared, with a note when there were any (D219). The Blotter is read again as a live correction reads it, so that the panel, and
-  // the settlement view the command was sent from, stay, and that view reads its state again.
-  async function settled(){
+  // the settlement view the command was sent from, stay, and that view clears what the command consumed and reads its state again.
+  async function settled(command:RequestCommand){
     const shown=risk.shown();risk.reset();
     if(shown)options.notice('Risk results cleared · a settlement record changed the values they were run on');
     await load('directory',true);
-    await swapEditor.reloadSettlement();
+    await swapEditor.reloadSettlement(command.operationId);
   }
   // The position the panel shows of the trade an amendment was made to, if it shows it.
   function amendedPosition(command:RequestCommand){const h=deskPanel.shown();return command.path.endsWith('/amend')&&h?.tradeId===command.body.tradeId?h:undefined;}
@@ -550,7 +550,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(!result.tradeId)throw Error('No committed outcome is visible yet. Retry the original request with the same identity.');
       const command=pending.command,amended=amendedPosition(command);
       pending.clear();uncertain=false;store();
-      if(command.path.startsWith('swaps/settlement/')){await settled();return;}
+      if(command.path.startsWith('swaps/settlement/')){await settled(command);return;}
       await load();
       await follow(amended,result);await followBooked(command,result);
     }catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}
