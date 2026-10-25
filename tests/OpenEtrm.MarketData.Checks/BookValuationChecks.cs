@@ -135,6 +135,7 @@ internal static class BookValuationChecks
     [EconomicDefinition("synthetic_probe_unit_v1")]
     internal sealed record Probe:Instrument
     {
+        public override bool SupportsQuantityScaling=>true;
         [IdentityField] public string ModelVersion=>"synthetic_probe_unit_v1";
         public override ReferenceKey Currency{get;}
         public override Quantity UnitQuantity{get;}

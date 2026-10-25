@@ -4,6 +4,12 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D218 implements the common managed Trade/instrument-binding model and typed
+instrument PV entry point. Existing futures, swap and PPA portfolio adapters use
+the shared projection. The bounded managed forward contract reuses existing sides;
+new persisted forward booking and futures settlement PV remain separate work.
+See [unit instruments and trade bindings](instrument-contracts.md).
+
 The interval-data foundation (D212) shares exact UTC grids and masks between TOUs,
 schedules and compact value columns. Shaping and PPA quantity preparation retain
 exact arithmetic, revision lineage and explicit missing-data behavior. Hourly

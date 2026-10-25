@@ -55,15 +55,16 @@ internal static class RiskBenchmark
             f.R("location"),f.R("uniform"),contract.DeliveryFrom,contract.DeliveryTo,contract.Expiry,quote.Quantity,ExactDecimal.Parse("40"),LotBasis.FixedTotal,
             Fixture.Utc("2040-01-01T00:00:00Z"),"cash");
         var binding=new FuturesMarketBinding(Guid.NewGuid(),new(f.C("future"),f.K(1)),contract,series,quote,"cash",FuturesMarketBinding.Implementation);
-        var trades=Enumerable.Range(0,50000).Select(n=>new FuturesTrade(BasisRiskFixture.Id(1000000+n),BasisRiskFixture.Id(10+n%4),
-            [new(BasisRiskFixture.Id(2000000+n),binding,ExactDecimal.Parse(n%3==0?"-2":"3"),new UnitPrice(ExactDecimal.Parse("2.5"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)])).ToImmutableArray();
+        var trades=Enumerable.Range(0,50000).Select(n=>new Trade(BasisRiskFixture.Id(1000000+n),BasisRiskFixture.Id(10+n%4),
+            [FuturesExecution.Bind(BasisRiskFixture.Id(2000000+n),binding,ExactDecimal.Parse(n%3==0?"-2":"3"),new UnitPrice(ExactDecimal.Parse("2.5"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)])).ToImmutableArray();
         var bump=new QuoteBump(new(f.S(1),InputUse.Variable),quote.Key,PriceUnit.FromQuote(quote),ExactDecimal.Parse("0.01"),QuoteBump.Convention);
         var model=f.Model();
         RiskRun Run()=>FuturesRisk.Calculate(trades,snapshot,model,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy,detail:RiskDetail.Books);
         var warm=Run();
         foreach(var total in warm.Factors[0].Totals)
         {
-            var quantity=trades.Where(t=>t.BookId==total.BookId).Select(t=>t.Instruments[0].Lots*ExactDecimal.Parse("40")).Aggregate((a,b)=>a+b);
+            var quantity=Enumerable.Range(0,50000).Where(n=>BasisRiskFixture.Id(10+n%4)==total.BookId)
+                .Select(n=>ExactDecimal.Parse(n%3==0?"-2":"3")*ExactDecimal.Parse("40")).Aggregate((a,b)=>a+b);
             if(total.Delta.Value!=quantity||total.Base.Amount!=quantity*ExactDecimal.Parse("0.5")||total.Gamma.Value!=default)
                 throw new Exception("Futures benchmark independent lot/mark oracle failed.");
         }

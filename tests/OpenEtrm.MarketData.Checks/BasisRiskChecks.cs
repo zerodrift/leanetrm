@@ -166,6 +166,7 @@ internal static class BasisRiskChecks
     }
     private sealed record HiddenDependency(Instrument Inner):Instrument(Guid.NewGuid())
     {
+        public override bool SupportsQuantityScaling=>true;
         public override ReferenceKey Currency=>Inner.Currency;
         public override Quantity UnitQuantity=>Inner.UnitQuantity;
         public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_missing_input_v1",[],UnitQuantity.Specification,Currency);

@@ -136,15 +136,15 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         foreach(var marketHoldings in swaps.GroupBy(h=>h.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
             var instruments=marketHoldings.DistinctBy(h=>h.Instrument.Id).ToImmutableArray();
-            var positions=marketHoldings.Select(h=>new RiskPosition(h.Row.Id("trade_id"),h.Row.Id("binding_id"),h.Row.Id("book_id"),h.Instrument.Id,
-                h.Quantity,new(new Money(default,h.Instrument.Currency),h.Quantity.Specification),new(default,h.Instrument.Currency))).ToImmutableArray();
-            var portfolio=new ValuationPortfolio(instruments.Select(h=>(Instrument)h.Instrument).ToImmutableArray(),positions,
+            var trades=marketHoldings.GroupBy(h=>h.Row.Id("trade_id")).Select(g=>new Trade(g.Key,g.First().Row.Id("book_id"),
+                [..g.Select(h=>new TradeInstrument(h.Row.Id("binding_id"),h.Instrument,h.Quantity))])).ToImmutableArray();
+            var portfolio=ValuationPortfolio.FromTrades(trades,
                 new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
                 {InstrumentDiscounting=marketHoldings.Where(h=>h.Settlement is null).DistinctBy(h=>h.Instrument.Id).ToImmutableDictionary(h=>h.Instrument.Id,h=>h.Discounting),
                  Settlements=marketHoldings.Where(h=>h.Settlement is not null).ToImmutableDictionary(h=>new MeasureBinding(h.Row.Id("trade_id"),h.Row.Id("binding_id")),h=>new SwapBindingValuation(h.Settlement!,h.Discounting))});
             var source=instruments[0];materialized.Add((source.Data,source.Frame,source.Snapshot,portfolio,SwapMeasure));
             var rows=marketHoldings.ToDictionary(h=>h.Row.Id("trade_id"),h=>h.Row);
-            foreach(var position in positions)
+            foreach(var position in portfolio.Positions)
                 evidence.Add(Evidence(rows[position.TradeId],position,SwapMeasure,"publication_order","financial_swap"));
         }
         if(materialized.Count==0)throw new MarketDataException("risk_position","The selected books have no visible supported holdings.");

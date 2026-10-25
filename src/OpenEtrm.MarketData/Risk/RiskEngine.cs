@@ -23,10 +23,11 @@ public sealed class PricingInputs
     public UnitPrice Price(CurveRequest request)=>permitted.Contains(request)?market.WorkingPrice(request,cancellation):
         throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
 }
-public sealed record UnitMoney(ExactMoney Money,ReferenceKey Quantity)
+public record UnitMoney(ExactMoney Money,ReferenceKey Quantity)
 {
     public UnitMoney(Money money,ReferenceKey quantity):this(ExactMoney.FromMoney(money),quantity){}
 }
+public sealed record UnitValuation(UnitValuationContext Context,ExactMoney Money,ReferenceKey Quantity):UnitMoney(Money,Quantity);
 public sealed record RiskPosition(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,Quantity Quantity,UnitMoney UnitBasis,Money FixedBasis)
 {
     public DeliveryCoverage? Coverage{get;init;}
@@ -170,12 +171,13 @@ public static partial class RiskEngine
         for(var n=0;n<prepared.Portfolios.Length;n++)
         {
             var portfolio=prepared.Portfolios[n];
-            if(portfolio.Setup.Interval is not {} inputs)continue;
             for(var index=0;index<portfolio.Scopes.Length;index++)
             {
                 var scope=portfolio.Scopes[index];
-                if(scope.Instrument is not PpaInstrument instrument||scope.Coverage is not {} coverage)continue;
-                var count=instrument.Memberships.Sum(m=>(long)inputs.Rows(instrument,m.Side,coverage).Length);
+                var context=new UnitValuationContext(prepared.Market.Snapshot,portfolio.Setup,prepared.Market.Pricing,prepared.Contracts[n][index],coverage:scope.Coverage);
+                var count=scope.Instrument.WorkRows(context);
+                if(count<0)throw Error("risk_contract","An instrument's declared work must be nonnegative.");
+                if(count==0)continue;
                 var lineage=prepared.Contracts[n][index].Dependencies.SelectMany(d=>values[d].Lineage).ToHashSet();
                 var factors=prepared.Factors.Count(f=>selected.Contains(f.Input)&&lineage.Contains(f.Observation));
                 rows=checked(rows+count);work=checked(work+count*(1L+2L*factors));

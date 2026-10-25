@@ -65,7 +65,7 @@ public sealed partial class FuturesStore
         return new{lifecycleEligible,state=State(state),history=rows.OrderBy(Revision).Select(State),catalog=await Catalog(connection,data,frame,ct),amendmentConvention=AmendmentConvention};
     }
 
-    private sealed record AmendmentPlan(FuturesTrade Before,FuturesTrade After,DateTimeOffset EffectiveAt,string Reason);
+    private sealed record AmendmentPlan(Trade Before,Trade After,DateTimeOffset EffectiveAt,string Reason);
     private async Task<AmendmentPlan> PlanAmendment(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesAmendRequest body,CancellationToken ct)
     {
         TradeAnnotations.RequireServerFacts(body.ExecutedAt,body.TraderId,body.TraderRevision,body.TradeDate);
@@ -81,21 +81,22 @@ public sealed partial class FuturesStore
         if(Revision(current)!=body.ExpectedRevision)throw Error("futures_revision_conflict","Reload the latest trade revision before amending.");
         var resolved=await ReadTrades(connection,data,books,[],[],ct);
         var before=resolved.Trades.Single(t=>t.Id==body.TradeId);
-        if(before.Instruments.Length!=1||before.Instruments[0].Settlement!=FuturesSettlementState.Unprocessed||effective<current.Instant("revision_effective_at"))
+        if(before.Instruments.Length!=1||FuturesExecution.Require(before.Instruments[0]).Settlement!=FuturesSettlementState.Unprocessed||effective<current.Instant("revision_effective_at"))
             throw Error("futures_amendment","Only the latest unprocessed futures binding can be amended from its current effective interval.");
         var side=Binding(data,Text(body.Curve),body.ContractId,body.ContractId,body.Convention!);
-        var prior=before.Instruments[0];
-        body=body with{ExecutedAt=Instant(prior.ExecutedAt),TraderId=current.OptionalId("trader_id"),TraderRevision=current.OptionalText("trader_revision") is {} traderVersion?int.Parse(traderVersion,System.Globalization.CultureInfo.InvariantCulture):null,TradeDate=current.OptionalText("trade_date")??current.Text("booking_date")};
-        if(frame.At<prior.MarketBinding.EligibleFrom||frame.At>=prior.MarketBinding.Contract.Expiry||side.Quote.Currency!=prior.MarketBinding.Quote.Currency)
+        var prior=before.Instruments[0];var priorExecution=FuturesExecution.Require(prior);
+        body=body with{ExecutedAt=Instant(priorExecution.ExecutedAt),TraderId=current.OptionalId("trader_id"),TraderRevision=current.OptionalText("trader_revision") is {} traderVersion?int.Parse(traderVersion,System.Globalization.CultureInfo.InvariantCulture):null,TradeDate=current.OptionalText("trade_date")??current.Text("booking_date")};
+        if(frame.At<priorExecution.MarketBinding.EligibleFrom||frame.At>=priorExecution.MarketBinding.Contract.Expiry||side.Quote.Currency!=priorExecution.MarketBinding.Quote.Currency)
             throw Error("futures_amendment","Amendments require live unprocessed states in the same exact currency definition.");
-        var same=side.Market==prior.MarketBinding.Market;
-        var binding=same?prior.MarketBinding:side;
-        var position=new FuturesPosition(same?prior.Id:Guid.NewGuid(),binding,ExactDecimal.Parse(Text(body.Lots)),
+        var same=side.Market==priorExecution.MarketBinding.Market;
+        var binding=same?priorExecution.MarketBinding:side;
+        var position=FuturesExecution.Bind(same?prior.Id:Guid.NewGuid(),binding,ExactDecimal.Parse(Text(body.Lots)),
             new UnitPrice(ExactDecimal.Parse(Text(body.ExecutionPrice)),side.Quote),SchedulePreview.ParseAt(body.ExecutedAt),FuturesSettlementState.Unprocessed);
-        if(position.ExecutedAt>effective)throw Error("futures_execution","Execution must be no later than the amendment's effective instant.");
-        await TradeAnnotations.Validate(connection,manifest.CatalogId,body.TraderId,body.TraderRevision,body.Memo,position.ExecutedAt,ct);
-        var booking=await TradeParties.Resolve(connection,manifest.CatalogId,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision),position.ExecutedAt,ct);
-        if(body.BookId==before.BookId&&same&&position.Lots==prior.Lots&&position.ExecutionPrice==prior.ExecutionPrice&&position.ExecutedAt==prior.ExecutedAt&&TradeAnnotations.Same(current,body.TraderId,body.TraderRevision,body.Memo)&&TradeParties.Same(current,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision)))
+        var execution=FuturesExecution.Require(position);
+        if(execution.ExecutedAt>effective)throw Error("futures_execution","Execution must be no later than the amendment's effective instant.");
+        await TradeAnnotations.Validate(connection,manifest.CatalogId,body.TraderId,body.TraderRevision,body.Memo,execution.ExecutedAt,ct);
+        var booking=await TradeParties.Resolve(connection,manifest.CatalogId,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision),execution.ExecutedAt,ct);
+        if(body.BookId==before.BookId&&same&&execution.Lots(position.Quantity)==priorExecution.Lots(prior.Quantity)&&execution.ExecutionPrice==priorExecution.ExecutionPrice&&execution.ExecutedAt==priorExecution.ExecutedAt&&TradeAnnotations.Same(current,body.TraderId,body.TraderRevision,body.Memo)&&TradeParties.Same(current,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision)))
             throw Error("futures_no_change","Change at least one supported booking term before previewing an amendment.");
         return new(before,new(before.Id,body.BookId,[position],booking),effective,body.Reason.Trim());
     }
@@ -104,7 +105,7 @@ public sealed partial class FuturesStore
     {
         var plan=await PlanAmendment(connection,data,frame,body,ct);
         var snapshot=data.Snapshot(frame);
-        var market=data.Model.Build(snapshot,[..plan.Before.Instruments.Select(p=>p.MarketBinding.Market).Concat(plan.After.Instruments.Select(p=>p.MarketBinding.Market)).Distinct()]);
+        var market=data.Model.Build(snapshot,[..plan.Before.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market).Concat(plan.After.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market)).Distinct()]);
         var before=FuturesHoldings.Price([plan.Before],snapshot,market,manifest.FuturesConvention).Single();
         var after=FuturesHoldings.Price([plan.After],snapshot,market,manifest.FuturesConvention).Single();
         var change=after.ExecutionPnl.Subtract(before.ExecutionPnl);
