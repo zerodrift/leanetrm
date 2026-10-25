@@ -44,7 +44,7 @@ const riskNotes={
     retained:'A settlement record changed the values · the unconfirmed risk submission keeps the inputs it was captured at'},
 } as const;
 /**
- * What new inputs on screen, from a live correction (D188) or a settlement record, do to the risk report (D219). A run on screen is
+ * What new inputs on screen, from a live correction (D188) or a settlement record, do to the risk report (D220). A run on screen is
  * forgotten, as its results belong to the inputs that changed, with a note: one that says it was cleared, or, for an unconfirmed
  * submission the report shows again under the inputs it was captured at, one that says so. An open report is read again at the new
  * inputs, so that a run is always made at the inputs on screen, and a setup holding the person's edits has its choices carried over.

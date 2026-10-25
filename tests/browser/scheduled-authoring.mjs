@@ -2,7 +2,7 @@ import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {closeNewTrade,newTrade} from './new-trade.mjs';
-// Qualified scheduled swap authoring (D216) in the scheduled ticket, which the Blotter's side panel hosts (D219): each new ticket is begun
+// Qualified scheduled swap authoring (D216) in the scheduled ticket, which the Blotter's side panel hosts (D220): each new ticket is begun
 // with New trade, and a booked trade is amended from its row's panel.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});

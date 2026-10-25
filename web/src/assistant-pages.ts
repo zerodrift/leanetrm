@@ -29,7 +29,7 @@ const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'b
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
 // page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again. What the
 // Blotter's panel holds comes first, its risk report, a new trade or a position; then its trade rows under the Risk lens, whose
-// risk results the assistant does not read (D220), or the rows and totals it reads.
+// risk results the assistant does not read (D221), or the rows and totals it reads.
 export function pageReport(state:PageState):PageReport{
   switch(state.page){
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};

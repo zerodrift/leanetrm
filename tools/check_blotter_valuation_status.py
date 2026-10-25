@@ -1,4 +1,4 @@
-"""D218: a close that cannot value some positions reports each one and leaves it out of valuation totals and risk runs.
+"""D219: a close that cannot value some positions reports each one and leaves it out of valuation totals and risk runs.
 
 The fixture is the seeded standard example with the custom-curve closes through Dec 31, 2020. By then the
 seeded January future has expired, and the closes after Dec 18 pin neither the standard curves nor the
@@ -170,7 +170,7 @@ def run_checks(url, session=None):
           states.count({True, False}) == 3 and states.count({False}) == 1)
     check_totals('Dec 31, 2020', rows, {**report(dec31, BY_BOOK), 'totals': late['totals'], 'unvaluedPositions': late['unvaluedPositions']})
 
-    # Money totals (D221) add the positions the close values across quantity units, and say how many they leave out.
+    # Money totals (D222) add the positions the close values across quantity units, and say how many they leave out.
     check_money_totals(lambda view: report(dec31, view), check, rows, 'Dec 31, 2020')
     money = {g['instrumentType']: g for g in report(dec31, money_view('instrumentType'))['groups']}
     check('at this close the swap total adds the eight valued daily swaps and leaves out the eight monthly swaps, and the futures total is '
@@ -222,7 +222,7 @@ def run_checks(url, session=None):
 
 
 def run_risk_checks(session, run_worker):
-    """A risk run leaves out the positions its base close cannot value and lists them (D218).
+    """A risk run leaves out the positions its base close cannot value and lists them (D219).
 
     Each run shocks one exact contract. What it keeps must be the result of a run over exactly the positions
     the close values: their Blotter values at that close, the futures sensitivity, and the same numbers whichever
@@ -307,7 +307,7 @@ def run_risk_checks(session, run_worker):
 
 
 def run_scheduled_checks(session):
-    """A scheduled swap (D214) a close cannot value is reported, totalled and left out of risk runs like any other position (D218).
+    """A scheduled swap (D214) a close cannot value is reported, totalled and left out of risk runs like any other position (D219).
 
     It is booked at Dec 18, 2020 on the standard monthly curve with discounting, as the seeded monthly swaps are, so Dec 18
     values it and Dec 31 cannot, for the reason it cannot value them. Its two sides state a quantity for each month and so

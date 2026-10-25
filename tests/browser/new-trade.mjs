@@ -1,4 +1,4 @@
-// How the browser checks begin a new trade (D219): New trade opens the side panel on its Future | Swap switch with nothing chosen, and a
+// How the browser checks begin a new trade (D220): New trade opens the side panel on its Future | Swap switch with nothing chosen, and a
 // product is chosen there, which opens its form once what it needs has been read.
 import {idle} from './owned-browser.mjs';
 

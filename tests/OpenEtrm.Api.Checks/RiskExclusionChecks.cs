@@ -3,7 +3,7 @@ using System.Text.Json;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
-// D218: a risk run lists each held position it leaves out with the book it is held in, so that a book's risk totals can say what
+// D219: a risk run lists each held position it leaves out with the book it is held in, so that a book's risk totals can say what
 // they leave out without a join in the browser. A queued run reads its list back from the retained frame, and leaves out only
 // positions held in the books its list names.
 static class RiskExclusionChecks

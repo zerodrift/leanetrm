@@ -11,7 +11,7 @@ public sealed record WorkspaceRead(PreviewData Data,UnitCatalogData? Units,Immut
     ReferenceDisplayData? ReferenceDisplay=null,ReferenceDisplayData? UnitReferenceDisplay=null);
 public sealed record PriceRead(object Result,ImmutableArray<JsonElement> Observations,WorkspaceRead? Workspace=null);
 public sealed record HistorySample(DateTimeOffset At,string? Value,Guid SnapshotId,Guid[] ObservationIds,string? UnavailableReason);
-// A contract's delivery period and its exact price at the pinned frame, or the position-specific reason it has none (D218).
+// A contract's delivery period and its exact price at the pinned frame, or the position-specific reason it has none (D219).
 public sealed record CurveShapePoint(Guid ContractId,string DeliveryFrom,string DeliveryTo,string? Price,string? UnavailableReason);
 // A curve at the pinned frame: its price unit and a point for each contract its view selects, or, with neither, the code its own
 // Evaluate read raises when the pinned data cannot read it.
@@ -107,7 +107,7 @@ public sealed class MarketReads(PreviewDatabase database)
     }
 
     // The contracts the frame selects for a curve, each priced as Evaluate prices it: one build of the whole curve. Only when that
-    // build fails for a position-specific reason (D218) are the contracts that fail alone isolated against the same snapshot, and
+    // build fails for a position-specific reason (D219) are the contracts that fail alone isolated against the same snapshot, and
     // each says why it has no price. A curve whose view selects nothing has no points, as Evaluate states. A curve that cannot be
     // read, or whose contracts cannot be isolated, has no unit or points and states what its own Evaluate read raises: the failure
     // of its one build of every contract, whatever isolating them met. A catalog inconsistency in the price unit of a curve that

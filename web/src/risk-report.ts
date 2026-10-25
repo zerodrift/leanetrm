@@ -5,7 +5,7 @@ export type RiskValues=RiskAmounts&{display:RiskAmounts;currency:string;currency
 export type RiskTotal={bookId:string;book:string;measure:string;measureLabel:string;values:RiskValues};
 /** A shocked factor as a report states it: the catalog's target, by its id and label, in its own price unit. */
 export type RiskFactor={id:string;label:string;coordinate:string;kind:string;unit:string};
-/** A position a run leaves out because its base close cannot value it (D218), with the book it is held in. */
+/** A position a run leaves out because its base close cannot value it (D219), with the book it is held in. */
 export type ExcludedPosition={tradeId:string;bindingId:string;bookId:string;tradeReference:string;instrumentType:string;reason:ValuationReason};
 /** A holding's results under one factor: a position is named by its trade and binding. */
 export type RiskPosition={tradeId:string;bindingId:string;bookId:string;book:string;tradeReference:string;instrumentReference:string;instrumentType:string;

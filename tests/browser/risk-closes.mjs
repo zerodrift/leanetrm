@@ -1,4 +1,4 @@
-// A run's results are drawn only against the read of the close, context and books they were run at (D220). In a historical view every
+// A run's results are drawn only against the read of the close, context and books they were run at (D221). In a historical view every
 // close of one date shares the view's market context, so a run made at one of the date's closes, chosen from the job history at another,
 // is made elsewhere. A part the job history no longer lists is said to be missing from it, and what it might move is not known.
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){

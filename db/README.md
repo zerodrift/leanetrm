@@ -1347,7 +1347,7 @@ and web assets only after separately qualifying the schema update. No provider,
 key, account attestation, model enablement or token price is supplied.
 
 Migration `0112_risk_job_runs.sql` lets each queued part of a portfolio risk run state the run it is a
-part of, and every queued job the books and portfolios it was asked for (D220). A `BEFORE INSERT` trigger
+part of, and every queued job the books and portfolios it was asked for (D221). A `BEFORE INSERT` trigger
 on `risk.jobs`, `risk.guard_run()` (security definer, owned by `openetrm_security_owner`), checks a
 frame's `run` (`id`, `part`, `parts`, with 1 ≤ part ≤ parts ≤ 256) and, under a transaction advisory lock
 per actor and run, refuses with `risk_job_run` a part at another catalog, retained context or close (frame:

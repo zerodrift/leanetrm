@@ -881,7 +881,7 @@ The tool set is fixed; each tool is switched on per agent version.
   navigable view from a closed set, `curves`, `contract_definitions`, `schedules`,
   `power_tous`, `reference_data`, `parties`, `blotter` and `custom_curves`, which the
   assistant reads, and `blotter_risk`, `blotter_risk_lens` (the Blotter's trade rows under
-  the Risk lens, D220), `blotter_new_trade`, `blotter_new_future`,
+  the Risk lens, D221), `blotter_new_trade`, `blotter_new_future`,
   `blotter_new_swap` (a new trade being entered in the Blotter's panel, of its product,
   or of none while none is chosen), `delivery_prices`, `interval_series`,
   `interval_curves`, `jobs`, `users_access`, `settings_ai` and `ppa`, which it does not.
@@ -1392,11 +1392,11 @@ publication recheck and is hidden as text is (§7.3, §8).
 a curve or its observations by Curves & prices' curve and tab, power hours on Power TOUs
 once a frame is chosen and TOU products before, and Blotter rows without their grouping,
 totals with it, the trade open in the side panel at its revision, which is the one its form
-shows while it is open (D219: the panel is not modal, so the assistant is asked while it is
+shows while it is open (D220: the panel is not modal, so the assistant is asked while it is
 open; a target for a trade is refused in a pivot), a new trade being entered there by its
 product (`blotter_new_future`, `blotter_new_swap`, or `blotter_new_trade` before one is
 chosen), which it does not read, the panel's open Risk report as `blotter_risk`, and, with no position
-open in the panel, the trade rows under the Risk lens as `blotter_risk_lens` (D220), which it does not read;
+open in the panel, the trade rows under the Risk lens as `blotter_risk_lens` (D221), which it does not read;
 only a navigation event arriving live on the stream the tab's own ask opened moves the
 page, while the panel is open on an idle page without a dialog, keeping the page's
 knowledge and frame and leaving nothing unsaved, and any other target waits for Go, which

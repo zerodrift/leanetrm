@@ -56,7 +56,7 @@ export function renderScheduledReview(host:HTMLElement,value:Valuation,quantitie
 }
 
 /**
- * The scheduled swap ticket (D214), which the side panel hosts as it hosts the swap ticket (D219): a new scheduled swap, or the
+ * The scheduled swap ticket (D214), which the side panel hosts as it hosts the swap ticket (D220): a new scheduled swap, or the
  * amendment or read of a scheduled trade's revision. `host` is the panel's form part; the ticket is kept on the page's shelf until
  * it opens there, and goes back when it is reset. Another revision and the trade's settlement view are the page's to open, after
  * it has asked about what the ticket holds: `reopen` and `onSettlement`.
