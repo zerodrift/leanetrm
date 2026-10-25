@@ -212,6 +212,8 @@ internal static class CurveRiskAxes
         foreach(var market in prepared.Markets)
         {
             var index=Index(market,ct);var plan=market.Connected.Scenario.Plan;
+            // Each curve's whole-curve target on a coordinate, or none where it does not cover every point of the curve: resolved once.
+            var wholeCurves=new Dictionary<(CurveKey Curve,CurveShockCoordinate Coordinate),string?>();
             foreach(var key in market.Connected.DeclaredPoints)
             {
                 ct.ThrowIfCancellationRequested();
@@ -227,7 +229,10 @@ internal static class CurveRiskAxes
                 var target=index.PointTarget(point,coordinate);
                 if(target is ContractCurveTarget)contracts.Add(Resolve(market,coordinate,target,ct).Id);
                 else contractGaps.Add(Resolve(market,coordinate,target,ct).Label);
-                if(index.Curves[key.Curve].All(p=>Public(p,coordinate)))curves.Add(Resolve(market,coordinate,new ParallelCurveTarget(key.Curve),ct).Id);
+                if(!wholeCurves.TryGetValue((key.Curve,coordinate),out var whole))
+                    wholeCurves[(key.Curve,coordinate)]=whole=index.Curves[key.Curve].All(p=>Public(p,coordinate))?
+                        Resolve(market,coordinate,new ParallelCurveTarget(key.Curve),ct).Id:null;
+                if(whole is not null)curves.Add(whole);
                 else curveGaps.Add(Name(index,point));
             }
         }

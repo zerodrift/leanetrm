@@ -19,6 +19,16 @@ export function presetTargets(catalog:PresetCatalog,kind:Preset):ScenarioTarget[
   return targets;
 }
 
+/**
+ * What a preset does not shock, by the catalog's labels: the held prices no whole-contract target covers, or the held curves no
+ * whole-curve target covers. A catalog that does not say is refused, never read as saying none.
+ */
+export function presetGaps(catalog:{heldContractsWithoutTarget:string[];heldCurvesWithoutTarget:string[]},kind:Preset):string[]{
+  const gaps=kind==='held'?catalog.heldContractsWithoutTarget:catalog.heldCurvesWithoutTarget;
+  if(!Array.isArray(gaps)||gaps.some(gap=>typeof gap!=='string'))throw Error(inconsistent);
+  return gaps;
+}
+
 /** The price units the targets are quoted in, each once, in the order the targets first name them: one shock size is asked for each. */
 export function sizesByUnit(targets:ScenarioTarget[]):string[]{
   return [...new Set(targets.map(target=>target.unit))];
@@ -40,4 +50,15 @@ export function presetRequest(targets:ScenarioTarget[],sizes:Record<string,strin
     return [unit,size] as const;
   }));
   return targets.map(target=>scenarioShift(target,entered.get(target.unit)!,convention));
+}
+
+/**
+ * Works through a run's parts in order, each once the one before it has ended, and stops before the next once the run is no longer the
+ * run on screen (`stale`) or a part's work says to stop by returning false. Whether every part was worked.
+ */
+export async function runParts<T>(parts:readonly T[],stale:()=>boolean,work:(part:T,index:number)=>Promise<boolean>):Promise<boolean>{
+  for(const [index,part] of parts.entries()){
+    if(stale()||!await work(part,index))return false;
+  }
+  return true;
 }

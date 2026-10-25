@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {presetRequest,presetTargets,sizesByUnit,splitBumps} from '../dist/risk-presets.js';
+import {presetGaps,presetRequest,presetTargets,runParts,sizesByUnit,splitBumps} from '../dist/risk-presets.js';
 
 const gas='USD/MMBtu',power='USD/MWh';
 const target=(id,kind,unit)=>({id,label:`Synthetic ${id}`,coordinate:'market_quote',kind,unit,factor:{coordinate:'market_quote',target:{kind,curve:{code:id}}}});
@@ -61,4 +61,36 @@ test('a unit without a size is refused by name, and so is the first unit when no
  assert.throws(()=>presetRequest([contracts[0],contracts[8]],{[gas]:'0.10',[power]:'  '},'c'),{message:'Enter a shock size for USD/MWh.'});
  assert.throws(()=>presetRequest([contracts[8],contracts[0]],{},'c'),{message:'Enter a shock size for USD/MWh.'});
  assert.throws(()=>presetRequest([contracts[0],contracts[8]],{},'c'),{message:'Enter a shock size for USD/MMBtu.'});
+});
+
+test('what a preset does not shock is the catalog\'s own list, and a catalog without that list is inconsistent',()=>{
+ const named={...catalog,heldContractsWithoutTarget:['Synthetic output · 2021-01-01 to 2021-02-01'],heldCurvesWithoutTarget:['Synthetic output curve']};
+ assert.deepEqual(presetGaps(named,'held'),['Synthetic output · 2021-01-01 to 2021-02-01']);
+ assert.deepEqual(presetGaps(named,'parallel'),['Synthetic output curve']);
+ assert.deepEqual(presetGaps({...named,heldContractsWithoutTarget:[]},'held'),[],'an empty list says every held price has a target');
+ const message={message:'The risk catalog is inconsistent. Reload it.'};
+ const {heldContractsWithoutTarget,...noPrices}=named,{heldCurvesWithoutTarget,...noCurves}=named;
+ assert.throws(()=>presetGaps(noPrices,'held'),message);
+ assert.throws(()=>presetGaps(noCurves,'parallel'),message);
+ assert.throws(()=>presetGaps({...named,heldContractsWithoutTarget:null},'held'),message);
+ assert.throws(()=>presetGaps({...named,heldCurvesWithoutTarget:[7]},'parallel'),message);
+});
+
+test('a run\'s parts are worked one after another, in order, each once the one before it has ended',async()=>{
+ const events=[];
+ assert.equal(await runParts(['a','b','c'],()=>false,async(part,index)=>{events.push(`start ${part} ${index}`);await new Promise(resolve=>setTimeout(resolve,1));events.push(`end ${part}`);return true;}),true);
+ assert.deepEqual(events,['start a 0','end a','start b 1','end b','start c 2','end c']);
+ assert.equal(await runParts([],()=>false,async()=>{throw Error('there is no part to work');}),true);
+});
+
+test('a run stops before its next part once it is no longer the run on screen, or once a part says to stop',async()=>{
+ let stale=false;const started=[];
+ assert.equal(await runParts([1,2,3],()=>stale,async part=>{started.push(part);if(part===2)stale=true;return true;}),false);
+ assert.deepEqual(started,[1,2],'the part under way ends, and no other starts');
+ started.length=0;
+ assert.equal(await runParts([1,2,3],()=>false,async part=>{started.push(part);return part!==2;}),false);
+ assert.deepEqual(started,[1,2]);
+ started.length=0;
+ assert.equal(await runParts([1],()=>true,async part=>{started.push(part);return true;}),false);
+ assert.deepEqual(started,[],'a run already left starts nothing');
 });

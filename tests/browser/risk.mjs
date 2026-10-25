@@ -5,7 +5,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1250,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);
   await setupTradingReplies(evaluate);
-  await evaluate(`(()=>{const send=window.fetch;window.__riskReads=[];window.__riskRequests=[];window.__riskJobs=[];window.fetch=async(input,init)=>{const path=String(input);if(path==='/api/portfolio/risk'){window.__riskRequests.push(JSON.parse(init.body));if(window.__denyRisk){window.__denyRisk=false;return new Response(JSON.stringify({code:'access_denied'}),{status:403,headers:{'Content-Type':'application/json'}});}if(window.__failRiskPart!==undefined&&window.__failRiskPart--===0){window.__failRiskPart=undefined;return new Response(JSON.stringify({code:'missing_observation'}),{status:422,headers:{'Content-Type':'application/json'}});}}if(path==='/api/portfolio/risk/jobs'&&init?.method==='POST'){window.__riskJobs.push(JSON.parse(init.body));if(window.__rejectRiskSubmission){const code=window.__rejectRiskSubmission;window.__rejectRiskSubmission=false;return new Response(JSON.stringify({code}),{status:code==='access_denied'?403:400,headers:{'Content-Type':'application/json'}});}}const response=await send(input,init);try{window.__riskReads.push({path,data:await response.clone().json()});}catch{}if(path==='/api/portfolio/risk/jobs'&&init?.method==='POST'&&window.__loseRiskSubmission){const outcome=window.__loseRiskSubmission;window.__loseRiskSubmission=false;if(outcome==='server')return new Response(JSON.stringify({code:'risk_job_outcome_unknown'}),{status:503,headers:{'Content-Type':'application/json'}});throw new TypeError('Synthetic lost submission response');}return response;};})();`);
+  await evaluate(`(()=>{const send=window.fetch;window.__riskReads=[];window.__riskRequests=[];window.__riskJobs=[];window.fetch=async(input,init)=>{const path=String(input);if(path==='/api/portfolio/risk'){window.__riskRequests.push(JSON.parse(init.body));if(window.__denyRisk){window.__denyRisk=false;return new Response(JSON.stringify({code:'access_denied'}),{status:403,headers:{'Content-Type':'application/json'}});}if(window.__failRiskPart!==undefined&&window.__failRiskPart--===0){window.__failRiskPart=undefined;return new Response(JSON.stringify({code:'missing_observation'}),{status:422,headers:{'Content-Type':'application/json'}});}if(window.__refuseRisk)return new Response(JSON.stringify({code:'missing_observation'}),{status:422,headers:{'Content-Type':'application/json'}});}if(path==='/api/portfolio/risk/jobs'&&init?.method==='POST'){window.__riskJobs.push(JSON.parse(init.body));if(window.__rejectRiskSubmission){const code=window.__rejectRiskSubmission;window.__rejectRiskSubmission=false;return new Response(JSON.stringify({code}),{status:code==='access_denied'?403:400,headers:{'Content-Type':'application/json'}});}}let response=await send(input,init);const edit=path==='/api/portfolio/risk/catalog'?window.__catalogEdit:path==='/api/portfolio/risk'?window.__reportEdit:undefined;if(edit&&response.ok)response=new Response(JSON.stringify(edit(await response.json())),{status:200,headers:{'Content-Type':'application/json'}});if(window.__holdRiskJobs&&(init?.method??'GET')==='GET'&&path.startsWith('/api/portfolio/risk/jobs/')&&response.ok){const {result,...job}=await response.json();window.__heldPolls=(window.__heldPolls??0)+1;response=new Response(JSON.stringify({...job,state:'running'}),{status:200,headers:{'Content-Type':'application/json'}});}try{window.__riskReads.push({path,data:await response.clone().json()});}catch{}if(path==='/api/portfolio/risk/jobs'&&init?.method==='POST'&&window.__loseRiskSubmission){const outcome=window.__loseRiskSubmission;window.__loseRiskSubmission=false;if(outcome==='server')return new Response(JSON.stringify({code:'risk_job_outcome_unknown'}),{status:503,headers:{'Content-Type':'application/json'}});throw new TypeError('Synthetic lost submission response');}return response;};})();`);
   // A person's own typing, which the setup holds as an edit, unlike a value a script sets.
   const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
   const catalog="window.__riskReads.findLast(r=>r.path==='/api/portfolio/risk/catalog').data";
@@ -42,6 +42,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `(()=>{const c=${catalog},targets=${heldTargets},parts=window.__riskRequests.slice(${requestsBefore});return parts.length===Math.ceil(targets.length/16)&&parts.every(r=>r.bumps.length>=1&&r.bumps.length<=16&&r.stress.length===0&&r.context.knowledgeMode==='retained'&&r.context.contextId===c.context.contextId&&r.convention===c.convention&&JSON.stringify(r.pricingPolicy)===JSON.stringify(c.pricingPolicy))&&JSON.stringify(parts.flatMap(r=>r.bumps.map(b=>b.factor)))===JSON.stringify(targets.map(t=>t.factor))&&parts.every(r=>r.bumps.every(b=>b.size==='0.05'&&b.convention===c.bumpConvention));})()`);
   await check('the run completes and its results show in the panel: a section for each held contract, the first one open, and nothing added across them',
     `(()=>{const sections=[...document.querySelectorAll('#risk-results .risk-factor')],parts=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').slice(-Math.ceil(${heldTargets}.length/16));return ${panelRisk}&&sections.length===${heldTargets}.length&&sections[0].open&&sections.slice(1).every(s=>!s.open)&&sections.map(s=>s.querySelector('summary strong').textContent).join('|')===parts.flatMap(r=>r.data.factors.map(f=>f.factor.label)).join('|')&&document.querySelector('#error').hidden&&!document.querySelector('#risk-export').hidden;})()`);
+  await check('the results say which report was run, with its size for each price unit, and which held prices it did not shock, if any',
+    `(()=>{const units=[...new Set(${heldTargets}.map(t=>t.unit))],left=${catalog}.heldContractsWithoutTarget;return document.querySelector('#risk-run-setup')?.textContent==='Shock every held contract · '+units.map(unit=>'±0.05 '+unit).join(', ')+' · '+(left.length?'not shocked, as no whole-contract target covers '+(left.length===1?'it':'them')+': '+left.join('; '):'every held price shocked');})()`,
+    "document.querySelector('#risk-run-setup')?.textContent");
   await check('the panel lies over the desk at its wider width while it shows results, and the risk tile says where they are',`document.querySelector('#side-panel').dataset.wide!==undefined&&${tileSays('Results in the panel')}`);
   await shot('risk-held-results');
   // Results stay while a position is looked at, and the tile is the way back to them.
@@ -81,7 +84,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // Queued: one job for each part, shown as one run.
   await choose('held');
   const jobsBefore=await evaluate('window.__riskJobs.length');
-  await click('#risk-queue');await wait("document.querySelectorAll('#risk-results .risk-factor').length>0",60000);
+  // Each part's job is read as under way for a few polls, so that the panel can be seen not to be placed again on each poll.
+  await evaluate('window.__holdRiskJobs=true;window.__heldPolls=0');await click('#risk-queue');
+  await evaluate("window.__placements=0;window.__placementObserver=new MutationObserver(records=>{window.__placements+=records.length;});window.__placementObserver.observe(document.querySelector('#side-panel'),{attributes:true,attributeFilter:['data-placement']});");
+  await wait(`window.__heldPolls>=3*Math.ceil(${heldTargets}.length/16)`,30000);
+  await check('polling the jobs of a queued run under way does not place the panel again, so the grid beside it is not fitted again on each poll','window.__placements===0','window.__placements');
+  await evaluate('window.__holdRiskJobs=false');await wait("document.querySelectorAll('#risk-results .risk-factor').length>0",60000);
+  await check('its results widen the panel, which is placed once for them',"window.__placements===1&&document.querySelector('#side-panel').dataset.wide!==undefined",'window.__placements');
+  await evaluate('window.__placementObserver.disconnect()');
   await check('a queued run submits one job for each part, each with its own request identity and the catalog\'s one retained context',
     `(()=>{const c=${catalog},jobs=window.__riskJobs.slice(${jobsBefore});return jobs.length===Math.ceil(${heldTargets}.length/16)&&new Set(jobs.map(j=>j.requestId)).size===jobs.length&&jobs.every(j=>j.request.context.contextId===c.context.contextId&&j.request.bumps.length<=16)&&JSON.stringify(jobs.flatMap(j=>j.request.bumps.map(b=>b.factor)))===JSON.stringify(${heldTargets}.map(t=>t.factor));})()`);
   await check('the queued parts complete as one run whose results show in the panel',
@@ -117,6 +127,58 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Reconcile sends the same request again, which returns its completed job, and the run shows every part',
     `(()=>{const jobs=window.__riskJobs.slice(${jobsBeforeLoss});return jobs.length===${parts}+1&&jobs.at(-1).requestId===${JSON.stringify(lost)}&&JSON.stringify(jobs.at(-1).request)===JSON.stringify(jobs[0].request)&&[...document.querySelectorAll('#risk-job-parts li')].every(li=>li.textContent.endsWith('Completed'))&&document.querySelectorAll('#risk-results .risk-factor').length===${heldTargets}.length&&!document.querySelector('#risk-results .risk-part-missing')&&!document.querySelector('#risk-export').disabled;})()`,
     "[document.querySelectorAll('#risk-results .risk-factor').length,[...document.querySelectorAll('#risk-job-parts li')].map(li=>li.textContent),document.querySelector('#risk-job-status').textContent]");
+
+  // Sizes are kept for the next setup only once the backend has taken a run of them.
+  await typeInto('#risk-size-0','0.09');
+  await evaluate('window.__refuseRisk=true');await submit('#risk-form',60000);await evaluate('window.__refuseRisk=false');
+  await check('the sizes of a run the backend refused are not kept for the next setup',
+    `(()=>{const kept=Object.keys(sessionStorage).filter(k=>k.startsWith('openetrm.desk.shockSizes.'));return kept.length===1&&!sessionStorage.getItem(kept[0]).includes('0.09')&&sessionStorage.getItem(kept[0]).includes('0.05')&&document.querySelectorAll('#risk-results .risk-part-failed').length===${parts};})()`,
+    "Object.entries(sessionStorage).filter(([key])=>key.startsWith('openetrm.desk.shockSizes.'))");
+  // What a preset leaves out is said where it is chosen, in its results and in its download, so that a run that left prices out can be told
+  // from a complete one. The catalog read here names held prices and curves without a whole target: synthetic labels in its own lists.
+  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await evaluate("window.__catalogEdit=c=>({...c,heldContractsWithoutTarget:['Synthetic output · 2021-01-01 to 2021-02-01'],heldCurvesWithoutTarget:['Synthetic output curve']})");
+  await openReport();await choose('parallel');
+  await check('Parallel shift names the held curves it does not shift, as no whole-curve target covers them',
+    "!document.querySelector('#risk-preset-gaps').hidden&&document.querySelector('#risk-preset-gaps').textContent==='No whole-curve scenario target covers these held curves, so this preset does not shift them: Synthetic output curve.'",
+    "document.querySelector('#risk-preset-gaps').textContent");
+  await choose('held');
+  await check('Shock every held contract names the held prices it does not shock, as no whole-contract target covers them',
+    "!document.querySelector('#risk-preset-gaps').hidden&&document.querySelector('#risk-preset-gaps').textContent==='No whole-contract scenario target covers these held prices, so this preset does not shock them: Synthetic output · 2021-01-01 to 2021-02-01.'",
+    "document.querySelector('#risk-preset-gaps').textContent");
+  await submit('#risk-form',60000);await wait("document.querySelector('#risk-results .risk-factor .tabulator-row')",60000);
+  await check('its results say which report was run, with its sizes, and name the held price it did not shock',
+    `(()=>{const units=[...new Set(${heldTargets}.map(t=>t.unit))];return document.querySelector('#risk-run-setup')?.textContent==='Shock every held contract · '+units.map(unit=>'±0.05 '+unit).join(', ')+' · not shocked, as no whole-contract target covers it: Synthetic output · 2021-01-01 to 2021-02-01';})()`,
+    "document.querySelector('#risk-run-setup')?.textContent");
+  await evaluate(`(()=>{window.__riskBlob=undefined;const create=URL.createObjectURL;URL.createObjectURL=b=>{window.__riskBlob=b;return create(b);};const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download==='leanetrm-risk.json')return;return click.call(this);};})();`);
+  await click('#risk-export');await wait('!!window.__riskBlob');
+  await check('and so does its download, beside the report of each part',
+    `(async()=>{const units=[...new Set(${heldTargets}.map(t=>t.unit))],{setup,parts:reports}=JSON.parse(await window.__riskBlob.text());return setup?.report==='held'&&setup.label==='Shock every held contract'&&JSON.stringify(setup.sizes)===JSON.stringify(Object.fromEntries(units.map(unit=>[unit,'0.05'])))&&JSON.stringify(setup.withoutTarget)===JSON.stringify(['Synthetic output · 2021-01-01 to 2021-02-01'])&&reports.length===${parts};})()`,
+    "window.__riskBlob.text()");
+  // A catalog that does not say what a preset leaves out, or which positions a run leaves out, is refused: never read as saying none.
+  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await evaluate("window.__catalogEdit=({heldContractsWithoutTarget,...rest})=>rest");
+  await openReport();await choose('held');
+  const requestsBeforeRefusal=await evaluate('window.__riskRequests.length');
+  await submit('#risk-form');
+  await check('a catalog without the list of held prices a preset does not shock cannot run that preset, and says it is inconsistent',
+    `document.querySelector('#risk-choice-held-detail').textContent==='The risk catalog is inconsistent. Reload it.'&&document.querySelector('#risk-preset-summary').textContent==='The risk catalog is inconsistent. Reload it.'&&document.querySelector('#error').textContent.includes('The risk catalog is inconsistent. Reload it.')&&window.__riskRequests.length===${requestsBeforeRefusal}`,
+    "[document.querySelector('#risk-choice-held-detail').textContent,document.querySelector('#risk-preset-summary').textContent,document.querySelector('#error').textContent]");
+  // The refused setup still holds the person's choice, which a new read of the Blotter asks about before it is given up.
+  await click('#futures-refresh');await wait("!document.querySelector('#side-panel-prompt').hidden");
+  await click('#side-panel-prompt button:not(.secondary)');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await evaluate("window.__catalogEdit=({excludedPositions,...rest})=>rest");
+  await click('#desk-risk-run');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&"+idle);
+  await check('a catalog that does not say which positions a run leaves out is refused, and the report offers nothing to run',
+    "document.querySelector('#error').textContent.includes('The risk catalog is inconsistent. Reload it.')&&document.querySelector('#risk-fields').disabled&&!document.querySelector('#risk-status').hidden&&!document.querySelector('#risk-reload').hidden",
+    "[document.querySelector('#error').textContent,document.querySelector('#risk-status').textContent]");
+  await evaluate('window.__catalogEdit=undefined');await click('#risk-reload');await wait("!document.querySelector('#risk-fields').disabled&&"+idle);
+  await choose('custom');await set('#risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#risk-bump','0.1');
+  await evaluate("window.__reportEdit=({excludedPositions,...rest})=>rest");await submit('#risk-form');await evaluate('window.__reportEdit=undefined');
+  await check('a result that does not say which positions it leaves out is not shown',
+    "[...document.querySelectorAll('#risk-results [role=alert]')].some(p=>p.textContent==='A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.')&&!document.querySelector('#risk-results .risk-factor')&&document.querySelector('#risk-export').hidden",
+    "[...document.querySelectorAll('#risk-results p')].map(p=>p.textContent)");
+  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);await openReport();
 
   // The custom scenario lab: an explicit target and bump, nested stresses and the targets the catalog offers.
   await choose('custom');
@@ -161,7 +223,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#risk-bump','0.1');await submit('#risk-form');
   await evaluate(`(()=>{window.__riskBlob=undefined;const create=URL.createObjectURL;URL.createObjectURL=b=>{window.__riskBlob=b;return create(b);};const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download==='leanetrm-risk.json')return;return click.call(this);};})();`);
   await click('#risk-export');
-  await check('risk download reauthorizes the exact pinned request and includes its inputs',"(async()=>{const {parts}=JSON.parse(await window.__riskBlob.text()),r=parts[0];const requests=window.__riskRequests;return parts.length===1&&r.inputs.positions.length===r.work.positionCount&&r.inputs.markets.length>1&&r.inputs.markets.every(m=>m.observations.length>0)&&r.factors[0].factor.coordinate==='market_quote'&&!!r.factors[0].factor.unit&&r.displayPolicy&&r.factors[0].totals.every(t=>t.values.display&&t.measure&&t.measureLabel)&&JSON.stringify(requests.at(-1))===JSON.stringify(requests.at(-2));})()");
+  await check('risk download reauthorizes the exact pinned request and includes its inputs',"(async()=>{const {setup,parts}=JSON.parse(await window.__riskBlob.text()),r=parts[0];if(setup?.report!=='custom'||setup.label!=='Custom scenario')return false;const requests=window.__riskRequests;return parts.length===1&&r.inputs.positions.length===r.work.positionCount&&r.inputs.markets.length>1&&r.inputs.markets.every(m=>m.observations.length>0)&&r.factors[0].factor.coordinate==='market_quote'&&!!r.factors[0].factor.unit&&r.displayPolicy&&r.factors[0].totals.every(t=>t.values.display&&t.measure&&t.measureLabel)&&JSON.stringify(requests.at(-1))===JSON.stringify(requests.at(-2));})()");
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("document.querySelector('#side-panel').dataset.placement==='overlay'");
   await check('the report fills the phone sheet without page-wide overflow',fitsWidth+"&&document.querySelector('#side-panel').dataset.wide===undefined");await shot('risk-mobile');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1250,deviceScaleFactor:1,mobile:false});

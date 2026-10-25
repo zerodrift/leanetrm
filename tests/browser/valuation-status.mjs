@@ -1,5 +1,5 @@
 /** D218 at Dec 31, 2020, a close that values some positions and not others: every total says what it leaves out. */
-export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
   const loaded="document.querySelector('#desk-positions .tabulator-row')&&!document.querySelector('#blotter-export').disabled";
   // The desk's rows and summaries come from the workspace read; a pivot's chart reads its own pivot.
@@ -62,4 +62,17 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await wait(`${table}?.view.groupBy.length===2&&${loaded}`);
   await check('a cross-tab shows the count beside each column group',
     "document.querySelector('#blotter-table-title').textContent==='Pivot table'&&[...document.querySelectorAll('#desk-positions .tabulator-col-title')].filter(t=>t.textContent.trim()==='Not valued').length===2");
+  // The risk report says which positions this close cannot value, each with its reason, and a run's results say they leave them out.
+  await persona('risk');await wait(loaded+"&&!document.querySelector('#desk-risk-run').disabled");
+  await click('#desk-risk-run');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
+  const catalog="window.__replies.filter(r=>r.path==='/api/portfolio/risk/catalog').at(-1).data";
+  await check('the risk report lists the positions this close cannot value, each with its reason, which a run leaves out',
+    `(()=>{const left=${catalog}.excludedPositions,shown=document.querySelector('#risk-excluded');return left.length>1&&!shown.hidden&&shown.textContent.startsWith('This close cannot value '+left.length+' positions, so a run leaves them out: ')&&left.every(e=>shown.textContent.includes(e.tradeReference+' ('))&&shown.textContent.includes('Contract expired · awaiting settlement');})()`,
+    "document.querySelector('#risk-excluded').textContent");
+  await click('input[name=risk-choice][value=custom]');
+  await set('#risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#risk-bump','0.1');
+  await submit('#risk-form',60000);await wait("document.querySelector('#risk-results .risk-factor')",60000);
+  await check('the results of a run say which positions they leave out, as the close cannot value them',
+    `(()=>{const left=${catalog}.excludedPositions,line=[...document.querySelectorAll('#risk-results > p')].find(p=>p.textContent.startsWith('Leaves out '));return !!line&&line.textContent.startsWith('Leaves out '+left.length+' positions this close cannot value: ')&&left.every(e=>line.textContent.includes(e.tradeReference+' ('));})()`,
+    "[...document.querySelectorAll('#risk-results > p')].map(p=>p.textContent)");
 }

@@ -1394,7 +1394,7 @@ totals with it, the trade open in the side panel at its revision, which is the o
 shows while it is open (D219: the panel is not modal, so the assistant is asked while it is
 open; a target for a trade is refused in a pivot), a new trade being entered there by its
 product (`blotter_new_future`, `blotter_new_swap`, or `blotter_new_trade` before one is
-chosen), which it does not read, and risk results as `blotter_risk`;
+chosen), which it does not read, and the panel's open Risk report as `blotter_risk`;
 only a navigation event arriving live on the stream the tab's own ask opened moves the
 page, while the panel is open on an idle page without a dialog, keeping the page's
 knowledge and frame and leaving nothing unsaved, and any other target waits for Go, which

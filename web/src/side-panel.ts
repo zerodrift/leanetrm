@@ -35,18 +35,31 @@ export function modeLabel(mode:NonNullable<PanelMode>):string{
   }
 }
 
-const riskClearedNote='Risk results cleared · live corrections changed the inputs';
-const riskSetupKeptNote='Risk setup kept with your edits · it was opened before these live corrections, so a run of it uses the inputs from then';
+/** What new inputs on screen do to the risk report: whether its setup's choices are carried over, whether it is read again, and the note. */
+export type RiskRefresh={carry:boolean;reopen:boolean;note:string|null};
+const riskNotes={
+  live:{cleared:'Risk results cleared · live corrections changed the inputs',
+    retained:'Live corrections changed the inputs · the unconfirmed risk submission keeps the inputs it was captured at'},
+  settlement:{cleared:'Risk results cleared · a settlement record changed the values they were run on',
+    retained:'A settlement record changed the values · the unconfirmed risk submission keeps the inputs it was captured at'},
+} as const;
 /**
- * What a live correction (D188) does to the panel and to a risk run. An open panel is read again, unless it holds unsaved edits,
- * which a refresh never takes from the person: a risk report's setup is read again too, as the catalog it offers may change, and one
- * with edits is kept as it is, with a note of the inputs a run of it then uses. A risk run is cleared, with a note, because its
- * results belong to inputs that have changed.
+ * What new inputs on screen, from a live correction (D188) or a settlement record, do to the risk report (D219). A run on screen is
+ * forgotten, as its results belong to the inputs that changed, with a note: one that says it was cleared, or, for an unconfirmed
+ * submission the report shows again under the inputs it was captured at, one that says so. An open report is read again at the new
+ * inputs, so that a run is always made at the inputs on screen, and a setup holding the person's edits has its choices carried over.
  */
-export function liveRefreshPlan(state:{panel:PanelMode;unsaved:boolean;riskRun:boolean}):{reloadPanel:boolean;clearRisk:boolean;keepRiskSetup:boolean;notes:string[]}{
-  const keepRiskSetup=state.panel?.kind==='risk'&&state.unsaved;
-  return {reloadPanel:state.panel!==null&&!state.unsaved,clearRisk:state.riskRun,keepRiskSetup,
-    notes:[...(state.riskRun?[riskClearedNote]:[]),...(keepRiskSetup?[riskSetupKeptNote]:[])]};
+export function riskRefreshPlan(state:{open:boolean;edited:boolean;run:boolean;retained:boolean},cause:keyof typeof riskNotes):RiskRefresh{
+  return {carry:state.open&&state.edited,reopen:state.open,note:state.run?riskNotes[cause][state.retained?'retained':'cleared']:null};
+}
+/**
+ * What a live correction (D188) does to the panel. A panel showing a position or a new trade is read again, unless it holds unsaved edits,
+ * which a refresh never takes from the person; the risk report follows `riskRefreshPlan`, whose edits are the setup's.
+ */
+export function liveRefreshPlan(state:{panel:PanelMode;unsaved:boolean;riskRun:boolean;riskRetained:boolean}):{reloadPanel:boolean;risk:RiskRefresh}{
+  const open=state.panel?.kind==='risk';
+  return {reloadPanel:state.panel!==null&&!open&&!state.unsaved,
+    risk:riskRefreshPlan({open,edited:open&&state.unsaved,run:state.riskRun,retained:state.riskRetained},'live')};
 }
 
 /** The tab an arrow, Home or End key moves to from `current`, wrapping at the ends; null for any other key. */

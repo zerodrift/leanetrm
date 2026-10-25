@@ -136,7 +136,8 @@ run leaves out only positions held in the books its list names.
 A holdings-detail request takes at most sixteen bumps. The Blotter's risk report makes a
 larger preset run in parts of at most sixteen, each its own request, or its own queued job,
 at the catalog's one retained context. Each factor's results are independent, so nothing
-combines the parts, and a part that fails is reported as failed.
+combines the parts, and a part that fails is reported as failed. The results and the download state
+the preset, its size for each price unit and the held prices or curves it does not shock.
 
 The shared pricing policy's `bumpBasis` and `bumpTicks` select the generated-close
 operation's automatically constructed bumps. Interactive requests supply each

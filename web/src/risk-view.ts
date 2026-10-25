@@ -11,7 +11,7 @@ import {renderDataGrid} from './data-grid.js';
 import {renderChart,clearChart} from './chart-view.js';
 import {publicText,timeLabels} from './market-view.js';
 import {scenarioShift,knownRiskRejection,type ScenarioTarget,type ScenarioShift} from './risk-scenarios.js';
-import {presetRequest,presetTargets,sizesByUnit,splitBumps,type Preset} from './risk-presets.js';
+import {presetGaps,presetRequest,presetTargets,runParts,sizesByUnit,splitBumps,type Preset} from './risk-presets.js';
 import {valuationReason,type ValuationReason} from './valuation-status.js';
 import {trackEdits} from './edit-tracking.js';
 import type {SidePanel} from './side-panel.js';
@@ -24,7 +24,7 @@ type Catalog={pricingPolicy:unknown;scenarioTargets:ScenarioTarget[];heldContrac
   heldContractsWithoutTarget:string[];heldCurvesWithoutTarget:string[];excludedPositions:Excluded[];bumpConvention:string;stressConvention:string;
   convention:string;numericalPolicy:string;context:FinancialContext;asOf:string};
 type Scope={context:unknown;bookIds:string[];portfolioIds:string[]};
-type StressLayer={shift:ScenarioShift;label:string;unit:string};
+type StressLayer={id:string;shift:ScenarioShift;label:string;unit:string};
 type Request=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioShift[];convention:string;numericalPolicy:string};
 type JobState='queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';
 type Job={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:Report;context?:FinancialContext;asOf?:string};
@@ -36,9 +36,23 @@ type Report=RiskWorkReport&{displayPolicy:unknown;scenario:{depth:number;isBase:
  * submission is kept as its `recovery` until its outcome is known. A retained job read from the history has no request of its own.
  */
 type Part={request?:Request;report?:Report;job?:Job;failure?:string;recovery?:PendingCommand};
-/** A run on screen: run now or queued, its parts in the order of its shocks, and the context it was made at. */
-type Run={queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string};
 type Choice=Preset|'custom';
+/**
+ * What a run was set up as: its report, its shock size for each price unit, and the held prices or curves the preset did not shock,
+ * as no whole target covers them. A custom scenario's sizes are its factors' own.
+ */
+type RunSetup={report:Choice;label:string;sizes:Record<string,string>;withoutTarget:string[]};
+/**
+ * A run on screen: run now or queued, its parts in the order of its shocks, the context it was made at, and its setup, which a retained
+ * job read from the history does not record.
+ */
+type Run={queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string;setup?:RunSetup};
+/**
+ * The person's choices in the setup, carried over to a catalog read at changed inputs: the report, the sizes, the custom scenario's own
+ * fields and its stresses, and each chosen scenario target by the catalog's id, with its label to name it by when it is no longer offered.
+ */
+type Choices={choice:Choice|null;sizes:Map<string,{value:string;prefilled:boolean}>;fields:Record<string,string>;stressOpen:boolean;
+  targets:Record<'risk'|'risk-stress',{id:string;label:string}|null>;stress:StressLayer[]};
 
 /** Why an account without the Risk Analyst role cannot run a scenario. */
 export const riskDenied='Scenario execution requires the Risk Analyst role.';
@@ -48,12 +62,24 @@ const failure=(error:unknown,fallback:string)=>error instanceof Error&&error.mes
 const code=(error:unknown)=>(error as {code?:string}|undefined)?.code;
 const plural=(count:number,word:string)=>`${count} ${word}${count===1?'':'s'}`;
 const partsText=(indexes:number[],total:number)=>`${indexes.length===1?'part':'parts'} ${indexes.map(i=>i+1).join(', ')} of ${total}`;
-const presetText:Record<Preset,{noun:string;none:string;each:string;gaps:string}>={
-  held:{noun:'held contract',none:'The selected books hold no contract this preset can shock.',each:'each shocked up and down on its own',
-    gaps:'No whole-contract scenario target covers these held prices, so this preset does not shock them:'},
-  parallel:{noun:'held curve',none:'The selected books hold no curve this preset can shift.',each:'each shifted up and down as a whole',
-    gaps:'No whole-curve scenario target covers these held curves, so this preset does not shift them:'},
+const presetText:Record<Preset,{label:string;noun:string;none:string;each:string;gaps:string;complete:string;left:string}>={
+  held:{label:'Shock every held contract',noun:'held contract',none:'The selected books hold no contract this preset can shock.',each:'each shocked up and down on its own',
+    gaps:'No whole-contract scenario target covers these held prices, so this preset does not shock them:',complete:'every held price shocked',
+    left:'not shocked, as no whole-contract target covers'},
+  parallel:{label:'Parallel shift',noun:'held curve',none:'The selected books hold no curve this preset can shift.',each:'each shifted up and down as a whole',
+    gaps:'No whole-curve scenario target covers these held curves, so this preset does not shift them:',complete:'every held curve shifted',
+    left:'not shifted, as no whole-curve target covers'},
 };
+// The custom scenario's own fields, carried over with the person's other choices when the inputs on screen change.
+const customFields=['risk-coordinate','risk-target-kind','risk-from','risk-to','risk-bump','risk-stress-coordinate','risk-stress-target-kind','risk-stress-from','risk-stress-to','risk-stress-size'];
+/** What a run's results and download say it was set up as, so that a run that left prices out can be told from a complete one. */
+function setupText(setup:RunSetup|undefined):string{
+  if(!setup)return 'A retained job: the report it was run as is not recorded with it, and each factor below states its shock.';
+  if(setup.report==='custom')return setup.label;
+  const text=presetText[setup.report],sizes=Object.entries(setup.sizes).map(([unit,size])=>`±${size} ${unit}`).join(', ');
+  const left=setup.withoutTarget;
+  return `${setup.label} · ${sizes} · ${left.length?`${text.left} ${left.length===1?'it':'them'}: ${left.join('; ')}`:text.complete}`;
+}
 
 /**
  * The risk report over its markup, `#risk-report`, which waits on the editor shelf until the side panel's Risk report mode `mount`s it
@@ -70,6 +96,8 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   // The person's own choices and entries in the setup, which leaving it would lose. Prefilled sizes are not theirs until they change one.
   const edits=trackEdits(form,[],()=>{options.edited?.();});
   let catalog:Catalog|undefined,scope:Scope|undefined,stress:StressLayer[]=[],reading=false,unread:string|undefined;
+  // The person's choices carried over from a setup the inputs on screen changed under, until a catalog read at the new inputs takes them.
+  let carried:Choices|undefined;
   // The size entered for each price unit, and whether it is the one last used, prefilled and not yet changed.
   let sizes=new Map<string,{value:string;prefilled:boolean}>();
   // Queued runs whose submission has no known outcome for some part, by account: they are reconciled before another is queued.
@@ -84,6 +112,10 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   const running=()=>!!run&&run.parts.some(p=>active(p.job));
   const uncertain=(current:Run|undefined)=>current?.parts.flatMap((p,i)=>p.recovery?.command?[i]:[])??[];
   const complete=(current:Run|undefined)=>!!current&&current.parts.every(p=>p.report);
+  // The setup holds the person's edits: typed or chosen, or carried over from inputs that changed under it.
+  const edited=()=>edits.edited()||carried!==undefined;
+  // Keeps choices to carry over, and says so to whoever hears the setup start or stop holding edits.
+  function carry(kept:Choices|undefined){carried=kept;options.edited?.();}
   function stopPolling(){clearTimeout(pollTimer);pollTimer=undefined;}
 
   // --- what the report shows -------------------------------------------------------------------------------------------------
@@ -108,7 +140,8 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   /** Forgets everything the report holds but the submissions whose outcome is unknown, which are kept until they are settled. */
   function reset(){
-    generation++;forgetRun();catalog=undefined;scope=undefined;stress=[];recent=[];reading=false;unread=undefined;sizes=new Map();
+    generation++;forgetRun();catalog=undefined;scope=undefined;stress=[];recent=[];reading=false;unread=undefined;sizes=new Map();carried=undefined;
+    get('risk-carried').hidden=true;get('risk-carried').textContent='';
     resetControls();edits.clear();renderStress();showChoice();describe();sync();
   }
   function denied(error:unknown){if(code(error)==='access_denied'){reset();options.onDenied();}}
@@ -131,9 +164,9 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function storeSizes(used:Record<string,string>){
     try{sessionStorage.setItem(sizesKey(),JSON.stringify({...Object.fromEntries(storedSizes()),...used}));}catch{/* The run goes on; its sizes are not prefilled next time. */}
   }
-  // A preset's targets, or why it has none that the catalog offers.
-  function preset(kind:Preset):{targets:ScenarioTarget[]}|{error:string}{
-    try{return {targets:presetTargets(catalog!,kind)};}catch(error){return {error:failure(error,'The risk catalog is inconsistent. Reload it.')};}
+  // A preset's targets and what it leaves out, or why the catalog cannot say them.
+  function preset(kind:Preset):{targets:ScenarioTarget[];gaps:string[]}|{error:string}{
+    try{return {targets:presetTargets(catalog!,kind),gaps:presetGaps(catalog!,kind)};}catch(error){return {error:failure(error,'The risk catalog is inconsistent. Reload it.')};}
   }
   /** What each choice of report offers at this read, said beside it. */
   function describe(){
@@ -141,7 +174,8 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       const shown=catalog?preset(kind):undefined,text=presetText[kind];
       get(`risk-choice-${kind}-detail`).textContent=!shown?'':'error' in shown?shown.error:shown.targets.length?`${plural(shown.targets.length,text.noun)} · ${text.each}`:text.none;
     }
-    const excluded=catalog?.excludedPositions??[];
+    // A catalog is read only with its list of the positions a run leaves out: without one there is nothing to say.
+    const excluded=catalog?catalog.excludedPositions:[];
     get('risk-excluded').hidden=!excluded.length;
     get('risk-excluded').textContent=excluded.length?publicText(`This close cannot value ${plural(excluded.length,'position')}, so a run leaves ${excluded.length===1?'it':'them'} out: ${excluded.map(e=>`${e.tradeReference} (${valuationReason(e.reason,e.instrumentType)})`).join('; ')}.`):'';
   }
@@ -160,11 +194,10 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     if(presetShown)drawPreset(choice);else get('risk-sizes').replaceChildren();
   }
   function drawPreset(kind:Preset){
-    const shown=preset(kind),text=presetText[kind],targets='error' in shown?[]:shown.targets;
+    const shown=preset(kind),text=presetText[kind],targets='error' in shown?[]:shown.targets,gaps='error' in shown?[]:shown.gaps;
     const parts=splitBumps(targets).length;
     get('risk-preset-summary').textContent='error' in shown?shown.error:!targets.length?text.none
       :`${plural(targets.length,text.noun)}, ${text.each} by the size entered for its price unit.${parts>1?` The run is made in ${parts} parts of at most 16 shocks, at one market context.`:''}`;
-    const gaps=kind==='held'?catalog?.heldContractsWithoutTarget??[]:catalog?.heldCurvesWithoutTarget??[];
     get('risk-preset-gaps').hidden=!gaps.length;get('risk-preset-gaps').textContent=gaps.length?publicText(`${text.gaps} ${gaps.join('; ')}.`):'';
     get('risk-sizes').replaceChildren(...sizesByUnit(targets).map((unit,index)=>{
       const entry=sizes.get(unit)??{value:'',prefilled:false};sizes.set(unit,entry);
@@ -186,16 +219,54 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     }
     // A catalog read for the Blotter on screen stands with the setup and run it holds: any new read of the Blotter resets the report.
     if(catalog){sync();return;}
-    reset();const version=generation;reading=true;describe();sync();
+    // A new read keeps the choices carried over from inputs that changed, and puts them back over the catalog it reads.
+    const kept=carried;reset();carry(kept);const version=generation;reading=true;describe();sync();
     try{
       scope=structuredClone(options.scope());
-      const loaded=await call<Catalog>('portfolio/risk/catalog',scope);if(version!==generation)return;catalog=loaded;
+      const loaded=await call<Catalog>('portfolio/risk/catalog',scope);if(version!==generation)return;
+      // A catalog that does not say which positions a run leaves out is refused, never read as saying none.
+      if(!Array.isArray(loaded.excludedPositions))throw Error('The risk catalog is inconsistent. Reload it.');
+      catalog=loaded;
       scope={...scope,context:{...(scope.context as Record<string,unknown>),knowledgeMode:'retained',contextId:catalog.context.contextId}};
       sizes=new Map([...storedSizes()].map(([unit,value])=>[unit,{value,prefilled:true}]));
       for(const prefix of ['risk','risk-stress'])targetChoices(prefix);
+      if(carried)restore(carried);
       await recentJobs(version);
+      if(version===generation)carried=undefined;
     }catch(error){if(version===generation){scope=undefined;catalog=undefined;unread='The risk catalog could not be read.';}throw error;}
     finally{if(version===generation){reading=false;describe();showChoice();sync();}}
+  }
+  /** The person's choices in the setup as they stand, to carry over to a catalog read at changed inputs. */
+  function choicesNow():Choices{
+    const target=(prefix:'risk'|'risk-stress')=>{const found=catalog?.scenarioTargets.find(t=>t.id===get<HTMLSelectElement>(prefix+'-factor').value);return found?{id:found.id,label:found.label}:null;};
+    return {choice:chosen(),sizes:new Map(sizes),fields:Object.fromEntries(customFields.map(id=>[id,get<HTMLInputElement|HTMLSelectElement>(id).value])),
+      stressOpen:get<HTMLDetailsElement>('risk-stress').open,targets:{risk:target('risk'),'risk-stress':target('risk-stress')},stress:[...stress]};
+  }
+  /**
+   * Puts the person's choices back over a catalog read at changed inputs, which they stay the person's edits in, and names what it no
+   * longer offers: a chosen scenario target or stress, or a size typed for a price unit no target of the chosen preset is quoted in.
+   */
+  function restore(kept:Choices){
+    const offered=new Set(catalog!.scenarioTargets.map(t=>t.id)),gone:string[]=[];
+    for(const input of choices())input.checked=input.value===kept.choice;
+    sizes=new Map([...sizes,...kept.sizes]);
+    for(const [id,value] of Object.entries(kept.fields))get<HTMLInputElement|HTMLSelectElement>(id).value=value;
+    get<HTMLDetailsElement>('risk-stress').open=kept.stressOpen;
+    for(const prefix of ['risk','risk-stress'] as const){
+      targetChoices(prefix);
+      const target=kept.targets[prefix],control=get<HTMLSelectElement>(prefix+'-factor');
+      if(!target)continue;
+      control.value=offered.has(target.id)?target.id:'';
+      if(control.value===target.id)targetDetails(prefix);else gone.push(target.label);
+    }
+    stress=kept.stress.filter(layer=>{if(offered.has(layer.id))return true;gone.push(layer.label);return false;});
+    if(kept.choice==='held'||kept.choice==='parallel'){
+      const shown=preset(kept.choice),units='error' in shown?[]:sizesByUnit(shown.targets);
+      for(const [unit,entry] of kept.sizes)if(!entry.prefilled&&entry.value.trim()&&!units.includes(unit))gone.push(`the shock size for ${unit}`);
+    }
+    const line=get('risk-carried');line.hidden=false;
+    line.textContent=publicText(`The inputs on screen changed, so this setup was read again for them with your choices.${gone.length?` No longer offered, so left out: ${gone.join('; ')}.`:''}`);
+    renderStress();edits.mark();
   }
   function bucket(prefix:string){return {from:get<HTMLInputElement>(prefix+'-from').value,to:get<HTMLInputElement>(prefix+'-to').value};}
   function targetChoices(prefix:string){
@@ -230,36 +301,39 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const target=catalog.scenarioTargets.find(f=>f.id===stressFactor.value);if(!target)throw Error('Choose an available scenario target.');
     if(stress.length>=16)throw Error('A scenario supports at most sixteen nested stresses.');
     const shift=scenarioShift(target,stressSize.value,catalog.stressConvention,bucket('risk-stress'));
-    chose(event);edit();stress=[...stress,{shift,label:target.label+(target.kind==='delivery_bucket'?` · ${shift.factor.target.from} to ${shift.factor.target.to} (exclusive)` :''),unit:target.unit}];stressSize.value='';renderStress();
+    chose(event);edit();stress=[...stress,{id:target.id,shift,label:target.label+(target.kind==='delivery_bucket'?` · ${shift.factor.target.from} to ${shift.factor.target.to} (exclusive)` :''),unit:target.unit}];stressSize.value='';renderStress();
   });
   get('risk-stress-parent').onclick=event=>{chose(event);edit();stress=stress.slice(0,-1);renderStress();};
   get('risk-stress-clear').onclick=event=>{chose(event);edit();stress=[];renderStress();};
-  /** The requests of the chosen report, in parts of at most sixteen shocks, and the sizes a preset was entered with. */
-  function requests():{parts:Request[];sizes?:Record<string,string>}{
+  /** The requests of the chosen report, in parts of at most sixteen shocks, what it was set up as, and the sizes a preset was entered with. */
+  function requests():{parts:Request[];setup:RunSetup;sizes?:Record<string,string>}{
     if(!catalog||!scope)throw Error('Open the risk report from the current Blotter first.');
     const base={...scope,pricingPolicy:catalog.pricingPolicy,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy};
     const choice=chosen();
     if(choice===null)throw Error('Choose a report: Shock every held contract, Parallel shift or Custom scenario.');
     if(choice==='custom'){
       const target=catalog.scenarioTargets.find(f=>f.id===select.value);
-      return {parts:[structuredClone({...base,bumps:[scenarioShift(target,bump.value,catalog.bumpConvention,bucket('risk'))],stress:stress.map(layer=>layer.shift)})]};
+      return {parts:[structuredClone({...base,bumps:[scenarioShift(target,bump.value,catalog.bumpConvention,bucket('risk'))],stress:stress.map(layer=>layer.shift)})],
+        setup:{report:'custom',label:'Custom scenario',sizes:{},withoutTarget:[]}};
     }
-    const targets=presetTargets(catalog,choice);
+    const targets=presetTargets(catalog,choice),withoutTarget=presetGaps(catalog,choice);
     if(!targets.length)throw Error(presetText[choice].none);
     const entered=Object.fromEntries(sizesByUnit(targets).map(unit=>[unit,sizes.get(unit)?.value.trim()??'']));
-    return {parts:splitBumps(presetRequest(targets,entered,catalog.bumpConvention)).map(part=>structuredClone({...base,bumps:part,stress:[]})),sizes:entered};
+    const parts=splitBumps(presetRequest(targets,entered,catalog.bumpConvention)).map(part=>structuredClone({...base,bumps:part,stress:[]}));
+    return {parts,setup:{report:choice,label:presetText[choice].label,sizes:entered,withoutTarget:[...withoutTarget]},sizes:entered};
   }
 
   // --- running and queueing --------------------------------------------------------------------------------------------------
   /** Runs the parts one after another. A part that fails is said to have failed, and the others still run; a single part that fails leaves no run. */
   async function runNow(current:Run,version:number){
-    let first:unknown;
-    for(const [index,part] of current.parts.entries()){
+    let first:unknown;const stale=()=>version!==generation;
+    await runParts(current.parts,stale,async(part,index)=>{
       if(current.parts.length>1)get('risk-progress').textContent=`Running part ${index+1} of ${current.parts.length}…`;
       try{part.report=await options.api<Report>('portfolio/risk',part.request);}
-      catch(error){if(version!==generation)return;denied(error);if(version!==generation)throw error;part.failure=failure(error,'The part could not be run.');first??=error;}
-      if(version!==generation)return;
-    }
+      catch(error){if(stale())return false;denied(error);if(stale())throw error;part.failure=failure(error,'The part could not be run.');first??=error;}
+      return true;
+    });
+    if(stale())return;
     get('risk-progress').textContent='';
     if(current.parts.length===1&&first!==undefined)forgetRun();else showRun();
     if(first!==undefined)throw first;
@@ -267,13 +341,14 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   /**
    * Queues each part as its own job, one after another, each kept as the request it was first sent as until its outcome is known. A part
    * whose submission has no known outcome keeps the run retained for the person to reconcile; one refused for good was not queued, and says why.
+   * Once the run is no longer the one on screen, no further part is sent.
    */
   async function submit(current:Run,version:number){
-    const owner=options.profile();let first:unknown;
-    for(const part of current.parts){
+    const owner=options.profile();let first:unknown;const stale=()=>version!==generation;
+    await runParts(current.parts,stale,async part=>{
       // A part is sent once and then only again with the same identity: a queued or refused part is settled, and one not yet sent is begun.
       if(!part.recovery?.command){
-        if(part.job||part.failure!==undefined)continue;
+        if(part.job||part.failure!==undefined)return true;
         part.recovery=new PendingCommand(knownRiskRejection);part.recovery.begin('portfolio/risk/jobs',{request:part.request});
       }
       const command=part.recovery.command!,previouslyUncertain=part.recovery.sending();
@@ -285,11 +360,12 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
         part.recovery!.failed(code(error),previouslyUncertain);
         if(!part.recovery!.command)part.failure=failure(error,'The part was not queued.');
         first??=error;
-        if(code(error)==='access_denied')break;
+        if(code(error)==='access_denied')return false;
       }
-    }
+      return true;
+    });
     if(!uncertain(current).length&&submissions.get(owner)===current)submissions.delete(owner);
-    if(version!==generation)return;
+    if(stale())return;
     if(first!==undefined){denied(first);if(version!==generation)throw first;}
     if(current.parts.length===1&&current.parts[0].failure!==undefined){forgetRun();sync();}else showRun();
     if(first!==undefined){if(code(first)==='risk_job_conflict'&&uncertain(current).length&&await recentJobs(version))return;throw first;}
@@ -301,12 +377,14 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   form.onsubmit=event=>{event.preventDefault();const queued=(event as SubmitEvent).submitter?.id==='risk-queue';void options.act(async()=>{
     const plan=requests();forgetRun();const version=++generation;
-    if(plan.sizes)storeSizes(plan.sizes);
-    // What was run is no longer an edit: the run answers it.
-    edits.clear();
-    run={queued,parts:plan.parts.map(request=>({request})),context:catalog!.context,asOf:catalog!.asOf};revealResults=true;
+    // What was run is no longer an edit: the run answers it, and the setup it was carried over in is the run's.
+    edits.clear();get('risk-carried').hidden=true;
+    const current:Run={queued,parts:plan.parts.map(request=>({request})),context:catalog!.context,asOf:catalog!.asOf,setup:plan.setup};
+    run=current;revealResults=true;
     sync();
-    if(queued){await queue(run,version);if(version===generation&&running())reveal('risk-job');}else await runNow(run,version);
+    try{if(queued){await queue(current,version);if(version===generation&&running())reveal('risk-job');}else await runNow(current,version);}
+    // The sizes are prefilled next time once the backend has taken a part of a run of them.
+    finally{if(plan.sizes&&current.parts.some(p=>p.report||p.job))storeSizes(plan.sizes);}
   });};
 
   // --- jobs --------------------------------------------------------------------------------------------------------------------
@@ -412,21 +490,24 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     clearResults();
     const reports=current.parts.flatMap(p=>p.report?[p.report]:[]),total=current.parts.length,host=get('risk-results');
     if(!reports.length&&total===1)return;
-    // Every part of a run is made at one close over the same books, so each leaves out the same positions.
-    const left=reports.map(r=>r.excludedPositions),lists=new Set(left.map(list=>JSON.stringify(list)));
-    if(left.some(list=>list===undefined))host.append(note('A result of this run does not say which positions it leaves out.'));
-    else if(lists.size>1){const line=note('The parts of this run leave out different positions, so its results are not shown. Run it again.');line.setAttribute('role','alert');host.append(line);return;}
-    else if(left.length&&left[0]!.length)host.append(note(`Leaves out ${plural(left[0]!.length,'position')} this close cannot value: ${left[0]!.map(e=>`${e.tradeReference} (${valuationReason(e.reason,e.instrumentType)})`).join('; ')}.`));
+    // A result that does not say which positions it leaves out is refused, never read as leaving out none; and every part of a run is made
+    // at one close over the same books, so each leaves out the same positions.
+    if(reports.some(r=>!Array.isArray(r.excludedPositions))){host.append(alertNote('A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.'));return;}
+    const left=reports.map(r=>r.excludedPositions!);
+    if(new Set(left.map(list=>JSON.stringify(list))).size>1){host.append(alertNote('The parts of this run leave out different positions, so its results are not shown. Run it again.'));return;}
+    // What the run was set up as comes first, so that a run that left prices out can be told from a complete one.
+    const setup=note(setupText(current.setup));setup.id='risk-run-setup';host.append(setup);
     const factors=reports.reduce((sum,r)=>sum+r.factors.length,0);let opened=false;
+    if(total>1)host.append(note(`${plural(factors,'factor')} in ${total} parts. Each factor's results are its own; nothing is added across factors or parts.`));
+    if(left.length&&left[0].length)host.append(note(`Leaves out ${plural(left[0].length,'position')} this close cannot value: ${left[0].map(e=>`${e.tradeReference} (${valuationReason(e.reason,e.instrumentType)})`).join('; ')}.`));
     for(const [partIndex,part] of current.parts.entries()){
       const name=`Part ${partIndex+1} of ${total}`;
-      if(part.failure!==undefined){const line=note(`${name} failed: ${part.failure}`);line.classList.add('risk-part-failed');line.setAttribute('role','alert');host.append(line);continue;}
+      if(part.failure!==undefined){const line=alertNote(`${name} failed: ${part.failure}`);line.classList.add('risk-part-failed');host.append(line);continue;}
       // A part with no outcome once none is under way has a submission with no known outcome, or is not yet queued: the run is
       // retained for Reconcile, which settles the one and queues the other.
       if(!part.report){const line=note(`${name} has no results: ${part.recovery?.command?'its submission has no known outcome':'it is not yet queued'}.`);line.classList.add('risk-part-missing');host.append(line);continue;}
       for(const [factorIndex,item] of part.report.factors.entries()){host.append(factorSection(part.report,item,`${partIndex}-${factorIndex}`,!opened));opened=true;}
     }
-    if(total>1)host.prepend(note(`${plural(factors,'factor')} in ${total} parts. Each factor's results are its own; nothing is added across factors or parts.`));
     get('risk-work').replaceChildren(...current.parts.flatMap((part,index)=>part.report?[workEvidence(part.report,total>1?`Part ${index+1} of ${total} · `:'')]:[]),
       note('Tables and charts use backend display precision; sorting compares displayed amounts. Hover over a value or download for exact amounts.'));
     get('risk-export').hidden=false;
@@ -435,6 +516,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     if(revealResults&&mounted()){revealResults=false;reveal('risk-results');}
   }
   function note(text:string){const p=document.createElement('p');p.className='field-help';p.textContent=publicText(text);return p;}
+  function alertNote(text:string){const line=note(text);line.setAttribute('role','alert');return line;}
   /** One factor's book totals, chart and holding results, drawn when its section is open in the panel: the first is open. */
   function factorSection(report:Report,item:Report['factors'][number],key:string,open:boolean){
     const section=document.createElement('details'),summary=document.createElement('summary'),title=document.createElement('strong'),size=document.createElement('span');
@@ -484,7 +566,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(!report)throw Error('The completed job result is unavailable. Refresh its retained outcome.');
       parts.push(report);
     }
-    const blob=new Blob([JSON.stringify({parts},null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);
+    const blob=new Blob([JSON.stringify({setup:current.setup??null,parts},null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);
   });
 
   function sync(){
@@ -519,10 +601,14 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     /** Takes the report out of the panel; what it holds stays for when it is opened again. */
     shelve(){if(root.parentElement!==shelf)shelf.append(root);root.hidden=true;},
     /** Gives up the setup's edits, which the person has agreed to leave: the report starts afresh. Without edits it is left as it is. */
-    dropEdits(){if(edits.edited())reset();},
-    /** Forgets the run on screen, and keeps the setup and its edits. */
-    clearRun(){generation++;forgetRun();sync();},
-    edited:()=>edits.edited(),
+    dropEdits(){if(edited())reset();},
+    /**
+     * The inputs on screen changed, by a live correction or a settlement record: what the report holds is forgotten, as `reset` does, so
+     * that a run is only ever made at the inputs on screen. With `carry` the setup's choices are kept for the next catalog read, which
+     * puts them back and names what it no longer offers.
+     */
+    inputsChanged(carrying:boolean){const kept=carrying?carried??choicesNow():undefined;reset();carry(kept);},
+    edited,
     unconfirmed:()=>submissions.has(options.profile()),
     /** Whether results of a run are on screen, which a later change of the inputs they were run on clears. */
     shown:()=>!!run&&run.parts.some(p=>p.report),

@@ -110,7 +110,18 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const profile=await evaluate("document.querySelector('#profile-label')?.textContent");
  const replaced=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${replaced}&&document.querySelector('#profile-label')?.textContent===${JSON.stringify(profile)}&&${idle}`);await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait(idle);
  await check('reload restores the original uncertain settlement without changing its operation or body, still named for it',`${card('Net settlement of '+selected.reference)}&&sessionStorage.getItem(${JSON.stringify(retained.key)})===${JSON.stringify(retained.value)}&&document.querySelector('#futures-new').disabled`);
- await click('#futures-reconcile',60000);await wait(idle);await check('operation-status recovery clears the retained settlement only after its committed outcome is known',"document.querySelector('#futures-pending').hidden&&document.querySelector('#error').hidden");
+ // Check status settles the record from its card in the panel, which asks nothing, while the risk report there holds the person's sizes:
+ // the report is read again at the inputs on screen, and keeps the person's choice and sizes.
+ await evaluate(`(()=>{const send=window.fetch;window.__riskCatalogs=[];window.__workspaces=[];window.fetch=async(input,init)=>{const response=await send(input,init),path=String(input);if(response.ok&&(path==='/api/portfolio/risk/catalog'||path==='/api/trading/workspace'))(path==='/api/trading/workspace'?window.__workspaces:window.__riskCatalogs).push(await response.clone().json());return response;};})()`);
+ await click('#desk-risk-run');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
+ await click('input[name=risk-choice][value=held]');
+ await evaluate("(()=>{const n=document.querySelector('#risk-size-0');n.focus();n.select();})()");await command('Input.insertText',{text:'0.35'});
+ const catalogsBefore=await evaluate('window.__riskCatalogs.length');
+ await click('#futures-reconcile',60000);await wait("document.querySelector('#futures-pending').hidden&&"+idle);
+ await check('a retained settlement settled from its card keeps the risk report\'s choice and sizes, read again at the inputs on screen, and asks nothing',
+  `document.querySelector('#side-panel').dataset.mode==='risk'&&document.querySelector('#side-panel-prompt').hidden&&document.querySelector('input[name=risk-choice][value=held]').checked&&document.querySelector('#risk-size-0').value==='0.35'&&document.querySelector('#risk-size-0-note').hidden&&!document.querySelector('#risk-carried').hidden&&window.__riskCatalogs.length===${catalogsBefore}+1&&window.__riskCatalogs.at(-1).context.contextId===window.__workspaces.at(-1).blotter.context.contextId`,
+  "[document.querySelector('#side-panel').dataset.mode,document.querySelector('input[name=risk-choice][value=held]')?.checked,document.querySelector('#risk-size-0')?.value,window.__riskCatalogs.length]");
+ await check('operation-status recovery clears the retained settlement only after its committed outcome is known',"document.querySelector('#futures-pending').hidden&&document.querySelector('#error').hidden");
  // A risk report run at this close, whose results a net settlement made afterwards no longer holds for.
  await click('#desk-risk-run');await wait("[...document.querySelector('#risk-factor').options].some(o=>o.value)&&"+idle);await click('input[name=risk-choice][value=custom]');
  await set('#risk-factor',await evaluate("[...document.querySelector('#risk-factor').options].find(o=>o.value).value"));await set('#risk-bump','0.1');await submit('#risk-form');

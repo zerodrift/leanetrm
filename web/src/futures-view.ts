@@ -19,7 +19,7 @@ import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
 import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
-import {askInPanel,askLeave,liveRefreshPlan,panelPlacement,sameMode,setupSidePanel,type PanelMode} from './side-panel.js';
+import {askInPanel,askLeave,liveRefreshPlan,panelPlacement,riskRefreshPlan,sameMode,setupSidePanel,type PanelMode,type RiskRefresh} from './side-panel.js';
 import {setupPositionPanel,type PositionInput} from './position-panel.js';
 import {bookedPosition,followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile} from './desk-view.js';
@@ -116,6 +116,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
   // Mark, for as long as its columns do not fit the room it has left.
   const dockedGiveUp=()=>panel.current()!==null&&docked()?[curveColumn,markColumn]:[];
+  const wide=()=>!phone.matches&&(swapEditor.settlementOpen()||panel.current()?.kind==='risk'&&risk.shown());
   const panel=setupSidePanel(get('side-panel'),{
     // What the panel holds that switching would lose: the form of an amendment or of a new trade, with edits in it.
     unsaved:editing,confirmLeave:askLeave(get('side-panel')),docked,
@@ -123,7 +124,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     sheet:()=>phone.matches&&!get('futures-page').hidden,
     // A swap's settlement figures, and a risk report's results, need more room than a docked panel has: off a phone, the panel lies over
     // the desk at a wider width.
-    wide:()=>!phone.matches&&(swapEditor.settlementOpen()||panel.current()?.kind==='risk'&&risk.shown()),
+    wide,
     changed:()=>{table?.fitColumns(dockedGiveUp());modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
   // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
   // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
@@ -282,8 +283,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const state=risk.shown()?'results':risk.running()?'running':panel.current()?.kind==='risk'?'open':'none';
     renderRiskTile(get('desk-tile-risk'),{state,denial:options.canRunRisk()?null:riskDenied,busy:busy()},()=>void openRiskReport());
   }
-  // Results make the panel's risk report wide, and taking them away gives it its own width again.
-  function riskChanged(){renderRisk();panel.place();}
+  // Results make the panel's risk report wide, and taking them away gives it its own width again. The panel is placed again only when that
+  // changes, so that a poll of a queued run's jobs does not fit the grid beside it again.
+  function riskChanged(){renderRisk();if(panel.current()!==null&&wide()!==(get('side-panel').dataset.wide!==undefined))panel.place();}
   // Risk report opens the panel in its Risk report mode, asking first about edits the panel holds, before the page is busy, and reads the
   // risk catalog of the read on screen unless the report already holds one.
   const riskMode:PanelMode={kind:'risk'};
@@ -536,14 +538,19 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     await follow(amended,receipt);await followBooked(command,receipt);
   }
   // A settlement command that went through changes what its swap is valued at: risk results run before it no longer hold, and are
-  // cleared, with a note when there were any (D219). The Blotter is read again as a live correction reads it, so that the panel, and
-  // the settlement view the command was sent from, stay, and that view clears what the command consumed and reads its state again:
-  // also when the Blotter cannot be read, as a form still holding a command that went through would offer it a second time.
+  // cleared, with a note when there were any, and an open risk report is read again at the new inputs, keeping a setup's choices (D219).
+  // The Blotter is read again as a live correction reads it, so that the panel, and the settlement view the command was sent from, stay,
+  // and that view clears what the command consumed and reads its state again: also when the Blotter cannot be read, as a form still
+  // holding a command that went through would offer it a second time.
   async function settled(command:RequestCommand){
-    const ran=risk.shown()||risk.running();risk.reset();
-    if(ran)options.notice('Risk results cleared · a settlement record changed the values they were run on');
+    const plan=riskRefreshPlan({open:panel.current()?.kind==='risk',edited:risk.edited(),run:risk.shown()||risk.running(),retained:risk.unconfirmed()},'settlement');
+    inputsChanged(plan);
     try{await load('directory',true);}finally{await swapEditor.reloadSettlement(command.operationId);}
+    if(plan.reopen)await risk.open();
   }
+  // What the risk report holds belongs to inputs that have changed. It is cleared before the read, with the note, so that a read that then
+  // fails leaves the note, as it leaves the desk it had; a setup's choices are carried over to the report's next read.
+  function inputsChanged(plan:RiskRefresh){risk.inputsChanged(plan.carry);if(plan.note)options.notice(plan.note);}
   // The position the panel shows of the trade an amendment was made to, if it shows it.
   function amendedPosition(command:RequestCommand){const h=deskPanel.shown();return command.path.endsWith('/amend')&&h?.tradeId===command.body.tradeId?h:undefined;}
   // The panel returns to the trade at the revision the new read holds, on its terms, at the binding the amendment produced, which is
@@ -635,16 +642,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
   function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
   return {load,reset,sync,show,
-    // A live correction reads the desk again, the panel with it unless the person has edits in it, and clears a risk run with a note. No live
-    // view can book, so no form of a new trade is held while corrections arrive.
+    // A live correction reads the desk again, a position or new trade in the panel with it unless the person has edits in it, and the risk
+    // report at the corrected inputs, carrying a setup's choices over; it clears a risk run with a note. No live view can book, so no form of
+    // a new trade is held while corrections arrive.
     async liveRefresh(){
-      const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:risk.shown()||risk.running()});
-      // What the risk report holds belongs to the inputs the correction changed, except a setup the person is editing, which is kept with
-      // its edits. It is cleared before the read, with the notes, so that a read that then fails leaves them, as it leaves the desk it had.
-      if(plan.keepRiskSetup)risk.clearRun();else risk.reset();
-      for(const note of plan.notes)options.notice(note);
+      const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:risk.shown()||risk.running(),riskRetained:risk.unconfirmed()});
+      inputsChanged(plan.risk);
       await load(catalog?.kind??'directory',true);
-      if(plan.reloadPanel){if(panel.current()?.kind==='risk')await risk.open();else{await position.reload();await swapEditor.liveRefresh();}}
+      if(plan.risk.reopen)await risk.open();
+      if(plan.reloadPanel){await position.reload();await swapEditor.liveRefresh();}
     },
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
