@@ -645,7 +645,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Entities & counterparties | Read trade parties | `ReadTradeParties`, `ReadMarketData` | Pinned |
 | Blotter rows and holdings | Read trades | `ReadTrades`, `ReadMarketData` | Pinned |
 | Custom curves | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
-| Blotter risk results, Delivery prices, Interval series, Jobs & Infrastructure, Users & access, Settings › AI | none | | Not supported |
+| Blotter risk results, Delivery prices, Interval series, Jobs & Infrastructure, Users & access, Settings › AI, PPA bookings | none | | Not supported |
 
 - Read current page has no permissions of its own; if the dispatched tool is off it is
   refused with `tool_not_enabled`. On an unsupported page it returns
@@ -879,10 +879,10 @@ The tool set is fixed; each tool is switched on per agent version.
   the knowledge mode or retained context, the frame id when selected, and the page
   report, exactly `{"page","selection"}` as Looking at shows: one page identifier per
   navigable view from a closed set, `curves`, `contract_definitions`, `schedules`,
-  `power_tous`, `reference_data`, `parties` and `blotter`, which the assistant reads,
-  and `blotter_risk`, `delivery_prices`, `custom_curves`, `interval_series`,
-  `interval_curves`, `jobs`, `users_access` and `settings_ai`, which it does not. A
-  read page's selection is its read tool's input for a view the page shows; any other
+  `power_tous`, `reference_data`, `parties`, `blotter` and `custom_curves`, which the
+  assistant reads, and `blotter_risk`, `delivery_prices`, `interval_series`,
+  `interval_curves`, `jobs`, `users_access`, `settings_ai` and `ppa`, which it does not.
+  A read page's selection is its read tool's input for a view the page shows; any other
   page's is empty. Before admission and writing nothing it refuses an invalid report
   (`page_report_invalid`, checked by the parser Read current page dispatches with), a
   conversation the principal does not own in this scope, answered like an unknown id

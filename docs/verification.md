@@ -1439,8 +1439,9 @@ what it showed and its As of date. A target pinned to an As of date the page no 
 shows waits for Go and says why, and Go selects that date and opens the curve. A live
 target that would leave unsaved booking edits waits and offers Go anyway, which moves,
 with Back, and Back from a page with unsaved edits says so first too, offering Back
-anyway. On Delivery prices Looking at says the page is not read, and Read current page
-is refused `page_not_supported` in plain words. During a turn Send becomes Stop with the
+anyway. On Delivery prices and PPA bookings Looking at says the page is not read, an ask
+from either is admitted with the page and no selection, and Read current page is refused
+`page_not_supported` in plain words. During a turn Send becomes Stop with the
 agent and conversation fixed, and Stop marks the answer incomplete. A send lost before it
 left keeps the draft with Retry and Discard, also after a reload, and Retry sends the same
 identity once; while an ask is in flight History offers no conversation to open. After a
