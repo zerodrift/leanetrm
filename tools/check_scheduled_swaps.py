@@ -44,7 +44,7 @@ def prepare(market,manifest):
 
 
 def check_unvalued_lifecycle(c,workspace,trade,run_worker):
-    """A swap whose settlement lifecycle is under way, at a close that cannot value what remains of it (D217).
+    """A swap whose settlement lifecycle is under way, at a close that cannot value what remains of it (D218).
 
     Its row states why, with no PV, mark or lifecycle measures, and every other fact it states where the close values it; totals leave
     it out, and a risk run, the same run queued and the risk catalog list it with that reason.
@@ -64,7 +64,7 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     assert group['unvaluedPositions']==unvalued(held)>0 and exact(group['presentValue'])==total(held,'presentValue'),group
     assert late['unvaluedPositions']==unvalued(rows)
     def check(name,condition):assert condition,name
-    # The desk's money totals (D220) add the valued positions across quantity units and count those they leave out, this one among them.
+    # The desk's money totals (D221) add the valued positions across quantity units and count those they leave out, this one among them.
     check_money_totals(lambda view:blotter(c,frame(UNPRICED_FEBRUARY),view)[0],check,rows,'the unpriced-February close')
     c.call('profile',{'profile':'risk'})
     choices=risk_catalog(c,late_context)

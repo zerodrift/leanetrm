@@ -220,7 +220,7 @@ Leaf futures contracts retain exact market terms; composed instruments retain no
 Pricing reports typed gross execution P&L and open quote sensitivity; it does not
 implement futures PV, settlement cash, variation margin or fees.
 
-A close that cannot value a held position no longer fails the Blotter (D217). The
+A close that cannot value a held position no longer fails the Blotter (D218). The
 trading workspace, Blotter and pivot reads, and the futures holdings and futures
 Blotter reads, return every position in scope. Exactly `source_expired` and
 `missing_observation` are position-specific (`ValuationStatus`): such a position keeps
@@ -409,7 +409,7 @@ its own index, which it says are unavailable when the catalog does not hold them
 width, as titled lists like Terms (a table of eleven to thirteen columns does not fit it). Risk says
 that a risk run's results for the position will show there, and shows none yet.
 
-Amend (D218) is offered to an account that may amend, and puts the position's form in the Terms tab
+Amend (D219) is offered to an account that may amend, and puts the position's form in the Terms tab
 in place of its read view: the revision selector, the booking facts, the instrument and, for a swap,
 each side with its valuation and payment schedules, the amendment reason and its effective time, the
 preview and its confirmation, a retained request's Check status and Retry, and the deal's money
@@ -445,7 +445,7 @@ tab or Retry) and gives focus back once it is enabled, if nothing else has taken
 The page's other controls lose focus as before. Pressing the row that is already open leaves the
 panel as it is. The assistant's page report names the trade the panel shows, at the revision the
 Blotter holds or, while its form is open, the one the form shows, which can be an earlier one
-(D218); a target for another revision opens the position at the Blotter's and says which way they
+(D219); a target for another revision opens the position at the Blotter's and says which way they
 differ, and a target for a trade is refused in a pivot, before the page moves, in words that name
 the Individual trades view: the view is the one the Blotter has applied, and not a Display choice
 that has not been applied. The risk report mode of the panel is not built, and the page report
@@ -472,7 +472,7 @@ account that cannot amend is told why and not offered Amend, that a live refresh
 terms again, a swap's among them, and draws the panel again, that it keeps focus on a tab and on
 Open curve, and that it clears a risk run with a note that a failed read keeps.
 
-New trade (D218) opens the side panel on a head with the title New trade, a Future | Swap switch of
+New trade (D219) opens the side panel on a head with the title New trade, a Future | Swap switch of
 two buttons with neither pressed, and the way to PPA bookings, which are booked on their own page.
 It reads nothing and chooses nothing for the person. The panel is named for what it holds (New
 trade, New future, New swap) and its body is a group of that name; the roles of a tablist and a
@@ -544,7 +544,7 @@ market they make together (`marketKey`, `marketLabel`), by which pivots group it
 `Projection`, or `Active` once a settlement determination exists: an active swap's PV is its
 lifecycle's remaining value, with that lifecycle's measures (`lifecycle`), it has no mark, and its
 other facts are those its projection stated (P41). A scheduled or lifecycle valuation that fails
-with one of the two position-specific codes leaves the position unvalued with that code (D217), and
+with one of the two position-specific codes leaves the position unvalued with that code (D218), and
 a risk run leaves it out and lists it. The read's `work.swapValuations` counts the valuations it
 attempts: one for each distinct single-period unit, which the positions holding it share, and one
 for each scheduled swap and each swap valued by its lifecycle, which are valued for their own
@@ -588,11 +588,11 @@ its booked facts, its totals and its risk exclusion. `--scheduled-swap-check` co
 row before and after its first determination (P41), checks the memberships a lifecycle read states
 for a pay-fixed and a receive-fixed swap, and adds a close after the January determinations that
 pins no February future, at which a swap whose lifecycle is under way is unvalued with
-`missing_observation` and keeps its facts, its book total and the desk's money totals (D220) leave
+`missing_observation` and keeps its facts, its book total and the desk's money totals (D221) leave
 it out, and a risk run, the same run queued and the risk catalog list it; its browser checks drive
 the scheduled ticket, its review, the settlement view and its retained commands in the panel.
 
-The desk's money totals come from a second pivot convention (D220). `trading_blotter_totals_v1`
+The desk's money totals come from a second pivot convention (D221). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and
 MMBtu positions is never one number in it, and the browser may not add amounts.
 `trading_blotter_money_totals_v1` partitions by the view's dimensions, the exact instrument type and
@@ -605,7 +605,7 @@ refused with `blotter_view`, over an empty book too. A group states `instrumentT
 as exact money of its one currency (`ExactMoney.Add` raises `currency_mismatch` for any other) and
 are null where none is valued or the measure does not apply to the instrument type (swaps have no
 execution P&L, futures no PV). `tradeCount` counts the group's distinct trades and
-`unvaluedPositions` those left out (D217). `trading/blotter`, the workspace
+`unvaluedPositions` those left out (D218). `trading/blotter`, the workspace
 `view` and each of its `summaries` accept either convention, together, with the summary limits and
 the single valuation unchanged. `--desk-fields-check` qualifies the totals on the seeded example
 against exact sums of its rows, across its MWh and MMBtu swaps, and `--valuation-status-check` at
@@ -623,7 +623,7 @@ units of its pivots, and a point for each contract its view selects, in the orde
 `/evaluate` gives them, with the delivery period and the exact price `/evaluate` gives; its
 `unavailableReason` is null. One build prices a whole curve. Only if it fails with
 `source_expired` or `missing_observation` are the contracts that fail alone isolated, and
-each states that code as its point's `unavailableReason` with no price (D217). A curve whose
+each states that code as its point's `unavailableReason` with no price (D218). A curve whose
 view selects no contract has no points. A curve that cannot be read has null `unit` and
 `points` and states the code its own `/evaluate` read raises, which is the failure of its
 one build of every contract, whatever isolating its contracts then met: `missing_curve` for

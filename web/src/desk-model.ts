@@ -25,7 +25,7 @@ export type Summary={view:{groupBy:string[];measures:string[];pivotConvention:st
 
 const moneyTotals='trading_blotter_money_totals_v1',quantityTotals='trading_blotter_totals_v1';
 const moneyMeasures=['presentValue','executionPnl','tradeCount'];
-// The desk's groupings of its one read: tile totals and splits as money per currency (D220), the position mix
+// The desk's groupings of its one read: tile totals and splits as money per currency (D221), the position mix
 // and the markets per quantity unit (D98).
 const desk=[
   {groupBy:['instrumentType'],measures:moneyMeasures,pivotConvention:moneyTotals},
@@ -120,7 +120,7 @@ function totalNote(total:string|null,excluded:number):string|null{
 export type TileRow={currencyKey:string;currency:string;total:string|null;trades:number;excluded:number;note:string|null;byBook:{bookId:string;book:string;value:string|null;excluded:number}[]};
 /** A money tile: one row per exact currency, never added across currencies. `note` is the tile's own when it has one row. */
 export type Tile={key:'swapPv'|'futuresPnl';rows:TileRow[];note:string|null};
-/** Swap PV and futures execution P&L, each per currency and split by book, from the money totals (D220). */
+/** Swap PV and futures execution P&L, each per currency and split by book, from the money totals (D221). */
 export function summaryTiles(summaries:readonly Summary[]):Tile[]{
   const types=groupsOf(summaries,byType),books=groupsOf(summaries,byBook);
   const labels=currencyLabels([...types,...books]);

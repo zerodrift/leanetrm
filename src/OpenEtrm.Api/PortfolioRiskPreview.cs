@@ -51,7 +51,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy};
     }
 
-    // A queued run retains its connected graphs and the positions its submission left out (D217), and
+    // A queued run retains its connected graphs and the positions its submission left out (D218), and
     // prepares exactly the positions its submission prepared.
     internal readonly record struct RetainedRun(ImmutableArray<ConnectedMarketEvidence> Graphs,ImmutableArray<ExcludedPosition> Excluded);
     private async Task<(PortfolioValuation.Prepared Portfolio,ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books)> PreparePortfolio(

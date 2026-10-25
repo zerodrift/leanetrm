@@ -739,7 +739,7 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .side-panel-form .instrument-choices button{white-space:normal;min-width:0}
 .side-panel-form .available-date-calendar{width:min(21rem,100%)}
 .side-panel-form select,.side-panel-form input:not([type=checkbox]),.side-panel-form textarea{width:100%}
-/* The swap tickets and the settlement view take the panel's one column too (D218): each side's terms stack, and a payment table too wide
+/* The swap tickets and the settlement view take the panel's one column too (D219): each side's terms stack, and a payment table too wide
    for the panel gives way to its one-line summary of each payment, as it does on a phone. */
 .side-panel-form .swap-term-columns,.side-panel-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
 /* The swap ticket's way to the scheduled ticket has a long name, which wraps in the panel's column rather than widen it. */

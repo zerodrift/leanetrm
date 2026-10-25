@@ -73,7 +73,7 @@ The redesign fails, even if it renders, if any of these happen:
 - D160 and D188: Blotter reads keep their scoped contracts. Live corrections stay
   an explicit, read-only selection.
 - D190 and D191: the assistant reports exactly what the page shows. D191 relies
-  on trade dialogs being modal; this design changes that (D218 below).
+  on trade dialogs being modal; this design changes that (D219 below).
 - Portfolio risk accepts at most 16 bumps per request with holdings detail and
   4,096 with books detail. Each factor appears once, with an explicit positive
   size (`src/OpenEtrm.Api/PortfolioRiskPreview.cs`).
@@ -101,7 +101,7 @@ moves into the workspace card at the foot of the sidebar.
 
 ## Opening on the newest close
 
-Decided by the owner (D216):
+Decided by the owner (D217):
 
 1. Pages that read As of start from the newest date in the authorized
    availability calendar (`market/dates`, `maxDate`) for the current scope.
@@ -120,7 +120,7 @@ Decided by the owner (D216):
 
 ## Positions the close cannot value
 
-Decided by the owner (D217). Today one unvaluable position fails the whole
+Decided by the owner (D218). Today one unvaluable position fails the whole
 Blotter read. For example, at every close after an expired constituent the read
 returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
 
@@ -169,7 +169,7 @@ currencies:
 
 Not-valued positions are excluded and noted as above. Tile totals and their
 per-book splits come from money-totals pivots (`trading_blotter_money_totals_v1`,
-D220) grouped by instrument type and by book, which add money of one currency
+D221) grouped by instrument type and by book, which add money of one currency
 across quantity units. The position mix comes from the backend's commodity and
 instrument-type pivot (`trading_blotter_totals_v1`). All of them are summaries of
 the Blotter's own read.
@@ -317,7 +317,7 @@ read trades.
 ## Backend changes
 
 1. Per-position valuation status in trading workspace, Blotter and pivot reads;
-   totals exclude not-valued positions and report them (D217).
+   totals exclude not-valued positions and report them (D218).
 2. A commodity dimension in the managed Blotter pivot, or an explicit commodity
    on each row.
 3. Swap direction on Blotter rows, from the trade's sides.
@@ -328,10 +328,10 @@ read trades.
 
 | ID | Decision |
 | --- | --- |
-| D216 | The Blotter is the default trading page and opens on the newest close under the rules above |
-| D217 | Trading reads report positions that cannot be valued at the selected close, with structured reasons; totals exclude them and say so |
-| D218 | Trade entry and amendment move from modal dialogs into the Blotter's side panel. Refines D191: the page report names the panel's position and mode, and the risk lens state |
-| D219 | Risk reports come back inline: run bar, Values/Risk lens, risk tile and panel detail. Shock sizes are explicit per price unit |
+| D217 | The Blotter is the default trading page and opens on the newest close under the rules above |
+| D218 | Trading reads report positions that cannot be valued at the selected close, with structured reasons; totals exclude them and say so |
+| D219 | Trade entry and amendment move from modal dialogs into the Blotter's side panel. Refines D191: the page report names the panel's position and mode, and the risk lens state |
+| D220 | Risk reports come back inline: run bar, Values/Risk lens, risk tile and panel detail. Shock sizes are explicit per price unit |
 
 ## Verification
 
@@ -344,7 +344,7 @@ read trades.
   position, amend, book with a draft price, run **Shock every held contract**,
   read the lens, clear the run.
 - The page benchmark keeps the Blotter under one second on the standard fixture.
-- Adversarial review for D217 and D218 before publication.
+- Adversarial review for D218 and D219 before publication.
 
 ## Replaced, not kept
 

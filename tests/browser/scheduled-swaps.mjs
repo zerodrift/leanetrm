@@ -2,7 +2,7 @@ import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {newTrade} from './new-trade.mjs';
-// Scheduled financial swaps (D214) are booked, read and amended in the Blotter's side panel (D218): the scheduled ticket takes the panel's
+// Scheduled financial swaps (D214) are booked, read and amended in the Blotter's side panel (D219): the scheduled ticket takes the panel's
 // form part in place of the swap ticket, and a booked scheduled trade opens from its row, its terms by period and its review in Terms.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});

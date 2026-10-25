@@ -166,7 +166,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
   function settle(h:Holding){guarded(()=>swapEditor.openSettlement(h));}
-  // New trade (D218) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
+  // New trade (D219) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
   const newTrade:PanelMode={kind:'new',product:null};
@@ -291,7 +291,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,...fields}=h;
     return {...fields,priceUnit:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
-  // What a trade row's value cell says when the close cannot value it, on screen and in exports (D217).
+  // What a trade row's value cell says when the close cannot value it, on screen and in exports (D218).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
   // What a trade row's cell says where the backend states no single figure for a reason of the position's own: a scheduled swap's
   // quantities and prices by period, or a mark a lifecycle valuation does not state. Exports say it as the cells do.
@@ -372,7 +372,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const pivotKeys=pivotColumns(view.groupBy,view.measures);
     const columns=blotterColumns.filter(([key])=>pivotKeys.includes(key));
     tableColumns=columns.map(c=>c[0]);
-    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D217).
+    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D218).
     const counted=read.groups.some(g=>excludedPositions(g.unvaluedPositions)>0);
     const rows:Record<string,string|null>[]=read.groups.map(g=>({...Object.fromEntries(columns.map(([key])=>[key,groupLabel(g,key)])),unvaluedPositions:String(excludedPositions(g.unvaluedPositions))}));
     const required=['instrumentType','unit','currency','priceUnit'];
@@ -511,7 +511,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     await follow(amended,receipt);await followBooked(command,receipt);
   }
   // A settlement command that went through changes what its swap is valued at: risk results run before it no longer hold, and are
-  // cleared, with a note when there were any (D218). The Blotter is read again as a live correction reads it, so that the panel, and
+  // cleared, with a note when there were any (D219). The Blotter is read again as a live correction reads it, so that the panel, and
   // the settlement view the command was sent from, stay, and that view reads its state again.
   async function settled(){
     const shown=risk.shown();risk.reset();

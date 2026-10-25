@@ -298,7 +298,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const mount=()=>{options.host().append(root);root.hidden=false;};
  mountSwapSideEditor('fixed');mountSwapSideEditor('floating');mountFirstFloatingEditor();arrangeSwapSections();
  const annotations=tradeAnnotations('swap',options.zone);
- // A trade's settlement and P&L view, and the scheduled swap ticket (D214), take the panel's form part as the swap ticket does (D218),
+ // A trade's settlement and P&L view, and the scheduled swap ticket (D214), take the panel's form part as the swap ticket does (D219),
  // each in place of the others. The page opens another revision of a scheduled trade, and the settlement view from a ticket, once it
  // has asked about what the ticket holds.
  const settlement=setupSwapSettlement(options);

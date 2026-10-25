@@ -17,7 +17,7 @@ const duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_t
 export const lifecycleMeasures=[['Remaining contractual value','remainingValue'],['Determined outstanding','determinedOutstanding'],['PV of determined outstanding','determinedPv'],['Due / overdue balance','dueBalance'],['Realized trading P&L','realized'],['Unrealized trading P&L','unrealized'],['Actual net cash received','netCash'],['Corrections','corrections'],['Rounding effect','roundingEffect'],['Estimated remaining PV','estimatedRemainingPv']] as const;
 
 /**
- * A financial swap's settlement and P&L view (D215), which the side panel hosts as it hosts the swap ticket (D218): its occurrences,
+ * A financial swap's settlement and P&L view (D215), which the side panel hosts as it hosts the swap ticket (D219): its occurrences,
  * determinations, balances, cash and P&L bridge, and the commands that write them. `host` is the panel's form part; the view is kept on
  * the page's shelf until it opens there, and goes back when it is reset. What is typed into its payment form, and a correction's due
  * instant, are edits. A command it sends that goes through, or one the page settles for it, makes the page read the view again.
