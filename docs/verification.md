@@ -1556,12 +1556,17 @@ pushes, pull requests and manual dispatch. Checkout and tool-setup actions are
 pinned to exact commits. The checks job has read-only repository access, does not
 persist checkout credentials and requires no repository secrets. The full local
 `check_all.py` command remains available. CI partitions its existing stages with
-`--group workspace`, `--group ppa` and `--group recovery`; each fresh checkout
-repeats all shared preparation and checks. The union covers every full-gate stage,
+`--group workspace`, `--group trading`, `--group ppa` and `--group recovery`;
+each fresh checkout repeats all shared preparation and checks. The union covers every full-gate stage,
 with no duplicated preview stages. Each group retains a 45-minute job deadline;
 individual command and owned-resource deadlines remain in force. The expanded
-51-stage sequential gate exceeded that job deadline on Ubuntu. Group completion
-is reported separately from full-gate completion, and the final required check
+51-stage sequential gate exceeded that job deadline on Ubuntu. The workspace
+partition subsequently exceeded it as trading and settlement coverage grew.
+The trading partition now owns swap pricing, settlement, observation schedules,
+portfolio valuation and close-worker checks, leaving the other workspace browser
+checks in their own job. Every preview stage still runs once across the matrix;
+this split does not establish a measured runtime for the new partitions.
+Group completion is reported separately from full-gate completion, and the final required check
 accepts only successful completion of every group. Failures, cancellation and
 skipped groups cannot qualify. It does not publish packages or
 deploy the application. A separate, gated `publish` job runs only after successful
