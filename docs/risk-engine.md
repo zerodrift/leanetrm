@@ -117,6 +117,27 @@ swap, rate, interpolation and bump conventions. Each bump or stress transports
 an exact catalog `factor` descriptor, an explicit `size` and its convention;
 series/quote identifiers alone no longer define a request.
 
+The catalog also names the targets of what the selected books hold, which the Blotter's
+risk report presets shock ([blotter-desk.md](blotter-desk.md), Risk report inline).
+`heldContractTargets` has one whole-contract target for each distinct graph point that a
+held instrument's declared dependencies are priced from, on the coordinate that publishes
+that point: a primitive market quote, or a computed output such as a basis curve's.
+`heldCurveTargets` has the whole-curve target of each curve those points are on, on the same
+coordinate. Both keep the catalog's order and name only targets the catalog offers. They are
+resolved from the declarations and graph bindings of the positions the run would value, so a
+position the close cannot value contributes nothing of its own. A held point that is no whole
+contract, such as a published custom curve's output, or that no coordinate publishes, such as
+a frozen final settlement, is named by its label in `heldContractsWithoutTarget`, and a curve
+that no whole-curve target covers in `heldCurvesWithoutTarget`; no broader or narrower target
+stands in for either. Every `excludedPositions` entry names the book the position is held in
+(`bookId`), in the catalog, the report and a job's retained frame and result, and a queued
+run leaves out only positions held in the books its list names.
+
+A holdings-detail request takes at most sixteen bumps. The Blotter's risk report makes a
+larger preset run in parts of at most sixteen, each its own request, or its own queued job,
+at the catalog's one retained context. Each factor's results are independent, so nothing
+combines the parts, and a part that fails is reported as failed.
+
 The shared pricing policy's `bumpBasis` and `bumpTicks` select the generated-close
 operation's automatically constructed bumps. Interactive requests supply each
 coordinate bump size and `absolute_curve_coordinate_symmetric_v1` convention

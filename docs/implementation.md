@@ -243,8 +243,8 @@ group leaves a position out; saved views do not keep that column. The export met
 states the report's count. Every other failure still fails the read.
 
 Portfolio risk runs, their catalog and their queued jobs leave out the positions the
-run's base close cannot value and list them as `excludedPositions` (trade, binding,
-reference, instrument type and reason). Normally one preparation covers every held
+run's base close cannot value and list them as `excludedPositions` (trade, binding, the
+book it is held in, reference, instrument type and reason). Normally one preparation covers every held
 position. Only when it fails with one of the two codes are the positions the Blotter
 reports unvalued at that close left out and the rest prepared, so holding rows, inputs,
 book totals and work are those of a run over exactly the remaining positions. A queued
@@ -286,9 +286,10 @@ of its groups states its `definitionRevisionId`, so two groups of one market nev
 The Blotter's trade rows are a desk (blotter-desk.md, Desk layout), drawn from one workspace
 read and its four summaries. Its tiles show swap PV and futures execution P&L per exact currency
 with a split per book, from the money totals; the number of positions read with their mix by
-commodity and instrument type; and whether a risk report has run at this close, which for now
-opens the risk report below the positions and follows that report's own Close and a queued job
-that finishes on its timer, through the report's `onChange`. Swap PV by market is one card with a
+commodity and instrument type; and where the risk report stands, which is the side panel's Risk
+report mode: not run at this close, open in the panel, a queued run under way, or results in the
+panel. Its button opens that mode, and it follows a queued part that finishes on the report's own
+timer through the report's `onChange`. Swap PV by market is one card with a
 panel per currency, and long and short by market one card with a panel per quantity unit; each
 panel has a caption, bars about 20px tall, and its bars listed as text beside the canvas. A swap's
 booked quantity is unsigned, so its bar takes the side the backend's direction states (pay fixed
@@ -383,10 +384,13 @@ that nothing can return to. A session that has ended cannot send what the form h
 asked about. A chart's image export that fails reports the error and leaves the Blotter as
 it is, unless the failure is a denial of access, which clears it as it does for every read. The
 assistant's moves hold for unsaved edits through their own Go anyway (D191). A live correction
-(D188) reads an open panel again, unless it holds edits, which it leaves alone, and clears the risk
-card before it reads, with the note "Risk results cleared · live corrections changed the inputs"
-when a run's results were on it (`liveRefreshPlan`), so that a read that then fails leaves the note,
-as it leaves the desk it had. No live view can book, so no new-trade form is held while corrections
+(D188) reads an open panel again, unless it holds edits, which it leaves alone, and clears a risk
+run before it reads, with the note "Risk results cleared · live corrections changed the inputs"
+when its results were on screen or a queued part of it was under way (`liveRefreshPlan`), so that a
+read that then fails leaves the note, as it leaves the desk it had. An open risk report is read again
+too, as the catalog it offers may change, unless its setup holds edits: those are kept, with the
+note "Risk setup kept with your edits · it was opened before these live corrections, so a run of it
+uses the inputs from then". No live view can book, so no new-trade form is held while corrections
 arrive. The notices one action says are kept beside each other, and none replaces another unseen.
 
 The position view shows the instrument, trade reference, revision and book, the market, delivery,
@@ -452,12 +456,12 @@ Blotter holds or, while its form is open, the one the form shows, which can be a
 (D219); a target for another revision opens the position at the Blotter's and says which way they
 differ, and a target for a trade is refused in a pivot, before the page moves, in words that name
 the Individual trades view: the view is the one the Blotter has applied, and not a Display choice
-that has not been applied. The risk report mode of the panel is not built, and the page report
-states no risk lens. The browser checks assert the placement at 1440 by 900 (the first position
-above the fold, the tiles unmoved), the columns the grid keeps at 1440 with the navigation open and
-collapsed and at about 1700, and, as a wider panel narrows the grid, that Curve goes before Mark,
-down to neither; the layout at 1100, with the assistant open and at 760 with the page behind the
-sheet out of reach, the keyboard behavior, the tabs, the reads, the ink of the mark minus price of a
+that has not been applied. The page report states no risk lens, which is not built. The browser
+checks assert the placement at 1440 by 900 (the first position above the fold, the tiles unmoved),
+the columns the grid keeps at 1440 with the navigation open and collapsed and at about 1700, and, as
+a wider panel narrows the grid, that Curve goes before Mark, down to neither; the layout at 1100,
+with the assistant open and at 760 with the page behind the sheet out of reach, the keyboard
+behavior, the tabs, the reads, the ink of the mark minus price of a
 short future and of a receive-fixed swap, and Open curve of a future and of a swap, the form of an
 amendment in the Terms tab, and the questions asked before edits are given up: by a switch of
 position, by each route out of the Blotter, by a calendar's or the date lookup's edit, by a change
@@ -474,7 +478,41 @@ again. An amendment of the instrument, of a future's month and of a swap's price
 new binding, with its first revision still readable. `--live-calculation-check` asserts that an
 account that cannot amend is told why and not offered Amend, that a live refresh reads the panel's
 terms again, a swap's among them, and draws the panel again, that it keeps focus on a tab and on
-Open curve, and that it clears a risk run with a note that a failed read keeps.
+Open curve, and that it clears a risk run with a note that a failed read keeps, reads an open risk
+report's catalog again for the new context and keeps a risk setup that holds edits, with its note.
+
+The panel's Risk report mode (blotter-desk.md, Side panel) holds the risk report (`risk-view.ts`),
+which the toolbar's Risk report and the risk tile open for an account that can run scenarios; one that
+cannot is told why by both, and is offered neither. The mode reads the risk catalog of the Blotter read
+on screen and offers three reports, none of them chosen for the person. Shock every held contract and
+Parallel shift shock the scenario targets the catalog names for what the books hold
+(`heldContractTargets`, `heldCurveTargets`), taken by their ids and in the catalog's order: the
+browser matches no curve or contract (`risk-presets.ts`). Each target is shocked by the size entered
+for its price unit, and there are no built-in sizes: the sizes a run used are kept for the session, by
+account (`openetrm.desk.shockSizes.<profile>`), and prefilled the next time, each marked as prefilled
+until the person changes it; without session storage the sizes start empty. Custom scenario is the
+scenario lab with nested stresses. Each preset says how many contracts or curves it shocks, names the
+held prices and curves the catalog has no whole target for, which it does not shock, and the report
+lists the positions the close cannot value, which a run leaves out. A run of more than sixteen shocks
+is made in parts of at most sixteen, at the catalog's one retained context: Run now sends the parts
+one after another, and Queue as job submits one job for each part, each kept as the request it was
+first sent as until its outcome is known. A part whose submission has no known outcome keeps the run
+retained for Reconcile, which sends the same requests again and takes a job they return already done
+with its result, and blocks another run until it is settled; meanwhile the other parts show their
+results and that part says it has none. A part that is refused or fails is said to be, and the others
+still run. The parts are shown as one run: each factor in its own section, the first open, with
+nothing added across factors or parts, and the panel lies over the desk at its wider width while it
+shows results. A download reads
+every part again under current authority and holds each part's report, so it needs every part. What
+the report holds stays while the panel shows a position or a new trade, and the risk tile says where
+its results are; a new read of the Blotter, a change of context, an access denial and a settlement
+record clear it. The setup's choices and entries are edits the panel asks about before they are left,
+as a form's are, and a run takes them as its own. The page report names the mode (`blotter_risk`),
+which the assistant does not read. The run bar, the Values | Risk lens and the position's Risk tab are
+not built, so a run's results are in the report alone. `tools/run_preview.py --check --risk-jobs-check
+--browser-check` drives each preset, the split run made now and queued, a part that fails, is refused
+or loses its reply, the prefilled sizes, the question asked before the setup's edits are left, the
+retained submissions and the job history.
 
 New trade (D219) opens the side panel on a head with the title New trade, a Future | Swap switch of
 two buttons with neither pressed, and the way to PPA bookings, which are booked on their own page.

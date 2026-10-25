@@ -113,21 +113,40 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
   "document.activeElement.id==='page-title'",
   "[document.activeElement.id,document.activeElement.tagName]");
  // A risk run belongs to the inputs it was made on: a live correction clears it and says so, and a refresh that then fails keeps the note.
+ // The report is in the panel's Risk report mode, whose setup a correction reads again, as the catalog it offers may change.
  const riskNote='Risk results cleared · live corrections changed the inputs';
+ const catalogs="window.liveResponses.filter(r=>r.path==='/api/portfolio/risk/catalog')";
+ const reportOpen="document.querySelector('#side-panel').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled";
  const runRisk=async()=>{
-  await click('#desk-risk-run');
-  const factor=await evaluate("(()=>{const c=window.liveResponses.filter(r=>r.path==='/api/portfolio/risk/catalog').at(-1).data,source=c.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01');return c.scenarioTargets.find(t=>t.id===source.id&&JSON.stringify(t.factor)===JSON.stringify(source.factor)).id;})()");
+  await click('#desk-risk-run');await wait(reportOpen+"&&"+idle);await click('input[name=risk-choice][value=custom]');
+  const factor=await evaluate(`(()=>{const c=${catalogs}.at(-1).data,source=c.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01');return c.scenarioTargets.find(t=>t.id===source.id&&JSON.stringify(t.factor)===JSON.stringify(source.factor)).id;})()`);
   await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait("document.querySelector('#risk-results .tabulator-row')");
  };
  await runRisk();
+ const catalogsBefore=await evaluate(catalogs+'.length');
  await correct('base','3.371');
- await wait("document.querySelector('#live-status').dataset.state==='live'&&!document.querySelector('#risk-results .tabulator-row')&&"+idle);
- await check('a live correction clears a risk run, whose inputs it changed, and the page says so',`!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})&&document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Not run at this close'`,"[document.querySelector('#notice').textContent,document.querySelector('#desk-tile-risk').textContent]");
+ await wait("document.querySelector('#live-status').dataset.state==='live'&&!document.querySelector('#risk-results .tabulator-row')&&"+reportOpen+"&&"+idle);
+ await check('a live correction clears a risk run, whose inputs it changed, and the page says so',`!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})&&document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Set up in the panel'`,"[document.querySelector('#notice').textContent,document.querySelector('#desk-tile-risk').textContent]");
+ await check('and reads the risk setup open in the panel again, for the context the correction made',
+  `${catalogs}.length===${catalogsBefore}+1&&${catalogs}.at(-1).data.context.contextId!==${catalogs}.at(-2).data.context.contextId&&${catalogs}.at(-1).data.context.contextId===window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.context.contextId&&[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)`,
+  `[${catalogs}.length,${catalogsBefore}]`);
+ // A setup that holds the person's own edits is kept as they left it, with a note of the inputs a run of it then uses.
+ await click('input[name=risk-choice][value=held]');
+ await evaluate("(()=>{const n=document.querySelector('#risk-size-0');n.focus();n.select();})()");await command('Input.insertText',{text:'0.25'});
+ const catalogsKept=await evaluate(catalogs+'.length');
+ await correct('base','3.373');
+ await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.context.contextId!==${catalogs}.at(-1).data.context.contextId&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
+ await check('a live correction keeps a risk setup that holds the person\'s edits, reads no catalog in its place, and says what a run of it uses',
+  `document.querySelector('#notice').textContent.includes('Risk setup kept with your edits · it was opened before these live corrections, so a run of it uses the inputs from then')&&document.querySelector('#side-panel').dataset.mode==='risk'&&document.querySelector('input[name=risk-choice][value=held]').checked&&document.querySelector('#risk-size-0').value==='0.25'&&${catalogs}.length===${catalogsKept}`,
+  "[document.querySelector('#notice').textContent,document.querySelector('#risk-size-0')?.value]");
+ // Giving the edits up starts the setup afresh.
+ await click('#side-panel-close');await wait("!document.querySelector('#side-panel-prompt').hidden");await click('#side-panel-prompt button:not(.secondary)');
  await runRisk();
  await evaluate('window.failLiveWorkspace=true');await correct('base','3.372');
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
  await check('a refresh that fails after it cleared a risk run keeps the note that says so',`!document.querySelector('#risk-results .tabulator-row')&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})`,"[document.querySelector('#notice').hidden,document.querySelector('#notice').textContent,!!document.querySelector('#risk-results .tabulator-row')]");
  await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
+ await click('#side-panel-close');
  // New trade follows the backend: a live view cannot book, as a historical one cannot, so a trader there is not offered it and is told why, in the
  // backend's words, which say that the view is live. No form of a new trade is open there, and none is held while corrections arrive.
  await persona('trader');await click('#example');await click('#nav-futures');

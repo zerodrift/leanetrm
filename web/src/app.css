@@ -915,17 +915,45 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .curve-contract-row input,.curve-contract-row select{font-size:12px;min-width:0}
 .curve-contract-row input[inputmode=decimal]{font-family:var(--mono)}
 .curve-contract-mapping>button{width:100%;margin-top:4px}
-#risk-card{padding:24px}
-.risk-scenario-editor{padding:20px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(125deg,#f4f9f6,#fff 75%);margin:18px 0}
-.risk-scenario-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
-.risk-scenario-heading p{max-width:58ch;margin:4px 0 0}
-.risk-target-filters,.risk-bucket-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.risk-target-filters{max-width:640px;margin:14px 0}
+/* The side panel's risk report: a choice of report, its sizes or the scenario lab, and the run's jobs and results. */
+.risk-report fieldset{border:0;padding:0;margin:0;min-width:0}
+.risk-report input,.risk-report select{max-width:100%;box-sizing:border-box}
+.risk-report>.field-help:first-child{margin-top:0}
+#risk-history{margin:0 0 12px;padding:8px 0;border-bottom:1px solid var(--border)}
+#risk-history>summary{font-size:12.5px;font-weight:600;color:var(--accent-text)}
+#risk-history select{display:block;width:100%;margin-top:6px}
+.risk-choices legend{padding:0;margin-bottom:6px;font-size:12px;font-weight:650;color:var(--text)}
+.risk-choice{display:flex;align-items:flex-start;gap:10px;margin:0 0 6px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);font-size:13px;cursor:pointer}
+.risk-choice:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.risk-choice input{min-height:0;margin:2px 0 0;flex:none}
+.risk-choice>span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.risk-choice small{font-size:11.5px;color:var(--text-2);overflow-wrap:anywhere}
+.risk-preset{margin:12px 0 0}
+.risk-sizes{display:grid;gap:10px}
+.risk-size label{display:block;margin:0 0 4px;font-size:12px;color:var(--text-2)}
+.risk-size input{display:block;width:100%;font-family:var(--mono)}
+.risk-prefilled{display:inline-block;margin-top:4px;padding:1px 8px;border:1px solid #b9d9c9;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);font-size:11px}
+.risk-custom{margin-top:12px}
+.risk-scenario-editor{padding:14px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(125deg,#f4f9f6,#fff 75%);margin:0 0 12px}
+.risk-scenario-heading{margin-bottom:12px}
+.risk-scenario-heading p{margin:4px 0 0}
+.risk-target-filters,.risk-bucket-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.risk-target-filters{margin:12px 0}
 .risk-target-filters select,.risk-bucket-fields input{display:block;width:100%;margin-top:6px}
 #risk-factor,#risk-stress-factor{width:100%;margin-bottom:12px}
-.risk-bucket-fields{max-width:640px;padding:14px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;margin-bottom:14px}
-.risk-bucket-fields .field-help{grid-column:1/-1;margin:0}
+.risk-bucket-fields{padding:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;margin-bottom:14px}
+.risk-bucket-fields .field-help{margin:0}
 #risk-bump,#risk-stress-size{font-family:var(--mono);width:220px}
+#risk-excluded{margin:12px 0 0;color:var(--text-2)}
+.risk-job-parts{list-style:none;margin:4px 0 8px;padding:0;font-size:12px;color:var(--text-2)}
+.risk-job-parts:empty{display:none}
+.risk-part-attention{color:var(--warn)}
+.risk-results .risk-part-failed{color:var(--danger)}
+.risk-results .risk-part-missing{color:var(--warn)}
+.risk-factor{padding:8px 0;border-bottom:1px solid var(--border)}
+.risk-factor>summary{font-size:12.5px;cursor:pointer}
+.risk-factor>summary strong{font-weight:600;overflow-wrap:anywhere}
+.risk-factor>summary span{color:var(--text-2);font-family:var(--mono);font-size:11.5px}
 #risk-stress{border-top:1px solid var(--border);padding-top:16px;margin-top:18px}
 #risk-stress>summary{font-weight:600;color:var(--accent-text)}
 #risk-stress>p{margin-top:10px;max-width:80ch}
@@ -936,14 +964,14 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 #risk-stress-stack li>span:last-child{grid-column:2;font-size:12px;color:var(--text-3);font-family:var(--mono)}
 .risk-layer-number{grid-row:1/3;align-self:center;display:grid;place-items:center;width:26px;height:26px;background:#dcece2;border-radius:50%;font-size:11px;font-weight:700;color:var(--accent-text)}
 .risk-run-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
-#risk-results>h4{margin:24px 0 10px}
-#risk-results>details{padding:12px 0;border-bottom:1px solid var(--border)}
+#risk-results h4{margin:14px 0 8px;font-size:12px}
+#risk-results .risk-factor details{padding:8px 0}
 .swap-projection-choice{margin-top:12px;padding:12px;background:var(--accent-soft);border:1px solid #c5ded0;border-radius:8px}
 .swap-projection-choice select{display:block;width:100%}
 .swap-projection-choice .field-help{margin-bottom:0}
 @media(max-width:1200px){.custom-curve-workspace,.custom-curve-workspace.inspector-collapsed{grid-template-columns:140px minmax(0,1fr)}.custom-curve-workspace.palette-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-inspector{grid-column:1/-1}.custom-curve-inspector #custom-curves-properties{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 18px}.custom-curve-inspector h4,.custom-curve-inspector p{grid-column:1/-1}}
 @media(max-width:760px){.custom-curve-workspace,.custom-curve-workspace.inspector-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-inspector{grid-column:auto}.custom-curve-inspector #custom-curves-properties{display:block}.custom-curve-palette #custom-curves-operators{flex-direction:row;flex-wrap:wrap}.custom-curve-palette button{width:auto}.custom-curve-board{height:350px}}
-@media(max-width:600px){#risk-card{padding:16px}.risk-scenario-editor{padding:14px}.risk-scenario-heading{display:block}.risk-target-filters,.risk-bucket-fields{grid-template-columns:minmax(0,1fr)}.risk-target-filters{gap:6px}.risk-bucket-fields .field-help{grid-column:1}.curve-contract-row{padding:10px}.risk-run-actions>button{flex:1}}
+@media(max-width:600px){.curve-contract-row{padding:10px}.risk-run-actions>button{flex:1}}
 /* Interval series: plain fieldsets, a monospaced paste area and full-width single-line controls. */
 #interval-series-page fieldset,#interval-curves-page fieldset{border:0;padding:0;margin:0;min-width:0}
 #interval-series-select,#interval-series-reason,#interval-series-change-value{width:100%;max-width:480px}

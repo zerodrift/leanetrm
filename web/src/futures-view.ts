@@ -58,7 +58,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const workspace=createTableWorkspace(get('blotter-workspace'),{
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
-    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Shocks'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(load),
+    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Risk report'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(load),
     note:get('new-trade-availability'),lead:get('desk'),overview:get('desk-charts'),aside:get('side-panel'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),
   });
   // Existing booking controls share the table toolbar.
@@ -91,11 +91,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   let earlierViews:string[]=[];
   let draftBase:{name:string;version:string}|undefined;
   let viewsLoaded=false;
-  const risk=setupRisk({api,act,busy,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:renderRisk,scope:()=>{
+  // The risk report of the panel's Risk report mode, for the books and context of the read on screen. What it holds outlives the panel's
+  // other modes, so its results stay while a position is looked at; a new read of the Blotter clears it.
+  const risk=setupRisk({api,act,busy,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:riskChanged,edited:options.unsavedChanged,scope:()=>{
     if(!lastReadRequest)throw Error('Load the blotter before running risk.');
     return {context:{...(lastReadRequest as {context:Record<string,unknown>}).context},bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
   }});
-  get('blotter-risk').onclick=()=>void act(risk.open);
+  get('blotter-risk').onclick=()=>void openRiskReport();
   function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};}
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
@@ -109,7 +111,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The side panel beside the positions: a position's curve, terms, risk and history, and the form of its amendment. Opening a row
   // opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole panel, its form beneath a Future | Swap switch.
   const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
-  const editing=()=>editor.unsaved()||swapEditor.unsaved()||booking.unsaved();
+  const editing=()=>editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||risk.edited();
   const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
   // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
   // Mark, for as long as its columns do not fit the room it has left.
@@ -119,8 +121,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     unsaved:editing,confirmLeave:askLeave(get('side-panel')),docked,
     // On a phone the panel is a sheet over the page, which stays out of reach while it is open, unless the Blotter has been left.
     sheet:()=>phone.matches&&!get('futures-page').hidden,
-    // A swap's settlement figures need more room than a docked panel has: off a phone, the panel lies over the desk at a wider width.
-    wide:()=>!phone.matches&&swapEditor.settlementOpen(),
+    // A swap's settlement figures, and a risk report's results, need more room than a docked panel has: off a phone, the panel lies over
+    // the desk at a wider width.
+    wide:()=>!phone.matches&&(swapEditor.settlementOpen()||panel.current()?.kind==='risk'&&risk.shown()),
     changed:()=>{table?.fitColumns(dockedGiveUp());modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
   // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
   // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
@@ -134,10 +137,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function modeChanged(){
     const mode=panel.current();
     if(sameMode(mode,formsFor))return;
-    formsFor=mode;resetForms();
+    // Set before the forms are reset, which places the panel and so calls this again: the mode is then already the one handled.
+    const left=formsFor;formsFor=mode;resetForms();
+    if(left?.kind==='risk')risk.shelve();
     if(mode!==null&&mode.kind!=='position')deskPanel.left();
     if(mode?.kind==='new')entry.show(mode,mode.product===null?'choose':'loading');
-    options.reported();
+    if(mode?.kind==='risk')risk.mount(panel);
+    renderRisk();options.reported();
   }
   // The panel docks or overlays by the width the main area has: it is placed again when that changes, not when only its height does.
   let mainWidth=main.clientWidth;
@@ -155,7 +161,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const deskPanel=setupDeskPanel({shell:panel,position,holdings:()=>holdings?.holdings,input:positionInput,grid:()=>table,notice:options.notice});
   // Gives the forms the panel hosts up, without asking, and places the panel again for what it then shows: a panel left by its settlement
   // view, however it is left, a switch of mode among the ways, has its own width again.
-  function resetForms(){editor.reset();swapEditor.reset();booking.reset();panel.place();}
+  function resetForms(){editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
   // A new trade has nothing but its form, so the panel it was in is closed with it.
   function dropForms(){resetForms();closeNew();options.reported();}
@@ -269,12 +275,28 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();forgetViews();draftBase=undefined;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Positions');workspace.closeMenus();viewControls();
     try{const saved=restoreTradeRequest(JSON.parse(sessionStorage.getItem(storageKey())??'null'));if(saved){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
   }
-  // Today's risk report opens below the positions; the tile says whether it is open or has results. The report tells the
-  // page whenever that changes, including its own Close and a queued job that finishes on its own timer.
+  // The risk report is the panel's Risk report mode, and the tile says whether its results are there, a queued run is under way, or it is
+  // open with neither. The report tells the page whenever what it shows changes, also when a queued part finishes on its own timer.
   function renderRisk(){
     if(!holdings)return;
-    renderRiskTile(get('desk-tile-risk'),{state:risk.shown()?'results':get('risk-card').hidden?'none':'open',denial:options.canRunRisk()?null:riskDenied,busy:busy()},
-      ()=>{if(get('risk-card').hidden)void act(risk.open);else get('risk-card').scrollIntoView({block:'start'});});
+    const state=risk.shown()?'results':risk.running()?'running':panel.current()?.kind==='risk'?'open':'none';
+    renderRiskTile(get('desk-tile-risk'),{state,denial:options.canRunRisk()?null:riskDenied,busy:busy()},()=>void openRiskReport());
+  }
+  // Results make the panel's risk report wide, and taking them away gives it its own width again.
+  function riskChanged(){renderRisk();panel.place();}
+  // Risk report opens the panel in its Risk report mode, asking first about edits the panel holds, before the page is busy, and reads the
+  // risk catalog of the read on screen unless the report already holds one.
+  const riskMode:PanelMode={kind:'risk'};
+  async function openRiskReport(){
+    if(busy()||!options.canRunRisk()||!holdings)return;
+    if(!await panel.show(riskMode))return;
+    panel.reveal();
+    await act(risk.open);
+  }
+  // Risk report is offered to an account that can run scenarios once the Blotter is read, and says why to one that cannot.
+  function syncRiskReport(){
+    const button=get<HTMLButtonElement>('blotter-risk');
+    button.hidden=false;button.disabled=busy()||!options.canRunRisk()||!holdings;button.title=options.canRunRisk()?'Revalue the selected books under shared market shocks':riskDenied;
   }
   // New trade is offered where the backend allows booking, and says why where it does not, in words under the toolbar that the button points
   // assistive technology at: not in a tooltip, and not left for the person to find out by pressing it.
@@ -284,7 +306,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     button.disabled=busy()||!control.enabled;
     if(control.reason===null)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby','new-trade-availability');
   }
-  function sync(){booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();get('blotter-risk').hidden=false;get('blotter-risk').textContent='Portfolio shocks';workspace.busy(busy());syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function sync(){booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();syncRiskReport();workspace.busy(busy());syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
   function clear(){generation++;chartState=undefined;drawn=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
   function reset(){clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
@@ -518,8 +540,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // the settlement view the command was sent from, stay, and that view clears what the command consumed and reads its state again:
   // also when the Blotter cannot be read, as a form still holding a command that went through would offer it a second time.
   async function settled(command:RequestCommand){
-    const shown=risk.shown();risk.reset();
-    if(shown)options.notice('Risk results cleared · a settlement record changed the values they were run on');
+    const ran=risk.shown()||risk.running();risk.reset();
+    if(ran)options.notice('Risk results cleared · a settlement record changed the values they were run on');
     try{await load('directory',true);}finally{await swapEditor.reloadSettlement(command.operationId);}
   }
   // The position the panel shows of the trade an amendment was made to, if it shows it.
@@ -616,13 +638,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // A live correction reads the desk again, the panel with it unless the person has edits in it, and clears a risk run with a note. No live
     // view can book, so no form of a new trade is held while corrections arrive.
     async liveRefresh(){
-      const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:risk.shown()});
-      // What the risk card holds belongs to the inputs the correction changed. It is cleared before the read, with the note when a run's
-      // results were on it, so that a read that then fails leaves the note, which says what is gone, as it leaves the desk it had.
-      risk.reset();
-      if(plan.clearRisk)options.notice(plan.note!);
+      const plan=liveRefreshPlan({panel:panel.current(),unsaved:editing(),riskRun:risk.shown()||risk.running()});
+      // What the risk report holds belongs to the inputs the correction changed, except a setup the person is editing, which is kept with
+      // its edits. It is cleared before the read, with the notes, so that a read that then fails leaves them, as it leaves the desk it had.
+      if(plan.keepRiskSetup)risk.clearRun();else risk.reset();
+      for(const note of plan.notes)options.notice(note);
       await load(catalog?.kind??'directory',true);
-      if(plan.reloadPanel){await position.reload();await swapEditor.liveRefresh();}
+      if(plan.reloadPanel){if(panel.current()?.kind==='risk')await risk.open();else{await position.reload();await swapEditor.liveRefresh();}}
     },
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
@@ -637,12 +659,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // What a target for a trade needs of the Blotter, checked before the page moves for it, against the view its last read applied and
     // not a Display choice not yet applied: the person's view is never changed to fit it.
     requireTradeRows:()=>requireTradeRows(view.mode),
-    // What the Blotter shows: its risk results, the trade in its panel, the new trade entered there, or the view its last read applied.
-    report:()=>({risk:!get('risk-card').hidden,trade:shownTrade(),entry:newTradeShown(),
+    // What the Blotter shows: its risk report, the trade in its panel, the new trade entered there, or the view its last read applied.
+    report:()=>({risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),
       view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]}}),
-    // A form of the panel with edits not yet sent, or a trade request or risk job whose outcome is unconfirmed.
+    // A form of the panel with edits not yet sent, the risk report's setup among them, or a trade request or risk job whose outcome is unconfirmed.
     unsaved:()=>!!pending.command||editing()||risk.unconfirmed(),
-    // Whether the panel holds the form of an amendment or of a new trade with edits, and the question asked before it is given up: false means the person kept it. The forms
+    // Whether the panel holds the form of an amendment or of a new trade, or a risk report's setup, with edits, and the question asked before it is given up: false means the person kept it. The forms
     // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
     editing,leave,dropForms};
 }

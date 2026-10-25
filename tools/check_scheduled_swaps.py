@@ -6,6 +6,7 @@ from preview_client import PreviewClient
 from preview_fixture import trade_booking, CAT, R, REV, identity, installed_tzdb
 from datetime import datetime, timezone
 import json
+from fractions import Fraction
 from check_blotter_desk_fields import check_money_totals, exact, total, unvalued
 from check_blotter_valuation_status import BY_BOOK, blotter, book_key, excluded, key, risk_catalog, risk_request, unvalued_rows
 from check_swap_settlement import check_settlement_keeps_facts, check_stated_sides, held_row
@@ -50,7 +51,7 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     it out, and a risk run, the same run queued and the risk catalog list it with that reason.
     """
     def frame(at):return next(f for f in workspace['frames'] if f['at'].startswith(at))
-    valued,_=blotter(c,frame('2021-01-15T08:00:00'))
+    valued,valued_context=blotter(c,frame('2021-01-15T08:00:00'))
     late,late_context=blotter(c,frame(UNPRICED_FEBRUARY))
     before,after=(next(r for r in read['holdings'] if r['tradeId']==trade) for read in (valued,late))
     assert before['settlement']=='Active' and before['unavailableReason'] is None and before['lifecycle'] is not None,before
@@ -67,6 +68,15 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     # The desk's money totals (D221) add the valued positions across quantity units and count those they leave out, this one among them.
     check_money_totals(lambda view:blotter(c,frame(UNPRICED_FEBRUARY),view)[0],check,rows,'the unpriced-February close')
     c.call('profile',{'profile':'risk'})
+    # The risk report's presets shock what a position is priced from. At the close that values the swap, what remains of its lifecycle
+    # moves under a contract target the catalog names as held, in parts of at most sixteen shocks.
+    valued_catalog=risk_catalog(c,valued_context)
+    targets={t['id']:t for t in valued_catalog['scenarioTargets']}
+    def moves(ids):
+        request={**risk_request(valued_catalog,valued_context,None),'bumps':[{'factor':targets[i]['factor'],'size':'0.01','convention':valued_catalog['bumpConvention']} for i in ids]}
+        return any(p['tradeId']==trade and Fraction(p['values']['delta'])!=0 for f in c.call('portfolio/risk',request)['factors'] for p in f['positions'])
+    ids=valued_catalog['heldContractTargets']
+    assert ids and all(targets[i]['kind']=='contract' for i in ids) and any(moves(ids[i:i+16]) for i in range(0,len(ids),16)),ids
     choices=risk_catalog(c,late_context)
     factor=choices['factors'][0]['factor']
     report=c.call('portfolio/risk',risk_request(choices,late_context,factor))
@@ -78,7 +88,7 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     completed=c.call('portfolio/risk/jobs/'+job['id'])
     assert completed['state']=='completed' and completed['result']['excludedPositions']==report['excludedPositions'],completed['state']
     c.call('profile',{'profile':'trader'})
-    print('PASS a swap whose settlement lifecycle the close cannot value states why with no PV or mark and keeps its facts; totals, a risk run, its job and the risk catalog leave it out and list it')
+    print('PASS a swap whose settlement lifecycle the close cannot value states why with no PV or mark and keeps its facts; totals, a risk run, its job and the risk catalog leave it out and list it, and where the close values it, it moves under the held contract targets')
 
 
 def run_checks(url,query=None,manifest=None,*,run_worker):

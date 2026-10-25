@@ -40,10 +40,12 @@ internal static class CurveRiskAxisChecks
         var plan=ConnectedCurves.Compile(ConnectedCurves.MergeDefinitions(current.Definitions.Concat(history.Definitions).Append(definition)),
             [output],context,new Visible());
         var scenario=ConnectedScenario.Base(plan);var dependency=new CurveRequest(output.Curve,factor.Contract);
-        var instrument=new MeanInstrument(dependency,factor.Unit);
-        var portfolio=new ValuationPortfolio([instrument],[new(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),instrument.Id,
-            instrument.UnitQuantity,new(new Money(default,instrument.Currency),instrument.UnitQuantity.Specification),new(default,instrument.Currency))],
+        // One holding of one unit of an instrument, as the portfolio adapter materializes it.
+        ValuationPortfolio Holding(Instrument held)=>new([held],[new(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),held.Id,
+            held.UnitQuantity,new(new Money(default,held.Currency),held.UnitQuantity.Specification),new(default,held.Currency))],
             new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+        var instrument=new MeanInstrument(dependency,factor.Unit);
+        var portfolio=Holding(instrument);
         var prepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(scenario,snapshot,[earlier]),
             ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(dependency,output),[portfolio]);
         var market=new PortfolioValuation.MarketPartition(data,frame,snapshot,prepared,[PortfolioValuation.SwapMeasure],
@@ -66,6 +68,28 @@ internal static class CurveRiskAxisChecks
             throw new Exception("A whole-contract request silently skipped a frozen historical point.");}
         catch(MarketDataException error)when(error.Code=="scenario_coordinate"){}
         Console.WriteLine("PASS curve risk axes: live historical-mean factor selection, frozen target rejection and exact half sensitivity");
+
+        // What the presets Shock every held contract and Parallel shift shock. This held price is an equal-weight mean of a live and a
+        // historical point, which no scenario coordinate publishes: no target covers it, so it is named, and no broader or narrower
+        // target is shocked in its place.
+        var unpublished=CurveRiskAxes.Held(operation,catalog,default);
+        if(!unpublished.Contracts.IsEmpty||!unpublished.Curves.IsEmpty||
+            !unpublished.ContractsWithoutTarget.SequenceEqual([FormattableString.Invariant($"{output.Curve.Code} · {contract.DeliveryFrom:yyyy-MM-dd} to {contract.DeliveryTo:yyyy-MM-dd}")])||
+            !unpublished.CurvesWithoutTarget.SequenceEqual([output.Curve.Code]))
+            throw new Exception("A held price that no scenario coordinate publishes must be named, and no other target shocked in its place.");
+        // A held price that is a whole live contract is shocked by its contract target, and its curve by its whole-curve target.
+        var directPlan=ConnectedCurves.Compile(current.Definitions,[live],context,new Visible());
+        var directPrepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(ConnectedScenario.Base(directPlan),snapshot),
+            ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(request,live),[Holding(new MeanInstrument(request,factor.Unit))]);
+        var direct=operation with{Markets=[market with{Connected=directPrepared,
+            Evidence=new(snapshot.Definitions.RevisionId,directPlan.ManifestId,FuturesMarketBinding.Implementation,[],[])}]};
+        var whole=CurveRiskAxes.Held(direct,CurveRiskAxes.Catalog(direct,default),default);
+        var heldContract=CurveRiskAxes.Resolve(direct.Markets[0],CurveShockCoordinate.MarketQuote,new ContractCurveTarget(request.Curve,request.Contract),default);
+        var heldCurve=CurveRiskAxes.Resolve(direct.Markets[0],CurveShockCoordinate.MarketQuote,new ParallelCurveTarget(request.Curve),default);
+        if(!whole.Contracts.SequenceEqual([heldContract.Id])||!whole.Curves.SequenceEqual([heldCurve.Id])||
+            !whole.ContractsWithoutTarget.IsEmpty||!whole.CurvesWithoutTarget.IsEmpty)
+            throw new Exception("A held live contract must be shocked by its exact contract target, and its curve by its whole-curve target.");
+        Console.WriteLine("PASS curve risk axes: a held live contract has its contract and curve targets, and a held price no coordinate publishes is named instead");
         RecipeNode Node(string id,string kind,ImmutableDictionary<string,string>? parameters=null,ImmutableDictionary<string,string>? inputs=null)=>
             new(id,kind,parameters??ImmutableDictionary<string,string>.Empty,inputs??ImmutableDictionary<string,string>.Empty);
         var recipe=new RecipeDefinition("synthetic_output_labels","Synthetic mapped curve",[
@@ -96,6 +120,14 @@ internal static class CurveRiskAxisChecks
         if(!selected.Contains("output positions 1, 2",StringComparison.Ordinal)||!parallel.Label.Contains("version 7",StringComparison.Ordinal))
             throw new Exception("A multi-output selection must list its stable positions and a broad target must retain the saved version.");
         Console.WriteLine("PASS curve risk axes: saved versions and explicit output positions distinguish equal delivery periods");
+        // A custom curve's output is no contract: the contract preset names it by its output's label, and the curve preset shifts
+        // the whole output curve it is on.
+        var savedOperation=operation with{Markets=[savedMarket]};
+        var outputs=CurveRiskAxes.Held(savedOperation,CurveRiskAxes.Catalog(savedOperation,default),default);
+        if(!outputs.Contracts.IsEmpty||!outputs.Curves.SequenceEqual([parallel.Id])||!outputs.ContractsWithoutTarget.SequenceEqual([labels[0]])||
+            !outputs.CurvesWithoutTarget.IsEmpty)
+            throw new Exception("A held custom-curve output must be named for the contract preset, and its whole output curve shifted by the curve preset.");
+        Console.WriteLine("PASS curve risk axes: a held custom-curve output is named for the contract preset and shifted with its whole output curve");
 
     }
     private sealed class Visible:ICurveBindingResolver

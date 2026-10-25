@@ -27,14 +27,16 @@ public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid Bi
     public string InstrumentType{get;init;}="";
 }
 // D218: a held position a portfolio risk run leaves out because its base valuation at the run's close
-// fails for a position-specific reason. The run lists it, and no holding row or total includes it.
+// fails for a position-specific reason. The run lists it with the book it is held in, and no holding row
+// or total includes it.
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record ExcludedPosition(Guid TradeId,Guid BindingId,string TradeReference,string InstrumentType,string Reason)
+public sealed record ExcludedPosition(Guid TradeId,Guid BindingId,Guid BookId,string TradeReference,string InstrumentType,string Reason)
 {
-    // The held rows a run keeps. Every listed position must be exactly one of the held rows.
+    // The held rows a run keeps. Every listed position must be exactly one of the held rows, in the book it names.
     internal static ImmutableArray<JsonElement> Keep(ImmutableArray<JsonElement> held,ImmutableArray<ExcludedPosition> excluded)
     {
-        var kept=held.RemoveAll(row=>excluded.Any(e=>e.TradeId==row.Id("trade_id")&&e.BindingId==row.Id("binding_id")&&e.TradeReference==TradingReference.Trade(row)));
+        var kept=held.RemoveAll(row=>excluded.Any(e=>e.TradeId==row.Id("trade_id")&&e.BindingId==row.Id("binding_id")&&e.BookId==row.Id("book_id")&&
+            e.TradeReference==TradingReference.Trade(row)));
         return held.Length-kept.Length==excluded.Length?kept:
             throw new MarketDataException("risk_contract","Every position a risk run leaves out must be a distinct held position in its scope.");
     }
@@ -124,7 +126,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         return await Prepare(connection,data,frame,snapshot,context,bookIds,policy,supplemental,
             await Unvalued(connection,data,frame,snapshot,bookIds,ct),ct);
     }
-    // The held futures and swaps the Blotter reports unvalued at the selected close, by trade reference.
+    // The held futures and swaps the Blotter reports unvalued at the selected close, by trade reference, each in its book.
     private async Task<ImmutableArray<ExcludedPosition>> Unvalued(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         MarketSnapshot snapshot,ImmutableArray<Guid> bookIds,CancellationToken ct)
     {
@@ -133,9 +135,11 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var markets=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),[..futures.Trades.SelectMany(t=>t.Instruments.Select(p=>p.MarketBinding.Market)).Distinct()]).Unvalued;
         var rows=futures.Rows.ToDictionary(r=>(r.Id("trade_id"),r.Id("binding_id")));
         var swaps=await new SwapStore(database).Holdings(connection,data,frame,bookIds,[],ct);
+        ExcludedPosition Listed(JsonElement row,string instrumentType,string reason)=>
+            new(row.Id("trade_id"),row.Id("binding_id"),row.Id("book_id"),TradingReference.Trade(row),instrumentType,reason);
         return [..futures.Trades.SelectMany(t=>t.Instruments.Where(p=>markets.ContainsKey(p.MarketBinding.Market)).Select(p=>
-                new ExcludedPosition(t.Id,p.Id,TradingReference.Trade(rows[(t.Id,p.Id)]),FutureType,markets[p.MarketBinding.Market])))
-            .Concat(swaps.Unvalued.Select(u=>new ExcludedPosition(u.Row.Id("trade_id"),u.Row.Id("binding_id"),TradingReference.Trade(u.Row),SwapType,u.Reason)))
+                Listed(rows[(t.Id,p.Id)],FutureType,markets[p.MarketBinding.Market])))
+            .Concat(swaps.Unvalued.Select(u=>Listed(u.Row,SwapType,u.Reason)))
             .OrderBy(e=>e.TradeReference,StringComparer.Ordinal).ThenBy(e=>e.BindingId)];
     }
     // Prepares every held position in scope except exactly the excluded ones. Any failure fails it.

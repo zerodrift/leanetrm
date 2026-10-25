@@ -146,11 +146,11 @@ internal static class SwapRiskHoldingChecks
             // scope with a position-specific reason. Anything else it is asked to leave out is refused.
             var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct);
             var row=holdings[0].Row;
-            var leftOut=new ExcludedPosition(row.Id("trade_id"),row.Id("binding_id"),TradingReference.Trade(row),"financial_swap","missing_observation");
+            var leftOut=new ExcludedPosition(row.Id("trade_id"),row.Id("binding_id"),row.Id("book_id"),TradingReference.Trade(row),"financial_swap","missing_observation");
             var kept=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],[leftOut],ct);
             Check("a risk run leaves out exactly the listed held swap and resolves the others",
                 kept.Select(h=>h.Row.Id("trade_id")).SequenceEqual(holdings.Skip(1).Select(h=>h.Row.Id("trade_id"))));
-            foreach(var invalid in new ImmutableArray<ExcludedPosition>[]{[leftOut with{TradeReference="TR-999999"}],[leftOut with{BindingId=Guid.NewGuid()}],[leftOut,leftOut]})
+            foreach(var invalid in new ImmutableArray<ExcludedPosition>[]{[leftOut with{TradeReference="TR-999999"}],[leftOut with{BindingId=Guid.NewGuid()}],[leftOut with{BookId=Guid.NewGuid()}],[leftOut,leftOut]})
                 try{await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],invalid,ct);throw new Exception("A risk run left out a position that is not a distinct held swap of its scope.");}
                 catch(MarketDataException error)when(error.Code=="risk_contract"){}
             Check("a risk run refuses to leave out anything but distinct held swaps of its scope",true);

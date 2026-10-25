@@ -37,6 +37,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         var markets=portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
         var available=portfolio.Markets.SelectMany(m=>m.Data.Model.QuoteFactors(m.Snapshot)).ToImmutableArray();
         var axes=CurveRiskAxes.Catalog(portfolio,ct);
+        var held=CurveRiskAxes.Held(portfolio,axes,ct);
         var targets=axes.Select(a=>Target(markets,a)).Concat(axes.Where(a=>a.Target is ParallelCurveTarget).Select(a=>
             (object)new{id=a.Id+":bucket",label=a.Label.Replace("all retained contracts","delivery bucket",StringComparison.Ordinal)
                     .Replace("all retained outputs","delivery bucket",StringComparison.Ordinal),
@@ -45,6 +46,8 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
                     Convention:DeliveryBucketCurveTarget.WholeDelivery))})).ToArray();
         return new{factors=portfolio.Factors.Select(f=>Factor(markets,CurveRiskAxes.Quote(portfolio,f,ct))),
             availableFactors=available.Select(f=>Factor(markets,CurveRiskAxes.Quote(portfolio,f,ct))),scenarioTargets=targets,
+            heldContractTargets=held.Contracts,heldCurveTargets=held.Curves,
+            heldContractsWithoutTarget=held.ContractsWithoutTarget,heldCurvesWithoutTarget=held.CurvesWithoutTarget,
             books=portfolio.Positions.GroupBy(p=>p.BookId).Select(g=>new{bookId=g.Key}),excludedPositions=portfolio.Excluded,
             measures=portfolio.Positions.Select(p=>p.Measure).Distinct().Order().Select(m=>new{measure=m,measureLabel=MeasureLabel(m)}),
             bumpConvention=ConnectedRiskBump.Convention,stressConvention=CurveShift.ParentAdditive,convention=Convention,

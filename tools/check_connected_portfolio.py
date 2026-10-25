@@ -113,6 +113,19 @@ def run_checks(url, manifest, query, run_worker):
         assert Fraction(value['upPnl']) == Fraction(1, 2)
         assert Fraction(draft_factors[factor['factor']['seriesId']]['delta']) == Fraction(value['delta'])
     assert result['inputs']['connectedMarkets'][0]['manifestId']
+    # The risk report's presets shock what a position is priced from. This swap is priced from the published curve's output for
+    # its month, which is no contract: Shock every held contract names it instead of shocking a contract in its place, and
+    # Parallel shift moves the whole output curve, which moves the swap one for one.
+    outputs = [t for t in risk_catalog['scenarioTargets'] if t['coordinate'] == 'computed_output' and t['kind'] == 'points'
+               and t['factor']['target']['curve']['code'] != 'base_forward' and '2021-01-01 to 2021-02-01' in t['label']]
+    assert len(outputs) == 1 and risk_catalog['heldContractTargets'] == [] and risk_catalog['heldContractsWithoutTarget'] == [outputs[0]['label']], risk_catalog['heldContractsWithoutTarget']
+    shifted = [t for t in risk_catalog['scenarioTargets'] if t['id'] in risk_catalog['heldCurveTargets']]
+    assert len(shifted) == 1 == len(risk_catalog['heldCurveTargets']) and shifted[0]['kind'] == 'parallel' and shifted[0]['coordinate'] == 'computed_output' \
+        and shifted[0]['factor']['target']['curve'] == outputs[0]['factor']['target']['curve'] and risk_catalog['heldCurvesWithoutTarget'] == [], shifted
+    parallel = client.call('portfolio/risk', {**request, 'bumps': [{'factor': shifted[0]['factor'], 'size': '0.1', 'convention': risk_catalog['bumpConvention']}]})
+    moved = next(p['values'] for p in parallel['factors'][0]['positions'] if p['tradeId'] == booked['tradeId'])
+    assert Fraction(moved['delta']) == 10 and Fraction(moved['upPnl']) == 1, moved
+    print('PASS connected held targets: a published output is named, not shocked as a contract, and its whole output curve moves the swap one for one', flush=True)
     operation = {'requestId': str(uuid4()), 'request': request}
     queued = client.call('portfolio/risk/jobs', operation)
     assert queued['state'] == 'queued'

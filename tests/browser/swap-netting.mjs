@@ -112,7 +112,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('reload restores the original uncertain settlement without changing its operation or body, still named for it',`${card('Net settlement of '+selected.reference)}&&sessionStorage.getItem(${JSON.stringify(retained.key)})===${JSON.stringify(retained.value)}&&document.querySelector('#futures-new').disabled`);
  await click('#futures-reconcile',60000);await wait(idle);await check('operation-status recovery clears the retained settlement only after its committed outcome is known',"document.querySelector('#futures-pending').hidden&&document.querySelector('#error').hidden");
  // A risk report run at this close, whose results a net settlement made afterwards no longer holds for.
- await click('#desk-risk-run');await wait("[...document.querySelector('#risk-factor').options].some(o=>o.value)&&"+idle);
+ await click('#desk-risk-run');await wait("[...document.querySelector('#risk-factor').options].some(o=>o.value)&&"+idle);await click('input[name=risk-choice][value=custom]');
  await set('#risk-factor',await evaluate("[...document.querySelector('#risk-factor').options].find(o=>o.value).value"));await set('#risk-bump','0.1');await submit('#risk-form');
  await wait("!!document.querySelector('#risk-results .tabulator-row')");
  await openView(selected.reference);

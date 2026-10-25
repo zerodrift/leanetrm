@@ -12,7 +12,7 @@ from collections import defaultdict
 from fractions import Fraction
 import json
 from uuid import UUID, uuid4, uuid5
-from check_blotter_desk_fields import DESK_SUMMARIES, MIXED_SUMMARIES, SEEDED_DIRECTION, SWAP_CONVENTION, check_money_totals, exact, money_view, total, unvalued
+from check_blotter_desk_fields import DESK_SUMMARIES, MIXED_SUMMARIES, SEEDED_DIRECTION, SWAP_CONVENTION, check_held_targets, check_money_totals, exact, money_view, total, unvalued
 from check_portfolio_risk import financial, reconcile
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
@@ -49,8 +49,8 @@ def key(item):
 
 
 def unvalued_rows(rows):
-    """The positions a Blotter read reports unvalued, as a risk run lists them."""
-    return sorted(({'tradeId': r['tradeId'], 'bindingId': r['bindingId'], 'tradeReference': r['tradeReference'],
+    """The positions a Blotter read reports unvalued, as a risk run lists them: each with the book it is held in."""
+    return sorted(({'tradeId': r['tradeId'], 'bindingId': r['bindingId'], 'bookId': r['bookId'], 'tradeReference': r['tradeReference'],
                     'instrumentType': r['instrumentType'], 'reason': r['unavailableReason']}
                    for r in rows if r['unavailableReason'] is not None), key=key)
 
@@ -251,8 +251,9 @@ def run_risk_checks(session, run_worker):
     report = c.call('portfolio/risk', request(late_context, ng))
     check('a run at a close that cannot value every held position returns results for the nine it can value',
           len(rows) == 25 and len(valued) == 9 and report['work']['positionCount'] == 9)
-    check('it lists exactly the positions the Blotter reports unvalued at that close, each with the same reason',
-          len(report['excludedPositions']) == 16 and excluded(report) == unvalued_rows(rows))
+    check('it lists exactly the positions the Blotter reports unvalued at that close, each with the same reason and the book it is held in',
+          len(report['excludedPositions']) == 16 and excluded(report) == unvalued_rows(rows)
+          and {e['bookId'] for e in report['excludedPositions']} == {r['bookId'] for r in rows if r['unavailableReason'] is not None})
     listed = {e['tradeReference'] for e in report['excludedPositions']}
     check('no position it lists is among its inputs or factor rows',
           not listed & {p['tradeReference'] for p in report['inputs']['positions']}
@@ -272,6 +273,15 @@ def run_risk_checks(session, run_worker):
     late_choices = risk_catalog(c, late_context)
     check('the risk catalog at that close lists the same positions and offers the valued future\'s contract',
           excluded(late_choices) == excluded(report) and ng in [f['factor'] for f in late_choices['factors']])
+    # The presets shock what the valued positions are priced from: a contract that only positions the close cannot value are
+    # priced from is no held target, as they are not valued.
+    swap_context = {'snapshotId': dec31['id'], 'convention': SWAP_CONVENTION, 'knowledgeMode': 'current'}
+    late_held = check_held_targets(c, check, close_context(dec31), swap_context, rows, 'Dec 31, 2020')
+    c.call('profile', {'profile': 'risk'})
+    targets = {t['id']: t['factor']['target'] for t in late_held['scenarioTargets']}
+    expired = {(r['definitionRevisionId'], r['curve'], r['contractId']) for r in rows if r['instrumentType'] == 'future' and r['unavailableReason'] == 'source_expired'}
+    check('the contract of the futures that close cannot value is no held target',
+          expired and not expired & {(t['curve']['revision']['revisionId'], t['curve']['code'], t['contract']['id']) for t in map(targets.get, late_held['heldContractTargets'])})
     daily = next(f['factor'] for f in late_choices['factors'] if f['curves'] == ['daily_gas'])
     for book, factor in ((BOOKS[0], ng), (BOOKS[1], daily)):
         whole = report if factor == ng else c.call('portfolio/risk', request(late_context, factor))
@@ -339,6 +349,12 @@ def run_scheduled_checks(session):
     early, early_context = blotter(c, dec18)
     late, late_context = blotter(c, dec31)
     before, after = (next(r for r in read['holdings'] if r['tradeId'] == booked['tradeId']) for read in (early, late))
+    # Its periods' contracts are held contracts at a close that values it, each on the coordinate its curve prices it from.
+    early_held = check_held_targets(c, check, close_context(dec18), context, early['holdings'], 'Dec 18, 2020 with a scheduled swap')
+    offered = {t['id']: t['factor']['target'] for t in early_held['scenarioTargets']}
+    february = next(p['contractId'] for p in c.call('evaluate', {'snapshotId': dec18['id'], 'curve': 'base_forward'})['points'] if p['deliveryFrom'] == '2021-02-01')
+    check('the February contract of its curve, which only its second period is priced from, is among them',
+          any(t['curve']['code'] == 'base_forward' and t['contract']['id'] == february for t in map(offered.get, early_held['heldContractTargets'])))
     own = c.call('swaps/editor', {'context': context, 'tradeId': booked['tradeId'], 'revision': None})['valuation']
     check('Dec 18, 2020 values it as its own valuation does, with no single quantity, mark or mark minus price',
           before['unavailableReason'] is None and Fraction(before['presentValue']) == Fraction(own['presentValue'])

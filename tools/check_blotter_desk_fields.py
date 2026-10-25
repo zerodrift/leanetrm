@@ -9,6 +9,9 @@ with. Positions a close cannot value are covered by the valuation-status check.
 The summaries and curve shapes are compared with the reads they replace: the same views read on their own through
 `trading/blotter`, and `evaluate` for each curve. The money-totals convention (D221) adds present value and execution P&L
 across quantity units within one currency and instrument type; its totals are compared with exact sums of the rows.
+
+The risk catalog's held targets, which the risk report's presets shock, are compared with what each position is priced from:
+a future's own contract and the contracts of a swap's projected resets, as the swap's own editor read states them.
 """
 from collections import defaultdict
 from fractions import Fraction
@@ -312,6 +315,89 @@ def check_curve_shapes(c, check, frame, context, held):
     check('returning to working data prices the same curves again', shapes({'curves': held}) == read)
 
 
+def held_contracts(c, swap_context, rows):
+    """What the valued positions are priced from at the close, as (definition revision, curve, contract): a future's own contract,
+    and the contract of each reset of a swap that the close still projects, as the swap's own editor read states it."""
+    held = set()
+    for r in rows:
+        if r['unavailableReason'] is not None:
+            continue
+        if r['instrumentType'] == 'future':
+            held.add((r['definitionRevisionId'], r['curve'], r['contractId']))
+            continue
+        read = c.call('swaps/editor', {'context': swap_context, 'tradeId': r['tradeId'], 'revision': None})
+        for side in read['valuation']['sides']:
+            for payment in side['payments']:
+                for reset in payment['resets']:
+                    if reset['fixingState'] == 'Projected':
+                        market = reset['lookup']['market']
+                        held.add((market['curve']['revision']['revisionId'], market['curve']['code'], market['contract']['id']))
+    return held
+
+
+def check_held_targets(c, check, desk_context, swap_context, rows, when):
+    """The risk catalog names the scenario targets of what the positions are priced from, for the presets Shock every held
+    contract and Parallel shift: one contract target per distinct held contract and one whole-curve target per curve they are
+    on, each one the catalog offers, so that the browser never matches identifiers. Returns the catalog."""
+    held = held_contracts(c, swap_context, rows)
+    c.call('profile', {'profile': 'risk'})
+    try:
+        catalog = c.call('portfolio/risk/catalog', {'context': desk_context, 'bookIds': [], 'portfolioIds': []})
+    finally:
+        c.call('profile', {'profile': 'trader'})
+    targets = {t['id']: t for t in catalog['scenarioTargets']}
+
+    def curve(target):
+        place = target['factor']['target']['curve']
+        return place['revision']['revisionId'], place['code']
+
+    def contract(target):
+        return (*curve(target), target['factor']['target']['contract']['id'])
+    offered = defaultdict(list)
+    for t in catalog['scenarioTargets']:
+        if t['kind'] == 'contract':
+            offered[contract(t)].append(t['id'])
+    ids, curves = catalog['heldContractTargets'], catalog['heldCurveTargets']
+    check(f'{when}: the risk catalog names one contract target for each distinct contract the positions are priced from ({len(held)}), each a contract target it offers',
+          held and len(ids) == len(set(ids)) == len(held) and all(i in targets and targets[i]['kind'] == 'contract' for i in ids)
+          and {contract(targets[i]) for i in ids} == held)
+    check(f'{when}: each is the only contract target the catalog offers for its contract, on the coordinate its curve prices it from',
+          all(offered[contract(targets[i])] == [i] for i in ids))
+    check(f'{when}: it names one whole-curve target for each curve those contracts are on, on the coordinate of their contract targets',
+          len(curves) == len(set(curves)) and all(i in targets and targets[i]['kind'] == 'parallel' for i in curves)
+          and {curve(targets[i]) for i in curves} == {h[:2] for h in held}
+          and all({targets[j]['coordinate'] for j in ids if curve(targets[j]) == curve(targets[i])} == {targets[i]['coordinate']} for i in curves))
+    check(f'{when}: both lists keep the order of the catalog\'s targets, and nothing held is left without a target',
+          all(names == [t['id'] for t in catalog['scenarioTargets'] if t['id'] in set(names)] for names in (ids, curves))
+          and catalog['heldContractsWithoutTarget'] == [] == catalog['heldCurvesWithoutTarget'])
+    return catalog
+
+
+def check_held_run(c, check, catalog, desk_context, rows):
+    """Shock every held contract runs as parts of at most sixteen shocks, all at the catalog's one retained context, and every
+    valued position moves under the target of a contract it is priced from: the preset leaves no position out."""
+    targets = {t['id']: t for t in catalog['scenarioTargets']}
+    retained = {**desk_context, 'knowledgeMode': 'retained', 'contextId': catalog['context']['contextId']}
+    bumps = [{'factor': targets[i]['factor'], 'size': '0.01', 'convention': catalog['bumpConvention']} for i in catalog['heldContractTargets']]
+
+    def request(part):
+        return {'context': retained, 'bookIds': [], 'portfolioIds': [], 'detail': 'holdings', 'stress': [], 'bumps': part,
+                'convention': catalog['convention'], 'numericalPolicy': catalog['numericalPolicy'], 'pricingPolicy': catalog['pricingPolicy']}
+    c.call('profile', {'profile': 'risk'})
+    try:
+        check('one holdings request takes at most sixteen shocks', len(bumps) > 16
+              and c.call('portfolio/risk', request(bumps[:17]), expected=422)['code'] == 'risk_convention')
+        reports = [c.call('portfolio/risk', request(bumps[i:i+16])) for i in range(0, len(bumps), 16)]
+    finally:
+        c.call('profile', {'profile': 'trader'})
+    check(f'the {len(bumps)} held contract targets run as {len(reports)} parts of at most sixteen at the catalog\'s one retained context',
+          len(reports) > 1 and all(r['context']['contextId'] == catalog['context']['contextId'] for r in reports)
+          and [f['factor']['id'] for r in reports for f in r['factors']] == catalog['heldContractTargets'])
+    moved = {(p['tradeId'], p['bindingId']) for r in reports for f in r['factors'] for p in f['positions'] if Fraction(p['values']['delta']) != 0}
+    check('every valued position moves under the target of a contract it is priced from',
+          moved == {(r['tradeId'], r['bindingId']) for r in rows if r['unavailableReason'] is None})
+
+
 def run_checks(url):
     passed = 0
     def check(name, condition):
@@ -383,6 +469,8 @@ def run_checks(url):
     field_checks(rows, 'seeded')
     check(f'the swaps the example seeds state the direction its seeding books, {SEEDED_DIRECTION}',
           {r['direction'] for r in rows if r['instrumentType'] == 'financial_swap'} == {SEEDED_DIRECTION})
+    held_catalog = check_held_targets(c, check, desk_context, swap_context, rows, 'seeded')
+    check_held_run(c, check, held_catalog, desk_context, rows)
 
     # Two swaps the seeding does not book: receive fixed, and two floating sides, which have no fixed leg to pay or receive.
     payment = catalog['entryTemplate']['payment']
@@ -408,6 +496,7 @@ def run_checks(url):
     check('the receive-fixed swap states its mark less its fixed price of 3.5',
           stated_difference(held[received['tradeId']]) == Fraction(held[received['tradeId']]['mark']) - Fraction('3.5'))
     field_checks(rows, 'with a receive-fixed and a floating/floating swap')
+    check_held_targets(c, check, desk_context, swap_context, rows, 'with a receive-fixed and a floating/floating swap')
 
     # A row states its trade's latest revision, so an amendment that changes the direction changes the row.
     c.call('swaps/amend', {**receive, 'operationId': str(uuid4()), 'tradeId': received['tradeId'], 'expectedRevision': 1,

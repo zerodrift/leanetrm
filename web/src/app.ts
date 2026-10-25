@@ -851,7 +851,6 @@ const assistant=setupAssistant({api,root:apiRoot,identity:()=>administrationScop
   available:()=>can('UseAgents'),pageBusy:()=>busy,act,place,names:()=>({curve:curveName,table:tableName}),
   trade:()=>futures.report().trade?.reference,unsaved,open:target=>showTarget(target.page,target.selection),
   go:async target=>{if(target.kind!=='proposal')await selectContext(target.context);await showTarget(target.page,target.selection);},restore:restorePlace});
-$('risk-close').addEventListener('click',()=>assistant.sync());
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A reload, closing the tab and going back leave the page without the panel's own question, so the browser asks while the panel holds an

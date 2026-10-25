@@ -79,13 +79,14 @@ export function renderPositionsTile(host:HTMLElement,tile:PositionsTile,colors:R
 }
 
 /** What the risk tile says: `denial` is why this account cannot run a risk report, when it cannot. */
-export type RiskTile={state:'none'|'open'|'results';denial:string|null;busy:boolean};
+export type RiskTile={state:'none'|'open'|'running'|'results';denial:string|null;busy:boolean};
 const riskWords={none:['Not run at this close','Revalue the books on screen under shared market shocks.','Run risk report'],
-  open:['Set up below','The risk report is open below the positions.','Go to the risk report'],
-  results:['Results below','Risk results for this close are below the positions.','Go to the results']} as const;
+  open:['Set up in the panel','The risk report is open in the side panel.','Go to the risk report'],
+  running:['Running','A queued risk run is under way. Its results will show in the side panel.','Go to the risk report'],
+  results:['Results in the panel','Risk results for this close are in the side panel.','Show the results']} as const;
 /**
- * The risk tile until risk results come inline: it opens today's risk report and never says not run while results show.
- * It is drawn once and then updated in place, so a focused button keeps its focus while the page syncs.
+ * The risk tile until risk results come inline: it opens the side panel's risk report and never says not run while results show
+ * or a queued run is under way. It is drawn once and then updated in place, so a focused button keeps its focus while the page syncs.
  */
 export function renderRiskTile(host:HTMLElement,risk:RiskTile,run:()=>void){
   if(!host.firstChild){const button=node('button','secondary');button.type='button';button.id='desk-risk-run';host.append(label('Risk at this close'),node('p','desk-risk-state'),node('p','desk-tile-hint'),button);}
