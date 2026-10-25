@@ -1,7 +1,9 @@
 """Audited interval series HTTP checks against the launcher's owned synthetic preview."""
 from http.client import HTTPResponse
+from datetime import datetime
 import hashlib
 import json
+import re
 import socket
 from urllib.parse import urlsplit
 from urllib.request import HTTPCookieProcessor
@@ -111,6 +113,13 @@ def run_checks(url, query, manifest):
 
     client.call('profile', {'profile': 'editor'})
     catalog = client.call('interval-series')
+    def parsed_at(value):
+        return datetime.fromisoformat(re.sub(r'(\.\d{6})\d+', r'\1', value).replace('Z', '+00:00'))
+
+    # Latest browsing is bounded and honors withdrawals and the caller's exact cutoff.
+    context = client.call('date-schedules/context', {'effectiveOn': '2027-01-01', 'knownAt': None,
+                                                   'mode': 'end_of_day', 'timeZone': 'America/Chicago'})
+    check('same-day default never exceeds certified knowledge', parsed_at(context['context']['knownAt']) == parsed_at(context['certifiedThrough']))
     choices = catalog['choices']
     hours = ['2027-01-01T05:00:00Z', '2027-01-01T06:00:00Z', '2027-01-01T07:00:00Z', '2027-01-01T08:00:00Z']
     # test_zero_rate is a value specification, so it cannot shape an additive (quote) price.
@@ -127,9 +136,13 @@ def run_checks(url, query, manifest):
     del unstated['expectedRevision']
     if client.call('interval-series/revise', unstated, expected=400)['code'] != 'request_format':
         raise AssertionError('A missing request member must be refused as request_format')
+    check('a series without values has no latest window', client.call('interval-series/latest', {'seriesId': series, 'knownAt': catalog['knownAt']})['window'] is None)
+    check('read requests refuse unknown coordinates', refused('interval-series/values', {**window(hours[0], hours[3]), 'effectiveOn': '2027-01-01'}, 400, 'request_format'))
     first = revise(0, hours[0], ['0.25', '0.5', '0.75'], 'Initial synthetic forecast')
     receipt = client.call('interval-series/revise', first)
     values = client.call('interval-series/values', window(hours[0], hours[3]))
+    latest = client.call('interval-series/latest', {'seriesId': series, 'knownAt': client.call('interval-series')['knownAt']})
+    check('latest window ends at the newest available record', parsed_at(latest['window']['to']) == parsed_at(hours[3]))
     # A read renders instants with +00:00; sending its knownAt back reads the same values.
     reread = client.call('interval-series/values', {**window(hours[0], hours[3]), 'knownAt': values['knownAt']})
     check('editor defines and imports an hourly series',
@@ -226,8 +239,20 @@ def run_checks(url, query, manifest):
           f"'{reason}',ARRAY['{hours[0]}']::timestamptz[],ARRAY['{hours[1]}']::timestamptz[],ARRAY['0.5']);COMMIT;")
     stale_window = {**window(hours[0], hours[3]), 'seriesId': stale}
     stored, logged = client.call('interval-series/values', stale_window), client.call('interval-series/changes', stale_window)
+    check('latest browsing survives a market clock tzdb update', client.call('interval-series/latest', {'seriesId': stale, 'knownAt': stale_window['knownAt']})['window'] is not None)
     check('reads stay available after a tzdata update while revisions are refused',
           [(row['start'], row['value'], row['revision']) for row in stored['rows']] == [(utc(hours[0]), '0.5', 1)]
           and [(row['start'], row['value'], row['reason']) for row in logged['rows']] == [(utc(hours[0]), '0.5', reason)]
           and refused('interval-series/revise', {**revise(1, hours[1], ['0.6']), 'seriesId': stale}, 422, 'clock_tzdb'))
+    latest_series = client.call('interval-series/define', {**definition, 'requestId': str(uuid4()),
+        'code': 'synthetic_latest_browsing'})['seriesId']
+    client.call('interval-series/revise', {**revise(0, hours[0], ['0.1', '0.2', '0.3']), 'seriesId': latest_series})
+    earlier = client.call('interval-series')['knownAt']
+    client.call('interval-series/revise', {**revise(1, hours[2], [None]), 'seriesId': latest_series})
+    current = client.call('interval-series')['knownAt']
+    endpoint = lambda cutoff: client.call('interval-series/latest', {'seriesId': latest_series, 'knownAt': cutoff})['window']['to']
+    check('latest browsing respects historical knowledge and withdrawals',
+          parsed_at(endpoint(earlier)) == parsed_at(hours[3]) and parsed_at(endpoint(current)) == parsed_at(hours[2]))
+    check('same-day default requires an explicit display time zone', refused('date-schedules/context',
+          {'effectiveOn': '2027-01-01', 'knownAt': None, 'mode': 'end_of_day'}, 422, 'time_zone'))
     return passed

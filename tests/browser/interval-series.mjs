@@ -6,7 +6,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const table=id=>`[...document.querySelectorAll('#${id} tbody tr')].map(r=>[...r.cells].map(c=>c.textContent))`;
  const values=table('interval-series-values');
  const pause=milliseconds=>evaluate(`new Promise(accept=>setTimeout(accept,${milliseconds}))`);
- const choose=code=>evaluate(`(()=>{const s=document.querySelector('#interval-series-select');s.value=[...s.options].find(o=>o.textContent.includes(${JSON.stringify(code)})).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ const choose=async code=>{await evaluate(`(()=>{const s=document.querySelector('#interval-series-select');s.value=[...s.options].find(o=>o.textContent.includes(${JSON.stringify(code)})).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait(idle);};
  const headIs=(code,head)=>`(async()=>(await(await fetch('/api/interval-series')).json()).series.find(s=>s.code===${JSON.stringify(code)}).head===${head})()`;
  const importCsv=async(reason,csv)=>{await set('#interval-series-reason',reason);await set('#interval-series-csv',csv);await submit('#interval-series-import-form');};
  const selected=text=>`document.querySelector('#interval-series-selected').textContent===${JSON.stringify(text)}`;
@@ -17,6 +17,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate("window.reviseExchanges=[];window.loseNextRevise=false;{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/interval-series/revise')){window.reviseExchanges.push({body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});if(window.loseNextRevise){window.loseNextRevise=false;throw Error('Synthetic lost committed reply');}}return response;};}");
  await observeCatalogClock(evaluate,'/api/interval-series');
  await persona('editor');await click('#nav-interval-series');
+ await check('interval browsing shows a common floating context without requiring a window',"document.querySelector('#interval-series-form').closest('.floating-context')!==null&&document.querySelector('#interval-series-values-note').textContent.length>0&&document.querySelector('#date-context').hidden");
  await check('editors see the page with definition and import controls',"!document.querySelector('#interval-series-page').hidden&&document.querySelector('#page-title').textContent==='Interval data'&&!document.querySelector('#interval-series-define').hidden&&!document.querySelector('#interval-series-revise-card').hidden&&document.querySelector('#error').hidden");
 
  await check('definition choices start unselected rather than assumed',"['kind','specification','clock','minutes'].every(n=>document.querySelector('#interval-series-'+n).value==='')&&document.querySelectorAll('#interval-series-specification option').length===1&&document.querySelectorAll('#interval-series-clock option').length>1&&[...document.querySelectorAll('#interval-series-minutes option')].map(o=>o.value).join()===',5,15,30,60'");
@@ -31,7 +32,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('a refused definition leaves nothing outstanding and keeps its form',"document.querySelector('#error').textContent.includes('unused code')&&document.querySelector('#interval-series-define-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.interval-series.request.'))&&!document.querySelector('#interval-series-define-fields').disabled&&document.querySelector('#interval-series-code').value==='browser_capacity'");
 
  await set('#interval-series-from','2027-01-01T05:00');await set('#interval-series-to','2027-01-01T08:00');
- await check('Known at starts at the catalog time and names the profile zone',`${knownAtAssertion("document.querySelector('#interval-series-known')",'window.catalogKnownAt','UTC')}&&document.querySelector('label[for=interval-series-known]').textContent==='Known at · UTC'`);
+ await check('Known at starts at the catalog time and names the profile zone',`${knownAtAssertion("document.querySelector('#interval-series-known')",'window.catalogKnownAt','UTC')}&&document.querySelector('label[for=interval-series-known]').textContent==='Knowledge cutoff · UTC'`);
  await importCsv('Synthetic browser import','start,value\r\n2027-01-01T05:00:00Z,0.25\r\n2027-01-01T06:00:00Z,0.5\r\n2027-01-01T07:00:00Z,0.75\r\n');
  await check('an import saves one revision and shows its three values',`${values}.length===3&&${values}.map(r=>r[2]+'@'+r[3]).join()==='0.25@1,0.5@1,0.75@1'&&${values}[0][0]==='Jan 1, 2027, 5:00 AM'&&document.querySelector('#interval-series-saved').textContent==='Saved revision 1 · 3 intervals.'&&document.querySelector('#interval-series-reason').value===''&&document.querySelector('#interval-series-csv').value===''&&document.querySelector('#error').hidden`);
 
@@ -94,7 +95,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the colleague revision and the reapplied import are both committed',headIs('browser_capacity',6));
 
  await click('#profile-open');await set('#zone','America/New_York');await submit('#preferences-form');
- await check('a time-zone change relabels the shown values in place',`${values}[0][0]==='Jan 1, 2027, 12:00 AM'&&document.querySelector('label[for=interval-series-known]').textContent==='Known at · America/New_York'`);
+ await check('a time-zone change relabels the shown values in place',`${values}[0][0]==='Jan 1, 2027, 12:00 AM'&&document.querySelector('label[for=interval-series-known]').textContent==='Knowledge cutoff · America/New_York'`);
  const hours=Array.from({length:25},(_,i)=>new Date(Date.UTC(2026,10,1,4+i)).toISOString().replace('.000Z','Z'));
  await set('#interval-series-from','2026-11-01T00:00');await set('#interval-series-to','2026-11-02T00:00');
  const csv=part=>'start,value\n'+part.map(h=>h+',0.5').join('\n')+'\n';

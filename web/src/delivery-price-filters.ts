@@ -20,3 +20,10 @@ export function deliveryPriceChoices(sources:DeliveryPriceSource[],selection:Del
   sources:choices(location,s=>s.id,s=>`${s.name} · ${s.minutes} min`),
  };
 }
+
+export function latestDeliverySource(sources:DeliveryPriceSource[]):DeliveryPriceSource|undefined{
+ return sources.filter(s=>s.availableDates.length>0).reduce<DeliveryPriceSource|undefined>((latest,source)=>{
+  const newest=(s:DeliveryPriceSource)=>[...s.availableDates].sort().at(-1)!;
+  return !latest||newest(source)>newest(latest)?source:latest;
+ },undefined);
+}

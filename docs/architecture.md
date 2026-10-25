@@ -282,8 +282,10 @@ Trading opens a **Blotter** of individual trade bindings. Named views select
 columns, portfolio/book filters, row filters and an explicit pivot layout. Pivots
 use the managed backend, preserving exact quantity and currency partitions; they
 do not merge obligations. Saving a view does not save or choose market inputs,
-knowledge coordinates or authority. Effective/knowledge controls live in the common
-header beside the market date. The active user and current permissions are visible
+knowledge coordinates or authority. Effective/knowledge controls share a floating
+Context panel (D217). Native interval, delivery-price and PPA cutoffs use the same
+presentation while retaining their distinct backend read contracts. The market
+date remains in the header. The active user and current permissions are visible
 in the profile, independently of the layout.
 
 Amount display precision belongs to a deal's shared current presentation, with
