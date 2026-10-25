@@ -1,41 +1,39 @@
 // The risk report of the Blotter desk (blotter-desk.md, Side panel: Risk report), drawn in the side panel's Risk report mode. It offers
 // Shock every held contract and Parallel shift, which shock the targets the catalog names for what the books hold, and the custom
-// scenario lab with nested stresses; it runs a report now or queues it as jobs, keeps the retained job history and shows a run's results.
-// A run of more than sixteen shocks is split into parts of at most sixteen at the one retained context of its catalog, run one after
-// another or queued as one job each, and shown as one run. Each factor's results are its own, so no arithmetic combines parts, and a
-// part that fails is said to have failed. What the report holds outlives the panel's other modes; a new read of the Blotter clears it.
+// scenario lab with nested stresses; it runs a report now or queues it as jobs and keeps the retained job history. A run's results come
+// back inline in the desk (D220), which reads the run on screen from `current`. A run of more than sixteen shocks is split into parts of
+// at most sixteen at the one retained context of its catalog, run one after another or queued as one job each, which states the run it
+// is a part of, and shown as one run. Each factor's results are its own, so no arithmetic combines parts, and a part that fails is said to
+// have failed. What the report holds outlives the panel's other modes; a new read of the Blotter clears it.
 import {riskContextLabel} from './risk-time.js';
-import {riskTotalGroups,riskWorkDetails,type RiskValues,type RiskTotal,type RiskWorkReport} from './risk-report.js';
+import {riskWorkDetails,type ExcludedPosition,type RiskReport} from './risk-report.js';
 import {PendingCommand} from './pending-command.js';
-import {renderDataGrid} from './data-grid.js';
-import {renderChart,clearChart} from './chart-view.js';
 import {publicText,timeLabels} from './market-view.js';
 import {scenarioShift,knownRiskRejection,type ScenarioTarget,type ScenarioShift} from './risk-scenarios.js';
 import {presetGaps,presetRequest,presetTargets,runParts,sizesByUnit,splitBumps,type Preset} from './risk-presets.js';
-import {valuationReason,type ValuationReason} from './valuation-status.js';
+import {valuationReason} from './valuation-status.js';
 import {trackEdits} from './edit-tracking.js';
 import type {SidePanel} from './side-panel.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Factor={id:string;label:string;coordinate:string;kind:string;unit:string};
 type FinancialContext={contextId:string;effectiveOn:string;knownAt?:string;knownThrough:number};
-type Excluded={tradeId:string;bindingId:string;bookId:string;tradeReference:string;instrumentType:string;reason:ValuationReason};
 type Catalog={pricingPolicy:unknown;scenarioTargets:ScenarioTarget[];heldContractTargets:string[];heldCurveTargets:string[];
-  heldContractsWithoutTarget:string[];heldCurvesWithoutTarget:string[];excludedPositions:Excluded[];bumpConvention:string;stressConvention:string;
+  heldContractsWithoutTarget:string[];heldCurvesWithoutTarget:string[];excludedPositions:ExcludedPosition[];bumpConvention:string;stressConvention:string;
   convention:string;numericalPolicy:string;context:FinancialContext;asOf:string};
 type Scope={context:unknown;bookIds:string[];portfolioIds:string[]};
 type StressLayer={id:string;shift:ScenarioShift;label:string;unit:string};
 type Request=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioShift[];convention:string;numericalPolicy:string};
-type JobState='queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';
-type Job={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:Report;context?:FinancialContext;asOf?:string};
-type Position={book:string;tradeReference:string;instrumentReference:string;instrumentType:string;measure:string;measureLabel:string;values:RiskValues};
-type Report=RiskWorkReport&{displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;
-  excludedPositions?:Excluded[];factors:{factor:Factor;bump:string;totals:RiskTotal[];positions:Position[]}[]};
+export type JobState='queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';
+/** The run a queued part belongs to (D220): the run's identity, which part this is and how many parts the run has. */
+type JobRun={id:string;part:number;parts:number};
+type Job={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;context?:FinancialContext;asOf?:string;
+  finishedAt?:string|null;run:JobRun|null};
 /**
  * A part of a run and what became of it: the report it returned, or the job it was queued as, or why it failed. A queued part's
- * submission is kept as its `recovery` until its outcome is known. A retained job read from the history has no request of its own.
+ * submission is kept as its `recovery` until its outcome is known. A retained job read from the history has no request of its own, and a
+ * part of a retained run that the history does not list is `unlisted`.
  */
-type Part={request?:Request;report?:Report;job?:Job;failure?:string;recovery?:PendingCommand};
+type Part={request?:Request;report?:RiskReport;job?:Job;failure?:string;recovery?:PendingCommand;unlisted?:boolean};
 type Choice=Preset|'custom';
 /**
  * What a run was set up as: its report, its shock size for each price unit, and the held prices or curves the preset did not shock,
@@ -44,9 +42,19 @@ type Choice=Preset|'custom';
 type RunSetup={report:Choice;label:string;sizes:Record<string,string>;withoutTarget:string[]};
 /**
  * A run on screen: run now or queued, its parts in the order of its shocks, the context it was made at, and its setup, which a retained
- * job read from the history does not record.
+ * job read from the history does not record. `key` tells one run on screen from another; `id` is the identity a run queued in parts
+ * states with each part; `making` is a run made now that is under way, and `finishedAt` when a run made now finished.
  */
-type Run={queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string;setup?:RunSetup};
+type Run={key:number;queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string;setup?:RunSetup;id?:string;making?:boolean;finishedAt?:string};
+/** A part of the run on screen as the desk shows it: its report once it has one, or what became of it. */
+export type RunPart={report?:RiskReport;job?:{state:JobState;finishedAt?:string|null};failure?:string;unknown:boolean;unlisted:boolean};
+/**
+ * The run on screen as the desk shows it (D220): what it was set up as, in words; whether it was queued, whether a queued part of it is
+ * still under way, and whether it is retained, a job of the history or an unconfirmed submission shown under the context it was captured
+ * at; where and when it was made; how many shocks it was asked for, when that is known; and its parts.
+ */
+export type RunView={key:number;queued:boolean;running:boolean;retained:boolean;setup?:RunSetup;setupText:string;context?:FinancialContext;asOf?:string;finishedAt?:string;
+  factors:number|null;parts:readonly RunPart[]};
 /**
  * The person's choices in the setup, carried over to a catalog read at changed inputs: the report, the sizes, the custom scenario's own
  * fields and its stresses, and each chosen scenario target by the catalog's id, with its label to name it by when it is no longer offered.
@@ -62,6 +70,8 @@ const failure=(error:unknown,fallback:string)=>error instanceof Error&&error.mes
 const code=(error:unknown)=>(error as {code?:string}|undefined)?.code;
 const plural=(count:number,word:string)=>`${count} ${word}${count===1?'':'s'}`;
 const partsText=(indexes:number[],total:number)=>`${indexes.length===1?'part':'parts'} ${indexes.map(i=>i+1).join(', ')} of ${total}`;
+/** The most parts a queued run takes, as the job store admits them: sixteen shocks to a part, 4,096 in all. */
+const queuedParts=256;
 const presetText:Record<Preset,{label:string;noun:string;none:string;each:string;gaps:string;complete:string;left:string}>={
   held:{label:'Shock every held contract',noun:'held contract',none:'The selected books hold no contract this preset can shock.',each:'each shocked up and down on its own',
     gaps:'No whole-contract scenario target covers these held prices, so this preset does not shock them:',complete:'every held price shocked',
@@ -74,7 +84,7 @@ const presetText:Record<Preset,{label:string;noun:string;none:string;each:string
 const customFields=['risk-coordinate','risk-target-kind','risk-from','risk-to','risk-bump','risk-stress-coordinate','risk-stress-target-kind','risk-stress-from','risk-stress-to','risk-stress-size'];
 /** What a run's results and download say it was set up as, so that a run that left prices out can be told from a complete one. */
 function setupText(setup:RunSetup|undefined):string{
-  if(!setup)return 'A retained job: the report it was run as is not recorded with it, and each factor below states its shock.';
+  if(!setup)return 'A retained run: its report and sizes are not recorded with it, and each shock states its size.';
   if(setup.report==='custom')return setup.label;
   const text=presetText[setup.report],sizes=Object.entries(setup.sizes).map(([unit,size])=>`±${size} ${unit}`).join(', ');
   const left=setup.withoutTarget;
@@ -102,12 +112,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   let sizes=new Map<string,{value:string;prefilled:boolean}>();
   // Queued runs whose submission has no known outcome for some part, by account: they are reconciled before another is queued.
   const submissions=new Map<string,Run>();
-  let generation=0,pollTimer:ReturnType<typeof setTimeout>|undefined,run:Run|undefined,reviewing=false,recent:Job[]=[];
-  // A run the person has just started is brought into view in the panel: its jobs once queued, and its results once they are shown.
-  let revealResults=false;
-  let grids:ReturnType<typeof renderDataGrid>[]=[],charts:HTMLElement[]=[];
-  // Factor results drawn when their section is open and the report is in the panel: a grid needs a visible width.
-  let draws:(()=>void)[]=[];
+  let generation=0,pollTimer:ReturnType<typeof setTimeout>|undefined,run:Run|undefined,reviewing=false,recent:Job[]=[],runs=0;
   const mounted=()=>!root.hidden;
   const running=()=>!!run&&run.parts.some(p=>active(p.job));
   const uncertain=(current:Run|undefined)=>current?.parts.flatMap((p,i)=>p.recovery?.command?[i]:[])??[];
@@ -119,16 +124,13 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function stopPolling(){clearTimeout(pollTimer);pollTimer=undefined;}
 
   // --- what the report shows -------------------------------------------------------------------------------------------------
-  function clearResults(){
-    for(const grid of grids)grid.destroy();grids=[];for(const chart of charts)clearChart(chart);charts=[];draws=[];
-    get('risk-results').replaceChildren();get('risk-work').replaceChildren();get('risk-export').hidden=true;get('risk-export-note').hidden=true;
-  }
+  function clearWork(){get('risk-work').replaceChildren();}
   function clearJob(){
     get('risk-job').hidden=true;for(const id of ['risk-job-context','risk-job-scenario','risk-job-status'])get(id).textContent='';get('risk-job-parts').replaceChildren();
     get('risk-job-return').hidden=true;get<HTMLSelectElement>('risk-job-history').value='';get('risk-scope').textContent=currentScopeText;
   }
   /** Forgets the run on screen, its results and its jobs: the setup stays. */
-  function forgetRun(){stopPolling();run=undefined;reviewing=false;revealResults=false;clearResults();clearJob();get('risk-progress').textContent='';}
+  function forgetRun(){stopPolling();run=undefined;reviewing=false;clearWork();clearJob();get('risk-progress').textContent='';}
   function reveal(id:string){if(mounted())get(id).scrollIntoView({block:'start'});}
   function resetControls(){
     select.replaceChildren(new Option('Choose a scenario target…',''));stressFactor.replaceChildren(new Option('Choose a scenario target…',''));
@@ -145,8 +147,8 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     resetControls();edits.clear();renderStress();showChoice();describe();sync();
   }
   function denied(error:unknown){if(code(error)==='access_denied'){reset();options.onDenied();}}
-  async function call<T>(path:string,body?:unknown):Promise<T>{try{return await options.api<T>(path,body);}catch(error){clearResults();denied(error);throw error;}}
-  const factorLabel=(f:Factor|ScenarioTarget)=>publicText(f.label);
+  async function call<T>(path:string,body?:unknown):Promise<T>{try{return await options.api<T>(path,body);}catch(error){denied(error);throw error;}}
+  const factorLabel=(f:ScenarioTarget)=>publicText(f.label);
 
   // --- the setup ---------------------------------------------------------------------------------------------------------------
   const choices=()=>Array.from(form.querySelectorAll<HTMLInputElement>('input[name=risk-choice]'));
@@ -217,8 +219,9 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(run!==retained){forgetRun();run=retained;}
       reviewing=true;const version=generation;showRun();sync();await recentJobs(version);return;
     }
-    // A catalog read for the Blotter on screen stands with the setup and run it holds: any new read of the Blotter resets the report.
-    if(catalog){sync();return;}
+    // A catalog read for the Blotter on screen stands with the setup and run it holds: any new read of the Blotter resets the report. The
+    // history is read again, for what was queued or has ended since.
+    if(catalog){sync();await readHistory(generation);return;}
     // A new read keeps the choices carried over from inputs that changed, and puts them back over the catalog it reads.
     const kept=carried;reset();carry(kept);const version=generation;reading=true;describe();sync();
     try{
@@ -329,11 +332,13 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     let first:unknown;const stale=()=>version!==generation;
     await runParts(current.parts,stale,async(part,index)=>{
       if(current.parts.length>1)get('risk-progress').textContent=`Running part ${index+1} of ${current.parts.length}…`;
-      try{part.report=await options.api<Report>('portfolio/risk',part.request);}
+      try{part.report=await options.api<RiskReport>('portfolio/risk',part.request);}
       catch(error){if(stale())return false;denied(error);if(stale())throw error;part.failure=failure(error,'The part could not be run.');first??=error;}
       return true;
     });
     if(stale())return;
+    // The time the run finished is this page's clock: the run bar says when it ran.
+    current.making=false;current.finishedAt=new Date().toISOString();
     get('risk-progress').textContent='';
     if(current.parts.length===1&&first!==undefined)forgetRun();else showRun();
     if(first!==undefined)throw first;
@@ -345,16 +350,18 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
    */
   async function submit(current:Run,version:number){
     const owner=options.profile();let first:unknown;const stale=()=>version!==generation;
-    await runParts(current.parts,stale,async part=>{
+    await runParts(current.parts,stale,async(part,index)=>{
       // A part is sent once and then only again with the same identity: a queued or refused part is settled, and one not yet sent is begun.
+      // A part of a run made in parts states the run, its part and the run's part count (D220).
       if(!part.recovery?.command){
         if(part.job||part.failure!==undefined)return true;
-        part.recovery=new PendingCommand(knownRiskRejection);part.recovery.begin('portfolio/risk/jobs',{request:part.request});
+        const run:JobRun|undefined=current.id===undefined?undefined:{id:current.id,part:index+1,parts:current.parts.length};
+        part.recovery=new PendingCommand(knownRiskRejection);part.recovery.begin('portfolio/risk/jobs',{request:part.request,...(run?{run}:{})});
       }
       const command=part.recovery.command!,previouslyUncertain=part.recovery.sending();
       try{
         // A request sent again may return its job already done, with its result.
-        const job=await options.api<Job>('portfolio/risk/jobs',{requestId:command.operationId,request:command.body.request});
+        const job=await options.api<Job>('portfolio/risk/jobs',{requestId:command.operationId,request:command.body.request,...(command.body.run?{run:command.body.run}:{})});
         part.recovery!.clear();take(part,job);
       }catch(error){
         part.recovery!.failed(code(error),previouslyUncertain);
@@ -374,13 +381,18 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     // The run is retained before its first part is sent: a reply that is lost leaves it to be reconciled.
     submissions.set(options.profile(),current);
     await submit(current,version);
+    // The history lists what was queued: a run queued in parts as one run. A part whose submission has no known outcome is left to Reconcile.
+    if(version===generation)await readHistory(version);
   }
   form.onsubmit=event=>{event.preventDefault();const queued=(event as SubmitEvent).submitter?.id==='risk-queue';void options.act(async()=>{
-    const plan=requests();forgetRun();const version=++generation;
+    const plan=requests();
+    if(queued&&plan.parts.length>queuedParts)throw Error(`A queued run takes at most ${queuedParts} parts of sixteen shocks. Choose fewer, or run it now.`);
+    forgetRun();const version=++generation;
     // What was run is no longer an edit: the run answers it, and the setup it was carried over in is the run's.
     edits.clear();get('risk-carried').hidden=true;
-    const current:Run={queued,parts:plan.parts.map(request=>({request})),context:catalog!.context,asOf:catalog!.asOf,setup:plan.setup};
-    run=current;revealResults=true;
+    const current:Run={key:++runs,queued,making:!queued,parts:plan.parts.map(request=>({request})),context:catalog!.context,asOf:catalog!.asOf,setup:plan.setup,
+      ...(queued&&plan.parts.length>1?{id:crypto.randomUUID()}:{})};
+    run=current;
     sync();
     try{if(queued){await queue(current,version);if(version===generation&&running())reveal('risk-job');}else await runNow(current,version);}
     // The sizes are prefilled next time once the backend has taken a part of a run of them.
@@ -388,10 +400,14 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   });};
 
   // --- jobs --------------------------------------------------------------------------------------------------------------------
+  /** Reads the recent jobs for the history. Whether the read is still the report's. */
+  async function readHistory(version:number){
+    const loaded=await call<Job[]>('portfolio/risk/jobs');if(version!==generation)return false;
+    recent=loaded;refresh();return true;
+  }
   /** Reads the recent jobs, and settles a retained part whose original job is among them. Whether that left the run fully known. */
   async function recentJobs(version:number){
-    const loaded=await call<Job[]>('portfolio/risk/jobs');if(version!==generation)return false;recent=loaded;
-    refresh();
+    if(!await readHistory(version))return false;
     const retained=submissions.get(options.profile());
     if(!retained||run!==retained)return false;
     let found=false;
@@ -423,16 +439,41 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
         if(!part.job||!all&&!active(part.job))continue;
         const value=await options.api<Job>(`portfolio/risk/jobs/${part.job.id}`);if(version!==generation)return;take(part,value);
       }
+      // A run whose parts have all ended is listed again with how they ended.
+      if(!current.parts.some(p=>active(p.job))&&!await readHistory(version))return;
     }catch(error){
-      if(version!==generation)return;stopPolling();clearResults();denied(error);if(version!==generation)return;
+      if(version!==generation)return;stopPolling();denied(error);if(version!==generation)return;
       get('risk-job-status').textContent='Job status is unavailable. Refresh to check its retained outcome.';get('risk-job-refresh').hidden=false;sync();return;
     }
     showRun();
   }
   function contextLabel(context:FinancialContext|undefined,asOf:string|undefined){return riskContextLabel({context,asOf},options.zone());}
+  /**
+   * The retained jobs as the history lists them, newest first: the parts of a run made in parts are one entry (D220), whose state says how
+   * its parts stand, and a job queued on its own is another. A run whose parts disagree on their part count is refused, never guessed at.
+   */
+  function history():{value:string;asOf?:string;text:string}[]{
+    const entries:{value:string;asOf?:string;text:string}[]=[],runsSeen=new Map<string,Job[]>();
+    for(const job of recent){
+      if(job.run===undefined)throw Error('The risk job history is inconsistent. Reload it.');
+      if(job.run===null){entries.push({value:job.id,asOf:job.asOf,text:job.state.replaceAll('_',' ')});continue;}
+      const listed=runsSeen.get(job.run.id);
+      if(listed){listed.push(job);continue;}
+      const parts=[job];runsSeen.set(job.run.id,parts);entries.push({value:'run:'+job.run.id,asOf:job.asOf,text:''});
+    }
+    for(const entry of entries){
+      const parts=entry.value.startsWith('run:')?runsSeen.get(entry.value.slice(4))!:undefined;
+      if(!parts)continue;
+      const count=parts[0].run!.parts;
+      if(parts.some(j=>j.run!.parts!==count))throw Error('The risk job history is inconsistent. Reload it.');
+      const states=new Map<string,number>();for(const job of parts)states.set(job.state.replaceAll('_',' '),(states.get(job.state.replaceAll('_',' '))??0)+1);
+      entry.text=`run of ${count} parts · ${states.size===1&&parts.length===count?[...states.keys()][0]:[...states].map(([state,n])=>`${n} ${state}`).join(', ')}${parts.length<count?` · ${count-parts.length} not among the recent jobs`:''}`;
+    }
+    return entries;
+  }
   function refresh(){
-    const control=get<HTMLSelectElement>('risk-job-history'),selected=control.value,labels=timeLabels(recent.flatMap(j=>j.asOf?[j.asOf]:[]),options.zone());let index=0;
-    control.replaceChildren(new Option('Choose a retained job…',''),...recent.map(j=>new Option(`${j.asOf?labels[index++]:'Unavailable market time'} · ${j.state.replaceAll('_',' ')}`,j.id)));control.value=selected;
+    const control=get<HTMLSelectElement>('risk-job-history'),selected=control.value,entries=history(),labels=timeLabels(entries.flatMap(e=>e.asOf?[e.asOf]:[]),options.zone());let index=0;
+    control.replaceChildren(new Option('Choose a retained job…',''),...entries.map(e=>new Option(`${e.asOf?labels[index++]:'Unavailable market time'} · ${e.text}`,e.value)));control.value=selected;
     if(run?.queued)get('risk-job-context').textContent=contextLabel(run.context,run.asOf);
   }
   /** Says where each queued part stands, and shows the run's results once none of its parts is still under way. */
@@ -440,7 +481,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const current=run;
     if(!current)return;
     if(current.queued)describeJobs(current);
-    if(running())schedulePoll(generation);else{stopPolling();showResults(current);}
+    if(running())schedulePoll(generation);else{stopPolling();showWork(current);}
     sync();
   }
   function describeJobs(current:Run){
@@ -477,97 +518,58 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     showRun();
   });
   get('risk-job-history').onchange=()=>void options.act(async()=>{
-    const id=get<HTMLSelectElement>('risk-job-history').value;if(!id)return;
-    forgetRun();const version=++generation;reviewing=true;get<HTMLSelectElement>('risk-job-history').value=id;
+    const value=get<HTMLSelectElement>('risk-job-history').value;if(!value)return;
+    forgetRun();const version=++generation;reviewing=true;get<HTMLSelectElement>('risk-job-history').value=value;
     get('risk-scenario').textContent='Viewing a retained job under its captured financial context below. Return to the selected context to calculate another scenario.';
-    const value=await call<Job>(`portfolio/risk/jobs/${id}`);if(version!==generation)return;
-    const part:Part={};take(part,value);run={queued:true,parts:[part],context:value.context,asOf:value.asOf};showRun();
+    // A run made in parts is read part by part, in the order of its parts; a part the history no longer lists is said to be missing.
+    const runId=value.startsWith('run:')?value.slice(4):undefined,listed=runId===undefined?[]:recent.filter(j=>j.run?.id===runId);
+    const ids=runId===undefined?[value]:listed.map(j=>j.id),read=new Map<string,Job>();
+    for(const id of ids){const job=await call<Job>(`portfolio/risk/jobs/${id}`);if(version!==generation)return;read.set(id,job);}
+    const count=runId===undefined?1:listed[0]?.run?.parts;
+    if(count===undefined)throw Error('That run is no longer among the recent jobs. Refresh the history.');
+    const parts=Array.from({length:count},(_,index):Part=>{
+      const job=runId===undefined?read.get(value):[...read.values()].find(j=>j.run?.id===runId&&j.run.part===index+1);
+      if(!job)return {unlisted:true};
+      const part:Part={};take(part,job);return part;
+    });
+    const first=[...read.values()][0];
+    run={key:++runs,queued:true,parts,context:first.context,asOf:first.asOf,...(runId===undefined?{}:{id:runId})};showRun();
   });
   get('risk-job-return').onclick=()=>{if(!catalog||submissions.has(options.profile()))void options.act(open);else{edit();renderStress();}};
 
-  // --- results -----------------------------------------------------------------------------------------------------------------
-  function showResults(current:Run){
-    clearResults();
-    const reports=current.parts.flatMap(p=>p.report?[p.report]:[]),total=current.parts.length,host=get('risk-results');
-    if(!reports.length&&total===1)return;
-    // A result that does not say which positions it leaves out is refused, never read as leaving out none; and every part of a run is made
-    // at one close over the same books, so each leaves out the same positions.
-    if(reports.some(r=>!Array.isArray(r.excludedPositions))){host.append(alertNote('A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.'));return;}
-    const left=reports.map(r=>r.excludedPositions!);
-    if(new Set(left.map(list=>JSON.stringify(list))).size>1){host.append(alertNote('The parts of this run leave out different positions, so its results are not shown. Run it again.'));return;}
-    // What the run was set up as comes first, so that a run that left prices out can be told from a complete one.
-    const setup=note(setupText(current.setup));setup.id='risk-run-setup';host.append(setup);
-    const factors=reports.reduce((sum,r)=>sum+r.factors.length,0);let opened=false;
-    if(total>1)host.append(note(`${plural(factors,'factor')} in ${total} parts. Each factor's results are its own; nothing is added across factors or parts.`));
-    if(left.length&&left[0].length)host.append(note(`Leaves out ${plural(left[0].length,'position')} this close cannot value: ${left[0].map(e=>`${e.tradeReference} (${valuationReason(e.reason,e.instrumentType)})`).join('; ')}.`));
-    for(const [partIndex,part] of current.parts.entries()){
-      const name=`Part ${partIndex+1} of ${total}`;
-      if(part.failure!==undefined){const line=alertNote(`${name} failed: ${part.failure}`);line.classList.add('risk-part-failed');host.append(line);continue;}
-      // A part with no outcome once none is under way has a submission with no known outcome, or is not yet queued: the run is
-      // retained for Reconcile, which settles the one and queues the other.
-      if(!part.report){const line=note(`${name} has no results: ${part.recovery?.command?'its submission has no known outcome':'it is not yet queued'}.`);line.classList.add('risk-part-missing');host.append(line);continue;}
-      for(const [factorIndex,item] of part.report.factors.entries()){host.append(factorSection(part.report,item,`${partIndex}-${factorIndex}`,!opened));opened=true;}
-    }
-    get('risk-work').replaceChildren(...current.parts.flatMap((part,index)=>part.report?[workEvidence(part.report,total>1?`Part ${index+1} of ${total} · `:'')]:[]),
-      note('Tables and charts use backend display precision; sorting compares displayed amounts. Hover over a value or download for exact amounts.'));
-    get('risk-export').hidden=false;
-    get('risk-export-note').hidden=complete(current);get('risk-export-note').textContent=complete(current)?'':'The download needs the results of every part of the run.';
-    if(mounted())for(const draw of draws)draw();
-    if(revealResults&&mounted()){revealResults=false;reveal('risk-results');}
+  // --- the run's work and its download -------------------------------------------------------------------------------------------
+  /** The work each part's calculation did, once none of its parts is under way: the results of the run are the desk's (D220). */
+  function showWork(current:Run){
+    const total=current.parts.length;
+    get('risk-work').replaceChildren(...current.parts.flatMap((part,index)=>part.report?[workEvidence(part.report,total>1?`Part ${index+1} of ${total} · `:'')]:[]));
   }
-  function note(text:string){const p=document.createElement('p');p.className='field-help';p.textContent=publicText(text);return p;}
-  function alertNote(text:string){const line=note(text);line.setAttribute('role','alert');return line;}
-  /** One factor's book totals, chart and holding results, drawn when its section is open in the panel: the first is open. */
-  function factorSection(report:Report,item:Report['factors'][number],key:string,open:boolean){
-    const section=document.createElement('details'),summary=document.createElement('summary'),title=document.createElement('strong'),size=document.createElement('span');
-    section.className='risk-factor';section.open=open;title.textContent=factorLabel(item.factor);size.textContent=publicText(`±${item.bump} · ${item.factor.unit}`);summary.append(title,' ',size);section.append(summary);
-    let drawn=false;
-    const draw=()=>{
-      if(drawn||!section.open||!section.isConnected||!mounted())return;drawn=true;
-      for(const [partitionIndex,totals] of riskTotalGroups(item.totals).entries()){
-        const first=totals[0],unit=first.values;
-        const heading=document.createElement('h4');heading.textContent=publicText(`${first.measureLabel} · ${factorLabel(item.factor)} · absolute bump ±${item.bump} · unit ${item.factor.unit}`);
-        const host=document.createElement('div');host.className='table-wrap';section.append(heading,host);
-        const headers=['Book',`Base ${first.measureLabel} (${unit.currency})`,`Up ${first.measureLabel} (${unit.currency})`,`Down ${first.measureLabel} (${unit.currency})`,`Up change (${unit.currency})`,`Down change (${unit.currency})`,`Delta (${unit.deltaUnit})`,`Gamma (${unit.gammaUnit})`];
-        const amounts=(value:RiskValues['display'])=>[value.base,value.up,value.down,value.upPnl,value.downPnl,value.delta,value.gamma];
-        grids.push(renderDataGrid(host,`risk-totals-${key}-${partitionIndex}`,report.snapshotId+report.context.contextId,headers,totals.map(t=>[t.book,...amounts(t.values.display)]),[1,2,3,4,5,6,7],options.busy,
-          {keys:['book','base','up','down','upPnl','downPnl','delta','gamma'],cellTitles:totals.map(t=>[t.book,...amounts(t.values)]),layout:{order:[],widths:{},sort:[]},onLayout:()=>{}}));
-        const plot=document.createElement('div');plot.className='chart';section.append(plot);charts.push(plot);
-        renderChart(plot,{title:`${first.measureLabel} change by book`,subtitle:`±${item.bump} price points · ${item.factor.unit} · displayed amounts`,axis:'category',unit:unit.currency,kind:'bar',series:[
-          {name:'Up shock',points:totals.map(t=>({x:t.bookId,label:t.book,y:t.values.display.upPnl}))},
-          {name:'Down shock',points:totals.map(t=>({x:t.bookId,label:t.book,y:t.values.display.downPnl}))},
-        ]});
-      }
-      const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Individual holding results';details.append(summary);
-      const rows=document.createElement('div');rows.className='table-wrap';details.append(rows);section.append(details);
-      // Initialize after opening: the virtual grid needs a visible width.
-      let ready=false;details.ontoggle=()=>{if(!details.isConnected||!details.open||ready)return;ready=true;const keys=['book','trade','instrument','instrumentType','measure','currency','base','upPnl','downPnl','delta','deltaUnit','gamma','gammaUnit'];
-        const cells=(p:Position,display:boolean)=>{const v=display?p.values.display:p.values;return [p.book,p.tradeReference,p.instrumentReference,p.instrumentType,p.measureLabel,p.values.currency,v.base,v.upPnl,v.downPnl,v.delta,p.values.deltaUnit,v.gamma,p.values.gammaUnit];};
-        grids.push(renderDataGrid(rows,`risk-positions-${key}`,report.snapshotId,['Book','Trade','Instrument','Instrument type','Measure','Currency','Base value','Up change','Down change','Delta','Delta unit','Gamma','Gamma unit'],item.positions.map(p=>cells(p,true)),[6,7,8,9,11],options.busy,{keys,cellTitles:item.positions.map(p=>cells(p,false)),layout:{order:[],widths:{},sort:[]},onLayout:()=>{}}));};
-    };
-    section.ontoggle=draw;draws.push(draw);
-    return section;
-  }
-  function workEvidence(report:Report,prefix:string){
+  function workEvidence(report:RiskReport,prefix:string){
     const w=report.work,wrap=document.createElement('div'),overview=document.createElement('p');
     overview.textContent=publicText(`${prefix}${w.positionCount} holdings · ${report.heldInstruments} held instruments · ${w.uniqueValuations} unit valuations · ${w.scenarioCount} valuation scenarios · ${w.preparationScenarioCount} preparation scenarios · ${w.unitPricerCalls} pricer calls · ${w.repeatedInstrumentReferences} additional quantity references · ${w.quantityApplications} quantity applications.`);
     const evidence=document.createElement('details'),title=document.createElement('summary'),rows=document.createElement('ul');title.textContent='Graph and preparation work';
     for(const line of riskWorkDetails(report)){const item=document.createElement('li');item.textContent=line;rows.append(item);}
     evidence.append(title,rows);wrap.append(overview,evidence);return wrap;
   }
-  get('risk-export').onclick=()=>void options.act(async()=>{
+  /** Downloads the run's results and inputs: each part is read again under current authority, as its own request or its own retained job. */
+  async function download(){
     const current=run,version=generation;
     if(!current||!complete(current))throw Error('The download needs every part of the run. Run it again.');
-    // Each part is read again under current authority, as its own request or its own retained job.
-    const parts:Report[]=[];
+    const parts:RiskReport[]=[];
     for(const part of current.parts){
-      const report=part.job?(await call<Job>(`portfolio/risk/jobs/${part.job.id}`)).result:await call<Report>('portfolio/risk',part.request);
+      const report=part.job?(await call<Job>(`portfolio/risk/jobs/${part.job.id}`)).result:await call<RiskReport>('portfolio/risk',part.request);
       if(version!==generation)return;
       if(!report)throw Error('The completed job result is unavailable. Refresh its retained outcome.');
       parts.push(report);
     }
     const blob=new Blob([JSON.stringify({setup:current.setup??null,parts},null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);
-  });
+  }
+  /** The run on screen as the desk shows it, once one is: a run made now is shown when its parts have ended. */
+  function current():RunView|undefined{
+    if(!run||run.making)return undefined;
+    const requested=run.parts.every(p=>p.request)?run.parts.reduce((count,p)=>count+p.request!.bumps.length,0):null;
+    return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,factors:requested,
+      parts:run.parts.map(p=>({report:p.report,job:p.job&&{state:p.job.state,finishedAt:p.job.finishedAt??null},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
+  }
 
   function sync(){
     describeStatus();
@@ -576,7 +578,6 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const runnable=options.canRun(),reason=get('risk-run-note');
     reason.hidden=runnable;reason.textContent=runnable?'':riskDenied;
     for(const id of ['risk-run','risk-queue']){const button=get<HTMLButtonElement>(id);button.disabled=locked||!runnable;if(runnable)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby',reason.id);}
-    get<HTMLButtonElement>('risk-export').disabled=options.busy()||!complete(run);get('risk-results').inert=options.busy();
     get<HTMLButtonElement>('risk-stress-parent').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-clear').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-add').disabled=locked||stress.length>=16;
     get<HTMLSelectElement>('risk-job-history').disabled=options.busy();get<HTMLButtonElement>('risk-reload').disabled=options.busy();
     for(const id of ['risk-job-refresh','risk-job-retry','risk-job-cancel','risk-job-return','risk-job-discard'])get<HTMLButtonElement>(id).disabled=options.busy();
@@ -595,7 +596,6 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       shell.element('head').replaceChildren(title,sub);
       const body=shell.element('body');body.setAttribute('role','group');body.setAttribute('aria-label','Risk report');
       shell.element('view').replaceChildren(root);root.hidden=false;
-      for(const draw of draws)draw();
       sync();
     },
     /** Takes the report out of the panel; what it holds stays for when it is opened again. */
@@ -614,5 +614,8 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     shown:()=>!!run&&run.parts.some(p=>p.report),
     /** Whether a queued part of the run on screen is still under way. */
     running,
+    current,download,
+    /** Takes the run off the desk, on the person's word: the setup, and an unconfirmed submission, stay. */
+    clearRun(){if(!run)return;generation++;forgetRun();sync();},
   };
 }

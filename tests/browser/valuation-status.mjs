@@ -71,8 +71,16 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "document.querySelector('#risk-excluded').textContent");
   await click('input[name=risk-choice][value=custom]');
   await set('#risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#risk-bump','0.1');
-  await submit('#risk-form',60000);await wait("document.querySelector('#risk-results .risk-factor')",60000);
-  await check('the results of a run say which positions they leave out, as the close cannot value them',
-    `(()=>{const left=${catalog}.excludedPositions,line=[...document.querySelectorAll('#risk-results > p')].find(p=>p.textContent.startsWith('Leaves out '));return !!line&&line.textContent.startsWith('Leaves out '+left.length+' positions this close cannot value: ')&&left.every(e=>line.textContent.includes(e.tradeReference+' ('));})()`,
-    "[...document.querySelectorAll('#risk-results > p')].map(p=>p.textContent)");
+  await submit('#risk-form',60000);await wait("!document.querySelector('#desk-run').hidden&&document.querySelector('#desk-lens [data-lens=risk]').getAttribute('aria-pressed')==='true'&&"+idle,60000);
+  await check('the run bar says which positions the run leaves out, as the close cannot value them',
+    `(()=>{const left=${catalog}.excludedPositions,line=[...document.querySelectorAll('#desk-run-notes li')].find(p=>p.textContent.startsWith('Leaves out '));return !!line&&line.textContent.startsWith('Leaves out '+left.length+' positions this close cannot value: ')&&left.every(e=>line.textContent.includes(e.tradeReference+' ('));})()`,
+    "[...document.querySelectorAll('#desk-run-notes li')].map(p=>p.textContent)");
+  await check('the Risk lens marks each position the run leaves out with the reason its own row states',
+    `(()=>{const left=${catalog}.excludedPositions,rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.querySelector('[tabulator-field=c3] .desk-chip')?.textContent==='Left out');return rows.length===left.length&&rows.every(r=>left.some(e=>e.tradeReference===r.querySelector('.desk-reference').textContent))&&rows.some(r=>r.querySelector('[tabulator-field=c3] .desk-sub').textContent==='Contract expired · awaiting settlement')&&rows.every(r=>r.querySelector('[tabulator-field=c4]').textContent==='');})()`);
+  await check('a book\'s header in the Risk lens says how many of its positions the run leaves out, by the book the run names for each',
+    `(()=>{const left=${catalog}.excludedPositions,books=new Map(${table}.holdings.map(h=>[h.book,h.bookId])),headers=[...document.querySelectorAll('#desk-positions .tabulator-group')];return headers.length>0&&headers.every(h=>{const count=left.filter(e=>e.bookId===books.get(h.querySelector('.desk-group-label').textContent)).length,said=h.querySelector('.desk-group-left');return count?said?.textContent===' · '+count+' left out of this run':!said;})&&headers.some(h=>h.querySelector('.desk-group-left'));})()`,
+    "[...document.querySelectorAll('#desk-positions .tabulator-group')].map(h=>h.textContent)");
+  await check('the risk tile and the change chart say how many positions the run leaves out',
+    `(()=>{const left=${catalog}.excludedPositions.length;return document.querySelector('#desk-tile-risk .desk-tile-note')?.textContent==='Leaves out '+left+' positions this close cannot value'&&[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].some(p=>p.textContent===${note(`${catalog}.excludedPositions.length`)});})()`,
+    "[document.querySelector('#desk-tile-risk').textContent,document.querySelector('#desk-chart-position').textContent]");
 }

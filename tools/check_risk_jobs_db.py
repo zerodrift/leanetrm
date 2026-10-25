@@ -239,6 +239,33 @@ def run_checks(query, manifest, psql=None, environment=None):
     user(f"SELECT risk.cancel('{corrected_job['jobId']}')")
     print('PASS generic risk temporal pins: later corrections require a later context and UUID casing preserves frozen input use', flush=True)
 
+    # A part of a run made in parts (D220) states its run in its frame: the run's identity, the part and the run's part count. The store
+    # keeps one run at one retained context, each part once, whatever the API checked first. No worker claims this engine's jobs.
+    run_request = {**request, 'engineVersion': 'synthetic_run_engine_v1'}
+    run_id = str(uuid4())
+    def part(number, parts=2, run=None):
+        return {**frame, 'run': run if run is not None else {'id': run_id, 'part': number, 'parts': parts}}
+    for invalid in ({'id': run_id, 'part': 0, 'parts': 2}, {'id': run_id, 'part': 3, 'parts': 2}, {'id': run_id, 'part': 1, 'parts': 0},
+                    {'id': run_id, 'part': 1, 'parts': 257}, {'id': run_id, 'part': 1}, {'id': run_id, 'part': 1, 'parts': 2, 'label': 'synthetic'},
+                    {'id': 'synthetic', 'part': 1, 'parts': 2}, {'id': run_id, 'part': '1', 'parts': 2}, {'id': run_id, 'part': 1.5, 'parts': 2}, [], 'run', None):
+        reject(lambda: submit(payload=run_request, selected_frame={**frame, 'run': invalid}), 'risk_job_run')
+    first_part = submit(payload=run_request, selected_frame=part(1))
+    assert first_part['run'] == {'id': run_id, 'part': 1, 'parts': 2}, 'A part states its run'
+    alone = submit(payload=run_request)
+    assert alone['run'] is None, 'A job queued on its own states no run'
+    reject(lambda: submit(payload=run_request, selected_frame=part(1)), 'risk_job_run')
+    reject(lambda: submit(payload=run_request, selected_frame=part(2, parts=3)), 'risk_job_run')
+    elsewhere = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
+    reject(lambda: submit(payload={**run_request, 'context': {**run_request['context'], 'contextId': elsewhere}},
+                          selected_frame={**part(2), 'contextId': elsewhere}, selected_context=elsewhere), 'risk_job_run')
+    second_part = submit(payload=run_request, selected_frame=part(2))
+    listed = {row['jobId']: row['run'] for row in json.loads(user(f"SELECT risk.list('{catalog}')"))}
+    assert listed[first_part['jobId']]['part'] == 1 and listed[second_part['jobId']] == {'id': run_id, 'part': 2, 'parts': 2}, 'Job history lists each part with its run'
+    assert json.loads(user(f"SELECT risk.read('{second_part['jobId']}')"))['run'] == second_part['run']
+    for queued in (first_part, second_part, alone):
+        user(f"SELECT risk.cancel('{queued['jobId']}')")
+    print('PASS risk job runs: a part states one run, its part and the part count, at one retained context and once, in its retained frame', flush=True)
+
     operation = str(uuid4())
     reject(lambda: submit(selected_frame={**frame, 'frozenObservationIds': [str(uuid4())]}), 'risk_job_input')
     reject(lambda: submit(selected_frame={key: value for key, value in frame.items() if key != 'frozenObservationIds'}), 'risk_job_input')

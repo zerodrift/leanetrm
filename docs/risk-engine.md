@@ -139,6 +139,16 @@ at the catalog's one retained context. Each factor's results are independent, so
 combines the parts, and a part that fails is reported as failed. The results and the download state
 the preset, its size for each price unit and the held prices or curves it does not shock.
 
+Each queued part of a run made in parts states its run (D220): `POST /api/portfolio/risk/jobs` takes
+`{requestId, request, run:{id, part, parts}}`, and the job's retained frame keeps the run's identity, the
+part and the part count, checked before the inputs are prepared (1 ≤ part ≤ parts ≤ 256, sixteen
+shocks to a part and 4,096 in all). The job store admits each part of a run once, and every part at the
+run's one retained context with its one part count; anything else is refused with `risk_job_run`, and a
+request identity sent again with another run is `risk_job_conflict`. Every job read, the recent-job list
+included, states its job's `run`, or `null` for a job queued on its own, so the job history shows a run's
+parts as one run after a reload too. The run's results are shown in the Blotter desk, never against a
+read made at another market context than the one the run was made at.
+
 The shared pricing policy's `bumpBasis` and `bumpTicks` select the generated-close
 operation's automatically constructed bumps. Interactive requests supply each
 coordinate bump size and `absolute_curve_coordinate_symmetric_v1` convention

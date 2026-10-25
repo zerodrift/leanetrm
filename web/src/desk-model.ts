@@ -197,12 +197,13 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
 /** The display text of an exact amount, as the backend formats it for the row or the read. */
 export type Format=(value:string)=>string;
 /** How one position's amounts read: each by the precision and increment of its own deal, as its row carries them. */
-export type HoldingFormats={money:Format;quantity:Format;price:Format;mark:Format;markMinusPrice:Format};
+export type HoldingFormats={money:Format;quantity:Format;price:Format;mark:Format;markMinusPrice:Format;factor:Format};
 export function holdingFormats(h:Holding):HoldingFormats{
   // A swap's price is its fixed price, which has a precision of its own; a mark, and a mark less a price, take the contract's clearing increment.
   const price=h.instrumentType==='financial_swap'?h.fixedAmountFormat:h.amountFormat;
   return {money:value=>amountText(value,'money',undefined,h.amountFormat),quantity:value=>amountText(value,'quantity',undefined,h.amountFormat),
-    price:value=>amountText(value,'price',h.priceTick,price),mark:value=>amountText(value,'price',h.markTick,h.amountFormat),markMinusPrice:value=>amountText(value,'price',h.markTick,h.amountFormat)};
+    price:value=>amountText(value,'price',h.priceTick,price),mark:value=>amountText(value,'price',h.markTick,h.amountFormat),markMinusPrice:value=>amountText(value,'price',h.markTick,h.amountFormat),
+    factor:value=>amountText(value,'factor',undefined,h.amountFormat)};
 }
 
 /** How an exact amount's sign reads, for color and for its text: gain, loss or neither. */

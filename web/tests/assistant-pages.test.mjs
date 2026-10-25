@@ -265,3 +265,18 @@ test('risk results keep the page report they had, ahead of a trade entry, and a 
   const shown={tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'};
   assert.equal(pageReport({page:'futures',risk:false,trade:shown,entry:null,view:blotter}).page,'blotter');
 });
+
+test('the trade rows in the Risk lens are reported as the Blotter\'s risk results, which the assistant does not read, and the Values lens as the rows',()=>{
+  assert.deepEqual(pageReport({page:'futures',risk:false,trade:null,entry:null,lens:'risk',view:blotter}),{page:'blotter_risk_lens',selection:{}});
+  assert.deepEqual(pageReport({page:'futures',risk:false,trade:null,entry:null,lens:'values',view:blotter}),pageReport({page:'futures',risk:false,trade:null,entry:null,view:blotter}));
+  const names={curve:String,table:String},current={mode:'current',frameId:frame,frameLabel:'18 Dec 2020'};
+  assert.deepEqual(lookingAt({page:'blotter_risk_lens',selection:{}},current,names),
+    {page:'Blotter',shows:'Risk results on the trade rows. The assistant does not read risk results.',context:'Working data · As of 18 Dec 2020',supported:false,askable:true});
+});
+
+test('what the panel holds is reported ahead of the lens: its risk report, a trade being entered, or the position it shows',()=>{
+  const shown={tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'};
+  assert.equal(pageReport({page:'futures',risk:true,trade:null,entry:null,lens:'risk',view:blotter}).page,'blotter_risk');
+  assert.equal(pageReport({page:'futures',risk:false,trade:null,entry:{product:'swaps'},lens:'risk',view:blotter}).page,'blotter_new_swap');
+  assert.deepEqual(pageReport({page:'futures',risk:false,trade:shown,entry:null,lens:'risk',view:blotter}),pageReport({page:'futures',risk:false,trade:shown,entry:null,lens:'values',view:blotter}));
+});

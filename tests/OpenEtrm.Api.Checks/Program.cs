@@ -76,6 +76,7 @@ PilotReportChecks.Run();
 TableViewChecks.Run();
 TradingBlotterChecks.Run();
 RiskExclusionChecks.Run();
+RiskJobRunChecks.Run();
 PpaLimitChecks.Run();
 
 var cat=Guid.NewGuid(); var revision=Guid.NewGuid(); var reference=Guid.NewGuid(); var referenceRevision=Guid.NewGuid();

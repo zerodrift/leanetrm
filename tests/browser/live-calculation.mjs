@@ -120,12 +120,12 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  const runRisk=async()=>{
   await click('#desk-risk-run');await wait(reportOpen+"&&"+idle);await click('input[name=risk-choice][value=custom]');
   const factor=await evaluate(`(()=>{const c=${catalogs}.at(-1).data,source=c.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01');return c.scenarioTargets.find(t=>t.id===source.id&&JSON.stringify(t.factor)===JSON.stringify(source.factor)).id;})()`);
-  await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait("document.querySelector('#risk-results .tabulator-row')");
+  await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait("!document.querySelector('#desk-run').hidden&&"+idle);
  };
  await runRisk();
  const catalogsBefore=await evaluate(catalogs+'.length');
  await correct('base','3.371');
- await wait("document.querySelector('#live-status').dataset.state==='live'&&!document.querySelector('#risk-results .tabulator-row')&&"+reportOpen+"&&"+idle);
+ await wait("document.querySelector('#live-status').dataset.state==='live'&&document.querySelector('#desk-run').hidden&&"+reportOpen+"&&"+idle);
  await check('a live correction clears a risk run, whose inputs it changed, and the page says so',`!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})&&document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Set up in the panel'`,"[document.querySelector('#notice').textContent,document.querySelector('#desk-tile-risk').textContent]");
  await check('and reads the risk setup open in the panel again, for the context the correction made',
   `${catalogs}.length===${catalogsBefore}+1&&${catalogs}.at(-1).data.context.contextId!==${catalogs}.at(-2).data.context.contextId&&${catalogs}.at(-1).data.context.contextId===window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.context.contextId&&[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)`,
@@ -145,7 +145,7 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  const reportsBefore=await evaluate("window.liveResponses.filter(r=>r.path==='/api/portfolio/risk').length");
  const sizes=await evaluate("document.querySelectorAll('#risk-sizes input').length");
  for(let index=1;index<sizes;index++)if(!await evaluate(`document.querySelector('#risk-size-${index}').value`))await set(`#risk-size-${index}`,'0.05');
- await submit('#risk-form',60000);await wait("document.querySelector('#risk-results .risk-factor')",60000);
+ await submit('#risk-form',60000);await wait("!document.querySelector('#desk-run').hidden&&"+idle,60000);
  await check('a run of it is made at the context on screen, which the correction made, with the size the person typed',
   `(()=>{const reports=window.liveResponses.filter(r=>r.path==='/api/portfolio/risk').slice(${reportsBefore}).map(r=>r.data),typed=reports.flatMap(r=>r.factors).filter(f=>f.factor.unit===${JSON.stringify(unit)});return reports.length>0&&reports.every(r=>r.context.contextId===${workspaceContext}&&r.context.contextId===${catalogs}.at(-1).data.context.contextId)&&typed.length>0&&typed.every(f=>Number(f.bump)===0.25);})()`,
   `window.liveResponses.filter(r=>r.path==='/api/portfolio/risk').slice(${reportsBefore}).map(r=>[r.data.context.contextId,r.data.factors.map(f=>f.bump)])`);
@@ -177,7 +177,7 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await runRisk();
  await evaluate('window.failLiveWorkspace=true');await correct('base','3.372');
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
- await check('a refresh that fails after it cleared a risk run keeps the note that says so',`!document.querySelector('#risk-results .tabulator-row')&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})`,"[document.querySelector('#notice').hidden,document.querySelector('#notice').textContent,!!document.querySelector('#risk-results .tabulator-row')]");
+ await check('a refresh that fails after it cleared a risk run keeps the note that says so',`document.querySelector('#desk-run').hidden&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskNote)})`,"[document.querySelector('#notice').hidden,document.querySelector('#notice').textContent,document.querySelector('#desk-run').hidden]");
  await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  await click('#side-panel-close');
  // New trade follows the backend: a live view cannot book, as a historical one cannot, so a trader there is not offered it and is told why, in the

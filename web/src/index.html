@@ -180,7 +180,18 @@
     <div id="futures-retained"><div id="futures-pending" class="profile-note retained-request" role="status" hidden><p id="futures-pending-text"></p><div class="schedule-actions"><button id="futures-reconcile" type="button" class="secondary">Check status</button><button id="futures-retry" type="button" class="secondary">Retry original request</button></div></div></div>
     <p id="new-trade-availability" class="table-workspace-note" role="status" hidden></p>
     <div id="blotter-workspace"></div>
+    <div id="desk-lens" class="desk-lens" role="group" aria-label="Positions lens" hidden><button type="button" data-lens="values" aria-pressed="true">Values</button><button type="button" data-lens="risk" aria-pressed="false">Risk</button></div>
     <div id="desk" class="desk" hidden>
+      <section id="desk-run" class="desk-run" hidden>
+        <span class="desk-run-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19l5-6 4 3 7-9"/></svg></span>
+        <div class="desk-run-text">
+          <p id="desk-run-title" class="desk-run-title"><strong>Risk report</strong> · <span id="risk-run-setup"></span></p>
+          <p id="desk-run-detail" class="desk-run-detail"></p>
+          <ul id="desk-run-notes" class="desk-run-notes"></ul>
+          <p id="risk-export-note" class="desk-run-export-note" hidden></p>
+        </div>
+        <div class="desk-run-actions"><button id="desk-run-edit" type="button" class="secondary">Edit shocks</button><button id="risk-export" type="button" class="secondary">Export</button><button id="desk-run-clear" type="button" class="secondary">Clear</button></div>
+      </section>
       <div class="desk-tiles" role="group" aria-label="Book summary at this close">
         <div class="desk-tile-pair">
           <section id="desk-tile-swapPv" class="desk-tile" aria-label="Swap PV"></section>
@@ -398,8 +409,7 @@
  </fieldset></form>
  <p id="risk-progress" class="field-help" role="status"></p>
  <div id="risk-job" hidden><p id="risk-job-context" class="field-help"></p><p id="risk-job-scenario" class="field-help"></p><p id="risk-job-status" class="field-help" role="status"></p><ul id="risk-job-parts" class="risk-job-parts"></ul><div class="pricing-toolbar"><button id="risk-job-cancel" type="button" class="secondary" hidden>Cancel job</button><button id="risk-job-refresh" type="button" class="secondary" hidden>Refresh job</button><button id="risk-job-retry" type="button" class="secondary" hidden>Reconcile submission</button><button id="risk-job-discard" type="button" class="text-button" hidden>Discard unconfirmed request</button></div></div>
- <div id="risk-results" class="risk-results"></div><div id="risk-work" class="field-help" role="status"></div>
- <button id="risk-export" type="button" class="secondary" hidden>Download results &amp; inputs</button><p id="risk-export-note" class="field-help" hidden></p>
+ <div id="risk-work" class="field-help" role="status"></div>
 </div>
 <div id="futures-new-trade" class="editing" hidden>
  <form id="futures-form" hidden><fieldset id="futures-fields" class="futures-fields">

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
-import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,amendNote,amendControl,curveNote} from '../dist/position-panel.js';
+import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,riskTabView,amendNote,amendControl,curveNote} from '../dist/position-panel.js';
 import {chartOptions} from '../dist/chart-view.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -143,6 +143,35 @@ test('Open curve names the curve and the one contract the position is in, or the
 test('the tabs are Curve, Terms, Risk and History, and the Risk tab says its results are not here yet',()=>{
  assert.deepEqual(positionTabs.map(([id,label])=>[id,label]),[['curve','Curve'],['terms','Terms'],['risk','Risk'],['history','History']]);
  assert.equal(riskEmpty,"A risk run's results for this position will show here.");
+});
+
+// One shock of a run that moves a position, as the lens states it, in exact strings.
+const shock=o=>({factor:'jan',label:'Synthetic future · Jan 2021',bump:'0.05',unit:'1 USD / MMBtu (IT)',up:'25',down:'-25',delta:'500',deltaUnit:'USD / (1 USD / MMBtu (IT))',
+ gamma:'0',gammaUnit:'USD / (1 USD / MMBtu (IT))²',base:'-37.5',upValue:'-12.5',downValue:'-62.5',measureLabel:'Futures execution P&L',currency:'USD',currencyKey:'usd',...o});
+const riskFormats={...formats,factor:v=>v};
+
+test('the Risk tab lists each shock that moves the position, with its base, up and down values, changes, delta and gamma, never combined',()=>{
+ const view=riskTabView({state:'shown',factors:65,cell:{tradeReference:'TR-000002',shocks:[shock(),shock({factor:'feb',label:'Synthetic future · Feb 2021',up:'7',down:'-7',delta:'140',upValue:'-30.5',downValue:'-44.5'})]}},riskFormats);
+ assert.equal(view.note,"2 of this run's 65 shocks move this position, each on its own: nothing is added across them.");
+ assert.deepEqual(view.shocks.map(s=>s.title),['Synthetic future · Jan 2021','Synthetic future · Feb 2021']);
+ assert.equal(view.shocks[0].detail,'Shocked up and down by ±0.05 1 USD / MMBtu (IT), everything else held · Futures execution P&L in USD');
+ assert.deepEqual(view.shocks[0].facts.map(f=>[f.label,f.text,f.unit,f.exact]),[['Base','−37.5','USD','-37.5'],['Up','−12.5','USD','-12.5'],['Down','−62.5','USD','-62.5'],
+  ['Up change','+25','USD','25'],['Down change','−25','USD','-25'],['Delta','+500','USD / (1 USD / MMBtu (IT))','500'],['Gamma','0','USD / (1 USD / MMBtu (IT))²','0']]);
+ assert.deepEqual(view.shocks[0].facts.map(f=>f.sign??null),[null,null,null,'positive','negative',null,null],'only a change is told as a gain or a loss');
+ assert.equal(riskTabView({state:'shown',factors:65,cell:{tradeReference:'TR-000002',shocks:[shock()]}},riskFormats).note,"One of this run's 65 shocks moves this position.");
+ assert.equal(riskTabView({state:'shown',factors:65,missing:{parts:1,of:5},cell:{tradeReference:'TR-000002',shocks:[shock()]}},riskFormats).note,
+  "One of this run's 65 shocks moves this position. 1 of the run's 5 parts has no results, so no shock of it is listed.",'a run with a part missing says so, as a shock of that part may move the position too');
+});
+
+test('the Risk tab says why it lists no results: no run, a run under way, a run at another context, a position left out or one no shock moves',()=>{
+ const note=risk=>{const view=riskTabView(risk,riskFormats);assert.deepEqual(view.shocks,[]);return view.note;};
+ assert.equal(note({state:'none'}),riskEmpty);
+ assert.equal(note({state:'running'}),"A queued risk run is under way: this position's results show here once it completes.");
+ assert.equal(note({state:'elsewhere'}),'The risk run on screen was made at another market context than this Blotter read, so its results are not shown for this position.');
+ assert.equal(note({state:'failed',reason:'The parts of this run leave out different positions, so its results are not shown. Run it again.'}),'The parts of this run leave out different positions, so its results are not shown. Run it again.');
+ assert.equal(note({state:'left',reason:'Contract expired · awaiting settlement'}),'This close cannot value this position, so the run leaves it out: Contract expired · awaiting settlement.');
+ assert.equal(note({state:'shown',factors:65,cell:{tradeReference:'TR-000002',shocks:[]}}),"None of this run's 65 shocks moves this position.");
+ assert.equal(note({state:'shown',factors:1,cell:{tradeReference:'TR-000002',shocks:[]}}),"This run's one shock does not move this position.");
 });
 
 test('Amend says in words why it is not offered: for the account first, then for the revision once the editor has been read',()=>{

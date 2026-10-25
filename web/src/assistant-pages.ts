@@ -12,7 +12,8 @@ export type EntryShown={product:'futures'|'swaps'|null};
 // What a web page shows, as the page's own state names it.
 export type PageState=
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
-  |{page:'reference';table:string;search:string}|{page:'parties';kind:string}|{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;view:BlotterSelection}
+  |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
+  |{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}
   |{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'jobs'|'admin'|'ai'|'ppa'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
@@ -26,7 +27,9 @@ const unsupported:Record<string,string>={delivery:'delivery_prices','interval-se
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
 const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap'} as const;
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
-// page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again.
+// page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again. What the
+// Blotter's panel holds comes first, its risk report, a new trade or a position; then its trade rows under the Risk lens, whose
+// risk results the assistant does not read (D220), or the rows and totals it reads.
 export function pageReport(state:PageState):PageReport{
   switch(state.page){
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
@@ -39,6 +42,7 @@ export function pageReport(state:PageState):PageReport{
     case 'futures':{
       if(state.risk)return {page:'blotter_risk',selection:{}};
       if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:{}};
+      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:{}};
       const t=state.trade,v=state.view,pivot=v.mode==='pivot';
       return {page:'blotter',selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
         :{view:'blotter',mode:v.mode,bookIds:[...v.bookIds],portfolioIds:[...v.portfolioIds],groupBy:pivot?[...v.groupBy]:[],measures:pivot?[...v.measures]:[],
@@ -55,7 +59,7 @@ export function askKnowledge(context:PageContext){
 }
 
 const pageNames:Record<string,string>={curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
-  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',delivery_prices:'Delivery prices',
+  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Custom curves',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
   settings_ai:'AI',ppa:'PPA bookings'};
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
@@ -81,6 +85,7 @@ function shows(report:PageReport,names:Names,trade?:string){
       return `${s.mode==='pivot'?`Totals by ${joined((s.groupBy as string[]).map(d=>dimensions[d]))}`:'Trade rows'} · ${scope}`;
     }
     case 'blotter_risk':return 'The assistant does not read risk results.';
+    case 'blotter_risk_lens':return 'Risk results on the trade rows. The assistant does not read risk results.';
     case 'blotter_new_trade':return `A new trade is being started: no product is chosen yet. ${unsent}`;
     case 'blotter_new_future':return `A new future is being entered. ${unsent}`;
     case 'blotter_new_swap':return `A new swap is being entered. ${unsent}`;

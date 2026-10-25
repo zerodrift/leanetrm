@@ -5,9 +5,10 @@ type Choice=readonly [string,string];
 // lead: the consumer's own content between the toolbar and the table, across the workspace's whole width, such as summary tiles.
 // overview: more of it, in the column of the table and above its heading, such as charts. aside: a panel the consumer docks beside the overview and the table.
 // rowGroups: how trade rows can be grouped; the Group by control, in the heading row above the table, also offers None, an empty value.
+// lens: a control of the consumer's own beside the rows' heading, such as a choice of what the rows show.
 type WorkspaceOptions={
   key:string;rowMode:string;rowLabel:string;dimensions:readonly Choice[];measures:readonly Choice[];
-  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;note?:HTMLElement;lead?:HTMLElement;overview?:HTMLElement;aside?:HTMLElement;rowGroups?:readonly Choice[];
+  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;note?:HTMLElement;lead?:HTMLElement;overview?:HTMLElement;aside?:HTMLElement;rowGroups?:readonly Choice[];lens?:HTMLElement;
 };
 
 /** Shared presentation shell. Consumers supply authorized rows and server pivot operations. */
@@ -52,7 +53,7 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   const actions=node('div');actions.className='table-workspace-actions';for(const [id,label] of options.actions)actions.append(button(label,id));toolbar.append(actions);
   // One line above the rows: what they are, how they are grouped, and the grid's search and row count.
   const heading=node('div');heading.className='table-workspace-heading';
-  const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';heading.append(title);
+  const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';heading.append(title,...(options.lens?[options.lens]:[]));
   if(options.rowGroups){
     const wrap=node('label',undefined,'row-group-control'),caption=node('span','Group by'),select=node('select',undefined,'row-group');wrap.className='table-group-by';
     select.append(...options.rowGroups.map(([key,label])=>new Option(label,key)),new Option('None',''));wrap.append(caption,select);heading.append(wrap);
