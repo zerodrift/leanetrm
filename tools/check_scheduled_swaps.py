@@ -165,6 +165,7 @@ def run_checks(url,query=None,manifest=None):
     retained_context={**context,'knowledgeMode':'retained','contextId':retained['context']['contextId']}
     replay=c.call('swaps/quantity-schedule',dict(context=retained_context,tradeId=power_saved['tradeId'],revision=1))
     assert replay['intervals']==lineage['intervals'] and replay['quantityInputs']==lineage['quantityInputs']
+    assert lineage['canBook'] and not replay['canBook']
     if query:
         # The narrow bulk reader must not turn an unbound runtime into an owner read.
         query(f"""SET SESSION AUTHORIZATION preview_runtime; DO $$BEGIN
