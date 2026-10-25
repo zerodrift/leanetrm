@@ -17,7 +17,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await set('#date-context-on','2020-12-18');await click('#date-context-latest');await click('#apply-view-context');
   await wait("document.querySelector('#workspace-mode-label').textContent.startsWith('Historical view')&&"+idle);
   const closes=await evaluate("[...document.querySelector('#snapshot').options].filter(o=>o.value&&o.textContent.startsWith('Dec 18, 2020')).map(o=>o.value)");
-  await check('a historical view lists two closes of 2020-12-18, both at the instant the second was registered from',`${JSON.stringify(closes)}.length===2&&${JSON.stringify(second)}==='2020-12-18T16:00:00+00:00'`,JSON.stringify([closes,second]));
+  // The job checks may have registered another close of the date already: any two of the date's closes share the view's context.
+  await check('a historical view lists the closes of 2020-12-18, the one just registered among them, all at one instant',`${JSON.stringify(closes)}.length>=2&&${JSON.stringify(second)}==='2020-12-18T16:00:00+00:00'`,JSON.stringify([closes,second]));
 
   const panelRisk="(()=>{const panel=document.querySelector('#side-panel');return !panel.hidden&&panel.dataset.mode==='risk'&&!document.querySelector('#risk-report').hidden;})()";
   const inline="(()=>{const bar=document.querySelector('#desk-run');return !bar.hidden&&!document.querySelector('#desk-lens').hidden&&document.querySelector('#desk-lens [data-lens=risk]').getAttribute('aria-pressed')==='true';})()";
@@ -56,7 +57,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const before=await evaluate('window.__riskJobs.length');
   await click('#risk-queue');await wait(`/completed/.test(document.querySelector('#desk-run-detail').textContent)&&${inline}&&${idle}`,60000);
   const parts=await evaluate(`(()=>{const sent=window.__riskJobs.slice(${before}),done=sent.map(s=>window.__riskReads.findLast(r=>r.path.startsWith('/api/portfolio/risk/jobs/')&&r.data?.requestId===s.requestId&&r.data.state==='completed').data);
-    return done.map(j=>({id:j.id,run:j.run,moved:[...new Set(j.result.factors.flatMap(f=>f.positions.filter(p=>[p.values.upPnl,p.values.downPnl].some(v=>!/^-?0+(?:\\.0+)?(?:\\/\\d+)?$/.test(v))).map(p=>p.tradeReference)))]}));})()`);
+    return done.map(j=>({id:j.id,run:j.run,shocks:j.result.factors.length,moved:[...new Set(j.result.factors.flatMap(f=>f.positions.filter(p=>[p.values.upPnl,p.values.downPnl].some(v=>!/^-?0+(?:\\.0+)?(?:\\/\\d+)?$/.test(v))).map(p=>p.tradeReference)))]}));})()`);
   // The part dropped from the history is one whose shocks alone move a position, so that the check can see a position it leaves unknown.
   const dropped=parts.findIndex((part,index)=>part.moved.some(reference=>parts.every((other,o)=>o===index||!other.moved.includes(reference))));
   await check('the queued run has parts, one of which alone moves a position',`${parts.length}>1&&${dropped}>=0&&${JSON.stringify(parts.map(p=>p.run?.part))}.join()===${JSON.stringify(parts.map((_,i)=>i+1))}.join()`,JSON.stringify(parts.map(p=>[p.run,p.moved.length])));
@@ -78,6 +79,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('its row says not known, with the part and why',`document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c3]').textContent===${JSON.stringify(`Not known${name} is missing from the job history`)}`,
     "document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c3]').textContent");
   await set('#blotter-filters .table-search','');await wait(idle);
+  const known=parts.filter((_,index)=>index!==dropped).reduce((count,part)=>count+part.shocks,0);
+  await check('the run states only how many of its shocks are known, never fewer shocks than it ran',
+    `document.querySelector('#desk-tile-risk .desk-risk-count').textContent===${JSON.stringify(`${known} shocks known`)}&&document.querySelector('#desk-run-detail').textContent.startsWith(${JSON.stringify(`${known} shocks known · `)})`,
+    "[document.querySelector('#desk-tile-risk .desk-risk-count').textContent,document.querySelector('#desk-run-detail').textContent]");
   await check('the change chart and the risk tile say which positions are not known and why',
     `[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].some(p=>p.textContent.startsWith(${JSON.stringify(`Not known, as ${name.toLowerCase()} is missing from the job history: `)}))&&document.querySelector('#desk-tile-risk .desk-tile-note').textContent.includes(${JSON.stringify(`${name} is missing from the job history`)})&&document.querySelector('#desk-tile-risk').textContent.includes('Largest known move: ')`,
     "[[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].map(p=>p.textContent),document.querySelector('#desk-tile-risk').textContent]");

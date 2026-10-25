@@ -14,10 +14,10 @@ export const riskEmpty="This position's risk comes from the risk run on the desk
 
 /**
  * What the run on the desk says of a position (D220): no run; a queued run under way; a run made at another close, context or books than
- * the read, or one whose results are refused, with why; a position the run leaves out, with its row's reason; or its shocks, among the
- * run's factors with results, and the parts that have none.
+ * the read; one whose results are refused, or which has none, with why; a position the run leaves out, with its row's reason; or its
+ * shocks, among the run's factors with results, and the parts that have none.
  */
-export type PositionRisk={state:'none'}|{state:'running'}|{state:'elsewhere'}|{state:'failed';reason:string}|{state:'left';reason:string}
+export type PositionRisk={state:'none'}|{state:'running'}|{state:'elsewhere'}|{state:'failed'|'empty';reason:string}|{state:'left';reason:string}
   |{state:'shown';cell:LensCell;factors:number;gaps:readonly RunGap[]};
 /** A figure of a shock's results: its display text, exact amount and unit, and, for a change, whether it is a gain or a loss. */
 export type RiskFact={label:string;text:string;exact:string;unit:string;sign?:'positive'|'negative'|'zero'};
@@ -33,6 +33,7 @@ export function riskTabView(risk:PositionRisk,formats:Pick<HoldingFormats,'money
     case 'running':return {note:"The risk run on the desk is under way: this position's results show here once it completes.",shocks:[]};
     case 'elsewhere':return {note:'The risk run on the desk was made at another close, context or books than this Blotter read, so its results are not shown for this position.',shocks:[]};
     case 'failed':return {note:risk.reason,shocks:[]};
+    case 'empty':return {note:`The risk run on the desk has no results. ${risk.reason}.`,shocks:[]};
     case 'left':return {note:`The risk run on the desk leaves this position out, as this close cannot value it: ${risk.reason}.`,shocks:[]};
   }
   const {cell,factors,gaps}=risk,moved=cell.shocks.length,from='From the risk run on the desk: ',gap=gapsText(gaps);

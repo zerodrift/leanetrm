@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from uuid import uuid4
 
 from preview_fixture import fixture, trading_fixture
@@ -257,9 +258,13 @@ def run_checks(query, manifest, psql=None, environment=None):
         reject(lambda: submit(payload=run_request, selected_frame={**frame, 'run': invalid}), 'risk_job_run')
     first_part = submit(payload=run_request, selected_frame=part(1))
     assert first_part['run'] == {'id': run_id, 'part': 1, 'parts': 2} and first_part['scope'] == scope, 'A part states its run and the books it was asked for'
+    assert first_part['shocks'] == len(run_request['bumps']), 'A job states how many shocks its request asked for'
     alone = submit(payload=run_request)
     assert alone['run'] is None and alone['scope'] is None, 'A job queued on its own states no run, and a frame without a scope states none'
     reject(lambda: submit(payload=run_request, selected_frame=part(2, scope={'bookIds': books, 'portfolioIds': [str(uuid4())]})), 'risk_job_run')
+    # Every close of one date shares a context, so a part at another close of the date, its own frame, is refused as well.
+    other_close = str(uuid4())
+    reject(lambda: submit(payload={**run_request, 'context': {**run_request['context'], 'snapshotId': other_close}}, selected_frame={**part(2), 'id': other_close}), 'risk_job_run')
     reject(lambda: submit(payload=run_request, selected_frame=part(1)), 'risk_job_run')
     reject(lambda: submit(payload=run_request, selected_frame=part(2, parts=3)), 'risk_job_run')
     elsewhere = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
@@ -272,7 +277,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     assert json.loads(user(f"SELECT risk.read('{second_part['jobId']}')"))['scope'] == scope, 'A job read states the books and portfolios its run was asked for'
     for queued in (first_part, second_part, alone):
         user(f"SELECT risk.cancel('{queued['jobId']}')")
-    print('PASS risk job runs: a part states one run, its part and the part count, at one retained context, for one scope and once, in its retained frame', flush=True)
+    print('PASS risk job runs: a part states one run, its part and the part count, at one retained context and close, for one scope and once, in its retained frame', flush=True)
 
     if psql is not None:
         # Two sessions sending parts of one run at once are admitted one at a time: the second waits until the first commits and then sees
@@ -284,10 +289,17 @@ def run_checks(query, manifest, psql=None, environment=None):
             except RuntimeError as error:
                 return str(error)
 
-        def raced(first_frame, second):
+        # The second session names itself, so that its wait for the run's lock can be seen before the first session commits.
+        racer_name = 'synthetic_run_racer'
+
+        def waiting():
+            return query(f"SELECT count(*) FROM pg_stat_activity WHERE application_name='{racer_name}' AND wait_event_type='Lock' AND wait_event='advisory'") == '1'
+
+        def raced(first_frame, second_sql):
             process = subprocess.Popen([str(x) for x in psql], cwd=ROOT, env=environment,
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             result = {}
+            second = lambda: query(f"SET application_name='{racer_name}';SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');{second_sql};COMMIT;")
             racer = threading.Thread(target=lambda: result.update(error=outcome(second)))
             try:
                 process.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');{submit_sql(payload=run_request, selected_frame=first_frame)};\n")
@@ -298,13 +310,17 @@ def run_checks(query, manifest, psql=None, environment=None):
                     line = process.stdout.readline()
                     held = json.loads(line) if line.startswith('{') else None
                 racer.start()
-                racer.join(2)
-                waited = racer.is_alive()
+                deadline = time.monotonic() + 10
+                waited = waiting()
+                while not waited and racer.is_alive() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                    waited = waiting()
+                assert waited, ('The second part was not seen waiting on the run\'s lock before the first part committed', result)
                 process.stdin.write('COMMIT;\n\\q\n')
                 process.stdin.flush()
                 assert process.wait(timeout=10) == 0
                 racer.join(30)
-                assert waited and not racer.is_alive() and 'risk_job_run' in result.get('error', ''), (waited, result)
+                assert not racer.is_alive() and 'risk_job_run' in result.get('error', ''), result
                 return held
             finally:
                 if process.poll() is None:
@@ -314,13 +330,13 @@ def run_checks(query, manifest, psql=None, environment=None):
                     racer.join(30)
 
         racing = str(uuid4())
-        held_first = raced(part(1, run_id=racing), lambda: submit(payload={**run_request, 'context': {**run_request['context'], 'contextId': elsewhere}},
-                                                                 selected_frame={**part(2, run_id=racing), 'contextId': elsewhere}, selected_context=elsewhere))
+        held_first = raced(part(1, run_id=racing), submit_sql(payload={**run_request, 'context': {**run_request['context'], 'contextId': elsewhere}},
+                                                              selected_frame={**part(2, run_id=racing), 'contextId': elsewhere}, selected_context=elsewhere))
         twice = str(uuid4())
-        held_twice = raced(part(1, run_id=twice), lambda: submit(payload=run_request, selected_frame=part(1, run_id=twice)))
+        held_twice = raced(part(1, run_id=twice), submit_sql(payload=run_request, selected_frame=part(1, run_id=twice)))
         for queued in (held_first, held_twice):
             user(f"SELECT risk.cancel('{queued['jobId']}')")
-        print('PASS risk job run concurrency: a part sent while another of its run is uncommitted waits for it, so no run holds parts at two contexts or a part twice', flush=True)
+        print('PASS risk job run concurrency: a part sent while another of its run is uncommitted waits on the run\'s lock, seen in pg_stat_activity, so no run holds parts at two contexts or a part twice', flush=True)
 
     operation = str(uuid4())
     reject(lambda: submit(selected_frame={**frame, 'frozenObservationIds': [str(uuid4())]}), 'risk_job_input')

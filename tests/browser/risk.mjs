@@ -29,7 +29,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const choose=async report=>{await click(`input[name=risk-choice][value=${report}]`);};
   const openReport=async()=>{await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled");};
   await persona('risk');
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+  // The date's own close, never a close another check registered from it at the same instant.
+  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&!f.originCloseId).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await check('portfolio risk includes a mixed book selection without hiding swap holdings',"(()=>{const holdings=window.__tradingReports(window.__riskReads).at(-1).data.holdings;return !document.querySelector('#blotter-risk').hidden&&document.querySelector('#blotter-risk').textContent==='Risk report'&&holdings.some(row=>row.instrumentType==='future')&&holdings.some(row=>row.instrumentType==='financial_swap');})()");
   await check('Risk Analyst can inspect holdings and run scenarios without booking authority, and is told so rather than offered New trade',"document.querySelector('#profile-label').textContent==='Risk Analyst'&&document.querySelector('#futures-new').disabled&&document.querySelector('#new-trade-availability').textContent.includes('Book Trade permission')&&document.querySelector('#futures-book-submit').disabled&&!document.querySelector('#blotter-risk').disabled");
@@ -179,6 +180,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +`&&document.querySelector('#desk-tile-risk .desk-tile-note').textContent.includes(${JSON.stringify(`Not known for ${unknownAfterFailure.length} position${unknownAfterFailure.length===1?'':'s'} · ${failedPart}`)})&&document.querySelector('#desk-tile-risk').textContent.includes('Largest known move: ')`,
     `[${JSON.stringify([notMoved,notKnown,unknownAfterFailure,failedPart])},[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].map(r=>r.textContent),[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].map(p=>p.textContent),document.querySelector('#desk-tile-risk').textContent]`);
   await set('#blotter-filters .table-search','');await wait(idle);
+  // When the parts with results move nothing while a part failed, nothing is known to move: the change chart and the tile say so alike.
+  await evaluate(`window.__reportEdit=report=>({...report,factors:report.factors.map(f=>({...f,positions:f.positions.map(p=>({...p,values:{...p.values,up:p.values.base,down:p.values.base,upPnl:'0',downPnl:'0',delta:'0',gamma:'0',
+    display:{...p.values.display,up:p.values.display.base,down:p.values.display.base,upPnl:'0',downPnl:'0',delta:'0',gamma:'0'}}}))}))});window.__failRiskPart=${failing}`);
+  await submit('#risk-form',60000);await evaluate('window.__reportEdit=undefined');await wait(inline+'&&'+idle,60000);
+  await check('a run whose parts with results move nothing while a part failed says no known move, in the change chart as in the tile',
+    `document.querySelector('#desk-chart-position .desk-chart-empty')?.textContent===${JSON.stringify('No known move: '+failedPart)}&&document.querySelector('#desk-tile-risk .desk-risk-moves').textContent===${JSON.stringify('No known move: '+failedPart)}`,
+    "[document.querySelector('#desk-chart-position').textContent,document.querySelector('#desk-tile-risk').textContent]");
   await check('the download of a run that lacks a part is refused, and says why',"document.querySelector('#risk-export').disabled&&!document.querySelector('#risk-export-note').hidden&&document.querySelector('#risk-export-note').textContent==='The download needs the results of every part of the run.'");
   // A queued part whose submission is refused is not queued, and says why; the other parts are queued and complete as the run.
   const jobsBeforeRefusal=await evaluate('window.__riskJobs.length');
@@ -209,9 +217,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the sizes of a run the backend refused are not kept for the next setup',
     `(()=>{const kept=Object.keys(sessionStorage).filter(k=>k.startsWith('openetrm.desk.shockSizes.'));return kept.length===1&&!sessionStorage.getItem(kept[0]).includes('0.09')&&sessionStorage.getItem(kept[0]).includes('0.05')&&document.querySelectorAll('#desk-run-notes .risk-part-failed').length===${parts};})()`,
     "Object.entries(sessionStorage).filter(([key])=>key.startsWith('openetrm.desk.shockSizes.'))");
+  const noResults=`('Parts '+[...Array(${parts}-1).keys()].map(i=>i+1).join(', ')+' and '+${parts}+' of '+${parts}+' have no results')`;
   await check('a run no part of which has results says so in the risk tile, which names its parts, never as not run',
     `document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='No results'&&document.querySelector('#desk-tile-risk .desk-tile-hint').textContent==='Parts '+[...Array(${parts}-1).keys()].map(i=>i+1).join(', ')+' and '+${parts}+' of '+${parts}+' have no results'&&!document.querySelector('#desk-run').hidden`,
     "document.querySelector('#desk-tile-risk').textContent");
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#side-panel').dataset.mode==='position'&&"+idle);
+  await click('#side-panel-tabs-risk');await wait("document.querySelector('#side-panel-tabs-risk').getAttribute('aria-selected')==='true'&&"+idle);
+  await check('a position\'s Risk tab says the run on the desk has no results, and why, never that there is no run',
+    `document.querySelector('#side-panel-view .side-panel-status').textContent==='The risk run on the desk has no results. '+${noResults}+'.'`,"document.querySelector('#side-panel-view').textContent");
   // What a preset leaves out is said where it is chosen, in its results and in its download, so that a run that left prices out can be told
   // from a complete one. The catalog read here names held prices and curves without a whole target: synthetic labels in its own lists.
   await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);

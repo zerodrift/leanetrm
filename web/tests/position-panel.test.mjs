@@ -177,6 +177,8 @@ test('the Risk tab says why it lists no results: no run, a run under way, made e
  assert.equal(note({state:'shown',factors:1,gaps:[],cell:{tradeReference:'TR-000002',shocks:[]}}),"From the risk run on the desk: its one shock does not move this position.");
  assert.equal(note({state:'shown',factors:49,gaps:[gap],cell:{tradeReference:'TR-000002',shocks:[]}}),
   "From the risk run on the desk: whether its shocks move this position is not known, as part 2 of 5 failed: Synthetic refusal.",'missing results are never read as moving nothing');
+ assert.equal(note({state:'empty',reason:'Parts 1 and 2 of 2 have no results'}),'The risk run on the desk has no results. Parts 1 and 2 of 2 have no results.',
+  'a run with no results is stated as it stands, never as no run');
 });
 
 test('Amend says in words why it is not offered: for the account first, then for the revision once the editor has been read',()=>{

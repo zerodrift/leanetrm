@@ -75,6 +75,7 @@ def run_checks(Client, check, run_worker):
     scopes = {item['id']: item['scope'] for item in risk.call('portfolio/risk/jobs')}
     check('every job read states the books and portfolios its run was asked for, as they were chosen, the job history included',
           all(item['scope'] == {'bookIds': [], 'portfolioIds': []} and scopes.get(item['id']) == item['scope'] for item in queued))
+    check('every job read states how many shocks its request asked for', all(item['shocks'] == len(request['bumps']) for item in queued))
     check('a part sent again with its request identity returns the job it queued', risk.call('portfolio/risk/jobs', parts[0])['id'] == queued[0]['id'])
     def refused(body, code, status=422):
         return risk.call('portfolio/risk/jobs', body, expected=status).get('code') == code
@@ -90,6 +91,20 @@ def run_checks(Client, check, run_worker):
     first_scoped = risk.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': request, 'run': {'id': scoped, 'part': 1, 'parts': 2}})
     check('every part of a run is asked for the same books and portfolios',
           refused({'requestId': str(uuid4()), 'request': {**request, 'bookIds': [catalog['books'][0]['bookId']]}, 'run': {'id': scoped, 'part': 2, 'parts': 2}}, 'risk_job_run'))
+    # Every close of one date shares a retained context, so a part at another close of the date is refused too: a run is made at one close.
+    approver = Client(); approver.bootstrap(); approver.call('profile', {'profile': 'approver'})
+    registered = next(f for f in approver.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
+    approver.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': registered['id'], 'name': 'Synthetic second close'})
+    other_close = next(f for f in risk.call('workspace')['frames'] if f['at'] == frame['at'] and f['id'] != frame['id'])
+    # A context captured once the close is registered knows both closes of the date; a job at either close alone is admitted.
+    both = {**context, 'contextId': risk.call('portfolio/risk/catalog', {'context': {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'},
+                                                                          'bookIds': [], 'portfolioIds': []})['context']['contextId']}
+    at_other = risk.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': {**request, 'context': {**both, 'snapshotId': other_close['id']}}})
+    closed = str(uuid4())
+    first_closed = risk.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': {**request, 'context': both}, 'run': {'id': closed, 'part': 1, 'parts': 2}})
+    check('every part of a run is made at its one close, though every close of the date shares its context',
+          at_other['state'] == 'queued' and refused({'requestId': str(uuid4()), 'request': {**request, 'context': {**both, 'snapshotId': other_close['id']}},
+                                                     'run': {'id': closed, 'part': 2, 'parts': 2}}, 'risk_job_run'))
     later = risk.call('portfolio/risk/catalog', {'context': {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'},
                                                  'bookIds': [], 'portfolioIds': []})['context']['contextId']
     split = str(uuid4())
@@ -97,5 +112,5 @@ def run_checks(Client, check, run_worker):
     check('every part of a run is made at its one retained context',
           later != context['contextId'] and refused({'requestId': str(uuid4()), 'request': {**request, 'context': {**context, 'contextId': later}},
                                                       'run': {'id': split, 'part': 2, 'parts': 2}}, 'risk_job_run'))
-    for item in [*queued, first, first_scoped]:
+    for item in [*queued, first, first_scoped, at_other, first_closed]:
         risk.call('portfolio/risk/jobs/' + item['id'] + '/cancel', {})

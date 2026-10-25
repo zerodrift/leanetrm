@@ -29,7 +29,7 @@ type JobRun={id:string;part:number;parts:number};
 /** The books and portfolios a run was asked for, as they were chosen. */
 type RunScope={bookIds:readonly string[];portfolioIds:readonly string[]};
 type Job={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;context?:FinancialContext;asOf?:string;
-  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null};
+  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number};
 /**
  * A part of a run and what became of it: the report it returned, or the job it was queued as, or why it failed. A queued part's
  * submission is kept as its `recovery` until its outcome is known. A retained job read from the history has no request of its own, and a
@@ -50,7 +50,7 @@ type RunSetup={report:Choice;label:string;sizes:Record<string,string>;withoutTar
  */
 type Run={key:number;queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string;setup?:RunSetup;id?:string;scope?:RunScope;making?:boolean;finishedAt?:string};
 /** A part of the run on screen as the desk shows it: its report once it has one, or what became of it. */
-export type RunPart={report?:RiskReport;job?:{state:JobState;finishedAt?:string|null};failure?:string;unknown:boolean;unlisted:boolean};
+export type RunPart={report?:RiskReport;job?:{state:JobState;finishedAt?:string|null;shocks?:number};failure?:string;unknown:boolean;unlisted:boolean};
 /**
  * The run on screen as the desk shows it (D220): what it was set up as, in words; whether it was queued, whether a queued part of it is
  * still under way, and whether it is retained, a job of the history or an unconfirmed submission shown under the context it was captured
@@ -575,7 +575,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     if(!run||run.making)return undefined;
     const requested=run.parts.every(p=>p.request)?run.parts.reduce((count,p)=>count+p.request!.bumps.length,0):null;
     return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,scope:run.scope,factors:requested,
-      parts:run.parts.map(p=>({report:p.report,job:p.job&&{state:p.job.state,finishedAt:p.job.finishedAt??null},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
+      parts:run.parts.map(p=>({report:p.report,job:p.job&&{state:p.job.state,finishedAt:p.job.finishedAt??null,shocks:p.job.shocks},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
   }
 
   function sync(){

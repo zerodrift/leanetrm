@@ -531,14 +531,16 @@ diverging bar on one scale per currency and its exact amount, and **n shocks** f
 factors move; a factor moves a position when its up or down change is not zero. The risk tile shows each
 currency's largest move, picked by exact comparison of magnitudes, its position and factor, the number of
 factors and each position's own largest move as a small bar, or says that no position moves; it states a
-run whose results are refused, with why, and a run no part of which has results. The long and short chart
+run whose results are refused, with why, and a run no part of which has results, as a position's Risk tab
+does. The run bar and the tile count the shocks known, of how many the run ran when its page or the jobs of
+all its parts state it. The long and short chart
 becomes Change if each contract moves up, a bar for each position one factor moves, naming those several
 factors move and those none moves; and a position's Risk tab says its results come from the risk run on
 the desk, points to the Risk report, and lists each factor that moves it with its base, up and down values,
 changes, delta and gamma. Nothing is added across factors, parts or positions. Missing results are never
 facts: while a part has no results, a position no shock with results moves is Not known, with the part and
-why, in the lens, the chart, the tile and its Risk tab, and the tile's largest move is the largest known
-one. The run bar, the tile, the chart and the lens's book and instrument-type headers say what the run
+why, in the lens, the chart, the tile and its Risk tab; the chart and the tile say "No known move" when no
+shock with results moves a position, and the tile's largest move is the largest known one. The run bar, the tile, the chart and the lens's book and instrument-type headers say what the run
 leaves out, from its own list and the book each entry names, and a row it leaves out says so with its own
 reason. Results are shown in each position's own deal format, prepared by the backend's amount display, only
 against the read they were run at: its market context, its close, by time and by the frame each part's

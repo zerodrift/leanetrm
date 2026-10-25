@@ -6,7 +6,7 @@ import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {releasesRetained,retainedText,retryAllowed} from './trade-requests.js';
 import {setupRisk,riskDenied,type RunView} from './risk-view.js';
-import {changeChart,changeScales,gapsText,largestMove,lensCells,madeHere,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,tileWords,unmovedNote,
+import {changeChart,changeScales,gapsText,largestMove,lensCells,madeHere,noMoveText,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,shockCount,shocksText,tileWords,unmovedNote,
   type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
 import type {ExcludedPosition,RiskReport} from './risk-report.js';
 import {setupFuturesBooking} from './futures-booking.js';
@@ -403,7 +403,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const held=holdings!.holdings,rows=positionRows(held),at=new Map(held.map((h,i)=>[positionKey(h),i])),run=risk.current();
     const unknown=shown.gaps.length?[...shown.cells.values()].filter(cell=>!cell.shocks.length).length:0;
     const words=tileWords({largest:shown.summary.largest.length,gaps:shown.gaps,unknown,excluded:shown.excluded.length});
-    return {label:`Risk · ${run?.setup?tileReports[run.setup.report]:'retained run'}`,count:`${shown.summary.factors} shock${shown.summary.factors===1?'':'s'}`,note:words.note,empty:words.empty,
+    return {label:`Risk · ${run?.setup?tileReports[run.setup.report]:'retained run'}`,count:run?shocksText(shockCount(run)):'',note:words.note,empty:words.empty,
       rows:shown.summary.largest.map(largest=>{
         const index=at.get(largest.positionKey)!,money=holdingFormats(held[index]).money;
         const bars=held.flatMap(h=>{const key=positionKey(h),cell=shown.cells.get(key),move=cell&&largestMove(key,cell);
@@ -424,7 +424,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function positionRisk(h:Holding,row:DeskRow):PositionRisk{
     if(inline?.state==='elsewhere')return {state:'elsewhere'};
     if(inline?.state==='failed')return {state:'failed',reason:inline.reason};
-    if(inline?.state!=='shown')return risk.running()?{state:'running'}:{state:'none'};
+    const run=risk.current();
+    if(inline?.state!=='shown')return risk.running()?{state:'running'}:run&&!run.parts.some(p=>p.report)?{state:'empty',reason:gapsText(runGaps(run))}:{state:'none'};
     const cell=inline.cells.get(positionKey(h));
     if(!cell)return {state:'left',reason:row.unavailable??'Not valued at this close'};
     return {state:'shown',cell,factors:inline.summary.factors,gaps:inline.gaps};
@@ -544,7 +545,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       const change=changeChart(rows.map((row,i)=>({key:positionKey(held[i]),reference:row.reference,market:row.market,commodity:row.commodity})),shown.cells,colors,(i,value)=>formats[i].money(value));
       const excluded=valuationNote(shown.excluded.length);
       const unmoved=unmovedNote(change.unmoved,shown.gaps);
-      renderDeskCharts(get('desk-chart-position'),change.panels,'No position moves under this run',[...(excluded?[excluded]:[]),...(unmoved?[unmoved]:[])]);
+      renderDeskCharts(get('desk-chart-position'),change.panels,noMoveText(shown.gaps),[...(excluded?[excluded]:[]),...(unmoved?[unmoved]:[])]);
     }else renderDeskCharts(get('desk-chart-position'),plan.positionPanels,'No positions in the selected books');
     drawn={rows,colors};
   }

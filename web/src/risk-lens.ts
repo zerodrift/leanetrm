@@ -126,6 +126,10 @@ export function unmovedNote(unmoved:readonly string[],gaps:readonly RunGap[]):st
   if(!unmoved.length)return null;
   return gaps.length?`Not known, as ${lowerFirst(gapsText(gaps))}: ${unmoved.join(', ')}`:`Not moved by any shock: ${unmoved.join(', ')}`;
 }
+/** What the desk says when no shock with results moves a position: that none moves, or, while a part has no results, that none is known to. */
+export function noMoveText(gaps:readonly RunGap[]):string{
+  return gaps.length?`No known move: ${gapsText(gaps)}`:"No position moves by this run's shocks.";
+}
 /**
  * The words of the risk tile beside a run's moves: the largest move's lead, the largest known one while a part has no results; what it
  * says when nothing moves; and its note: what the run leaves out, how many positions are not known and why.
@@ -133,7 +137,19 @@ export function unmovedNote(unmoved:readonly string[],gaps:readonly RunGap[]):st
 export function tileWords(o:{largest:number;gaps:readonly RunGap[];unknown:number;excluded:number}):{lead:string;empty:string|null;note:string|null}{
   const gaps=o.gaps.length?gapsText(o.gaps):null;
   const notes=[...(o.excluded?[`Leaves out ${plural(o.excluded,'position')} this close cannot value`]:[]),...(gaps&&o.unknown?[`Not known for ${plural(o.unknown,'position')}`]:[]),...(gaps?[gaps]:[])];
-  return {lead:gaps?'Largest known move':'Largest move',empty:o.largest?null:gaps?`No known move: ${gaps}`:"No position moves by this run's shocks.",note:notes.length?notes.join(' · '):null};
+  return {lead:gaps?'Largest known move':'Largest move',empty:o.largest?null:noMoveText(o.gaps),note:notes.length?notes.join(' · '):null};
+}
+/**
+ * How many shocks a run has results for, and how many it ran when that is stated: asked for on this page, or by the job of every part. A
+ * part the job history no longer lists states no count, so a run with one has none.
+ */
+export function shockCount(run:Pick<RunView,'factors'|'parts'>):{known:number;total:number|null}{
+  const known=new Set(run.parts.flatMap(p=>p.report?p.report.factors.map(f=>f.factor.id):[])).size,stated=run.parts.map(p=>p.job?.shocks);
+  return {known,total:run.factors??(stated.every(count=>count!==undefined)?stated.reduce<number>((sum,count)=>sum+count!,0):null)};
+}
+/** A run's shock count as it is known: all of them, or how many are known, of how many when that is stated; never fewer than it ran. */
+export function shocksText(count:{known:number;total:number|null}):string{
+  return count.total===count.known?plural(count.known,'shock'):`${plural(count.known,'shock')} known${count.total===null?'':` of ${count.total}`}`;
 }
 
 /** The largest magnitude among the changes the lens draws as bars, by currency, for one bar scale: chosen by exact comparison, never computed. */
@@ -187,7 +203,6 @@ const reportNouns={held:'held contract',parallel:'held curve',custom:'shock'} as
  */
 export function runBar(run:RunView,o:{zone:string;knowledge:string|null;results:RunResults}){
   const instant=(value:string)=>displayInstant(value,o.zone),total=run.parts.length,reports=run.parts.flatMap(p=>p.report?[p.report]:[]);
-  const count=run.factors??new Set(reports.flatMap(r=>r.factors.map(f=>f.factor.id))).size;
   const knowledge=run.retained||o.knowledge===null?`known at ${run.context?.knownAt?instant(run.context.knownAt):'an unstated time'}`:o.knowledge;
   const finished=run.parts.flatMap(p=>p.job?.finishedAt?[p.job.finishedAt]:[]).sort().at(-1);
   let when:string;
@@ -216,6 +231,8 @@ export function runBar(run:RunView,o:{zone:string;knowledge:string|null;results:
   // Changing Display reads the Blotter again, which clears the run: a pivot's note points to the download, and to a run made on trade rows.
   if(o.results.state==='pivot')notes.push({kind:'note',text:"Risk results are by position, which totals do not show. Export downloads them for every factor; a run made with Display set to Individual trades shows each position's shocks in its row and in the Risk tab of its panel."});
   const noun=run.setup?reportNouns[run.setup.report]:'shock',complete=total>0&&run.parts.every(p=>p.report);
-  return {title:`Risk report · ${run.setupText}`,detail:`${plural(count,noun)} · ${run.asOf?instant(run.asOf):'an unstated'} close · ${knowledge} · ${when}`,notes,
+  // A run made on this page states what it asked for; one read from the job history what its parts' jobs state, and how many are known.
+  const count=run.factors===null?shocksText(shockCount(run)):plural(run.factors,noun);
+  return {title:`Risk report · ${run.setupText}`,detail:`${count} · ${run.asOf?instant(run.asOf):'an unstated'} close · ${knowledge} · ${when}`,notes,
     exportable:complete&&o.results.state!=='failed',exportShown:o.results.state!=='failed',exportNote:complete||o.results.state==='failed'?null:'The download needs the results of every part of the run.'};
 }

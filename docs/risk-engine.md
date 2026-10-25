@@ -144,11 +144,12 @@ Each queued part of a run made in parts states its run (D220): `POST /api/portfo
 part and the part count, checked before the inputs are prepared (1 ≤ part ≤ parts ≤ 256, sixteen
 shocks to a part and 4,096 in all). Every queued job's frame also keeps `scope`, the books and
 portfolios its request was asked for, as chosen. The job store admits each part of a run once, and every
-part at the run's one retained context, for its one scope, with its one part count, serializing parts of
-one run sent at once; anything else is refused with `risk_job_run`, and a request identity sent again
-with another run is `risk_job_conflict`. Every job read, the recent-job list included, states its job's
-`run`, or `null` for a job queued on its own, and its `scope`, so the job history shows a run's parts as
-one run after a reload too. The run's results are shown in the Blotter desk only against a read of the
+part at the run's one retained context and one close (frame), for its one scope, with its one part count,
+serializing parts of one run sent at once; anything else is refused with `risk_job_run`, and a request
+identity sent again with another run, or a frame without the `scope` this release writes, is
+`risk_job_conflict`. Every job read, the recent-job list included, states its job's `run`, or `null` for a
+job queued on its own, its `scope` and `shocks`, the number of its request's bumps, so the job history
+shows a run's parts as one run after a reload too, and how many shocks it ran. The run's results are shown in the Blotter desk only against a read of the
 market context, close and books they were run at; a report's `snapshotId` is the frame of the close its
 request named.
 
