@@ -140,6 +140,14 @@ observation conventions, stubs, other payment frequencies, bank dispatch and phy
 unsupported. The enrolled swap lifecycle supports manual cash recording;
 standalone physical gas/power remains later scope.
 
+Retained hourly quantity inspection reads the exact trade revision through a
+scoped bulk operation. All interval/amount/reference provenance must match the
+retained revision; authority is checked before and after assembly. Existing direct
+table policies remain enforced. A missing qualified price-curve set in the ticket
+is reported explicitly rather than leaving an unexplained empty selector. Fixing
+definitions must be supplied as versioned market data; existing projection-only
+contracts are never silently assigned a new fixing convention.
+
 Standalone physical gas/power booking is planned separately in the
 [physical booking plan](physical-energy-booking-plan.md).
 
