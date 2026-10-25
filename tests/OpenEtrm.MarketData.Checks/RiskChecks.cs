@@ -211,6 +211,7 @@ internal static class RiskChecks
     [EconomicDefinition("synthetic_unit_pricer_v1")]
     internal sealed record TestPricer:Instrument
     {
+        public override bool SupportsQuantityScaling=>true;
         [IdentityField] public UnitPricingContract Contract{get;}
         private readonly Func<PricingInputs,Money> evaluate;
         public override ReferenceKey Currency=>Contract.Currency;

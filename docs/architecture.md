@@ -390,6 +390,12 @@ These are distinct concepts:
   trade bindings reference that same definition. A curve recipe revision does not
   change the contract's identity. Resolved quote-admission policy and curve/member
   selection live in a separate `FuturesMarketBinding`, outside contract identity.
+- D218 implements generic `Trade`/`TradeInstrument` bindings and the typed
+  `Instrument.PV(UnitValuationContext)` calculation entry point. Product adapters
+  retain execution/lifecycle facts while risk uses the common contract. A bounded
+  managed `ForwardContract` composes fixed/indexed sides with external signed
+  size. See [unit instruments and trade bindings](instrument-contracts.md) for
+  identity, reuse, storage compatibility and the persisted-forward boundary.
 - `SidedInstrument` retains one or more independent sides through explicit
   memberships where the product actually requires composition, including the
   current fixed/floating financial swap. A simple contract needs no artificial side.

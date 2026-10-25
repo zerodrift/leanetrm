@@ -643,3 +643,24 @@ and historical cutoff validation remain authorized backend operations.
 The Assistant launcher floats at the lower right. Hiding it is a remembered
 per-profile browser presentation preference, reversible in Profile. It changes
 neither agent authorization nor retained conversations.
+
+## D218 — Generic trade bindings and typed instrument PV
+
+Implement the existing Trade → Instrument/Quantity architecture directly in the
+managed model. Trade owns stable occurrence bindings with external signed typed
+quantities; futures-specific execution facts are separate immutable values and
+contain no second booked quantity. Existing storage identifiers, public booking
+contracts and economic identity versions remain unchanged.
+
+Portfolio and risk evaluation call `Instrument.PV(UnitValuationContext)` and
+validate its typed money/quantity result and exact originating context. Instrument
+contracts own product-specific binding validation, workload estimates and
+lifecycle valuation dispatch. The scenario engine does not branch on concrete
+instrument types. Linear booked-size scaling is an explicit capability.
+
+A managed cash-settled `ForwardContract` uses canonical long indexed-minus-fixed
+unit economics and existing independent sides. Signed trade quantity expresses
+direction. Complete equivalent definitions can be interned; shared sides can
+reuse valuation only under the same scenario, dependency fence and resolved
+discount provider. New persisted forward booking and futures settlement PV remain
+outside this increment. See [implementation contracts](instrument-contracts.md).

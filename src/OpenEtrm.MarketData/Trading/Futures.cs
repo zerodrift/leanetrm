@@ -85,6 +85,13 @@ public sealed record FuturesMarketBinding
 [EconomicDefinition("FuturesContract_v1")]
 public sealed record FuturesContract : Instrument
 {
+    public override bool SupportsQuantityScaling=>true;
+    internal override void RequireSameDefinition(Instrument other)
+    {
+        base.RequireSameDefinition(other);
+        if(other is not FuturesContract contract||contract.Series!=Series)
+            throw FuturesMarketBinding.Error("instrument_identity","An exact futures series key cannot reinterpret its immutable terms.");
+    }
     [IdentityField]
     public ReferenceKey SeriesKey => Series.Key;
     public FuturesSeriesSpecification Series { get; }
@@ -167,49 +174,56 @@ public static class ContractIdentity
     }
 }
 
-public sealed record FuturesPosition
+// Product-specific execution facts are owned by a generic trade binding. They
+// carry no booked quantity; the binding stores the physical quantity once.
+public sealed record FuturesExecution:TradeExecution
 {
-    public Guid Id { get; }
     public FuturesMarketBinding MarketBinding { get; }
     public FuturesContract Instrument => MarketBinding.Instrument;
-    public Guid RetainedInstrumentId { get; }
-    public ExactDecimal Lots { get; }
     public UnitPrice ExecutionPrice { get; }
     public DateTimeOffset ExecutedAt { get; }
     public FuturesSettlementState Settlement { get; }
-    // The booked size: signed lots of the contract's exact lot size.
-    public Quantity Quantity => Instrument.LotSize.Scale(Lots);
-    public FuturesPosition(Guid id, FuturesMarketBinding marketBinding, ExactDecimal lots, UnitPrice executionPrice,
-        DateTimeOffset executedAt, FuturesSettlementState settlement, Guid? retainedInstrumentId = null)
+    public static TradeInstrument Bind(Guid id,FuturesMarketBinding marketBinding,ExactDecimal lots,UnitPrice executionPrice,
+        DateTimeOffset executedAt,FuturesSettlementState settlement,Guid? retainedInstrumentId=null)
     {
         if (marketBinding is null || executionPrice is null) throw FuturesMarketBinding.Error("futures_execution", "Execution requires an explicit instrument and price.");
-        var side = marketBinding;
         if (!lots.IsMultipleOf(ExactDecimal.Parse("1")) || lots == default ||
             lots.CompareTo(ExactDecimal.Parse("-100000")) < 0 || lots.CompareTo(ExactDecimal.Parse("100000")) > 0)
             throw FuturesMarketBinding.Error("futures_lots", "Supply nonzero signed integer lots between -100000 and 100000.");
-        if (id == Guid.Empty || retainedInstrumentId == Guid.Empty || !TradingInstant.IsSupported(executedAt) || executedAt < side.EligibleFrom || executedAt >= side.Contract.Expiry ||
+        if(id==Guid.Empty||retainedInstrumentId==Guid.Empty)throw FuturesMarketBinding.Error("futures_execution","Execution requires exact binding and retained identities.");
+        return new(id,marketBinding.Instrument,marketBinding.Instrument.LotSize.Scale(lots),
+            new FuturesExecution(marketBinding,executionPrice,executedAt,settlement),retainedInstrumentId);
+    }
+    public FuturesExecution(FuturesMarketBinding marketBinding,UnitPrice executionPrice,DateTimeOffset executedAt,FuturesSettlementState settlement)
+    {
+        if(marketBinding is null||executionPrice is null)throw FuturesMarketBinding.Error("futures_execution","Execution requires an explicit instrument and price.");
+        var side=marketBinding;
+        if (!TradingInstant.IsSupported(executedAt) || executedAt < side.EligibleFrom || executedAt >= side.Contract.Expiry ||
             executionPrice.Unit != PriceUnit.FromQuote(side.Quote) || !executionPrice.Value.IsMultipleOf(side.Quote.TradingTick))
             throw FuturesMarketBinding.Error("futures_execution", "Execution requires an exact identity, supported trading instant, price unit and trading tick.");
         if (settlement != FuturesSettlementState.Unprocessed)
             throw FuturesMarketBinding.Error("futures_settlement", "Only explicitly unprocessed settlement state is supported by execution P&L.");
         executionPrice.RequireQuote(side.Quote);
-        Id = id; MarketBinding = marketBinding; RetainedInstrumentId = retainedInstrumentId ?? marketBinding.Instrument.Id; Lots = lots; ExecutionPrice = executionPrice; ExecutedAt = executedAt; Settlement = settlement;
+        MarketBinding=marketBinding;ExecutionPrice=executionPrice;ExecutedAt=executedAt;Settlement=settlement;
     }
-}
-
-public sealed record FuturesTrade
-{
-    public Guid Id { get; }
-    public Guid BookId { get; }
-    public ImmutableArray<FuturesPosition> Instruments { get; }
-    public TradeBookingTerms? Booking { get; }
-    public FuturesTrade(Guid id, Guid bookId, ImmutableArray<FuturesPosition> instruments, TradeBookingTerms? booking = null)
+    public static FuturesExecution Require(TradeInstrument binding)=>binding.Execution as FuturesExecution??
+        throw FuturesMarketBinding.Error("futures_execution","The futures operation requires explicit futures execution facts.");
+    public ExactDecimal Lots(Quantity quantity)
     {
-        if (id == Guid.Empty || bookId == Guid.Empty || instruments.IsDefaultOrEmpty || instruments.Any(p => p is null) ||
-            instruments.Select(p => p.Id).Distinct().Count() != instruments.Length)
-            throw FuturesMarketBinding.Error("futures_trade", "A trade requires exact trade/book identities and distinct instrument bindings.");
-        Id = id; BookId = bookId; Instruments = instruments; Booking = booking;
+        if(quantity.Specification!=Instrument.LotSize.Specification||!quantity.Amount.IsMultipleOf(Instrument.LotSize.Amount))
+            throw FuturesMarketBinding.Error("futures_lots","The external quantity must represent whole lots in the exact contract unit.");
+        var lots=quantity.Amount.DivideExact(Instrument.LotSize.Amount);
+        if(lots==default||lots.CompareTo(ExactDecimal.Parse("-100000"))<0||lots.CompareTo(ExactDecimal.Parse("100000"))>0)
+            throw FuturesMarketBinding.Error("futures_lots","Supply nonzero signed integer lots between -100000 and 100000.");
+        return lots;
     }
+    internal override void Validate(Instrument instrument,Quantity quantity)
+    {
+        if(instrument is not FuturesContract contract||contract.Series!=Instrument.Series)
+            throw FuturesMarketBinding.Error("futures_identity","Execution facts must reference the binding's exact futures contract.");
+        _=Lots(quantity);
+    }
+    internal override UnitMoney Basis(Instrument instrument)=>new(ExecutionPrice.ExactTimes(instrument.UnitQuantity),instrument.UnitQuantity.Specification);
 }
 
 public sealed record FuturesHolding(Guid TradeId, Guid BookId, Guid BindingId, Guid InstrumentId, Guid PricingBindingId, ContractKey Contract,
@@ -219,15 +233,15 @@ public sealed record FuturesHolding(Guid TradeId, Guid BookId, Guid BindingId, G
 public static class FuturesHoldings
 {
     private static bool SameInputs(MarketSnapshot requested, MarketSnapshot retained) => requested.HasSameInputs(retained);
-    internal sealed record ResolvedHolding(Guid TradeId,Guid BookId,FuturesPosition Position,Quantity Quantity,UnitPrice Mark);
-    public static ImmutableArray<FuturesHolding> Price(ImmutableArray<FuturesTrade> trades, MarketSnapshot snapshot,
+    internal sealed record ResolvedHolding(Guid TradeId,Guid BookId,TradeInstrument Position,Quantity Quantity,UnitPrice Mark);
+    public static ImmutableArray<FuturesHolding> Price(ImmutableArray<Trade> trades, MarketSnapshot snapshot,
         CurveBuild market, string implementation)=>Resolve(trades,snapshot,market,implementation).Select(h=>
         {
-            var p=h.Position;var side=p.MarketBinding;
+            var p=h.Position;var execution=FuturesExecution.Require(p);var side=execution.MarketBinding;var lots=execution.Lots(p.Quantity);
             return new FuturesHolding(h.TradeId,h.BookId,p.Id,p.RetainedInstrumentId,side.Id,side.Contract.Key,h.Quantity,
-                p.ExecutionPrice,h.Mark,side.ExecutionPnl(h.Mark,p.ExecutionPrice,p.Lots),p.Settlement,side.Market.Curve,p.Lots);
+                execution.ExecutionPrice,h.Mark,side.ExecutionPnl(h.Mark,execution.ExecutionPrice,lots),execution.Settlement,side.Market.Curve,lots);
         }).ToImmutableArray();
-    internal static ImmutableArray<ResolvedHolding> Resolve(ImmutableArray<FuturesTrade> trades,MarketSnapshot snapshot,
+    internal static ImmutableArray<ResolvedHolding> Resolve(ImmutableArray<Trade> trades,MarketSnapshot snapshot,
         CurveBuild market,string implementation,CancellationToken cancellation=default)
     {
         if (!FuturesMarketBinding.Supported(implementation))
@@ -236,7 +250,7 @@ public static class FuturesHoldings
             !SameInputs(snapshot,market.Snapshot) || !market.Scenario.IsBase || market.NumericalPolicy != CurveModel.NumericalPolicy ||
             !TradingInstant.IsSupported(snapshot.ValuationAt))
             throw FuturesMarketBinding.Error("futures_context", "Use distinct trades and a matching pinned snapshot, definition revision and numerical policy.");
-        if(implementation==FuturesMarketBinding.Implementation && trades.SelectMany(t=>t.Instruments).Any(p=>p.Instrument.Series.LotBasis!=LotBasis.FixedTotal||p.Instrument.Series.SettlementMethod!="cash"))
+        if(implementation==FuturesMarketBinding.Implementation && trades.SelectMany(t=>t.Instruments).Any(p=>FuturesExecution.Require(p).Instrument.Series.LotBasis!=LotBasis.FixedTotal||FuturesExecution.Require(p).Instrument.Series.SettlementMethod!="cash"))
             throw FuturesMarketBinding.Error("futures_convention","The selected legacy convention supports only fixed-total cash futures.");
         var sides = new Dictionary<Guid,FuturesMarketBinding>();
         var instruments = new Dictionary<Guid,FuturesContract>();
@@ -244,8 +258,8 @@ public static class FuturesHoldings
         foreach (var position in trades.SelectMany(t => t.Instruments))
         {
             cancellation.ThrowIfCancellationRequested();
-            var instrument = position.Instrument;
-            var side = position.MarketBinding;
+            var execution=FuturesExecution.Require(position);var instrument=execution.Instrument;
+            var side = execution.MarketBinding;
             if (sides.TryGetValue(side.Id, out var retained) && retained != side)
                 throw FuturesMarketBinding.Error("futures_identity", "A pricing binding identity cannot reinterpret its exact inputs.");
             sides.TryAdd(side.Id, side);
@@ -262,9 +276,9 @@ public static class FuturesHoldings
         foreach (var position in trade.Instruments)
         {
             cancellation.ThrowIfCancellationRequested();
-            var side = position.MarketBinding;
+            var execution=FuturesExecution.Require(position);var side=execution.MarketBinding;
             market.Model.RequireFuturesDefinition(side.Market, side.Contract, side.Series, side.Quote);
-            if (position.ExecutedAt > snapshot.ValuationAt)
+            if (execution.ExecutedAt > snapshot.ValuationAt)
                 throw FuturesMarketBinding.Error("futures_effective", "An execution cannot enter a valuation before its exact effective instant.");
             if (snapshot.ValuationAt < side.EligibleFrom || snapshot.ValuationAt >= side.Contract.Expiry)
                 throw FuturesMarketBinding.Error("futures_lifecycle", "Pricing beyond the supported live interval requires explicit lifecycle processing.");
@@ -272,8 +286,9 @@ public static class FuturesHoldings
                 throw FuturesMarketBinding.Error("missing_observation", "The exact held contract price is required; no prompt contract is substituted.");
             if (value.Quote != side.Quote.Key) throw FuturesMarketBinding.Error("futures_definition", "The exact held quote definition is required.");
             var mark = value.Price;
-            side.RequirePrices(mark,position.ExecutionPrice);
-            result.Add(new(trade.Id,trade.BookId,position,position.Quantity,mark));
+            var quantity=position.Quantity;
+            side.RequirePrices(mark,execution.ExecutionPrice);
+            result.Add(new(trade.Id,trade.BookId,position,quantity,mark));
         }
         return result.ToImmutable();
     }

@@ -137,6 +137,7 @@ internal static class CurveRiskAxisChecks
     }
     private sealed record MeanInstrument:Instrument
     {
+        public override bool SupportsQuantityScaling=>true;
         private readonly CurveRequest dependency;
         public override ReferenceKey Currency{get;}
         public override Quantity UnitQuantity{get;}

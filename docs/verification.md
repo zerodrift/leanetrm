@@ -1,5 +1,42 @@
 # Local verification and continuous integration
 
+## Generic trade bindings and typed PV
+
+The D218 change passed the trading verification group on 25 October 2026,
+including shared preparation, frontend checks, stock database schema/upgrade
+checks, swap authoring and settlement, mixed portfolios, pilot-close workers and
+connected published-curve/retained-worker parity. The final tree passed 625
+managed core checks, the API schedule/admission checks, and the independent
+worker build. The trading run also passed all 84 rate checks.
+
+After routing futures draft risk through the typed-PV path, final isolated runs
+passed `--draft-check --browser-check`, `--ppa-bookings-check` and
+`--close-risk-check`. These cover public draft results, PPA booking/replay,
+coverage and overdue measures, worker replacement, exact discount receipts,
+opposing sensitivities and cancellation/publication fences. All database runs
+allocated and removed their own synthetic PostgreSQL clusters.
+
+The new managed checks verify repeated instrument bindings and shared book
+valuation, typed output/context rejection, explicit size-scaling admission,
+missing execution facts, canonical signed forward quantities, equivalent
+definition interning, strike-specific economics and shared-side isolation.
+Existing futures execution and settlement-PV refusal checks remain in force.
+See [unit instruments and trade bindings](instrument-contracts.md) for the exact
+implemented contracts and remaining booking/lifecycle limits. No hosted schema
+or deployment was changed.
+
+The final synthetic Debug benchmark used 50,000 futures bindings, four books,
+one dated contract and one primitive factor over three base/up/down scenarios.
+It performed three unit-pricer calls, three curve-node evaluations and twelve
+book quantity applications. On macOS 26.6.2 arm64 with 14 logical processors,
+.NET 10.0.13 and SDK 10.0.402, five fresh-cache samples after warm-up had a
+258.68 ms median and 217,074,824 median thread-allocated bytes. These are total
+allocations, not retained or peak memory. Independent lot/price arithmetic checks
+the result. The timed operation includes holdings validation and portfolio
+preparation; it excludes database, network, serialization and model/fixture
+construction. The work counts establish reuse, not production throughput or a
+universal speedup over full repricing.
+
 ## Retained swap editor and repeated sign-in regression checks
 
 An isolated pre-fixing-convention database books a synthetic legacy swap, then

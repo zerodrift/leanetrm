@@ -143,7 +143,7 @@ internal static class MonthlySwapChecks
             var snapshot = three.Market.Snapshot with {Id=Guid.NewGuid(),ValuationAt=at,MarketCutoff=at,
                 Selections=three.Market.Snapshot.Selections.AddRange(actuals)};
             var market = three.Market.Model.Build(snapshot,indexed.DependenciesAt(snapshot));
-            var value = indexed.PV(new(market,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            var value = indexed.PV(new SideValuationContext(market,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
             Equal(value.PresentValue.ToMoney().Amount.ToString(),"21.252");
             if(indexed.DependenciesAt(snapshot).Length!=1)throw new Exception("Resolved months remained live dependencies.");
             var resets=((PaymentSideValuation)value.Sides[1].Value).Payments.SelectMany(p=>p.Resets).ToArray();
@@ -156,7 +156,7 @@ internal static class MonthlySwapChecks
             if(portfolio.RiskFactors(three.Market.Model,snapshot).Single().Factors.Length!=2)
                 throw new Exception("Actual months gained live quote factors.");
             var missing=snapshot with{Selections=snapshot.Selections.Remove(actuals[0])};
-            Reject("index_fixing_missing",()=>indexed.PV(new(three.Market.Model.Build(missing,indexed.DependenciesAt(missing)),
+            Reject("index_fixing_missing",()=>indexed.PV(new SideValuationContext(three.Market.Model.Build(missing,indexed.DependenciesAt(missing)),
                 new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted))));
         });
         Check("retained nested identities and pricing bindings cannot be reinterpreted", () =>
@@ -205,7 +205,7 @@ internal static class MonthlySwapChecks
         public MonthlySwapSide Leg(ImmutableArray<Side> periods, MonthlyQuantityBasis basis) => new(Guid.NewGuid(), periods, basis, MonthlySwapSide.Implementation);
         public MonthlyFinancialSwap Swap(MonthlyQuantityBasis basis, bool discounted = false) => new(Guid.NewGuid(),
             [new(Leg(Fixed,basis),ExactDecimal.Parse("-1")),new(Leg(Floating,basis),ExactDecimal.Parse("1"))], MonthlyFinancialSwap.Implementation, discounted);
-        public InstrumentValuation Value(MonthlyFinancialSwap swap, ISideDiscounting? discounting = null) => swap.PV(new(
+        public InstrumentValuation Value(MonthlyFinancialSwap swap, ISideDiscounting? discounting = null) => swap.PV(new SideValuationContext(
             Market.Model.Build(Market.Snapshot, swap.DependenciesAt(Market.Snapshot)), discounting ?? new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
     }
     private sealed class BrokenDiscounting : ISideDiscounting

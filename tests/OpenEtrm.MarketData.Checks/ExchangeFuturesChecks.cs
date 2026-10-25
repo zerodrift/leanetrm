@@ -20,7 +20,7 @@ internal static class ExchangeFuturesChecks
    var instrument=new FuturesContract(Series("10000",LotBasis.FixedTotal,"physical"));
    Equal(instrument.LotSize.Amount.ToString(),"10000");
    Equal(instrument.ExecutionPnl(Price("3.1"),Price("3"),ExactDecimal.Parse("2")).Amount.ToString(),"2000");
-   Reject(()=>instrument.PV(null!));
+   Reject(()=>instrument.PV((SideValuationContext)null!));
   });
   Check("a directly observed basis future retains settlement references without upstream price exposure",()=>{
    var basisQuote=quote with {Kind=QuoteKind.Basis};
@@ -67,7 +67,7 @@ internal static class ExchangeFuturesChecks
    var model=new CurveModel(original.Key.Revision,wide.Key.Revision,[f.Quantities.Single(q=>q.Key==wide.Quantity)],[wide],[original],[f.Curves[0]],[series],[],[new(f.S(1),original.Key,wide.Key,null)]);
    var selected=f.Snapshot();var snapshot=selected with {Selections=[selected.Selections[0] with {Observation=selected.Selections[0].Observation with {Value=ExactDecimal.Parse("900000000000000000000000")}}]};
    var binding=model.BindFutures(Guid.NewGuid(),new(f.C("future"),original.Key),"physical",FuturesMarketBinding.GeneralImplementation);
-   var trade=new FuturesTrade(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),binding,ExactDecimal.Parse("1"),new(ExactDecimal.Parse("-900000000000000000000000"),wide),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)]);
+   var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[FuturesExecution.Bind(Guid.NewGuid(),binding,ExactDecimal.Parse("1"),new(ExactDecimal.Parse("-900000000000000000000000"),wide),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)]);
    var result=FuturesRisk.Calculate([trade],snapshot,model,[new(new(f.S(1),InputUse.Variable),wide.Key,PriceUnit.FromQuote(wide),ExactDecimal.Parse("1"),QuoteBump.Convention)],FuturesRisk.Implementation,RiskEngine.NumericalPolicy).Factors.Single().Positions.Single();
    Equal(result.Base.Amount.ToString(),"18000000000000000000000");Equal(result.UpPnl.Amount.ToString(),"0.01");Equal(result.DownPnl.Amount.ToString(),"-0.01");Equal(result.Delta.Value.ToString(),"0.01");Equal(result.Gamma.Value.ToString(),"0");
    }

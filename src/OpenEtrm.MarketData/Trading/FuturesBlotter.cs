@@ -7,7 +7,7 @@ public enum BlotterMeasure { TradeCount=1, Lots, Quantity, ExecutionPnl }
 public sealed record FuturesBlotterEntry(Guid PortfolioId,FuturesHolding Holding);
 // A held binding the selected close cannot value (D220): its trade, lots and quantity count;
 // it adds nothing to execution P&L.
-public sealed record UnvaluedFuturesEntry(Guid PortfolioId,Guid TradeId,Guid BookId,FuturesPosition Position);
+public sealed record UnvaluedFuturesEntry(Guid PortfolioId,Guid TradeId,Guid BookId,TradeInstrument Position);
 public sealed record FuturesBlotterKey(Guid? PortfolioId,Guid? BookId,CurveKey? Market,ContractKey? Contract,
     ReferenceKey Quantity,ReferenceKey Currency);
 // Execution P&L adds valued bindings only and is null when a group has none.
@@ -35,8 +35,12 @@ public static class FuturesBlotter
             throw new MarketDataException("blotter_view","Use distinct authorized trade bindings with exact portfolio/book relationships.");
         var rows=entries.Select(e=>new Row(e.PortfolioId,e.Holding.TradeId,e.Holding.BookId,e.Holding.BindingId,e.Holding.Market,e.Holding.Contract,
                 e.Holding.Lots,e.Holding.Quantity,e.Holding.ExecutionPnl.Currency,e.Holding.ExecutionPnl))
-            .Concat(unvalued.Select(u=>new Row(u.PortfolioId,u.TradeId,u.BookId,u.Position.Id,u.Position.MarketBinding.Market.Curve,
-                u.Position.MarketBinding.Contract.Key,u.Position.Lots,u.Position.Quantity,u.Position.Instrument.Currency,null))).ToImmutableArray();
+            .Concat(unvalued.Select(u=>
+            {
+                var execution=FuturesExecution.Require(u.Position);
+                return new Row(u.PortfolioId,u.TradeId,u.BookId,u.Position.Id,execution.MarketBinding.Market.Curve,execution.MarketBinding.Contract.Key,
+                    execution.Lots(u.Position.Quantity),u.Position.Quantity,u.Position.Instrument.Currency,null);
+            })).ToImmutableArray();
         if(rows.Length>256 || rows.Any(r=>r.PortfolioId==Guid.Empty) ||
             rows.Select(r=>(r.TradeId,r.BindingId)).Distinct().Count()!=rows.Length ||
             rows.GroupBy(r=>r.BookId).Any(g=>g.Select(r=>r.PortfolioId).Distinct().Count()!=1))

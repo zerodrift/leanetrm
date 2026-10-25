@@ -22,13 +22,13 @@ internal static class FuturesChecks
             new(Guid.NewGuid(), new(f.C("future"), f.K(1)), contract, terms ?? series, quote, settlement, FuturesMarketBinding.Implementation);
         var side = Side(); var instrument = side;
         var bookA = Guid.NewGuid(); var bookB = Guid.NewGuid();
-        FuturesTrade Trade(Guid book, string lots, string execution, DateTimeOffset? at = null) => new(Guid.NewGuid(), book,
-            [new(Guid.NewGuid(), instrument, ExactDecimal.Parse(lots), new UnitPrice(ExactDecimal.Parse(execution), quote),
+        Trade Trade(Guid book, string lots, string execution, DateTimeOffset? at = null) => new(Guid.NewGuid(), book,
+            [FuturesExecution.Bind(Guid.NewGuid(), instrument, ExactDecimal.Parse(lots), new UnitPrice(ExactDecimal.Parse(execution), quote),
                 at ?? f.Snapshot().ValuationAt, FuturesSettlementState.Unprocessed)]);
         var trades = ImmutableArray.Create(Trade(bookA, "2", "3"), Trade(bookA, "1", "3.05"), Trade(bookB, "-1", "3.1"));
         MarketSnapshot Mark(string price) => f.Snapshot() with { Selections = f.Snapshot().Selections.Select(s => s.Input.Series == f.S(1)
             ? s with { Observation = s.Observation with { Value = ExactDecimal.Parse(price) } } : s).ToImmutableArray() };
-        ImmutableArray<FuturesHolding> Price(ImmutableArray<FuturesTrade> holdings, MarketSnapshot snapshot) =>
+        ImmutableArray<FuturesHolding> Price(ImmutableArray<Trade> holdings, MarketSnapshot snapshot) =>
             FuturesHoldings.Price(holdings, snapshot, f.Model().Build(snapshot, [side.Market]), FuturesMarketBinding.Implementation);
         var snapshot = Mark("3.2");
         Check("nested futures risk counts original and intermediate market preparation",()=>
@@ -62,8 +62,8 @@ internal static class FuturesChecks
             Reject("futures_definition",()=>new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,quote,"cash",FuturesMarketBinding.Implementation,eligibleFrom:first.ToOffset(TimeSpan.FromHours(1))));
             Reject("futures_definition",()=>new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,series,quote,"cash",FuturesMarketBinding.Implementation,eligibleFrom:first.AddTicks(-10)));
             var price=new UnitPrice(ExactDecimal.Parse("3"),quote);
-            _=new FuturesPosition(Guid.NewGuid(),bound,ExactDecimal.Parse("1"),price,first,FuturesSettlementState.Unprocessed);
-            Reject("futures_execution",()=>new FuturesPosition(Guid.NewGuid(),bound,ExactDecimal.Parse("1"),price,first.AddTicks(-10),FuturesSettlementState.Unprocessed));
+            _=FuturesExecution.Bind(Guid.NewGuid(),bound,ExactDecimal.Parse("1"),price,first,FuturesSettlementState.Unprocessed);
+            Reject("futures_execution",()=>FuturesExecution.Bind(Guid.NewGuid(),bound,ExactDecimal.Parse("1"),price,first.AddTicks(-10),FuturesSettlementState.Unprocessed));
         });
         Check("unit side contribution, instrument lot size and booked lots apply once at their own levels", () =>
         {
@@ -100,7 +100,7 @@ internal static class FuturesChecks
             })
             {
                 var held = altered;
-                var trade = new FuturesTrade(Guid.NewGuid(), bookA, [new(Guid.NewGuid(), held, ExactDecimal.Parse("1"), new UnitPrice(ExactDecimal.Parse("3"), altered.Quote), snapshot.ValuationAt, FuturesSettlementState.Unprocessed)]);
+                var trade = new Trade(Guid.NewGuid(), bookA, [FuturesExecution.Bind(Guid.NewGuid(), held, ExactDecimal.Parse("1"), new UnitPrice(ExactDecimal.Parse("3"), altered.Quote), snapshot.ValuationAt, FuturesSettlementState.Unprocessed)]);
                 Reject("futures_definition", () => Price([trade], snapshot));
                 Reject("futures_definition", () => FuturesRisk.Calculate([trade], snapshot, f.Model(), [bump], FuturesRisk.Implementation, RiskEngine.NumericalPolicy));
             }
@@ -130,7 +130,7 @@ internal static class FuturesChecks
             var terms = series with { ContractSize = ExactDecimal.Parse("0.5"), TradingTick = fine.TradingTick };
             var fractional = new FuturesMarketBinding(Guid.NewGuid(), side.Market, contract, terms, fine, "cash", FuturesMarketBinding.Implementation);
             var held = fractional;
-            var trade = new FuturesTrade(Guid.NewGuid(), bookA, [new(Guid.NewGuid(), held, ExactDecimal.Parse("2"), new UnitPrice(ExactDecimal.Parse("3"), fine), snapshot.ValuationAt, FuturesSettlementState.Unprocessed)]);
+            var trade = new Trade(Guid.NewGuid(), bookA, [FuturesExecution.Bind(Guid.NewGuid(), held, ExactDecimal.Parse("2"), new UnitPrice(ExactDecimal.Parse("3"), fine), snapshot.ValuationAt, FuturesSettlementState.Unprocessed)]);
             var selected = Mark("3.000000000000000001") with { Selections = [Mark("3.000000000000000001").Selections.Single(s => s.Input.Series == f.S(1))] };
             var model = new CurveModel(f.Revision, f.Reference, [f.Quantities[0]], [fine], [contract], [f.Curves[0]], [terms], [], [new(f.S(1), contract.Key, fine.Key, null)]);
             var holding = FuturesHoldings.Price([trade], selected, model.Build(selected, [side.Market]), FuturesMarketBinding.Implementation).Single();
@@ -145,7 +145,7 @@ internal static class FuturesChecks
             var terms = series with { ContractSize = ExactDecimal.Parse("100"), TradingTick = fine.TradingTick, Multiplier = fine.Multiplier };
             var scaled = new FuturesMarketBinding(Guid.NewGuid(), side.Market, contract, terms, fine, "cash", FuturesMarketBinding.Implementation);
             var held = scaled;
-            var trade = new FuturesTrade(Guid.NewGuid(), bookA, [new(Guid.NewGuid(), held, ExactDecimal.Parse("1"), new UnitPrice(default, fine), snapshot.ValuationAt, FuturesSettlementState.Unprocessed)]);
+            var trade = new Trade(Guid.NewGuid(), bookA, [FuturesExecution.Bind(Guid.NewGuid(), held, ExactDecimal.Parse("1"), new UnitPrice(default, fine), snapshot.ValuationAt, FuturesSettlementState.Unprocessed)]);
             var selected = Mark("0.000000000000000001");
             selected = selected with { Selections = [selected.Selections.Single(s => s.Input.Series == f.S(1))] };
             var model = new CurveModel(f.Revision, f.Reference, [f.Quantities[0]], [fine], [contract], [f.Curves[0]], [terms], [], [new(f.S(1), contract.Key, fine.Key, null)]);
@@ -156,9 +156,9 @@ internal static class FuturesChecks
         });
         Check("null futures pricing bindings produce structured errors", () =>
         {
-            Reject("futures_execution", () => new FuturesPosition(Guid.NewGuid(), null!, ExactDecimal.Parse("1"), new UnitPrice(ExactDecimal.Parse("3"), quote), snapshot.ValuationAt, FuturesSettlementState.Unprocessed));
-            Reject("futures_execution", () => new FuturesPosition(Guid.NewGuid(), instrument, ExactDecimal.Parse("1"), null!, snapshot.ValuationAt, FuturesSettlementState.Unprocessed));
-            Reject("futures_trade", () => new FuturesTrade(Guid.NewGuid(), bookA, [null!]));
+            Reject("futures_execution", () => FuturesExecution.Bind(Guid.NewGuid(), null!, ExactDecimal.Parse("1"), new UnitPrice(ExactDecimal.Parse("3"), quote), snapshot.ValuationAt, FuturesSettlementState.Unprocessed));
+            Reject("futures_execution", () => FuturesExecution.Bind(Guid.NewGuid(), instrument, ExactDecimal.Parse("1"), null!, snapshot.ValuationAt, FuturesSettlementState.Unprocessed));
+            Reject("trade_definition", () => new Trade(Guid.NewGuid(), bookA, [null!]));
             Reject("futures_context", () => Price([null!], snapshot));
             Reject("risk_position", () => FuturesRisk.Calculate([null!], snapshot, f.Model(), [], FuturesRisk.Implementation, RiskEngine.NumericalPolicy));
         });
@@ -177,7 +177,7 @@ internal static class FuturesChecks
         {
             var terms=series with{ContractSize=ExactDecimal.Parse("100000000000000000000000")};
             var largeSide=Side(terms);var largeInstrument=largeSide;
-            var trade=new FuturesTrade(Guid.NewGuid(),bookA,[new(Guid.NewGuid(),largeInstrument,ExactDecimal.Parse("1"),new UnitPrice(ExactDecimal.Parse("998.975"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)]);
+            var trade=new Trade(Guid.NewGuid(),bookA,[FuturesExecution.Bind(Guid.NewGuid(),largeInstrument,ExactDecimal.Parse("1"),new UnitPrice(ExactDecimal.Parse("998.975"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)]);
             var selected=Mark("999");
             var bump=new QuoteBump(new(f.S(1),InputUse.Variable),quote.Key,PriceUnit.FromQuote(quote),ExactDecimal.Parse("0.1"),QuoteBump.Convention);
             // Keep this direct-contract fixture independent of unused derived definitions.
@@ -206,7 +206,7 @@ internal static class FuturesChecks
             Equal(string.Join(",", changed.Select(r => r.ExecutionPnl.Amount)), "24,10,-8");
             Equal(changed.Select(r => r.ExecutionPnl).Aggregate((a,b) => a.Add(b)).Amount.ToString(), "26");
             Equal(Price(trades, snapshot)[0].ExecutionPnl.Amount.ToString(), "16");
-            Equal(trades[0].Instruments[0].ExecutionPrice.Value.ToString(), "3");
+            Equal(FuturesExecution.Require(trades[0].Instruments[0]).ExecutionPrice.Value.ToString(), "3");
         });
         Check("lots must be explicit nonzero signed integers within the supported bound", () =>
         {
@@ -257,8 +257,8 @@ internal static class FuturesChecks
         Check("binding occurrence identities are scoped to their own trade", () =>
         {
             var prior=trades[1].Instruments[0];
-            var reused=new FuturesPosition(trades[0].Instruments[0].Id,instrument,prior.Lots,prior.ExecutionPrice,prior.ExecutedAt,prior.Settlement);
-            var result=Price([trades[0],new FuturesTrade(Guid.NewGuid(),bookB,[reused])],snapshot);
+            var reused=FuturesExecution.Bind(trades[0].Instruments[0].Id,instrument,FuturesExecution.Require(prior).Lots(prior.Quantity),FuturesExecution.Require(prior).ExecutionPrice,FuturesExecution.Require(prior).ExecutedAt,FuturesExecution.Require(prior).Settlement);
+            var result=Price([trades[0],new Trade(Guid.NewGuid(),bookB,[reused])],snapshot);
             Equal(result.Length,2); Equal(result[0].BindingId,result[1].BindingId);
             Equal(result[0].ExecutionPnl.Amount.ToString(),"16"); Equal(result[1].ExecutionPnl.Amount.ToString(),"6");
         });
@@ -274,33 +274,33 @@ internal static class FuturesChecks
             var terms=series with { Multiplier=cents.Multiplier };
             var centsSide=new FuturesMarketBinding(Guid.NewGuid(),side.Market,contract,terms,cents,"cash",FuturesMarketBinding.Implementation);
             var centsInstrument=centsSide;
-            var position=new FuturesPosition(Guid.NewGuid(),centsInstrument,ExactDecimal.Parse("2"),new UnitPrice(ExactDecimal.Parse("300"),cents),snapshot.ValuationAt,FuturesSettlementState.Unprocessed);
+            var position=FuturesExecution.Bind(Guid.NewGuid(),centsInstrument,ExactDecimal.Parse("2"),new UnitPrice(ExactDecimal.Parse("300"),cents),snapshot.ValuationAt,FuturesSettlementState.Unprocessed);
             var selected=snapshot.Selections.Single(s=>s.Input.Series==f.S(1));
             var inputs=snapshot with { Selections=[selected with { Observation=selected.Observation with { Value=ExactDecimal.Parse("320") } }] };
             var centsModel=new CurveModel(f.Revision,f.Reference,[f.Quantities[0]],[cents],[contract],[f.Curves[0]],[terms],[],[new(f.S(1),contract.Key,cents.Key,null)]);
-            var result=FuturesHoldings.Price([new(Guid.NewGuid(),bookA,[position])],inputs,centsModel.Build(inputs,[side.Market]),FuturesMarketBinding.Implementation);
+            var result=FuturesHoldings.Price([new Trade(Guid.NewGuid(),bookA,[position])],inputs,centsModel.Build(inputs,[side.Market]),FuturesMarketBinding.Implementation);
             Equal(result[0].ExecutionPnl.Amount.ToString(),"16");
             var bump=new QuoteBump(new(f.S(1),InputUse.Variable),cents.Key,PriceUnit.FromQuote(cents),ExactDecimal.Parse("1"),QuoteBump.Convention);
-            var risk=FuturesRisk.Calculate([new(Guid.NewGuid(),bookA,[position])],inputs,centsModel,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy).Factors[0].Positions.Single();
+            var risk=FuturesRisk.Calculate([new Trade(Guid.NewGuid(),bookA,[position])],inputs,centsModel,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy).Factors[0].Positions.Single();
             Equal(risk.UpPnl.Amount.ToString(),"0.8");Equal(risk.Delta.Value.ToString(),"0.8");Equal(risk.Delta.Unit.Factor.Multiplier.ToString(),"0.01");
         });
         Check("shared pricing binding identities cannot carry conflicting immutable economics", () =>
         {
             var changed=new FuturesMarketBinding(side.Id,side.Market,contract,series with { ContractSize=ExactDecimal.Parse("80") },quote,"cash",FuturesMarketBinding.Implementation);
             var alternate=changed;
-            var position=new FuturesPosition(Guid.NewGuid(),alternate,ExactDecimal.Parse("1"),new UnitPrice(ExactDecimal.Parse("3"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed);
+            var position=FuturesExecution.Bind(Guid.NewGuid(),alternate,ExactDecimal.Parse("1"),new UnitPrice(ExactDecimal.Parse("3"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed);
             Reject("futures_identity",()=>Price([trades[0],new(Guid.NewGuid(),bookB,[position])],snapshot));
         });
         Check("contract identities retain exact terms across independently rebuilt definitions", () =>
         {
             var rebuilt=new FuturesMarketBinding(side.Id,side.Market,contract,series,quote,"cash",FuturesMarketBinding.Implementation);
-            FuturesTrade Using(FuturesMarketBinding member)=>new(Guid.NewGuid(),bookB,[new(Guid.NewGuid(),member,ExactDecimal.Parse("1"),new UnitPrice(ExactDecimal.Parse("3"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)]);
+            Trade Using(FuturesMarketBinding member)=>new(Guid.NewGuid(),bookB,[FuturesExecution.Bind(Guid.NewGuid(),member,ExactDecimal.Parse("1"),new UnitPrice(ExactDecimal.Parse("3"),quote),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)]);
             Equal(Price([trades[0],Using(rebuilt)],snapshot).Length,2);
             Equal(Price([trades[0],Using(Side())],snapshot).Length,2);
         });
         Check("missing settlement state reject", () =>
         {
-            Reject("futures_settlement",()=>new FuturesPosition(Guid.NewGuid(),instrument,ExactDecimal.Parse("1"),new UnitPrice(ExactDecimal.Parse("3"),quote),snapshot.ValuationAt,0));
+            Reject("futures_settlement",()=>FuturesExecution.Bind(Guid.NewGuid(),instrument,ExactDecimal.Parse("1"),new UnitPrice(ExactDecimal.Parse("3"),quote),snapshot.ValuationAt,0));
         });
         var portfolio=Guid.NewGuid();
         var entries=Price(trades,snapshot).Select(h=>new FuturesBlotterEntry(portfolio,h)).ToImmutableArray();
@@ -335,7 +335,7 @@ internal static class FuturesChecks
         });
         Check("pivot trade count counts a multi-instrument trade once",()=>
         {
-            var combined=new FuturesTrade(Guid.NewGuid(),bookA,[trades[0].Instruments[0],trades[1].Instruments[0]]);
+            var combined=new Trade(Guid.NewGuid(),bookA,[trades[0].Instruments[0],trades[1].Instruments[0]]);
             var bindings=Price([combined],snapshot).Select(h=>new FuturesBlotterEntry(portfolio,h)).ToImmutableArray();
             Equal(FuturesBlotter.Pivot(bindings,[],[BlotterDimension.Book],[BlotterMeasure.TradeCount],FuturesBlotter.Implementation).Single().TradeCount!.Value,1);
         });
@@ -348,7 +348,7 @@ internal static class FuturesChecks
         Check("pivot counts the booked size of positions the close cannot value and leaves them out of execution P&L",()=>
         {
             var held=Trade(bookA,"4","3.1");
-            UnvaluedFuturesEntry Unvalued(FuturesTrade trade)=>new(portfolio,trade.Id,trade.BookId,trade.Instruments[0]);
+            UnvaluedFuturesEntry Unvalued(Trade trade)=>new(portfolio,trade.Id,trade.BookId,trade.Instruments[0]);
             var groups=FuturesBlotter.Pivot(entries,[Unvalued(held)],[BlotterDimension.Book,BlotterDimension.Contract],
                 [BlotterMeasure.TradeCount,BlotterMeasure.Lots,BlotterMeasure.Quantity,BlotterMeasure.ExecutionPnl],FuturesBlotter.Implementation);
             var a=groups.Single(g=>g.Key.BookId==bookA);var b=groups.Single(g=>g.Key.BookId==bookB);
@@ -372,7 +372,7 @@ internal static class FuturesChecks
             var inputs=Mark("900000000000000000000000");
             var model=new CurveModel(f.Revision,f.Reference,[f.Quantities[0]],[wide],[contract],[f.Curves[0]],[series],[],[new(f.S(1),contract.Key,wide.Key,null)]);
             inputs=inputs with{Selections=[inputs.Selections.Single(s=>s.Input.Series==f.S(1))]};
-            FuturesTrade Offset(string lots)=>new(Guid.NewGuid(),bookA,[new(Guid.NewGuid(),bound,ExactDecimal.Parse(lots),new UnitPrice(default,wide),inputs.ValuationAt,FuturesSettlementState.Unprocessed)]);
+            Trade Offset(string lots)=>new(Guid.NewGuid(),bookA,[FuturesExecution.Bind(Guid.NewGuid(),bound,ExactDecimal.Parse(lots),new UnitPrice(default,wide),inputs.ValuationAt,FuturesSettlementState.Unprocessed)]);
             var held=ImmutableArray.Create(Offset("1"),Offset("-1"));
             var bump=new QuoteBump(new(f.S(1),InputUse.Variable),wide.Key,PriceUnit.FromQuote(wide),ExactDecimal.Parse("0.01"),QuoteBump.Convention);
             var risk=FuturesRisk.Calculate(held,inputs,model,[bump],FuturesRisk.Implementation,RiskEngine.NumericalPolicy,detail:RiskDetail.Books);

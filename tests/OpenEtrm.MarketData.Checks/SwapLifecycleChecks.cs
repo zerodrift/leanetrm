@@ -49,7 +49,7 @@ internal static class SwapLifecycleChecks
         Equal(mixedContracts.Select(c=>c.ModelVersion).Distinct().Count(),1);
         var preDue=snapshot with{Id=Guid.NewGuid(),ValuationAt=f.Payment.AddDays(-1),MarketCutoff=f.Payment.AddDays(-1)};
         var mixedRisk=RiskEngine.CalculateExact(RiskEngine.Prepare(f.Model,preDue,[mixed]),[],RiskEngine.ExactNumericalPolicy);
-        var pure=swap.PV(new(f.Model.Build(preDue,swap.DependenciesAt(preDue)),provider)).PresentValue.Scale(quantity.Amount);
+        var pure=swap.PV(new SideValuationContext(f.Model.Build(preDue,swap.DependenciesAt(preDue)),provider)).PresentValue.Scale(quantity.Amount);
         var enrolled=inputs.Evaluate(swap,new(f.Model.Build(preDue,[]),provider)).RemainingValue;
         Equal(mixedRisk.Groups.Single().BaseValues.Single().Value,pure.Add(enrolled));
         var prepared = RiskEngine.Prepare(f.Model,snapshot,[portfolio]);

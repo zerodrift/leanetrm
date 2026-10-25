@@ -17,7 +17,7 @@ internal static class ScheduledSwapChecks
         var floatingSide = new ScheduledSwapSide(Guid.NewGuid(), [b.Floating,c.Floating], [new(3,5),new(2,5)], ScheduledSwapSide.Implementation);
         var swap = new ScheduledFinancialSwap(Guid.NewGuid(), [new(fixedSide,ExactDecimal.Parse("-1"),new(1,1)),new(floatingSide,one,new(5,6))], false, ScheduledFinancialSwap.Implementation);
         var market = f.Model.Build(f.Snapshot, swap.DependenciesAt(f.Snapshot));
-        var value = swap.PV(new(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted)));
+        var value = swap.PV(new SideValuationContext(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted)));
         // Pay 100*4 +200*4; receive150*3.251 +100*3.252 = -387.15.
         Equal(value.PresentValue.Scale(ExactDecimal.Parse("300")).ToExactString(), "-387.15");
         Equal(fixedSide.GenerateSchedule().Payments[0].AllocatedQuantity.Scale(ExactDecimal.Parse("300")).ToQuantity().Amount.ToString(),"100");
@@ -27,12 +27,12 @@ internal static class ScheduledSwapChecks
         Reject("scheduled_swap_periods",()=>new ScheduledSwapSide(Guid.NewGuid(),[b.Fixed,a.Fixed],[new(1,2),new(1,2)],ScheduledSwapSide.Implementation));
         // Exact nonterminating cross-side scaling must cancel before a decimal boundary.
         var thirds = new ScheduledFinancialSwap(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1"),new(1,1)),new(floatingSide,one,new(2,3))],false,ScheduledFinancialSwap.Implementation);
-        var thirdValue = thirds.PV(new(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted)));
+        var thirdValue = thirds.PV(new SideValuationContext(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted)));
         Equal(thirdValue.PresentValue.Scale(ExactDecimal.Parse("300")).ToExactString(),"-549.72");
         if(DefinitionIdentity.For(floatingSide)!=DefinitionIdentity.For(new ScheduledSwapSide(Guid.NewGuid(),[b.Floating,c.Floating],[new(3,5),new(2,5)],ScheduledSwapSide.Implementation)))
             throw new Exception("Independent side identity depends on its containing instrument.");
         var same=new ScheduledFinancialSwap(Guid.NewGuid(),[new(floatingSide,ExactDecimal.Parse("-1"),ExactRatio.One),new(floatingSide,one,ExactRatio.One)],false,ScheduledFinancialSwap.Implementation);
-        Equal(same.PV(new(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted))).PresentValue.ToExactString(),"0");
+        Equal(same.PV(new SideValuationContext(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted))).PresentValue.ToExactString(),"0");
         var months = ImmutableArray.Create(new QuantityPeriod(new(2044,1,1),new(2044,2,1)),new QuantityPeriod(new(2044,2,1),new(2044,3,1)));
         var daily=SwapQuantitySchedule.Resolve(months,[ExactDecimal.Parse("10"),ExactDecimal.Parse("20")],SwapQuantityBasis.CalendarDayRate,null,f.Quote.Quantity);
         Equal(daily.Periods[0].ToQuantity().Amount.ToString(),"310");Equal(daily.Periods[1].ToQuantity().Amount.ToString(),"580");

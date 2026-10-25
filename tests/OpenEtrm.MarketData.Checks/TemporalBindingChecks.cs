@@ -172,6 +172,7 @@ internal static class TemporalBindingChecks
 
     private sealed record TemporalCurvePv : Instrument
     {
+        public override bool SupportsQuantityScaling=>true;
         private const string Model="synthetic_temporal_curve_pv_v1";
         private readonly CurveRequest request;
         public override ReferenceKey Currency{get;}

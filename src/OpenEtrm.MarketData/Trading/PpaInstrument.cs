@@ -17,6 +17,13 @@ public sealed record PpaInstrument:SidedInstrument
     public override ReferenceKey Currency=>Memberships[0].Side.Terms.Currency;
     public override Quantity UnitQuantity=>Memberships[0].Side.Terms.UnitQuantity;
     public string Capability { get; }
+    public override void ValidateBinding(Quantity quantity,DeliveryCoverage? coverage)
+    {
+        if(coverage is null||quantity.Amount.CompareTo(default)<=0)
+            throw new MarketDataException("ppa_segment_coverage","PPA bindings require explicit coverage and positive MW; memberships retain direction.");
+    }
+    public override long WorkRows(UnitValuationContext context)=>context.Setup.Interval is {} inputs&&context.Coverage is {} coverage
+        ?Memberships.Sum(m=>(long)inputs.Rows(this,m.Side,coverage).Length):0;
     public PpaInstrument(Guid id,DefinitionRevision definitions,ReferenceRevision reference,ImmutableArray<PpaMembership> memberships,
         ImmutableArray<AssetKey> normalizationAssets,bool discounting,string implementation):base(id,Members(memberships))
     {

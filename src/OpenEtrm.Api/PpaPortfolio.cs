@@ -49,12 +49,12 @@ internal static class PpaPortfolio
             new(r.Instant("coverage_from"),r.Instant("coverage_to")),r.Number("quantity"))).ToImmutableArray();
         var work=PpaCompiler.Work(bindings.Select(b=>(b.Instrument,b.Coverage)),[],i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));
         var prepared=await new PpaReads().Prepare(connection,data,frame,bindings,frame.At,context.ContextId.Value,PpaQuantitiesStore.Policy(policy.PendingActuals),[],ct,closeRiskInputs:true);
-        var positions=bindings.Select(b=>new RiskPosition(b.TradeId!.Value,b.BindingId,heads[b.TradeId.Value].Id("book_id"),b.Instrument.Id,
-            new(b.Mw,b.Instrument.UnitQuantity.Specification),new(new Money(default,b.Instrument.Currency),b.Instrument.UnitQuantity.Specification),new(default,b.Instrument.Currency)){Coverage=b.Coverage}).ToImmutableArray();
-        var portfolio=new ValuationPortfolio([..instruments.Values],positions,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
+        var trades=bindings.GroupBy(b=>b.TradeId!.Value).Select(g=>new Trade(g.Key,heads[g.Key].Id("book_id"),
+            [..g.Select(b=>new TradeInstrument(b.BindingId,b.Instrument,new(b.Mw,b.Instrument.UnitQuantity.Specification),coverage:b.Coverage))])).ToImmutableArray();
+        var portfolio=ValuationPortfolio.FromTrades(trades,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
             {Interval=prepared.Inputs,InstrumentDiscounting=prepared.Discounting});
         var byBinding=rows.ToDictionary(r=>r.Id("binding_id"));
-        var evidence=positions.Select(p=>{var row=byBinding[p.BindingId];return new PortfolioPositionEvidence(p.TradeId,row.GetProperty("revision").GetInt32(),p.BindingId,p.ValuationId,p.ValuationId,
+        var evidence=portfolio.Positions.Select(p=>{var row=byBinding[p.BindingId];return new PortfolioPositionEvidence(p.TradeId,row.GetProperty("revision").GetInt32(),p.BindingId,p.ValuationId,p.ValuationId,
             p.BookId,PortfolioValuation.PpaMeasure,data.DefinitionRevision.RevisionId,row.GetProperty("publication_order").GetInt32(),p.Quantity){Coverage=p.Coverage};}).ToImmutableArray();
         return new(portfolio,evidence,prepared.Inputs.Receipt,work);
     }

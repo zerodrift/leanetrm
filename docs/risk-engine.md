@@ -75,10 +75,13 @@ implemented as an arbitrary date property override.
 
 Risk uses the common instrument valuation contract (D95, D145, D148, D181).
 `Instrument.Declare(context)` is required and identifies the model version,
-complete dependencies, unit quantity and currency. `Instrument.Value(context)`
-normally delegates to `Instrument.PV(context)`; the risk engine does not select
-pricing formulas by instrument type. Its default PV path checks that the returned
-value belongs to that exact instrument and scenario. A PV model can return its
+complete dependencies, unit quantity and currency. Calculation calls
+`Instrument.PV(UnitValuationContext)`, returning a typed `UnitValuation` with exact
+money, quantity denominator and originating context. Risk does not select pricing
+formulas by instrument type. The common entry point bridges existing `Value` and
+rich side-context methods; portfolio validation checks context, currency and
+quantity before applying booked size. See [unit instruments and trade bindings](instrument-contracts.md).
+A PV model can return its
 exact value without inventing a side discount provider. A side that needs payment
 discounting still fails when that input is missing.
 

@@ -101,16 +101,16 @@ public sealed class ClosePortfolioValuation(PreviewDatabase database)
         }
         if(!swaps.IsEmpty)
         {
-            var instruments=swaps.DistinctBy(h=>h.Instrument.Id).ToImmutableArray();
-            var positions=swaps.Select(h=>new RiskPosition(h.Row.Id("trade_id"),h.Row.Id("binding_id"),h.Row.Id("book_id"),h.Instrument.Id,
-                h.Quantity,new(new Money(default,h.Instrument.Currency),h.Quantity.Specification),new(default,h.Instrument.Currency))).ToImmutableArray();
-            portfolios.Add(new(instruments.Select(h=>(Instrument)h.Instrument).ToImmutableArray(),positions,
+            var trades=swaps.GroupBy(h=>h.Row.Id("trade_id")).Select(g=>new Trade(g.Key,g.First().Row.Id("book_id"),
+                [..g.Select(h=>new TradeInstrument(h.Row.Id("binding_id"),h.Instrument,h.Quantity))])).ToImmutableArray();
+            var portfolio=ValuationPortfolio.FromTrades(trades,
                 new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
                 {InstrumentDiscounting=swaps.Where(h=>h.Settlement is null).DistinctBy(h=>h.Instrument.Id).ToImmutableDictionary(h=>h.Instrument.Id,h=>h.Discounting),
-                 Settlements=swaps.Where(h=>h.Settlement is not null).ToImmutableDictionary(h=>new MeasureBinding(h.Row.Id("trade_id"),h.Row.Id("binding_id")),h=>new SwapBindingValuation(h.Settlement!,h.Discounting))}));
+                 Settlements=swaps.Where(h=>h.Settlement is not null).ToImmutableDictionary(h=>new MeasureBinding(h.Row.Id("trade_id"),h.Row.Id("binding_id")),h=>new SwapBindingValuation(h.Settlement!,h.Discounting))});
+            portfolios.Add(portfolio);
             measures.Add(SwapMeasure);
             var rows=swaps.ToDictionary(h=>h.Row.Id("trade_id"),h=>h.Row);
-            foreach(var position in positions)
+            foreach(var position in portfolio.Positions)
                 evidence.Add(Evidence(rows[position.TradeId],position,SwapMeasure,"publication_order"));
         }
         PpaPortfolioInput? ppaInput=null;

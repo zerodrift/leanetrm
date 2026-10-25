@@ -104,6 +104,7 @@ internal static class InstrumentRiskChecks
     }
     private sealed record PvModel:Instrument
     {
+        public override bool SupportsQuantityScaling=>true;
         public override ReferenceKey Currency{get;}
         public override Quantity UnitQuantity{get;}
         private readonly ImmutableArray<CurveRequest> dependencies;

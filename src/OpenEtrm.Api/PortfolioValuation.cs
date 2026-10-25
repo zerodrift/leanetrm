@@ -132,13 +132,13 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     {
         var futuresStore=new FuturesStore(database.Manifest);
         var futures=await futuresStore.ReadTrades(connection,data,await futuresStore.Books(connection,ct),bookIds,[],ct);
-        var markets=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),[..futures.Trades.SelectMany(t=>t.Instruments.Select(p=>p.MarketBinding.Market)).Distinct()]).Unvalued;
+        var markets=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),[..futures.Trades.SelectMany(t=>t.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market)).Distinct()]).Unvalued;
         var rows=futures.Rows.ToDictionary(r=>(r.Id("trade_id"),r.Id("binding_id")));
         var swaps=await new SwapStore(database).Holdings(connection,data,frame,bookIds,[],ct);
         ExcludedPosition Listed(JsonElement row,string instrumentType,string reason)=>
             new(row.Id("trade_id"),row.Id("binding_id"),row.Id("book_id"),TradingReference.Trade(row),instrumentType,reason);
-        return [..futures.Trades.SelectMany(t=>t.Instruments.Where(p=>markets.ContainsKey(p.MarketBinding.Market)).Select(p=>
-                Listed(rows[(t.Id,p.Id)],FutureType,markets[p.MarketBinding.Market])))
+        return [..futures.Trades.SelectMany(t=>t.Instruments.Select(p=>(Trade:t,Position:p,Market:FuturesExecution.Require(p).MarketBinding.Market)))
+                .Where(p=>markets.ContainsKey(p.Market)).Select(p=>Listed(rows[(p.Trade.Id,p.Position.Id)],FutureType,markets[p.Market]))
             .Concat(swaps.Unvalued.Select(u=>Listed(u.Row,SwapType,u.Reason)))
             .OrderBy(e=>e.TradeReference,StringComparer.Ordinal).ThenBy(e=>e.BindingId)];
     }
@@ -167,14 +167,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var futures=await futuresStore.ReadTrades(connection,data,books,bookIds,[],ct);
         var swaps=await new SwapStore(database).ReadRiskHoldings(connection,data,frame,bookIds,[..excluded.Where(e=>e.InstrumentType==SwapType)],ct,snapshot,supplemental);
         var kept=ExcludedPosition.Keep(futures.Rows,[..excluded.Where(e=>e.InstrumentType==FutureType)]).Select(r=>(r.Id("trade_id"),r.Id("binding_id"))).ToHashSet();
-        var trades=futures.Trades.Where(t=>t.Instruments.Any(p=>kept.Contains((t.Id,p.Id)))).Select(t=>t.Instruments.All(p=>kept.Contains((t.Id,p.Id)))?t:
-            new FuturesTrade(t.Id,t.BookId,[..t.Instruments.Where(p=>kept.Contains((t.Id,p.Id)))],t.Booking)).ToImmutableArray();
+        var futuresTrades=futures.Trades.Where(t=>t.Instruments.Any(p=>kept.Contains((t.Id,p.Id)))).Select(t=>t.Instruments.All(p=>kept.Contains((t.Id,p.Id)))?t:
+            new Trade(t.Id,t.BookId,[..t.Instruments.Where(p=>kept.Contains((t.Id,p.Id)))],t.Booking)).ToImmutableArray();
         var materialized=new List<(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,ValuationPortfolio Portfolio,string Measure)>();
         var materializationWork=new ScenarioWork(0,0,0,0);var materializationScenarios=0;
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
-        if(!trades.IsEmpty)
+        if(!futuresTrades.IsEmpty)
         {
-            var (market,portfolio)=FuturesRisk.PreparePortfolio(trades,snapshot,data.Model,policy.FuturesConvention,ct);
+            var (market,portfolio)=FuturesRisk.PreparePortfolio(futuresTrades,snapshot,data.Model,policy.FuturesConvention,ct);
             materializationWork=new(market.EvaluatedConstituents,market.ReusedConstituents,0,0);materializationScenarios++;
             materialized.Add((data,frame,snapshot,portfolio,FuturesMeasure));
             var rows=futures.Rows.ToDictionary(r=>(r.Id("trade_id"),r.Id("binding_id")));
@@ -187,15 +187,15 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         foreach(var marketHoldings in swaps.GroupBy(h=>h.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
             var instruments=marketHoldings.DistinctBy(h=>h.Instrument.Id).ToImmutableArray();
-            var positions=marketHoldings.Select(h=>new RiskPosition(h.Row.Id("trade_id"),h.Row.Id("binding_id"),h.Row.Id("book_id"),h.Instrument.Id,
-                h.Quantity,new(new Money(default,h.Instrument.Currency),h.Quantity.Specification),new(default,h.Instrument.Currency))).ToImmutableArray();
-            var portfolio=new ValuationPortfolio(instruments.Select(h=>(Instrument)h.Instrument).ToImmutableArray(),positions,
+            var trades=marketHoldings.GroupBy(h=>h.Row.Id("trade_id")).Select(g=>new Trade(g.Key,g.First().Row.Id("book_id"),
+                [..g.Select(h=>new TradeInstrument(h.Row.Id("binding_id"),h.Instrument,h.Quantity))])).ToImmutableArray();
+            var portfolio=ValuationPortfolio.FromTrades(trades,
                 new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
                 {InstrumentDiscounting=marketHoldings.Where(h=>h.Settlement is null).DistinctBy(h=>h.Instrument.Id).ToImmutableDictionary(h=>h.Instrument.Id,h=>h.Discounting),
                  Settlements=marketHoldings.Where(h=>h.Settlement is not null).ToImmutableDictionary(h=>new MeasureBinding(h.Row.Id("trade_id"),h.Row.Id("binding_id")),h=>new SwapBindingValuation(h.Settlement!,h.Discounting))});
             var source=instruments[0];materialized.Add((source.Data,source.Frame,source.Snapshot,portfolio,SwapMeasure));
             var rows=marketHoldings.ToDictionary(h=>h.Row.Id("trade_id"),h=>h.Row);
-            foreach(var position in positions)
+            foreach(var position in portfolio.Positions)
                 evidence.Add(Evidence(rows[position.TradeId],position,SwapMeasure,"publication_order",SwapType));
         }
         if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no visible supported holdings.":
