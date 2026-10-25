@@ -1129,8 +1129,10 @@ Acceptance:
 The [financial swap settlement sequence](swap-settlement.md) is now authorized
 through S1–S6 (D215), with bounded local implementation and executable gates
 recorded there. Futures margining and physical settlement remain later scope.
-Changed-contract bridge attribution and broader cash allocation also remain
-extensions; the implemented backend refuses unsupported comparisons/allocations.
+D216 adds bounded closing-context new-trade/future-amendment reconciliation and
+explicit same-trade gross/net allocations. Broader transformations and cross-trade
+netting remain unsupported; capability and verification records are in the
+settlement document.
 
 Extend only after the baseline contracts are demonstrated:
 

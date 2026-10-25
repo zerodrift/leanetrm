@@ -66,9 +66,10 @@ implements the former relationship; it does not infer the latter from MW, DST,
 a mask or a curve. Independent explicit observation weights remain distinct from
 power delivery quantities.
 
-Monthly payment rules generate each period's date separately. The currently
-qualified frequency is monthly; aggregation into quarterly or net payments remains
-unsupported. Settled/outstanding state is supplied by the separately enrolled
+Monthly payment rules generate each period's date separately. The qualified
+frequency is monthly; contractual aggregation into quarterly payments is unsupported.
+Trade-owned settlement may explicitly discharge multiple eligible gross contributions
+under `explicit_same_due_swap_net_v1`; this does not alter the side schedules. Settled/outstanding state is supplied by the separately enrolled
 [swap settlement lifecycle](swap-settlement.md). Pure instrument valuation at or
 after any payment date retains the explicit `side_payment_due` refusal.
 
@@ -141,3 +142,29 @@ standalone physical gas/power remains later scope.
 
 Standalone physical gas/power booking is planned separately in the
 [physical booking plan](physical-energy-booking-plan.md).
+
+## Qualified scheduled authoring (D216)
+
+The scheduled ticket uses the existing managed observation capability catalog and
+shared observation controls. Published monthly index, equal calendar-day,
+equal scheduled-observation, previous/next represented-day and explicit
+quantity-weighted conventions are available where the exact index and selected
+period are qualified. Calendar choices, generated mappings and typed observation
+quantities remain exact, retained terms. Every floating period can independently
+select a compatible exact published custom projection. Unsupported retained terms
+stay locked rather than being simplified.
+
+A common-term edit explicitly selects a source, target periods and quantity,
+price/spread, payment and/or observation/projection groups. Review names affected
+periods before Apply. Unselected values and delivery dates remain independent.
+Weights match exact observation intervals and quantity references: a different
+month retains its own explicitly entered weights, and unmatched intervals require
+entry. Weights never copy by ordinal or derive from delivery quantities. A changed
+context or dependent edit invalidates preparation, including pending bulk targets
+and asynchronous compatibility/valuation replies. Single-payment contracts remain
+on their existing contract; the monthly ticket is linked from the same entry.
+
+Stubs, irregular periods, nonmonthly contractual payment aggregation, arbitrary
+daily/hourly delivery profiles and interval-price-times-energy settlement remain
+unsupported. Power uses the explicit period-average-price times integrated-energy
+contract described above.

@@ -71,18 +71,7 @@ public sealed record SwapPaymentCalculation
         ResolvedQuantity = evidence.Plan.AllocatedQuantity.Scale(QuantityRatio).Scale(quantity.Amount);
         ExactAmount = evidence.CashAmount.Scale(QuantityRatio).Scale(Coefficient).Scale(quantity.Amount);
         Amount = ExactAmount.ToMoney(rounding.Format);
-        static object Unit(PriceUnit unit) => new { unit.Currency, unit.Quantity, multiplier = unit.Multiplier.ToString() };
-        static object? Price(UnitPrice? price) => price is null ? null : new { value = price.Value.ToString(), unit = Unit(price.Unit) };
-        ContractHash = Hash(new
-        {
-            version = EvidenceIdentityVersion, evidence.Plan.DeliveryFrom, evidence.Plan.DeliveryTo, evidence.Plan.PaymentAt,
-            evidence.Plan.PaymentConvention, evidence.Plan.Currency, quantity = ResolvedQuantity,
-            coefficient = Coefficient.ToString(),
-            prices = evidence.Plan.Prices.Select(p => new { fixedPrice = Price(p.FixedPrice), spread = Price(p.Spread), weight = p.Weight.ToString(),
-                index = p.Lookup?.Index, quote = p.Lookup?.Quote.Key, fixing = p.Lookup?.Fixing,
-                unit = p.Lookup is {} lookup ? Unit(PriceUnit.FromQuote(lookup.Quote)) : null }),
-            applications = evidence.Plan.Applications.Select(a => new { a.TargetFrom,a.TargetTo,a.PriceOrdinal,a.MappingRule,weight = a.Weight.ToString() })
-        });
+        ContractHash = ContractIdentity(instrument,membership,evidence.Plan,quantity);
         InputHash = Hash(new
         {
             version = EvidenceIdentityVersion,implementation=Implementation,NumericalPolicy, ExactAmount.Numerator, ExactAmount.Denominator, rounding.Currency, rounding.DecimalPlaces, roundingPolicyVersion=rounding.Version,
@@ -90,6 +79,23 @@ public sealed record SwapPaymentCalculation
                 lineage = p.Lineage.OrderBy(k => k.CatalogId).ThenBy(k => k.Id) })
         });
     }
+    public static string ContractIdentity(SidedInstrument instrument,SideMembership membership,SidePaymentPlan plan,Quantity quantity)
+    {
+        if(instrument is null||membership is null||plan is null||quantity is null||quantity.Specification!=instrument.UnitQuantity.Specification)
+            throw new MarketDataException("settlement_continuity","Supply exact supported contractual payment terms and booked quantity.");
+        static object? Price(UnitPrice? price) => price is null ? null : new { value = price.Value.ToString(), unit = Unit(price.Unit) };
+        return Hash(new
+        {
+            version = EvidenceIdentityVersion, plan.DeliveryFrom, plan.DeliveryTo, plan.PaymentAt,
+            plan.PaymentConvention, plan.Currency, quantity = plan.AllocatedQuantity.Scale(membership.QuantityRatio ?? ExactRatio.One).Scale(quantity.Amount),
+            coefficient = membership.Coefficient.ToString(),
+            prices = plan.Prices.Select(p => new { fixedPrice = Price(p.FixedPrice), spread = Price(p.Spread), weight = p.Weight.ToString(),
+                index = p.Lookup?.Index, quote = p.Lookup?.Quote.Key, fixing = p.Lookup?.Fixing,
+                unit = p.Lookup is {} lookup ? Unit(PriceUnit.FromQuote(lookup.Quote)) : null }),
+            applications = plan.Applications.Select(a => new { a.TargetFrom,a.TargetTo,a.PriceOrdinal,a.MappingRule,weight = a.Weight.ToString() })
+        });
+    }
+    private static object Unit(PriceUnit unit) => new { unit.Currency, unit.Quantity, multiplier = unit.Multiplier.ToString() };
     private static string Hash(object value) => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));
 }
 

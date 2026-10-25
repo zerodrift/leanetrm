@@ -40,7 +40,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const scheduled=setupScheduledSwapEditor({...options,onSettlement:async id=>{scheduled.reset();await settlement.open(id);}});
  const settlementButton=document.createElement('button');settlementButton.id='swap-settlement-open';settlementButton.type='button';settlementButton.textContent='Settlement and P&L';settlementButton.hidden=true;get('swap-mode').after(settlementButton);
  settlementButton.onclick=()=>void options.act(()=>safe(async()=>{if(detail){dialog.close();await settlement.open(detail.state.tradeId);}}));
- const scheduledButton=document.createElement('button');scheduledButton.id='swap-scheduled-open';scheduledButton.type='button';scheduledButton.className='secondary';scheduledButton.textContent='Multi-month contracts and scheduled quantities';get('swap-type-choices').after(scheduledButton);scheduledButton.onclick=()=>void options.act(()=>safe(async()=>{reset();await scheduled.openNew();}));
+ const scheduledButton=document.createElement('button');scheduledButton.id='swap-scheduled-open';scheduledButton.type='button';scheduledButton.className='secondary';scheduledButton.textContent='Monthly schedules · one or more months';get('swap-type-choices').after(scheduledButton);scheduledButton.onclick=()=>void options.act(()=>safe(async()=>{reset();await scheduled.openNew();}));
  let visibleValuation:Valuation|undefined;
  const quoteUnits=new Map<string,string>();
  let failedLiveSelection:{tradeId:string;revision:number}|undefined;

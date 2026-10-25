@@ -2849,3 +2849,30 @@ Independent adversarial review has no remaining material finding. This records
 local synthetic evidence, not real-provider/account availability, browser rendering
 or hosted schema/application deployment qualification. No real token prices or
 credentials ship in migration 0104. See [the adapter contract](provider-adapters.md).
+
+## Financial swap authoring, net settlement and contractual bridge (D216)
+
+The D216 local increment passed all required matrix gates across owned runs,
+including 621 managed core checks, 84 rate checks, 328 frontend checks, 173
+combined-schema checks and the focused 62-check swap browser workflow. The
+standard browser gate required a fresh-browser retry after Chrome closed its
+automation connection; the retry and every subsequent gate passed. Earlier
+preparation and managed/schema results were retained from the preceding full run.
+See [settlement capability and verification](swap-settlement.md#d216-local-verification)
+for supported combinations, independent numerical oracles and enforced limits.
+This is synthetic local verification, not deployment qualification.
+
+Scheduled booking/amendment submissions use a bounded 35-second browser wait for
+the write and populated holdings refresh. Settlement determination, payment, net
+recording/reversal, reconciliation and operation-status recovery use explicit
+60-second workflow waits. Settlement writes also refresh workspace/chart and
+settlement inspection; the transport bounds each request at 20 seconds. Ordinary
+page readiness retains its ten-second budget. Waiting never repeats a command.
+
+The combined scheduled-swap browser command runs four owned suites (authoring,
+schedules, settlement and netting) under a ten-minute process deadline. Individual
+readiness deadlines, booking/refresh errors and financial assertions still fail
+the command. The independent 86.5 cash oracle remains mandatory. Nineteen helper
+checks cover delayed click and form completion with exactly one submission,
+ordinary timeout refusal, finite overrides and invalid budgets refused before an
+action. The form check independently simulates a 46-second write/refresh sequence.

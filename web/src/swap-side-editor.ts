@@ -7,7 +7,7 @@ export function mountSwapSideEditor(side:'fixed'|'floating'){
  if(side==='floating'){mountObservationControls(host,'swap');mountIndexSearch(host,'swap-index');}
 }
 
-function mountObservationControls(host:HTMLElement,prefix:string){
+export function mountObservationControls(host:HTMLElement,prefix:string){
   const id=(suffix:string)=>`${prefix}-observation-${suffix}`;
   const averaging=host.querySelector(`#${prefix}-averaging`)!.parentElement!;
   const calendar=document.createElement('div');calendar.id=id('calendar-field');calendar.hidden=true;

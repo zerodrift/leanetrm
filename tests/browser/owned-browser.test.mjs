@@ -7,7 +7,7 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser} from './owned-browser.mjs';
+import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser,browserPageActions,idle} from './owned-browser.mjs';
 
 async function fixture(t,args=['-e','setInterval(()=>{},1000)']){
   const directory=await mkdtemp(join(tmpdir(),'openetrm-browser-port-'));
@@ -138,4 +138,47 @@ test('failed browser cleanup retains the original failure and cleanup detail',as
   Object.assign(child,{exitCode:null,signalCode:null,pid:42,kill:signal=>{signals.push(signal);return true;}});
   await assert.rejects(stopOwnedBrowser(child,primary,20),error=>error instanceof AggregateError&&error.cause===primary&&error.errors[0]===primary&&/cleanup|stop|shutdown/i.test(error.errors[1].message));
   assert.deepEqual(signals,['SIGTERM','SIGKILL']);
+});
+
+
+test('a booking action may explicitly await its write and holdings refresh beyond the ordinary readiness budget',async()=>{
+  let elapsed=0,clicks=0;
+  const actions=browserPageActions(async expression=>{
+    if(expression===idle)return elapsed>=11000;
+    assert.match(expression,/synthetic-book/);clicks++;return undefined;
+  },{pause:async ms=>{elapsed+=ms;},now:()=>elapsed});
+  await actions.click('#synthetic-book',35000);
+  assert.equal(clicks,1,'a longer wait must never resubmit a financial command');
+  assert.equal(elapsed,11000);
+});
+
+test('ordinary page readiness keeps its short bound when the page never becomes idle',async()=>{
+  let elapsed=0,polls=0;
+  const actions=browserPageActions(async expression=>{assert.equal(expression,idle);polls++;return false;},
+    {pause:async ms=>{elapsed+=ms;},now:()=>elapsed});
+  await assert.rejects(actions.wait(idle),/Timed out/);
+  assert.equal(elapsed,10000);assert.equal(polls,200);
+});
+
+
+test('page action wait overrides stay finite and reject invalid budgets before clicking',async()=>{
+  let calls=0;
+  const actions=browserPageActions(async()=>{calls++;return true;});
+  for(const invalid of [0,-1,Infinity,NaN,60001]){
+    await assert.rejects(actions.click('#synthetic-book',invalid),/finite.*positive/);
+    await assert.rejects(actions.wait(idle,invalid),/finite.*positive/);
+  }
+  assert.equal(calls,0);
+});
+
+
+test('settlement form waits for write, holdings and inspection without submitting twice',async()=>{
+  let elapsed=0,submissions=0;
+  const actions=browserPageActions(async expression=>{
+    if(expression===idle)return elapsed>=46000;
+    assert.match(expression,/synthetic-payment-form/);assert.match(expression,/requestSubmit/);submissions++;
+  },{pause:async ms=>{elapsed+=ms;},now:()=>elapsed});
+  await actions.submit('#synthetic-payment-form',60000);
+  assert.equal(submissions,1,'refreshing financial state must never repeat the payment');
+  assert.equal(elapsed,46000);
 });
