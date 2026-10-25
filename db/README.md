@@ -1345,3 +1345,10 @@ payload; changing it appends a capability version. Both policies use the existin
 exact served-identifier checks and pinned price revisions. Deploy matching API
 and web assets only after separately qualifying the schema update. No provider,
 key, account attestation, model enablement or token price is supplied.
+
+Migration `0112_swap_quantity_interval_read.sql` adds a narrowly authorized reader
+for one retained scheduled-swap quantity revision. It checks current trading and
+exact reference visibility, verifies immutable child provenance, assembles the
+ordered intervals, and rechecks authority before returning. This avoids repeating
+full visibility resolution for every hourly row. Existing row policies and
+direct-table access remain unchanged. It supplies no market or fixing definitions.
