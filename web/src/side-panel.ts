@@ -113,10 +113,11 @@ export function isolate(host:HTMLElement):()=>void{
  * into and a `form` that takes its place while the mode edits something. `unsaved` says whether leaving the current mode would
  * lose edits, and `confirmLeave` asks the person; it hears `abandoned` aborted when the page resets the panel under its question.
  * `docked` says whether the page has room to dock the panel now, and `sheet` whether the open panel covers the whole page, which
- * is then out of reach until the panel is closed or stops covering it. `closed` hears that the person closed the panel, and
- * `changed` hears every change of its mode or placement, for a page that makes room for it.
+ * is then out of reach until the panel is closed or stops covering it. `wide` says whether what the panel shows needs more room than
+ * a docked panel has: the panel then lies over the page at a wider width, and the page beneath keeps its layout. `closed` hears
+ * that the person closed the panel, and `changed` hears every change of its mode or placement, for a page that makes room for it.
  */
-export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLeave:(abandoned:AbortSignal)=>Promise<boolean>;docked:()=>boolean;sheet?:()=>boolean;closed?:()=>void;changed?:()=>void}){
+export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLeave:(abandoned:AbortSignal)=>Promise<boolean>;docked:()=>boolean;sheet?:()=>boolean;wide?:()=>boolean;closed?:()=>void;changed?:()=>void}){
   const part=(name:'close'|'head'|'tabs'|'body'|'view'|'form')=>host.querySelector<HTMLElement>('#side-panel-'+name)!;
   const element=(name:'head'|'tabs'|'body'|'view'|'form')=>part(name);
   let mode:PanelMode=null,question:AbortController|undefined,release:(()=>void)|undefined;
@@ -126,8 +127,8 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
     if(covers&&!release)release=isolate(host);
     else if(!covers&&release){release();release=undefined;}
   }
-  /** Applies docked or overlay placement now: the page calls it whenever the room it has changes. */
-  function place(){host.dataset.placement=o.docked()?'docked':'overlay';contain();o.changed?.();}
+  /** Applies docked or overlay placement, and the wide width, now: the page calls it whenever the room it has, or what it shows, changes. */
+  function place(){host.dataset.placement=o.docked()?'docked':'overlay';if(mode!==null&&o.wide?.())host.dataset.wide='';else delete host.dataset.wide;contain();o.changed?.();}
   /** Shows the form in the tab panel in place of its view, or the view again. Every mode starts on its view. */
   function form(on:boolean){part('view').hidden=on;part('form').hidden=!on;}
   /**
@@ -142,7 +143,7 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
   }
   function draw(){
     form(false);host.hidden=mode===null;host.dataset.mode=mode?.kind??'';
-    if(mode){host.setAttribute('aria-label',modeLabel(mode));place();}else{contain();o.changed?.();}
+    if(mode){host.setAttribute('aria-label',modeLabel(mode));place();}else{delete host.dataset.wide;contain();o.changed?.();}
   }
   /**
    * Asks the person a question in the panel with `asker`: true only for an answer to go on that arrives before the page resets the

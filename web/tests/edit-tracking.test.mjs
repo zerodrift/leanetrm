@@ -22,3 +22,13 @@ test('the owner hears when a form starts and stops holding edits, once for each,
  edits.clear();edits.clear();
  assert.deepEqual(heard,[true,false],'and stops holding them once');
 });
+
+test('a field `except` names by a selector only reads with what the form holds, as one it names as an element does',async()=>{
+ const {excepted}=await import('../dist/edit-tracking.js');
+ const filters='.table-filters,.column-filter-row',filter={closest:selector=>selector===filters?{}:null},entry={closest:()=>null},field={contains:node=>node===entry};
+ assert.equal(excepted([filters],filter),true,'a control the selector names');
+ assert.equal(excepted([filters],entry),false,'an entry the selector does not name');
+ assert.equal(excepted([field],entry),true,'a target inside a field named as an element');
+ assert.equal(excepted([field],filter),false,'a target outside it');
+ assert.equal(excepted([filters],new EventTarget()),false,'a target that is no element is not excepted by a selector');
+});

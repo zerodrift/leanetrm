@@ -338,8 +338,9 @@ several bindings, the Blotter lists each, and each is its own position (`desk-pa
 position in each read the desk draws, and opens the row asked for). The panel is docked beside the
 charts and the positions, under the tiles, when the main area is 1180 pixels wide or more and the
 assistant is closed; otherwise it is a drawer over the window's right edge, left of the assistant,
-and a full-width sheet at 760 pixels and below. Opening it moves focus into it and never moves the
-tiles. A docked panel takes the grid's width, so the grid gives up its Curve column, and then its
+and a full-width sheet at 760 pixels and below. A swap's settlement view opens it wide: off a phone,
+a 720-pixel drawer over the desk, which keeps its layout beneath, docked or not, until the view is
+closed. Opening it moves focus into it and never moves the tiles. A docked panel takes the grid's width, so the grid gives up its Curve column, and then its
 Mark column, which the panel shows for the position, for as long as the columns it shows do not fit
 the room it has. It measures that room, so how much it gives up depends on what the rows say and on
 the width the navigation leaves: a window wide enough for all seven keeps all seven (about 1700),
@@ -570,36 +571,40 @@ A swap's Terms, and either ticket, offer Settlement and P&L (`swap-settlement.ts
 form part in place of the terms, with the head's Close editor, after the panel has asked about a
 ticket's edits; there it also settles selected gross contributions of the trade by one net amount,
 and reconciles P&L from a captured opening under an explicitly chosen contractual-change policy
-(D216). The panel has no room for a column per fact: each settlement table wraps its labels and
-keeps its figures on one line, and a payment's, a balance's or a period transition's identifying
-facts are read together in one column, with a payment's action, beside its figures, so that nothing
-is read by scrolling sideways. A cash record or a net settlement being entered, and a correction's
-due instant, are edits the panel asks about, and a filter of a table in them is not; an action of
-the view that would replace a typed due instant (another payment's calculation, a refresh, a cash or
-net record) asks first, while an edit of the net form, a choice of opening or policy, and a net
-review, opening capture or reconciliation that fails keep it. Reading the view again keeps the
-selected contributions and their typed allocations, by contribution, and a chosen contribution, cash
-movement or opening the new read still offers; opening another trade's view starts with none of
-them, and with no contractual-change policy chosen. A net settlement or its reversal is recorded
-only from the review of its exact allocations still shown, which an edit of the net or payment form
-removes, and a filter does not. A determination the backend refuses for good keeps its calculation
-and due instant, with the reason, and after any other failure of a settlement command, which may
-follow one that went through, as when the Blotter cannot be read after it, the view is read again. A
-settlement command that goes through clears risk results run before it, with a note, and reads the
-Blotter again as a live correction does, so that the panel and the view stay, and the view reads its
-state again, having cleared what the command consumed: a cash record its contribution, amount,
-instant and reference; a reversal its instant, reference and movement, not a cash amount being
-entered for another record; a net settlement its header and the contributions it allocates. One
-whose outcome is not known is kept in the panel's card, named for what it was, across a reload too,
-with its entries while the view is open; Check status settles it, and Retry, which needs AmendTrade
-as an amendment's does, sends it again, each with the view left open and what the command consumed
-cleared once it is known to have gone through. A retained swap booking, amendment or settlement
-command whose retry the backend refuses for good is released with the backend's reason, as a first
-send's refusal is: their backend answers a retry with the original's outcome before it refuses one,
-so the refusal means nothing was written. A refusal of the caller (access, request token, a
-historical view), or of an operation identity the backend holds for another actor or payload, which
-may be the original's, says nothing of a retried original and keeps it, as does any refused retry of
-a futures booking or amendment, which the backend admits before it looks up the earlier outcome.
+(D216). Off a phone the view has the wide panel, where figures of up to 17 characters, and every
+payment's action, are read without scrolling sideways (checked at 1440 by 900 and 1280 by 800
+pixels); at phone width the sheet may scroll a table sideways, and each figure and action can be
+scrolled to. Its tables wrap their labels and keep each figure on one line, and five of them stack a
+row's identifying facts in one column beside its figures: payments (with each payment's action),
+balances, net candidates, cash history and period transitions; a stacked column has no column
+filter, its text is searched instead, and a long unbroken reference breaks within it. A cash record
+or a net settlement being entered, and a correction's due instant, are edits the panel asks about,
+and a filter of a table in them is not; an action of the view that would replace a typed due instant
+(another payment's calculation, a refresh, a cash or net record) asks first, while an edit of the
+net form, a choice of opening or policy, and a net review, opening capture or reconciliation that
+fails keep it. Reading the view again keeps the selected contributions and their typed allocations,
+by contribution, and a chosen contribution, cash movement or opening the new read still offers;
+opening another trade's view starts with none of them, and with no contractual-change policy chosen.
+A net settlement or its reversal is recorded only from the review of its exact allocations still
+shown, which an edit of the net or payment form removes, and a filter does not. A determination the
+backend refuses for good keeps its calculation and due instant, with the reason, and after any other
+failure of a settlement command, which may follow one that went through, as when the Blotter cannot
+be read after it, the view is read again. A settlement command that goes through clears risk results
+run before it, with a note, and reads the Blotter again as a live correction does, so that the panel
+and the view stay, and the view reads its state again, having cleared what the command consumed,
+also when the Blotter cannot be read after it: a cash record its contribution, amount, instant and
+reference; a reversal its instant, reference and movement, not a cash amount being entered for
+another record; a net settlement its header and the contributions it allocates. One whose outcome is
+not known is kept in the panel's card, named for what it was, across a reload too, with its entries
+while the view is open; Check status settles it, and Retry, which needs AmendTrade as an amendment's
+does, sends it again, each with the view left open and what the command consumed cleared once it is
+known to have gone through. A retained swap booking, amendment or settlement command whose retry the
+backend refuses for good is released with the backend's reason, as a first send's refusal is: their
+backend answers a retry with the original's outcome before it refuses one, so the refusal means
+nothing was written. A refusal of the caller (access, request token, a historical view), or of an
+operation identity the backend holds for another actor or payload, which may be the original's, says
+nothing of a retried original and keeps it, as does any refused retry of a futures booking or
+amendment, which the backend admits before it looks up the earlier outcome.
 `--valuation-status-check` books a
 scheduled swap after its other checks and qualifies it valued at Dec 18 and unvalued at Dec 31, with
 its booked facts, its totals and its risk exclusion. `--scheduled-swap-check` compares each swap's

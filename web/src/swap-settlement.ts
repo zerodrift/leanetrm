@@ -104,7 +104,8 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  function allocationEvidence(report:Detail,allocations:Cash['allocations']){const details=node('details'),summary=node('summary',allocations.map(a=>`${contributionName(report,a.determinationId)}: ${a.amount}`).join('; ')),raw=node('pre');raw.className='swap-evidence';raw.textContent=JSON.stringify(allocations,null,2);details.append(summary,raw);return details;}
  // Offers a select new choices, keeping the one chosen while it is still offered.
  function offer(select:HTMLSelectElement,...choices:HTMLOptionElement[]){const chosen=select.value;select.replaceChildren(...choices);select.value=choices.some(o=>o.value===chosen)?chosen:'';}
- function table(host:HTMLElement,id:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[]){host.replaceChildren();renderRegularTable(host,id,JSON.stringify(detail?.context),headers,rows,numeric,options.busy);}
+ // A column that stacks several facts of a row (`stacked`) has no column filter: its rows' text is searched instead.
+ function table(host:HTMLElement,id:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],stacked:number[]=[]){host.replaceChildren();renderRegularTable(host,id,JSON.stringify(detail?.context),headers,rows,numeric,options.busy,{noColumnFilter:stacked});}
  async function load(){
   if(!tradeId)return;invalidate();const version=generation,scope=key();const result=await options.api<Detail>('swaps/settlement/inspect',{context:context(),tradeId,revision:null,duePolicy,recognitionPolicy});
   if(version!==generation||scope!==key())return;detail=result;selectedKey=scope;title.textContent=`Settlement and P&L · ${result.state.tradeReference}`;
@@ -120,9 +121,9 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
     const occurrence=node('div');occurrence.className='swap-settlement-stack';
     occurrence.append(node('strong',`Side ${p.membershipOrdinal+1} · ${p.deliveryFrom} to ${p.deliveryTo}, end exclusive`),node('span',`${p.state} · ${p.realized?'P&L realized':'P&L not realized'}`),
      node('span',`Delivery completes ${displayInstant(p.completionAt,options.zone())} · payment ${displayInstant(p.paymentAt,options.zone())}`),calculate);
-    return[occurrence,p.contractualAmount,p.remainingValue];}),[1,2]);
+    return[occurrence,p.contractualAmount,p.remainingValue];}),[1,2],[0]);
   table(balances,'swap-settlement-balances',['Contribution','Determined','Outstanding'],result.balances.map(b=>{const contribution=node('div');contribution.className='swap-settlement-stack';
-   contribution.append(node('strong',`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal===1?'original':'adjustment'}`),node('span',`Due ${displayInstant(b.dueAt,options.zone())} · applied ${b.applied}`));return[contribution,b.amount,b.outstanding];}),[1,2]);
+   contribution.append(node('strong',`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal===1?'original':'adjustment'}`),node('span',`Due ${displayInstant(b.dueAt,options.zone())} · applied ${b.applied}`));return[contribution,b.amount,b.outstanding];}),[1,2],[0]);
   // What is chosen or typed in the forms is kept when the view is read again: each candidate's selection and allocation, by its
   // contribution, and a chosen contribution, cash movement or opening that the new read still offers.
   const typed=new Map(netRows.map(r=>[r.id,{selected:r.selected.checked,amount:r.amount.value}]));netRows=[];
@@ -131,11 +132,11 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
    const allocation=node('input');allocation.type='text';allocation.inputMode='decimal';allocation.setAttribute('aria-label',`Allocation to side ${b.membershipOrdinal+1} ${b.deliveryFrom} contribution ${b.ordinal}`);
    const kept=typed.get(b.determinationId);if(kept){selected.checked=kept.selected;allocation.value=kept.amount;}
    const contribution=node('div');contribution.className='swap-settlement-stack';contribution.append(node('strong',`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal}`),node('span',`Due ${displayInstant(b.dueAt,options.zone())}`));
-   netRows.push({id:b.determinationId,selected,amount:allocation});return[selected,contribution,b.outstanding,allocation];}),[2]);
+   netRows.push({id:b.determinationId,selected,amount:allocation});return[selected,contribution,b.outstanding,allocation];}),[2],[1]);
   offer(target,new Option('Choose a contribution…',''),...result.balances.filter(b=>b.outstanding!=='0').map(b=>new Option(`Side ${b.membershipOrdinal+1} · ${b.deliveryFrom} · ${b.ordinal===1?'original':'adjustment'} · outstanding ${b.outstanding}`,b.determinationId)));
   offer(reversal,new Option('Choose an original cash movement…',''),...result.cashMovements.filter(p=>p.canReverse).map(p=>new Option(`${p.reference} · ${p.amount} · ${displayInstant(p.effectiveAt,options.zone())}`,p.id)));
   table(cashHistory,'swap-settlement-cash',['Cash movement','Signed cash'],result.cashMovements.map(p=>{const movement=node('div');movement.className='swap-settlement-stack';
-   movement.append(node('strong',p.reference),node('span',`${displayInstant(p.effectiveAt,options.zone())} · ${p.recordKind==='zero_net_discharge_v1'?'Noncash zero-net discharge':'Cash movement'}`),allocationEvidence(result,p.allocations));return[movement,p.amount];}),[1]);
+   movement.append(node('strong',p.reference),node('span',`${displayInstant(p.effectiveAt,options.zone())} · ${p.recordKind==='zero_net_discharge_v1'?'Noncash zero-net discharge':'Cash movement'}`),allocationEvidence(result,p.allocations));return[movement,p.amount];}),[1],[0]);
   const workspace=await options.api<{frames:{id:string;at:string}[]}>('workspace');
   if(version!==generation||scope!==key())return;
   offer(openingSnapshot,new Option('Choose…',''),...workspace.frames.map(f=>new Option(displayInstant(f.at,options.zone()),f.id)));
@@ -207,7 +208,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   table(bridge,'swap-settlement-bridge',['Bridge measure',`Amount · ${report.currencyLabel}`],Object.entries(value.report.trades[0].bridge).map(([key,amount])=>[labels[key]??key,amount]),[1]);bridge.append(node('p',value.report.overlaps));
   const transitions=node('div');bridge.append(node('h3','Period transitions'),transitions);
   table(transitions,'swap-settlement-transitions',['Period','Opening PV','Closing PV'],value.report.trades[0].transitions.map(p=>{const period=node('div');period.className='swap-settlement-stack';
-   period.append(node('strong',`Side ${p.membershipOrdinal+1} · ${p.deliveryFrom} to ${p.deliveryTo}, end exclusive`),node('span',`Opening ${p.openingState} · closing ${p.closingState}${p.forecastToFinal?' · forecast became final':''}`));return[period,p.openingPv,p.closingPv];}),[1,2]);},true);
+   period.append(node('strong',`Side ${p.membershipOrdinal+1} · ${p.deliveryFrom} to ${p.deliveryTo}, end exclusive`),node('span',`Opening ${p.openingState} · closing ${p.closingState}${p.forecastToFinal?' · forecast became final':''}`));return[period,p.openingPv,p.closingPv];}),[1,2],[0]);},true);
  refresh.onclick=()=>replacing(load);
  return {async open(id:string){if(tradeId!==id){form.reset();edits.clear();netForm.reset();netEdits.clear();netRows=[];consumption.clear();contractPolicy.value='';openingSnapshot.value='';if(opening?.tradeId!==id)opening=undefined;}tradeId=id;error.textContent='';detail=undefined;await load();if(detail&&tradeId===id&&!mounted()){options.host().append(root);root.hidden=false;}},
   reset(){invalidate();detail=undefined;tradeId=undefined;form.reset();edits.clear();netForm.reset();netEdits.clear();netRows=[];consumption.clear();shelf.append(root);root.hidden=true;},sync,

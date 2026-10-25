@@ -7,8 +7,12 @@
 export function trackEdits(form:HTMLElement,except:(HTMLElement|string)[]=[],changed:()=>void=()=>{}){
   let edited=false;
   const hold=(next:boolean)=>{if(edited===next)return;edited=next;changed();};
-  const excepted=(target:EventTarget|null)=>except.some(field=>typeof field==='string'?!!(target as Element|null)?.closest?.(field):field.contains(target as Node));
-  const onEdit=(event:Event)=>{if(event.isTrusted&&!excepted(event.target))hold(true);};
+  const onEdit=(event:Event)=>{if(event.isTrusted&&!excepted(except,event.target))hold(true);};
   form.addEventListener('input',onEdit);form.addEventListener('change',onEdit);
   return {edited:()=>edited,mark(){hold(true);},clear(){hold(false);}};
+}
+
+/** Whether an event's target is in a field `except` names, as an element or by a selector, and so is no edit of the form. */
+export function excepted(except:(HTMLElement|string)[],target:EventTarget|null):boolean{
+  return except.some(field=>typeof field==='string'?!!(target as Element|null)?.closest?.(field):field.contains(target as Node));
 }

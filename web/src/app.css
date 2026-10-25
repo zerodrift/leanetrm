@@ -672,6 +672,11 @@ dialog label{margin-top:16px}
 .side-panel[data-placement=overlay] .side-panel-frame{height:100%}
 body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100vw - var(--assistant-width)))}
 @media(max-width:760px){.side-panel[data-placement=overlay],body.assistant-open .side-panel[data-placement=overlay]{right:0;left:0;width:100%;border-left:0}}
+/* What needs more room than a docked panel has, a swap's settlement figures, opens the panel wide: it lies over the page, which keeps
+   its layout beneath, docked or not (D219). */
+.side-panel[data-wide]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-wide-width),100%);border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
+.side-panel[data-wide] .side-panel-frame{position:relative;top:auto;height:100%;max-height:none}
+body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:min(var(--panel-wide-width),calc(100vw - var(--assistant-width)))}
 .side-panel-close{position:absolute;top:8px;right:8px;z-index:1;width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:var(--radius-sm)}
 .side-panel-close:hover{background:var(--surface-3);color:var(--text)}
 /* The close button sits over the prompt's right edge too, so the question keeps clear of it. */
@@ -732,10 +737,10 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .side-panel .table-filters{padding:0;margin:0 0 8px}
 .side-panel .regular-table-scroll{max-height:none}
 .side-panel table{font-size:12px}.side-panel th{font-size:10.5px;padding:8px 10px}.side-panel td{padding:8px 10px;white-space:nowrap}
-/* In the panel the settlement view's tables wrap their labels and keep each figure on one line, so that every figure, and each payment's
-   action, is read without scrolling sideways (D219). */
+/* In the panel the settlement view's tables wrap their labels and keep each figure on one line, so that in the wide panel every figure,
+   and each payment's action, is read without scrolling sideways (D219); a phone's sheet may scroll a table sideways. */
 .side-panel .swap-settlement-editing th,.side-panel .swap-settlement-editing td:not(.numeric){white-space:normal}
-.swap-settlement-stack{display:grid;gap:4px;justify-items:start}.swap-settlement-stack button{white-space:normal;text-align:left}
+.swap-settlement-stack{display:grid;gap:4px;justify-items:start;overflow-wrap:anywhere}.swap-settlement-stack button{white-space:normal;text-align:left}
 /* The form of an amendment, or of a new swap, takes the tab panel in place of the tab's view, and its fields the panel's one column. */
 .side-panel-tabs:empty{display:none}
 .side-panel-form .schedule-fields,.side-panel-form .trade-annotation-fields,.side-panel-form .schedule-date-fields{grid-template-columns:minmax(0,1fr);gap:12px}
@@ -960,7 +965,7 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .live-status[data-state="stale"] {color:#9c283a;background:#fff0f2;}
 /* The assistant panel (docs/ai-assistant.md §10.1): docked right with the page narrowing beside it, its left edge resizing
    it; below 760 px a full-width sheet. Answers are text nodes in paragraphs, lists and code. */
-:root{--assistant-width:400px;--panel-width:340px;--panel-overlay-width:440px}
+:root{--assistant-width:400px;--panel-width:340px;--panel-overlay-width:440px;--panel-wide-width:720px}
 .assistant-launcher{display:inline-flex;align-items:center;gap:6px}
 .assistant-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
 body.assistant-open main{margin-right:var(--assistant-width)}

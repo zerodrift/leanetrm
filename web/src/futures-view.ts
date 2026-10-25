@@ -119,6 +119,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     unsaved:editing,confirmLeave:askLeave(get('side-panel')),docked,
     // On a phone the panel is a sheet over the page, which stays out of reach while it is open, unless the Blotter has been left.
     sheet:()=>phone.matches&&!get('futures-page').hidden,
+    // A swap's settlement figures need more room than a docked panel has: off a phone, the panel lies over the desk at a wider width.
+    wide:()=>!phone.matches&&swapEditor.settlementOpen(),
     changed:()=>{table?.fitColumns(dockedGiveUp());modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
   // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
   // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
@@ -154,8 +156,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Gives the forms the panel hosts up, without asking.
   function resetForms(){editor.reset();swapEditor.reset();booking.reset();}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
-  // A new trade has nothing but its form, so the panel it was in is closed with it.
-  function dropForms(){resetForms();closeNew();options.reported();}
+  // A new trade has nothing but its form, so the panel it was in is closed with it; a panel that stays is placed again for what it shows.
+  function dropForms(){resetForms();closeNew();panel.place();options.reported();}
   function closeNew(){if(panel.current()?.kind==='new')panel.reset();}
   // Asks whether to give up what the panel holds unsaved, when it holds any, and closes its form once the person agrees: false means they
   // kept it. The panel asks for a switch of its own mode; this is the question every other way out of the form asks too.
@@ -512,12 +514,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // A settlement command that went through changes what its swap is valued at: risk results run before it no longer hold, and are
   // cleared, with a note when there were any (D219). The Blotter is read again as a live correction reads it, so that the panel, and
-  // the settlement view the command was sent from, stay, and that view clears what the command consumed and reads its state again.
+  // the settlement view the command was sent from, stay, and that view clears what the command consumed and reads its state again:
+  // also when the Blotter cannot be read, as a form still holding a command that went through would offer it a second time.
   async function settled(command:RequestCommand){
     const shown=risk.shown();risk.reset();
     if(shown)options.notice('Risk results cleared · a settlement record changed the values they were run on');
-    await load('directory',true);
-    await swapEditor.reloadSettlement(command.operationId);
+    try{await load('directory',true);}finally{await swapEditor.reloadSettlement(command.operationId);}
   }
   // The position the panel shows of the trade an amendment was made to, if it shows it.
   function amendedPosition(command:RequestCommand){const h=deskPanel.shown();return command.path.endsWith('/amend')&&h?.tradeId===command.body.tradeId?h:undefined;}

@@ -231,7 +231,9 @@ the existing refresh path, and clear a risk run with a note, as today.
 
 Docked on the right beside the positions when the main area is wide enough. It
 becomes an overlay drawer below that width and while the assistant panel is
-open; the breakpoint is the builder's call. Modes:
+open; the breakpoint is the builder's call. A swap's settlement and P&L view
+needs more room than a docked panel has: off a phone it opens the panel wide,
+over the desk, which keeps its layout beneath. Modes:
 
 1. **Position.** Header with instrument type, trade reference, revision and
    book. Title with market, delivery, side and quantity. The value, plus mark
