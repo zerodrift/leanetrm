@@ -2,7 +2,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__responses=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{const path=String(args[0]),body=args[1]?.body?JSON.parse(args[1].body):null;window.__requests.push({path,body});const response=await window.__originalFetch(...args);window.__responses.push({path,status:response.status,data:await response.clone().json()});return response;};window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
-  await check('historical time controls are shared in the header beside market date',"document.querySelector('header #date-context')&&document.querySelectorAll('#date-context-on').length===1&&document.querySelector('header #snapshot')");
+  await check('historical time controls share a floating panel with one effective-date input',"document.querySelector('#date-context.floating-context')&&document.querySelectorAll('#date-context-on').length===1&&document.querySelector('header #snapshot')");
   await click('#date-context>summary');
   await click('#example');
   await check('curve chart uses the shared interactive renderer with explicit delivery axis',"document.querySelector('#curve-chart canvas')&&document.querySelector('#curve-chart').dataset.chartAxis==='delivery'&&document.querySelector('#curve-chart .chart-toolbar').textContent.includes('Reset zoom')");
@@ -27,7 +27,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('schedule eligibility is labeled separately from actual first trading',"(()=>{const header=document.querySelector('#schedule-contracts thead');return header&&header.textContent.includes('Trading eligibility')&&!header.textContent.includes('First trading');})()");
   await check('editor drafts schedules against reference calendars only',"!document.querySelector('#dates-editor').hidden&&[...document.querySelectorAll('#dates-calendar option')].some(o=>o.value.endsWith('|test_business'))&&!document.querySelector('#dates-closures')&&document.querySelector('#dates-publish').hidden");
   await click('#nav-market');await click('#example');
-  await set('#date-context-on','2020-12-17');await click('#date-context-latest');await click('#apply-view-context');
+  await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
   await check('explicit context apply displays historical read-only mode',"document.querySelector('#environment-context-note').textContent.includes('Historical view')&&document.querySelector('#error').hidden");
   const first=await evaluate("window.__responses.filter(r=>r.path==='/api/market/context').at(-1).data");
   await check('workspace receives exactly the applied temporal context',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context)===${JSON.stringify(JSON.stringify(first.context))}`);
@@ -50,12 +50,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#date-context-latest');await click('#apply-view-context');
   await evaluate(`(()=>{const s=document.querySelector('#snapshot');s.value=[...s.options].find(o=>o.textContent.includes('Dec 17')).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait(idle);
   await check('explicit current knowledge advances dependent curve price',`window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data.points[0].value!==${JSON.stringify(before.points[0].value)}&&document.querySelector('#error').hidden`);
-  await set('#date-context-on','2020-12-16');
+  await set('#date-context-on','2020-12-16');await wait(idle);
   await check('unapplied date edit immediately hides old prices and reference rows',"document.querySelector('#contracts').children.length===0&&document.querySelector('#reference').children.length===0");
-  await click('#nav-reference');await check('navigation applies changed context instead of stale reference rows',"window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context.effectiveOn==='2020-12-16'&&document.querySelector('#reference').textContent.length>0");
+  await click('#date-context-latest');await click('#nav-reference');await check('navigation applies changed context instead of stale reference rows',"window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context.effectiveOn==='2020-12-16'&&document.querySelector('#reference').textContent.length>0");
   await set('#date-context-view','2099-01-01T00:00');await click('#apply-view-context');
   await check('future knowledge cutoff errors visibly with no stale row fallback',"!document.querySelector('#error').hidden&&document.querySelector('#contracts').children.length===0&&document.querySelector('#reference').children.length===0");
-  await click('#current-view-context');await check('explicit return restores current pins and clears context',"document.querySelector('#date-context-on').value===''&&document.querySelector('#date-context-view').value===''&&document.querySelector('#environment-context-note').textContent.includes('Current workspace')&&window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context===null");
+  await click('#current-view-context');await check('explicit return restores current pins and populated controls',"document.querySelector('#date-context-on').value!==''&&document.querySelector('#date-context-view').value!==''&&document.querySelector('#date-context>summary').textContent.includes('current knowledge')&&window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context===null");
   await click('#date-context>summary');await click('#nav-market');await click('#example');await evaluate('window.scrollTo(0,0)');await shot('market-desktop');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
   await check('mobile 390px view has no page-wide horizontal overflow',fitsWidth);await shot('market-mobile');

@@ -172,6 +172,6 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  await set('#swap-commodity',other.commodity);
  await check('changing the price commodity clears incompatible price, spread and quantity selections',"!document.querySelector('#swap-price').value&&!document.querySelector('#swap-spread').value&&!document.querySelector('#swap-quantity').value&&!document.querySelector('#swap-projection').value");await click('#swap-close');
  await click('#futures-new');await shot('new-trade-choices');await click('#trade-kind-ppa');
- await check('new trade PPA opens its authorized input selection without guessing a frame',"!document.querySelector('#ppa-page').hidden&&document.activeElement.id==='page-title'&&!document.querySelector('#ppa-frame').value&&document.querySelector('#ppa-wizard').hidden");
+ await check('new trade PPA selects only the uniquely latest authorized frame without opening a booking draft',"(()=>{const frames=window.__swaps.filter(r=>r.path==='/api/ppa/frames').at(-1).data,newest=Math.max(...frames.map(f=>Date.parse(f.at))),latest=frames.filter(f=>Date.parse(f.at)===newest),expected=latest.length===1?latest[0].id:'';return !document.querySelector('#ppa-page').hidden&&document.activeElement.id==='page-title'&&document.querySelector('#ppa-frame').value===expected&&document.querySelector('#ppa-frame').closest('.floating-context')!==null&&document.querySelector('#ppa-wizard').hidden&&(!expected||window.__swaps.filter(r=>r.path==='/api/ppa/catalog').at(-1).body.snapshotId===expected);})()");
 
 }

@@ -8,6 +8,12 @@ public sealed record LocalTimeCandidate(DateTimeOffset Instant,string Offset);
 // User-entry conversion only. Contract clocks/calendars retain their own terms.
 public static class UserTime
 {
+    // The explicit same-day browsing policy chooses the latest occurrence of the
+    // day's final second and retains PostgreSQL microsecond precision.
+    public static DateTimeOffset EndOfDay(DateOnly day,string? zone)=>
+        Inspect(day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)+"T23:59:59",zone)
+            .Max(candidate=>candidate.Instant).AddTicks(9_999_990);
+
     public static ImmutableArray<LocalTimeCandidate> Inspect(string? local,string? zone)
     {
         if(!DateTime.TryParseExact(local,["yyyy-MM-dd'T'HH:mm","yyyy-MM-dd'T'HH:mm:ss"],CultureInfo.InvariantCulture,

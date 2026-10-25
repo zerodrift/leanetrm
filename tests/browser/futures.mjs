@@ -171,7 +171,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('disposing before vendor initialization cannot reattach financial rows',"window.__gridDestroyed===true");
   await persona('admin');
   await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();return await(await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'layout_browser',name:'Synthetic layout account',kind:'human',roles:['trader']})})).json();})()`);
-  await persona('layout_browser');await click('#nav-futures');
+  await persona('layout_browser');
+  await check('a new account starts with a market date and no prior account layout',"document.querySelector('#snapshot').value!==''&&document.querySelector('#blotter-name').value===''&&document.querySelector('#blotter-column-choices').children.length===0");
+  await set('#snapshot','');await wait(idle);await click('#nav-futures');
   await check('switching accounts without a market date clears the prior layout immediately',"document.querySelector('#snapshot').value===''&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''&&document.querySelector('#blotter-column-choices').children.length===0&&document.querySelector('#blotter-mode').value==='trades'");
   await persona('trader');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await menu('blotter-settings');await set('#blotter-name','Denied view');await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(input==='/api/table-views/blotter'&&init?.method==='POST')return new Response(JSON.stringify({code:'access_denied',message:'Synthetic access denial'}),{status:403,headers:{'Content-Type':'application/json'}});return send(input,init);};})()`);await click('#blotter-save');

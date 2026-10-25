@@ -1268,3 +1268,12 @@ Trade amendments remain contractual changes; market/meter corrections remain
 versioned inputs. Earlier lifecycle specifications are retained for future work;
 they do not authorize a separate settlement approval workflow or claim global
 settlement-phase completion.
+
+
+Temporal browsing usability (D217) selects the latest unambiguous offered market
+instant initially and resolves effective-date changes to explicit same-day
+knowledge through the managed time-zone resolver. Shared floating Context panels
+retain native cutoff contracts. Interval data opens the latest trailing day;
+delivery prices open the latest available source/day, with explicit empty states.
+The Assistant launcher floats at the lower right and its visibility is a browser
+profile preference. Historical-session support is unchanged.

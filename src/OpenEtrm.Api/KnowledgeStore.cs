@@ -3,7 +3,7 @@ using OpenEtrm.Shared.Temporal;
 
 namespace OpenEtrm.Api;
 
-public sealed record ContextCaptureRequest(string? EffectiveOn,string? KnownAt,string? Mode);
+public sealed record ContextCaptureRequest(string? EffectiveOn,string? KnownAt,string? Mode,string? TimeZone=null);
 public sealed record KnowledgeSnapshot(ScheduleContext Context,DateTimeOffset CoverageFrom,DateTimeOffset CertifiedThrough);
 
 public sealed class KnowledgeStore(Guid catalog)
@@ -11,6 +11,14 @@ public sealed class KnowledgeStore(Guid catalog)
     public async Task<KnowledgeSnapshot> Capture(NpgsqlConnection connection,ContextCaptureRequest body,CancellationToken ct)
     {
         var effective=DateWorkspace.Date(body.EffectiveOn);
+        if(body.Mode=="end_of_day")
+        {
+            if(body.KnownAt is not null)throw Error("temporal_context","The same-day policy resolves its own cutoff.");
+            var end=UserTime.EndOfDay(effective,body.TimeZone);
+            var current=await Capture(connection,new(body.EffectiveOn,null,"current"),ct);
+            return end>=current.CertifiedThrough?current:
+                await Capture(connection,new(body.EffectiveOn,end.ToString("O"),"at"),ct);
+        }
         if(body.Mode is not ("current" or "at") || (body.Mode=="current"?body.KnownAt is not null:body.KnownAt is null))
             throw Error("temporal_context","Choose current knowledge explicitly or supply an exact UTC cutoff.");
         if(body.Mode=="at" && SchedulePreview.ParseAt(body.KnownAt).Ticks%10!=0)

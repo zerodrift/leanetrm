@@ -109,7 +109,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Emulation.clearDeviceMetricsOverride');
 
  // A historical view first asks for one of its market dates; choosing one reads, and is refused.
- await set('#date-context-on','2020-12-17');await click('#date-context-latest');await click('#apply-view-context');
+ await click('#nav-market');await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');await click('#nav-interval-curves');
  await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));await wait(idle);
  await check('a historical view refuses interval curves with its own message and lists none',
   `${text('error')}==='Return to working data to read interval curves; their TOU and shape inputs are current definitions.'&&document.querySelectorAll('#interval-curves-select option').length===0`,text('error'));

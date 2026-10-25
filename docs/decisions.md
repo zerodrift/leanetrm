@@ -588,3 +588,33 @@ retained first delivery interval for clocked power), and must not already have a
 determination. Exact currency and quantity basis remain unchanged through the
 whole chain. Prior/revised definition bundles resolve independently under closing
 authority. Capability documents record the implemented gates and limits.
+
+## D217 — Explicit temporal browsing defaults and shared floating context
+
+User-authorized usability change, implemented locally. Initial market and PPA
+browsing selects the uniquely latest offered market instant. Equal-time exact
+closes remain an explicit choice; an existing selected close is never replaced
+because another close becomes available. Working reads retain current knowledge;
+the floating context distinguishes working, unapplied and retained selections.
+
+Changing an effective date requests `end_of_day` with the user's display time
+zone. The managed resolver selects the latest occurrence of that local day's
+final microsecond and caps it at certified current knowledge. Missing time zones,
+nonexistent local times and uncertified historical cutoffs remain structured
+errors. The resolved cutoff is editable and historical selection still requires
+Apply. Market close dates, delivery windows and effective dates remain distinct.
+
+Market/reference/trading screens share the existing context operation in a
+floating panel. Interval data, interval prices, delivery prices and PPA use the
+same panel presentation over their native explicit cutoff/window contracts;
+showing a panel does not enable unsupported historical-session operations.
+Interval data initially reads a trailing 24-hour window ending at the newest
+non-withdrawn interval of its selected series under its certified cutoff.
+Delivery browsing selects the source with the latest available delivery date and
+reads that one market day. Source and date choices remain visible and editable;
+empty catalogs/series return an explicit no-records state. Metadata availability
+and historical cutoff validation remain authorized backend operations.
+
+The Assistant launcher floats at the lower right. Hiding it is a remembered
+per-profile browser presentation preference, reversible in Profile. It changes
+neither agent authorization nor retained conversations.
