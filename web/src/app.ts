@@ -63,7 +63,7 @@ const historicalContext=()=>navigation?.context??undefined;
 const canCorrect=()=>can('ImportObservations')&&!historicalContext();
 let prefs:Preferences=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);
 let marketDateGeneration=0,marketDatesLoaded=false;
-// The workspace's newest close (D218): the last availability read for the whole workspace, the latest instant it had when
+// The workspace's newest close (D219): the last availability read for the whole workspace, the latest instant it had when
 // the close now shown was selected, whether a newer-close check is due and whether one is running, and the close the page
 // shows, which the As of select is on at every moment: a close that has been chosen is applied only once the person agrees.
 let workspaceCloses:MarketDates|undefined,closeBasis:{close:string;latest:string}|undefined,closeCheckDue=false,checkingCloses=false,shownClose='',sessionEnded=false;
@@ -244,7 +244,7 @@ async function openMarketCalendar(date?:string):Promise<void>{
   throw error;
  }
 }
-// Opening working data on its newest close (D218, with D217's latest instant). The workspace-wide calendar's uniquely latest
+// Opening working data on its newest close (D219, with D217's latest instant). The workspace-wide calendar's uniquely latest
 // close is selected as if the person had picked it, several closes at that instant ask, and none selects nothing. The page
 // that is showing then reads it.
 const workspaceDates=():MarketDatesRequest=>({curve:null,timeZone:prefs.timeZone,definition:null});
@@ -664,7 +664,7 @@ async function viewContext(snapshot:{context:Context}){
 $('close-view-context').onclick=()=>{$<HTMLDetailsElement>('date-context').open=false;};
 $('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
 async function currentInputs(){jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');text('environment-context-note','Working data uses current knowledge. These controls select a historical context when applied.');}
-// Returning to working data opens it on its newest close, as opening the workspace does (D217, D218), and the page that is
+// Returning to working data opens it on its newest close, as opening the workspace does (D217, D219), and the page that is
 // showing reads it. A latest instant with several closes opens the calendar on its date and selects nothing.
 async function returnToWorking(){
   await currentInputs();

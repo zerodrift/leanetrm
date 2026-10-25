@@ -161,7 +161,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${shown('#futures-new-trade')}&&${q('#futures-lots')}.value==='5'&&${notice}.textContent.includes('Back would leave unsaved changes on this page.')`);
   await press('Back anyway');await wait(`${q('#futures-new-trade')}.hidden&&${q('#page-title')}.textContent==='Blotter'&&${idle}`);
 
-  // A trade open in the panel is not a dialog (D220): the assistant stays open beside it and can be asked about it, and Looking at names
+  // A trade open in the panel is not a dialog (D221): the assistant stays open beside it and can be asked about it, and Looking at names
   // the trade at its revision.
   // The page assistant's fixture holds no trades, so the one these checks ask about is booked here, from the Blotter's own New trade.
   await click('#nav-futures');await newTrade({click,wait},'futures');

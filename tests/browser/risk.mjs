@@ -1,7 +1,7 @@
 import {setupTradingReplies} from './trading-responses.mjs';
 // The risk report (blotter-desk.md, Risk report inline): its setup in the side panel's Risk report mode, with its presets, the custom
 // scenario lab, runs made now and queued as jobs, split into parts of at most sixteen shocks, and the retained job history; and its
-// results inline in the desk (D221): the run bar, the Values | Risk lens of the positions, the risk tile, the change chart and the
+// results inline in the desk (D222): the run bar, the Values | Risk lens of the positions, the risk tile, the change chart and the
 // Risk tab of a position's panel.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url,errors}){
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1250,deviceScaleFactor:1,mobile:false});

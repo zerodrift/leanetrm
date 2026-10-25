@@ -17,7 +17,7 @@ const duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_t
 export const lifecycleMeasures=[['Remaining contractual value','remainingValue'],['Determined outstanding','determinedOutstanding'],['PV of determined outstanding','determinedPv'],['Due / overdue balance','dueBalance'],['Realized trading P&L','realized'],['Unrealized trading P&L','unrealized'],['Actual net cash received','netCash'],['Corrections','corrections'],['Rounding effect','roundingEffect'],['Estimated remaining PV','estimatedRemainingPv']] as const;
 
 /**
- * A financial swap's settlement and P&L view (D215), which the side panel hosts as it hosts the swap ticket (D220): its occurrences,
+ * A financial swap's settlement and P&L view (D215), which the side panel hosts as it hosts the swap ticket (D221): its occurrences,
  * determinations, balances, cash, net settlement within the trade and P&L bridge (D216), and the commands that write them. `host` is the
  * panel's form part; the view is kept on the page's shelf until it opens there, and goes back when it is reset. What is typed into its
  * payment and net forms, and a correction's due instant, are edits. A command it sends that goes through, or one the page settles for it,
@@ -113,7 +113,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   summary.replaceChildren();
   table(summary,'swap-settlement-summary',['Measure','Amount'],lifecycleMeasures.map(([name,field])=>[name,String(result.valuation[field])]),[1]);
   summary.append(node('p','Amounts retain the contractual currency. Determined PV is included in remaining value; due cash is part of outstanding. Corrections and rounding are overlapping detail. Payments do not recognize profit again.'));
-  // The panel has no room for a column per fact (D220): what identifies a payment or a contribution is read together, with a payment's
+  // The panel has no room for a column per fact (D221): what identifies a payment or a contribution is read together, with a payment's
   // action, beside the figures.
   table(payments,'swap-settlement-payments',['Payment',`Signed cash · ${result.currencyLabel}`,`Remaining PV · ${result.currencyLabel}`],
    result.valuation.payments.map(p=>{const calculate=node('button',p.state==='Undetermined'?'Calculate final payment':'Review correction');calculate.type='button';calculate.dataset.membership=String(p.membershipOrdinal);calculate.dataset.payment=String(p.ordinal);calculate.dataset.eligible=String(p.final&&result.canAmend);calculate.disabled=!p.final||!result.canAmend;

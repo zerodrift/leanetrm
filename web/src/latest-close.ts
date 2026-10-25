@@ -3,7 +3,7 @@ import {latestFrame} from './context-defaults.js';
 
 type Availability=Pick<MarketDates,'dates'|'maxDate'>;
 
-// What opening on the newest close does (D218, with D217's latest instant). The uniquely latest close of the calendar is
+// What opening on the newest close does (D219, with D217's latest instant). The uniquely latest close of the calendar is
 // selected. Several closes at that instant, such as versions of one close, ask, and nothing is selected for them (D162).
 // No available date selects nothing.
 export type CloseChoice={kind:'single';closeId:string;date:string}|{kind:'choose';date:string}|{kind:'none'};

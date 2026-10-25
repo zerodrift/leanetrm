@@ -1,4 +1,4 @@
-// The risk lens of the Blotter desk (blotter-desk.md, Risk report inline; D221): what a run's results say of each position, of the run
+// The risk lens of the Blotter desk (blotter-desk.md, Risk report inline; D222): what a run's results say of each position, of the run
 // as a whole and of its change chart, as the desk shows them beside the positions. Each factor's results are its own, so this picks and
 // labels the backend's exact strings and never adds, nets or scales them across factors, parts or positions.
 import {compareDecimalStrings} from './analytics-model.js';
@@ -81,7 +81,7 @@ export function runExclusions(reports:readonly RiskReport[]):ExcludedPosition[]{
 export type ReadPlace={contextId:string;asOf:string;snapshotId:string;bookIds:readonly string[];portfolioIds:readonly string[]};
 const sameIds=(a:readonly string[],b:readonly string[])=>{const x=[...a].sort(byText),y=[...b].sort(byText);return x.length===y.length&&x.every((id,i)=>id===y[i]);};
 /**
- * Whether a run's results belong to the read on screen (D221): made at its market context and close, each part's report at its close's
+ * Whether a run's results belong to the read on screen (D222): made at its market context and close, each part's report at its close's
  * frame, which a context shared by every close of a date cannot tell apart, and asked for its books and portfolios. A run that does not
  * state its books is never taken for the read's: anything else is made elsewhere.
  */

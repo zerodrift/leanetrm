@@ -215,7 +215,7 @@ export function riskGroupHeader(header:GroupHeader,count:number,leftOut:number){
 
 /** The desk's columns in order, each keyed by the trade field a saved layout records its width, order, sort and filter under. */
 export const deskColumns=[['tradeReference','Trade'],['market','Market'],['quantity','Position'],['executionPrice','Price'],['mark','Mark'],['presentValue','Value'],['curve','Curve']] as const;
-/** The desk's columns under the Risk lens (D221): a position's shock, its up and down changes and its delta, which a saved view never keeps. */
+/** The desk's columns under the Risk lens (D222): a position's shock, its up and down changes and its delta, which a saved view never keeps. */
 export const riskColumns=[['tradeReference','Trade'],['market','Market'],['quantity','Position'],['riskShock','Shock'],['riskUp','Up'],['riskDown','Down'],['riskDelta','Delta']] as const;
 export type CellFormats={money:(index:number,value:string)=>string;quantity:(index:number,value:string)=>string;price:(index:number,value:string)=>string;mark:(index:number,value:string)=>string;factor:(index:number,value:string)=>string};
 /**

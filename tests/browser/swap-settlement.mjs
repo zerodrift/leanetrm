@@ -2,7 +2,7 @@ import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 // A financial swap's settlement and P&L view (D215) opens from the Terms of its position in the Blotter's side panel, in the panel's form
-// part (D220), and works there: determination, cash, reversal and the P&L bridge, with a stale preview dropped on a context change. What is
+// part (D221), and works there: determination, cash, reversal and the P&L bridge, with a stale preview dropped on a context change. What is
 // entered in it is an edit the panel asks about, a settlement clears risk results run before it, and a command whose outcome is not known
 // is kept, across a reload too, and settled from the panel with the view left open.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){

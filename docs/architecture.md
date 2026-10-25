@@ -286,7 +286,7 @@ do not merge obligations. Saving a view does not save or choose market inputs,
 knowledge coordinates or authority. Effective/knowledge controls share a floating
 Context panel (D217). Native interval, delivery-price and PPA cutoffs use the same
 presentation while retaining their distinct backend read contracts. The market
-date, with the Blotter's close badge (D218), floats beside that panel, whose summary
+date, with the Blotter's close badge (D219), floats beside that panel, whose summary
 names the knowledge in use and whose panel holds live corrections; the header keeps
 the page title and profile. The active user and current permissions are visible
 in the profile, independently of the layout.

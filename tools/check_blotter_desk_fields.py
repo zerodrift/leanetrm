@@ -7,7 +7,7 @@ floating/floating swap, amends the first, and reads every direction back against
 with. Positions a close cannot value are covered by the valuation-status check.
 
 The summaries and curve shapes are compared with the reads they replace: the same views read on their own through
-`trading/blotter`, and `evaluate` for each curve. The money-totals convention (D222) adds present value and execution P&L
+`trading/blotter`, and `evaluate` for each curve. The money-totals convention (D223) adds present value and execution P&L
 across quantity units within one currency and instrument type; its totals are compared with exact sums of the rows.
 
 The risk catalog's held targets, which the risk report's presets shock, are compared with what each position is priced from:
@@ -34,7 +34,7 @@ DESK_SUMMARIES = [{**TRADES, 'mode': 'pivot', 'groupBy': dimensions, 'measures':
                   for dimensions in (['instrumentType'], ['book'], ['commodity', 'instrumentType'], ['market'])]
 # Any price measure makes a pivot state the price unit of each market.
 PRICE_UNITS = {**BY_COMMODITY, 'groupBy': ['market'], 'measures': ['markMax']}
-# D222: the money-totals convention keeps a pivot's dimensions, instrument type and currency apart, and adds across quantity units.
+# D223: the money-totals convention keeps a pivot's dimensions, instrument type and currency apart, and adds across quantity units.
 MONEY_MEASURES = ['presentValue', 'executionPnl', 'tradeCount']
 MONEY_FIELDS = {'instrumentType', 'currency', 'currencyReference', 'unvaluedPositions', *MONEY_MEASURES}
 MEAN_POLICY = 'arithmetic_price_mean_to_even_18_v1'
@@ -86,12 +86,12 @@ def added(amounts):
 
 
 def check_money_totals(read, check, rows, when):
-    """Money pivots add the valued positions of one instrument type and currency across quantity units, and nothing else (D222).
+    """Money pivots add the valued positions of one instrument type and currency across quantity units, and nothing else (D223).
 
     `read` gives the report of a view at the close the rows were read at. The expectations come from the rows alone.
     """
     # Each pivot's dimension, the row field and the group field that name it, and what its groups state beside the money fields.
-    # A market is kept apart by its definition revision as well, which its groups state (D222).
+    # A market is kept apart by its definition revision as well, which its groups state (D223).
     pivots = (('instrument type', 'instrumentType', (), (), set()), ('book', 'book', ('bookId',), ('bookId',), {'bookId', 'book'}),
               ('market', 'market', ('curve', 'definitionRevisionId'), ('market', 'definitionRevisionId'), {'market', 'definitionRevisionId'}))
     reports = {}
@@ -119,7 +119,7 @@ def check_money_totals(read, check, rows, when):
 
 
 def check_market_revisions(read, check, rows, when):
-    """A pivot by market keeps each definition revision of a market apart, and its groups say which revision they are (D222).
+    """A pivot by market keeps each definition revision of a market apart, and its groups say which revision they are (D223).
 
     The desk keys its market bars and group headers on market and revision, so two groups of one market never look alike.
     """
@@ -148,7 +148,7 @@ def check_money_example(read, check, rows):
 
 
 def check_money_refusals(c, check, context):
-    """Under the money convention a view or a summary asks for money and trade counts only; the rest is refused (D222)."""
+    """Under the money convention a view or a summary asks for money and trade counts only; the rest is refused (D223)."""
     asked = {'quantity': {}, 'lots': {}, 'markMax': {}, 'fixedPriceMin': {}, 'executionPriceMean': {'priceNumericalPolicy': MEAN_POLICY}}
     everything = {**TRADES, 'mode': 'pivot', 'groupBy': ['contract'], 'measures': ['presentValue', *asked], 'pivotConvention': TOTALS,
                   'priceNumericalPolicy': MEAN_POLICY}
@@ -206,7 +206,7 @@ def check_summaries(c, check, context):
     refused('a summary that repeats a portfolio its read names once is refused, as the Blotter refuses a repeated portfolio',
             [{**DESK_SUMMARIES[0], 'portfolioIds': [portfolio]*2}], {**TRADES, 'portfolioIds': [portfolio]})
 
-    # Money totals (D222) are summaries like any other: they take the same limits and add no valuation.
+    # Money totals (D223) are summaries like any other: they take the same limits and add no valuation.
     mixed = c.call('trading/workspace', {**request, 'summaries': MIXED_SUMMARIES})
     mixed_alone = [c.call('trading/blotter', {'context': context, 'view': view}) for view in MIXED_SUMMARIES]
     check('four summaries of both pivot conventions come back in request order, each as its view and the groups that view gives on its own',

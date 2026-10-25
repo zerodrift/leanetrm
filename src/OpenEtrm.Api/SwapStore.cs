@@ -560,7 +560,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    var source=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?data:One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId)).Data;
    var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
    SidedInstrument instrument;HeldValue held;
-   // D219: a position-specific failure leaves the position unvalued at the close, with that code; any other failure fails the read.
+   // D220: a position-specific failure leaves the position unvalued at the close, with that code; any other failure fails the read.
    var settlement=await SettlementState(connection,row.Id("trade_id"),ct);
    if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
    {

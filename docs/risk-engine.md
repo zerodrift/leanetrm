@@ -139,7 +139,7 @@ at the catalog's one retained context. Each factor's results are independent, so
 combines the parts, and a part that fails is reported as failed. The results and the download state
 the preset, its size for each price unit and the held prices or curves it does not shock.
 
-Each queued part of a run made in parts states its run (D221): `POST /api/portfolio/risk/jobs` takes
+Each queued part of a run made in parts states its run (D222): `POST /api/portfolio/risk/jobs` takes
 `{requestId, request, run:{id, part, parts}}`, and the job's retained frame keeps the run's identity, the
 part and the part count, checked before the inputs are prepared (1 ≤ part ≤ parts ≤ 256, sixteen
 shocks to a part and 4,096 in all). Every queued job's frame also keeps `scope`, the books and
@@ -170,7 +170,7 @@ sensitivities for the selected factor, including every requested holding row.
 Submission retains the exact context, market revision, selected book scope,
 observation pins and frozen-input uses, market frames, stress/bump conventions and managed engine
 fingerprint. It also retains the positions the run leaves out because its base close
-cannot value them (D219); the worker leaves out exactly those, each a held position of
+cannot value them (D220); the worker leaves out exactly those, each a held position of
 the scope, and reports them in the result. Empty interactive scope selectors resolve
 to explicit books before queueing. An identical request identity and payload return the original run;
 different inputs conflict. Saved managed projections additionally retain their

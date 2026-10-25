@@ -41,7 +41,7 @@ const curveColumn=deskColumns.findIndex(([key])=>key==='curve'),markColumn=deskC
 const riskGiveUp=['riskShock','riskDelta'].map(key=>riskColumns.findIndex(([column])=>column===key));
 // The Risk lens columns, which a saved view never keeps.
 const riskKeys=riskColumns.flatMap(([key])=>key.startsWith('risk')?[key]:[]);
-// What a new read of the Blotter says of the risk run it clears (D221): changing the close, the context or the book scope says so in the
+// What a new read of the Blotter says of the risk run it clears (D222): changing the close, the context or the book scope says so in the
 // design's words; any other new read, a Refresh, another Display or pivot, or the Blotter opened again, says it was read again, each
 // read at current knowledge being made at a context of its own.
 const readNotes={inputs:'Risk results cleared · the close or books changed',read:'Risk results cleared · the Blotter was read again'} as const;
@@ -51,7 +51,7 @@ const knowledgeWords={working:'current knowledge',historical:'historical view',l
 // What the risk tile calls the report a run was set up as; a retained run does not record one.
 const tileReports={held:'every held contract',parallel:'every held curve',custom:'custom scenario'} as const;
 /**
- * A run's results as the desk shows them inline (D221), by the key of the results they are: made at another close, context or books than
+ * A run's results as the desk shows them inline (D222), by the key of the results they are: made at another close, context or books than
  * the read on screen, refused with why, or shown, with each position's cell, what the run leaves out, its summary and the parts that have
  * no results.
  */
@@ -106,7 +106,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   });
   let lastReadRequest:unknown;
   // The close, the context chosen and the book scope of the read on screen, which tell a read at other inputs from one made again; and
-  // where the read was made, which a run's results must have been made at to be drawn against it (D221).
+  // where the read was made, which a run's results must have been made at to be drawn against it (D222).
   let readInputs:string|undefined,readPlace:ReadPlace|undefined;
   let chartState:{panels:ChartSpec[];request:{context:unknown;view:unknown}}|undefined;
   // What the trade rows' desk drew from the read on screen, which the side panel draws its position from.
@@ -119,7 +119,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   let earlierViews:string[]=[];
   let draftBase:{name:string;version:string}|undefined;
   let viewsLoaded=false;
-  // The Values | Risk lens of the trade rows (D221), the run's results it shows once they are prepared, the key of the results being
+  // The Values | Risk lens of the trade rows (D222), the run's results it shows once they are prepared, the key of the results being
   // prepared, and the run the lens last turned to Risk for: a run's results turn it once, and the person turns it after that.
   let lens:'values'|'risk'='values',inline:Inline|undefined,preparing:string|undefined,lensFor:number|undefined;
   // Each report of the run on screen by a number of its own, so that results that are new can be told from those already shown.
@@ -135,7 +135,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   get('desk-run-edit').onclick=()=>void openRiskReport();
   get('risk-export').onclick=()=>void act(risk.download);
   get('desk-run-clear').onclick=()=>{if(!busy())risk.clearRun();};
-  // The Values | Risk lens of the trade rows (D221): Values shows the positions' values and their long and short sizes, Risk the run's results.
+  // The Values | Risk lens of the trade rows (D222): Values shows the positions' values and their long and short sizes, Risk the run's results.
   for(const button of get('desk-lens').querySelectorAll<HTMLButtonElement>('[data-lens]'))
     button.onclick=()=>{const next=button.dataset.lens as typeof lens;if(busy()||next===lens||!inline||inline.state!=='shown')return;lens=next;captureFilters();render();options.reported();};
   // Shows the lens, with the one chosen, where it applies: the trade rows of a read whose run's results are on screen.
@@ -220,7 +220,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
   function settle(h:Holding){guarded(()=>swapEditor.openSettlement(h));}
-  // New trade (D220) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
+  // New trade (D221) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
   const newTrade:PanelMode={kind:'new',product:null};
@@ -413,7 +413,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       })};
   }
   // What the Risk lens shows of a position: the shocks that move it; that nothing moves it, or, while a part has no results, that it is
-  // not known; one the run leaves out says so with the reason its own row states, which is why the run leaves it out (D219).
+  // not known; one the run leaves out says so with the reason its own row states, which is why the run leaves it out (D220).
   function lensRow(shown:Extract<Inline,{state:'shown'}>,h:Holding,row:DeskRow):LensRowView{
     const cell=shown.cells.get(positionKey(h));
     if(!cell)return {state:'left',reason:row.unavailable??'Not valued at this close'};
@@ -458,7 +458,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Starts the Blotter afresh: for another close or context, or for the Blotter opened again, each of which says so of a risk run it
   // clears; or, for another account, saying nothing, as everything the page held goes.
   function reset(cause:ReadCause|null){if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
-  // A new read of the Blotter replaces the one a run on screen was made at: the run is cleared and the page says why (D221). A live
+  // A new read of the Blotter replaces the one a run on screen was made at: the run is cleared and the page says why (D222). A live
   // correction and a settlement record say so in their own words.
   function replaceRead(cause:ReadCause){if(risk.current())options.notice(readNotes[cause]);clear();}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
@@ -467,7 +467,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,...fields}=h;
     return {...fields,priceUnit:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
-  // What a trade row's value cell says when the close cannot value it, on screen and in exports (D219).
+  // What a trade row's value cell says when the close cannot value it, on screen and in exports (D220).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
   // What a trade row's cell says where the backend states no single figure for a reason of the position's own: a scheduled swap's
   // quantities and prices by period, or a mark a lifecycle valuation does not state. Exports say it as the cells do.
@@ -508,7 +508,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function renderDesk(scope:string,colors:ReadonlyMap<string,string>,plan:ReturnType<typeof planDesk>){
     const held=holdings!.holdings,{rows,fields,groups}=plan,shown=lensShown()?inline as Extract<Inline,{state:'shown'}>:undefined;
     // Every other trade column is present, shown when the view chooses it, so a filter on a hidden one stays active. Under the Risk lens
-    // the price, mark, value and curve columns give way to the shock, its changes and the delta (D221).
+    // the price, mark, value and curve columns give way to the shock, its changes and the delta (D222).
     const details=tradeColumns.filter(([key])=>!(deskFields as readonly string[]).includes(key));
     const head=shown?riskColumns:deskColumns,columns=[...head,...details];
     tableColumns=columns.map(c=>c[0]);transientKeys=new Set(['curve',...riskKeys]);
@@ -539,7 +539,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(busy())return;captureLayout();view.columns=selected;render();
     },[...deskFields]);
     renderDeskCharts(get('desk-chart-pv'),plan.pvPanels,'No swaps in the selected books');
-    // After a run, the long and short chart becomes the change if each contract moves up; it leaves out what the run leaves out (D219).
+    // After a run, the long and short chart becomes the change if each contract moves up; it leaves out what the run leaves out (D220).
     text('desk-chart-position-title',shown?'Change if each contract moves up':'Long and short by market');
     if(shown){
       const change=changeChart(rows.map((row,i)=>({key:positionKey(held[i]),reference:row.reference,market:row.market,commodity:row.commodity})),shown.cells,colors,(i,value)=>formats[i].money(value));
@@ -569,7 +569,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const pivotKeys=pivotColumns(view.groupBy,view.measures);
     const columns=blotterColumns.filter(([key])=>pivotKeys.includes(key));
     tableColumns=columns.map(c=>c[0]);
-    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D219).
+    // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D220).
     const counted=read.groups.some(g=>excludedPositions(g.unvaluedPositions)>0);
     const rows:Record<string,string|null>[]=read.groups.map(g=>({...Object.fromEntries(columns.map(([key])=>[key,groupLabel(g,key)])),unvaluedPositions:String(excludedPositions(g.unvaluedPositions))}));
     const required=['instrumentType','unit','currency','priceUnit'];
@@ -713,7 +713,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     await follow(amended,receipt);await followBooked(command,receipt);
   }
   // A settlement command that went through changes what its swap is valued at: risk results run before it no longer hold, and are
-  // cleared, with a note when there were any, and an open risk report is read again at the new inputs, keeping a setup's choices (D220).
+  // cleared, with a note when there were any, and an open risk report is read again at the new inputs, keeping a setup's choices (D221).
   // The Blotter is read again as a live correction reads it, so that the panel, and the settlement view the command was sent from, stay,
   // and that view clears what the command consumed and reads its state again: also when the Blotter cannot be read, as a form still
   // holding a command that went through would offer it a second time.

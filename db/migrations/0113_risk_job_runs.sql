@@ -1,4 +1,4 @@
--- A queued part of a portfolio risk run made in parts states its run in its retained frame (D221): the run's identity, which part
+-- A queued part of a portfolio risk run made in parts states its run in its retained frame (D222): the run's identity, which part
 -- it is and how many parts the run has; and every queued job the books and portfolios its run was asked for. The store keeps every part
 -- of a run at one retained context and one close (its frame: every close of a date shares a context), for one scope, with one part
 -- count, and each part once; every job read states the run its job is a part of, or none, its scope and how many shocks it asked for.

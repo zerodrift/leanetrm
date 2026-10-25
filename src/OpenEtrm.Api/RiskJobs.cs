@@ -8,7 +8,7 @@ using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
-/// <summary>A job to queue: its request identity and request, and the run it is a part of when the run is made in parts (D221).</summary>
+/// <summary>A job to queue: its request identity and request, and the run it is a part of when the run is made in parts (D222).</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SubmitPortfolioRiskJob(Guid RequestId,PortfolioRiskRequest Request,RiskJobRun? Run=null);
 
@@ -60,9 +60,9 @@ public static class RiskJobs
         pinnedFrame["supplementalMarkets"]=supplemental;
         pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
         pinnedFrame["scenarioAxes"]=JsonSerializer.SerializeToNode(CurveRiskAxes.Retained(prepared),Json);
-        // The worker leaves out exactly the positions this submission left out (D219).
+        // The worker leaves out exactly the positions this submission left out (D220).
         pinnedFrame["excludedPositions"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Excluded,Json);
-        // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D221).
+        // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D222).
         pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds);
         if(run is not null)pinnedFrame["run"]=run;
         await using var command=ScheduleStore.Command(connection,

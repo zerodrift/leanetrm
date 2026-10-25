@@ -9,11 +9,11 @@ import {clearTabs,setupTabs,type SidePanel} from './side-panel.js';
 
 export const positionTabs=[['curve','Curve'],['terms','Terms'],['risk','Risk'],['history','History']] as const;
 export type PositionTab=typeof positionTabs[number][0];
-// The Risk tab's results come from the risk run on the desk (D221), and the Risk report sets one up.
+// The Risk tab's results come from the risk run on the desk (D222), and the Risk report sets one up.
 export const riskEmpty="This position's risk comes from the risk run on the desk, and there is none yet. Run one from the Risk report.";
 
 /**
- * What the run on the desk says of a position (D221): no run; a queued run under way; a run made at another close, context or books than
+ * What the run on the desk says of a position (D222): no run; a queued run under way; a run made at another close, context or books than
  * the read; one whose results are refused, or which has none, with why; a position the run leaves out, with its row's reason; or its
  * shocks, among the run's factors with results, and the parts that have none.
  */

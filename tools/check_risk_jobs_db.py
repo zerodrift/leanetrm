@@ -244,7 +244,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     user(f"SELECT risk.cancel('{corrected_job['jobId']}')")
     print('PASS generic risk temporal pins: later corrections require a later context and UUID casing preserves frozen input use', flush=True)
 
-    # A part of a run made in parts (D221) states its run in its frame: the run's identity, the part and the run's part count, and every
+    # A part of a run made in parts (D222) states its run in its frame: the run's identity, the part and the run's part count, and every
     # job the books and portfolios its run was asked for. The store keeps one run at one retained context, for one scope, each part once,
     # whatever the API checked first. No worker claims this engine's jobs.
     run_request = {**request, 'engineVersion': 'synthetic_run_engine_v1'}

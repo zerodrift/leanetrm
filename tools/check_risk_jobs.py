@@ -62,7 +62,7 @@ def run_checks(Client, check, run_worker):
     admin.call('admin/update', {'operationId': str(uuid4()), 'id': member['id'], 'expectedVersion': changed['version'], 'name': member['name'], 'enabled': True, 'roles': ['risk_analyst']})
     denied = risk.call('portfolio/risk/jobs/' + other['id'])
     check('revocation and restoration cannot revive an admitted job under its old authority', denied['state'] == 'failed' and denied['result'] is None)
-    # The parts of a run made in parts (D221) each state the run, their part and the run's part count: one run at one retained context,
+    # The parts of a run made in parts (D222) each state the run, their part and the run's part count: one run at one retained context,
     # each part once. The job history lists every part with its run, and a job queued on its own states none.
     run = str(uuid4())
     parts = [{'requestId': str(uuid4()), 'request': request, 'run': {'id': run, 'part': part, 'parts': 2}} for part in (1, 2)]

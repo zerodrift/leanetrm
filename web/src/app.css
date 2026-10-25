@@ -651,7 +651,7 @@ dialog label{margin-top:16px}
 .sparkline{display:block;overflow:visible}.sparkline-line{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.sparkline-mark{stroke:var(--surface);stroke-width:1.5}
 .sparkline-unavailable line{stroke:var(--border-strong);stroke-dasharray:2 3}
 .sparkline-loading{display:block;width:84px;height:22px;border-radius:4px;background:var(--surface-2)}
-/* A risk run inline (blotter-desk.md, Risk report inline; D221): the run bar above the tiles says what ran, the risk tile its largest
+/* A risk run inline (blotter-desk.md, Risk report inline; D222): the run bar above the tiles says what ran, the risk tile its largest
    move, the positions' Values | Risk lens each position's shock, changes and delta, and the change chart each contract's up move. */
 .desk-run{display:flex;align-items:center;gap:12px;padding:8px 10px 8px 12px;border:1px solid var(--warn-border);border-radius:var(--radius-lg);background:linear-gradient(90deg,var(--warn-soft),var(--surface) 72%);font-size:12px;color:var(--warn)}
 .desk-run-mark{display:grid;place-items:center;flex:none;width:26px;height:26px;border-radius:8px;background:#f5dfa8;color:var(--warn)}
@@ -696,7 +696,7 @@ dialog label{margin-top:16px}
 body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100vw - var(--assistant-width)))}
 @media(max-width:760px){.side-panel[data-placement=overlay],body.assistant-open .side-panel[data-placement=overlay]{right:0;left:0;width:100%;border-left:0}}
 /* What needs more room than a docked panel has, a swap's settlement figures, opens the panel wide: it lies over the page, which keeps
-   its layout beneath, docked or not, and never over the navigation, which stays in view and in reach (D220). */
+   its layout beneath, docked or not, and never over the navigation, which stays in view and in reach (D221). */
 .side-panel[data-wide]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-wide-width),calc(100% - var(--sidebar-width)));border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
 .side-panel[data-wide] .side-panel-frame{position:relative;top:auto;height:100%;max-height:none}
 body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:min(var(--panel-wide-width),calc(100vw - var(--assistant-width) - var(--sidebar-width)))}
@@ -761,7 +761,7 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .side-panel .regular-table-scroll{max-height:none}
 .side-panel table{font-size:12px}.side-panel th{font-size:10.5px;padding:8px 10px}.side-panel td{padding:8px 10px;white-space:nowrap}
 /* In the panel the settlement view's tables wrap their labels and keep each figure on one line, so that in the wide panel every figure,
-   and each payment's action, is read without scrolling sideways (D220); a phone's sheet may scroll a table sideways. */
+   and each payment's action, is read without scrolling sideways (D221); a phone's sheet may scroll a table sideways. */
 .side-panel .swap-settlement-editing th,.side-panel .swap-settlement-editing td:not(.numeric){white-space:normal}
 .swap-settlement-stack{display:grid;gap:4px;justify-items:start;overflow-wrap:anywhere}.swap-settlement-stack button{white-space:normal;text-align:left}
 /* The form of an amendment, or of a new swap, takes the tab panel in place of the tab's view, and its fields the panel's one column. */
@@ -771,7 +771,7 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .side-panel-form .instrument-choices button{white-space:normal;min-width:0}
 .side-panel-form .available-date-calendar{width:min(21rem,100%)}
 .side-panel-form select,.side-panel-form input:not([type=checkbox]),.side-panel-form textarea{width:100%}
-/* The swap tickets and the settlement view take the panel's one column too (D220): each side's terms stack, and a payment table too wide
+/* The swap tickets and the settlement view take the panel's one column too (D221): each side's terms stack, and a payment table too wide
    for the panel gives way to its one-line summary of each payment, as it does on a phone. */
 .side-panel-form .swap-term-columns,.side-panel-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
 /* The swap ticket's way to the scheduled ticket has a long name, which wraps in the panel's column rather than widen it. */

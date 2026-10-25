@@ -2,7 +2,7 @@ import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 // Intra-trade net settlement and the closing-context P&L bridge (D216) in a financial swap's settlement view, which the Blotter's side panel
-// hosts (D220): explicit selection and allocations, gross/net review, record, history and exact reversal. What is typed into the net form is
+// hosts (D221): explicit selection and allocations, gross/net review, record, history and exact reversal. What is typed into the net form is
 // an edit the panel asks about; a correction's due instant typed in its calculation is kept through what the net form and the bridge do, and
 // a net settlement, which reads the view again, asks before giving it up; one that goes through clears risk results run before it; and one
 // whose outcome is not known is kept, named for it, across a reload.

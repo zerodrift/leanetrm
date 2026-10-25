@@ -1,7 +1,7 @@
 // The risk report of the Blotter desk (blotter-desk.md, Side panel: Risk report), drawn in the side panel's Risk report mode. It offers
 // Shock every held contract and Parallel shift, which shock the targets the catalog names for what the books hold, and the custom
 // scenario lab with nested stresses; it runs a report now or queues it as jobs and keeps the retained job history. A run's results come
-// back inline in the desk (D221), which reads the run on screen from `current`. A run of more than sixteen shocks is split into parts of
+// back inline in the desk (D222), which reads the run on screen from `current`. A run of more than sixteen shocks is split into parts of
 // at most sixteen at the one retained context of its catalog, run one after another or queued as one job each, which states the run it
 // is a part of, and shown as one run. Each factor's results are its own, so no arithmetic combines parts, and a part that fails is said to
 // have failed. What the report holds outlives the panel's other modes; a new read of the Blotter clears it.
@@ -24,7 +24,7 @@ type Scope={context:unknown;bookIds:string[];portfolioIds:string[]};
 type StressLayer={id:string;shift:ScenarioShift;label:string;unit:string};
 type Request=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioShift[];convention:string;numericalPolicy:string};
 export type JobState='queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';
-/** The run a queued part belongs to (D221): the run's identity, which part this is and how many parts the run has. */
+/** The run a queued part belongs to (D222): the run's identity, which part this is and how many parts the run has. */
 type JobRun={id:string;part:number;parts:number};
 /** The books and portfolios a run was asked for, as they were chosen. */
 type RunScope={bookIds:readonly string[];portfolioIds:readonly string[]};
@@ -52,7 +52,7 @@ type Run={key:number;queued:boolean;parts:Part[];context?:FinancialContext;asOf?
 /** A part of the run on screen as the desk shows it: its report once it has one, or what became of it. */
 export type RunPart={report?:RiskReport;job?:{state:JobState;finishedAt?:string|null;shocks?:number};failure?:string;unknown:boolean;unlisted:boolean};
 /**
- * The run on screen as the desk shows it (D221): what it was set up as, in words; whether it was queued, whether a queued part of it is
+ * The run on screen as the desk shows it (D222): what it was set up as, in words; whether it was queued, whether a queued part of it is
  * still under way, and whether it is retained, a job of the history or an unconfirmed submission shown under the context it was captured
  * at; where and when it was made, and for which books and portfolios, when that is known; how many shocks it was asked for, when that is
  * known; and its parts.
@@ -356,7 +356,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const owner=options.profile();let first:unknown;const stale=()=>version!==generation;
     await runParts(current.parts,stale,async(part,index)=>{
       // A part is sent once and then only again with the same identity: a queued or refused part is settled, and one not yet sent is begun.
-      // A part of a run made in parts states the run, its part and the run's part count (D221).
+      // A part of a run made in parts states the run, its part and the run's part count (D222).
       if(!part.recovery?.command){
         if(part.job||part.failure!==undefined)return true;
         const run:JobRun|undefined=current.id===undefined?undefined:{id:current.id,part:index+1,parts:current.parts.length};
@@ -454,7 +454,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   function contextLabel(context:FinancialContext|undefined,asOf:string|undefined){return riskContextLabel({context,asOf},options.zone());}
   /**
-   * The retained jobs as the history lists them, newest first: the parts of a run made in parts are one entry (D221), whose state says how
+   * The retained jobs as the history lists them, newest first: the parts of a run made in parts are one entry (D222), whose state says how
    * its parts stand, and a job queued on its own is another. A run whose parts disagree on their part count is refused, never guessed at.
    */
   function history():{value:string;asOf?:string;text:string}[]{
@@ -545,7 +545,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   get('risk-job-return').onclick=()=>{if(!catalog||submissions.has(options.profile()))void options.act(open);else{edit();renderStress();}};
 
   // --- the run's work and its download -------------------------------------------------------------------------------------------
-  /** The work each part's calculation did, once none of its parts is under way: the results of the run are the desk's (D221). */
+  /** The work each part's calculation did, once none of its parts is under way: the results of the run are the desk's (D222). */
   function showWork(current:Run){
     const total=current.parts.length;
     get('risk-work').replaceChildren(...current.parts.flatMap((part,index)=>part.report?[workEvidence(part.report,total>1?`Part ${index+1} of ${total} · `:'')]:[]));

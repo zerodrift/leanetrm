@@ -3,7 +3,7 @@ using System.Text.Json;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
-// D221: each queued part of a run made in parts states the run it belongs to, which part it is and how many parts the run has, and
+// D222: each queued part of a run made in parts states the run it belongs to, which part it is and how many parts the run has, and
 // its retained frame keeps them, so that the job history can show the parts as one run. A job queued on its own states none.
 static class RiskJobRunChecks
 {
