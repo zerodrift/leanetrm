@@ -6,7 +6,7 @@ from preview_client import PreviewClient
 from preview_fixture import trade_booking, CAT, R, REV, identity, installed_tzdb
 from datetime import datetime, timezone
 import json
-from check_blotter_desk_fields import exact, total, unvalued
+from check_blotter_desk_fields import check_money_totals, exact, total, unvalued
 from check_blotter_valuation_status import BY_BOOK, blotter, book_key, excluded, key, risk_catalog, risk_request, unvalued_rows
 from check_swap_settlement import check_settlement_keeps_facts, check_stated_sides, held_row
 
@@ -63,6 +63,9 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     held=[r for r in rows if book_key(r)==book_key(after)]
     assert group['unvaluedPositions']==unvalued(held)>0 and exact(group['presentValue'])==total(held,'presentValue'),group
     assert late['unvaluedPositions']==unvalued(rows)
+    def check(name,condition):assert condition,name
+    # The desk's money totals (D220) add the valued positions across quantity units and count those they leave out, this one among them.
+    check_money_totals(lambda view:blotter(c,frame(UNPRICED_FEBRUARY),view)[0],check,rows,'the unpriced-February close')
     c.call('profile',{'profile':'risk'})
     choices=risk_catalog(c,late_context)
     factor=choices['factors'][0]['factor']
@@ -304,7 +307,14 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     print('PASS settlement-aware HTTP and blotter: paid January excluded once, later months unchanged, currency rounding conserved')
     check_settlement_keeps_facts(projected,settled,'a scheduled swap')
     check_stated_sides(c,settlement_context,thirds_saved['tradeId'],[{'slot':0,'kind':'fixed','coefficient':'-1'},{'slot':1,'kind':'floating','coefficient':'1'}])
-    print('PASS a scheduled swap whose settlement starts keeps its Blotter facts, and its read states its sides\' kinds and directions')
+    # A receive-fixed swap's read states its own directions, which a backend answering every read with one pair would not.
+    receive=deepcopy(thirds);receive.update(operationId=str(uuid4()),firstCoefficient='1')
+    received=c.call('swaps/book',receive)
+    receive_settlement={**settlement,'tradeId':received['tradeId']}
+    receive_preview=c.call('swaps/settlement/preview',receive_settlement)
+    c.call('swaps/settlement/determine',{**determine,'preview':receive_settlement,'operationId':str(uuid4()),'expectedVersion':0,'previewHash':receive_preview['previewHash']})
+    check_stated_sides(c,settlement_context,received['tradeId'],[{'slot':0,'kind':'fixed','coefficient':'1'},{'slot':1,'kind':'floating','coefficient':'-1'}])
+    print('PASS a scheduled swap whose settlement starts keeps its Blotter facts, and its read states its sides\' kinds and directions, pay or receive fixed')
     bridge=c.call('swaps/settlement/pnl',dict(opening={**settlement_context,'knowledgeMode':'retained','contextId':initial_lifecycle['context']['contextId']},
         closing=settlement_context,tradeIds=[thirds_saved['tradeId']],bookIds=[],contractChanges='reject_contract_changes_v1',
         duePolicy=determine['duePolicy'],recognitionPolicy=determine['recognitionPolicy']))['report']['trades'][0]['bridge']

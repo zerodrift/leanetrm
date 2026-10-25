@@ -4,7 +4,7 @@ import {setupSwapEditor,readSwapView} from './swap-editor.js';
 import {setupTradeEditor,readTradeView} from './trade-editor.js';
 import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
-import {knownTradeRejection,restorable,retainedText,retryAllowed} from './trade-requests.js';
+import {releasesRetained,restorable,retainedText,retryAllowed} from './trade-requests.js';
 import {setupRisk,riskDenied} from './risk-view.js';
 import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
@@ -496,8 +496,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     let receipt:Receipt|undefined;
     try{receipt=await api<Receipt>(command.path,{...command.body,operationId:command.operationId});}
     catch(error){
-      // A rejected retry says nothing about the original uncertain outcome.
-      if(!retrying&&knownTradeRejection((error as {code?:string}).code)){pending.clear();uncertain=false;store();}
+      // A refusal for good releases the request with the backend's reason: on a retry too, where the backend answers a retry with the
+      // original's outcome before it refuses one (releasesRetained).
+      if(releasesRetained(command.path,(error as {code?:string}).code,retrying)){pending.clear();uncertain=false;store();}
       done(command);
       if((error as {code?:string}).code==='access_denied')clear();sync();throw error;
     }

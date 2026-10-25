@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {knownTradeRejection,restorable,retainedText,retryAllowed} from '../dist/trade-requests.js';
+import {knownTradeRejection,releasesRetained,restorable,retainedText,retryAllowed} from '../dist/trade-requests.js';
 
 test('only refusals that prove nothing was written release a retained booking or amendment',()=>{
   for(const code of ['futures_input','scheduled_quantity','scheduled_swap_input','scheduled_power','swap_input','trade_operation_conflict','access_denied','request_format','request_too_large','request_token'])assert.equal(knownTradeRejection(code),true,code);
@@ -27,4 +27,19 @@ test('a request kept by an earlier visit is restored when it is one the page sen
   for(const path of ['futures/book','futures/amend','swaps/book','swaps/amend','swaps/settlement/determine','swaps/settlement/payment'])assert.equal(restorable(saved(path)),true,path);
   for(const value of [null,'text',{},saved('swaps/settlement/preview'),saved('admin/create'),{...saved('swaps/book'),operationId:7},{...saved('swaps/book'),body:null},{...saved('swaps/book'),body:'text'}])
     assert.equal(restorable(value),false,JSON.stringify(value));
+});
+
+test('a refusal for good releases a retained request on a first send, and on a retry where the backend replays an earlier outcome before it refuses',()=>{
+  for(const path of ['swaps/settlement/determine','swaps/settlement/payment','swaps/book','swaps/amend']){
+    for(const code of ['settlement_version_conflict','settlement_stale_preview','swap_input','request_format']){
+      assert.equal(releasesRetained(path,code,false),true,`${path} ${code}`);assert.equal(releasesRetained(path,code,true),true,`${path} ${code} on a retry`);
+    }
+    // A refusal of the caller rather than of the request says nothing of a retried original.
+    for(const code of ['access_denied','request_token','historical_read_only'])assert.equal(releasesRetained(path,code,true),false,`${path} ${code} on a retry`);
+  }
+  // A futures booking or amendment is admitted before its earlier outcome is looked up, so a refused retry says nothing of the original.
+  for(const path of ['futures/book','futures/amend'])for(const code of ['futures_execution_policy','futures_conflict','access_denied']){
+    assert.equal(releasesRetained(path,code,false),true,`${path} ${code}`);assert.equal(releasesRetained(path,code,true),false,`${path} ${code} on a retry`);
+  }
+  for(const code of [undefined,'request_failed','swap_outcome_unknown'])for(const retrying of [false,true])assert.equal(releasesRetained('swaps/book',code,retrying),false,String(code));
 });

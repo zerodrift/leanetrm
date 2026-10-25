@@ -70,8 +70,10 @@ def unvalued(rows):
 
 
 def money_key(item, fields=()):
-    """What a money group keeps apart: its dimension, instrument type and exact currency; never the quantity unit."""
-    return (*(item[f] for f in fields), item['instrumentType'], json.dumps(item['currencyReference'], sort_keys=True))
+    """What a money group keeps apart: its dimension, instrument type and exact currency; never the quantity unit. A row's market is
+    its curve, or the several curves its scheduled periods project from together, as the backend keys them (D214)."""
+    return (*(item.get('marketKey') or item[f] if f == 'curve' else item[f] for f in fields), item['instrumentType'],
+            json.dumps(item['currencyReference'], sort_keys=True))
 
 
 def added(amounts):
@@ -104,7 +106,7 @@ def check_money_totals(read, check, rows, when):
         check(name+' counts the distinct trades of each group, and those it leaves out',
               all(g['tradeCount'] == len({r['tradeId'] for r in expected[k]}) and g['unvaluedPositions'] == unvalued(expected[k]) for k, g in actual.items()))
         check(name+' states its type, currency and measures, and no quantity unit or specification',
-              all(set(g) == MONEY_FIELDS | stated for g in groups))
+              all(set(g) == MONEY_FIELDS | stated | ({'marketLabel'} if dimension == 'market' and 'marketLabel' in g else set()) for g in groups))
     by_type = {money_key(g): g for g in reports['instrumentType']}
     for label, dimension, *_ in pivots[1:]:
         check(f'{when}: {label} money totals add up to the instrument type totals, exactly',

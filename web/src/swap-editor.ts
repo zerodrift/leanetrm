@@ -1,6 +1,6 @@
 import {allocations,deliveryProducts,quantityBases,renderScheduledReview,retainedIntervals,setupScheduledSwapEditor,type QuantityReview,type Scheduled} from './scheduled-swap-editor.js';
 import {lifecycleMeasures,setupSwapSettlement} from './swap-settlement.js';
-import {renderSwapTradePayments} from './swap-trade-review.js';
+import {renderSwapTradePayments,sideDirection} from './swap-trade-review.js';
 import {mountIntervalDataWidget} from './interval-data-widget.js';
 import {sideScheduleData} from './side-schedule.js';
 import {linkedValue,quantityChoice,filterSwapIndices,deliveryChoices} from './swap-selection.js';
@@ -41,7 +41,7 @@ const convention='independent_side_financial_swap_v2';
 export const readSwapDetail=(api:Api,context:Record<string,unknown>,tradeId:string,revision:number|null)=>api<Detail>('swaps/editor',{context:{...context,convention},tradeId,revision});
 /** A side's title, as the editor and the position panel name it: which side, and whether it is paid or received. A coefficient of another sign is shown as it is. */
 export const sideTitle=(side:{slot:number;kind:string;coefficient:string},floatingPair:boolean)=>
- `${side.kind==='fixed'?'Fixed':floatingPair?(side.slot===0?'First floating':'Second floating'):'Floating'} side · ${side.coefficient==='-1'?'Pay':side.coefficient==='1'?'Receive':`coefficient ${side.coefficient}`}`;
+ `${side.kind==='fixed'?'Fixed':floatingPair?(side.slot===0?'First floating':'Second floating'):'Floating'} side · ${sideDirection(side.coefficient)}`;
 const swapTypeLabels:Readonly<Record<string,string>>={financial_fixed_floating:'Fixed for floating',financial_floating_floating:'Floating for floating'};
 const discountingLabels:Readonly<Record<Discounting,string>>={[Discounting.CurrencyDefault]:'Currency default curve',[Discounting.None]:'Explicitly undiscounted'};
 /**
@@ -88,7 +88,6 @@ function sidesOf(detail:Detail):{slot:number;kind:string;coefficient:string}[]{
  if(!sides)throw Error('The swap read did not state its sides.');
  return sides;
 }
-const direction=(coefficient:string)=>coefficient==='-1'?'Pay':coefficient==='1'?'Receive':`coefficient ${coefficient}`;
 /**
  * The terms of a scheduled swap revision (D214): its structure, with no single quantity, and each side with its quantity basis, unit
  * and every period's quantity and price or index. A term every period of a side shares is stated once, and one they do not share is
@@ -125,7 +124,7 @@ function scheduledTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSe
  return [tradeSection(detail,zone),
   {title:'Structure',rows:[['Type',`Scheduled ${fixedFirst?'fixed':'floating'} for floating`],['Commodity',catalog.commodities.find(c=>c.code===t.commodity)?.name??friendly(t.commodity)],['Quantity',byPeriod],
    ['Price application',priceApplications[scheduled.first.priceApplication]??friendly(scheduled.first.priceApplication)],['Discounting',discountingLabels[t.discounting?Discounting.CurrencyDefault:Discounting.None]]]},
-  section(scheduled.first,`First side · ${direction(firstSide.coefficient)}`),section(scheduled.second,`Second side · ${direction(secondSide.coefficient)}`)];
+  section(scheduled.first,`First side · ${sideDirection(firstSide.coefficient)}`),section(scheduled.second,`Second side · ${sideDirection(secondSide.coefficient)}`)];
 }
 // What a settlement lifecycle states of a swap valued by it (D215), each measure in the swap's currency.
 function lifecycleSection(detail:Detail,formats:HoldingFormats):TermSection{

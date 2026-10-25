@@ -563,24 +563,34 @@ lifecycle's measures. Each side's kind and direction are the read's: its valuati
 revision valued by its lifecycle, which has no pure valuation, the `memberships` the read states
 (D207); the page works none out. Amend of a scheduled swap opens its ticket
 (`scheduled-swap-editor.ts`) in the form part, as any amendment opens, and the swap ticket's
-Multi-month contracts and scheduled quantities opens it for a new swap; generating period rows over
-entered ones asks in the panel first, before the page is busy. A swap's Terms, and either ticket,
-offer Settlement and P&L (`swap-settlement.ts`), which takes the form part in place of the terms,
-with the head's Close editor, after the panel has asked about a ticket's edits. A cash record being
-entered, and a correction's due instant, are edits the panel asks about; a determination the backend
-refuses keeps its calculation and due instant, with the reason. A settlement command that goes
-through clears risk results run before it, with a note, and reads the Blotter again as a live
-correction does, so that the panel and the view stay, and the view reads its state again. One whose
-outcome is not known is kept in the panel's card, named for what it was, across a reload too; Check
-status settles it, and Retry, which needs AmendTrade as an amendment's does, sends it again, each
-with the view left open. `--valuation-status-check` books a scheduled swap after its other checks
-and qualifies it valued at Dec 18 and unvalued at Dec 31, with its booked facts, its totals and its
-risk exclusion. `--scheduled-swap-check` compares each swap's row before and after its first
-determination (P41), and adds a close after the January determinations that pins no February future,
-at which a swap whose lifecycle is under way is unvalued with `missing_observation` and keeps its
-facts, its book total leaves it out, and a risk run, the same run queued and the risk catalog list
-it; its browser checks drive the scheduled ticket, its review, the settlement view and its retained
-commands in the panel.
+Multi-month contracts and scheduled quantities opens it for a new swap, after the panel has asked
+about the swap ticket's edits; generating period rows over entered ones asks in the panel first,
+before the page is busy. A swap's Terms, and either ticket, offer Settlement and P&L
+(`swap-settlement.ts`), which takes the form part in place of the terms, with the head's Close
+editor, after the panel has asked about a ticket's edits. A cash record being entered, and a
+correction's due instant, are edits the panel asks about, and an action of the view that would
+replace a typed due instant (another payment's calculation, a refresh, a cash record) asks first; a
+determination the backend refuses for good keeps its calculation and due instant, with the reason,
+and after any other failure of a settlement command, which may follow one that went through, as when
+the Blotter cannot be read after it, the view is read again. A settlement command that goes through
+clears risk results run before it, with a note, and reads the Blotter again as a live correction
+does, so that the panel and the view stay, and the view reads its state again. One whose outcome is
+not known is kept in the panel's card, named for what it was, across a reload too; Check status
+settles it, and Retry, which needs AmendTrade as an amendment's does, sends it again, each with the
+view left open. A retained swap booking, amendment or settlement command whose retry the backend
+refuses for good is released with the backend's reason, as a first send's refusal is: their backend
+answers a retry with the original's outcome before it refuses one, so the refusal means nothing was
+written. A refusal of the caller (access, request token, a historical view) says nothing of a
+retried original and keeps it, as does any refused retry of a futures booking or amendment, which
+the backend admits before it looks up the earlier outcome. `--valuation-status-check` books a
+scheduled swap after its other checks and qualifies it valued at Dec 18 and unvalued at Dec 31, with
+its booked facts, its totals and its risk exclusion. `--scheduled-swap-check` compares each swap's
+row before and after its first determination (P41), checks the memberships a lifecycle read states
+for a pay-fixed and a receive-fixed swap, and adds a close after the January determinations that
+pins no February future, at which a swap whose lifecycle is under way is unvalued with
+`missing_observation` and keeps its facts, its book total and the desk's money totals (D220) leave
+it out, and a risk run, the same run queued and the risk catalog list it; its browser checks drive
+the scheduled ticket, its review, the settlement view and its retained commands in the panel.
 
 The desk's money totals come from a second pivot convention (D220). `trading_blotter_totals_v1`
 also partitions by quantity specification (D98), so a currency's swap present value across MWh and
