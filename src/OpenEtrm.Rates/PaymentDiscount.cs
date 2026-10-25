@@ -44,7 +44,7 @@ public sealed record PaymentDiscount
     // every payment uses the same exact immutable snapshot and mapping.
     internal sealed class Resolver(bool discounting, MarketSnapshot snapshot, CurrencyDiscountCurve? currencyDefault)
     {
-        private ZeroRateLookup? rates;
+        private RatesCurve? rates;
         private readonly Dictionary<DateOnly, PaymentDiscount> resolved = [];
 
         internal PaymentDiscount Resolve(ReferenceKey currency, DateOnly paymentDate)
@@ -76,25 +76,10 @@ public sealed record PaymentDiscount
             if (resolved.TryGetValue(paymentDate, out var cached)) return cached;
             if (rates is null)
             {
-                rates = new(new ZeroRateCurve(mapping.Definition).Build(snapshot));
+                rates = new(mapping.Definition,snapshot,mapping.InterpolationPolicy);
             }
-            var index = rates.FindPillar(paymentDate);
-            PaymentDiscount value;
-            if (index >= 0)
-            {
-                var exact = rates.Build.Values[index];
-                value = new(true, ExactDecimal.Parse(exact.DiscountFactor), currency, mapping, paymentDate, snapshot, [exact]);
-            }
-            else
-            {
-                var rightIndex = ~index;
-                if (rightIndex == 0 || rightIndex == rates.Build.Values.Length)
-                    throw new MarketDataException("discount_coverage", "Payment must be at a stored pillar or bracketed by two pillars; extrapolation is unsupported.");
-                var left = rates.Build.Values[rightIndex - 1]; var right = rates.Build.Values[rightIndex];
-                var factor = DiscountInterpolation.Factor(left.Maturity, ExactDecimal.Parse(left.DiscountFactor),
-                    right.Maturity, ExactDecimal.Parse(right.DiscountFactor), paymentDate, mapping.InterpolationPolicy);
-                value = new(true, factor, currency, mapping, paymentDate, snapshot, [left, right]);
-            }
+            var factor=rates.Evaluate(paymentDate);
+            var value=new PaymentDiscount(true,factor.Value,currency,mapping,paymentDate,snapshot,factor.Pillars);
             resolved.Add(paymentDate, value);
             return value;
         }

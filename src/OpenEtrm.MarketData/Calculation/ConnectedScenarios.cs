@@ -159,7 +159,7 @@ public sealed class ConnectedScenario
                     for(var i=start;i<curve.Ordered.Length&&curve.Ordered[i].DeliveryFrom<bucket.To;i++)
                     {
                         cancellation.ThrowIfCancellationRequested();var point=curve.Ordered[i];
-                        if(point.DeliveryTo<=bucket.From)continue;
+                        if(point.PointDate is not null||point.DeliveryTo<=bucket.From)continue;
                         if(point.DeliveryFrom<bucket.From||point.DeliveryTo>bucket.To)
                             throw Error("scenario_bucket","A bucket boundary splits a retained curve point; select explicit points or a supported full delivery range.");
                         contained.Add(point);

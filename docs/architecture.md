@@ -6,6 +6,12 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D219 adds typed asset and rate curve evaluators and an explicit saved lookup
+operator in the existing custom-curve graph. Exact prices, interpolation and
+scenario dependencies share the connected evaluator; payment discounting uses
+`RatesCurve`. See [curve evaluation](curve-evaluation.md) for policies, consumers
+and bounded scope.
+
 The interval-data foundation (D212) shares exact UTC grids and masks between TOUs,
 schedules and compact value columns. Shaping and PPA quantity preparation retain
 exact arithmetic, revision lineage and explicit missing-data behavior. Hourly

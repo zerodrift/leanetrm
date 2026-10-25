@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 
+if(args is ["--curve-lookups"]){CurveLookupChecks.Run();return;}
 if(args is ["--trade-contracts"]){TradeContractChecks.Run();return;}
 if(args is ["--observation-schedules"]){ObservationScheduleChecks.Run();return;}
 if(args is ["--ppa-normalization-reuse"]){PpaNormalizationReuseChecks.Run();return;}
@@ -461,6 +462,7 @@ passed += RiskPropagationChecks.Run();
 passed += BookValuationChecks.Run();
 passed += InstrumentRiskChecks.Run();
 passed += TradeContractChecks.Run();
+passed += CurveLookupChecks.Run();
 CurveEngineCutoverChecks.Run();
 ConnectedCurveChecks.Run();
 passed += ConnectedScenarioChecks.Run();

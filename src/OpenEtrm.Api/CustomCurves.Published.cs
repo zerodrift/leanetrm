@@ -17,10 +17,34 @@ public static partial class CustomCurves
     {
         readonly Dictionary<(Guid,int),ConnectedRecipeGraph> completed=[];
         readonly HashSet<(Guid,int)> active=[];
+        readonly Dictionary<(Guid,int),RecipeTopology> topologies=[];
+        readonly HashSet<(Guid,int)> planning=[];
         readonly List<ConnectedRecipeSample> samples=[];
         public ImmutableArray<ConnectedRecipeSample> Samples=>RetainSamples(samples);
         public int SourceCompilations{get;private set;}
         public int DeclaredSourceNodes{get;private set;}
+
+        public async Task<RecipeTopology> Topology(PublishedRecipeReference reference,CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();var key=(reference.CurveId,reference.Version);
+            if(topologies.TryGetValue(key,out var prior))return prior;
+            if(reference.CatalogId!=data.DefinitionRevision.CatalogId||planning.Count>32||topologies.Count+planning.Count>=256||!planning.Add(key))
+                throw Invalid("Published topology requires an acyclic exact graph within the preparation bounds.");
+            try
+            {
+                var version=versions.SingleOrDefault(v=>v.Id==reference.CurveId&&v.Version==reference.Version);
+                if(version is null||version.State!="published"||version.Definition.Output!=reference.OutputNode||version.PublishedAt is null||version.PublishedAt>resolved.KnownAt)
+                    throw Invalid("The exact published topology is unavailable in this context.");
+                await new CustomCurvesStore(database).RequirePublishedSource(connection,reference,data.DefinitionRevision.RevisionId,ct);
+                var parents=new Dictionary<string,RecipeTopology>();
+                foreach(var node in version.Definition.Nodes.Where(n=>n.Kind=="published_source"))parents.Add(node.Id,await Topology(node.PublishedSource!,ct));
+                var metadata=await Inputs(connection,database,version.Definition,data,frame,version.Sources,version.Calendars,version.Schedules,context,ct,topologyOnly:true);
+                var instants=metadata.Values.Dates.Values.SelectMany(d=>d).Append(metadata.Values.ContextDate).Distinct()
+                    .ToImmutableDictionary(d=>d,d=>new DateTimeOffset(d.ToDateTime(TimeOnly.FromDateTime(frame.At.UtcDateTime),DateTimeKind.Utc)));
+                var result=RecipeEngine.Topology(version.Definition,metadata.Values,parents,instants,ct);topologies.Add(key,result);return result;
+            }
+            finally{planning.Remove(key);}
+        }
 
         public async Task<ConnectedRecipeGraph> Published(PublishedRecipeReference reference,CancellationToken ct)
         {
@@ -56,7 +80,8 @@ public static partial class CustomCurves
             var published=ImmutableDictionary.CreateBuilder<string,ConnectedRecipeGraph>();
             foreach(var node in definition.Nodes.Where(n=>n.Kind=="published_source"))
                 published.Add(node.Id,await Published(node.PublishedSource!,ct));
-            var materialized=await Inputs(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,deliveries);
+            var topology=deliveries is null?null:await Topology(new(identity.CatalogId,identity.CurveId,identity.Version,definition.Output),ct);
+            var materialized=await Inputs(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,deliveries,topology);
             var graph=RecipeEngine.Connect(definition,materialized.Values,identity,materialized.Samples,resolved,ct,materialized.References,published,materialized.Demand);
             samples.AddRange(materialized.Samples);
             SourceCompilations+=graph.SourceCompilations;DeclaredSourceNodes+=graph.DeclaredSourceNodes;

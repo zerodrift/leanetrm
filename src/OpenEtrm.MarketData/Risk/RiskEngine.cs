@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.MarketData.Risk;
 
@@ -20,6 +21,8 @@ public sealed class PricingInputs
     internal PricingInputs(PreparedValuationMarket market,UnitPricingContract contract,CancellationToken cancellation)
     {SnapshotId=market.Snapshot.Id;ValuationAt=market.Snapshot.ValuationAt;MarketCutoff=market.Snapshot.MarketCutoff;ScenarioId=market.ScenarioId;
         this.market=market;this.cancellation=cancellation;permitted=contract.Dependencies.ToImmutableHashSet();}
+    public ExactUnitPrice ExactPrice(CurveRequest request)=>permitted.Contains(request)?market.Price(request,cancellation):
+        throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
     public UnitPrice Price(CurveRequest request)=>permitted.Contains(request)?market.WorkingPrice(request,cancellation):
         throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
 }

@@ -639,3 +639,25 @@ direction. Complete equivalent definitions can be interned; shared sides can
 reuse valuation only under the same scenario, dependency fence and resolved
 discount provider. New persisted forward booking and futures settlement PV remain
 outside this increment. See [implementation contracts](instrument-contracts.md).
+
+
+## D219 — Typed curve evaluation and explicit saved lookup policies
+
+Implement `CurveBase<TRequest,TValue>` with asset-price and discount-factor
+families. Keep exact contract identity, delivery containment and point dates
+separate. Select lookup method, date axis, span, boundaries and implementation
+explicitly. Linear price interpolation uses exact integer day weights in the
+existing connected graph so scenario risk follows the actual endpoints.
+
+Extend custom recipes with a typed panel/date `lookup` operator and explicit
+daily delivery output semantics. Persist its policies on the exact recipe
+version; retain native and published parent graph dependencies. Existing daily
+custom-projection bindings provide the booking and risk consumer. Do not create
+market contracts for date queries. Existing saved graph canonical evidence is
+preserved when no new behavior is declared.
+
+Delegate payment discounting to `RatesCurve` using the existing rate construction
+and log-discount policies. Keep interpolation selection on the existing currency
+mapping until a separate persisted-contract migration is supported. Broader rate
+construction and rate scenario coordinates remain unimplemented. See
+[curve evaluation](curve-evaluation.md) for executable coverage and limits.

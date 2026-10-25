@@ -44,7 +44,8 @@ common ancestors within the operation.
 This operation imports the parent's output under that context. It does not
 resample it at a separately supplied date window. Contract selectors and weighted
 contract mappings consume native curves. The `weighted_panels` contract below
-combines computed panels; resampling and interpolation remain work.
+combines computed panels. The `lookup` operator evaluates explicit target dates
+with shared asset lookup policies; see [curve evaluation](curve-evaluation.md).
 
 **Combine published curves** is a guided entry point (D193). Choose each exact
 published ingredient/version, its decimal weight, signed sum or normalized mean,

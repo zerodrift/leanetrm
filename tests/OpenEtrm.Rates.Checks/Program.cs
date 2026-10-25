@@ -6,6 +6,7 @@ using OpenEtrm.MarketData;
 if(args is ["--monthly-swap-benchmark"]){MonthlySwapRateChecks.Benchmark();return;}
 
 var passed=0;
+passed+=RatesCurveChecks.Run();
 void Check(string label,Action test){test();Console.WriteLine("PASS "+label);passed++;}
 void Reject(string code,Action test){try{test();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected "+code);}
 var revision=new DefinitionRevision(Guid.NewGuid(),Guid.NewGuid());var reference=new ReferenceRevision(Guid.NewGuid(),Guid.NewGuid());

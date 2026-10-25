@@ -24,7 +24,7 @@ public sealed record RecipeSample(DateOnly Date,DateTimeOffset At,ContractKey Co
 public sealed record RecipeSource(CurveKey Key,PriceUnit Unit,ImmutableArray<RecipeContract> Contracts);
 public sealed record RecipeInputs(DateOnly ContextDate,DateTimeOffset ValuationAt,
     ImmutableDictionary<string,RecipeSource> Sources,ImmutableDictionary<string,ImmutableArray<DateOnly>> Dates);
-// Explicit demand from a daily consumer. Sampling instants are supplied even
+// Explicit output intervals from a consumer or a downstream recipe. Sampling instants are supplied even
 // for unconsumed cells; missing price samples never acquire substitute values.
 public sealed record RecipeDelivery(DateOnly From,DateOnly To);
 public sealed record RecipeOutputDemand(ImmutableHashSet<RecipeDelivery> Deliveries,

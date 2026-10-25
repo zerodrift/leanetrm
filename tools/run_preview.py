@@ -468,6 +468,8 @@ def main():
                 check_curve_activation(url,manifest,query)
                 from check_daily_custom_projection import run_checks as check_daily_custom_projection
                 check_daily_custom_projection(url,manifest,query,run_worker)
+                from check_curve_lookup import run_checks as check_curve_lookup
+                check_curve_lookup(url,manifest,query,run_worker)
             elif args.risk_jobs_check:
                 from preview_client import PreviewClient
                 from check_risk_preview import run_checks as check_risk
