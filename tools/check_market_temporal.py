@@ -69,6 +69,11 @@ def run_checks(Client, check, after_browser):
     def history_versions():
         # Registers durable closes at the seed's instant, which later browser suites would show as extra samples; run after them (run_preview.py).
         # Current-context history: closes of the seed frame and of the corrected frame add samples at the seed's instant.
+        # The deferred run opens its own session: the first one may have expired during the browser phase.
+        c = Client(); c.bootstrap(); c.call('profile', {'profile': 'editor'})
+        fresh = c.call('workspace')
+        seed_frame = next(f for f in fresh['frames'] if f['id'] in fresh['initialFrameIds'] and f['at'] == seed['at'] and not f.get('ppaBundle'))
+        corrected_frame = c.call('select-observation', {'snapshotId': seed_frame['id'], 'observationId': changed['observationId']})['frame']
         c.call('profile', {'profile': 'approver'}); c.call('market/current', {})
         current_frames = c.call('workspace')['frames']
         pinned = next(f for f in current_frames if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
@@ -78,14 +83,14 @@ def run_checks(Client, check, after_browser):
             distinct = list(dict.fromkeys((p['at'], p['value']) for p in samples))
             return [(at, None if i == 0 or value is None or distinct[i-1][1] is None else (Decimal(value) + Decimal(distinct[i-1][1])) / 2)
                     for i, (at, value) in enumerate(distinct)]
-        c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': seed['id'], 'name': 'Synthetic duplicate sample'})
+        c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': seed_frame['id'], 'name': 'Synthetic duplicate sample'})
         duplicated = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
         instants = [p['at'] for p in duplicated['points']]
         series = duplicated['overlays'][0]['series']['value']
         check('identical samples at one instant count once: points are unchanged and the overlay is aligned by instant',
               len(instants) == len(set(instants)) + 1 and duplicated['points'] == c.call('history', query)['points']
               and [(v['at'], None if v['value'] is None else Decimal(v['value'])) for v in series] == expected_means(duplicated['points']))
-        c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': changed['frame']['id'], 'name': 'Synthetic differing sample'})
+        c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': corrected_frame['id'], 'name': 'Synthetic differing sample'})
         conflict = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]}, expected=422)
         check('different samples at one instant refuse overlays by naming the instant, never choosing a frame',
               conflict['code'] == 'overlay_input' and '2020-12-17' in conflict['message'] and len(c.call('history', query)['points']) > 2)
