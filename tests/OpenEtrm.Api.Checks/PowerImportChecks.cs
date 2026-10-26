@@ -82,6 +82,51 @@ static class PowerImportChecks
         using var malformedHttp=new HttpClient(new PayloadHandler("{\"error\":\"synthetic malformed report\"}"));
         Reject(()=>new PowerPriceClient(malformedHttp,()=>Task.CompletedTask,provider,50,100000).Fetch("da_hrl_lmps","DA","51288",60,new(2026,11,2),new(2026,11,2),utc,unit,CancellationToken.None).GetAwaiter().GetResult());
         Console.WriteLine("PASS power imports: exact typed PJM LMP/ERCOT SPP, source identity, native resolution and independent DST expectations");
+        DeliveryDesk(unit);
+    }
+    static void DeliveryDesk(PriceUnit unit)
+    {
+        Guid Id(int n)=>Guid.Parse($"00000000-0000-0000-0000-{n:D12}");
+        Require(PowerHistory.Opening([])is null,"no delivery sources open on no selection");
+        Require(PowerHistory.Opening([new(Id(1),"Synthetic without prices",[])])is null,"a source without available days is not an opening");
+        // The newest day wins; equal newest days fall to the ordinal name, then the identity.
+        var opening=PowerHistory.Opening([
+            new(Id(9),"Synthetic older",[new(2026,11,1),new(2026,10,30)]),
+            new(Id(2),"Synthetic b",[new(2026,11,2),new(2026,10,31)]),
+            new(Id(4),"Synthetic B",[new(2026,10,31),new(2026,11,2)]),
+            new(Id(3),"Synthetic B",[new(2026,11,2)]),
+            new(Id(1),"Synthetic Z",[new(2026,11,2)])]);
+        Require(opening==new DeliveryOpening(Id(3),new(2026,11,2),new(2026,11,2),"newest_available_delivery_day_v1"),"delivery opening is the newest day, ties by ordinal source name then identity");
+
+        var tz=TimeZoneDatabase.Installed();
+        var eastern=PowerClock.FromRule(new("eastern","iana",null,"America/New_York",tz.Version()),tz);
+        var central=PowerClock.FromRule(new("central","iana",null,"America/Chicago",tz.Version()),tz);
+        var published=DateTimeOffset.Parse("2026-11-03T12:00:00Z");
+        IntervalActual Row(PowerInterval interval,string price,int minutesLater=0)=>new(interval.Start,interval.End,new(ExactDecimal.Parse(price),unit),published.AddMinutes(minutesLater),Guid.Empty,1);
+
+        // 2026-11-01 in Chicago repeats an hour: 25 hours of quarter-hours, the last four priced 10.
+        var fallDay=PowerImportProtocol.Window(new(2026,11,1),new(2026,11,1),central,15);
+        var fall=PowerHistory.Summarize(fallDay,[..fallDay.Select((interval,i)=>Row(interval,i>=96?"10":"1"))]);
+        Require(fall.Intervals==100&&fall.ExpectedIntervals==100&&fall.MissingIntervals==0,"a fall-back day of quarter-hours expects 100 intervals from its operating-day bounds");
+        Require(fall.Average=="1.36"&&fall.Policy=="exact_rational_half_even_18_v1","fall-back average weights every published quarter-hour by its duration");
+
+        // 2026-11-02 in New York, hour 5 unpublished. Hand total 286.5 over 23 published hours.
+        var day=PowerImportProtocol.Window(new(2026,11,2),new(2026,11,2),eastern,60);
+        string?[] prices=["-2.5","4","7.25","-2.50","0",null,..Enumerable.Range(6,14).Select(h=>h.ToString(System.Globalization.CultureInfo.InvariantCulture)),"31.125","21","22","31.125"];
+        var rows=day.Zip(prices).Where(p=>p.Second is not null).Select((p,i)=>Row(p.First,p.Second!,i)).ToArray();
+        var summary=PowerHistory.Summarize(day,rows);
+        Require(summary.Intervals==23&&summary.ExpectedIntervals==24&&summary.MissingIntervals==1,"one unpublished hour is one missing interval");
+        Require(summary.Average=="12.456521739130434783","average is over published intervals only, rounded half to even at 18 places");
+        Require(summary.Low==new DeliveryPriceExtreme("-2.5",day[0].Start)&&summary.High==new DeliveryPriceExtreme("31.125",day[20].Start),"low and high report the earliest instant among equal prices");
+        Require(summary.LatestKnownAt==published.AddMinutes(22),"summary states the latest knowledge instant it used");
+        var empty=PowerHistory.Summarize(day,[]);
+        Require(empty is {Intervals:0,ExpectedIntervals:24,MissingIntervals:24,Low:null,High:null,Average:null,LatestKnownAt:null},"an unpublished period has no statistics");
+
+        // Overlays see the unpublished hour as a missing point: windows that touch it have no value.
+        var overlay=OpenEtrm.Shared.Analytics.Overlays.Compute(PowerHistory.OverlayPoints(day,rows),[new("simple_moving_average_v1",new Dictionary<string,int>{["window"]=2})]).Single();
+        var values=string.Join(",",overlay.Series["value"].Take(8).Select(v=>v.Value??"null"));
+        Require(values=="null,0.75,5.625,2.375,-1.25,null,null,6.5",$"period overlays equal the hand-computed moving average: {values}");
+        Console.WriteLine("PASS delivery desk: newest-day opening with ties, DST-aware expected intervals, missing intervals, exact time-weighted average, earliest extremes and period overlays");
     }
     public static async Task<int> MalformedCollection()
     {

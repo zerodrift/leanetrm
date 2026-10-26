@@ -458,6 +458,9 @@ def main():
                 from seed_schedule_examples import seed_schedule_examples
                 seed_schedule_examples(url,run_id,temporary)
                 print('Published the synthetic monthly gas date schedule; daily power contract dates are backend-loadable session candidates.',flush=True)
+                from delivery_price_seed import seed as seed_delivery_prices
+                seed_delivery_prices(query,manifest)
+                print('Collected seven synthetic days of hourly and quarter-hour delivery prices, including the 2026-11-01 fall-back day.',flush=True)
         if args.with_exchange and not args.check:
             from seed_exchange_positions import seed_positions as seed_exchange
             seed_exchange(url,run_id,temporary)

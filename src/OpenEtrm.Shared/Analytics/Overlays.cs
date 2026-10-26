@@ -1,7 +1,4 @@
 using System.Collections.Immutable;
-using System.Globalization;
-using System.Numerics;
-using System.Text.RegularExpressions;
 using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.Shared.Analytics;
@@ -22,12 +19,12 @@ public sealed class OverlayException(string code, string message) : Exception(me
 
 // Chart overlays over an ordered series of exact decimals. Arithmetic is exact and
 // signed; each reported value is rounded once, half to even, at 18 decimal places.
-public static partial class Overlays
+public static class Overlays
 {
-    public const string Policy = "exact_rational_half_even_18_v1";
+    public const string Policy = HalfEven18.Policy;
     private const string Simple = "simple_moving_average_v1", Exponential = "exponential_moving_average_v1", Range = "rolling_range_v1";
     private const string Incomplete = "window_incomplete";
-    private const int MaxRequests = 4, MaxPoints = 35_136, Scale = 18;
+    private const int MaxRequests = 4, MaxPoints = 35_136;
 
     private static ImmutableArray<OverlayParameter> WindowParameter { get; } = [new("window", "Window", 2, 250)];
 
@@ -62,29 +59,36 @@ public static partial class Overlays
         return window;
     }
 
-    private static Ratio?[] Parse(ImmutableArray<OverlayPoint> series)
+    private static SignedRatio?[] Parse(ImmutableArray<OverlayPoint> series)
     {
         if (series.Length > MaxPoints)
             throw new OverlayException("overlay_input", $"At most {MaxPoints} points can be overlaid.");
         for (var i = 1; i < series.Length; i++)
             if (series[i].At <= series[i - 1].At)
                 throw new OverlayException("overlay_input", "Series instants must be strictly increasing.");
-        return [.. series.Select(p => p.Value is null ? (Ratio?)null : Ratio.Parse(p.Value))];
+        return [.. series.Select(p => p.Value is null ? (SignedRatio?)null : Value(p.Value))];
+    }
+
+    private static SignedRatio Value(string text)
+    {
+        if (!SignedRatio.TryParse(text, out var value))
+            throw new OverlayException("overlay_input", $"'{text}' is not a plain decimal number.");
+        return value;
     }
 
     private static IReadOnlyDictionary<string, ImmutableArray<OverlayValue>> Evaluate(
-        string code, int window, ImmutableArray<OverlayPoint> series, Ratio?[] values)
+        string code, int window, ImmutableArray<OverlayPoint> series, SignedRatio?[] values)
     {
-        ImmutableArray<OverlayValue> Build(Func<int, Ratio?> at) =>
-            [.. series.Select((p, i) => at(i) is { } v ? new OverlayValue(p.At, v.Format(), null) : new OverlayValue(p.At, null, Incomplete))];
+        ImmutableArray<OverlayValue> Build(Func<int, SignedRatio?> at) =>
+            [.. series.Select((p, i) => at(i) is { } v ? new OverlayValue(p.At, HalfEven18.Report(v), null) : new OverlayValue(p.At, null, Incomplete))];
         // The window ending at i, or empty when it is short or touches a missing point.
-        Ratio[] Window(int i) => i >= window - 1 && values.Skip(i - window + 1).Take(window).All(v => v is not null)
+        SignedRatio[] Window(int i) => i >= window - 1 && values.Skip(i - window + 1).Take(window).All(v => v is not null)
             ? [.. values.Skip(i - window + 1).Take(window).Select(v => v!.Value)] : [];
 
         switch (code)
         {
             case Simple:
-                return Single(Build(i => Window(i) is { Length: > 0 } w ? Ratio.Sum(w) / window : null));
+                return Single(Build(i => Window(i) is { Length: > 0 } w ? SignedRatio.Sum(w) / window : null));
             case Range:
                 return new Dictionary<string, ImmutableArray<OverlayValue>>
                 {
@@ -92,59 +96,18 @@ public static partial class Overlays
                     ["low"] = Build(i => Window(i) is { Length: > 0 } w ? w.Min() : null),
                 };
             default:
-                var ema = new Ratio?[values.Length];
-                var alpha = new Ratio(2, window + 1);
-                var retained = new Ratio(window - 1, window + 1);
+                var ema = new SignedRatio?[values.Length];
+                var alpha = new SignedRatio(2, window + 1);
+                var retained = new SignedRatio(window - 1, window + 1);
                 for (var i = 0; i < values.Length; i++)
                 {
                     if (values[i] is not { } x) continue;
-                    if (i > 0 && ema[i - 1] is { } previous) ema[i] = (alpha * x + retained * previous).Rounded();
-                    else if (Window(i) is { Length: > 0 } w) ema[i] = (Ratio.Sum(w) / window).Rounded();
+                    if (i > 0 && ema[i - 1] is { } previous) ema[i] = HalfEven18.Round(alpha * x + retained * previous);
+                    else if (Window(i) is { Length: > 0 } w) ema[i] = HalfEven18.Round(SignedRatio.Sum(w) / window);
                 }
                 return Single(Build(i => ema[i]));
         }
     }
 
     private static Dictionary<string, ImmutableArray<OverlayValue>> Single(ImmutableArray<OverlayValue> value) => new() { ["value"] = value };
-
-    // Signed reduced ratio with a positive denominator; ExactRatio is positive-only.
-    private readonly partial record struct Ratio : IComparable<Ratio>
-    {
-        private readonly BigInteger numerator, denominator;
-
-        public Ratio(BigInteger numerator, BigInteger denominator)
-        {
-            var gcd = BigInteger.GreatestCommonDivisor(numerator, denominator);
-            (this.numerator, this.denominator) = (numerator / gcd, denominator / gcd);
-        }
-
-        public static Ratio Parse(string text)
-        {
-            if (!Decimal().IsMatch(text))
-                throw new OverlayException("overlay_input", $"'{text}' is not a plain decimal number.");
-            var places = text.Contains('.') ? text.Length - text.IndexOf('.') - 1 : 0;
-            return new(BigInteger.Parse(text.Replace(".", ""), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture), BigInteger.Pow(10, places));
-        }
-
-        public static Ratio Sum(IEnumerable<Ratio> terms) => terms.Aggregate(new Ratio(0, 1), (sum, term) => sum + term);
-        public static Ratio operator +(Ratio a, Ratio b) => new(a.numerator * b.denominator + b.numerator * a.denominator, a.denominator * b.denominator);
-        public static Ratio operator *(Ratio a, Ratio b) => new(a.numerator * b.numerator, a.denominator * b.denominator);
-        public static Ratio operator /(Ratio a, int divisor) => new(a.numerator, a.denominator * divisor);
-        public int CompareTo(Ratio other) => (numerator * other.denominator).CompareTo(other.numerator * denominator);
-
-        // The value as reported: rounded once at the policy scale.
-        public Ratio Rounded() => Parse(Format());
-
-        public string Format()
-        {
-            var scaled = IntegerRounding.RoundQuotient(numerator * BigInteger.Pow(10, Scale), denominator, MidpointRounding.ToEven);
-            var digits = BigInteger.Abs(scaled).ToString().PadLeft(Scale + 1, '0');
-            var whole = digits[..^Scale];
-            var fraction = digits[^Scale..].TrimEnd('0');
-            return (scaled.Sign < 0 ? "-" : "") + (fraction.Length == 0 ? whole : $"{whole}.{fraction}");
-        }
-
-        [GeneratedRegex(@"^-?[0-9]+(\.[0-9]+)?\z")]
-        private static partial Regex Decimal();
-    }
 }
