@@ -644,10 +644,10 @@ def main():
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--scheduled-swaps'],cwd=ROOT,env=env,start_new_session=True)
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--scheduled-swaps'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
                     # Four owned browser suites: authoring, schedules, settlement and netting.
-                    # Keep an overall bound in addition to each action's readiness deadline.
-                    if browser_process.wait(timeout=600):raise RuntimeError('Owned scheduled-swap browser checks failed')
+                    # Every action here re-reads scheduled swaps, so each may wait up to thirty seconds; keep an overall bound too.
+                    if browser_process.wait(timeout=900):raise RuntimeError('Owned scheduled-swap browser checks failed')
             elif args.draft_check:
                 from check_draft_pricing import run_checks as check_draft
                 check_draft(url,query,manifest)
