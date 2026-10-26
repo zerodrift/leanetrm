@@ -8,6 +8,8 @@ namespace OpenEtrm.MarketData;
 // Reference leaves arrive resolved through the database's exact-version FKs.
 public sealed partial class CurveModel
 {
+    internal Curve AssetDefinition(CurveKey key)=>curves.TryGetValue(key,out var curve)?curve:
+        throw new MarketDataException("missing_curve","The exact curve is absent from the resolved model.");
     public const string NumericalPolicy = "exact_18_fractional_abs_lt_1e24_v1";
     private static readonly DateTimeOffset End = new(9999, 12, 31, 0, 0, 0, TimeSpan.Zero);
     private static readonly DateOnly EndDate = new(9999, 12, 31);

@@ -99,12 +99,12 @@ public static partial class CustomCurves
         if(!System.Text.RegularExpressions.Regex.IsMatch(definition.Code,@"\A[a-z][a-z0-9_]{0,31}\z")||definition.Name.Length>80||definition.Nodes.Length>32||definition.Nodes.Any(n=>!System.Text.RegularExpressions.Regex.IsMatch(n.Id,@"\A[a-z][a-z0-9_]{0,31}\z")))throw Invalid("Use stable lowercase codes, at most 32 nodes and an 80-character name.");
         foreach(var node in definition.Nodes)
         {
-            var allowed=node.Kind switch{"source"=>new[]{"curve"},"published_source"=>new[]{"selection"},"select" when node.Parameters["mode"]=="positions"=>new[]{"mode","binding","first","count"},"select"=>new[]{"mode","binding"},"mean"=>new[]{"axis"},"weighted_contracts"=>new[]{"aggregation"},"weighted_panels"=>new[]{"aggregation","alignment"},"dates"=>node.Parameters.Keys.ToArray(),_=>Array.Empty<string>()};
+            var allowed=node.Kind switch{"source"=>new[]{"curve"},"published_source"=>new[]{"selection"},"select" when node.Parameters["mode"]=="positions"=>new[]{"mode","binding","first","count"},"select"=>new[]{"mode","binding"},"mean"=>new[]{"axis"},"weighted_contracts"=>new[]{"aggregation"},"weighted_panels"=>new[]{"aggregation","alignment"},"lookup"=>new[]{"axis","method","maxGapDays","leftBoundary","rightBoundary","implementation","output"},"dates"=>node.Parameters.Keys.ToArray(),_=>Array.Empty<string>()};
             if(node.Parameters.Keys.Any(key=>!allowed.Contains(key)))throw Invalid("A node contains unsupported settings for its selected operator.");
         }
         foreach(var node in definition.Nodes.Where(n=>n.Kind=="dates"))
         {
-            if(!node.Parameters.TryGetValue("mode",out var mode)||mode is not("context" or "prior_calendar" or "prior_business" or "balance_month" or "schedule"))throw Invalid("Choose an explicit date-sequence mode.");
+            if(!node.Parameters.TryGetValue("mode",out var mode)||mode is not("context" or "prior_calendar" or "prior_business" or "balance_month" or "schedule" or "delivery_range"))throw Invalid("Choose an explicit date-sequence mode.");
             if(node.Parameters.GetValueOrDefault("sampling")!="context_utc_time"||node.Parameters.GetValueOrDefault("corrections")!="exact_context_frame_history_latest_visible")throw Invalid("Choose the exact UTC sampling-time and visible-correction policy.");
             var allowed=new HashSet<string>(["mode","sampling","corrections"]);
             if(mode is "prior_calendar" or "prior_business")
@@ -113,6 +113,7 @@ public static partial class CustomCurves
                 if(!int.TryParse(node.Parameters.GetValueOrDefault("count"),NumberStyles.None,CultureInfo.InvariantCulture,out var count)||count is <1 or >366||node.Parameters.GetValueOrDefault("includeContext") is not("true" or "false"))throw Invalid("Choose one to 366 dates and explicitly include or exclude the context date.");
                 if(mode=="prior_business")allowed.Add("calendar");
             }
+            if(mode=="delivery_range"){allowed.UnionWith(["from","to"]);_=RecipeEngine.DeliveryDates(node);}
             if(mode=="schedule")allowed.UnionWith(["schedule","first","count"]);
             if(node.Parameters.Keys.Any(p=>!allowed.Contains(p)))throw Invalid("A date sequence contains unsupported or conflicting settings.");
             if(mode=="prior_business"&&!node.Parameters.ContainsKey("calendar"))throw Invalid("Business-day windows require an exact reference calendar.");
@@ -153,8 +154,15 @@ public static partial class CustomCurves
         return [Operator("source","Source curve","curve",[Field("curve","Curve","curve")]),
             Operator("published_source","Published custom curve","panel",[Field("publishedSource","Published version/output","published_source"),Field("selection","Output selection","select",[Option("all_output_points_v1","All points under the selected context")])]),
             Operator("select","Select contracts","selection",[Field("mode","Contract selection","select",[Option("positions","Relative positions"),Option("daily_delivery","Daily delivery periods")]),Field("first","First position","integer",when:When("positions")),Field("count","Number of positions","integer",when:When("positions")),Field("binding","Resolve contracts","select",[Option("each_sample","At each sampling instant"),Option("context","Once at context instant")])],Port("source","curve")),
-            Operator("dates","Date sequence","dates",[Field("mode","Date sequence","select",[Option("context","Context date"),Option("prior_calendar","Prior calendar dates"),Option("prior_business","Prior publication business dates"),Option("balance_month","Context date through month-end"),Option("schedule","Published date schedule")]),Field("count","Date count","integer",when:When("prior_calendar","prior_business","schedule")),Field("includeContext","Include context date","boolean",when:When("prior_calendar","prior_business")),Field("calendar","Calendar","calendar",when:When("prior_business")),Field("schedule","Published schedule","schedule",when:When("schedule")),Field("first","First schedule occurrence","integer",when:When("schedule")),Field("sampling","Sampling time","select",[Option("context_utc_time","Exact context UTC time on each sampling date")]),Field("corrections","Corrections","select",[Option("exact_context_frame_history_latest_visible","Exact selected context inputs; latest visible historical corrections")])]),
+            Operator("dates","Date sequence","dates",[Field("mode","Date sequence","select",[Option("context","Context date"),Option("prior_calendar","Prior calendar dates"),Option("prior_business","Prior publication business dates"),Option("balance_month","Context date through month-end"),Option("schedule","Published date schedule"),Option("delivery_range","Explicit daily delivery range")]),Field("from","Delivery from (YYYY-MM-DD)","text",when:When("delivery_range")),Field("to","Delivery to exclusive (YYYY-MM-DD)","text",when:When("delivery_range")),Field("count","Date count","integer",when:When("prior_calendar","prior_business","schedule")),Field("includeContext","Include context date","boolean",when:When("prior_calendar","prior_business")),Field("calendar","Calendar","calendar",when:When("prior_business")),Field("schedule","Published schedule","schedule",when:When("schedule")),Field("first","First schedule occurrence","integer",when:When("schedule")),Field("sampling","Sampling time","select",[Option("context_utc_time","Exact context UTC time on each sampling date")]),Field("corrections","Corrections","select",[Option("exact_context_frame_history_latest_visible","Exact selected context inputs; latest visible historical corrections")])]),
             Operator("sample","Sample prices","panel",[],Port("selection","selection"),Port("dates","dates")),
+            Operator("lookup","Curve lookup","panel",[
+                Field("axis","Point date axis","select",[Option("delivery_start","Delivery start"),Option("delivery_end","Delivery end")]),
+                Field("method","Lookup method","select",[Option("exact","Exact point date"),Option("containing_delivery","Containing delivery period"),Option("previous","Previous point"),Option("next","Next point"),Option("linear_price_actual_days_v1","Linear price · actual days")]),
+                Field("maxGapDays","Maximum bracket span (days)","integer"),
+                Field("leftBoundary","Before coverage","select",[Option("reject","Reject")]),Field("rightBoundary","After coverage","select",[Option("reject","Reject")]),
+                Field("implementation","Lookup implementation","select",[Option("asset_curve_lookup_v1","Asset lookup v1")]),
+                Field("output","Output semantics","select",[Option("daily_delivery_v1","Daily delivery prices")])],Port("values","panel"),Port("dates","dates")),
             Operator("mean","Arithmetic mean","panel",[Field("axis","Average over","select",[Option("dates","Historical dates · retain tenors"),Option("contracts","Delivery contracts · one index")])],Port("values","panel")),
             new{kind="weighted_contracts",label="Weighted contract mapping",outputType="selection",
                 fields=new[]{Field("aggregation","Aggregation","select",[Option(RecipeEngine.SignedSum,"Signed weighted sum"),Option(RecipeEngine.WeightedMean,"Normalized weighted mean")]),Field("contractWeights","Contract weights","contract_weights")},
@@ -210,7 +218,7 @@ public static partial class CustomCurves
     static async Task<RecipeMaterialization> Inputs(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
         PreviewData data,InputFrame frame,ImmutableDictionary<string,CurveSourceReference> sourceReferences,
         ImmutableDictionary<string,CalendarReference> calendarReferences,ImmutableDictionary<string,CurveScheduleReference> scheduleReferences,
-        ScheduleContext? context,CancellationToken ct,ImmutableHashSet<RecipeDelivery>? deliveries=null)
+        ScheduleContext? context,CancellationToken ct,ImmutableHashSet<RecipeDelivery>? deliveries=null,RecipeTopology? topology=null,bool topologyOnly=false)
     {
         if(sourceReferences.Values.Any(source=>source.CatalogId!=data.DefinitionRevision.CatalogId||source.RevisionId!=data.DefinitionRevision.RevisionId))
             throw Invalid("Every native source must use the selected exact market revision.");
@@ -228,6 +236,7 @@ public static partial class CustomCurves
             switch(mode)
             {
                 case "context":dates[node.Id]=[day];break;
+                case "delivery_range":dates[node.Id]=RecipeEngine.DeliveryDates(node);break;
                 case "balance_month":
                     var end=day.AddDays(DateTime.DaysInMonth(day.Year,day.Month)-day.Day);
                     dates[node.Id]=[..Enumerable.Range(0,end.DayNumber-day.DayNumber+1).Select(day.AddDays)];break;
@@ -286,6 +295,7 @@ public static partial class CustomCurves
         }
         var sources=ImmutableDictionary.CreateBuilder<string,RecipeSource>();
         var connected=ImmutableArray.CreateBuilder<ConnectedRecipeSample>();
+        var admitted=topology?.NativeInputs(deliveries);
         foreach(var sourceNode in definition.Nodes.Where(n=>n.Kind=="source"))
         {
             ct.ThrowIfCancellationRequested();
@@ -296,6 +306,8 @@ public static partial class CustomCurves
             var contracts=members.Select(contract=>new RecipeContract(contract,contract.Kind==ContractKind.Future
                 ?FuturesStore.Binding(data,reference.Code,contract.Key.Id,contract.Key.Id,data.FuturesConvention).EligibleFrom
                 :new DateTimeOffset(DateWorkspace.Date(data.Definitions["revision_periods"].Single().Text("effective_from")).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)))).ToImmutableArray();
+            sources.Add(sourceNode.Id,new(new(data.DefinitionRevision,reference.Code),PriceUnit.FromQuote(quote),contracts));
+            if(topologyOnly)continue;
             var selectors=definition.Nodes.Where(n=>n.Kind is "select" or "weighted_contracts"&&n.Inputs.Values.Contains(sourceNode.Id)).ToArray();
             var required=new Dictionary<DateOnly,HashSet<ContractKey>>();
             foreach(var selector in selectors)
@@ -312,7 +324,8 @@ public static partial class CustomCurves
                     var selected=weighted?selector.ContractWeights.Where(w=>selector.Inputs[w.SourcePort]==sourceNode.Id).Select(w=>
                         contracts.SingleOrDefault(k=>k.Contract.Key.Id==w.ContractId)??throw Invalid("A weighted contract must be a member of its exact source curve.")).Distinct().ToImmutableArray():
                         RecipeEngine.ResolveContracts(contracts,mode,first,count,resolutionAt,sampleDate,requireLive:deliveries is null);
-                    if(deliveries is not null)selected=selected.Where(k=>deliveries.Contains(new(k.Contract.DeliveryFrom,k.Contract.DeliveryTo))).ToImmutableArray();
+                    if(admitted is not null)selected=selected.Where(k=>admitted.Contains(new(new(data.DefinitionRevision,reference.Code),observationDate,k.Contract.Key))).ToImmutableArray();
+                    else if(deliveries is not null)selected=selected.Where(k=>deliveries.Contains(new(k.Contract.DeliveryFrom,k.Contract.DeliveryTo))).ToImmutableArray();
                     if(selected.Any(k=>k.EligibleFrom>resolutionAt||k.Contract.Expiry<=resolutionAt))throw Invalid("Every mapped contract must be live at its exact sampling instant.");
                     if(!required.TryGetValue(observationDate,out var selectedContracts))required.Add(observationDate,selectedContracts=[]);
                     selectedContracts.UnionWith(selected.Select(c=>c.Contract.Key));
@@ -329,7 +342,6 @@ public static partial class CustomCurves
                 foreach(var request in requests)
                     connected.Add(new(request.Curve,sampleDay,request.Contract,data.Model,snapshot,sampleDay!=day));
             }
-            sources.Add(sourceNode.Id,new(new(data.DefinitionRevision,reference.Code),PriceUnit.FromQuote(quote),contracts));
         }
         return new(new(day,frame.At,sources.ToImmutable(),dates.ToImmutable()),connected.ToImmutable(),new(calendarPins.ToImmutable(),schedulePins.ToImmutable()),
             deliveries is null?null:new(deliveries,frames.ToImmutableDictionary(f=>f.Key,f=>f.Value.At)));

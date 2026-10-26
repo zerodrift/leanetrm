@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.MarketData.Calculation;
+using OpenEtrm.MarketData.Curves;
 
 namespace OpenEtrm.MarketData.CustomCurves;
 
@@ -21,6 +22,7 @@ public static partial class RecipeEngine
         ["select"]=new Dictionary<string,string>{{"source","source"}}.ToImmutableDictionary(),
         ["dates"]=ImmutableDictionary<string,string>.Empty,
         ["sample"]=new Dictionary<string,string>{{"selection","selection"},{"dates","dates"}}.ToImmutableDictionary(),
+        ["lookup"]=new Dictionary<string,string>{{"values","panel"},{"dates","dates"}}.ToImmutableDictionary(),
         ["mean"]=new Dictionary<string,string>{{"values","panel"}}.ToImmutableDictionary(),
         ["output"]=new Dictionary<string,string>{{"values","panel"}}.ToImmutableDictionary()
     }.ToImmutableDictionary();
@@ -44,7 +46,7 @@ public static partial class RecipeEngine
             foreach(var (port,id) in node.Inputs)
             {
                 if(!nodes.TryGetValue(id,out var upstream))throw Invalid($"Node {node.Id} refers to a missing input.");
-                var type=upstream.Kind switch{"sample" or "mean" or "published_source" or "weighted_panels"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
+                var type=upstream.Kind switch{"sample" or "mean" or "published_source" or "weighted_panels" or "lookup"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
                 if(type!=ports[port])throw Invalid($"Port {port} on {node.Id} requires {ports[port]}.");
             }
             switch(node.Kind)
@@ -60,7 +62,8 @@ public static partial class RecipeEngine
                     if(Required(node,"binding") is not ("each_sample" or "context"))throw Invalid("Select a contract binding policy explicitly.");
                     if(node.Parameters["mode"]=="positions"){Number(node,"first",1,120);Number(node,"count",1,120);}
                     else if(node.Parameters["binding"]!="context")throw Invalid("Daily forwards use one context observation frame.");break;
-                case "dates":Required(node,"mode");break;
+                case "dates":if(Required(node,"mode")=="delivery_range")_=DeliveryDates(node);break;
+                case "lookup":_=LookupSettings(node);break;
                 case "mean":if(Required(node,"axis") is not ("dates" or "contracts"))throw Invalid("Choose the averaging axis explicitly.");break;
                 case "weighted_panels":
                     if(Required(node,"alignment")!=ExactDeliveryAlignment||Required(node,"aggregation") is not(SignedSum or WeightedMean)||
@@ -92,7 +95,8 @@ public static partial class RecipeEngine
             string[] parameters=node.Kind switch
             {
                 "source"=>["curve"],"select"=>node.Parameters["mode"]=="positions"?["mode","first","count","binding"]:["mode","binding"],
-                "dates"=>["mode","sampling","corrections","count","includeContext","calendar","schedule","first"],
+                "dates"=>["mode","sampling","corrections","count","includeContext","calendar","schedule","first","from","to"],
+                "lookup"=>["axis","method","maxGapDays","leftBoundary","rightBoundary","implementation","output"],
                 "mean"=>["axis"],"weighted_contracts"=>["aggregation"],"weighted_panels"=>["alignment","aggregation"],"published_source"=>["selection"],_=>[]
             };
             if(node.Parameters.Keys.Any(key=>!parameters.Contains(key,StringComparer.Ordinal)))throw Invalid($"Node {node.Id} contains an unsupported or conflicting parameter.");
@@ -104,6 +108,25 @@ public static partial class RecipeEngine
             foreach(var upstream in nodes[id].Inputs.Values)Visit(upstream);visiting.Remove(id);visited.Add(id);
         }
         Visit(output.Id);if(visited.Count!=nodes.Count)throw Invalid("Every node must contribute to the selected output.");
+    }
+    public static ImmutableArray<DateOnly> DeliveryDates(RecipeNode node)
+    {
+        if(!DateOnly.TryParseExact(Required(node,"from"),"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var from)||
+            !DateOnly.TryParseExact(Required(node,"to"),"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var to)||
+            from.Year<1901||to.Year>2199||to.DayNumber-from.DayNumber is <1 or >366)
+            throw Invalid("Select an explicit delivery range of one to 366 days, with an exclusive end date.");
+        return [..Enumerable.Range(0,to.DayNumber-from.DayNumber).Select(from.AddDays)];
+    }
+    public static CurveLookupSettings LookupSettings(RecipeNode node)
+    {
+        var method=Required(node,"method") switch{"exact"=>CurveLookupMethod.Exact,"containing_delivery"=>CurveLookupMethod.ContainingDelivery,
+            "previous"=>CurveLookupMethod.Previous,"next"=>CurveLookupMethod.Next,"linear_price_actual_days_v1"=>CurveLookupMethod.Linear,
+            _=>throw Invalid("Choose an explicit supported lookup method.")};
+        var axis=Required(node,"axis") switch{"delivery_start"=>CurveLookupAxis.DeliveryStart,"delivery_end"=>CurveLookupAxis.DeliveryEnd,
+            _=>throw Invalid("Choose the delivery start or end as the point-date axis.")};
+        if(Required(node,"output")!="daily_delivery_v1")throw Invalid("Declare the daily delivery output semantics.");
+        var settings=new CurveLookupSettings(method,axis,Number(node,"maxGapDays",1,3660),Required(node,"leftBoundary"),Required(node,"rightBoundary"),Required(node,"implementation"));
+        settings.Validate();return settings;
     }
     private static ExactDecimal Weight(string text)
     {
@@ -119,8 +142,9 @@ public static partial class RecipeEngine
     internal sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,PriceUnit Unit,ImmutableArray<SampleKey> Inputs,CellFormula Formula,
         DateOnly DeliveryFrom,DateOnly DeliveryTo);
     internal sealed record Panel(ImmutableArray<Cell> Cells);
+    internal sealed record PanelSource(Panel Panel,Func<int,CurvePointKey> Point);
     private static Panel Prepare(RecipeDefinition definition,RecipeInputs inputs,ImmutableArray<ConnectedRecipeSample> samples,CancellationToken cancellation,
-        IReadOnlyDictionary<string,ConnectedRecipeGraph> publishedSources,RecipeOutputDemand? demand)
+        IReadOnlyDictionary<string,PanelSource> publishedSources,RecipeOutputDemand? demand)
     {
         cancellation.ThrowIfCancellationRequested();Validate(definition);
         if(inputs.ValuationAt.Offset!=TimeSpan.Zero||inputs.ContextDate!=DateOnly.FromDateTime(inputs.ValuationAt.UtcDateTime)||
@@ -153,8 +177,8 @@ public static partial class RecipeEngine
                 case "source":result=inputs.Sources[id];break;
                 case "published_source":
                     var published=publishedSources[id];
-                    result=new Panel(published.PreparedPanel.Cells.Select((cell,i)=>cell with{
-                        Formula=new(id,i,null,[],[],SignedSum,published.OutputPoint(i))}).ToImmutableArray());break;
+                    result=new Panel(published.Panel.Cells.Select((cell,i)=>cell with{
+                        Formula=new(id,i,null,[],[],SignedSum,published.Point(i))}).ToImmutableArray());break;
                 case "select":case "weighted_contracts":result=node;break;
                 case "dates":
                     var dates=inputs.Dates[id];if(dates.IsDefaultOrEmpty||dates.Length>366||dates.Distinct().Count()!=dates.Length||!dates.SequenceEqual(dates.Order()))throw Missing("A date binding requires one to 366 distinct ascending dates.");result=dates;break;
@@ -201,6 +225,24 @@ public static partial class RecipeEngine
                             values[0].Unit,values.SelectMany(c=>c.Inputs).ToImmutableArray(),new(id,index,null,values.Select(c=>c.Formula).ToImmutableArray(),Enumerable.Repeat(ExactDecimal.Parse("1"),values.Length).ToImmutableArray(),WeightedMean),
                             values.Min(c=>c.DeliveryFrom),values.Max(c=>c.DeliveryTo));
                     }).ToImmutableArray());break;
+                case "lookup":
+                    var lookupPanel=(Panel)Node(node.Inputs["values"]);var settings=LookupSettings(node);
+                    if(lookupPanel.Cells.Select(c=>c.Unit).Distinct().Count()!=1)throw Missing("Lookup requires identical exact price units.");
+                    var grid=new CurveLookupGrid<int>([..lookupPanel.Cells.Select((c,i)=>new CurveLookupMember<int>(i,c.DeliveryFrom,c.DeliveryTo))],settings);
+                    var targets=(ImmutableArray<DateOnly>)Node(node.Inputs["dates"]);var lookedUp=ImmutableArray.CreateBuilder<Cell>();
+                    foreach(var target in targets)
+                    {
+                        cancellation.ThrowIfCancellationRequested();
+                        var weights=grid.Select(target,settings.Method==CurveLookupMethod.ContainingDelivery);
+                        var selected=weights.Select(w=>lookupPanel.Cells[w.Id]).ToArray();
+                        var references=selected.Sum(c=>(long)c.Inputs.Length);
+                        if(references>50000-work)throw Missing("The recipe exceeds its 50,000-sample preparation limit.");
+                        work+=(int)references;
+                        lookedUp.Add(new(lookedUp.Count+1,[target],selected[0].ObservationDate,selected[0].Unit,
+                            [..selected.SelectMany(c=>c.Inputs)],new(id,lookedUp.Count,null,[..selected.Select(c=>c.Formula)],
+                                [..weights.Select(w=>w.Weight)],WeightedMean),target,target.AddDays(1)));
+                    }
+                    result=new Panel(lookedUp.ToImmutable());break;
                 case "weighted_panels":
                     result=CombinePanels(node,node.Inputs.ToDictionary(p=>p.Key,p=>(Panel)Node(p.Value)),inputs.ContextDate,cancellation,ref work);break;
                 case "output":result=Node(node.Inputs["values"]);break;

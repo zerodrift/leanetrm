@@ -18,7 +18,7 @@ internal static class TradeContractChecks
         {
             var calls=0;
             var instrument=new PvOnly(Guid.NewGuid(),currency,quantity,request,context=>
-            {calls++;var p=context.Inputs.Price(request);return new(p.ExactTimes(new(ExactDecimal.Parse("1"),quantity)),quantity);});
+            {calls++;var p=context.Inputs.ExactPrice(request);return new(p.ExactTimes(new(ExactDecimal.Parse("1"),quantity)),quantity);});
             TradeInstrument Binding(string amount)=>new(Guid.NewGuid(),instrument,new(ExactDecimal.Parse(amount),quantity));
             var trade=new Trade(Guid.NewGuid(),book,[Binding("2"),Binding("-1")]);
             var second=new Trade(Guid.NewGuid(),Guid.NewGuid(),[Binding("3")]);

@@ -86,6 +86,9 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
             Money.RequireKey(calendar.Reference);
             if(calendar.BusinessDates is null)throw new MarketDataException("recipe_reference","Retain the calendar's complete business-day coverage.");
         }
+        foreach(var node in dateNodes.Values.Where(n=>n.Parameters.GetValueOrDefault("mode")=="delivery_range"))
+            if(!Dates.Single(d=>d.Node==node.Id).Dates.SequenceEqual(RecipeEngine.DeliveryDates(node)))
+                throw new MarketDataException("recipe_input","The retained delivery dates differ from the explicit range.");
         var contextDate=DateOnly.FromDateTime(context.ValuationAt.UtcDateTime);
         foreach(var calendar in References.Calendars)
         {
@@ -172,9 +175,9 @@ public static partial class RecipeEngine
         if(inputs is null||context is null||samples.IsDefault||inputs.ValuationAt!=context.ValuationAt)
             throw Missing("Supply the same resolved valuation context and explicit source snapshot bindings.");
         Validate(definition);
-        if(demand is not null&&(demand.Deliveries is null||demand.Deliveries.IsEmpty||demand.Deliveries.Any(d=>d.To.DayNumber-d.From.DayNumber!=1)||
+        if(demand is not null&&(demand.Deliveries is null||demand.Deliveries.IsEmpty||demand.Deliveries.Any(d=>d is null||d.From>=d.To)||
             demand.SamplingInstants is null||demand.SamplingInstants.Any(s=>s.Value.Offset!=TimeSpan.Zero||DateOnly.FromDateTime(s.Value.UtcDateTime)!=s.Key)))
-            throw Missing("Daily output demand requires explicit one-day intervals and coherent UTC sampling instants.");
+            throw Missing("Output demand requires explicit nonempty delivery intervals and coherent UTC sampling instants.");
         publishedSources??=ImmutableDictionary<string,ConnectedRecipeGraph>.Empty;
         if(samples.Any(s=>s is null)||samples.Select(s=>(s.Source,s.Date,s.Contract)).Distinct().Count()!=samples.Length)
             throw Missing("Each directly declared source sample must be supplied once.");
@@ -207,7 +210,7 @@ public static partial class RecipeEngine
             retained.Add(key,sample);
         }
         if(samples.Any(s=>!inputs.Sources.Values.Any(v=>v.Key==s.Source)))throw Missing("A sample belongs to an undeclared source.");
-        var panel=Prepare(definition,inputs,samples,cancellation,publishedSources,demand);
+        var panel=Prepare(definition,inputs,samples,cancellation,publishedSources.ToDictionary(p=>p.Key,p=>new PanelSource(p.Value.PreparedPanel,p.Value.OutputPoint)),demand);
         var selected=panel.Cells.Select((cell,index)=>(Cell:cell,Index:index))
             .Where(c=>demand is null||demand.Deliveries.Contains(new(c.Cell.DeliveryFrom,c.Cell.DeliveryTo))).ToArray();
         var localKeys=new HashSet<SampleKey>();var visited=new HashSet<CellFormula>(ReferenceEqualityComparer.Instance);
@@ -268,8 +271,7 @@ public static partial class RecipeEngine
         {
             var source=CompileFormula(cell.Formula);
             var key=new CurvePointKey(curve,ConnectedIdentity.Id(new{Version="saved_recipe_output_v2",identity,definition.Output,Index=i}));
-            var member=directory[source];
-            points.Add(new(key,member.DeliveryFrom,member.DeliveryTo,cell.Unit,new ConnectedRecipeProjection(CurvePointReference.Exact(source),declaration,cell.Position)));
+            points.Add(new(key,cell.DeliveryFrom,cell.DeliveryTo,cell.Unit,new ConnectedRecipeProjection(CurvePointReference.Exact(source),declaration,cell.Position)));
             outputs.Add(new(key,cell.Position,cell.Dates,cell.Inputs.Select(s=>s.Contract).Distinct().ToImmutableArray(),cell.Inputs.Length));
         }
         var definitions=ConnectedCurves.MergeDefinitions(imported.Concat(points.GroupBy(p=>p.Key.Curve).Select(g=>new ConnectedCurveDefinition(g.Key,g.ToImmutableArray()))));

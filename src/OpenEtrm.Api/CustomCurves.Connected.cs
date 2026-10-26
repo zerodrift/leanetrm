@@ -98,7 +98,8 @@ public static partial class CustomCurves
             // Overlapping historical projections must share the same admitted
             // sample frame, including when a version is also consumed directly.
             var demands=new Dictionary<(Guid,int),ImmutableHashSet<RecipeDelivery>?>();
-            void Require(Guid id,int version,ImmutableHashSet<RecipeDelivery>? deliveries,int depth)
+            var preparation=new RecipePreparation(connection,database,sourceData,frame,exact,resolved,saved,demands);
+            async Task Require(Guid id,int version,ImmutableHashSet<RecipeDelivery>? deliveries,int depth)
             {
                 if(depth>32||demands.Count>=256&&!demands.ContainsKey((id,version)))throw Invalid("Published source preparation supports 32 dependency edges and 256 exact versions.");
                 if(demands.TryGetValue((id,version),out var prior))
@@ -108,12 +109,12 @@ public static partial class CustomCurves
                 }
                 demands[(id,version)]=deliveries;
                 var definition=saved.SingleOrDefault(v=>v.Id==id&&v.Version==version)?.Definition??throw Invalid("The exact published custom curve is unavailable.");
-                foreach(var node in definition.Nodes.Where(n=>n.Kind=="published_source"))Require(node.PublishedSource!.CurveId,node.PublishedSource.Version,deliveries,depth+1);
+                var topology=await preparation.Topology(new(data.DefinitionRevision.CatalogId,id,version,definition.Output),ct);
+                foreach(var (parent,needed) in topology.PublishedInputs(deliveries))await Require(parent.CurveId,parent.Version,needed,depth+1);
             }
             foreach(var group in recipeBindings.GroupBy(b=>(b.CurveId,b.Version)))
-                Require(group.Key.CurveId,group.Key.Version,group.All(b=>b.Selection==CustomCurveProjectionBinding.DeliverySelection)?required.Where(c=>group.Contains(c.Binding))
+                await Require(group.Key.CurveId,group.Key.Version,group.All(b=>b.Selection==CustomCurveProjectionBinding.DeliverySelection)?required.Where(c=>group.Contains(c.Binding))
                     .Select(c=>data.Contracts.Single(k=>k.Key==c.Original.Contract)).Select(k=>new RecipeDelivery(k.DeliveryFrom,k.DeliveryTo)).ToImmutableHashSet():null,0);
-            var preparation=new RecipePreparation(connection,database,sourceData,frame,exact,resolved,saved,demands);
             foreach(var group in recipeBindings.GroupBy(b=>(b.CatalogId,b.CurveId,b.Version)))
             {
                 ct.ThrowIfCancellationRequested();

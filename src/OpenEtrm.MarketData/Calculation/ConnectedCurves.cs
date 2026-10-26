@@ -38,7 +38,10 @@ public sealed record ConnectedScheduledMean(ResolvedCurveSchedule Schedule,Immut
     string Convention) : ConnectedCurveExpression;
 
 public sealed record ConnectedCurvePoint(CurvePointKey Key,DateOnly DeliveryFrom,DateOnly DeliveryTo,
-    PriceUnit Unit,ConnectedCurveExpression Expression,MarketContract? Contract=null);
+    PriceUnit Unit,ConnectedCurveExpression Expression,MarketContract? Contract=null)
+{
+    public DateOnly? PointDate{get;init;}
+}
 public sealed record ConnectedCurveDefinition(CurveKey Key,ImmutableArray<ConnectedCurvePoint> Points);
 
 public static class ConnectedCurves
@@ -113,7 +116,8 @@ public static class ConnectedCurves
             cancellation.ThrowIfCancellationRequested();if(operations.ContainsKey(key))continue;
             RequireVisible(key.Curve);
             if(!directory.TryGetValue(key,out var point))throw Missing("A required exact curve point is absent.");
-            if(point.DeliveryFrom>=point.DeliveryTo||point.Unit is null||point.Expression is null)
+            if((point.PointDate is {} date?point.Contract is not null||point.DeliveryFrom!=default||point.DeliveryTo!=default||date.Year is <1901 or >2199:
+                point.DeliveryFrom>=point.DeliveryTo)||point.Unit is null||point.Expression is null)
                 throw Invalid("A curve point requires an explicit delivery interval, price unit and expression.");
             if(point.Contract is {} contract&&(contract.DeliveryFrom!=point.DeliveryFrom||contract.DeliveryTo!=point.DeliveryTo))
                 throw Invalid("Point delivery metadata conflicts with its declared contract.");
@@ -459,9 +463,17 @@ public sealed partial class ConnectedCurvePlan
                 Points=scheduled.Points.OrderBy(p=>p.Date).Select(p=>new{p.Date,Point=PointReference(p.Point)}).ToArray(),scheduled.Convention},
             _=>throw new InvalidOperationException("An uncompiled curve expression entered a resolved plan.")
         };
+        object PointEvidence(ConnectedCurvePoint p)
+        {
+            var original=new{p.Key,p.DeliveryFrom,p.DeliveryTo,Unit=Unit(p.Unit),p.Contract,Operator=p.Expression.GetType().Name,Declaration=Expression(p.Expression),Node=IndexOf(p.Key)};
+            if(p.PointDate is null)return original;
+            var node=JsonSerializer.SerializeToNode(original)!.AsObject();
+            if(p.PointDate is {} date)node["PointDate"]=JsonSerializer.SerializeToNode(date);
+            return node;
+        }
         var evidence=new{NumericalPolicy,Context,Roots=roots.OrderBy(p=>p.Curve.Revision.CatalogId).ThenBy(p=>p.Curve.Revision.RevisionId).ThenBy(p=>p.Curve.Code,StringComparer.Ordinal).ThenBy(p=>p.PointId).ToArray(),
             Points=points.Values.OrderBy(p=>p.Key.Curve.Revision.CatalogId).ThenBy(p=>p.Key.Curve.Revision.RevisionId).ThenBy(p=>p.Key.Curve.Code,StringComparer.Ordinal).ThenBy(p=>p.Key.PointId)
-                .Select(p=>new{p.Key,p.DeliveryFrom,p.DeliveryTo,Unit=Unit(p.Unit),p.Contract,Operator=p.Expression.GetType().Name,Declaration=Expression(p.Expression),Node=IndexOf(p.Key)}).ToArray(),
+                .Select(PointEvidence).ToArray(),
             Nodes=nodes.Select(n=>new{Source=n.Source is {} source?Source(source):null,n.Dependencies,Weights=n.Weights.Select(w=>w.ToString()).ToArray(),Divisor=n.Divisor.ToString()}).ToArray()};
         ManifestId=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(evidence)));
     }

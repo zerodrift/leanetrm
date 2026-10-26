@@ -11,6 +11,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('custom curve editor loads backend operation and template catalogs',"!document.querySelector('#custom-curves-page').hidden&&document.querySelector('#custom-curves-template option[value=ng_prompt]')&&document.querySelectorAll('#custom-curves-operators button').length>=5");
  await set('#custom-curves-template','ng_prompt');
  await check('prompt template creates a connected editable graph',"document.querySelectorAll('.custom-curve-node').length>=4&&document.querySelectorAll('.custom-curve-wires path').length>=3");
+ await evaluate("[...document.querySelectorAll('#custom-curves-operators button')].find(button=>button.textContent==='Curve lookup').click()");
+ await check('lookup choices start blank and expose typed panel and date inputs',"['axis','method','maxGapDays','leftBoundary','rightBoundary','implementation','output'].every(key=>document.querySelector('#custom-curve-property-'+key)?.value==='')&&document.querySelector('select[data-input-port=values]')&&document.querySelector('select[data-input-port=dates]')");
+ await set('#custom-curve-property-axis','0');await set('#custom-curve-property-method','4');await set('#custom-curve-property-maxGapDays','31');
+ await set('#custom-curve-property-leftBoundary','0');await set('#custom-curve-property-rightBoundary','0');await set('#custom-curve-property-implementation','0');await set('#custom-curve-property-output','0');
+ await set('select[data-input-port=values]','sample');await set('select[data-input-port=dates]','dates');
+ await check('lookup settings and connections are editable through backend metadata',"document.querySelector('#custom-curve-property-maxGapDays').value==='31'&&document.querySelector('.custom-curve-node[data-node-id=lookup_1]').textContent.includes('Linear price')&&document.querySelectorAll('.custom-curve-wires path').length>=5");
+ await set('#custom-curves-template','ng_prompt');
+
  await check('custom curve side panels have independent accessible collapse controls',"['palette','inspector'].every(name=>{const control=document.querySelector('#custom-curves-toggle-'+name),panel=document.querySelector('#custom-curves-'+name);return control&&panel&&control.getAttribute('aria-controls')===panel.id&&control.getAttribute('aria-expanded')==='true'&&!panel.hidden;})");
  await evaluate("window.customGraphWidth=document.querySelector('#custom-curves-graph').getBoundingClientRect().width;window.customGraphNodes=document.querySelectorAll('.custom-curve-node').length");
  await click('#custom-curves-toggle-palette');
