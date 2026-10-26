@@ -5,34 +5,20 @@ import {compareDecimalStrings} from './analytics-model.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
 import {curvePoints,minus,noteMeaning,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
 import {publicText} from './market-view.js';
+import {kpi,label,node,space} from './tiles.js';
 import {divergingBar,sparklineGeometry} from './mini-charts.js';
 import type {LensShock,RunNote} from './risk-lens.js';
 
 const svgNamespace='http://www.w3.org/2000/svg';
-function node<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?:string){
-  const element=document.createElement(tag);if(className)element.className=className;if(text!==undefined)element.textContent=publicText(text);return element;
-}
 function shape<K extends keyof SVGElementTagNameMap>(tag:K,attributes:Record<string,string|number>){
   const element=document.createElementNS(svgNamespace,tag);for(const [name,value] of Object.entries(attributes))element.setAttribute(name,String(value));return element;
 }
 function tooltip(element:SVGElement,text:string){const title=shape('title',{});title.textContent=publicText(text);element.prepend(title);return element;}
-// A space between neighbouring pieces of text, so the text a screen reader gets keeps them apart as the layout does.
-const space=()=>document.createTextNode(' ');
 // The largest magnitude among exact amounts, for a shared bar scale: chosen by exact comparison, never computed.
 function largest(values:readonly string[]){
   let top='0';for(const value of values){const magnitude=value.replace(/^-/,'');if(compareDecimalStrings(magnitude,top)>0)top=magnitude;}return top;
 }
 
-function label(text:string,aside?:string){const row=node('div','desk-tile-label');row.append(node('span',undefined,text),...(aside?[space(),node('span',undefined,aside)]:[]));return row;}
-/**
- * A figure and its unit. The figure is one token that never splits or is cut off (app.css): its length is stated for a desk too
- * narrow to hold it at full size, and the unit may wrap beneath it.
- */
-function kpi(figure:string,unit:string){
-  const element=node('p','kpi-value'),token=node('span','kpi-figure',figure);
-  token.style.setProperty('--figure-length',String(token.textContent!.length));
-  element.append(token,space(),node('small',undefined,unit));return element;
-}
 function amount(value:string|null,currency:string,money:Format){
   if(value===null)return node('p','kpi-value desk-not-valued','Not valued');
   const figure=kpi(signedText(value,money),currency);figure.dataset.sign=signOf(value);figure.title=`${value} ${currency}`;return figure;

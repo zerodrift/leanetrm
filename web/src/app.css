@@ -592,8 +592,8 @@ dialog label{margin-top:16px}
 .desk-tile-several .kpi-value{font-size:20px}
 .desk-tile .desk-not-valued{font-size:20px;color:var(--text-3)}
 .desk-tile-currency{margin:0;font-size:11px;font-weight:600;color:var(--text-2)}
-.desk [data-sign=positive],#desk-positions [data-sign=positive]{color:var(--gain-ink)}
-.desk [data-sign=negative],#desk-positions [data-sign=negative]{color:var(--loss-ink)}
+.desk [data-sign=positive],#desk-positions [data-sign=positive],.desk-tile [data-sign=positive]{color:var(--gain-ink)}
+.desk [data-sign=negative],#desk-positions [data-sign=negative],.desk-tile [data-sign=negative]{color:var(--loss-ink)}
 .desk-splits{display:grid;gap:5px}
 .desk-split{display:grid;grid-template-columns:minmax(44px,max-content) minmax(40px,1fr) max-content;align-items:center;gap:8px;font-size:11.5px;color:var(--text-2)}
 .desk-split-book{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
