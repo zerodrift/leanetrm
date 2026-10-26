@@ -179,7 +179,7 @@ public sealed partial class SwapStore
 
     private async Task<ImmutableArray<SwapPeriodCompletion>> SettlementCompletions(NpgsqlConnection connection,JsonElement row,SidedInstrument instrument,CancellationToken ct)
     {
-        var sources=instrument is ScheduledFinancialSwap?await PreviewDatabase.Rows(connection,"""
+        var sources=instrument is ScheduledFinancialSwap or CrossCommodityScheduledSwap?await PreviewDatabase.Rows(connection,"""
          SELECT jsonb_build_object('slot',a.slot,'basis',a.basis,'ends',
           (SELECT jsonb_object_agg(p.period_ordinal::text,p.completion) FROM
            (SELECT period_ordinal,max(ends_at) completion FROM trading.swap_power_quantity_intervals
@@ -188,9 +188,10 @@ public sealed partial class SwapStore
          """,[manifest.CatalogId,row.Id("trade_id"),int.Parse(row.Text("revision"),CultureInfo.InvariantCulture)],ct):[];
         return instrument.Sides.SelectMany((membership,slot)=>((SidePaymentSchedule)membership.Side.GenerateSchedule()).Payments.Select(plan=>
         {
-            if(instrument is ScheduledFinancialSwap)
+            if(instrument is ScheduledFinancialSwap or CrossCommodityScheduledSwap)
             {
                 var source=One(sources.Where(s=>int.Parse(s.Text("slot"),CultureInfo.InvariantCulture)==slot));
+                if(source.Text("basis")=="factor_of_first_side_v1")source=One(sources.Where(s=>int.Parse(s.Text("slot"),CultureInfo.InvariantCulture)==0));
                 if(source.Text("basis")=="selected_interval_power")
                 {
                     if(source.GetProperty("ends").ValueKind!=JsonValueKind.Object||!source.GetProperty("ends").TryGetProperty(plan.Key.Ordinal.ToString(CultureInfo.InvariantCulture),out var end))

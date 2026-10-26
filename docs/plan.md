@@ -1289,3 +1289,11 @@ retain native cutoff contracts. Interval data opens the latest trailing day;
 delivery prices open the latest available source/day, with explicit empty states.
 The Assistant launcher floats at the lower right and its visibility is a browser
 profile preference. Historical-session support is unchanged.
+
+D220 adds selectable factor units and a versioned cross-commodity scheduled swap.
+The [factor contract record](factor-swaps.md) describes supported monthly quantity
+bases, independent price/payment rules, native source risk, gross settlement and
+exact reference-version retention. Compatible new units consume published
+conversion data; new financial semantics require a versioned implementation.
+Physical delivery, cross-currency factors and interval-price × energy payoffs
+remain outside this contract.

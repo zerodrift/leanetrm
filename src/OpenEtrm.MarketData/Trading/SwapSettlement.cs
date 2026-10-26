@@ -60,6 +60,7 @@ public sealed record SwapPaymentCalculation
     public Money Amount { get; }
     public ExactMoney RoundingEffect => ExactMoney.FromMoney(Amount).Subtract(ExactAmount);
     public const string EvidenceIdentityVersion = "swap_payment_evidence_identity_v1";
+    public const string FactorEvidenceIdentityVersion = "factor_swap_payment_evidence_identity_v1";
     public string ContractHash { get; }
     public string InputHash { get; }
     internal SwapPaymentCalculation(PaymentOccurrenceKey occurrence, SidedInstrument instrument, SideMembership membership,
@@ -74,7 +75,7 @@ public sealed record SwapPaymentCalculation
         ContractHash = ContractIdentity(instrument,membership,evidence.Plan,quantity);
         InputHash = Hash(new
         {
-            version = EvidenceIdentityVersion,implementation=Implementation,NumericalPolicy, ExactAmount.Numerator, ExactAmount.Denominator, rounding.Currency, rounding.DecimalPlaces, roundingPolicyVersion=rounding.Version,
+            version = instrument is CrossCommodityScheduledSwap ? FactorEvidenceIdentityVersion : EvidenceIdentityVersion,implementation=Implementation,NumericalPolicy, ExactAmount.Numerator, ExactAmount.Denominator, rounding.Currency, rounding.DecimalPlaces, roundingPolicyVersion=rounding.Version,
             prices = evidence.Prices.Select(p => new { p.ExactPrice.Numerator,p.ExactPrice.Denominator,unit = Unit(p.ExactPrice.Unit),
                 lineage = p.Lineage.OrderBy(k => k.CatalogId).ThenBy(k => k.Id) })
         });
@@ -84,7 +85,7 @@ public sealed record SwapPaymentCalculation
         if(instrument is null||membership is null||plan is null||quantity is null||quantity.Specification!=instrument.UnitQuantity.Specification)
             throw new MarketDataException("settlement_continuity","Supply exact supported contractual payment terms and booked quantity.");
         static object? Price(UnitPrice? price) => price is null ? null : new { value = price.Value.ToString(), unit = Unit(price.Unit) };
-        return Hash(new
+        var legacy=Hash(new
         {
             version = EvidenceIdentityVersion, plan.DeliveryFrom, plan.DeliveryTo, plan.PaymentAt,
             plan.PaymentConvention, plan.Currency, quantity = plan.AllocatedQuantity.Scale(membership.QuantityRatio ?? ExactRatio.One).Scale(quantity.Amount),
@@ -94,6 +95,8 @@ public sealed record SwapPaymentCalculation
                 unit = p.Lookup is {} lookup ? Unit(PriceUnit.FromQuote(lookup.Quote)) : null }),
             applications = plan.Applications.Select(a => new { a.TargetFrom,a.TargetTo,a.PriceOrdinal,a.MappingRule,weight = a.Weight.ToString() })
         });
+        return instrument is CrossCommodityScheduledSwap cross ? Hash(new{version=FactorEvidenceIdentityVersion,legacy,
+            factor=new{value=cross.Factor.Value.ToString(),cross.Factor.NumeratorQuantity,cross.Factor.DenominatorQuantity,cross.Factor.Version},cross.UnitConversionImplementation}) : legacy;
     }
     private static object Unit(PriceUnit unit) => new { unit.Currency, unit.Quantity, multiplier = unit.Multiplier.ToString() };
     private static string Hash(object value) => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));
@@ -114,7 +117,7 @@ public static class SwapSettlement
     public static SwapPaymentCalculation Calculate(SidedInstrument instrument, int membershipOrdinal, int paymentOrdinal,
         Quantity bookedQuantity, PaymentOccurrenceKey occurrence, SideValuationContext context, SwapSettlementRounding rounding)
     {
-        if (instrument is not (FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap))
+        if (instrument is not (FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap or CrossCommodityScheduledSwap))
             throw new MarketDataException("settlement_capability", "Only qualified financial swap contracts support determination.");
         if (occurrence is null || context is null || rounding is null || membershipOrdinal < 0 || membershipOrdinal >= instrument.Sides.Length ||
             occurrence.OriginMembershipOrdinal != membershipOrdinal)

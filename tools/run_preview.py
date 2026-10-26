@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--live-calculation-check',action='store_true',help='Qualify committed live contexts and browser updates')
     parser.add_argument('--connected-portfolio-check',action='store_true',help='Qualify published custom curves in booked portfolio risk and jobs')
     parser.add_argument('--risk-jobs-check',action='store_true',help='Qualify nested risk and durable worker execution in a disposable database')
+    parser.add_argument('--factor-swap-check',action='store_true',help='Qualify typed contractual factors and cross-commodity scheduled swaps in an owned fixture')
     parser.add_argument('--scheduled-swap-check',action='store_true',help='Qualify explicit recurring financial swap quantity schedules')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
@@ -87,12 +88,12 @@ def main():
         args.ppa_bookings_check = True
     if args.ppa_http_benchmark:
         args.ppa_bookings_check = True
-    fixing_frames=args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
+    fixing_frames=args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
     if args.interval_series_benchmark or args.usage_benchmark:
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -312,6 +313,9 @@ def main():
                 swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'curveContracts':{}}
                     for f in manifest['frames'] if f['at'] not in times)
             manifest['swapMarkets']=[swap_manifest]
+            if args.factor_swap_check:
+                from factor_swap_fixture import prepare as prepare_factor
+                prepare_factor(manifest)
         query(security)
         if args.hosted_check:
             from check_hosted_auth import run_checks as check_hosted_auth
@@ -364,6 +368,9 @@ def main():
             unit_bundle='60000000-0000-0000-0000-000000000004'
             query(f"BEGIN; INSERT INTO market_data.revisions VALUES ('{manifest['catalogId']}','{unit_bundle}','{manifest['referenceCatalogId']}','{unit_reference}','draft',0); INSERT INTO market_data.revision_periods VALUES ('{manifest['catalogId']}','{unit_bundle}','2020-01-01','2022-01-01'); UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{manifest['catalogId']}' AND id='{unit_bundle}'; COMMIT;")
             manifest['unitCatalog']={'referenceRevisionId':unit_reference,'definitionRevisionId':unit_bundle}
+        if args.factor_swap_check:
+            from check_factor_swap_upgrade import run_checks as check_factor_upgrade
+            check_factor_upgrade(query,psql,env,ROOT)
         if args.check and args.example=='standard' and not args.exchange_check:
             from check_trade_revision_upgrade import run_checks as check_upgrade
             legacy_reference,legacy_market,legacy_security,_=fixture(ROOT,current_schema=False)
@@ -577,6 +584,17 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--pilot-close'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned pilot close browser checks failed')
+            elif args.factor_swap_check:
+                from check_factor_swaps import run_checks as check_factor_swaps
+                worker_env=prepare_risk_worker()
+                def run_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                check_factor_swaps(url,query,manifest,run_worker)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--factor-swaps'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned factor swap browser checks failed')
             elif args.market_dates_check:
                 from check_market_dates import run_checks as check_market_dates
                 check_market_dates(url,query,manifest)

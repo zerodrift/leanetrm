@@ -2384,3 +2384,11 @@ Trade amendments remain contractual changes; market/meter corrections remain
 versioned inputs. Earlier lifecycle specifications are retained for future work;
 they do not authorize a separate settlement approval workflow or claim global
 settlement-phase completion.
+
+D220 adds explicitly typed contractual quantity factors to cross-commodity
+floating scheduled swaps. Exact database units drive conversions within each
+commodity; the selected factor alone relates the commodities. The managed
+compiler retains both native quantities, selected factor units, implementation
+versions and exact model/reference pins through pricing, risk and settlement.
+See [factor swaps](factor-swaps.md) for the contract, service trust boundary and
+bounded verification.
