@@ -1304,3 +1304,11 @@ data opens or is returned to and states it with a **Latest close** badge; severa
 closes at that instant still ask (D162), and a historical view selects none by
 itself. The As of control and its badge float with the Context panel, which names
 the knowledge in use and holds live corrections.
+
+
+D228 makes saved-value availability and amendment changes explicit in the swap
+tickets. The backend compares the booked revision with the validated proposal;
+single-period and scheduled tickets show the required amendment and exact changed
+terms. Existing preview cashflows remain the valuation review. Publishing economic
+index changes, selecting newer versions for existing contracts, bulk impact
+analysis and a separate forecast-configuration migration remain future work.

@@ -2395,3 +2395,11 @@ compiler retains both native quantities, selected factor units, implementation
 versions and exact model/reference pins through pricing, risk and settlement.
 See [factor swaps](factor-swaps.md) for the contract, service trust boundary and
 bounded verification.
+
+
+Booked-value explanations and amendment review (D228) preserve exact trade terms.
+The managed preview compares the authorized booked head with the proposed terms;
+the frontend presents its decision and values. Editor availability does not
+rewrite terms or authorize adoption of a newer index. Saved projection bindings
+currently belong to the trade contract and use its amendment operation. Market
+observation corrections continue through their existing context workflow.

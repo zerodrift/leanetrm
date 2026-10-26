@@ -49,14 +49,18 @@ def run_checks(url):
     for invalid in [{'effectiveAt': '2020-12-17T16:00:00Z'}, {'reason': ''}, {'expectedRevision': 99}, {'definitionRevisionId': catalog['indices'][-1]['definitionRevisionId']}]:
         c.call('swaps/preview', {**amend, **invalid}, expected=422)
     check('amendment preview enforces retained head, effective time, reason and exact definition eligibility', True)
+    review=c.call('swaps/preview',amend)['changeReview']
+    check('amendment review compares authorized booked and proposed terms without changing the saved revision',review['action']=='amend_trade' and review['bookedRevision']==1 and any(r['field']=='Quantity' and r['before']=='100' and r['after']=='200' for r in review['changes']) and c.call('swaps/editor',{'context':context,'tradeId':result['tradeId'],'revision':None})['state']['revision']==1)
     amended = c.call('swaps/amend', amend)
     latest = c.call('swaps/editor', {'context': context, 'tradeId': result['tradeId'], 'revision': None})
     earlier = c.call('swaps/editor', {'context': context, 'tradeId': result['tradeId'], 'revision': 1})
     check('latest-head amendment preserves old quantity and stable trade reference', amended['revision'] == 2 and latest['state']['quantity'] == '200' and earlier['state']['quantity'] == '100' and not earlier['canAmend'] and latest['state']['tradeReference'] == earlier['state']['tradeReference'])
-    c.call('swaps/preview', {**amend, 'expectedRevision': 2, 'quantity': '200.0'}, expected=422)
+    unchanged={**amend,'operationId':str(uuid4()),'expectedRevision':2,'quantity':'200.0'}
+    check('unchanged terms can be reviewed without offering an amendment',c.call('swaps/preview',unchanged)['changeReview']['action']=='keep_booked_terms')
+    c.call('swaps/amend',unchanged,expected=422)
     replacement = next(i for i in catalog['indices'] if i['commodity'] == 'test_power' and i['definitionRevisionId'] == body['definitionRevisionId'])
     c.call('swaps/preview', {**amend, 'expectedRevision': 2, 'floating': {**amend['floating'], 'curve': replacement['curve'], 'index': replacement['index']}}, expected=422)
-    check('preview rejects equivalent terms and incompatible same-currency quote changes', True)
+    check('submission rejects equivalent terms and preview rejects incompatible same-currency quote changes', True)
     c.call('swaps/amend', {**amend, 'operationId': str(uuid4())}, expected=409)
     c.call('swaps/book', {**body, 'operationId': str(uuid4()), 'floating': {**body['floating'], 'currency': 'unknown'}}, expected=422)
     c.call('swaps/book', {**body, 'operationId': str(uuid4()), 'floating': {**body['floating'], 'averaging': 'unknown'}}, expected=422)

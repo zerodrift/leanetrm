@@ -141,7 +141,16 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     invalid=deepcopy(body);invalid['scheduled']['first']['periods'][0]['fixed']['price']=None
     c.call('swaps/preview',invalid,expected=422)
     amend=deepcopy(body);amend.update(operationId=str(uuid4()),tradeId=saved['tradeId'],expectedRevision=1,effectiveAt=f['at'],reason='Synthetic explicit period quantity amendment')
+    unchanged=deepcopy(amend)
+    assert c.call('swaps/preview',unchanged)['changeReview']['action']=='keep_booked_terms'
+    c.call('swaps/amend',unchanged,expected=422)
     amend['scheduled']['first']['periods'][1]['amount']='210'
+    priced=c.call('swaps/scheduled-price',dict(terms=amend,priceMode='agreed',parRatePolicy=None))
+    assert priced['expectedRevision']==1 and priced['changeReview']['bookedRevision']==1
+    review=c.call('swaps/preview',amend)['changeReview']
+    assert review['action']=='amend_trade' and review['bookedRevision']==1
+    assert not any(r['field']=='Quantity' for r in review['changes'])
+    assert any(r['field'].endswith('periods / 2 / amount') and r['before']=='200' and r['after']=='210' for r in review['changes'])
     amended=c.call('swaps/amend',amend);assert amended['revision']==2
     original=c.call('swaps/editor',dict(context=context,tradeId=saved['tradeId'],revision=1))
     assert original['valuation']['presentValue']==value['presentValue']
