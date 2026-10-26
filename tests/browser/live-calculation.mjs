@@ -40,6 +40,8 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await check('Retry runs the failed backend preview before marking it live',"document.querySelector('#custom-curves-values').textContent.includes('3.28')");
  const before=await evaluate("window.liveResponses.filter(r=>r.path==='/api/workspace/navigation').at(-1).data.context.knownAt");
  await correct('custom_ng_monthly_2','3.38');await click('#nav-schedules');
+ // The template's graph is an unsaved edit, which the question asks about before the page is left.
+ await click('#custom-curves-panel-prompt button:not(.secondary)');
  await check('pausing pins the displayed cutoff in both server and header before other screens read',`window.liveResponses.filter(r=>r.path==='/api/workspace/navigation').at(-1).data.context.knownAt===${JSON.stringify(before)}&&window.liveResponses.filter(r=>r.path==='/api/workspace/navigation').at(-1).data.live===null&&document.querySelector('#live-status').textContent.includes('Paused')&&document.querySelector('#error').hidden`);
  await persona('risk');await click('#example');await click('#nav-futures');await click('#follow-live');
  await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
