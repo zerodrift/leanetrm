@@ -158,7 +158,8 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
       await driver.command('Runtime.enable');await driver.command('Page.enable');await driver.command('Emulation.setTimezoneOverride',{timezoneId:'UTC'});
       return {...driver,async close(){driver.abandon();other.close();await fetch(`http://127.0.0.1:${port}/json/close/${created.id}`);}};
     }
-    async function persona(id){await click('#profile-open');await set('#profile',id);await click('#open');}
+    // Switching accounts reads the identity and the account's first page again, so it waits longer than a single action.
+    async function persona(id){await click('#profile-open');await set('#profile',id);await click('#open',30000);}
     // An optional detail expression reports observed state only when the check fails.
     async function check(label,expression,detail){if(!await evaluate(expression))throw Error('FAIL '+label+(detail===undefined?'':' · observed '+JSON.stringify(await evaluate(detail).catch(error=>'unavailable: '+error.message))));passed++;console.log('PASS '+label);}
     async function shot(name){if(!/^[a-z-]+$/.test(name))throw Error('Invalid screenshot name');const result=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(root,name+'.png'),Buffer.from(result.data,'base64'));}

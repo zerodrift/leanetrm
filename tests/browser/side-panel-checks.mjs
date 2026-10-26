@@ -193,12 +193,13 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await wait(`${panel}.hidden`);
 
   // Overlay: below the width that lets it dock the panel covers the positions' right edge, and never widens the page.
+  // A fixed panel ends at the viewport's content edge, which a classic scrollbar moves left of innerWidth.
   await settle(1100,900);
   const widthClosed=await evaluate('document.documentElement.scrollWidth');
   await open('fut');
   await check('below the width that docks it the panel is an overlay at the window\'s right edge, over the grid, and does not widen the page',
-    `${panel}.dataset.placement==='overlay'&&getComputedStyle(${panel}).position==='fixed'&&Math.round(${panel}.getBoundingClientRect().right)===innerWidth&&${panel}.getBoundingClientRect().width<=440&&document.documentElement.scrollWidth===${widthClosed}&&document.querySelector('#desk-positions [role=columnheader][tabulator-field=c6]').style.display!=='none'`,
-    `[${panel}.dataset.placement,getComputedStyle(${panel}).position,${panel}.getBoundingClientRect().right,innerWidth,document.documentElement.scrollWidth,${widthClosed}]`);
+    `${panel}.dataset.placement==='overlay'&&getComputedStyle(${panel}).position==='fixed'&&Math.round(${panel}.getBoundingClientRect().right)===document.documentElement.clientWidth&&${panel}.getBoundingClientRect().width<=440&&document.documentElement.scrollWidth===${widthClosed}&&document.querySelector('#desk-positions [role=columnheader][tabulator-field=c6]').style.display!=='none'`,
+    `[${panel}.dataset.placement,getComputedStyle(${panel}).position,${panel}.getBoundingClientRect().right,document.documentElement.clientWidth,document.documentElement.scrollWidth,${widthClosed}]`);
   await press('Escape','Escape',27);
   await wait(`${panel}.hidden`);
   await settle(1440,900);
