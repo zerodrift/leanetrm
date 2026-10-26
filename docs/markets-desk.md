@@ -255,10 +255,17 @@ context or curve closes the panel.
   chart and table as today. Dependencies, observations and trace stay under the
   table.
 - **Leaving with unsaved edits asks first**, through the same `leaving()` path
-  and `beforeunload` guard as the Blotter. Today only the assistant waits. A
-  historical-context change with unsaved edits also asks before discarding
-  them. A request whose outcome is unconfirmed is not an unsaved edit: it is
-  retained across a move, so it neither asks nor registers the unload guard.
+  and `beforeunload` guard as the Blotter, and only on moves that discard the
+  edits: another page, a changed historical context or return to working data,
+  an account switch or sign-out, another example, and, in the page, opening
+  another library entry, New curve, a template, or Reload library on a selected
+  curve. A change of close keeps the graph (D162), so it asks only when an
+  effective-version timeline is unpublished, and Discard drops that draft alone.
+  Saving preferences and following live keep the edits and never ask. Keeping
+  returns focus to the control that asked. A request whose outcome is
+  unconfirmed is not an unsaved edit: it is retained across a move, so it
+  neither asks nor registers the unload guard. A move that fails after the
+  edits were discarded reads the library again.
   Preview and Save also wait, naming what is missing, while a contract
   connection lacks its contract, output position or weight.
 - The retained-request banner, optimistic versions, read-only explanations and

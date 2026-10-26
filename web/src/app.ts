@@ -141,30 +141,42 @@ async function act(work:()=>Promise<void>,{keepNotice=false}={}){
   // Errors and notices describe the previous action; the next one starts clean.
   if(busy)return;busy=true;syncControls();$('error').hidden=true;if(!keepNotice)$('notice').hidden=true;text('status','Loading…');
   try{await work();text('status',pageStatus());}
-  catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');}
+  catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');if(page==='custom-curves')await customCurves.recover().catch(()=>undefined);}
   finally{busy=false;syncControls();if(closeCheckDue){closeCheckDue=false;void recheckNewestClose();}}
 }
 // A move of the person's that would give up the amendment the Blotter's panel holds, or the edits of a custom curve, as another page, another
 // context or another close does, asks first, in the panel, whether to; and it asks before the page is busy, because every control, the question's own included,
 // is disabled while it is. `modal` is a dialog open over the page, which keeps the panel out of reach, and is closed for the question.
 // false means the person kept the amendment.
-async function mayLeave(modal?:HTMLDialogElement){
-  if(!holdsEdits())return true;
+// `move` says what the move does to a custom curve's edits: 'discards' them (another page, context or account), changes the close ('closes'), which
+// keeps the graph and gives up only an unpublished effective-version timeline, or 'keeps' them (preferences, following live). The Blotter's amendment
+// is asked about for every move, and always through its own leave, which also closes its forms.
+type Move='discards'|'closes'|'keeps';
+async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
+  if(page==='futures'){
+    if(modal?.open&&futures.editing())modal.close();
+    return futures.leave();
+  }
+  if(page!=='custom-curves'||move==='keeps')return true;
+  const scope=move==='closes'?'timeline':'edits';
+  if(!customCurves.holds(scope))return true;
   if(modal?.open)modal.close();
-  return page==='futures'?futures.leave():customCurves.leave();
+  if(!await customCurves.leave(scope))return false;
+  if(move==='discards')customCurves.discard();
+  return true;
 }
-// Whether the page showing holds edits that a move of the person's gives up: the Blotter's amendment, or a custom curve's unsaved edits.
-function holdsEdits(){return page==='futures'?futures.editing():page==='custom-curves'&&customCurves.editing();}
+// Whether the page showing holds edits that a move to another page, context or account gives up: the Blotter's amendment, or a custom curve's unsaved edits.
+function holdsEdits(){return page==='futures'?futures.editing():page==='custom-curves'&&customCurves.holds('edits');}
 // What the profile dialog does gives up what the Blotter holds, which is asked about with the dialog closed, for a modal dialog keeps the panel, and
 // the question, out of reach. Keeping the amendment leaves the dialog closed and nothing done, which is said, for a closed dialog looks like a done one.
-async function mayLeaveForDialog(notDone:string){
+async function mayLeaveForDialog(notDone:string,move:Move='discards'){
   if(busy)return false;
-  if(await mayLeave($<HTMLDialogElement>('profile-dialog')))return true;
-  notice(`${notDone}, because you kept the ${page==='futures'?'amendment':'curve edits'} you were editing.`);
+  if(await mayLeave(move,$<HTMLDialogElement>('profile-dialog')))return true;
+  notice(page==='futures'?`${notDone}, because you kept the amendment you were editing.`:`${notDone} · your curve edits are unchanged.`);
   return false;
 }
-// Runs `work` as an action, once the person has agreed to leave what the Blotter holds.
-function leaving(work:()=>Promise<void>){void (async()=>{if(busy)return;if(await mayLeave())await act(work);})();}
+// Runs `work` as an action, once the person has agreed to leave what the page holds. A discarded curve that the work then failed to leave is read again.
+function leaving(work:()=>Promise<void>,move:Move='discards'){void (async()=>{if(busy)return;if(await mayLeave(move))await act(work);})();}
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][],onRowActivate?:(index:number)=>void){
@@ -694,7 +706,7 @@ async function profileAction(control:HTMLElement,work:()=>Promise<void>){
 }
 $('profile-dialog').addEventListener('close',()=>profileError());
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
-$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(!await mayLeaveForDialog('Your preferences were not saved'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;persist();assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});})();};
+$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(!await mayLeaveForDialog('Your preferences were not saved','keeps'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;persist();assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});})();};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
   hostedPilot=mode==='hosted-pilot';
@@ -753,7 +765,7 @@ async function loadSelectedClose(){
 // the amendment has nothing to put back. The calendar chooses through here, and so does anything that stands in for it with a change event.
 function chooseClose(id:string){
   select('snapshot').value=shownClose;
-  leaving(async()=>{select('snapshot').value=id;closeChanged();await loadSelectedClose();});
+  leaving(async()=>{select('snapshot').value=id;closeChanged();await loadSelectedClose();},'closes');
 }
 $('snapshot').onchange=()=>chooseClose(select('snapshot').value);
 $('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await initializeContext();await build();});
@@ -813,7 +825,7 @@ $('follow-live').onclick=()=>leaving(async()=>{
  const selected=await api<LiveContextUpdate>('market/live',{snapshotId:frame().id,policy:'selected_facts_latest_committed_corrections_v1'});
  if(navigation){navigation.context=selected.context;navigation.live=selected.live;}
  contextDirty=false;connectLive(selected.live);lastLiveUpdate=selected;liveUpdates?.offer({...selected,generation:selected.live.generation});
-});
+},'keeps');
 $('live-retry').onclick=()=>{if(liveStream?.readyState===EventSource.CLOSED&&navigation?.live){liveStream=undefined;connectLive(navigation.live);}else if(lastLiveUpdate)liveUpdates?.offer({...lastLiveUpdate,generation:lastLiveUpdate.live.generation},true);};
 // The side panels of Curves & prices and Custom curves dock beside the page when the main area has the room and the assistant is closed.
 const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
@@ -824,7 +836,7 @@ const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScop
 const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  zone:()=>prefs.timeZone,busy:()=>busy,enabled:()=>!!navigation&&can('ReadMarketData')&&!contextDirty,
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
- open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose),select:chooseClose
+ open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose,'closes'),select:chooseClose
 });
 const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});

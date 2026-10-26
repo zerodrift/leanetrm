@@ -2,6 +2,8 @@ import {sideSession} from './side-session.mjs';
 
 /** Browser behavior over the same authorized custom-curve operations used by agents. */
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,fitsWidth,url}){
+ const discardAsked=async()=>{if(await evaluate("!document.querySelector('#custom-curves-panel-prompt').hidden"))await click('#custom-curves-panel-prompt button:not(.secondary)');};
+ const pickTemplate=async code=>{await set('#custom-curves-template',code);await discardAsked();};
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.customAuthoringReads=[];{const original=window.fetch;window.fetch=(input,init)=>{window.customAuthoringReads.push(new URL(typeof input==='string'?input:input.url,location.href).pathname);return original(input,init);};}`});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
@@ -9,7 +11,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  const selectedClose=await evaluate("[...document.querySelector('#snapshot').options].find(option=>option.textContent.includes('Dec 18')&&option.textContent.includes('4:00')).value");
  await set('#snapshot',selectedClose);await wait(idle);await click('#nav-custom-curves');
  await check('custom curve editor loads backend operation and template catalogs',"!document.querySelector('#custom-curves-page').hidden&&document.querySelector('#custom-curves-template option[value=ng_prompt]')&&document.querySelectorAll('#custom-curves-operators button').length>=5");
- await set('#custom-curves-template','ng_prompt');
+ await pickTemplate('ng_prompt');
  await check('prompt template creates a connected editable graph',"document.querySelectorAll('.custom-curve-node').length>=4&&document.querySelectorAll('.custom-curve-wires path').length>=3");
  const widest="(()=>{const width=selector=>{const node=document.querySelector(selector);return node&&!node.hidden?node.getBoundingClientRect().width:0;},graph=width('.custom-curve-centre');return graph>width('#custom-curves-rail')&&graph>width('#custom-curves-panel');})()";
  await check('the panel stays closed when the page opens a curve, and the graph is the widest region',"document.querySelector('#custom-curves-panel').hidden&&document.querySelector('#custom-curves-toggle-panel').getAttribute('aria-expanded')==='false'&&document.querySelector('#custom-curves-heading').textContent.includes('NG prompt')&&"+widest);
@@ -25,7 +27,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#custom-curve-property-leftBoundary','0');await set('#custom-curve-property-rightBoundary','0');await set('#custom-curve-property-implementation','0');await set('#custom-curve-property-output','0');
  await set('select[data-input-port=values]','sample');await set('select[data-input-port=dates]','dates');
  await check('lookup settings and connections are editable through backend metadata',"document.querySelector('#custom-curve-property-maxGapDays').value==='31'&&document.querySelector('.custom-curve-node[data-node-id=lookup_1]').textContent.includes('Linear price')&&document.querySelectorAll('.custom-curve-wires path').length>=5");
- await set('#custom-curves-template','ng_prompt');
+ await pickTemplate('ng_prompt');
 
  await check('custom curve side panels have independent accessible collapse controls',"[['rail','rail-body'],['panel','panel']].every(([name,region])=>{const control=document.querySelector('#custom-curves-toggle-'+name),panel=document.querySelector('#custom-curves-'+region);return control&&panel&&control.getAttribute('aria-controls')===panel.id&&control.getAttribute('aria-expanded')==='true'&&!panel.hidden;})");
  await evaluate("window.customGraphWidth=document.querySelector('#custom-curves-graph').getBoundingClientRect().width;window.customGraphNodes=document.querySelectorAll('.custom-curve-node').length");
@@ -73,12 +75,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await evaluate("(()=>{const original=window.fetch;let failed=false;window.confirmedCurveWrites=0;window.fetch=async(...args)=>{const path=String(args[0]);if(path==='/api/custom-curves'&&window.confirmedCurveWrites&&!failed){failed=true;return new Response(JSON.stringify({code:'synthetic_refresh'}),{status:503});}const response=await original(...args);if(path.endsWith('/custom-curves/save')&&response.ok)window.confirmedCurveWrites++;return response;};})()");
  await set('#custom-curves-name','Synthetic browser prompt revised');await click('#custom-curves-save');
  await check('failed library reads after confirmed saving are visible without retaining the write',"!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.custom-curves.request.'))");
- await click('#custom-curves-reload');
+ await click('#custom-curves-reload');await discardAsked();
  await check('library recovery reloads the confirmed draft without repeating its save',"window.confirmedCurveWrites===1&&document.querySelector('#custom-curves-name').value==='Synthetic browser prompt revised'&&document.querySelector('#error').hidden");
  await evaluate(`(async()=>{const original=window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/save')&&request.status===200).at(-1),saved=original.payload,boot=await(await fetch('/api/bootstrap?includeFrames=false')).json();const response=await fetch('/api/custom-curves/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({...original.body,requestId:crypto.randomUUID(),id:saved.id,version:saved.version,generation:saved.generation,expectedState:saved.state,definition:{...saved.definition,name:'Synthetic browser prompt concurrent edit'}})});if(!response.ok)throw Error('Concurrent draft edit failed');window.concurrentCurve=await response.json();})()`);
  await set('#custom-curves-name','Synthetic browser prompt local edit');await click('#custom-curves-save');
  await check('a concurrent draft change rejects stale editing',"!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-pending').hidden");
- await click('#custom-curves-reload');await set('#custom-curves-name','Synthetic browser prompt');await click('#custom-curves-save');
+ await click('#custom-curves-reload');await discardAsked();await set('#custom-curves-name','Synthetic browser prompt');await click('#custom-curves-save');
  await check('Reload library refreshes the selected draft generation before the next save',"(()=>{const request=window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/save')).at(-1);return request.status===200&&request.body.generation===window.concurrentCurve.generation&&document.querySelector('#error').hidden;})()");
  await persona('approver');await click('#example');await click('#nav-custom-curves');
  await evaluate("{const choice=[...document.querySelectorAll('#custom-curves-library [data-recipe]')].find(item=>item.textContent.includes('Synthetic browser prompt'));if(!choice)throw Error('Saved draft is missing');choice.click();}");await wait(idle);
@@ -89,9 +91,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('a saved draft publishes with its exact optimistic version',"document.querySelector('#custom-curves-state').textContent.includes('Published')&&document.querySelector('#custom-curves-publish').disabled&&document.querySelector('#error').hidden");
  await check('the library chip of the selected curve turns Published',"document.querySelector('#custom-curves-library [aria-current=true] .curve-state-chip')?.textContent==='Published'");
  await persona('editor');await click('#example');await click('#nav-custom-curves');
- await set('#custom-curves-template','ng_balmo');await click('#custom-curves-preview');
+ await pickTemplate('ng_balmo');await click('#custom-curves-preview');
  await check('balance of month template previews a backend-defined daily-forward average',"!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#error').hidden&&document.querySelectorAll('#custom-curves-values tbody tr').length===1&&document.querySelector('#custom-curves-values').textContent.includes('3.6175')");
- await set('#custom-curves-template','ng_average');
+ await pickTemplate('ng_average');
  await evaluate("{const nodes=[...document.querySelectorAll('.custom-curve-node')],dates=nodes.find(n=>n.textContent.toLowerCase().includes('date'));if(!dates)throw Error('Date sequence operation missing');dates.querySelector('button').click();}");
  await check('date sequences remain editable graph references',"document.querySelector('#custom-curves-properties').querySelectorAll('input,select').length>0&&document.querySelectorAll('.custom-curve-node').length>=5");
  await click('#custom-curves-preview');
@@ -115,7 +117,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#custom-curves-properties select[data-input-port=values]','mean');await click('#custom-curves-preview');
  await check('reconnecting a typed input restores a valid backend curve',"document.querySelectorAll('#custom-curves-values tbody tr').length===2&&document.querySelector('#error').hidden");
  await check('the connected workbench offers typed operations without a separate SQL pricing path',"!document.querySelector('#custom-curves-mode-sql')&&![...document.querySelectorAll('#custom-curves-operators button')].some(b=>b.textContent.includes('SQL'))");
- await set('#custom-curves-template','ng_prompt');await set('#custom-curves-code','synthetic_browser_weighted');await set('#custom-curves-name','Synthetic weighted connections');await click('#custom-curves-mode-formula');
+ await pickTemplate('ng_prompt');await set('#custom-curves-code','synthetic_browser_weighted');await set('#custom-curves-name','Synthetic weighted connections');await click('#custom-curves-mode-formula');
  const weightedFormula=await evaluate(`(async()=>{
   const catalog=await(await fetch('/api/custom-curves')).json(),definition=structuredClone(catalog.templates.find(t=>t.code==='ng_prompt').definition);
   definition.code='synthetic_browser_weighted';definition.name='Synthetic weighted connections';
@@ -133,7 +135,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('[aria-label="Weight for connection 2"]','-0.200000000000000001');await click('#custom-curves-preview');
  await check('signed weighted preview sends exact mappings and renders only backend prices',"(()=>{const p=window.customCurveRequests.filter(r=>r.path.endsWith('/custom-curves/preview')).at(-1),n=p.body.definition.nodes.find(n=>n.kind==='weighted_contracts');return p.status===200&&n.contractWeights[1].weight==='-0.200000000000000001'&&n.contractWeights[1].contractId===window.customWeightedDefinition.nodes.find(n=>n.id==='select').contractWeights[1].contractId&&p.payload.rows.every(row=>row.every(value=>value===null||document.querySelector('#custom-curves-values').textContent.includes(String(value))))&&!document.querySelector('#custom-curves-result').hidden;})()");
  await evaluate("document.querySelector('.custom-curve-desk').scrollIntoView({block:'start'})");await shot('custom-curves-weighted');
- await click('#custom-curves-save');await click('#custom-curves-reload');await click('.custom-curve-node[data-node-id=select] button');
+ await click('#custom-curves-save');await click('#custom-curves-reload');await discardAsked();await click('.custom-curve-node[data-node-id=select] button');
  await check('saved weighted definitions retain their exact contract references and weight text',`document.querySelector('[aria-label="Weight for connection 2"]').value==='-0.200000000000000001'&&document.querySelectorAll('.curve-contract-row').length===2&&document.querySelector('#error').hidden`);
  await click('#custom-curves-mode-formula');await check('formula roundtrip retains typed contract mappings and multiple source ports',"document.querySelector('#custom-curves-formula').value.includes('contractWeights=')&&document.querySelector('#custom-curves-formula').value.includes('source_b=@other')&&document.querySelector('#custom-curves-formula').value.includes('-0.200000000000000001')");
  // Graph objects: contract rows, arrows and listed source contracts, edited directly on the graph through the same definition edits.
@@ -228,14 +230,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await rightClick(`[data-contract-id="${weightedSources.local_gas[3].id}"] button`);await choose('Connect to…');
  await check('picking a contract from an unconnected source says which input it will connect',"document.querySelector('[data-contract-row=new] [data-connect-target]').getAttribute('aria-label').endsWith('connects other as source 1')&&document.querySelector('[data-contract-row=new]').textContent.includes('connects other as source 1')");
  await press('Escape');
- await set('#custom-curves-template','ng_average');
+ await pickTemplate('ng_average');
  await click('.custom-curve-node[data-node-id=select] button');await set('#custom-curve-property-count','2');
  await click('.custom-curve-node[data-node-id=dates] button');await set('#custom-curve-property-count','2');
  await click('.custom-curve-node[data-node-id=mean] button');await click('#custom-curve-remove-node');
  await click('.custom-curve-node[data-node-id=output] button');await set('#custom-curves-properties select[data-input-port=values]','sample');
  await click('#custom-curves-preview');
  await check('raw rolling history displays every date and tenor without collapsing repeated position labels',"(()=>{const preview=window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/preview')).at(-1)?.payload;return preview?.rows.length===4&&preview?.chart.axis==='observation'&&preview.chart.series.length===2&&preview.chart.series.every(series=>series.points.length===2&&new Set(series.points.map(point=>point.x)).size===2)&&document.querySelectorAll('#custom-curves-values tbody tr').length===4&&!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#error').hidden;})()");
- await click('#custom-curves-new');await set('#custom-curves-code','synthetic_published_source');await set('#custom-curves-name','Synthetic published-source wrapper');
+ await click('#custom-curves-new');await discardAsked();await set('#custom-curves-code','synthetic_published_source');await set('#custom-curves-name','Synthetic published-source wrapper');
  await evaluate("[...document.querySelectorAll('#custom-curves-operators button')].find(button=>button.textContent==='Published custom curve').click()");
  await check('published source authoring requires an explicit version and selection policy',"document.querySelector('#custom-curve-property-publishedSource').value===''&&document.querySelector('#custom-curve-property-selection').value===''");
  const publishedChoice=await evaluate("(()=>{const select=document.querySelector('#custom-curve-property-publishedSource'),choice=[...select.options].find(option=>option.textContent.includes('Synthetic browser prompt')&&option.textContent.includes('v1'));if(!choice)throw Error('Published parent choice is missing');return choice.value;})()");
@@ -243,7 +245,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await evaluate("[...document.querySelectorAll('#custom-curves-operators button')].find(button=>button.textContent==='Curve output').click()");
  await set('#custom-curves-properties select[data-input-port=values]','published_source_1');await click('#custom-curve-output');await click('#custom-curves-preview');
  await check('published source UI transports typed references and renders backend values',"(()=>{const request=window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/preview')).at(-1),node=request.body.definition.nodes.find(node=>node.kind==='published_source');return request.status===200&&node.publishedSource.version===1&&node.publishedSource.curveId&&node.publishedSource.outputNode&&node.parameters.selection==='all_output_points_v1'&&request.payload.rows.every(row=>row.every(value=>value===null||document.querySelector('#custom-curves-values').textContent.includes(String(value))))&&document.querySelector('#error').hidden;})()","({request:window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/preview')).at(-1),error:document.querySelector('#error').textContent})");
- await click('#custom-curves-save');await click('#custom-curves-reload');await click('.custom-curve-node[data-node-id=published_source_1] button');
+ await click('#custom-curves-save');await click('#custom-curves-reload');await discardAsked();await click('.custom-curve-node[data-node-id=published_source_1] button');
  await check('saved published sources retain a labeled exact version in the visual editor',"document.querySelector('#custom-curve-property-publishedSource').selectedOptions[0].textContent.includes('Synthetic browser prompt')&&document.querySelector('#custom-curve-property-publishedSource').selectedOptions[0].textContent.includes('v1')&&document.querySelector('#custom-curve-property-selection').value==='0'&&document.querySelector('#error').hidden");
  await click('#custom-curves-mode-formula');await check('published source formula preserves the structured version/output binding',"document.querySelector('#custom-curves-formula').value.includes('published_source(')&&document.querySelector('#custom-curves-formula').value.includes('publishedSource={')&&document.querySelector('#custom-curves-formula').value.includes('all_output_points_v1')");
  await click('#custom-curves-compile');await click('#custom-curves-mode-visual');await click('#custom-curves-preview');
@@ -257,7 +259,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  const question="document.querySelector('#custom-curves-panel-prompt')",asking=`!${question}.hidden&&${question}.textContent.includes('unsaved edits')&&!document.querySelector('#custom-curves-panel').hidden`;
  const unloadAsks="(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()",onCurves="!document.querySelector('#custom-curves-page').hidden";
  const keep=()=>click('#custom-curves-panel-prompt button.secondary'),discard=(milliseconds)=>click('#custom-curves-panel-prompt button:not(.secondary)',milliseconds);
- await click('#custom-curves-reload');
+ await click('#custom-curves-reload');await discardAsked();
  await check('nothing unsaved registers no unload question',`!${unloadAsks}`);
  await click('#nav-market');
  await check('leaving a curve with nothing unsaved asks nothing',`!${onCurves}&&${question}.hidden`);
@@ -271,22 +273,56 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('discarding leaves for the page and drops the edit',`!${onCurves}&&!${unloadAsks}`);
  await click('#nav-custom-curves');
  await check('coming back shows the curve without the discarded edit',`document.querySelector('#custom-curves-name').value!=='Unsaved edit'&&!${unloadAsks}`);
+
  const otherClose=await evaluate("[...document.querySelector('#snapshot').options].find(option=>option.value&&option.value!==document.querySelector('#snapshot').value).value"),shownClose=await evaluate("document.querySelector('#snapshot').value");
- await set('#custom-curves-name','Unsaved edit');await set('#snapshot',otherClose);
- await check('changing the close asks first and leaves the selected close as it was',`${asking}&&document.querySelector('#snapshot').value===${JSON.stringify(shownClose)}`);
- await keep();
- await check('keeping the edits keeps the close and the edit',`${question}.hidden&&document.querySelector('#snapshot').value===${JSON.stringify(shownClose)}&&document.querySelector('#custom-curves-name').value==='Unsaved edit'`);
+ await set('#custom-curves-name','Unsaved edit');await set('#snapshot',otherClose);await wait(idle);
+ await check('changing the close keeps the graph, so it asks nothing and leaves the edit unsaved',`${question}.hidden&&document.querySelector('#snapshot').value===${JSON.stringify(otherClose)}&&${unloadAsks}`);
+ await set('#snapshot',shownClose);await wait(idle);
  await evaluate("document.querySelector('#date-context > summary').click()");
  await check('opening the historical time controls asks, and they stay closed',`${asking}&&!document.querySelector('#date-context').open`);
  await keep();
- await check('keeping the edits leaves the controls closed and the edit in place',`${question}.hidden&&!document.querySelector('#date-context').open&&document.querySelector('#custom-curves-name').value==='Unsaved edit'`);
+ await check('keeping the edits leaves the controls closed and the edit in place',`${question}.hidden&&!document.querySelector('#date-context').open&&${unloadAsks}`);
  await click('#profile-open');await set('#profile','viewer');await click('#open',30000);
  await check('switching the account asks, with the profile dialog closed, and says nothing was switched',`${asking}&&!document.querySelector('#profile-dialog').open`);
  await keep();
- await check('keeping the edits switches nothing and says why',`document.querySelector('#custom-curves-name').value==='Unsaved edit'&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes('kept the curve edits')`);
- await set('#snapshot',otherClose);await discard();await wait(idle);
- await check('discarding lets the close change, and drops the edit',`document.querySelector('#snapshot').value===${JSON.stringify(otherClose)}&&!${unloadAsks}&&document.querySelector('#custom-curves-name').value!=='Unsaved edit'`);
- await set('#snapshot',shownClose);await wait(idle);
+ await check('keeping the edits switches nothing and says why',`${unloadAsks}&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes('your curve edits are unchanged')`);
+ await click('#profile-open');await click('#profile-save');
+ await check('saving preferences keeps the curve edits, so it asks nothing',`${question}.hidden&&${unloadAsks}`);
+ await evaluate("document.querySelector('#profile-dialog').open&&document.querySelector('#profile-dialog').close()");
+ await click('#current-view-context');
+ await check('returning to working data asks first',asking);
+ await keep();
+ await check('keeping the edits leaves them in place',`${question}.hidden&&${unloadAsks}`);
+ await click('#current-view-context');await discard(30000);
+ await check('discarding lets working data open, and drops the edit',`${question}.hidden&&!${unloadAsks}`);
+ // A move that fails after the edits were discarded leaves the page read again, not empty beside stale entries.
+ await pickTemplate('ng_prompt');await evaluate("{const send=window.fetch;window.fetch=async(...args)=>{if(String(args[0]).endsWith('/market/current')){window.fetch=send;throw Error('Synthetic read failure');}return send(...args);};}");
+ const libraryEntries="document.querySelectorAll('#custom-curves-library [data-recipe]').length";
+ await evaluate(`window.libraryBefore=${libraryEntries}`);
+ await click('#current-view-context');await discard(30000);
+ await check('a failed move after Discard says why and reads the library again',`!document.querySelector('#error').hidden&&${libraryEntries}===window.libraryBefore&&window.libraryBefore>0&&!${unloadAsks}&&${question}.hidden`);
+ // A request whose outcome is unconfirmed is retained across a move and is not an unsaved edit.
+ await pickTemplate('ng_prompt');await set('#custom-curves-code','synthetic_pending_only');await set('#custom-curves-name','Synthetic pending only');await evaluate('window.dropCustomSave=true');await click('#custom-curves-save');
+ await click('#nav-market');await discard();await wait(idle);await click('#nav-custom-curves');
+ await check('a lone unconfirmed request is still retained after the move',"!document.querySelector('#custom-curves-pending').hidden");
+ await check('a lone unconfirmed request registers no unload question',`!${unloadAsks}`);
+ await click('#nav-market');
+ await check('a lone unconfirmed request does not ask before leaving',`!${onCurves}&&${question}.hidden`);
+ await click('#nav-custom-curves');await click('#custom-curves-discard');
+ // Opening something in place of the edits asks too.
+ await pickTemplate('ng_prompt');await set('#custom-curves-name','Replaced by a template');
+ await set('#custom-curves-template','ng_average');
+ await check('choosing another template asks, and the select shows the template the graph is',`${asking}&&document.querySelector('#custom-curves-template').value==='ng_prompt'`);
+ await keep();
+ await check('keeping the edits keeps the template and the edit',`${question}.hidden&&document.querySelector('#custom-curves-template').value==='ng_prompt'&&document.querySelector('#custom-curves-name').value==='Replaced by a template'`);
+ await evaluate("document.querySelector('#custom-curves-new').focus()");await click('#custom-curves-new');
+ await check('New curve asks first',asking);await keep();
+ await check('keeping the edits keeps the graph, and focus returns to the control that asked',`${question}.hidden&&document.activeElement?.id==='custom-curves-new'&&document.querySelector('#custom-curves-name').value==='Replaced by a template'&&document.querySelectorAll('.custom-curve-node').length>=4`);
+ await click('#custom-curves-library [data-recipe]');
+ await check('opening a library entry asks first',asking);await keep();
+ await check('keeping the edits keeps the graph and its focus on the entry',`${question}.hidden&&document.querySelector('#custom-curves-name').value==='Replaced by a template'`);
+ await click('#custom-curves-new');await discard();
+ await check('discarding New curve opens an empty draft',`${question}.hidden&&document.querySelectorAll('.custom-curve-node').length===0`);
  await persona('viewer');await click('#nav-custom-curves');
  await check('switching identity clears computed outputs and authoring authority',"document.querySelector('#custom-curves-result').hidden&&document.querySelector('#custom-curves-code').value===''&&document.querySelector('#custom-curves-save').disabled&&document.querySelector('#custom-curves-publish').disabled");
  await check('read-only accounts receive an actionable explanation',"!document.querySelector('#custom-curves-access-note').hidden&&document.querySelector('#custom-curves-access-note').textContent.includes('read-only')&&document.querySelector('#custom-curves-access-note').textContent.includes('Preview access')");

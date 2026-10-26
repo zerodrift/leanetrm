@@ -48,6 +48,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await openView('combine');await set('.curve-blend-weight','9');
  await evaluate(`{const send=window.fetch;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0])!=='/api/custom-curves'||!window.withoutCombination)return response;const data=await response.clone().json();data.operators=data.operators.filter(op=>op.kind!=='weighted_panels');return new Response(JSON.stringify(data),{status:response.status,headers:response.headers});};window.withoutCombination=true;}`);
  await click('#custom-curves-reload');
+ await check('reloading the library asks before the unbuilt ingredients are given up',"!document.querySelector('#custom-curves-panel-prompt').hidden");
+ await click('#custom-curves-panel-prompt button:not(.secondary)');
  await check('a catalog without combining drops the unbuilt ingredients and the Combine view',"document.querySelector('#custom-curves-panel-tabs-combine').hidden&&document.querySelector('#curve-blend').hidden&&document.querySelector('.curve-blend-weight').value===''&&!document.querySelector('#custom-curves-open-combine')&&!document.querySelector('#custom-curves-preview').disabled");
  await evaluate('window.withoutCombination=false');
  await persona('viewer');await click('#nav-custom-curves');
