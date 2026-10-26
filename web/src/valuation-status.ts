@@ -6,6 +6,7 @@ export type ValuationReason='source_expired'|'missing_observation';
 const reasons:Readonly<Record<string,Readonly<Record<ValuationReason,string>>>>={
   future:{source_expired:'Contract expired · awaiting settlement',missing_observation:'Missing price at this close'},
   financial_swap:{source_expired:'Past marking cutoff',missing_observation:'Missing price at this close'},
+  heat_rate:{source_expired:'Past marking cutoff',missing_observation:'Missing price at this close'},
 };
 
 export function valuationReason(code:ValuationReason,instrumentType:string):string{

@@ -753,3 +753,26 @@ publication, cross-version migration or valuation-configuration acceptance
 operation. A future publication workflow must classify changes, qualify their
 effective/knowledge coordinates and show affected trades before offering an
 authorized action. Earlier trade revisions and calculation contexts remain intact.
+
+## D229 — Shared PPA portfolios and dimensional heat-rate sides
+
+Admit PPA bindings into the common blotter and connected portfolio-risk report,
+using their independent interval sides and the exact admitted interval market.
+Select `estimate_until_actual_v1`: estimate pending quantities until the meter
+deadline, then require actuals. Retain this policy and certified interval read
+contexts with queued runs. Label the monetary measure “Value excluding overdue
+cash” and retain complete PV, overdue known and overdue estimated companions;
+do not present it as an ordinary outstanding PV. Whole-scope exact input-bundle
+compatibility remains required. Worker reads require the exact live bound attempt
+and current service and represented-user authority.
+
+Use the D227 `factor_scheduled_financial_swap_v1` contract for heat-rate demo
+trades. Its typed quantity factor and qualified unit conversions derive the
+second floating side's schedule. Both sides retain independent price and payment
+terms and share the existing managed PV and settlement operations. Present these
+bindings as heat rates in the common blotter and risk evidence. Do not introduce
+a second quantity-conversion contract.
+
+The standard isolated preview seeds 37 synthetic bindings, including eight
+heat-rate and five PPA bindings. See [demo instruments](demo-instruments.md) for
+coverage, numerical evidence and remaining limits.

@@ -189,11 +189,7 @@ public sealed class IntervalCurvesStore(MarketReads reads,TouProductStore produc
         var captured=await new KnowledgeStore(data.DefinitionRevision.CatalogId).Capture(connection,
             new(DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),knownAt.ToString("O"),"at"),ct);
         var rows=await PreviewDatabase.Rows(connection,"""
-            SELECT row_to_json(q)::text FROM(SELECT o.id,k.known_from FROM market_data.observations o
-            JOIN market_data.knowledge_events e ON(e.catalog_id,e.revision_id,e.observation_id)=(o.catalog_id,o.definition_revision_id,o.id)
-            JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
-            JOIN market_data.market_contexts c ON c.catalog_id=e.catalog_id AND c.context_id=$4
-            WHERE o.catalog_id=$1 AND o.definition_revision_id=$2 AND o.id=ANY($3::uuid[]) AND e.event_order<=c.known_through AND k.known_from<=$5)q
+            SELECT value::text FROM jsonb_array_elements(market_data.frozen_observation_knowledge($1,$2,$3::uuid[],$4,$5))
             """,[data.DefinitionRevision.CatalogId,data.DefinitionRevision.RevisionId,selected,captured.Context.ContextId!.Value,knownAt],ct);
         return (rows.ToImmutableDictionary(r=>new ObservationKey(data.DefinitionRevision.CatalogId,r.Id("id")),r=>r.Instant("known_from")),captured.Context.ContextId);
     }

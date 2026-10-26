@@ -18,7 +18,8 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
   lots:string|null;quantity:string|null;unit:string;quantitySpecification:Reference;executedAt:string;executionPrice:string|null;fixedPrice:string|null;mark:string|null;markMinusPrice:string|null;
   executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|null;unavailableReason:ValuationReason|null;
   /** A swap's instrument kind: a scheduled one (D214) holds its quantities and prices by period. Futures state none. */
-  contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument';
+  contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument'|'ppa_instrument';
+  measure?:string;completePv?:string|null;overdueKnown?:string;overdueEstimated?:string;pendingActuals?:string;coverage?:{from:string;to:string};
   /** For a scheduled swap whose periods project from several curves: the markets together, as the backend keys and names them. */
   marketKey?:string|null;marketLabel?:string|null;projectionCurves?:string[]|null};
 export type Summary={view:{groupBy:string[];measures:string[];pivotConvention:string|null};groups:PivotGroup[]};
@@ -65,8 +66,10 @@ const commodityOf=(group:PivotGroup)=>{const named=group.commodity as {code?:unk
 const byText=(a:string,b:string)=>a<b?-1:a>b?1:0;
 
 // The measure, labels and pill of each instrument type the Blotter holds.
-const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';label:'PV'|'P&L';pill:'FUT'|'SWAP';plural:string;price:'executionPrice'|'fixedPrice';priceLabel:'Executed'|'Fixed'}>>={
+const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';label:'PV'|'P&L'|'Value excl. overdue';pill:'FUT'|'SWAP'|'HEAT'|'PPA';plural:string;price:'executionPrice'|'fixedPrice';priceLabel:'Executed'|'Fixed'|'Side'}>>={
   future:{measure:'executionPnl',label:'P&L',pill:'FUT',plural:'Futures',price:'executionPrice',priceLabel:'Executed'},
+  heat_rate:{measure:'presentValue',label:'PV',pill:'HEAT',plural:'Heat-rate swaps',price:'fixedPrice',priceLabel:'Fixed'},
+  ppa:{measure:'presentValue',label:'Value excl. overdue',pill:'PPA',plural:'PPAs',price:'fixedPrice',priceLabel:'Side'},
   financial_swap:{measure:'presentValue',label:'PV',pill:'SWAP',plural:'Swaps',price:'fixedPrice',priceLabel:'Fixed'},
 };
 /** The value cells an instrument type shows: its mark and its own value measure; a position the close cannot value says why in them. */
@@ -119,13 +122,14 @@ function totalNote(total:string|null,excluded:number):string|null{
 
 export type TileRow={currencyKey:string;currency:string;total:string|null;trades:number;excluded:number;note:string|null;byBook:{bookId:string;book:string;value:string|null;excluded:number}[]};
 /** A money tile: one row per exact currency, never added across currencies. `note` is the tile's own when it has one row. */
-export type Tile={key:'swapPv'|'futuresPnl';rows:TileRow[];note:string|null};
+export type Tile={key:'swapPv'|'futuresPnl'|'heatRatePv'|'ppaValue';rows:TileRow[];note:string|null};
 /** Swap PV and futures execution P&L, each per currency and split by book, from the money totals (D223). */
 export function summaryTiles(summaries:readonly Summary[]):Tile[]{
   const types=groupsOf(summaries,byType),books=groupsOf(summaries,byBook);
   const labels=currencyLabels([...types,...books]);
-  return (['swapPv','futuresPnl'] as const).map(key=>{
-    const type=key==='swapPv'?'financial_swap':'future',{measure,plural}=instrument(type);
+  const extra:('heatRatePv'|'ppaValue')[]=[];if(types.some(g=>g.instrumentType==='heat_rate'))extra.push('heatRatePv');if(types.some(g=>g.instrumentType==='ppa'))extra.push('ppaValue');
+  return (['swapPv','futuresPnl',...extra] as const).map(key=>{
+    const type=({swapPv:'financial_swap',futuresPnl:'future',heatRatePv:'heat_rate',ppaValue:'ppa'} as const)[key],{measure,plural}=instrument(type);
     const own=types.filter(g=>instrument(g.instrumentType)===instrument(type));
     const rows=own.map(group=>{
       const currencyKey=referenceKey(group.currencyReference),total=amount(group,measure),excluded=excludedPositions(group.unvaluedPositions);
@@ -163,7 +167,7 @@ export function positionsTile(summaries:readonly Summary[],rows:number,unvalued:
   return {count:rows,segments,note:excluded?`Includes ${excluded} position${excluded===1?'':'s'} not valued at this close`:null};
 }
 
-export type Subtotal={measure:'PV'|'P&L';amount:string|null;currency:string;excluded:number;note:string|null};
+export type Subtotal={measure:'PV'|'P&L'|'Value excl. overdue';amount:string|null;currency:string;excluded:number;note:string|null};
 export type GroupHeader={key:string;label:string;positions:number;subtotals:Subtotal[]};
 /**
  * How the rows group under `rowGroup`: each holding's group key, and each group's header with the backend subtotals of
@@ -217,13 +221,14 @@ export function signedText(value:string,format:Format):string{
 export const minus=(text:string)=>text.replace(/^-/,'−');
 
 /**
- * Swap PV by market: one horizontal panel per currency, gains right and losses left, largest gain first, each market
+ * Instrument values by market: one horizontal panel per currency, gains right and losses left, largest gain first, each market
  * marked with its commodity's color. The panel is captioned by its currency and says what it leaves out with that currency's
  * own backend count. Distinct native-quantity partitions remain separate bars, named by their units when they share a market.
  */
-export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{
+export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{return ['financial_swap','heat_rate','ppa'].flatMap(type=>pvPanelsFor(summaries,colors,format,type));}
+function pvPanelsFor(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string,type:string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),totals=groupsOf(summaries,byType),labels=marketLabels(markets);
-  const swaps=markets.filter(g=>instrument(g.instrumentType)===instruments.financial_swap);
+  const swaps=markets.filter(g=>instrument(g.instrumentType)===instruments[type]);
   const currencies=currencyLabels(swaps),units=unitLabels(swaps),panels=new Map<string,ChartPoint[]>();
   const counts=new Map<string,number>();
   const partition=(g:PivotGroup)=>JSON.stringify([marketKey(text(g,'market'),text(g,'definitionRevisionId')),referenceKey(g.currencyReference)]);
@@ -235,13 +240,13 @@ export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<st
     panels.set(currency,[...(panels.get(currency)??[]),{x:pointKey,label,y:value,marker:colors.get(commodityOf(group).code),...(value===null?{}:{text:signedText(value,format)})}]);
   }
   return [...panels].map(([currency,points])=>{
-    const total=totals.filter(g=>instrument(g.instrumentType)===instruments.financial_swap&&referenceKey(g.currencyReference)===currency);
+    const total=totals.filter(g=>instrument(g.instrumentType)===instruments[type]&&referenceKey(g.currencyReference)===currency);
     if(total.length!==1)throw Error(missingSummaries);
     if(new Set(points.map(p=>p.x)).size!==points.length)throw Error(inconsistent);
     const note=totalNote(amount(total[0],'presentValue'),excludedPositions(total[0].unvaluedPositions)),unit=currencies.get(currency)!;
     points.sort((a,b)=>a.y===null?(b.y===null?a.label!.localeCompare(b.label!):1):b.y===null?-1:compareDecimalStrings(b.y,a.y)||a.label!.localeCompare(b.label!));
     return {unit,spec:{title:`${unit} · bar right = gain`,...(note?{subtitle:note}:{}),axis:'category',categoryTitle:'Market',unit,kind:'bar',orientation:'horizontal',colorBySign:true,
-      series:[{name:'Swap PV',points}]} satisfies ChartSpec};
+      series:[{name:type==='financial_swap'?'Swap PV':`${instruments[type].plural} · ${instruments[type].label}`,points}]} satisfies ChartSpec};
   }).sort((a,b)=>a.unit.localeCompare(b.unit)).map(p=>p.spec);
 }
 
@@ -258,7 +263,7 @@ export function positionChartPanels(summaries:readonly Summary[],holdings:readon
   // pass over the positions.
   const directions=new Map<string,Set<Holding['direction']>>(),unquantified=new Set<string>();
   for(const h of holdings){
-    if(instrument(h.instrumentType)!==instruments.financial_swap)continue;
+    if(instrument(h.instrumentType)===instruments.future)continue;
     const key=JSON.stringify([marketOf(h),referenceKey(h.quantitySpecification),referenceKey(h.currencyReference)]);
     directions.set(key,(directions.get(key)??new Set()).add(h.direction));
     if(h.quantity===null)unquantified.add(key);
@@ -303,10 +308,10 @@ export function commodityColors(codes:Iterable<string>):Map<string,string>{
 
 /** A position the close values states its value; one it cannot value states why, and has no value. */
 type Valuation={value:string;unavailable:null}|{value:null;unavailable:string};
-export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP';reference:string;
+export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP'|'HEAT'|'PPA';reference:string;
   market:string;commodity:string;commodityName:string;curve:string;delivery:string;deliveryFrom:string;deliveryTo:string;
   quantity:string|null;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
-  price:string|null;priceLabel:'Executed'|'Fixed';priceUnit:string;mark:string|null;measure:'P&L'|'PV';currency:string;
+  price:string|null;priceLabel:'Executed'|'Fixed'|'Side';priceUnit:string|null;mark:string|null;measure:'P&L'|'PV'|'Value excl. overdue';currency:string;
   /**
    * Why the position has no single quantity, fixed price or mark the backend states, where it has none for a reason of its own: a
    * scheduled swap holds them by period, and a swap valued by its settlement lifecycle states no curve mark.
@@ -325,6 +330,8 @@ const byPeriod='By period';
 // What each note in place of a figure means, in full: the words a cell's tooltip and the position panel give it.
 const notes:Readonly<Record<string,string>>={
   [byPeriod]:'This scheduled swap holds it by period: the panel\'s Terms list each period.',
+  'By side':'This instrument retains each side’s own quantity and price terms; inspect its Terms.',
+  'Independent side schedules':'The instrument values its independent delivery and payment schedules rather than one market mark.',
   'Several marks':'No single curve price for this position at this close.',
   'Settlement lifecycle':'Valued by its settlement lifecycle, which states no single curve price.',
 };
@@ -359,6 +366,9 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
       const lots=h.lots.replace(/^-/,''),unit=lots==='1'?'lot':'lots';
       side=signOf(h.lots)==='zero'?`0 ${unit}`:h.lots.startsWith('-')?`−${lots} ${unit}`:`+${lots} ${unit}`;
       exposure=signOf(h.quantity)==='zero'?'flat':h.quantity.startsWith('-')?'short':'long';
+    }else if(type===instruments.ppa){
+      if(h.contractIdentityKind!=='ppa_instrument'||h.measure!=='ppa_value_excluding_overdue')throw Error('The Blotter returned a PPA without its valuation measure.');
+      side='Multi-side';exposure=null;
     }else{
       if(typeof h.direction!=='string'||!Object.hasOwn(sides,h.direction))throw Error('The Blotter returned a swap without its direction.');
       if(!swapKinds.includes(h.contractIdentityKind))throw Error('The Blotter returned a swap without its instrument kind.');
@@ -376,15 +386,15 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
       if(h.mark===null&&type===instruments.future)throw Error('The Blotter returned a valued future without its mark.');
       valuation={value,unavailable:null};
     }
-    const price=h[type.price],unitOfPrice=priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo);
+    const price=h[type.price],unitOfPrice=type===instruments.ppa?null:priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo);
     // A scheduled swap states a fixed price only where every fixed period shares it; two floating sides have none at all.
-    const quantityNote=h.quantity===null?byPeriod:null,priceNote=scheduledSwap&&price===null&&h.direction!=='multi_side'?byPeriod:null;
-    const markNote=valuation.unavailable!==null||h.mark!==null?null:h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
+    const quantityNote=h.quantity===null?byPeriod:null,priceNote=type===instruments.ppa?'By side':scheduledSwap&&price===null&&h.direction!=='multi_side'?byPeriod:null;
+    const markNote=valuation.unavailable!==null||h.mark!==null?null:type===instruments.ppa?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
     return {tradeId:h.tradeId,revision:h.revision,instrumentType:h.instrumentType,pill:type.pill,reference:h.tradeReference,
       market:h.marketLabel??curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
       quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark:h.mark,measure:type.label,currency:h.currency,...valuation,
       quantityNote,priceNote,markNote,severalCurves:projectsFromSeveralCurves(h),
-      words:[type.pill,delivery,...(quantityNote?[quantityNote]:[]),h.unit,side,...(priceNote?[priceNote]:[]),price===null&&priceNote===null?'No fixed price':`${type.priceLabel} · ${unitOfPrice}`,...(markNote?[markNote]:[]),
+      words:[h.tradeReference,h.instrumentReference,type.pill,delivery,...(quantityNote?[quantityNote]:[]),h.unit,side,...(priceNote?[priceNote]:[]),price===null&&priceNote===null?'No fixed price':[type.priceLabel,unitOfPrice].filter(Boolean).join(' · '),...(markNote?[markNote]:[]),
         valuation.unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${valuation.unavailable}`].join(' ')};
   });
 }

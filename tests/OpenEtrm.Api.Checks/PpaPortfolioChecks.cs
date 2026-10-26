@@ -35,10 +35,10 @@ internal static class PpaPortfolioChecks
                             throw new Exception("The independent pre-PPA control did not value its supported futures position.");
                         Console.WriteLine("PASS PPA portfolio: earlier certified complete scope values its supported position");
                     }
-                    catch(MarketDataException error)when(name=="after"&&error.Code=="portfolio_ppa_unsupported")
+                    catch(CloseRiskInputsException error)when(name=="after"&&error.AffectedBindings.All(b=>b.Reason=="exact_bundle_whole_operation_v1"))
                     {
-                        if(denied)throw new Exception("Unsupported-product diagnostics preceded complete PPA reference authority.");
-                        Console.WriteLine("PASS PPA portfolio: whole-book consumer refuses retained PPA before partial valuation evidence");
+                        if(denied)throw new Exception("Incompatible-bundle diagnostics preceded complete PPA reference authority.");
+                        Console.WriteLine("PASS PPA portfolio: whole-book consumer refuses incompatible exact PPA bundles before partial valuation evidence");
                     }
                     return true;
                 },CancellationToken.None);

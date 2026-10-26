@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,curveChart,commodityColors,signOf,valueFields,priceUnit,holdingFormats,quantityText} from '../dist/desk-model.js';
+import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,curveChart,commodityColors,signOf,valueFields,priceUnit,holdingFormats,quantityText,noteMeaning} from '../dist/desk-model.js';
 import {prepareAmountDisplay,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -130,11 +130,11 @@ test('the sign of an amount and the value cells of an instrument come from one d
 });
 test('a row carries the words its cells draw, so the row search finds what the desk shows',()=>{
  const rows=positionRows(fixture.holdings);
- assert.equal(rows[0].words,'SWAP Jan 2021 MMBtu (IT) Pay fixed Fixed · USD/MMBtu (IT) PV · USD');
- assert.equal(rows[1].words,'FUT Jan 2021 MMBtu (IT) +1 lot Executed · USD/MMBtu (IT) P&L · USD');
- assert.equal(rows[2].words,'FUT Jan 2021 MMBtu (IT) −1 lot Executed · USD/MMBtu (IT) Not valued Contract expired · awaiting settlement');
- assert.equal(rows[3].words,'SWAP Jan 2021 MWh Multi-side No fixed price Several marks PV · USD');
- assert.equal(rows[4].words,'SWAP Jan 2021 MWh Receive fixed Fixed · EUR/MWh PV · EUR');
+ assert.equal(rows[0].words,fixture.holdings[0].tradeReference+' '+fixture.holdings[0].instrumentReference+' SWAP Jan 2021 MMBtu (IT) Pay fixed Fixed · USD/MMBtu (IT) PV · USD');
+ assert.equal(rows[1].words,fixture.holdings[1].tradeReference+' '+fixture.holdings[1].instrumentReference+' FUT Jan 2021 MMBtu (IT) +1 lot Executed · USD/MMBtu (IT) P&L · USD');
+ assert.equal(rows[2].words,fixture.holdings[2].tradeReference+' '+fixture.holdings[2].instrumentReference+' FUT Jan 2021 MMBtu (IT) −1 lot Executed · USD/MMBtu (IT) Not valued Contract expired · awaiting settlement');
+ assert.equal(rows[3].words,fixture.holdings[3].tradeReference+' '+fixture.holdings[3].instrumentReference+' SWAP Jan 2021 MWh Multi-side No fixed price Several marks PV · USD');
+ assert.equal(rows[4].words,fixture.holdings[4].tradeReference+' '+fixture.holdings[4].instrumentReference+' SWAP Jan 2021 MWh Receive fixed Fixed · EUR/MWh PV · EUR');
 });
 test('reasons a close cannot value a position depend on the instrument',()=>{
  const rows=positionRows(fixture.holdings);
@@ -365,7 +365,7 @@ test('a scheduled swap has no single quantity, fixed price or mark: its row says
  const [row]=positionRows([scheduled()]);
  assert.deepEqual([row.quantity,row.quantityNote,row.exposure,row.side],[null,'By period',null,'Pay fixed']);
  assert.deepEqual([row.price,row.priceNote,row.mark,row.markNote,row.value],[null,'By period',null,'By period','-10']);
- assert.equal(row.words,'SWAP Jan 1, 2021 – Feb 28, 2021 By period MMBtu (IT) Pay fixed By period Fixed · USD/MMBtu (IT) By period PV · USD');
+ assert.equal(row.words,'TR-000008 IN-000001 SWAP Jan 1, 2021 – Feb 28, 2021 By period MMBtu (IT) Pay fixed By period Fixed · USD/MMBtu (IT) By period PV · USD');
  const common=positionRows([scheduled({fixedPrice:'3'})])[0];
  assert.deepEqual([common.price,common.priceNote],['3',null],'a fixed price every fixed period shares is the row\'s price');
  const floating=positionRows([scheduled({direction:'multi_side'})])[0];
@@ -414,6 +414,33 @@ test('the long and short chart draws no bar for a market the backend gives no si
  assert.throws(()=>positionChartPanels(changed(fixture.summaries,3,groups=>groups.map(g=>g.market==='gas_future'?{...g,quantity:null}:g)),fixture.holdings,colors,format),{message});
 });
 
+test('PPA and heat-rate rows retain their instrument and valuation measure',()=>{
+ const base=fixture.holdings[0];
+ const ppa={...base,instrumentType:'ppa',contractIdentityKind:'ppa_instrument',direction:'multi_side',quantity:'80',unit:'MW',fixedPrice:null,mark:null,
+  presentValue:'14420',measure:'ppa_value_excluding_overdue',completePv:null,overdueKnown:'1200',overdueEstimated:'0'};
+ const heat={...scheduled({direction:'multi_side'}),instrumentType:'heat_rate'};
+ const [p,h]=positionRows([ppa,heat]);
+ assert.deepEqual([p.pill,p.measure,p.side,p.value],['PPA','Value excl. overdue','Multi-side','14420']);
+ assert.equal(p.priceUnit,null,'Independent PPA side prices have no single price unit per contract MW');
+ assert.equal(p.priceLabel,'Side');
+ assert.ok(noteMeaning(p.priceNote));assert.ok(noteMeaning(p.markNote));
+ assert.deepEqual([h.pill,h.measure,h.quantityNote],['HEAT','PV','By period']);
+});
+
+test('cross-commodity and PPA position charts keep multi-side directions explicit',()=>{
+ for(const type of ['heat_rate','ppa']){
+  const summaries=clone(fixture.summaries),holdings=clone(fixture.holdings);
+  for(const summary of summaries)for(const group of summary.groups)if(group.instrumentType==='financial_swap')group.instrumentType=type;
+  for(const holding of holdings)if(holding.instrumentType==='financial_swap')holding.instrumentType=type;
+  assert.doesNotThrow(()=>positionChartPanels(summaries,holdings,new Map(),format));
+ }
+});
+
+test('shared blotter search words include exact trade and instrument references',()=>{
+ const row=positionRows(fixture.holdings)[0];
+ assert.ok(row.words.includes(fixture.holdings[0].tradeReference));
+ assert.ok(row.words.includes(fixture.holdings[0].instrumentReference));
+});
 
 test('opposite commodity orientations of the same factor markets keep separate native-quantity PV bars',()=>{
  const [gas,,power]=fixture.summaries[3].groups;
@@ -426,4 +453,10 @@ test('opposite commodity orientations of the same factor markets keep separate n
  assert.equal(new Set(panel.series[0].points.map(p=>p.x)).size,2);
  const duplicated=changed(summaries,3,groups=>[...groups,groups[0]]);
  assert.throws(()=>pvChartPanels(duplicated,commodityColors(['test_gas','test_power']),format),/inconsistent desk summary/);
+});
+
+test('an unavailable heat rate retains its facts and explicit exclusion reason',()=>{
+ const [row]=positionRows([scheduled({instrumentType:'heat_rate',direction:'multi_side',presentValue:null,mark:null,unavailableReason:'missing_observation'})]);
+ assert.equal(row.unavailable,'Missing price at this close');
+ assert.equal(row.value,null);
 });

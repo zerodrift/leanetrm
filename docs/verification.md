@@ -2919,3 +2919,24 @@ the command. The independent 86.5 cash oracle remains mandatory. Nineteen helper
 checks cover delayed click and form completion with exactly one submission,
 ordinary timeout refusal, finite overrides and invalid budgets refused before an
 action. The form check independently simulates a 46-second write/refresh sequence.
+
+## Common PPA and heat-rate portfolios (D229)
+
+Local disposable PostgreSQL runs pass the mixed-instrument acceptance gate:
+37 synthetic bindings across four product types, a PPA-only directory, exact
+historical visibility, blotter/report base-value agreement and identical queued
+worker factor results. Concurrent-job context custody and revoked worker service
+authority checks pass. The existing PPA booking gate and scheduled-swap gate pass,
+including the latter's settlement, payment, netting and delegated agent checks.
+The factor-swap gate verifies alternate-unit preview, booking, reopening and
+retained factor contracts without double scaling. Managed checks cover
+independent gas/power shocks and the PPA connected/frozen-sample scenario bridge.
+All 662 frontend checks pass. Independent adversarial review has no remaining
+material finding. See [the implementation scope](demo-instruments.md).
+
+The full managed core run passes 637 checks. Six mixed-instrument browser checks
+pass, including PPA retained terms and reversed commodity ordering in heat-rate
+entry. Desktop and 390-pixel screenshots were inspected. Standard interactive
+startup also seeds all 37 bindings successfully; its owned database was removed
+on shutdown. A frontend regression prevents a fabricated single PPA price unit
+per contract MW; side prices remain identified separately.

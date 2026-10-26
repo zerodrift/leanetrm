@@ -9,8 +9,9 @@ namespace OpenEtrm.Api;
 
 // Report adapter over the same authorized product valuation operations. Numeric
 // values stay typed in the backend; unsupported measures remain unavailable.
-public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures,SwapStore swaps)
+public sealed class TradingBlotter(PreviewDatabase database,FuturesStore futures,SwapStore swaps)
 {
+ private PreviewManifest manifest=>database.Manifest;
  public const string Convention="trading_workspace_v1";
  public const string PivotConvention="trading_blotter_totals_v1";
  // D223: money of one currency adds across quantity units, so this convention measures money and trade counts only.
@@ -60,6 +61,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
   await using var command=ScheduleStore.Command(connection,"""
    SELECT EXISTS(SELECT 1 FROM trading.trade_revisions WHERE catalog_id=$1)
        OR EXISTS(SELECT 1 FROM trading.swap_trade_revisions WHERE catalog_id=$1)
+       OR EXISTS(SELECT 1 FROM trading.ppa_trade_revisions WHERE catalog_id=$1)
    """,manifest.CatalogId);
   var hasRevisions=(bool)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException());
   if(hasRevisions)return null;
@@ -84,6 +86,7 @@ public sealed class TradingBlotter(PreviewManifest manifest,FuturesStore futures
   }
   var swapRows=await swaps.Holdings(connection,data,frame,view.BookIds,view.PortfolioIds,ct);
   rows.AddRange(swapRows.Rows.Select(r=>JsonNode.Parse(r.GetRawText())!.AsObject()));
+  rows.AddRange(await PpaBlotter.Read(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct));
   if(rows.Select(r=>r["tradeId"]!.GetValue<string>()+r["bindingId"]!.GetValue<string>()).Distinct().Count()!=rows.Count)throw Invalid();
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
   foreach(var row in rows)

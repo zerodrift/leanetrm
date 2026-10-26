@@ -834,7 +834,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       await setPage('futures');futures.reset('read');
       if(selection.view==='trade'){
         if(select('snapshot').value)await futures.load();
-        await futures.openTrade(String(selection.tradeId),selection.instrumentType==='financial_swap'?'financial_swap':'future',selection.revision as number|null);
+        await futures.openTrade(String(selection.tradeId),selection.instrumentType as 'future'|'financial_swap'|'heat_rate'|'ppa',selection.revision as number|null);
       }else await futures.show(selection as Parameters<typeof futures.show>[0]);
       return;
     default:return showPage(next);

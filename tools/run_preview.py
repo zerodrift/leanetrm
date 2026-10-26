@@ -27,6 +27,7 @@ def main():
     from check_standalone import main as check_standalone
     check_standalone()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--demo-instruments-check',action='store_true',help='Verify mixed synthetic PPA and heat-rate bookings, blotter and risk')
     parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PG16+ binaries')
     parser.add_argument('--dotnet', type=Path, required=True, help='Installed .NET SDK matching global.json')
     parser.add_argument('--port', type=int, default=0, help='Loopback HTTP port; 0 chooses an unused port')
@@ -91,6 +92,7 @@ def main():
         args.ppa_bookings_check = True
     if args.ppa_http_benchmark:
         args.ppa_bookings_check = True
+    if args.demo_instruments_check: args.check=True
     fixing_frames=args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
     if args.interval_series_benchmark or args.usage_benchmark:
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
@@ -112,6 +114,7 @@ def main():
         parser.error('--with-ppa is an interactive standard-fixture option; use --ppa-check for verification')
     if args.with_custom_curves and args.example!='standard':
         parser.error('--with-custom-curves requires the standard fixture')
+    if not args.check and args.example=='standard': args.with_ppa=True
     bins = {n: args.pg_bin.resolve()/n for n in ('initdb','pg_ctl','psql')}
     dotnet = args.dotnet.resolve()
     for binary in [dotnet,*bins.values()]:
@@ -268,12 +271,17 @@ def main():
         if args.index_fixing_check:
             from check_index_fixings import prepare as prepare_index_fixings
             reference,market,manifest=prepare_index_fixings(reference,market,manifest)
-        if args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa:
+        if args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check:
             from interval_curve_fixture import prepare as prepare_interval_curves
             reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
-        if args.ppa_check or args.ppa_bookings_check or args.with_ppa:
+        if args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check:
             from ppa_fixture import prepare as prepare_ppa
             reference,market,security,manifest=prepare_ppa(reference,market,security,manifest)
+            if not args.check:
+                from seed_preview_positions import EXECUTIONS
+                demo_instants={day+'T16:00:00' for day,*_ in EXECUTIONS}
+                manifest['frames']=[frame for frame in manifest['frames'] if frame['at'][:19] in demo_instants]
+
         if args.ppa_bookings_check:
             from ppa_bookings_fixture import prepare as prepare_ppa_bookings
             reference,market,security,manifest=prepare_ppa_bookings(reference,market,security,manifest)
@@ -448,12 +456,17 @@ def main():
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
-        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard' and not args.with_ppa:
+        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
             from seed_preview_positions import seed_positions
             seed_positions(url,run_id,temporary)
             from seed_preview_swaps import seed_swaps
             seed_swaps(url,run_id,temporary)
             print('Loaded eight futures and sixteen financial swap examples across four weekdays.',flush=True)
+            if not args.check:
+                from seed_demo_instruments import owned_client,seed_heat_rates
+                seed_heat_rates(owned_client(url,run_id,temporary))
+                print('Loaded eight synthetic heat-rate swaps with explicit side quantities and native-unit rates.',flush=True)
+
             if not args.check:
                 from seed_schedule_examples import seed_schedule_examples
                 seed_schedule_examples(url,run_id,temporary)
@@ -465,11 +478,23 @@ def main():
         if args.with_ppa:
             from seed_preview_ppa import seed_ppa
             seed_ppa(url,manifest)
-            print('Loaded synthetic PPA references and November 2031 pricing inputs. No PPA trade was booked.',flush=True)
+            from seed_demo_instruments import owned_client,seed_ppas
+            seed_ppas(owned_client(url,run_id,temporary),manifest)
+            print('Loaded five synthetic physical, virtual and generation-linked PPA trades in the mixed book.',flush=True)
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.live_calculation_check:
+            if args.demo_instruments_check:
+                from check_demo_instruments import run_checks
+                worker_env=prepare_risk_worker()
+                def run_demo_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                run_checks(url,manifest,query,run_worker=run_demo_worker,owned_root=temporary,run_id=run_id)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--demo-instruments'],cwd=ROOT,env=env,check=True,timeout=240)
+            elif args.live_calculation_check:
                 from check_live_calculation import run_checks as check_live_calculation
                 check_live_calculation(url,manifest,query)
                 if args.browser_check:
