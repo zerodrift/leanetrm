@@ -236,7 +236,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D223 | Desk money totals add present value and execution P&L across quantity units within one exact currency and instrument type; measures, instrument types and currencies are never added together; quantity measures stay partitioned by quantity specification (D98) | Decided by the owner ([blotter-desk.md](blotter-desk.md), Desk layout, Summary tiles: one row per currency inside a tile, never added across currencies); refines D98 and D206 for money measures. A pivot that also partitions by quantity specification never states one Swap PV or one futures execution P&L for a currency held in several quantity units, and the browser may not add amounts. A second pivot convention, `trading_blotter_money_totals_v1`, partitions by the view's dimensions, the exact instrument type and the exact currency reference only, not by quantity specification or price multiplier, and still by definition revision when a dimension names a market or contract; under either convention such a group states its `definitionRevisionId`, so two groups of one market are never indistinguishable. It accepts only `presentValue`, `executionPnl` and `tradeCount`; quantity, lots and every price statistic are refused with `blotter_view`. A group states `instrumentType`, `currency`, `currencyReference`, its dimension fields, its measures and `unvaluedPositions`, and no unit, quantity specification or price unit. PV and execution P&L add the valued positions of the group as exact money of its one currency (D220) and are null, never zero, where none is valued or the measure does not apply to the instrument type; `tradeCount` counts every distinct trade of the group. `trading_blotter_totals_v1` is unchanged and keeps D98's partitions. `trading/blotter`, the workspace view and each of its summaries accept either convention, with the summary limits unchanged. Response contract only; no schema or permission change |
 | D229 | Every write is idempotent; a changed value is a new revision with its own knowledge time | Decided by the owner (2026-10-26). Recording an existing fact (same business key, value and effective time) returns the existing record instead of adding a row, for imports, scrapes, collection jobs, closes and retried commands; retried commands carry a request id and receive their first outcome. A different value for the same business key is a new revision, never an overwrite, and reads resolve revisions by knowledge time under an explicit policy, never by row or insertion order. Recorded in AGENTS.md so every database operation follows it |
 | D230 | History reads resolve versions under an explicit revision policy | Decided by the owner (2026-10-26). Refines D172 for history reads only; valuation, snapshots and recorded closes keep exact pins. A history request must name `exact_snapshot_pins_v1` (each frame's exact pins, as before) or `as_known_at_cutoff_v1`; a missing or unknown policy is a `history_revision_policy` refusal, never a default. The cutoff policy follows each pin's correction chain, with the certified-context resolver, to the latest revision recorded at or before the read's bitemporal knowledge cutoff: the selected context's own instant, which the response echoes as `knowledgeCutoff` (`knowledgeBasis` `selected_context`), or current knowledge for working data (`knowledgeCutoff` null, `knowledgeBasis` `current_knowledge`). A revision recorded after the cutoff is invisible, and a request body never supplies a different cutoff. Samples at one instant that are then identical collapse to one (D229); different ones are a `history_conflict` refusal naming the instant. Each point carries its observation identities and `knownAt`, the latest certified publication instant among them (null while uncertified). Superseded versions stay reachable in Price sources |
-| D236 | Delivery-price collection publishes only changed intervals | Refines D133 and D134 under D229 (migration 0117). A successful attempt must still cover every interval of its operating days, so completeness is checked per attempt and the published union at any cutoff is complete. Its batch holds only the intervals whose end, numeric price or provider revision differ from the latest recorded batch for that interval; an attempt with no such interval succeeds and publishes no batch. A changed provider revision with an equal price is a new revision. Numeric equality decides sameness, and the first recorded text is kept. Each attempt's changes are one batch with one receipt, so no reader sees part of an attempt |
+| D236 | Delivery-price collection publishes only changed intervals | Refines D133 and D134 under D229 (migration 0118). A successful attempt must still cover every interval of its operating days, so completeness is checked per attempt and the published union at any cutoff is complete. Its batch holds only the intervals whose end, numeric price or provider revision differ from the latest recorded batch for that interval; an attempt with no such interval succeeds and publishes no batch. A changed provider revision with an equal price is a new revision. Numeric equality decides sameness, and the first recorded text is kept. Each attempt's changes are one batch with one receipt, so no reader sees part of an attempt |
 
 ## Proposed implementation choices
 
@@ -738,3 +738,44 @@ conversion algorithms or schedule semantics still require a versioned release;
 missing paths or ambiguous financial behavior raise structured errors.
 
 See [factor contracts and qualification](factor-swaps.md).
+
+
+## D228 — Booked terms and explicit change review
+
+An unavailable editor choice identifies the value saved on the trade and explains
+that its absence from the selected context does not change the booked terms.
+Amendment previews compare the authorized saved revision with validated proposed
+terms on the backend. The ticket shows booked and proposed values, the revision
+and the required amendment action. A saved custom projection is a trade term in
+the present storage contract; replacing it uses the same amendment workflow.
+No generic acceptance can bypass that operation. New input invalidates the review.
+
+Display metadata, market observations, valuation configuration and contractual
+changes have separate lifecycles. This increment introduces no economic-index
+publication, cross-version migration or valuation-configuration acceptance
+operation. A future publication workflow must classify changes, qualify their
+effective/knowledge coordinates and show affected trades before offering an
+authorized action. Earlier trade revisions and calculation contexts remain intact.
+
+## D229 — Shared PPA portfolios and dimensional heat-rate sides
+
+Admit PPA bindings into the common blotter and connected portfolio-risk report,
+using their independent interval sides and the exact admitted interval market.
+Select `estimate_until_actual_v1`: estimate pending quantities until the meter
+deadline, then require actuals. Retain this policy and certified interval read
+contexts with queued runs. Label the monetary measure “Value excluding overdue
+cash” and retain complete PV, overdue known and overdue estimated companions;
+do not present it as an ordinary outstanding PV. Whole-scope exact input-bundle
+compatibility remains required. Worker reads require the exact live bound attempt
+and current service and represented-user authority.
+
+Use the D227 `factor_scheduled_financial_swap_v1` contract for heat-rate demo
+trades. Its typed quantity factor and qualified unit conversions derive the
+second floating side's schedule. Both sides retain independent price and payment
+terms and share the existing managed PV and settlement operations. Present these
+bindings as heat rates in the common blotter and risk evidence. Do not introduce
+a second quantity-conversion contract.
+
+The standard isolated preview seeds 37 synthetic bindings, including eight
+heat-rate and five PPA bindings. See [demo instruments](demo-instruments.md) for
+coverage, numerical evidence and remaining limits.

@@ -7,6 +7,7 @@ if(args is ["--swap-settlement-agent",var settlementAgentFixture]){await SwapSet
 if(args is ["--reference-intake"]){await ReferenceCaptureChecks.Run();await ReferenceImportChecks.Run();return;}
 if(args is ["--reference-import-plan",var referenceOutput]){await ReferenceImportChecks.Run(referenceOutput);return;}
 if(args is ["--legacy-swap-editor"]){await LegacySwapEditorChecks.Run();return;}
+if(args is ["--swap-change-review"]){SwapChangeReviewChecks.Run();return;}
 if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChecks.Run();return;}
 if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
 if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
@@ -62,6 +63,7 @@ if (args is ["--schedules"])
     AgentToolChecks.Run();
     await TurnStreamChecks.Run();
     PowerImportChecks.Run();
+    SwapChangeReviewChecks.Run();
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();
     SchedulePublicationChecks.Run();

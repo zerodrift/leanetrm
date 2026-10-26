@@ -365,13 +365,15 @@ def run_checks(query, manifest, psql=None, environment=None):
     reject(lambda: worker(f"SELECT risk.finish('{job['jobId']}','{claim['leaseToken']}','{{\"value\":\"9\"}}',NULL)", 'synthetic_other_worker'), 'risk_job_fence')
     bound = worker(f"BEGIN;SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');SELECT count(*) FROM market_data.revisions WHERE catalog_id='{catalog}' AND id='{revision}';COMMIT")
     assert bound.splitlines()[-1] == '1'
-    # Shared expiry metadata remains readable only in a bound current worker
-    # context. The complete-PPA-scope guard returns a boolean, never head rows.
+    # Shared metadata remains readable only in a bound current worker context.
+    # PPA reference reads use the same RLS fences; raw trade heads remain private.
     ppa_guard = f"security.ppa_scope_has_positions('{catalog}',ARRAY[{','.join(repr(b)+'::uuid' for b in books)}])"
     assert worker(f"BEGIN;SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');SELECT {ppa_guard};COMMIT").splitlines()[-1] == 'f'
     reject(lambda: worker(f"SELECT {ppa_guard}"), 'No current risk worker authority')
     for table in ('generation_assets','generation_asset_versions','volume_sources','location_valuation_assignments'):
-        assert query(f"SELECT has_table_privilege('synthetic_risk_worker','market_data.{table}','SELECT');") == 'f'
+        assert query(f"SELECT has_table_privilege('synthetic_risk_worker','market_data.{table}','SELECT') AND NOT has_table_privilege('synthetic_risk_worker','market_data.{table}','INSERT,UPDATE,DELETE');") == 't'
+        assert query(f"SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='market_data.{table}'::regclass;") == 't'
+        assert query(f"SELECT count(*)=1 FROM pg_policies WHERE schemaname='market_data' AND tablename='{table}' AND policyname='risk_worker_service' AND permissive='RESTRICTIVE' AND roles=ARRAY['openetrm_risk_worker']::name[] AND cmd='SELECT' AND qual='risk.worker_read()';") == 't'
     assert query("SELECT has_function_privilege('synthetic_risk_worker','security.ppa_scope_heads(uuid,text,uuid[])','EXECUTE');") == 'f'
     assert query("SELECT has_table_privilege('synthetic_risk_worker','trading.ppa_trade_revisions','SELECT');") == 'f'
     # Roll back a deliberately injected row: this tests nonempty RLS visibility,
@@ -388,7 +390,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     SET SESSION AUTHORIZATION synthetic_risk_worker;SELECT pg_sleep(0.06);"""
     assert query(expiry_setup+expiry_loss+expiry_read+';ROLLBACK;').splitlines()[-1] == '0'
     reject(lambda: query(expiry_setup+expiry_loss+f'SELECT {ppa_guard};ROLLBACK;'), 'No current risk worker authority')
-    print('PASS legacy risk PPA boundary: nonempty expiry metadata, scoped boolean refusal, service loss and no direct PPA reads',flush=True)
+    print('PASS risk PPA boundary: fenced read-only reference grants, nonempty expiry metadata, service loss and no raw trade reads',flush=True)
     assert worker(f"SELECT count(*) FROM market_data.revisions WHERE catalog_id='{catalog}'") == '0'
     expired_service = query(f"""BEGIN;SET SESSION AUTHORIZATION synthetic_risk_worker;
     SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');RESET SESSION AUTHORIZATION;

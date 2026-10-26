@@ -75,14 +75,16 @@ const settlementText=(settlement:string)=>publicText(settlement==='unprocessed'?
  */
 export function positionSummary(h:Holding,row:DeskRow,formats:HoldingFormats):PositionSummary{
   if(row.unavailable!==null&&h.markMinusPrice!==null)throw Error('The Blotter returned a mark minus price for a position it cannot value.');
-  const label=row.measure==='PV'?'Present value':'Execution P&L';
+  const label=row.measure==='Value excl. overdue'?'Value excluding overdue cash':row.measure==='PV'?'Present value':'Execution P&L';
   const value:PositionSummary['value']=row.unavailable===null?{label,currency:row.currency,amount:signed(row.value,formats.money),unavailable:null}:{label,currency:row.currency,amount:null,unavailable:row.unavailable};
-  const markMinusPrice=h.markMinusPrice===null?null:{text:signedText(h.markMinusPrice,formats.markMinusPrice),exact:h.markMinusPrice,label:`Mark − ${row.priceLabel.toLowerCase()}`,unit:row.priceUnit};
+  if(h.markMinusPrice!==null&&row.priceUnit===null)throw Error('A mark minus price requires one explicit price unit.');
+  const markMinusPrice=h.markMinusPrice===null?null:{text:signedText(h.markMinusPrice,formats.markMinusPrice),exact:h.markMinusPrice,label:`Mark − ${row.priceLabel.toLowerCase()}`,unit:row.priceUnit!};
   const facts:PositionSummary['facts']=[
     // A scheduled swap whose fixed periods differ in price states none, by period, in that price unit; a swap with no fixed side has none.
     {label:`${row.priceLabel} price`,text:row.price!==null?minus(formats.price(row.price)):row.priceNote??'None',unit:row.price===null&&row.priceNote===null?null:row.priceUnit},
     ...(row.mark!==null?[{label:'Mark',text:minus(formats.mark(row.mark)),unit:row.priceUnit}]:row.markNote!==null?[{label:'Mark',text:row.markNote,unit:null}]:[]),
     {label:'Quantity',text:quantityText(row,formats.quantity),unit:row.unit},
+    ...(h.instrumentType==='ppa'?[{label:'Complete PV',text:h.completePv===null?'Unavailable while cash is overdue':formats.money(h.completePv??h.presentValue!),unit:h.currency},{label:'Overdue known',text:formats.money(h.overdueKnown!),unit:h.currency},{label:'Overdue estimated',text:formats.money(h.overdueEstimated!),unit:h.currency}]:[]),
     ...(typeof h.settlement==='string'?[{label:'Settlement',text:settlementText(h.settlement),unit:null}]:[]),
   ];
   return {pill:row.pill,reference:row.reference,revision:row.revision,book:h.book,market:row.market,commodity:h.commodity,

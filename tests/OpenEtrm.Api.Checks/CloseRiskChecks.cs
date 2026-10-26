@@ -6,6 +6,14 @@ internal static class CloseRiskChecks
 {
     internal static void Run()
     {
+        var json=new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var legacy=System.Text.Json.JsonSerializer.SerializeToElement(PilotCloseJobs.QualifiedPolicy,json);
+        if(legacy.EnumerateObject().Count()!=9||legacy.TryGetProperty("ppaPendingActuals",out _))
+            throw new Exception("The existing-close valuation policy must retain its nine-field wire contract when no portfolio PPA policy is selected.");
+        var ppa=System.Text.Json.JsonSerializer.SerializeToElement(PilotCloseJobs.QualifiedPolicy with{PpaPendingActuals="estimate_until_actual_v1"},json);
+        if(ppa.GetProperty("ppaPendingActuals").GetString()!="estimate_until_actual_v1")
+            throw new Exception("A selected portfolio PPA policy must remain explicit in retained JSON.");
+        Console.WriteLine("PASS existing-close policy wire compatibility and explicit portfolio PPA policy retention");
         CloseRiskPreflightChecks.Run();
         var revision=new DefinitionRevision(Guid.NewGuid(),Guid.NewGuid());
         var quantity=new ReferenceKey(new(revision.CatalogId,revision.RevisionId),"synthetic_quantity");

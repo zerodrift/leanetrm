@@ -226,7 +226,7 @@
       </div>
     </div>
     <div id="desk-charts" class="desk-charts" hidden>
-      <section id="desk-chart-pv" class="desk-chart" aria-labelledby="desk-chart-pv-title"><h3 id="desk-chart-pv-title" class="desk-chart-title">Swap PV by market</h3></section>
+      <section id="desk-chart-pv" class="desk-chart" aria-labelledby="desk-chart-pv-title"><h3 id="desk-chart-pv-title" class="desk-chart-title">Value by market</h3></section>
       <section id="desk-chart-position" class="desk-chart" aria-labelledby="desk-chart-position-title"><h3 id="desk-chart-position-title" class="desk-chart-title">Long and short by market</h3></section>
     </div>
     <aside id="side-panel" class="side-panel" aria-label="Position" tabindex="-1" hidden>
@@ -472,7 +472,8 @@
   <button id="swap-preview" type="submit">Prepare booking</button>
  </fieldset></form>
  <section id="swap-result" hidden><h3>Valuation &amp; schedules</h3><p id="swap-pv" class="profile-note"></p><div id="swap-schedules"></div></section>
- <div id="swap-confirmation" hidden><label><input id="swap-confirm" type="checkbox"> Commit these exact reviewed terms</label><button id="swap-submit" type="button" disabled>Book financial swap</button></div>
+ <section id="swap-change-review" class="trade-change-review" hidden></section>
+ <div id="swap-confirmation" hidden><label><input id="swap-confirm" type="checkbox"> <span id="swap-confirm-label">Commit these exact reviewed terms</span></label><button id="swap-submit" type="button" disabled>Book financial swap</button></div>
  <div id="swap-amount-format"></div>
 </div>
 <div id="trade-editing" class="editing" hidden>

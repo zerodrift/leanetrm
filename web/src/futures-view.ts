@@ -1,3 +1,4 @@
+import {readPpaView} from './ppa-trade-view.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {type PartyCatalog,type Trader} from './trade-annotations.js';
 import {setupSwapEditor,readSwapView} from './swap-editor.js';
@@ -195,9 +196,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;panel.place();}}).observe(main);
   new MutationObserver(()=>panel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
-    read:(h,formats)=>h.instrumentType==='financial_swap'?readSwapView(api,readContext(),h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,readContext(),h,formats),
+    read:(h,formats)=>h.instrumentType==='ppa'?readPpaView(api,readContext(),h,catalog!.context.knownAt):h.instrumentType!=='future'?readSwapView(api,readContext(),h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,readContext(),h,formats),
     amendment:{
-      open:h=>void act(()=>h.instrumentType==='financial_swap'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision))),
+      open:h=>void act(()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision))),
       // A future's form is open for its binding, a swap's for its instrument.
       shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return !!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
       close:async()=>{await leave();},
@@ -464,8 +465,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
-    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,...fields}=h;
-    return {...fields,priceUnit:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
+    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,...fields}=h;
+    return {...fields,priceUnit:h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
   // What a trade row's value cell says when the close cannot value it, on screen and in exports (D220).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
@@ -481,7 +482,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // Everything the desk shows is selected from the read before anything is drawn, so a read the desk refuses leaves the
     // desk on screen whole, and never new tiles and rows beside the old charts. The tiles summarize the read in both display
     // modes; the two charts and grouped positions are the trade-row desk.
-    const [swapPv,futuresPnl]=summaryTiles(summaries),mix=positionsTile(summaries,holdings.holdings.length,holdings.unvaluedPositions);
+    const tiles=summaryTiles(summaries),[swapPv,futuresPnl]=tiles,mix=positionsTile(summaries,holdings.holdings.length,holdings.unvaluedPositions);
     const plan=pivot?undefined:planDesk(colors);
     // A new future's form in the panel is filled again from the read, keeping what the person chose and typed that it still offers.
     if(booking.mounted())booking.populate();
@@ -489,6 +490,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     get('desk').hidden=false;get('desk-charts').hidden=pivot;
     renderMoneyTile(get('desk-tile-swapPv'),'Swap PV','swap',swapPv,money);
     renderMoneyTile(get('desk-tile-futuresPnl'),'Futures execution P&L','future',futuresPnl,money);
+    for(const [key,label] of [['heatRatePv','Heat-rate PV'],['ppaValue','PPA value excluding overdue cash']] as const){let host=document.getElementById('desk-tile-'+key);const tile=tiles.find(t=>t.key===key);if(!host&&tile){host=document.createElement('section');host.id='desk-tile-'+key;host.className='desk-tile';get('desk-tile-swapPv').parentElement!.append(host);}if(host){host.hidden=!tile;if(tile)renderMoneyTile(host,label,key==='ppaValue'?'PPA':'heat-rate swap',tile,money);}}
     renderPositionsTile(get('desk-tile-positions'),mix,colors);
     if(plan)renderDesk(scope,colors,plan);else renderPivot(scope);
     text('blotter-table-title',pivot?view.splitBy.length?'Pivot table':'Pivot summary':view.rowGroup===null?'Positions':`Positions · grouped by ${rowGroupLabel(view.rowGroup).toLowerCase()}`);
@@ -741,7 +743,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   async function followBooked(command:RequestCommand,receipt:Receipt){
     if(!command.path.endsWith('/book')||!holdings)return;
     if(view.mode!=='trades'){options.notice('The new trade is booked. This Blotter shows totals, which hold no rows to open: set Display to Individual trades to see it.');return;}
-    const found=bookedPosition(holdings.holdings,receipt,command.path.startsWith('swaps/')?'financial_swap':'future');
+    const found=bookedPosition(holdings.holdings,receipt,command.path.startsWith('swaps/')?((command.body as {scheduled?:{factor?:unknown}}).scheduled?.factor?'heat_rate':'financial_swap'):'future');
     if(found.index!==null)await deskPanel.open(found.index);
     if(found.note)options.notice(found.note);
   }
@@ -812,7 +814,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const h=deskPanel.shown();
     if(!h)return null;
     const form=editor.displayedRevision()??swapEditor.displayedRevision();
-    return {tradeId:h.tradeId,instrumentType:h.instrumentType==='financial_swap'?'financial_swap':'future',revision:form??Number(h.revision),reference:h.tradeReference};
+    return {tradeId:h.tradeId,instrumentType:h.instrumentType as TradeShown['instrumentType'],revision:form??Number(h.revision),reference:h.tradeReference};
   }
   // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
   function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
@@ -829,7 +831,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     },
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
-    async openTrade(tradeId:string,instrumentType:'future'|'financial_swap',revision:number|null){
+    async openTrade(tradeId:string,instrumentType:TradeShown['instrumentType'],revision:number|null){
       requireTradeRows(view.mode);
       if(!holdings)throw Error('Choose a market date to read the Blotter, then open the trade.');
       const index=tradeIndex(holdings.holdings,{tradeId,instrumentType}),h=holdings.holdings[index];

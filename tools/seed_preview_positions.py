@@ -21,7 +21,7 @@ CONVENTION = 'fixed_total_cash_execution_pnl_v1'
 def execution_frames(workspace):
     days = {row[0] for row in EXECUTIONS}
     frames = [frame for frame in workspace['frames']
-              if frame['id'] in workspace['initialFrameIds'] and frame['at'][:10] in days]
+              if frame['id'] in workspace['initialFrameIds'] and frame['at'][:10] in days and frame['at'][11:19] == '16:00:00']
     if sorted(frame['at'][:10] for frame in frames) != [row[0] for row in EXECUTIONS] or any(frame['at'][11:19] != '16:00:00' for frame in frames):
         raise ValueError('Weekday demo executions require the exact four supported original market frames.')
     return frames

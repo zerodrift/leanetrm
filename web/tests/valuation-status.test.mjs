@@ -5,7 +5,8 @@ import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from '
 test('each position-specific status reads in plain words for the instrument it concerns',()=>{
  assert.equal(valuationReason('source_expired','future'),'Contract expired · awaiting settlement');
  assert.equal(valuationReason('source_expired','financial_swap'),'Past marking cutoff');
- for(const instrumentType of ['future','financial_swap'])assert.equal(valuationReason('missing_observation',instrumentType),'Missing price at this close');
+ assert.equal(valuationReason('source_expired','heat_rate'),'Past marking cutoff');
+ for(const instrumentType of ['future','financial_swap','heat_rate'])assert.equal(valuationReason('missing_observation',instrumentType),'Missing price at this close');
 });
 test('a status or instrument the Blotter does not define is refused, never shown as valued or as another reason',()=>{
  for(const code of ['index_fixing_missing','','toString','__proto__',undefined,null])

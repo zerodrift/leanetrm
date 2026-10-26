@@ -4,6 +4,12 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D229 integrates PPA bindings into the common blotter and interactive/queued
+portfolio risk, with an explicit pending-meter policy and distinct value measure.
+Heat-rate examples use the existing typed factor contract and independent
+floating-side schedules. See [demo instruments](demo-instruments.md) for the
+implemented contracts, synthetic preview and bounded verification.
+
 D224 adds typed asset and rate curve evaluators and an explicit saved lookup
 operator in the existing custom-curve graph. Exact prices, interpolation and
 scenario dependencies share the connected evaluator; payment discounting uses
@@ -1304,3 +1310,11 @@ data opens or is returned to and states it with a **Latest close** badge; severa
 closes at that instant still ask (D162), and a historical view selects none by
 itself. The As of control and its badge float with the Context panel, which names
 the knowledge in use and holds live corrections.
+
+
+D228 makes saved-value availability and amendment changes explicit in the swap
+tickets. The backend compares the booked revision with the validated proposal;
+single-period and scheduled tickets show the required amendment and exact changed
+terms. Existing preview cashflows remain the valuation review. Publishing economic
+index changes, selecting newer versions for existing contracts, bulk impact
+analysis and a separate forecast-configuration migration remain future work.

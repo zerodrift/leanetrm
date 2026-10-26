@@ -6,7 +6,7 @@ import {readPages,type Step,type Ending,type Usage,type TargetContext} from './a
 
 export type PageReport={page:string;selection:Record<string,unknown>};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
-export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap';revision:number;reference:string};
+export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa';revision:number;reference:string};
 /** A new trade being entered in the Blotter's panel: of its product, or of none until the person chooses one. */
 export type EntryShown={product:'futures'|'swaps'|null};
 // What a web page shows, as the page's own state names it.

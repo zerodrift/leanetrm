@@ -99,10 +99,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
 
     // The scheduler's application adapter receives an already-qualified runtime
     // source. It has no authenticator capability or HTTP host construction.
-    private readonly bool includePpaReferences=true;
-    internal PreviewDatabase(PreviewManifest manifest,NpgsqlDataSource runtime,bool includePpaReferences=true)
+    internal PreviewDatabase(PreviewManifest manifest,NpgsqlDataSource runtime)
     {
-        Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;this.includePpaReferences=includePpaReferences;
+        Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;
     }
 
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
@@ -277,10 +276,6 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         var definitions = new Dictionary<string, ImmutableArray<JsonElement>>();
         foreach (var (table,key) in DefinitionTables)
         {
-            // The connected risk worker refuses complete scopes containing PPA positions.
-            // It needs curve expiry contracts, but not PPA asset/location/source metadata.
-            if(!includePpaReferences&&table is "generation_assets" or "generation_asset_versions" or "volume_sources" or "location_valuation_assignments")
-            {definitions[table]=[];continue;}
             var revisionColumn = table == "revisions" ? "id" : "revision_id";
             definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2 ORDER BY {key}) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
         }

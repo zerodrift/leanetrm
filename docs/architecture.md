@@ -6,6 +6,12 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D229 integrates PPA bindings into the common blotter and interactive/queued
+portfolio risk, with an explicit pending-meter policy and distinct value measure.
+Heat-rate examples use the existing typed factor contract and independent
+floating-side schedules. See [demo instruments](demo-instruments.md) for the
+implemented contracts, synthetic preview and bounded verification.
+
 D224 adds typed asset and rate curve evaluators and an explicit saved lookup
 operator in the existing custom-curve graph. Exact prices, interpolation and
 scenario dependencies share the connected evaluator; payment discounting uses
@@ -2395,3 +2401,11 @@ compiler retains both native quantities, selected factor units, implementation
 versions and exact model/reference pins through pricing, risk and settlement.
 See [factor swaps](factor-swaps.md) for the contract, service trust boundary and
 bounded verification.
+
+
+Booked-value explanations and amendment review (D228) preserve exact trade terms.
+The managed preview compares the authorized booked head with the proposed terms;
+the frontend presents its decision and values. Editor availability does not
+rewrite terms or authorize adoption of a newer index. Saved projection bindings
+currently belong to the trade contract and use its amendment operation. Market
+observation corrections continue through their existing context workflow.

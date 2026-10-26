@@ -1,3 +1,4 @@
+import {explainUnavailableValue,markUnavailableValue,unavailableValueLabel} from './saved-trade-terms.js';
 import type {Index} from './swap-editor.js';
 import {setupSwapObservationControls} from './swap-observations-view.js';
 import {mountObservationControls} from './swap-side-editor.js';
@@ -21,7 +22,21 @@ export function mountScheduledFloatingEditor(options:{host:HTMLElement;from:stri
  const quote=()=>options.indices().find(i=>key(i)===index.value);
  const choice=():SamplingChoice|undefined=>quote()?.samplings.find(s=>s.resetFrequency===reset.value&&s.averagingMethod===average.value);
  const projections=()=>quote()?.customProjections.filter(p=>p.samplings.some(s=>s.resetFrequency===reset.value&&s.averagingMethod===average.value))??[];
- const fill=(field:HTMLSelectElement,rows:{value:string;label:string}[],selected:string)=>{field.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(r.label,r.value)));if(selected&&!rows.some(r=>r.value===selected)){const retained=new Option('Retained · unavailable for new terms',selected);retained.disabled=true;field.append(retained);}field.value=selected;};
+ function isBookedValue(field:HTMLSelectElement,value:string){
+  if(!initial)return false;
+  if(field===index){const saved=options.indices().find(i=>i.curve===initial.curve&&i.index===initial.index);return !!saved&&key(saved)===value;}
+  if(field===reset)return value===initial.resetFrequency;
+  if(field===average)return value===initial.averagingMethod;
+  return value===(initial.customProjection?JSON.stringify(initial.customProjection):'ordinary');
+ }
+ const fill=(field:HTMLSelectElement,rows:{value:string;label:string}[],selected:string)=>{
+  field.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(r.label,r.value)));
+  if(selected&&!rows.some(r=>r.value===selected)){
+   const booked=isBookedValue(field,selected),unavailable=new Option(unavailableValueLabel(selected,booked),selected);
+   markUnavailableValue(unavailable,booked);field.append(unavailable);
+  }
+  field.value=selected;explainUnavailableValue(field);
+ };
  function sources(selected=source.value){fill(source,[{value:'ordinary',label:'Selected index curve'},...projections().map(p=>({value:JSON.stringify(p.reference),label:p.label}))],selected);}
  function averaging(selected=average.value){fill(average,quote()?.samplings.filter(s=>s.resetFrequency===reset.value).map(s=>({value:s.averagingMethod,label:s.label}))??[],selected);sources();}
  function frequencies(selected=reset.value){fill(reset,[...new Set(quote()?.samplings.map(s=>s.resetFrequency)??[])].map(value=>({value,label:value})),selected);averaging();}
@@ -30,7 +45,7 @@ export function mountScheduledFloatingEditor(options:{host:HTMLElement;from:stri
    resetFrequency:reset.value||undefined,averagingMethod:average.value||undefined,deliveryFrom:options.from,deliveryTo:options.to,observationCalendar:observations.calendar(),...(custom?{customProjection:custom.reference}:{})};},
   apply:result=>{note.textContent=result.availability?.message??result.customProjectionUnavailableReason??'Observation dates and weights use the selected exact backend plan.';}});
  async function refresh(){if(unsupported||!quote()||!choice()||!options.host.isConnected)return;await observations.refresh();}
- const change=(work:()=>void)=>{options.changed();work();options.quoteChanged();options.run(refresh);};
+ const change=(work:()=>void)=>{options.changed();work();for(const field of [index,reset,average,source])explainUnavailableValue(field);options.quoteChanged();options.run(refresh);};
  index.onchange=()=>change(()=>{observations.reset();reset.value='';average.value='';frequencies('');sources('ordinary');spread.value='';});
  reset.onchange=()=>change(()=>{observations.reset();averaging('');});
  average.onchange=()=>change(()=>{observations.reset();sources();});

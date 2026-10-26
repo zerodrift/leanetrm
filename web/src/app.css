@@ -1374,3 +1374,10 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .contract-pricing svg{max-width:none}
 .contracts-help{margin:12px 0 8px}
 
+/* Saved trade terms and amendment review share the ticket's narrow panel. */
+.trade-change-review th,.trade-change-review td{white-space:normal;overflow-wrap:anywhere;vertical-align:top;max-width:28rem}
+.trade-change-review caption{text-align:left;padding:.5rem 0}
+.booked-value-note summary{cursor:pointer}
+
+.trade-change-review th:nth-child(n+2){white-space:nowrap}
+.trade-change-review .change-category{display:block;margin-top:.25rem;font-weight:normal;opacity:.8}

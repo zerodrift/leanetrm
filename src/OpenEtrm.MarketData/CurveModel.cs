@@ -109,6 +109,7 @@ public sealed partial class CurveModel
             request.Contract != contract.Key || curve.Quote != quote.Key)
             Fail("futures_definition", "Held futures terms must equal the exact definitions used to build the market scenario.");
     }
+    internal QuoteSpecification QuoteFor(CurveRequest request)=>Quote(curves[request.Curve]);
     private QuoteSpecification Quote(Curve c) => quotes.TryGetValue(c.Quote, out var q)
         ? q : throw new MarketDataException("missing_reference", "Quote definition is absent.");
     internal void RequireIndexProjection(CurveRequest request, MarketContract contract,
