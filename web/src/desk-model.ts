@@ -219,15 +219,20 @@ export const minus=(text:string)=>text.replace(/^-/,'−');
 /**
  * Swap PV by market: one horizontal panel per currency, gains right and losses left, largest gain first, each market
  * marked with its commodity's color. The panel is captioned by its currency and says what it leaves out with that currency's
- * own backend count. A market in two units of one currency would be two bars of one name: that is refused.
+ * own backend count. Distinct native-quantity partitions remain separate bars, named by their units when they share a market.
  */
 export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),totals=groupsOf(summaries,byType),labels=marketLabels(markets);
   const swaps=markets.filter(g=>instrument(g.instrumentType)===instruments.financial_swap);
-  const currencies=currencyLabels(swaps),panels=new Map<string,ChartPoint[]>();
+  const currencies=currencyLabels(swaps),units=unitLabels(swaps),panels=new Map<string,ChartPoint[]>();
+  const counts=new Map<string,number>();
+  const partition=(g:PivotGroup)=>JSON.stringify([marketKey(text(g,'market'),text(g,'definitionRevisionId')),referenceKey(g.currencyReference)]);
+  for(const group of swaps){const key=partition(group);counts.set(key,(counts.get(key)??0)+1);}
   for(const group of swaps){
     const key=marketKey(text(group,'market'),text(group,'definitionRevisionId')),value=amount(group,'presentValue'),currency=referenceKey(group.currencyReference);
-    panels.set(currency,[...(panels.get(currency)??[]),{x:key,label:labels.get(key)!,y:value,marker:colors.get(commodityOf(group).code),...(value===null?{}:{text:signedText(value,format)})}]);
+    const split=counts.get(partition(group))!>1,quantity=referenceKey(group.quantitySpecification);
+    const pointKey=split?JSON.stringify([key,quantity]):key,label=labels.get(key)!+(split?` · ${units.get(quantity)}`:'');
+    panels.set(currency,[...(panels.get(currency)??[]),{x:pointKey,label,y:value,marker:colors.get(commodityOf(group).code),...(value===null?{}:{text:signedText(value,format)})}]);
   }
   return [...panels].map(([currency,points])=>{
     const total=totals.filter(g=>instrument(g.instrumentType)===instruments.financial_swap&&referenceKey(g.currencyReference)===currency);

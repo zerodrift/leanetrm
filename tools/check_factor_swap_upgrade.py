@@ -41,7 +41,7 @@ def run_checks(query,psql,environment,root):
         instrument=sql(f"SELECT instrument_id FROM trading.swap_trade_revisions WHERE trade_id='{trade}';")
         terms=f"SELECT trading.scheduled_swap_terms('{catalog}','{trade}',1,'{instrument}');"
         original=json.loads(sql(terms))
-        sql((root/'db/migrations/0114_factor_scheduled_swaps.sql').read_text())
+        sql((root/'db/migrations/0115_factor_scheduled_swaps.sql').read_text())
         assert rows()==before
         assert json.loads(runtime(call))==receipt
         assert json.loads(sql(terms))==original
