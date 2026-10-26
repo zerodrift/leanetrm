@@ -96,9 +96,12 @@ def run_checks(url,export):
     check('the daily curve fronts its first seeded contract at its seeded price',front['price']==seeded[('location_delivery',front['contractId'])]=='3.25')
     empty=c.evaluate(frames[4],'location_balmo')['summary']
     check('a curve at a close past its last expiry states no contracts and why',empty=={'kind':'contracts','contractCount':0,'front':None,'availability':'no_remaining_contracts'})
+    emptied=c.call('market/curve-shapes',{'snapshotId':frames[4]['id'],'curves':['location_balmo']})['curves'][0]
+    check('a curve shape with no remaining contracts states a zero count, no front and why',
+          (emptied['contractCount'],emptied['front'],emptied['availability'])==(0,None,'no_remaining_contracts'))
     shapes={s['curve']:s for s in c.call('market/curve-shapes',{'snapshotId':first['id'],'curves':['location_delivery','location_balmo']})['curves']}
     check('curve shapes state the same count and front as the evaluation',all(
-          shapes[code]['contractCount']==c.evaluate(first,code)['summary']['contractCount'] and shapes[code]['front']==c.evaluate(first,code)['summary']['front']
+          shapes[code]['contractCount']==c.evaluate(first,code)['summary']['contractCount'] and shapes[code]['front']==c.evaluate(first,code)['summary']['front'] and shapes[code]['availability'] is None
           for code in shapes))
     rates=c.evaluate(first,'interest_rates')
     check('basic interest-rate example still evaluates',rates['kind']=='rates' and len(rates['points'])==3)

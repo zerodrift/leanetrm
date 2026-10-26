@@ -8,8 +8,8 @@ import type {FrameSummary} from './market-navigation.js';
 
 export type Point = {priceTick?:string;contractId?:string; seriesId?:string; maturity?:string; deliveryFrom?:string; deliveryTo?:string; expiry?:string; value:string; quote?:string; lineage:string[]; discountFactor?:string; displayDiscountFactor?:string; annualRate?:string; actualDays?:number};
 export type CurveFront={contractId:string;deliveryFrom:string;deliveryTo:string;price:string};
-/** A curve's counts and front, stated by the backend (D226): contracts for futures and forwards, maturities for rates. */
-export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstZeroRate:string|null;dayCount:string};
+/** A curve's counts and front, stated by the backend (D233): contracts for futures and forwards, maturities for rates. */
+export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|'no_priced_contract'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstZeroRate:string|null;dayCount:string};
 export type CurveResult = {summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string};availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
 export type HistoryPoint = {at:string; value:string|null; snapshotId:string;unavailableReason?:string|null};
 export type PriceHistory = {points:HistoryPoint[]};
@@ -108,7 +108,7 @@ export function summaryTiles(result:Pick<CurveResult,'summary'>,settlement:strin
     return [...tiles,{name:'Day count',value:summary.dayCount}];
   }
   if(summary.front)tiles.push({name:'Contracts',value:String(summary.contractCount)},{name:'Front contract',value:deliveryLabel(summary.front.deliveryFrom,summary.front.deliveryTo)},{name:'Front price',value:summary.front.price,numeric:true});
-  else tiles.push({name:'Contracts',value:'None remaining'});
+  else tiles.push({name:'Contracts',value:summary.availability==='no_priced_contract'?'None priced':'None remaining'});
   return [...tiles,{name:'Settlement',value:settlement}];
 }
 /** The count under a curve's chart, from the backend's summary. */

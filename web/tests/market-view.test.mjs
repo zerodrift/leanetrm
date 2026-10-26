@@ -66,6 +66,8 @@ test('summary tiles and the contract count come from the backend summary, not fr
  assert.equal(contractCountText({...futures,summary:{...futures.summary,contractCount:1}}),'1 contract');
  const none={curve:'gas',points:[],summary:{kind:'contracts',contractCount:0,front:null,availability:'no_remaining_contracts'}};
  assert.deepEqual(summaryTiles(none,'S'),[{name:'Contracts',value:'None remaining'},{name:'Settlement',value:'S'}]);
+ const unpriced={curve:'gas',points:[],summary:{kind:'contracts',contractCount:4,front:null,availability:'no_priced_contract'}};
+ assert.deepEqual(summaryTiles(unpriced,'S'),[{name:'Contracts',value:'None priced'},{name:'Settlement',value:'S'}]);
  const rates={kind:'rates',curve:'r',points:[{maturity:'2030-01-01',value:'0',lineage:[]}],summary:{kind:'rates',maturityCount:3,firstMaturity:'2021-06-01',firstZeroRate:'1.25',dayCount:'ACT/365F'}};
  assert.deepEqual(summaryTiles(rates,'ignored'),[{name:'Maturities',value:'3'},{name:'First maturity',value:displayDate('2021-06-01')},{name:'First zero rate (%)',value:'1.25',numeric:true},{name:'Day count',value:'ACT/365F'}]);
  assert.equal(contractCountText(rates),'3 rate samples');

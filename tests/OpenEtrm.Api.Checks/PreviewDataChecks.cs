@@ -206,7 +206,7 @@ internal static class PreviewDataChecks
                 front.Id("contractId")!=first.Id("contractId")||front.Text("deliveryFrom")!=first.Text("deliveryFrom")||
                 front.Text("deliveryTo")!=first.Text("deliveryTo")||front.Text("price")!=first.Text("value"))
                 throw new Exception("An evaluation did not summarize its curve by its count and first contract.");
-            if(MarketReads.Shape(priced,priced.Snapshot(fixture.Frame),fixture.Frame,"future") is not {ContractCount:405,Front:{} shaped}||
+            if(MarketReads.Shape(priced,priced.Snapshot(fixture.Frame),fixture.Frame,"future") is not {ContractCount:405,Availability:null,Front:{} shaped}||
                 shaped!=new CurveFront(first.Id("contractId"),first.Text("deliveryFrom"),first.Text("deliveryTo"),first.Text("value")))
                 throw new Exception("A curve shape did not summarize its curve as its evaluation does.");
             // The first three contracts have expired and the fourth has no pinned price: the front is the fifth.
@@ -226,8 +226,11 @@ internal static class PreviewDataChecks
             var none=Wire(both.Result(emptied,"completed_future")).GetProperty("summary");
             if(none.Text("kind")!="contracts"||none.GetProperty("contractCount").GetInt32()!=0||none.GetProperty("front").ValueKind!=JsonValueKind.Null||none.Text("availability")!="no_remaining_contracts")
                 throw new Exception("A curve with no remaining contracts did not say so in its summary.");
-            if(MarketReads.Shape(both,both.Snapshot(emptied),emptied,"completed_future") is not {ContractCount:0,Front:null})
-                throw new Exception("A curve shape with no remaining contracts did not state a zero count and no front.");
+            if(MarketReads.Shape(both,both.Snapshot(emptied),emptied,"completed_future") is not {ContractCount:0,Front:null,Availability:"no_remaining_contracts"})
+                throw new Exception("A curve shape with no remaining contracts did not state a zero count, no front and why.");
+            var (unpriced,allGap)=Unpriceable(405,false);
+            if(MarketReads.Shape(unpriced,unpriced.Snapshot(allGap),allGap,"future") is not {ContractCount:405,Front:null,Availability:"no_priced_contract",Points:{} gone}||gone.Any(p=>p.Price is not null))
+                throw new Exception("A curve shape whose contracts are all unpriced did not say that none is priced.");
         });
         Check("the contracts a close cannot price are isolated in builds that grow with them and not with the curve",()=>
         {

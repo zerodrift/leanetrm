@@ -806,7 +806,7 @@ public sealed class PreviewData
         var value=Model.Build(Snapshot(frame),[new(new(revision,code),K(contract.Value))]).Values[0];
         return (value.Price.Value.ToString(),value.Lineage.Select(k=>k.Id).Order().ToArray());
     }
-    // The summary the browser states for a curve (D226): counts and the front contract come from here, never from its points.
+    // The summary the browser states for a curve (D233): counts and the front contract come from here, never from its points.
     static object ContractSummary(int contractCount,CurveFront? front,string? availability)=>new{kind="contracts",contractCount,front,availability};
     static object RateSummary(ZeroRateBuild rates)
     {
@@ -826,7 +826,7 @@ public sealed class PreviewData
         {
             if(!DefinitionRows("curves","code",code).Any())throw new MarketDataException("missing_curve","Select an exact curve definition.");
             return new {snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,availability="no_remaining_contracts",
-                evaluated=0,numericalPolicy=CurveModel.NumericalPolicy,summary=ContractSummary(0,null,"no_remaining_contracts"),trace=Array.Empty<object>(),points=Array.Empty<object>(),observationIds=frame.ObservationIds};
+                evaluated=0,numericalPolicy=CurveModel.NumericalPolicy,summary=ContractSummary(0,null,CurveSummary.NoRemainingContracts),trace=Array.Empty<object>(),points=Array.Empty<object>(),observationIds=frame.ObservationIds};
         }
         var build=Build(frame,code);
         var nodeIds=build.Evaluations.Select((e,i)=>(e,i)).ToDictionary(p=>(p.e.Result.Request,p.e.Use),p=>"step_"+p.i.ToString(System.Globalization.CultureInfo.InvariantCulture));

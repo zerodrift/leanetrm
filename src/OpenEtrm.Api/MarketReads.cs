@@ -34,9 +34,11 @@ public static class HistoryRevisionPolicy
 public sealed record CurveShapePoint(Guid ContractId,string DeliveryFrom,string DeliveryTo,string? Price,string? UnavailableReason);
 // A curve at the pinned frame: its price unit and a point for each contract its view selects, or, with neither, the code its own
 // Evaluate read raises when the pinned data cannot read it.
-// ContractCount and Front are D226's summary of Points: how many contracts the view selects, and its first priced one.
-public sealed record CurveShape(string Curve,string? Unit,ImmutableArray<CurveShapePoint>? Points,string? UnavailableReason,int? ContractCount=null,CurveFront? Front=null);
-// The front contract of a curve (D226): the first contract in delivery order that the selected close prices.
+// ContractCount, Front and Availability are D233's summary of Points: how many contracts the view selects, its first priced one, and why
+// it has none (no_remaining_contracts when the view selects nothing, no_priced_contract when it selects contracts and none is priced).
+public sealed record CurveShape(string Curve,string? Unit,ImmutableArray<CurveShapePoint>? Points,string? UnavailableReason,int? ContractCount,CurveFront? Front,string? Availability);
+// The front contract of a curve (D233): the first contract in delivery order that the selected close prices.
+public static class CurveSummary{public const string NoRemainingContracts="no_remaining_contracts",NoPricedContract="no_priced_contract";}
 public sealed record CurveFront(Guid ContractId,string DeliveryFrom,string DeliveryTo,string Price)
 {
     public static CurveFront? First(IEnumerable<CurveShapePoint> points)=>points.Where(p=>p.Price is not null)
@@ -143,13 +145,13 @@ public sealed class MarketReads(PreviewDatabase database)
     {
         ImmutableArray<CurveRequest> requests;
         try{requests=data.Requests(frame,curve);}
-        catch(MarketDataException error){return new(curve,null,null,error.Code);}
+        catch(MarketDataException error){return new(curve,null,null,error.Code,null,null,null);}
         CurveBuild? build;ImmutableDictionary<CurveRequest,string> unvalued;
         try{(build,unvalued)=ValuationStatus.BuildValued(set=>data.Model.Build(snapshot,set),requests);}
         catch(MarketDataException)
         {
             try{data.Model.Build(snapshot,requests);}
-            catch(MarketDataException whole){return new(curve,null,null,whole.Code);}
+            catch(MarketDataException whole){return new(curve,null,null,whole.Code,null,null,null);}
             throw;
         }
         var prices=(build?.Values??ImmutableArray<BuiltValue>.Empty).ToDictionary(v=>v.Request,v=>v.Price.Value.ToString());
@@ -158,7 +160,8 @@ public sealed class MarketReads(PreviewDatabase database)
             var delivery=data.ContractRows(request.Contract.Id).Single();
             return new CurveShapePoint(request.Contract.Id,Date(delivery.DeliveryFrom),Date(delivery.DeliveryTo),prices.GetValueOrDefault(request),unvalued.GetValueOrDefault(request));
         })];
-        return new(curve,data.PriceUnit(curve),points,null,points.Length,CurveFront.First(points));
+        var front=CurveFront.First(points);
+        return new(curve,data.PriceUnit(curve),points,null,points.Length,front,front is not null?null:points.IsEmpty?CurveSummary.NoRemainingContracts:CurveSummary.NoPricedContract);
     }
     static string Date(DateOnly date)=>date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
 
