@@ -5,36 +5,38 @@
 <aside id="app-sidebar" class="sidebar" aria-label="Navigation">
   <div class="brand-row"><a class="brand" href="/" aria-label="LeanETRM home"><span class="brand-icon" aria-hidden="true">L</span><span class="brand-name">LeanETRM</span></a><button id="sidebar-toggle" type="button" class="sidebar-toggle" aria-expanded="true" aria-controls="sidebar-menus" aria-label="Collapse navigation" title="Collapse navigation">‹</button></div>
   <div id="sidebar-menus">
-    <div class="example-switch"><label for="example-dataset">Market example</label><select id="example-dataset" aria-label="Market example"></select></div>
-    <details id="market-menu" class="nav-group" open><summary>Market data</summary><nav aria-label="Main navigation">
+    <details id="nav-group-trading" class="nav-group" open hidden><summary>Trading</summary><nav aria-label="Trading">
+      <button id="nav-futures" class="nav-item" aria-label="Blotter" title="Blotter" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></span><span class="nav-text">Blotter</span></button>
+      <button id="nav-ppa" class="nav-item" aria-label="PPA bookings" title="PPA bookings" hidden><span class="nav-icon" aria-hidden="true">≋</span><span class="nav-text">PPA bookings</span></button>
+    </nav></details>
+    <details id="nav-group-markets" class="nav-group" open><summary>Markets</summary><nav aria-label="Markets">
       <button id="nav-market" class="nav-item active" aria-label="Curves & prices" title="Curves & prices"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/></svg></span><span class="nav-text">Curves &amp; prices</span></button>
       <button id="nav-custom-curves" class="nav-item" aria-label="Custom curves" title="Custom curves"><span class="nav-icon" aria-hidden="true">⌘</span><span class="nav-text">Custom curves</span></button>
       <button id="nav-delivery" class="nav-item" aria-label="Delivery prices" title="Delivery prices"><span class="nav-icon" aria-hidden="true">≋</span><span class="nav-text">Delivery prices</span></button>
       <button id="nav-interval-series" class="nav-item" aria-label="Interval data" title="Interval data"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20v-6M9 20V8M14 20v-9M19 20V4"/></svg></span><span class="nav-text">Interval data</span></button>
     </nav></details>
-    <button id="nav-jobs" class="nav-item" aria-label="Jobs & Infrastructure" title="Jobs & Infrastructure"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-text">Jobs &amp; Infrastructure</span></button>
-    <details id="settings-menu" class="nav-group" open><summary>Settings</summary><nav aria-label="Settings">
+    <details id="nav-group-operations" class="nav-group" open><summary>Operations</summary><nav aria-label="Operations">
+      <button id="nav-jobs" class="nav-item" aria-label="Jobs & Infrastructure" title="Jobs & Infrastructure"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-text">Jobs &amp; Infrastructure</span></button>
+    </nav></details>
+    <details id="nav-group-settings" class="nav-group" open><summary>Settings</summary><nav aria-label="Settings">
+      <button id="nav-configuration" class="nav-item" aria-label="Contract definitions" title="Contract definitions"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></span><span class="nav-text">Contract definitions</span></button>
+      <button id="nav-schedules" class="nav-item" aria-label="Schedules" title="Schedules"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><span class="nav-text">Schedules</span></button>
       <button id="nav-power" class="nav-item" aria-label="Power TOUs" title="Power TOUs"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></span><span class="nav-text">Power TOUs</span></button>
       <button id="nav-reference" class="nav-item" aria-label="Reference data" title="Reference data"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></span><span class="nav-text">Reference data</span></button>
-      <button id="nav-schedules" class="nav-item" aria-label="Schedules" title="Schedules"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><span class="nav-text">Schedules</span></button>
-      <button id="nav-configuration" class="nav-item" aria-label="Contract definitions" title="Contract definitions"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></span><span class="nav-text">Contract definitions</span></button>
       <button id="nav-parties" class="nav-item" aria-label="Entities & counterparties" title="Entities & counterparties" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6M8 10h.01M12 10h.01M16 10h.01"/></svg></span><span class="nav-text">Entities &amp; counterparties</span></button>
+    </nav></details>
+    <details id="nav-group-admin" class="nav-group" open hidden><summary>Admin</summary><nav aria-label="Admin">
       <button id="nav-admin" class="nav-item" aria-label="Users & access" title="Users & access" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span><span class="nav-text">Users &amp; access</span></button>
       <button id="nav-ai" class="nav-item" aria-label="AI" title="AI" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span><span class="nav-text">AI</span></button>
     </nav></details>
-    <details id="trading-menu" class="nav-group" open><summary>Trading</summary><nav aria-label="Trading">
-      <button id="nav-ppa" class="nav-item" aria-label="PPA bookings" title="PPA bookings" hidden><span class="nav-icon" aria-hidden="true">≋</span><span class="nav-text">PPA bookings</span></button>
-      <button id="nav-futures" class="nav-item" aria-label="Blotter" title="Blotter" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></span><span class="nav-text">Blotter</span></button>
-    </nav></details>
   </div>
-  <div class="side-note"><strong><span class="dot" aria-hidden="true"></span><span id="workspace-host-mode">Workspace</span></strong><p id="workspace-mode-description">Verifying workspace information.</p></div>
+  <div class="side-note"><strong><span class="dot" aria-hidden="true"></span><span id="workspace-host-mode">Workspace</span></strong><p id="workspace-mode-description">Verifying workspace information.</p><div class="example-switch"><label for="example-dataset">Market example</label><select id="example-dataset" aria-label="Market example"></select></div></div>
 </aside>
 <main>
   <header>
-    <div><div id="page-section" class="eyebrow">MARKET DATA</div><h1 id="page-title">Curves & prices</h1></div>
-    <div class="header-actions"><div class="date-control"><label for="market-date-open">As of</label><div id="market-date-calendar"></div><select id="snapshot" hidden aria-hidden="true" tabindex="-1"><option value="">Choose a date…</option></select><span id="header-calculation-time" class="field-help"></span></div><details id="date-context" class="header-context floating-context" hidden><summary>Context</summary><div class="header-context-panel"><button id="close-view-context" type="button" class="text-button">Close time controls</button><div class="schedule-fields"><div><label for="date-context-on">Effective date</label><input id="date-context-on" data-context-coordinate="Effective" type="date" required></div><div><label for="date-context-view">Knowledge cutoff · <span data-user-time-zone></span></label><input id="date-context-view" data-context-coordinate="Knowledge cutoff" type="datetime-local" step="1" required></div></div><p class="field-help">The effective date selects business history. Changing it selects knowledge through the end of that date in your time zone, capped at current knowledge. The cutoff remains editable. Later corrections preserve earlier views.</p><p id="environment-context-note" role="status" class="field-help">Current workspace · exact selected inputs</p><div class="schedule-actions"><button id="apply-view-context" type="button">View this context</button><button id="current-view-context" type="button" class="secondary">Return to current inputs</button></div><button id="date-context-latest" type="button" class="secondary">Use current knowledge</button></div></details><button id="profile-open" class="profile-button" aria-haspopup="dialog"><span id="profile-avatar" class="avatar" aria-hidden="true">U</span><span id="profile-label">Profile</span></button></div>
+    <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1></div>
+    <div class="header-actions"><div id="context-dock" class="context-dock" role="group" aria-label="Market context"><div class="date-control"><label for="market-date-open">As of</label><div id="market-date-calendar"></div><select id="snapshot" hidden aria-hidden="true" tabindex="-1"><option value="">Choose a date…</option></select></div><details id="date-context" class="header-context floating-context" hidden><summary><span class="context-kicker">Context</span><strong id="workspace-mode-label">Working data</strong><span class="context-values" data-context-values></span></summary><div class="header-context-panel"><button id="close-view-context" type="button" class="text-button">Close time controls</button><p id="workspace-today" class="field-help"></p><p id="header-calculation-time" class="field-help context-read"></p><div class="schedule-fields"><div><label for="date-context-on">Effective date</label><input id="date-context-on" data-context-coordinate="Effective" type="date" required></div><div><label for="date-context-view">Knowledge cutoff · <span data-user-time-zone></span></label><input id="date-context-view" data-context-coordinate="Knowledge cutoff" type="datetime-local" step="1" required></div></div><p class="field-help">The effective date selects business history. Changing it selects knowledge through the end of that date in your time zone, capped at current knowledge. The cutoff remains editable. Later corrections preserve earlier views.</p><p id="environment-context-note" role="status" class="field-help">Current workspace · exact selected inputs</p><div class="schedule-actions"><button id="apply-view-context" type="button">View this context</button><button id="current-view-context" type="button" class="secondary">Return to current inputs</button></div><div class="schedule-actions"><button id="date-context-latest" type="button" class="secondary">Use current knowledge</button><button id="follow-live" type="button" class="secondary" title="Follow committed corrections to these selected facts. Effective date, market date, observation times and contracts stay fixed.">Follow live corrections</button></div></div></details><span id="live-status" class="live-status" role="status" aria-live="polite" hidden></span><button id="live-retry" type="button" class="secondary context-action" hidden>Retry refresh</button><button id="return-working" type="button" class="secondary context-action" hidden>Return to working data</button></div><button id="profile-open" class="profile-button" aria-haspopup="dialog"><span id="profile-avatar" class="avatar" aria-hidden="true">U</span><span id="profile-label">Profile</span></button></div>
   </header>
-  <div id="workspace-mode" class="workspace-mode"><strong id="workspace-mode-label">Working data</strong><span id="live-status" class="live-status" role="status" aria-live="polite" hidden></span><button id="live-retry" type="button" class="text-button" hidden>Retry refresh</button><span id="workspace-today"></span><button id="follow-live" type="button" class="text-button" title="Follow committed corrections to these selected facts. Effective date, market date, observation times and contracts stay fixed.">Follow live corrections</button><button id="return-working" type="button" class="text-button" hidden>Return to working data</button></div>
   <div id="error" role="alert" hidden></div><div id="notice" role="status" hidden></div>
   <div class="status-bar"><span id="status" role="status" aria-live="polite">Loading market data…</span></div>
   <section id="ppa-page" hidden aria-label="PPA bookings"></section>
@@ -174,35 +176,51 @@
     </details>
   </section>
   <section id="futures-page" hidden>
+    <div id="futures-retained"><div id="futures-pending" class="profile-note retained-request" role="status" hidden><p id="futures-pending-text"></p><div class="schedule-actions"><button id="futures-reconcile" type="button" class="secondary">Check status</button><button id="futures-retry" type="button" class="secondary">Retry original request</button></div></div></div>
+    <p id="new-trade-availability" class="table-workspace-note" role="status" hidden></p>
     <div id="blotter-workspace"></div>
+    <div id="desk-lens" class="desk-lens" role="group" aria-label="Positions lens" hidden><button type="button" data-lens="values" aria-pressed="true">Values</button><button type="button" data-lens="risk" aria-pressed="false">Risk</button></div>
+    <div id="desk" class="desk" hidden>
+      <section id="desk-run" class="desk-run" hidden>
+        <span class="desk-run-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19l5-6 4 3 7-9"/></svg></span>
+        <div class="desk-run-text">
+          <p id="desk-run-title" class="desk-run-title"><strong>Risk report</strong> · <span id="risk-run-setup"></span></p>
+          <p id="desk-run-detail" class="desk-run-detail"></p>
+          <ul id="desk-run-notes" class="desk-run-notes"></ul>
+          <p id="risk-export-note" class="desk-run-export-note" hidden></p>
+        </div>
+        <div class="desk-run-actions"><button id="desk-run-edit" type="button" class="secondary">Edit shocks</button><button id="risk-export" type="button" class="secondary">Export</button><button id="desk-run-clear" type="button" class="secondary">Clear</button></div>
+      </section>
+      <div class="desk-tiles" role="group" aria-label="Book summary at this close">
+        <div class="desk-tile-pair">
+          <section id="desk-tile-swapPv" class="desk-tile" aria-label="Swap PV"></section>
+          <section id="desk-tile-futuresPnl" class="desk-tile" aria-label="Futures execution P&amp;L"></section>
+        </div>
+        <div class="desk-tile-pair">
+          <section id="desk-tile-positions" class="desk-tile" aria-label="Open positions"></section>
+          <section id="desk-tile-risk" class="desk-tile desk-tile-risk" aria-label="Risk at this close"></section>
+        </div>
+      </div>
+    </div>
+    <div id="desk-charts" class="desk-charts" hidden>
+      <section id="desk-chart-pv" class="desk-chart" aria-labelledby="desk-chart-pv-title"><h3 id="desk-chart-pv-title" class="desk-chart-title">Swap PV by market</h3></section>
+      <section id="desk-chart-position" class="desk-chart" aria-labelledby="desk-chart-position-title"><h3 id="desk-chart-position-title" class="desk-chart-title">Long and short by market</h3></section>
+    </div>
+    <aside id="side-panel" class="side-panel" aria-label="Position" tabindex="-1" hidden>
+      <div class="side-panel-frame">
+        <div id="side-panel-prompt" class="side-panel-prompt" role="alertdialog" aria-label="Unsaved changes" hidden></div>
+        <div id="side-panel-retained" class="side-panel-retained"></div>
+        <button id="side-panel-close" type="button" class="icon-button side-panel-close" aria-label="Close the panel">×</button>
+        <div id="side-panel-head" class="side-panel-head"></div>
+        <div id="side-panel-tabs" class="side-panel-tabs"></div>
+        <div id="side-panel-body" class="side-panel-body" tabindex="0">
+          <div id="side-panel-view"></div>
+          <div id="side-panel-form" class="side-panel-form" hidden></div>
+        </div>
+      </div>
+    </aside>
     <section id="blotter-chart-card" class="card blotter-analysis" hidden><div class="analysis-heading"><div><div class="eyebrow">BLOTTER ANALYTICS</div><h3>Visual analysis</h3><p id="blotter-chart-scope" class="field-help"></p></div><div class="plot-style-controls" role="group" aria-label="Chart style"><button type="button" data-plot-kind="bar" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M8 16v-5m5 5V7m5 9V4"/></svg>Bars</button><button type="button" data-plot-kind="line" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M7 15l5-7 4 3 5-7"/></svg>Line</button><button type="button" data-plot-kind="heatmap" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM4 10h16m-16 5h16M10 4v16m5-16v16"/></svg>Heatmap</button></div></div><div id="blotter-chart"></div><p class="analysis-footnote">Hover for exact values. Use the legend to isolate a series and the slider to zoom. Empty cells indicate unavailable values.</p></section>
     <div class="table-workspace-footer"><p id="futures-summary" role="status">Choose a market date above.</p><details class="blotter-scope"><summary>Calculation scope</summary><p class="field-help">Futures show execution P&amp;L; financial swaps show projected PV. These are separate measures. Blank values are unavailable. Futures PV and daily settlement remain separate work. Values use the selected saved market inputs; no live feed is connected.</p></details></div>
-    <section id="risk-card" class="card" hidden>
-      <div class="card-heading"><div><h3>Risk under market scenarios</h3><p id="risk-scope" class="field-help">Selected books and portfolios before table row filters, using the financial context above. Revalue held instruments through connected market quotes and computed curve outputs. Results keep each valuation measure and currency separate; rates, actual fixings and futures settlement state stay fixed.</p></div><button id="risk-close" type="button" class="text-button">Close</button></div>
-      <details><summary>Recent risk jobs</summary><label for="risk-job-history">Job captured market time · <span data-user-time-zone></span></label><select id="risk-job-history"><option value="">Choose a retained job…</option></select><button id="risk-job-return" type="button" class="text-button" hidden>Return to selected financial context</button></details>
-      <form id="risk-form"><fieldset id="risk-fields" class="futures-fields">
-        <div class="risk-scenario-editor"><div class="risk-scenario-heading"><div><span class="workbench-eyebrow">SCENARIO LAB</span><h4>Explore a market move</h4></div><p id="risk-scenario" class="field-help" role="status">Risk around the selected unchanged market.</p></div>
-        <div class="risk-target-filters"><label>Coordinate<select id="risk-coordinate"><option value="all">All coordinates</option><option value="market_quote">Primitive market quote</option><option value="computed_output">Computed curve output</option></select></label><label>Target shape<select id="risk-target-kind"><option value="all">All target shapes</option><option value="contract">Exact contract</option><option value="points">Explicit points</option><option value="parallel">Whole curve</option><option value="delivery_bucket">Delivery bucket</option></select></label></div>
-        <label for="risk-factor">Scenario target</label><select id="risk-factor" required><option value="">Choose a scenario target…</option></select>
-        <div id="risk-bucket" class="risk-bucket-fields" hidden><label>Delivery start<input id="risk-from" type="date"></label><label>Delivery end · exclusive<input id="risk-to" type="date"></label><p class="field-help">The backend selects whole contracts contained in this delivery window.</p></div>
-        <label for="risk-bump">Symmetric bump · positive price points</label><input id="risk-bump" type="text" inputmode="decimal" required maxlength="45" placeholder="Enter an explicit bump"><p id="risk-unit" class="field-help"></p></div>
-        <details id="risk-stress"><summary>Build a nested stress scenario</summary><p class="field-help">Each child adds an explicit offset to its parent. Quote shifts flow through connected curves; output shifts keep those connections. Return to a parent to remove only the last child.</p>
-        <div class="risk-target-filters"><label>Coordinate<select id="risk-stress-coordinate"><option value="all">All coordinates</option><option value="market_quote">Primitive market quote</option><option value="computed_output">Computed curve output</option></select></label><label>Target shape<select id="risk-stress-target-kind"><option value="all">All target shapes</option><option value="contract">Exact contract</option><option value="points">Explicit points</option><option value="parallel">Whole curve</option><option value="delivery_bucket">Delivery bucket</option></select></label></div>
-        <label for="risk-stress-factor">Scenario target</label><select id="risk-stress-factor"><option value="">Choose a scenario target…</option></select>
-        <div id="risk-stress-bucket" class="risk-bucket-fields" hidden><label>Delivery start<input id="risk-stress-from" type="date"></label><label>Delivery end · exclusive<input id="risk-stress-to" type="date"></label><p class="field-help">The backend selects whole contracts contained in this delivery window.</p></div>
-        <label for="risk-stress-size">Signed shift · price points</label><input id="risk-stress-size" type="text" inputmode="decimal" maxlength="45" placeholder="For example 0.10 or -0.10"><p id="risk-stress-unit" class="field-help"></p><div class="pricing-toolbar"><button id="risk-stress-add" type="button" class="secondary">Add child stress</button><button id="risk-stress-parent" type="button" class="secondary" disabled>Return to parent</button><button id="risk-stress-clear" type="button" class="text-button" disabled>Return to market</button></div><ol id="risk-stress-stack"></ol></details>
-        <div class="pricing-toolbar risk-run-actions"><button type="submit">Run up / down shocks</button><button id="risk-queue" type="submit" class="secondary">Queue risk job</button></div>
-      </fieldset></form>
-      <div id="risk-job" hidden><p id="risk-job-context" class="field-help"></p><p id="risk-job-scenario" class="field-help"></p><p id="risk-job-status" class="field-help" role="status"></p><div class="pricing-toolbar"><button id="risk-job-cancel" type="button" class="secondary" hidden>Cancel job</button><button id="risk-job-refresh" type="button" class="secondary" hidden>Refresh job</button><button id="risk-job-retry" type="button" class="secondary" hidden>Reconcile submission</button><button id="risk-job-discard" type="button" class="text-button" hidden>Discard unconfirmed request</button></div></div>
-      <div id="risk-work" class="field-help" role="status"></div><div id="risk-results"></div><div id="risk-plots"></div><button id="risk-export" type="button" class="secondary" hidden>Download results &amp; inputs</button>
-    </section>
-    <p id="futures-booking-availability" class="field-help" role="status">Choose an As of date to book a trade.</p>
-    <section id="futures-booking" class="card" hidden><div class="card-heading"><h3>New futures trade</h3><button id="futures-cancel" type="button" class="text-button">Close</button></div><p id="futures-terms" class="field-help">Select a dated contract to see its terms.</p><form id="futures-form" hidden><fieldset id="futures-fields" class="futures-fields">
-      <section id="futures-trade-terms" class="trade-booking-terms"></section>
-      <section id="futures-instrument"></section><section id="futures-draft-valuation"></section>
-      <p class="field-help">Booking facts are assigned by the server. The selected market date supplies the separate pricing effective time.</p><button id="futures-book-submit" type="submit" class="secondary">Book future</button>
-    </fieldset></form><div id="futures-pending" class="profile-note" hidden><p>A trade request is retained. Check its committed outcome or retry the identical request before entering another booking.</p><div class="schedule-actions"><button id="futures-reconcile" type="button" class="secondary">Check trade status</button><button id="futures-retry" type="button" class="secondary">Retry original request</button></div></div></section>
-    <details class="table-totals"><summary>Futures execution P&amp;L · book totals before row filters</summary><p class="field-help">Totals cover the selected portfolios and books, independently of row filters.</p><div id="futures-totals" class="table-wrap"></div></details>
   </section>
   <section id="jobs-page" hidden>
     <div class="card"><div class="card-heading"><div><h2>Jobs &amp; Infrastructure</h2><p id="jobs-scope"></p></div><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>
@@ -354,9 +372,55 @@
     <div class="assistant-composer-actions"><span id="assistant-composer-note" class="field-help"></span><button id="assistant-discard" type="button" class="secondary" hidden>Discard</button><button id="assistant-retry" type="button" class="secondary" hidden>Retry</button><button id="assistant-send" type="submit">Send</button></div>
   </form>
 </aside>
-<dialog id="trade-kind" aria-labelledby="trade-kind-title"><div class="dialog-heading"><h2 id="trade-kind-title">New trade</h2><button id="trade-kind-close" type="button" class="icon-button" aria-label="Close trade choices">×</button></div><p class="field-help">Choose the instrument for your new trade.</p><div class="trade-kind-actions instrument-choices"><button id="trade-kind-future" type="button"><span class="choice-symbol" aria-hidden="true">↗</span><strong>Futures</strong><span>Exchange contracts with a defined expiry</span></button><button id="trade-kind-swap" type="button"><span class="choice-symbol" aria-hidden="true">⇄</span><strong>Swaps</strong><span>Fixed or floating prices on independent sides</span></button><button id="trade-kind-ppa" type="button"><span class="choice-symbol" aria-hidden="true">ϟ</span><strong>PPA</strong><span>Power purchase agreement</span></button></div></dialog>
-<dialog id="swap-editor" class="trade-editor swap-editor" aria-labelledby="swap-title">
- <div class="dialog-heading"><div><div class="eyebrow">TRADING</div><h2 id="swap-title">Swap</h2></div><button id="swap-close" type="button" class="icon-button" aria-label="Close financial swap">×</button></div>
+<div id="editor-shelf" hidden>
+<div id="risk-report" class="risk-report" hidden>
+ <p id="risk-scope" class="field-help">Selected books and portfolios before table row filters, using the financial context above. Revalue held instruments through connected market quotes and computed curve outputs. Results keep each valuation measure and currency separate; rates, actual fixings and futures settlement state stay fixed.</p>
+ <p id="risk-status" class="side-panel-status" role="status" hidden></p><button id="risk-reload" type="button" class="secondary" hidden>Read it again</button>
+ <details id="risk-history"><summary>Recent risk jobs</summary><label for="risk-job-history">Job captured market time · <span data-user-time-zone></span></label><select id="risk-job-history"><option value="">Choose a retained job…</option></select><button id="risk-job-return" type="button" class="text-button" hidden>Return to selected financial context</button></details>
+ <form id="risk-form"><fieldset id="risk-fields">
+  <p id="risk-carried" class="field-help" role="status" hidden></p>
+  <fieldset class="risk-choices"><legend>Report</legend>
+   <label class="risk-choice"><input type="radio" name="risk-choice" value="held" required><span><strong>Shock every held contract</strong><small id="risk-choice-held-detail"></small></span></label>
+   <label class="risk-choice"><input type="radio" name="risk-choice" value="parallel" required><span><strong>Parallel shift</strong><small id="risk-choice-parallel-detail"></small></span></label>
+   <label class="risk-choice"><input type="radio" name="risk-choice" value="custom" required><span><strong>Custom scenario</strong><small>Any target the catalog offers, around nested stresses</small></span></label>
+  </fieldset>
+  <fieldset id="risk-preset" class="risk-preset" hidden disabled>
+   <p id="risk-preset-summary" class="field-help"></p>
+   <div id="risk-sizes" class="risk-sizes"></div>
+   <p class="field-help">Each size is a positive absolute bump in its price unit. There are no built-in sizes.</p>
+   <p id="risk-preset-gaps" class="field-help" hidden></p>
+  </fieldset>
+  <fieldset id="risk-custom" class="risk-custom" hidden disabled>
+   <div class="risk-scenario-editor"><div class="risk-scenario-heading"><div><span class="workbench-eyebrow">SCENARIO LAB</span><h4>Explore a market move</h4></div><p id="risk-scenario" class="field-help" role="status">Risk around the selected unchanged market.</p></div>
+   <div class="risk-target-filters"><label>Coordinate<select id="risk-coordinate"><option value="all">All coordinates</option><option value="market_quote">Primitive market quote</option><option value="computed_output">Computed curve output</option></select></label><label>Target shape<select id="risk-target-kind"><option value="all">All target shapes</option><option value="contract">Exact contract</option><option value="points">Explicit points</option><option value="parallel">Whole curve</option><option value="delivery_bucket">Delivery bucket</option></select></label></div>
+   <label for="risk-factor">Scenario target</label><select id="risk-factor" required><option value="">Choose a scenario target…</option></select>
+   <div id="risk-bucket" class="risk-bucket-fields" hidden><label>Delivery start<input id="risk-from" type="date"></label><label>Delivery end · exclusive<input id="risk-to" type="date"></label><p class="field-help">The backend selects whole contracts contained in this delivery window.</p></div>
+   <label for="risk-bump">Symmetric bump · positive price points</label><input id="risk-bump" type="text" inputmode="decimal" required maxlength="45" placeholder="Enter an explicit bump"><p id="risk-unit" class="field-help"></p></div>
+   <details id="risk-stress"><summary>Build a nested stress scenario</summary><p class="field-help">Each child adds an explicit offset to its parent. Quote shifts flow through connected curves; output shifts keep those connections. Return to a parent to remove only the last child.</p>
+   <div class="risk-target-filters"><label>Coordinate<select id="risk-stress-coordinate"><option value="all">All coordinates</option><option value="market_quote">Primitive market quote</option><option value="computed_output">Computed curve output</option></select></label><label>Target shape<select id="risk-stress-target-kind"><option value="all">All target shapes</option><option value="contract">Exact contract</option><option value="points">Explicit points</option><option value="parallel">Whole curve</option><option value="delivery_bucket">Delivery bucket</option></select></label></div>
+   <label for="risk-stress-factor">Scenario target</label><select id="risk-stress-factor"><option value="">Choose a scenario target…</option></select>
+   <div id="risk-stress-bucket" class="risk-bucket-fields" hidden><label>Delivery start<input id="risk-stress-from" type="date"></label><label>Delivery end · exclusive<input id="risk-stress-to" type="date"></label><p class="field-help">The backend selects whole contracts contained in this delivery window.</p></div>
+   <label for="risk-stress-size">Signed shift · price points</label><input id="risk-stress-size" type="text" inputmode="decimal" maxlength="45" placeholder="For example 0.10 or -0.10"><p id="risk-stress-unit" class="field-help"></p><div class="pricing-toolbar"><button id="risk-stress-add" type="button" class="secondary">Add child stress</button><button id="risk-stress-parent" type="button" class="secondary" disabled>Return to parent</button><button id="risk-stress-clear" type="button" class="text-button" disabled>Return to market</button></div><ol id="risk-stress-stack"></ol></details>
+  </fieldset>
+  <p id="risk-excluded" class="field-help" hidden></p>
+  <div class="risk-run-actions"><button id="risk-run" type="submit">Run now</button><button id="risk-queue" type="submit" class="secondary">Queue as job</button></div>
+  <p id="risk-run-note" class="field-help" hidden></p>
+ </fieldset></form>
+ <p id="risk-progress" class="field-help" role="status"></p>
+ <div id="risk-job" hidden><p id="risk-job-context" class="field-help"></p><p id="risk-job-scenario" class="field-help"></p><p id="risk-job-status" class="field-help" role="status"></p><ul id="risk-job-parts" class="risk-job-parts"></ul><div class="pricing-toolbar"><button id="risk-job-cancel" type="button" class="secondary" hidden>Cancel job</button><button id="risk-job-refresh" type="button" class="secondary" hidden>Refresh job</button><button id="risk-job-retry" type="button" class="secondary" hidden>Reconcile submission</button><button id="risk-job-discard" type="button" class="text-button" hidden>Discard unconfirmed request</button></div></div>
+ <div id="risk-work" class="field-help" role="status"></div>
+</div>
+<div id="futures-new-trade" class="editing" hidden>
+ <form id="futures-form" hidden><fieldset id="futures-fields" class="futures-fields">
+  <section id="futures-trade-terms" class="trade-booking-terms"></section>
+  <section id="futures-instrument"></section>
+  <p id="futures-terms" class="field-help">Select a dated contract to see its terms.</p>
+  <section id="futures-draft-valuation" class="draft-valuation"></section>
+  <p class="field-help">Booking facts are assigned by the server. The selected market date supplies the separate pricing effective time.</p>
+  <button id="futures-book-submit" type="submit">Book future</button>
+ </fieldset></form>
+</div>
+<div id="swap-editing" class="editing swap-editing" hidden>
  <p id="swap-reference" class="profile-note"></p><p id="swap-mode" class="field-help" role="status"></p><p id="swap-error" role="alert" hidden></p>
  <div id="swap-revisions" hidden><label for="swap-revision">Trade revision</label><select id="swap-revision"></select><button id="swap-latest" type="button" class="secondary">Reload latest revision</button></div>
  <form id="swap-form"><fieldset id="swap-fields">
@@ -378,7 +442,7 @@
 
   <section id="swap-observations"><h3>Observation &amp; payment rules</h3><p class="field-help">Reset frequency selects price observations; averaging combines their prices. Fixing boundaries come from the exact index convention. Payment rules determine when cash is due, independently of observations and quantity.</p><div class="swap-term-columns"><section id="swap-fixed-observations"><h4>Fixed side payment</h4></section><section id="swap-first-observations" hidden><h4>First floating side</h4></section><section id="swap-floating-observations"><h4>Floating side</h4></section></div></section>
   <h3>Valuation review &amp; booking</h3><div class="schedule-fields"><div><label for="swap-discounting">Discounting</label><select id="swap-discounting" required><option value="">Choose…</option><option value="currency_default">Currency default curve</option><option value="none">Explicitly undiscounted</option></select></div></div>
-  <section id="swaps-draft-valuation"></section>
+  <section id="swaps-draft-valuation" class="draft-valuation"></section>
   </section>
   <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. The instrument quantity applies once after signed side PVs are summed. This model has one monthly payment per side. Each floating reset uses its index’s fixing convention and the selected market context; inspect its actual or projected state in the valued schedule.</p>
   <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>
@@ -387,10 +451,8 @@
  <section id="swap-result" hidden><h3>Valuation &amp; schedules</h3><p id="swap-pv" class="profile-note"></p><div id="swap-schedules"></div></section>
  <div id="swap-confirmation" hidden><label><input id="swap-confirm" type="checkbox"> Commit these exact reviewed terms</label><button id="swap-submit" type="button" disabled>Book financial swap</button></div>
  <div id="swap-amount-format"></div>
- <section id="swap-history-panel" hidden><h3>Events &amp; revisions</h3><div id="swap-history" class="table-wrap"></div></section>
-</dialog>
-<dialog id="trade-editor" class="trade-editor" aria-labelledby="trade-editor-title">
-  <div class="dialog-heading"><div><div class="eyebrow">TRADING</div><h2 id="trade-editor-title">Instrument &amp; trade editor</h2></div><button id="trade-editor-close" type="button" class="icon-button" aria-label="Close trade editor">×</button></div>
+</div>
+<div id="trade-editing" class="editing" hidden>
   <div class="schedule-fields"><div><label for="trade-revision">Trade revision</label><select id="trade-revision"></select></div><div><label>View</label><p id="trade-editor-mode" role="status"></p><button id="trade-reload" type="button" class="secondary">Reload latest revision</button></div></div>
   <p id="trade-editor-reference" class="profile-note"></p>
   <p id="trade-error" role="alert" hidden></p>
@@ -404,13 +466,12 @@
     <button id="trade-preview" type="submit">Preview amendment</button>
   </fieldset></form>
   <div id="trade-preview-result" class="profile-note" hidden><p id="trade-preview-values"></p><label><input id="trade-confirm" type="checkbox"> Apply this amendment at the displayed working As of time</label><button id="trade-submit" type="button" disabled>Submit amendment</button></div>
-  <div id="trade-editor-pending" class="profile-note" hidden><p>The amendment outcome needs reconciliation. The original command is retained.</p><button id="trade-editor-reconcile" type="button" class="secondary">Check status</button><button id="trade-editor-retry" type="button" class="secondary">Retry original amendment</button></div>
   <div id="trade-amount-format"></div>
-  <h3>Events &amp; revisions</h3><div id="trade-history" class="table-wrap"></div>
-</dialog>
+</div>
+</div>
 <dialog id="profile-dialog" aria-labelledby="profile-title"><form id="preferences-form"><div class="dialog-heading"><div><div class="eyebrow">PERSONAL SETTINGS</div><h2 id="profile-title">Your profile</h2></div><button type="button" id="profile-close" class="icon-button" aria-label="Close profile">×</button></div><p id="profile-access" class="muted">Make this view work for you.</p><p id="profile-error" role="alert" hidden></p><label for="zone">Time zone</label><select id="zone" required></select><p class="field-help">Dates and times will appear in your chosen time zone.</p><label for="preferred-browse">Browse market data by</label><select id="preferred-browse"><option value="commodity">Commodity</option><option value="marketType">Market type</option></select><label class="assistant-preference"><input id="show-assistant" type="checkbox"> Show floating Assistant button</label><div class="profile-note">Your browsing choices are remembered on this browser. Account-wide settings will be added with sign-in.</div><div class="dialog-actions"><button type="button" id="profile-cancel" class="secondary">Cancel</button><button id="profile-save" type="submit">Save preferences</button></div></form><section id="profile-grants" class="profile-grants" aria-labelledby="profile-grants-title"><h3 id="profile-grants-title" tabindex="-1">Agent access</h3><p class="field-help">The agents you allowed to read on your behalf, what each reads and until when. A grant also covers the agent’s later versions that use the same model and read nothing more. Revoking ends it at once and stops anything the agent is doing for you.</p><button id="profile-grants-show" type="button" class="secondary" aria-controls="profile-grants-list">Show agent access</button><p id="profile-grants-status" class="field-help" role="status"></p><p id="profile-grants-error" role="alert" hidden></p><ul id="profile-grants-list" class="grant-list" aria-labelledby="profile-grants-title"></ul><div id="profile-grants-pending" class="profile-note" hidden><p id="profile-grants-pending-text"></p><button id="profile-grants-retry" type="button" class="secondary">Retry revocation</button><button id="profile-grants-discard" type="button" class="secondary">Discard kept request</button></div></section>
 <details id="preview-access" class="preview-tools"><summary>Preview access</summary><p class="muted">Try different permissions in the sample app. These are demo users.</p><label for="profile">Demo user</label><select id="profile"></select><button id="open" class="secondary">Switch demo user</button></details><button id="sign-out" class="secondary" hidden>Sign out</button></dialog>
-<template id="swap-fixed-template">   <section class="instrument-side" aria-labelledby="swap-fixed-title" style="--side-rows:12"><h3 id="swap-fixed-title">Fixed side</h3><div class="fixed-side-description"><span class="eyebrow">FIXED PRICE</span><p class="field-help">A cash price in the instrument’s compatible units.</p></div>
+<template id="swap-fixed-template">   <section class="instrument-side" aria-labelledby="swap-fixed-title"><h3 id="swap-fixed-title">Fixed side</h3><div class="fixed-side-description"><span class="eyebrow">FIXED PRICE</span><p class="field-help">A cash price in the instrument’s compatible units.</p></div>
     <div><label for="swap-direction">Direction</label><select id="swap-direction" required><option value="">Choose…</option><option value="-1">Pay fixed</option><option value="1">Receive fixed</option></select></div>
     <div><label for="swap-fixed-currency">Currency</label><select id="swap-fixed-currency" required></select></div>
     <div><label for="swap-price">Fixed price · <span id="swap-price-unit">choose projection curve</span></label><select id="swap-price-mode" required aria-label="Fixed pricing choice"><option value="">Choose fixed pricing…</option><option value="agreed">Enter agreed fixed price</option><option value="par">Calculate par fixed price</option></select><input id="swap-price" inputmode="decimal" maxlength="45" required><div id="swap-par-controls" hidden><label for="swap-par-places">Par rate decimal places · ties to even</label><input id="swap-par-places" type="number" min="0" max="18"><p id="swap-par-result" class="field-help"></p></div></div>
@@ -434,7 +495,7 @@
     </div>
    </section>
 </template>
-<template id="swap-floating-template">   <section class="instrument-side" aria-labelledby="swap-floating-title" style="--side-rows:12"><h3 id="swap-floating-title">Floating side</h3>
+<template id="swap-floating-template">   <section class="instrument-side" aria-labelledby="swap-floating-title"><h3 id="swap-floating-title">Floating side</h3>
   <div class="swap-commodity"><label for="swap-commodity">Commodity</label><select id="swap-commodity" required></select><p class="field-help">Filters the available floating indices, projection curves and compatible quantity units.</p></div>
 
     <div><label>Direction</label><p id="swap-floating-direction" class="field-help">Choose the fixed-side direction.</p></div>

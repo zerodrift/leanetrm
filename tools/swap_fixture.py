@@ -6,7 +6,8 @@ from preview_fixture import CAT, RCAT, RREV, identity
 REVISION = '60000000-0000-0000-0000-000000000002'
 
 
-def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=False):
+def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=False, closes=()):
+    """closes: further instants at which the bundle publishes its prices and the fixings due by then."""
     m = f"'{CAT}','{REVISION}'"; r = f"'{RCAT}','{RREV}'"
     rows = ['BEGIN;', f"INSERT INTO market_data.revisions VALUES ({m},{r},'draft',0);"]
     prices = []
@@ -39,27 +40,27 @@ def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=Fal
             adjusted=value-Decimal(18-day)* (Decimal('.0001') if role=='parameter' else Decimal('.01'))
             rows.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REVISION}','{sid}',{r},'fixture','swap_{day}_{number}','1','{role}','final','2020-12-{day} 16:00:00+00','{now}',{adjusted},NULL);")
         frames.append({'at':f'2020-12-{day}T16:00:00Z','observationIds':pins,'curveContracts':{}})
+    emitted=set()
+    # Separate final facts reuse the exact price series but have their own
+    # index_fixing role. They cannot become shocked forward marks.
+    for sample,at in enumerate([*(['2021-01-01T08:00:00Z','2021-01-15T08:00:00Z','2021-01-31T08:00:00Z'] if fixing_frames else []),*closes]):
+        pins=[]
+        for number,sid,value,role in prices:
+            oid=identity('7',6000000+sample*10000+number);pins.append(oid)
+            rows.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REVISION}','{sid}',{r},'fixture','fixing_frame_{sample}_{number}','1','{role}','final','{at}','{now}',{value},NULL);")
+            if role=='parameter':
+                continue
+            day=number%100
+            fixing_at=f'{date(2021,1,1)+timedelta(days=day-2)}T12:00:00Z'
+            if fixing_at>at:
+                continue
+            actual_id=identity('7',7000000+number);pins.append(actual_id)
+            if actual_id not in emitted:
+                actual=value+Decimal('.31') if number<2100 else value+Decimal('3.1')
+                rows.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{actual_id}','{REVISION}','{sid}',{r},'fixture','synthetic_daily_fixing_{number}','1','index_fixing','final','{fixing_at}','{now}',{actual},NULL);")
+                emitted.add(actual_id)
+        frames.append({'at':at,'observationIds':pins,'curveContracts':{}})
     if fixing_frames:
-        emitted=set()
-        # Separate final facts reuse the exact price series but have their own
-        # index_fixing role. They cannot become shocked forward marks.
-        for sample,at in enumerate(['2021-01-01T08:00:00Z','2021-01-15T08:00:00Z','2021-01-31T08:00:00Z']):
-            pins=[]
-            for number,sid,value,role in prices:
-                oid=identity('7',6000000+sample*10000+number);pins.append(oid)
-                rows.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REVISION}','{sid}',{r},'fixture','fixing_frame_{sample}_{number}','1','{role}','final','{at}','{now}',{value},NULL);")
-                if role=='parameter':
-                    continue
-                day=number%100
-                fixing_at=f'{date(2021,1,1)+timedelta(days=day-2)}T12:00:00Z'
-                if fixing_at>at:
-                    continue
-                actual_id=identity('7',7000000+number);pins.append(actual_id)
-                if actual_id not in emitted:
-                    actual=value+Decimal('.31') if number<2100 else value+Decimal('3.1')
-                    rows.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{actual_id}','{REVISION}','{sid}',{r},'fixture','synthetic_daily_fixing_{number}','1','index_fixing','final','{fixing_at}','{now}',{actual},NULL);")
-                    emitted.add(actual_id)
-            frames.append({'at':at,'observationIds':pins,'curveContracts':{}})
         partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
         frames.append({**partial,'at':'2021-01-15T09:00:00Z',
                        'observationIds':[oid for oid in partial['observationIds'] if oid!=identity('7',7002007)]})

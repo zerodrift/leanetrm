@@ -109,7 +109,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
               "description":"Blotter: the books to read, empty for every book. Null for a trade."},
              "portfolioIds":{"type":["array","null"],"items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,
               "description":"Blotter: the portfolios to read, empty for every portfolio. Null for a trade."},
-             "groupBy":{"type":["array","null"],"items":{"type":"string","enum":["portfolio","book","market","contract","instrumentType"]},"uniqueItems":true,
+             "groupBy":{"type":["array","null"],"items":{"type":"string","enum":["portfolio","book","market","contract","instrumentType","commodity"]},"uniqueItems":true,
               "description":"Blotter: empty for trade rows, at least one dimension for totals. Null for a trade."},
              "measures":{"type":["array","null"],"items":{"type":"string","enum":["tradeCount","lots","quantity","executionPnl","presentValue"]},"uniqueItems":true,
               "description":"Blotter: empty for trade rows, at least one measure for totals; lots need the contract dimension. Null for a trade."},
@@ -224,7 +224,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 }
                 members.Null("tradeId","instrumentType","revision");
                 var mode=members.Choice("mode","trades","pivot");
-                var groupBy=members.Choices("groupBy","portfolio","book","market","contract","instrumentType");
+                var groupBy=members.Choices("groupBy","portfolio","book","market","contract","instrumentType","commodity");
                 var measures=members.Choices("measures","tradeCount","lots","quantity","executionPnl","presentValue");
                 if(mode=="trades"?!groupBy.IsEmpty||!measures.IsEmpty:groupBy.IsEmpty||measures.IsEmpty)throw ToolInput.Invalid();
                 return new(Operations["trades.blotter_v1"],new BlotterArguments(new(mode,members.Ids("bookIds"),members.Ids("portfolioIds"),groupBy,measures,

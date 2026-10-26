@@ -120,6 +120,42 @@ swap, rate, interpolation and bump conventions. Each bump or stress transports
 an exact catalog `factor` descriptor, an explicit `size` and its convention;
 series/quote identifiers alone no longer define a request.
 
+The catalog also names the targets of what the selected books hold, which the Blotter's
+risk report presets shock ([blotter-desk.md](blotter-desk.md), Risk report inline).
+`heldContractTargets` has one whole-contract target for each distinct graph point that a
+held instrument's declared dependencies are priced from, on the coordinate that publishes
+that point: a primitive market quote, or a computed output such as a basis curve's.
+`heldCurveTargets` has the whole-curve target of each curve those points are on, on the same
+coordinate. Both keep the catalog's order and name only targets the catalog offers. They are
+resolved from the declarations and graph bindings of the positions the run would value, so a
+position the close cannot value contributes nothing of its own. A held point that is no whole
+contract, such as a published custom curve's output, or that no coordinate publishes, such as
+a frozen final settlement, is named by its label in `heldContractsWithoutTarget`, and a curve
+that no whole-curve target covers in `heldCurvesWithoutTarget`; no broader or narrower target
+stands in for either. Every `excludedPositions` entry names the book the position is held in
+(`bookId`), in the catalog, the report and a job's retained frame and result, and a queued
+run leaves out only positions held in the books its list names.
+
+A holdings-detail request takes at most sixteen bumps. The Blotter's risk report makes a
+larger preset run in parts of at most sixteen, each its own request, or its own queued job,
+at the catalog's one retained context. Each factor's results are independent, so nothing
+combines the parts, and a part that fails is reported as failed. The results and the download state
+the preset, its size for each price unit and the held prices or curves it does not shock.
+
+Each queued part of a run made in parts states its run (D222): `POST /api/portfolio/risk/jobs` takes
+`{requestId, request, run:{id, part, parts}}`, and the job's retained frame keeps the run's identity, the
+part and the part count, checked before the inputs are prepared (1 ≤ part ≤ parts ≤ 256, sixteen
+shocks to a part and 4,096 in all). Every queued job's frame also keeps `scope`, the books and
+portfolios its request was asked for, as chosen. The job store admits each part of a run once, and every
+part at the run's one retained context and one close (frame), for its one scope, with its one part count,
+serializing parts of one run sent at once; anything else is refused with `risk_job_run`, and a request
+identity sent again with another run, or a frame without the `scope` this release writes, is
+`risk_job_conflict`. Every job read, the recent-job list included, states its job's `run`, or `null` for a
+job queued on its own, its `scope` and `shocks`, the number of its request's bumps, so the job history
+shows a run's parts as one run after a reload too, and how many shocks it ran. The run's results are shown in the Blotter desk only against a read of the
+market context, close and books they were run at; a report's `snapshotId` is the frame of the close its
+request named.
+
 The shared pricing policy's `bumpBasis` and `bumpTicks` select the generated-close
 operation's automatically constructed bumps. Interactive requests supply each
 coordinate bump size and `absolute_curve_coordinate_symmetric_v1` convention
@@ -136,8 +172,10 @@ sensitivities for the selected factor, including every requested holding row.
 
 Submission retains the exact context, market revision, selected book scope,
 observation pins and frozen-input uses, market frames, stress/bump conventions and managed engine
-fingerprint. Empty interactive scope selectors resolve to explicit books before
-queueing. An identical request identity and payload return the original run;
+fingerprint. It also retains the positions the run leaves out because its base close
+cannot value them (D220); the worker leaves out exactly those, each a held position of
+the scope, and reports them in the result. Empty interactive scope selectors resolve
+to explicit books before queueing. An identical request identity and payload return the original run;
 different inputs conflict. Saved managed projections additionally retain their
 published version/output descriptors and exact dated sample observations
 (0076–0077). Migration 0081 retains a compiled graph manifest for every prepared

@@ -43,13 +43,23 @@ public sealed class PreparedConnectedPortfolioRisk
     internal ImmutableArray<ValuationPortfolio> Portfolios{get;}
     internal ImmutableArray<ImmutableArray<UnitPricingContract>> Contracts{get;}
     internal PreparedConnectedPortfolioRisk? Parent{get;}
+    internal ImmutableDictionary<CurveRequest,CurvePointKey> Bindings{get;}
     internal PreparedConnectedPortfolioRisk(ConnectedValuation valuation,PreparedValuationMarket market,ImmutableArray<ValuationPortfolio> portfolios,
-        ImmutableArray<ImmutableArray<UnitPricingContract>> contracts,ImmutableArray<QuoteFactor> factors,PreparedConnectedPortfolioRisk? parent=null)
+        ImmutableArray<ImmutableArray<UnitPricingContract>> contracts,ImmutableArray<QuoteFactor> factors,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
+        PreparedConnectedPortfolioRisk? parent=null)
     {
-        Valuation=valuation;Market=market;Portfolios=portfolios;Contracts=contracts;Parent=parent;
+        Valuation=valuation;Market=market;Portfolios=portfolios;Contracts=contracts;Parent=parent;Bindings=bindings;
         baseFactors=parent?.baseFactors??factors;
         this.factors=new(parent is null?()=>baseFactors:ResolveFactors);
     }
+    /// <summary>
+    /// The graph points the held instruments are priced from: the binding of each dependency they declare, each point once, in the
+    /// order of their declarations.
+    /// </summary>
+    public ImmutableArray<CurvePointKey> DeclaredPoints=>Contracts.SelectMany(group=>group).SelectMany(contract=>contract.Dependencies)
+        .Select(dependency=>Bindings.TryGetValue(dependency,out var point)?point:
+            throw new MarketDataException("risk_dependency","Every declared pricing dependency requires its exact connected binding."))
+        .Distinct().ToImmutableArray();
     private ImmutableArray<QuoteFactor> ResolveFactors()
     {
         // Declarations belong to the immutable plan. Only quote-coordinate
@@ -76,14 +86,14 @@ public static partial class RiskEngine
         var market=valuation.Market(bindings,authority,cancellation);
         var factors=portfolios.SelectMany((portfolio,n)=>portfolio.RiskFactors(market,contracts[n],cancellation))
             .SelectMany(book=>book.Factors).DistinctBy(factor=>factor.Input).OrderBy(factor=>factor.Input.Series.Id).ToImmutableArray();
-        return new(valuation,market,portfolios,contracts,factors);
+        return new(valuation,market,portfolios,contracts,factors,bindings);
     }
     public static PreparedConnectedPortfolioRisk WithShifts(PreparedConnectedPortfolioRisk prepared,ImmutableArray<CurveShift> shifts,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
         if(prepared is null)throw Error("instrument_context","Supply the exact prepared connected parent.");
         var valuation=prepared.Valuation.WithScenario(prepared.Scenario.WithShifts(shifts,cancellation));
-        return new(valuation,ConnectedValuation.WithScenario(prepared.Market,valuation),prepared.Portfolios,prepared.Contracts,[],prepared);
+        return new(valuation,ConnectedValuation.WithScenario(prepared.Market,valuation),prepared.Portfolios,prepared.Contracts,[],prepared.Bindings,prepared);
     }
     public static ConnectedGroupedRiskRun CalculateExact(PreparedConnectedPortfolioRisk prepared,ImmutableArray<ConnectedRiskBump> bumps,
         string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings)

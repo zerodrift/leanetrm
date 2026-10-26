@@ -645,7 +645,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Entities & counterparties | Read trade parties | `ReadTradeParties`, `ReadMarketData` | Pinned |
 | Blotter rows and holdings | Read trades | `ReadTrades`, `ReadMarketData` | Pinned |
 | Custom curves | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
-| Blotter risk results, Delivery prices, Interval series, Jobs & Infrastructure, Users & access, Settings › AI, PPA bookings | none | | Not supported |
+| The Blotter's Risk report and its trade rows under the Risk lens, a new trade entered in the Blotter's panel, Delivery prices, Interval series, Jobs & Infrastructure, Users & access, Settings › AI, PPA bookings | none | | Not supported |
 
 - Read current page has no permissions of its own; if the dispatched tool is off it is
   refused with `tool_not_enabled`. On an unsupported page it returns
@@ -880,7 +880,10 @@ The tool set is fixed; each tool is switched on per agent version.
   report, exactly `{"page","selection"}` as Looking at shows: one page identifier per
   navigable view from a closed set, `curves`, `contract_definitions`, `schedules`,
   `power_tous`, `reference_data`, `parties`, `blotter` and `custom_curves`, which the
-  assistant reads, and `blotter_risk`, `delivery_prices`, `interval_series`,
+  assistant reads, and `blotter_risk`, `blotter_risk_lens` (the Blotter's trade rows under
+  the Risk lens, D222), `blotter_new_trade`, `blotter_new_future`,
+  `blotter_new_swap` (a new trade being entered in the Blotter's panel, of its product,
+  or of none while none is chosen), `delivery_prices`, `interval_series`,
   `interval_curves`, `jobs`, `users_access`, `settings_ai` and `ppa`, which it does not.
   A read page's selection is its read tool's input for a view the page shows; any other
   page's is empty. Before admission and writing nothing it refuses an invalid report
@@ -1379,7 +1382,7 @@ its curve and a trade read the trade at the revision it read, and the curve dire
 Blotter rows each curve or trade they list, as handles numbered across the turn within
 the result bounds, so the runtime set changes; the worker holds a turn's issued targets
 in memory and stores only the target a Navigate step issues, in its event; Navigate's
-input names `page` or `target`, the other null; page targets are the seven pages the
+input names `page` or `target`, the other null; page targets are the eight pages the
 assistant reads, each checked by its reads' accesses and permissions under the turn's
 grant, a page that does not open adding nothing to the source set; there is no
 separate context target; and a `navigation` event follows its step under the
@@ -1388,11 +1391,16 @@ publication recheck and is hidden as text is (§7.3, §8).
 **Panel decisions** (D191, decided by the owner): Looking at reports the curve directory,
 a curve or its observations by Curves & prices' curve and tab, power hours on Power TOUs
 once a frame is chosen and TOU products before, and Blotter rows without their grouping,
-totals with it, an open trade at its revision, though its modal dialog leaves nothing
-asked until it closes, and risk results as `blotter_risk`; only a navigation event
-arriving live on the stream the tab's own ask opened moves the page, while the panel is
-open on an idle page without a dialog, keeping the page's knowledge and frame and leaving
-nothing unsaved, and any other target waits for Go, which selects its context first, a
+totals with it, the trade open in the side panel at its revision, which is the one its form
+shows while it is open (D221: the panel is not modal, so the assistant is asked while it is
+open; a target for a trade is refused in a pivot), a new trade being entered there by its
+product (`blotter_new_future`, `blotter_new_swap`, or `blotter_new_trade` before one is
+chosen), which it does not read, the panel's open Risk report as `blotter_risk`, and, with no position
+open in the panel, the trade rows under the Risk lens as `blotter_risk_lens` (D222), which it does not read;
+only a navigation event arriving live on the stream the tab's own ask opened moves the
+page, while the panel is open on an idle page without a dialog, keeping the page's
+knowledge and frame and leaving nothing unsaved, and any other target waits for Go, which
+selects its context first, a
 retained view again by its id and never a new capture; Back restores page, report and
 context from the tab's memory, also after a move that failed once it had changed the page,
 and both first say so on a page with unsaved edits or an unconfirmed request; a tab keeps its

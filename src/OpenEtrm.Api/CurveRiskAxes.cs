@@ -29,6 +29,10 @@ public sealed record PortfolioRiskAxis(string Id,DefinitionRevision Market,Curve
 public sealed record PortfolioCurveBump(PortfolioRiskAxis Axis,ExactDecimal Size);
 public sealed record PortfolioCurveShift(PortfolioRiskAxis Axis,ExactDecimal Size);
 public sealed record RetainedRiskAxis(string Id,Guid MarketRevisionId,CurveRiskAxisRequest Factor,ImmutableArray<CurvePointKey> Points);
+// The scenario targets of what the held instruments are priced from, as the catalog offers them and in its order: a whole contract
+// for each held price, and a whole curve for each curve one is on. A held price or curve no such target covers is named by its label.
+public sealed record HeldRiskTargets(ImmutableArray<string> Contracts,ImmutableArray<string> Curves,
+    ImmutableArray<string> ContractsWithoutTarget,ImmutableArray<string> CurvesWithoutTarget);
 
 // The transport names an exact coordinate. Selection, units and membership are
 // resolved by the same managed plan that prices every instrument.
@@ -144,10 +148,7 @@ internal static class CurveRiskAxes
         var request=new CurveRiskAxisRequest(Coordinate(coordinate),Request(target));
         var id=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request,RiskJobs.Json)));
         var first=selected[0];var index=Index(market,ct);
-        var projection=first.Expression as ConnectedRecipeProjection;
-        var name=projection is not null?FormattableString.Invariant($"{projection.Declaration.Definition.Name} · version {projection.Declaration.Identity.Version}"):
-            index.Names.GetValueOrDefault(target.Curve.Code);
-        if(string.IsNullOrWhiteSpace(name))name=target.Curve.Code;
+        var name=Name(index,first);
         var positions=selected.Select(p=>p.Expression).OfType<ConnectedRecipeProjection>().Select(p=>p.Position).Distinct().Order().ToArray();
         var output=positions.Length switch
         {
@@ -160,7 +161,7 @@ internal static class CurveRiskAxes
             ContractCurveTarget=>FormattableString.Invariant($"{name} · {first.DeliveryFrom:yyyy-MM-dd} to {first.DeliveryTo:yyyy-MM-dd}"),
             PointCurveTarget=>FormattableString.Invariant($"{name} · {first.DeliveryFrom:yyyy-MM-dd} to {first.DeliveryTo:yyyy-MM-dd} · {output}"),
             DeliveryBucketCurveTarget bucket=>FormattableString.Invariant($"{name} · {bucket.From:yyyy-MM-dd} to {bucket.To:yyyy-MM-dd}"),
-            _=>projection is not null?$"{name} · all retained outputs":$"{name} · all retained contracts"
+            _=>first.Expression is ConnectedRecipeProjection?$"{name} · all retained outputs":$"{name} · all retained contracts"
         };
         var sources=selected.Select(p=>p.Expression).OfType<ConnectedSource>().Select(s=>s.Input).Distinct().ToArray();
         var quote=sources.Length==1?index.Quotes.GetValueOrDefault(sources[0]):null;
@@ -190,6 +191,55 @@ internal static class CurveRiskAxes
             }
         }
         return result.DistinctBy(a=>a.Id).ToImmutableArray();
+    }
+    // The name a point's targets are labeled with: its saved recipe and version for a custom curve's output, and otherwise its curve.
+    private static string Name(MarketIndex index,ConnectedCurvePoint point)
+    {
+        var name=point.Expression is ConnectedRecipeProjection projection?
+            FormattableString.Invariant($"{projection.Declaration.Definition.Name} · version {projection.Declaration.Identity.Version}"):
+            index.Names.GetValueOrDefault(point.Key.Curve.Code);
+        return string.IsNullOrWhiteSpace(name)?point.Key.Curve.Code:name;
+    }
+    // What the presets Shock every held contract and Parallel shift shock (blotter-desk.md, Risk report inline): for each point a
+    // held instrument's declared dependency is priced from, the whole-contract target on the coordinate the point is published on,
+    // and the whole-curve target of its curve on that coordinate. A held price that is no whole contract, such as a custom curve's
+    // output, or that no coordinate publishes, such as a frozen final settlement, is named instead, and so is a curve whose prices a
+    // whole-curve target does not all cover: neither is ever covered by a broader or a narrower target in its place.
+    public static HeldRiskTargets Held(PortfolioValuation.Prepared prepared,ImmutableArray<PortfolioRiskAxis> catalog,CancellationToken ct)
+    {
+        var contracts=new HashSet<string>(StringComparer.Ordinal);var curves=new HashSet<string>(StringComparer.Ordinal);
+        var contractGaps=new SortedSet<string>(StringComparer.Ordinal);var curveGaps=new SortedSet<string>(StringComparer.Ordinal);
+        foreach(var market in prepared.Markets)
+        {
+            var index=Index(market,ct);var plan=market.Connected.Scenario.Plan;
+            // Each curve's whole-curve target on a coordinate, or none where it does not cover every point of the curve: resolved once.
+            var wholeCurves=new Dictionary<(CurveKey Curve,CurveShockCoordinate Coordinate),string?>();
+            foreach(var key in market.Connected.DeclaredPoints)
+            {
+                ct.ThrowIfCancellationRequested();
+                var point=plan.Points[key];
+                CurveShockCoordinate? published=Public(point,CurveShockCoordinate.MarketQuote)?CurveShockCoordinate.MarketQuote:
+                    Public(point,CurveShockCoordinate.ComputedOutput)?CurveShockCoordinate.ComputedOutput:null;
+                if(published is not {} coordinate)
+                {
+                    contractGaps.Add(FormattableString.Invariant($"{Name(index,point)} · {point.DeliveryFrom:yyyy-MM-dd} to {point.DeliveryTo:yyyy-MM-dd}"));
+                    curveGaps.Add(Name(index,point));
+                    continue;
+                }
+                var target=index.PointTarget(point,coordinate);
+                if(target is ContractCurveTarget)contracts.Add(Resolve(market,coordinate,target,ct).Id);
+                else contractGaps.Add(Resolve(market,coordinate,target,ct).Label);
+                if(!wholeCurves.TryGetValue((key.Curve,coordinate),out var whole))
+                    wholeCurves[(key.Curve,coordinate)]=whole=index.Curves[key.Curve].All(p=>Public(p,coordinate))?
+                        Resolve(market,coordinate,new ParallelCurveTarget(key.Curve),ct).Id:null;
+                if(whole is not null)curves.Add(whole);
+                else curveGaps.Add(Name(index,point));
+            }
+        }
+        var offered=catalog.Select(a=>a.Id).ToImmutableArray();
+        if(!contracts.Concat(curves).All(offered.Contains))
+            throw Invalid("risk_contract","Every held target must be one the risk catalog offers.");
+        return new([..offered.Where(contracts.Contains)],[..offered.Where(curves.Contains)],[..contractGaps],[..curveGaps]);
     }
     public static PortfolioRiskAxis Quote(PortfolioValuation.Prepared prepared,QuoteFactor factor,CancellationToken ct)
     {

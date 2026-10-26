@@ -8,10 +8,12 @@ export function swapPaymentQuote(side:Side,quotes:QuoteLabel[]):Quote{
  return {currency:quotes.find(q=>q.currencyCode===price.currency.code)?.currency??price.currency.code,
   unit:quotes.find(q=>q.quantityCode===price.quantity.code)?.unit??price.quantity.code,quoteMultiplier:price.multiplier};
 }
+/** A side's direction as the backend's coefficient states it: Pay for -1, Receive for 1, and any other coefficient as it is. */
+export const sideDirection=(coefficient:string)=>coefficient==='-1'?'Pay':coefficient==='1'?'Receive':`coefficient ${coefficient}`;
 type Format=(value:string,kind:'quantity'|'money'|'factor'|'price',side:string)=>string;
 export function renderSwapTradePayments(section:HTMLElement,prefix:string,side:Side,i:Quote|undefined,busy:()=>boolean,format:Format=(value)=>value){
  const display={text:(value:string,kind:'quantity'|'money'|'factor'|'price',selected=side.kind)=>format(value,kind,selected)};
-   const direction=side.coefficient==='-1'?'Pay':'Receive',primary=document.createElement('div');primary.className='table-wrap swap-payment-table';section.append(primary);
+   const direction=sideDirection(side.coefficient),primary=document.createElement('div');primary.className='table-wrap swap-payment-table';section.append(primary);
    renderRegularTable(primary,`${prefix}-${side.slot}-trade-payments`,JSON.stringify(side),
     ['Delivery start','Delivery end · exclusive','Total quantity','Unit','Direction','Payment date',`Signed cash · ${i?.currency}`,'DF',`Trade PV · ${i?.currency}`],
     side.payments.map(p=>[p.deliveryFrom,p.deliveryTo,p.resolvedQuantity,i?.unit??'',direction,p.paymentDate,p.tradeCashAmount,p.discountFactor,p.tradePresentValue]),[2,6,7,8],busy,
