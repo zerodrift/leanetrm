@@ -63,6 +63,6 @@ export function previewTiles(summary:PreviewSummary|undefined):(TileSpec&{words:
  const period=(value:DeliveryPeriod|null)=>value===null?'None':deliveryLabel(value.from,value.to);
  return [
   {label:'Points',rows:[{figure:String(summary.points)}],...(summary.unavailablePoints?{note:`${summary.unavailablePoints} without a price`}:{}),words:false},
-  words('First period',period(summary.firstPeriod)),words('Last period',period(summary.lastPeriod)),words('Unit',summary.unit||'None'),
+  words('First period',period(summary.firstPeriod)),words('Last period',period(summary.lastPeriod)),words('Unit',summary.unit||'No points'),
  ];
 }

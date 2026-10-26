@@ -32,6 +32,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await check('the computed combination displays the backend price and connected primitive evidence',`(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/preview')).at(-1),p=r.data.points?.[0]?.price;return r.status===200&&BigInt(p.numerator)*${denominator}n===${numerator}n*BigInt(p.denominator)&&r.data.dependencies.length>0&&!document.querySelector('#custom-curves-result').hidden;})()`,"(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/preview')).at(-1);return {status:r?.status,data:r?.data,error:document.querySelector('#error').textContent};})()");
  await openView('combine');await set('.curve-blend-weight','6');
  await check('editing proposed ingredients clears the old preview and generated description',"document.querySelector('#custom-curves-result').hidden&&document.querySelector('#custom-curves-template-help').textContent===''&&document.querySelector('#custom-curves-save').disabled&&document.querySelector('#custom-curves-preview').disabled");
+ await click('#custom-curves-panel-tabs-details');
+ await check('unbuilt ingredient changes name the way back to Combine curves from another view',"document.querySelector('#curve-blend').hidden&&document.querySelector('#custom-curves-state #custom-curves-open-combine')?.localName==='button'");
+ await click('#custom-curves-open-combine');
+ await check('the status opens the panel on Combine curves',"!document.querySelector('#custom-curves-panel').hidden&&!document.querySelector('#curve-blend').hidden&&document.querySelector('#custom-curves-panel-tabs-combine').getAttribute('aria-selected')==='true'");
  await set('.curve-blend-weight','7');await click('#curve-blend-build');await click('#custom-curves-save');
  await check('the ordinary save retains typed graph weights',"(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/save')).at(-1);return r.status===200&&r.data.definition.nodes.find(n=>n.kind==='weighted_panels').panelWeights.map(w=>w.weight).join()==='7,3';})()");
  const saved=await evaluate("window.blendReads.filter(r=>r.path.endsWith('/save')).at(-1).data");
@@ -40,6 +44,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await click('.custom-curve-node[data-node-id=curve_2] p');await click('#custom-curve-remove-node');await click('#custom-curves-preview');
  await check('removing a source prunes its hidden weight and leaves a valid one-input combination',`(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/preview')).at(-1);return r.status===200&&r.body.definition.nodes.find(n=>n.kind==='weighted_panels').panelWeights.length===1&&r.data.rows[0][1]===${JSON.stringify(parentPrices[0].rows[0][1])};})()`);
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await check('guided composition fits a narrow viewport',fitsWidth);await shot('curve-composition');
+ await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+ await openView('combine');await set('.curve-blend-weight','9');
+ await evaluate(`{const send=window.fetch;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0])!=='/api/custom-curves'||!window.withoutCombination)return response;const data=await response.clone().json();data.operators=data.operators.filter(op=>op.kind!=='weighted_panels');return new Response(JSON.stringify(data),{status:response.status,headers:response.headers});};window.withoutCombination=true;}`);
+ await click('#custom-curves-reload');
+ await check('a catalog without combining drops the unbuilt ingredients and the Combine view',"document.querySelector('#custom-curves-panel-tabs-combine').hidden&&document.querySelector('#curve-blend').hidden&&document.querySelector('.curve-blend-weight').value===''&&!document.querySelector('#custom-curves-open-combine')&&!document.querySelector('#custom-curves-preview').disabled");
+ await evaluate('window.withoutCombination=false');
  await persona('viewer');await click('#nav-custom-curves');
  await check('identity changes clear ingredient choices and keep authoring controls read-only',"document.querySelectorAll('.curve-blend-row').length===1&&document.querySelector('.curve-blend-weight').value===''&&document.querySelector('#curve-blend-build').disabled");
 }

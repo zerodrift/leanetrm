@@ -936,7 +936,7 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 
 /* Custom curves as a desk (markets-desk.md, Custom curves): a header with the curve's state and actions, the saved-curve library, the
    operations beside the calculation graph with the preview beneath, and the side panel's views. Every color is a token. */
-:root{--curve-panel-width:340px;--curve-library-width:192px}
+:root{--curve-panel-width:340px;--curve-rail-width:212px}
 .custom-curve-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px 24px;flex-wrap:wrap;margin:2px 0 16px}
 .custom-curve-titles{min-width:0}
 .custom-curve-titles .eyebrow{margin:0 0 2px}
@@ -948,14 +948,22 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .curve-state-chip[data-state=unsaved]{border-color:var(--warn-border);background:var(--warn-soft);color:var(--warn)}
 .custom-curve-about{max-width:90ch;margin:-6px 0 14px;font-size:13px;color:var(--text-2)}
 .custom-curve-pending{flex-wrap:wrap;align-items:center}.custom-curve-pending p{flex:1 1 100%;margin:0}
-.custom-curve-desk{display:grid;grid-template-columns:var(--curve-library-width) minmax(0,1fr);gap:16px;align-items:start}
+.custom-curve-desk{--rail:var(--curve-rail-width);display:grid;grid-template-columns:var(--rail) minmax(0,1fr);gap:16px;align-items:start}
+.custom-curve-desk.rail-collapsed{--rail:44px}
 /* A panel docks only where the main area is wide enough (side-panel.ts); the page's width decides the columns even before it is placed again. */
-@media(min-width:1180px){.custom-curve-desk:has(>.custom-curve-panel[data-placement=docked]:not([hidden])){grid-template-columns:var(--curve-library-width) minmax(0,1fr) var(--curve-panel-width)}}
-.custom-curve-library{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
-.custom-curve-library-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 6px}
-.custom-curve-library-head h3,.custom-curve-palette h3{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--text-3)}
-.custom-curve-library-head .text-button{font-size:12px;padding:2px 0}
-.custom-curve-new{width:100%;margin:4px 0 10px}
+@media(min-width:1180px){.custom-curve-desk:has(>.custom-curve-panel[data-placement=docked]:not([hidden])){grid-template-columns:var(--rail) minmax(0,1fr) var(--curve-panel-width)}}
+.custom-curve-rail{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;padding:8px 10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.custom-curve-rail-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:4px 6px;margin-bottom:6px;border:0;background:transparent;color:var(--text-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+.custom-curve-rail-toggle:hover{background:var(--surface-3);border-color:transparent}
+.custom-curve-rail-chevron{margin-left:auto;font-size:18px;line-height:14px;letter-spacing:0}
+.rail-collapsed .custom-curve-rail{padding:8px 4px}
+.rail-collapsed .custom-curve-rail-title{display:none}
+.rail-collapsed .custom-curve-rail-chevron{margin:0 auto;transform:rotate(180deg)}
+.custom-curve-library-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}
+.custom-curve-library-actions .secondary{flex:1;padding:6px 10px;font-size:12.5px}
+.custom-curve-library-actions .text-button{font-size:12px;padding:2px 2px}
+.custom-curve-palette h3{margin:0 0 8px;padding:12px 6px 0;border-top:1px solid var(--border);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--text-3)}
+.custom-curve-palette{margin-top:12px}
 .custom-curve-list{display:grid;gap:2px;margin:0;padding:0;list-style:none}
 .custom-curve-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name name" "meta chip";align-items:center;gap:2px 8px;width:100%;padding:7px 8px 7px 10px;text-align:left;white-space:normal;background:none;border:1px solid transparent;border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-weight:500}
 .custom-curve-entry:hover{background:var(--surface-3);border-color:transparent}
@@ -964,12 +972,10 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-entry .curve-state-chip{grid-area:chip}
 .custom-curve-entry small{grid-area:meta;min-width:0;font-size:11.5px;font-weight:400;color:var(--text-3);overflow-wrap:anywhere}
 .custom-curve-empty{padding:8px 10px;font-size:12.5px;color:var(--text-3)}
-.custom-curve-main{display:grid;grid-template-columns:124px minmax(0,1fr);gap:16px;align-items:start;min-width:0}
-.custom-curve-main.palette-collapsed{grid-template-columns:minmax(0,1fr)}
+.custom-curve-main{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start;min-width:0}
 .custom-curve-main>.card{margin:0;padding:14px 16px}
-.custom-curve-palette h3{margin-bottom:10px}
-.custom-curve-palette #custom-curves-operators{display:flex;flex-direction:column;gap:5px}
-.custom-curve-palette button{width:100%;padding:6px 9px;text-align:left;white-space:normal;line-height:1.35;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500}
+.custom-curve-palette #custom-curves-operators{display:flex;flex-direction:column;gap:4px}
+.custom-curve-palette button{width:100%;padding:5px 9px;text-align:left;white-space:normal;line-height:1.35;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500}
 .custom-curve-palette button:hover:not(:disabled){background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent-text)}
 .custom-curve-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-bottom:12px}
 .custom-curve-toolbar .custom-curve-mode{margin:0}
@@ -1034,9 +1040,9 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .curve-contract-row input,.curve-contract-row select{font-size:12px;min-width:0}
 .curve-contract-row input[inputmode=decimal]{font-family:var(--mono)}
 .curve-contract-mapping>button{width:100%;margin-top:4px}
-@media(max-width:1200px){:root{--curve-library-width:176px}}
-@media(max-width:960px){.custom-curve-desk{grid-template-columns:minmax(0,1fr)}.custom-curve-library{position:static;max-height:240px}}
-@media(max-width:760px){.custom-curve-main{grid-template-columns:minmax(0,1fr)}.custom-curve-palette #custom-curves-operators{flex-direction:row;flex-wrap:wrap}.custom-curve-palette button{width:auto}.custom-curve-board{height:360px}.custom-curve-actions{width:100%}.custom-curve-actions button{flex:1}.custom-curve-panel-tools{margin-left:0}}
+@media(max-width:1200px){:root{--curve-rail-width:192px}}
+@media(max-width:960px){.custom-curve-desk,.custom-curve-desk.rail-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-rail{position:static;max-height:none}.custom-curve-list{max-height:220px;overflow:auto}.rail-collapsed .custom-curve-rail-title{display:inline}.rail-collapsed .custom-curve-rail-chevron{margin:0 0 0 auto}}
+@media(max-width:760px){.custom-curve-palette #custom-curves-operators{flex-direction:row;flex-wrap:wrap}.custom-curve-palette button{width:auto}.custom-curve-board{height:360px}.custom-curve-actions{width:100%}.custom-curve-actions button{flex:1}.custom-curve-panel-tools{margin-left:0}}
 /* The side panel's risk report: a choice of report, its sizes or the scenario lab, and the run's jobs and the work it did. */
 .risk-report fieldset{border:0;padding:0;margin:0;min-width:0}
 .risk-report input,.risk-report select{max-width:100%;box-sizing:border-box}

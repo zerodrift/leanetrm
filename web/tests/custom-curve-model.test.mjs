@@ -47,7 +47,7 @@ test('preview tiles show the backend summary without counting points or choosing
  const partial=previewTiles({points:3,unavailablePoints:2,firstPeriod:{from:'2021-01-05',to:'2021-01-06'},lastPeriod:{from:'2021-01-05',to:'2021-01-06'},unit:'USD/MMBtu'});
  assert.equal(partial[0].rows[0].figure,'3');assert.match(partial[0].note,/2 /);
  const empty=previewTiles({points:0,unavailablePoints:0,firstPeriod:null,lastPeriod:null,unit:''});
- assert.deepEqual(empty.map(t=>t.rows[0].figure),['0','None','None','None']);
+ assert.deepEqual(empty.map(t=>t.rows[0].figure),['0','None','None','No points']);
  for(const summary of [undefined,{points:'12',unavailablePoints:0,firstPeriod:null,lastPeriod:null,unit:''},{points:1,firstPeriod:null,lastPeriod:null,unit:''},{points:1,unavailablePoints:0,lastPeriod:null,unit:''}])
   assert.throws(()=>previewTiles(summary),/summary/);
 });
