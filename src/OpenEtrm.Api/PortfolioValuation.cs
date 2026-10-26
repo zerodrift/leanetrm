@@ -17,7 +17,8 @@ namespace OpenEtrm.Api;
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record PortfolioValuationPolicy(string CurveNumericalPolicy,string RiskNumericalPolicy,
     string FuturesConvention,string SwapConvention,string RateNumericalPolicy,string DiscountInterpolationPolicy,
-    string BumpConvention,string BumpBasis,int BumpTicks,string? PpaPendingActuals=null);
+    string BumpConvention,string BumpBasis,int BumpTicks,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]string? PpaPendingActuals=null);
 public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid BindingId,Guid InstrumentId,
     Guid ValuationId,Guid BookId,string Measure,Guid DefinitionRevisionId,int PublicationOrder,Quantity Quantity)
 {
