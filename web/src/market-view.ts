@@ -11,8 +11,8 @@ export type CurveFront={contractId:string;deliveryFrom:string;deliveryTo:string;
 /** A curve's counts and front, stated by the backend (D233): contracts for futures and forwards, maturities for rates. */
 export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|'no_priced_contract'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstZeroRate:string|null;dayCount:string};
 export type CurveResult = {summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string};availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
-export type HistoryPoint = {at:string; value:string|null; snapshotId:string;unavailableReason?:string|null};
-export type PriceHistory = {points:HistoryPoint[]};
+/** A close's sample of a contract's history, with the observations behind it and when they were known (null until certified). */
+export type HistoryPoint = {at:string; value:string|null; snapshotId:string;observationIds:string[];unavailableReason?:string|null;knownAt:string|null};
 export const val = (row:Row,key:string) => String(row[key] ?? '—');
 const UUID=/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 export const publicText = (value:unknown) => String(value).replace(UUID,'internal record');

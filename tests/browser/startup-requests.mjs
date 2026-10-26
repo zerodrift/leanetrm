@@ -58,8 +58,8 @@ export async function run({command,evaluate,wait,click,submit,persona,check,idle
   await check('saving display preferences does not format unrendered source versions',"!window.__startupFormats.some(value=>window.__unusedSourceValues.includes(value))&&document.querySelector('#error').hidden");
   // Retained dates include exact prices that the current curve did not display.
   await evaluate('window.__startupRequests=[]');
-  await click('#contracts tbody tr:first-child button');
-  await check('history amounts still use managed formatting',"window.__startupRequests.includes('/api/history')&&window.__startupRequests.includes('/api/amounts/display')&&!document.querySelector('#history-card').hidden&&document.querySelector('#error').hidden");
+  await click('#contracts tbody tr:first-child');
+  await check('history amounts still use managed formatting',"window.__startupRequests.includes('/api/history')&&window.__startupRequests.includes('/api/amounts/display')&&!document.querySelector('#contract-panel').hidden&&document.querySelector('#history-values tbody tr')&&document.querySelector('#error').hidden");
   await check('history formats displayed points without unrelated metadata',"!window.__startupFormats.includes('987654321.123456789012345678')");
   await evaluate('window.__omitSelectedSources=true');await click('#example');
   await check('missing selected sources fail without stale price or source fallback',"!document.querySelector('#error').hidden&&document.querySelector('#contracts').children.length===0&&document.querySelector('#inputs').children.length===0");

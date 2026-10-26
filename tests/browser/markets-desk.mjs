@@ -2,7 +2,10 @@
 // curve in the library's groups and order, from curve-shapes reads of at most 64 curves and no evaluate; each card states the backend's
 // front contract, exact price, unit and count, or why the close prices none; the library rows keep their markup and gain the curve's
 // commodity dot and sparkline; neither shows a previous close's or context's figures while another is read; a read that fails says so on
-// its cards and is read again; and a card opens its curve as the library does.
+// its cards and is read again; and a card opens its curve as the library does. The selected curve shows the backend's summary in
+// tiles and returns to the board through All markets; a contract row opens the contract panel, docked on a wide screen and a sheet on
+// a phone, whose History tab reads under the revision policy the switch shows, draws the backend's overlay values with their
+// definition and window, and states when each value was known; changing the close closes it.
 export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsWidth,url}){
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
@@ -10,6 +13,7 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   window.__shapeReads=[];window.__evaluates=0;const send=window.fetch;window.fetch=async(input,init)=>{
    const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
    if(path==='/api/evaluate')window.__evaluates++;
+   if(path==='/api/history'){const response=await send(input,init);window.__historyReads=[...(window.__historyReads??[]),{body:JSON.parse(init.body),data:response.ok?await response.clone().json():null}];return response;}
    if(path==='/api/market/curve-shapes'&&window.__holdShapes)await new Promise(resolve=>window.__releaseShapes=()=>{window.__holdShapes=false;window.__releaseShapes=undefined;resolve();});
    if(path==='/api/market/curve-shapes'&&window.__failShapes){window.__failShapes=false;window.__shapeReads.push({curves:JSON.parse(init.body).curves,snapshotId:JSON.parse(init.body).snapshotId,shapes:null});return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}
    const response=await send(input,init);
@@ -77,5 +81,57 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   await check('choosing a card opens its curve as the library does: one evaluate, the curve shown and selected in the library, the board put away',
    "window.__evaluates===1&&document.querySelector('#market-board').hidden&&!document.querySelector('#curve-detail').hidden&&document.querySelector('#curve-title').textContent==='Local power forwards'&&"+
    "document.querySelector('.curve-button[aria-pressed=true] span')?.textContent==='Local power forwards'&&document.querySelector('#curve-chart canvas')&&document.querySelector('#error').hidden");
+  await check('the selected curve\'s tiles state the evaluate summary: its contract count, front contract and exact front price',
+   "(async()=>{const tiles=[...document.querySelectorAll('#curve-summary .desk-tile')].map(t=>[t.querySelector('.desk-tile-label').textContent,t.querySelector('.kpi-figure').textContent]);"+
+   "return tiles.length===4&&tiles.map(t=>t[0]).join('|')==='Contracts|Front contract|Front price|Settlement'&&!document.querySelector('#curve-summary').hidden&&tiles[0][1]===document.querySelector('#build-info').textContent.split(' ')[0];})()",
+   "[...document.querySelectorAll('#curve-summary .desk-tile')].map(t=>t.textContent)");
+  await click('#curve-all-markets');
+  await check('All markets in the curve\'s header returns to the market board with no curve selected',
+   "!document.querySelector('#market-board').hidden&&document.querySelector('#curve-detail').hidden&&!document.querySelector('.curve-button[aria-pressed=true]')&&document.querySelectorAll('.market-card[data-state=priced]').length>0&&document.querySelector('#error').hidden");
+  await evaluate("[...document.querySelectorAll('.market-card-open')].find(b=>b.textContent==='Gas futures').click()");await wait(idle);
+  await click('#contracts tbody tr:nth-child(2)');
+  const history="window.__historyReads.at(-1)";
+  await check('choosing a contract row opens it in the panel, docked beside the curve at 1440 pixels, on History at exact closes',
+   `(()=>{const read=${history},panel=document.querySelector('#contract-panel'),row=document.querySelector('#contracts tbody tr:nth-child(2)');return !panel.hidden&&panel.dataset.placement==='docked'&&row.getAttribute('aria-current')==='true'&&`+
+   "document.querySelector('#contract-panel-head .side-panel-title').textContent===row.cells[0].textContent&&read.body.revisionPolicy==='exact_snapshot_pins_v1'&&!read.body.overlays&&"+
+   "document.querySelector('#history-policy [aria-pressed=true]').textContent==='Exact closes'&&document.querySelector('#history-basis').textContent==='Each close with the prices it was saved with'&&"+
+   "document.querySelector('#contract-panel-tabs [aria-selected=true]').textContent==='History'&&document.querySelector('#history-chart .time-chart-canvas canvas')&&document.querySelector('#error').hidden;})()",
+   `[document.querySelector('#contract-panel').dataset.placement,document.querySelector('#history-basis').textContent,document.querySelector('#error').textContent]`);
+  await check('the values table lists every point the read returned, with when each was known',
+   `(()=>{const read=${history}.data,rows=[...document.querySelectorAll('#history-values tbody tr')];return read.points.length>1&&rows.length===read.points.length&&[...document.querySelectorAll('#history-values thead th')].map(th=>th.textContent).slice(0,3).join('|')==='Market date|Price|Known at'&&rows.every(r=>r.cells[2].textContent.length>0);})()`);
+  // An overlay is asked for with an explicit window; the chart draws the values the backend returned, named by definition and window.
+  await evaluate("document.querySelector('#history-overlays').open=true");
+  await evaluate("(()=>{const input=[...document.querySelectorAll('#history-overlay-menu fieldset')].find(f=>f.querySelector('legend').textContent==='Simple moving average').querySelector('input');input.value='3';input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+  await evaluate("document.querySelector('#history-overlay-menu form').requestSubmit()");await wait(idle);
+  await check('a simple moving average with window 3 is read from the backend and drawn with its definition and window, showing its exact latest value',
+   `(()=>{const read=${history},overlay=read.data.overlays?.[0],latest=[...document.querySelectorAll('#history-chart .time-chart-latest dt')].map(dt=>[dt.textContent,dt.nextElementSibling.textContent]);`+
+   "const sma=latest.find(([name])=>name==='Simple moving average · 3 · value'),last=overlay?.series.value.at(-1);"+
+   "return JSON.stringify(read.body.overlays)===JSON.stringify([{code:'simple_moving_average_v1',parameters:{window:3}}])&&read.body.revisionPolicy==='exact_snapshot_pins_v1'&&overlay&&sma&&sma[1]===(last.value??'No value ('+last.reason.replaceAll('_',' ')+')')&&"+
+   "document.querySelector('#history-overlays summary').textContent==='Overlays · 1 shown'&&document.querySelector('#error').hidden;})()",
+   `[JSON.stringify(${history}.body),[...document.querySelectorAll('#history-chart .time-chart-latest')].map(n=>n.textContent),document.querySelector('#error').textContent]`);
+  await evaluate("(()=>{window.scrollTo(0,document.querySelector('#contract-panel').getBoundingClientRect().top+scrollY-8);const body=document.querySelector('#contract-panel-body');body.scrollTop+=document.querySelector('#history-basis').getBoundingClientRect().top-body.getBoundingClientRect().top-8;})()");
+  await shot('markets-contract-panel-desktop');
+  await evaluate("[...document.querySelectorAll('#history-policy button')].find(b=>b.textContent==='As known at cutoff').click()");await wait(idle);
+  await check('As known at cutoff reads under the cutoff policy, keeps the overlay, and states the knowledge the read used',
+   `(()=>{const read=${history};return read.body.revisionPolicy==='as_known_at_cutoff_v1'&&read.data.revisionPolicy==='as_known_at_cutoff_v1'&&read.body.overlays?.length===1&&document.querySelector('#history-policy [aria-pressed=true]').textContent==='As known at cutoff'&&`+
+   "document.querySelector('#history-basis').textContent==='Latest revisions known now · current knowledge in working data'&&read.data.knowledgeCutoff===null&&read.data.knowledgeBasis==='current_knowledge'&&document.querySelectorAll('#history-values tbody tr').length===read.data.points.length&&document.querySelector('#error').hidden;})()",
+   "[document.querySelector('#history-basis').textContent,document.querySelector('#error').textContent]");
+  await click('#contract-panel-tabs-pricing');
+  await check("How it's priced shows the contract's pricing graph in the panel",
+   "document.querySelector('#contract-history').hidden&&!document.querySelector('#contract-pricing').hidden&&document.querySelector('#contract-pricing .flow-summary').textContent.startsWith('Gas futures · ')");
+  await click('#contract-panel-tabs-history');
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("document.querySelector('#contract-panel').dataset.placement==='overlay'");
+  await check('at 390 pixels the panel is a sheet over the page, which fits the screen and is held out of reach',
+   "(()=>{const panel=document.querySelector('#contract-panel'),box=panel.getBoundingClientRect();return panel.dataset.placement==='overlay'&&box.left===0&&box.width===innerWidth&&document.querySelector('#contracts').closest('[inert]')!==null&&document.querySelector('#nav-market').closest('[inert]')!==null&&!panel.closest('[inert]');})()",
+   "(()=>{const panel=document.querySelector('#contract-panel'),box=panel.getBoundingClientRect();return [panel.dataset.placement,box.left,box.width,innerWidth,document.querySelectorAll('[inert]').length];})()");
+  await check('the sheet fits a 390px screen without page-wide horizontal scrolling',fitsWidth);
+  await evaluate("document.querySelector('#contract-panel-body').scrollTop=0");await shot('markets-contract-panel-mobile');
+  await click('#contract-panel-close');
+  await check('closing the sheet gives the page back',"document.querySelector('#contract-panel').hidden&&document.querySelectorAll('[inert]').length===0");
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  await click('#contracts tbody tr:first-child');
+  await check('the panel opens again on exact closes with no overlay',`!document.querySelector('#contract-panel').hidden&&${history}.body.revisionPolicy==='exact_snapshot_pins_v1'&&!${history}.body.overlays&&document.querySelector('#history-overlays summary').textContent==='Overlays'`);
+  await set('#snapshot',newest);await wait(idle);
+  await check('changing the close closes the panel',"document.querySelector('#contract-panel').hidden&&document.querySelector('#error').hidden");
  }finally{await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});await command('Emulation.clearDeviceMetricsOverride');}
 }

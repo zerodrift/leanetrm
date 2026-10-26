@@ -48,15 +48,32 @@ export function exactTexts(series:Record<string,OverlayPoint[]>):(timestamp:numb
 }
 
 const present=(value:number|null|undefined)=>typeof value==='number';
-/** The indexes of values with no value beside them. A line is drawn only between neighbours, so these need a marker. */
+/**
+ * The indexes of values no line is drawn through, which need a marker: a line joins only neighbours, so a value with none beside it;
+ * and the library draws a series' line only when it has more than one segment, so both ends of a series' only segment.
+ */
 export function isolatedPoints(values:(number|null|undefined)[]):number[]{
-  return values.flatMap((value,i)=>present(value)&&!present(values[i-1])&&!present(values[i+1])?[i]:[]);
+  const segments=values.flatMap((value,i)=>present(value)&&present(values[i+1])?[i]:[]);
+  const lone=segments.length===1?[segments[0],segments[0]+1]:[];
+  return values.flatMap((value,i)=>present(value)&&(!present(values[i-1])&&!present(values[i+1])||lone.includes(i))?[i]:[]);
 }
 const markerKey=(key:string)=>`${key}_point`;
 /** Adds `<key>_point` beside each isolated value, for the marker figure. */
 export function withIsolatedPoints<R extends Record<string,number|null|undefined>>(rows:R[],keys:string[]):(R&Record<string,number|null|undefined>)[]{
   const isolated=new Map(keys.map(key=>[key,new Set(isolatedPoints(rows.map(row=>row[key])))]));
   return rows.map((row,i)=>({...row,...Object.fromEntries(keys.map(key=>[markerKey(key),isolated.get(key)!.has(i)?row[key]:undefined]))}));
+}
+
+/**
+ * The x-axis tick of each point, by instant, in the chart's zone: the time of day for a series within one day, otherwise the day,
+ * with its year when the series spans several years. The crosshair and the legends name each point's full instant.
+ */
+export function axisLabels(points:readonly TimePoint[],zone:string):Map<number,string>{
+  const part=(options:Intl.DateTimeFormatOptions)=>{const format=new Intl.DateTimeFormat('en',{...options,timeZone:zone});return (at:string)=>format.format(new Date(at)).replaceAll('\u202f',' ');};
+  const day=part({year:'numeric',month:'2-digit',day:'2-digit'}),year=part({year:'numeric'});
+  const label=new Set(points.map(p=>day(p.at))).size<2?part({hour:'numeric',minute:'2-digit'})
+    :part({month:'short',day:'numeric',...(new Set(points.map(p=>year(p.at))).size>1?{year:'numeric'}:{})});
+  return new Map(points.map(p=>[instantOf(p.at),label(p.at)]));
 }
 
 /** The definition and the parameters the read sent, for example "Simple moving average · 5". */
@@ -169,6 +186,8 @@ function registerIndicators(){
 }
 const decimals=(points:TimePoint[])=>Math.min(6,Math.max(0,...points.map(p=>p.value?.split('.')[1]?.length??0)));
 
+// The widest a bar may be drawn, so that a short history fills the chart instead of gathering at its right edge.
+const widestBar=240;
 const tools=[{name:'horizontalStraightLine',label:'Horizontal line'},{name:'segment',label:'Trend line'},{name:'rayLine',label:'Ray'}];
 
 /** Draws prices over time, with drawing tools. Drawings belong to the open chart and are not saved. */
@@ -180,7 +199,7 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
   const body=document.createElement('div');body.className='time-chart-body';body.append(canvas,latest);
   const note=document.createElement('p');note.className='fine-print';note.textContent='Drawings are not saved.';
   host.replaceChildren(toolbar,body,note);
-  const started=init(canvas,{timezone:spec.zone,styles:chartStyles(readTokens(host)),
+  const started=init(canvas,{timezone:spec.zone,styles:chartStyles(readTokens(host)),layout:{barSpaceLimit:{min:1,max:widestBar}},
     // Legends show the backend's strings as they are: no digit grouping and no folding of zeros.
     thousandsSeparator:{format:value=>String(value)},decimalFold:{format:value=>String(value)}});
   if(!started)throw Error('The time chart could not start.');
@@ -196,17 +215,28 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
   chart.setDataLoader({getBars:({callback})=>callback(bars,false)});
   const restyle=()=>chart.setStyles(chartStyles(readTokens(host)));
   const scheme=matchMedia('(prefers-color-scheme: dark)');scheme.addEventListener('change',restyle);
-  const resize=new ResizeObserver(()=>chart.resize());resize.observe(canvas);
+  // Every bar in view where the width allows, with a bar's room on either side; a longer series shows its latest bars.
+  function fit(){
+    const width=chart.getSize('candle_pane','main')?.width;
+    if(!width||!bars.length)return;
+    const space=Math.max(1,Math.min(widestBar,width/(bars.length+1)));
+    chart.setBarSpace(space);chart.setOffsetRightDistance(space/2);
+  }
+  const resize=new ResizeObserver(()=>{chart.resize();fit();});resize.observe(canvas);
   function update(next:TimeChartSpec){
     const data=timeChartData(next.points);
     const names=timeLabels(next.points.map(p=>p.at),next.zone),labels=new Map(data.map((bar,i)=>[bar.timestamp,names[i]]));
-    chart.setFormatter({formatDate:({timestamp})=>labels.get(timestamp)??displayInstant(new Date(timestamp).toISOString(),next.zone)});
+    const ticks=axisLabels(next.points,next.zone);
+    chart.setFormatter({formatDate:({timestamp,type})=>type==='xAxis'?ticks.get(timestamp)??'':labels.get(timestamp)??displayInstant(new Date(timestamp).toISOString(),next.zone)});
     // The library needs numeric open, high, low and close on each bar; they are never drawn. Only `price` (null at a gap) is.
     bars=data.map(bar=>({timestamp:bar.timestamp,open:bar.close??0,high:bar.close??0,low:bar.close??0,close:bar.close??0,price:bar.close}));
-    chart.setSymbol({ticker:next.title,pricePrecision:decimals(next.points),volumePrecision:0});
+    // The axis has one decimal more than the stated prices, so that ticks between them stay distinct; no stated value is rounded by it.
+    chart.setSymbol({ticker:next.title,pricePrecision:Math.min(6,decimals(next.points)+1),volumePrecision:0});
     chart.setPeriod({type:'minute',span:1});
     chart.removeIndicator();
     chart.resetData();
+    // Fitted once the chart has laid out its axis, whose width depends on the data just loaded.
+    requestAnimationFrame(fit);
     // Axis ticks use the precision of the stated prices; every legend value is the exact backend string (see tooltipOf).
     const accent=readTokens(host)['--accent'];
     chart.createIndicator({name:priceIndicator,shortName:`${next.title} (${next.unit})`,precision:decimals(next.points),paneId:'candle_pane',

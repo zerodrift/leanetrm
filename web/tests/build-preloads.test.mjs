@@ -8,10 +8,10 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {bundleApplication} from '../bundle-app.mjs';
 
-test('initial HTML loads one application bundle and only the two existing vendor modules',()=>{
+test('initial HTML loads one application bundle and only the vendor modules it imports, the time chart\'s among them',()=>{
   const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
   const preloads=[...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(match=>match[1]);
-  assert.deepEqual(preloads.sort(),['/vendor/echarts.js','/vendor/tabulator.js']);
+  assert.deepEqual(preloads.sort(),['/vendor/echarts.js','/vendor/klinecharts.js','/vendor/tabulator.js']);
   assert.equal((html.match(/<script type="module" src="\/app.js"><\/script>/g)??[]).length,1);
 });
 
@@ -19,7 +19,7 @@ test('the emitted application has no remaining project-module imports',async()=>
   const result=await build({absWorkingDir:fileURLToPath(new URL('../dist/',import.meta.url)),entryPoints:['app.js'],
     bundle:false,write:false,metafile:true,format:'esm',platform:'browser',logLevel:'silent'});
   const imports=Object.values(result.metafile.outputs).flatMap(output=>output.imports);
-  assert.deepEqual(imports.map(item=>item.path).sort(),['./vendor/echarts.js','./vendor/tabulator.js']);
+  assert.deepEqual(imports.map(item=>item.path).sort(),['./vendor/echarts.js','./vendor/klinecharts.js','./vendor/tabulator.js']);
 });
 
 async function fixture(files,run){

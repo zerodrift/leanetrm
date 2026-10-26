@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 // The chart library reads the browser's user agent when it loads; the pure functions under test never draw.
 globalThis.window??={navigator:{userAgent:'node'}};
-const {timeChartData,overlayLookup,overlayLegend,overlayMenuState,latestValues,chartStyles,exactTexts,isolatedPoints,withIsolatedPoints}=await import('../dist/time-chart.js');
+const {axisLabels,timeChartData,overlayLookup,overlayLegend,overlayMenuState,latestValues,chartStyles,exactTexts,isolatedPoints,withIsolatedPoints}=await import('../dist/time-chart.js');
 import {plotNumber} from '../dist/plot-number.js';
 
 const at=n=>`2027-03-${String(n).padStart(2,'0')}T00:00:00Z`;
@@ -96,7 +96,7 @@ test('the text shown for an instant is the exact string the backend stated, neve
 });
 
 test('a point is isolated when neither neighbour has a value',()=>{
-  assert.deepEqual(isolatedPoints([1,undefined,2,3,undefined,4,null]),[0,5]);
+  assert.deepEqual(isolatedPoints([1,undefined,2,3,undefined,4,5,null]),[0]);
   assert.deepEqual(isolatedPoints([undefined,1]),[1]);
   assert.deepEqual(isolatedPoints([1,undefined]),[0]);
   assert.deepEqual(isolatedPoints([undefined,5,undefined]),[1]);
@@ -105,7 +105,22 @@ test('a point is isolated when neither neighbour has a value',()=>{
   assert.deepEqual(isolatedPoints([]),[]);
 });
 
+test('the ends of a series\' only segment are marked too, as the library draws no line of a single segment',()=>{
+  assert.deepEqual(isolatedPoints([undefined,undefined,3.03,3.04]),[2,3]);
+  assert.deepEqual(isolatedPoints([1,undefined,2,3,undefined,4,null]),[0,2,3,5]);
+  assert.deepEqual(isolatedPoints([1,2,3]),[]);
+  assert.deepEqual(isolatedPoints([1,2,undefined,3,4]),[]);
+});
+
 test('marker values appear only at isolated points',()=>{
-  const rows=withIsolatedPoints([{price:1},{price:undefined},{price:2},{price:3}],['price']);
-  assert.deepEqual(rows.map(row=>row.price_point),[1,undefined,undefined,undefined]);
+  const rows=withIsolatedPoints([{price:1},{price:undefined},{price:2},{price:3},{price:4}],['price']);
+  assert.deepEqual(rows.map(row=>row.price_point),[1,undefined,undefined,undefined,undefined]);
+});
+
+test('axis ticks name the day of each point, the year too when the series spans several, and the time when it spans one day',()=>{
+  const zone='America/New_York';
+  assert.deepEqual([...axisLabels([{at:'2020-12-15T21:00:00Z',value:'1'},{at:'2020-12-16T21:00:00Z',value:null}],zone).values()],['Dec 15','Dec 16']);
+  assert.deepEqual([...axisLabels([{at:'2020-12-31T21:00:00Z',value:'1'},{at:'2021-01-04T21:00:00Z',value:'2'}],zone).values()],['Dec 31, 2020','Jan 4, 2021']);
+  assert.deepEqual([...axisLabels([{at:'2026-11-01T05:00:00Z',value:'1'},{at:'2026-11-01T05:30:00Z',value:'2'}],zone).values()],['1:00 AM','1:30 AM']);
+  assert.deepEqual([...axisLabels([{at:'2020-12-15T21:00:00Z',value:'1'}],zone).keys()],[Date.parse('2020-12-15T21:00:00Z')]);
 });

@@ -275,11 +275,14 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .curve-header h2{font-size:22px}
 .curve-header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .unit-pill{font-size:12px;font-weight:500;color:var(--text-2);background:var(--surface-3);border:1px solid var(--border);padding:5px 10px;border-radius:999px;white-space:nowrap}
-.curve-summary{display:flex;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:0 0 16px}
-.curve-summary div{flex:1 1 150px;padding:12px 16px;min-width:0;border-left:1px solid var(--border);margin-left:-1px}
-.curve-summary dt{font-size:12px;color:var(--text-3);margin-bottom:3px}
-.curve-summary dd{margin:0;font-size:15px;font-weight:600;overflow-wrap:anywhere}
-.curve-summary dd.numeric{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.curve-crumbs{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;margin-bottom:4px}
+.curve-crumbs .eyebrow{margin:0}
+.curve-crumbs .text-button{padding:2px 0;font-size:12.5px}
+.curve-crumbs .text-button+.eyebrow{padding-left:10px;border-left:1px solid var(--border)}
+/* The selected curve's summary, in the desk tiles: a word that is no figure, as a settlement rule, wraps in its tile. */
+.curve-tiles{margin:0 0 16px}
+.curve-tiles .desk-tile{flex-basis:150px}
+.curve-tiles .desk-tile-words .kpi-figure{white-space:normal;font-size:20px;line-height:1.25;letter-spacing:-.3px}
 .mode-banner{display:flex;gap:10px;align-items:flex-start;font-size:13px;padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:14px;background:var(--accent-soft);color:var(--accent-text);border:1px solid #cfe3d8}
 .mode-banner[data-tone=historical]{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-border)}
 .chart{height:240px;overflow:hidden}
@@ -827,10 +830,10 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 /* Above the rows, that the open position's row is hidden by the table's own filters, with the way to show it. */
 .table-open-note{margin:0 0 8px;padding:8px 12px;border:1px solid var(--warn-border);border-radius:var(--radius-sm);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
 .table-open-note .text-button{margin-left:6px}
-.product-switch{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
-.product-switch button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
-.product-switch button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
-.product-switch button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.product-switch,.revision-switch{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.product-switch button,.revision-switch button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
+.product-switch button:hover:not(:disabled),.revision-switch button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
+.product-switch button[aria-pressed=true],.revision-switch button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
 .new-trade-head .side-panel-title{margin-top:0}
 .new-trade-head .side-panel-note{margin:8px 0 0}
 /* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
@@ -1177,6 +1180,7 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 body{--dock-center:calc((var(--sidebar-width) + 100vw - var(--launcher-right) - var(--launcher-room)) / 2)}
 body.assistant-open{--launcher-right:calc(var(--assistant-width) + 16px)}
 body:has(#futures-page:not([hidden]) .side-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--panel-width) + 49px)}
+body:has(#market-page:not([hidden]) .contract-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--contract-panel-width) + 49px)}
 main{padding-bottom:calc(var(--dock-band) + 16px)}
 html{scroll-padding-bottom:var(--dock-band)}
 .floating-context{position:fixed;bottom:16px;left:var(--dock-center);transform:translateX(-50%);z-index:35;font-size:12px;max-width:calc(100vw - 160px)}
@@ -1218,3 +1222,39 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .time-chart-latest dd{margin:0 0 8px;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
 .overlay-menu fieldset{border:1px solid var(--border);border-radius:var(--radius-sm);margin:0 0 8px;padding:8px 12px}
 .overlay-menu legend{font-size:13px;font-weight:550;color:var(--text-2)}
+/* The contract panel of Curves & prices (contract-panel.ts): docked beside the curve's chart and table as a card of its own, or an
+   overlay drawer, and on a phone a sheet. Its history fills the panel's width: the chart, its latest values beneath, then every value. */
+:root{--contract-panel-width:440px}
+.curve-stage:has(>.contract-panel[data-placement=docked]:not([hidden])){display:grid;grid-template-columns:minmax(0,1fr) var(--contract-panel-width)}
+.curve-views{min-width:0}
+.contract-panel[data-placement=docked]{border-left:0;padding-left:16px;background:transparent}
+.contract-panel[data-placement=docked] .side-panel-frame{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden}
+.contract-panel .side-panel-head .kpi-value{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.contract-history{display:flex;flex-direction:column;gap:10px;min-width:0}
+.contract-history .revision-switch{align-self:flex-start;margin:0}
+.revision-switch button{padding:5px 14px}
+.contract-basis{margin:0;font-size:12.5px;color:var(--text-2)}
+.contract-overlays{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.contract-overlays>summary{padding:8px 12px;font-size:13px;font-weight:550;color:var(--text-2);cursor:pointer}
+.contract-overlays[open]>summary{border-bottom:1px solid var(--border)}
+.contract-overlays .overlay-menu{padding:4px 12px 10px}
+.contract-overlays .overlay-menu fieldset{display:flex;align-items:center;gap:10px;margin:0;padding:7px 0;border:0;border-bottom:1px solid var(--border);border-radius:0}
+.contract-overlays .overlay-menu legend{float:left;flex:1 1 auto;padding:0;font-size:13px;font-weight:550;color:var(--text)}
+.contract-overlays .overlay-menu label{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--text-2);white-space:nowrap}
+.contract-overlays .overlay-menu input{width:64px;min-height:30px;padding:4px 8px}
+.contract-overlays .overlay-menu>button{margin:10px 8px 0 0;font-size:12.5px;padding:6px 14px}
+.contract-overlays .overlay-menu .fine-print{margin:8px 0 0}
+.contract-chart{min-width:0}
+.contract-chart .time-chart-tools button,.contract-chart .time-chart-tools input{font-size:12px;padding:4px 9px;min-height:28px}
+.contract-chart .time-chart-tools input{width:110px}
+.contract-chart .time-chart-body{flex-direction:column;align-items:stretch;gap:8px}
+.contract-chart .time-chart-canvas{flex:0 0 auto;height:260px}
+.contract-chart .time-chart-latest{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.contract-chart .time-chart-latest dt{overflow-wrap:anywhere}
+.contract-chart .time-chart-latest dd{margin:0;text-align:right}
+.contract-chart .fine-print{margin:4px 0 0}
+.contract-chart-note{margin:0;padding:12px;border:1px dashed var(--border-strong);border-radius:var(--radius)}
+.contract-history .breakdown-heading{margin:6px 0 0}
+.contract-pricing svg{max-width:none}
+.contracts-help{margin:12px 0 8px}
+

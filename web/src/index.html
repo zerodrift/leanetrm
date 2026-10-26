@@ -83,17 +83,40 @@
     <div class="market-content">
       <section id="market-board" class="market-board" aria-labelledby="market-board-title"><header class="market-board-head"><div><p class="eyebrow">Market board</p><h2 id="market-board-title">Every curve at this close</h2><p id="market-board-status" class="market-board-status"></p></div><div class="market-board-sample"><button id="example" type="button" class="secondary">Open sample prices</button><p id="example-help" class="fine-print"></p></div></header><div id="market-board-empty" class="market-board-empty"><div class="market-board-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/></svg></div><h3 id="market-board-empty-title">Choose a market date</h3><p id="market-board-empty-help">Pick a close in As of above to see every curve at that close, or choose a curve from the list.</p></div><div id="market-board-groups"></div></section>
       <section id="curve-detail" hidden>
-        <div class="curve-header"><div><div class="eyebrow" id="curve-kind"></div><h2 id="curve-title"></h2></div><div class="curve-header-actions"><span id="unit" class="unit-pill"></span><button id="curve-power" type="button" class="secondary" hidden>Power hours &amp; settlements</button></div></div>
-        <dl id="curve-summary" class="curve-summary" hidden></dl>
+        <div class="curve-header"><div><nav class="curve-crumbs" aria-label="Curves"><button id="curve-all-markets" type="button" class="text-button"><span aria-hidden="true">‹</span> All markets</button><span class="eyebrow" id="curve-kind"></span></nav><h2 id="curve-title"></h2></div><div class="curve-header-actions"><span id="unit" class="unit-pill"></span><button id="curve-power" type="button" class="secondary" hidden>Power hours &amp; settlements</button></div></div>
+        <div id="curve-summary" class="desk-tiles curve-tiles" hidden></div>
         <div id="curve-mode" class="mode-banner" role="note" hidden></div>
+        <div class="curve-stage"><div class="curve-views">
         <div class="tabs" role="tablist" aria-label="Curve details"><button class="tab active" role="tab" aria-selected="true" data-view="prices">Prices</button><button class="tab" role="tab" aria-selected="false" data-view="inputs">Price sources</button><button class="tab" role="tab" aria-selected="false" data-view="dependencies">How it’s priced</button></div>
-        <section class="view" id="view-prices"><div class="card"><div class="card-heading"><div><h3 id="chart-title">Forward curve</h3><p id="price-date">Choose a market date to view prices.</p></div><span id="build-info" class="muted"></span></div><div id="curve-chart" class="chart empty">Choose a market date above.</div><div id="contracts" class="table-wrap"></div></div>
-          <div class="card" id="history-card" hidden><div class="card-heading"><div><h3 id="history-title">Price history</h3><p id="history-help">One contract, followed over time.</p></div><button id="history-close" class="text-button">Close</button></div><div id="history-chart" class="chart"></div><div id="history-values" class="table-wrap"></div></div>
+        <section class="view" id="view-prices"><div class="card"><div class="card-heading"><div><h3 id="chart-title">Forward curve</h3><p id="price-date">Choose a market date to view prices.</p></div><span id="build-info" class="muted"></span></div><div id="curve-chart" class="chart empty">Choose a market date above.</div><p id="contracts-help" class="field-help contracts-help">Choose a contract to see its history and how it’s priced.</p><div id="contracts" class="table-wrap"></div></div>
         </section>
         <section class="view" id="view-inputs" hidden><div class="card"><div class="card-heading"><div><h3 id="source-title">Prices behind this curve</h3><p id="source-help">The prices and conversion factors used for the selected market date.</p></div><span id="input-count" class="muted"></span></div><div class="pricing-toolbar"><label for="source-contract">Contract</label><select id="source-contract"></select><button id="source-all" type="button" class="secondary" aria-pressed="false">Show all contracts</button></div><div id="source-flow" class="contract-flows"></div><h4 class="breakdown-heading">Source observations</h4><div id="inputs" class="table-wrap"></div></div>
           <div class="card" id="revision-card" hidden><h3 id="changes-title">Price changes</h3><p id="correction-description" class="muted"></p><form id="correction-form"><div class="correction-row"><div><label for="correction-value">Corrected value</label><input id="correction-value" type="text" inputmode="decimal" required autocomplete="off"></div><button id="save" type="submit">Save correction</button></div><p id="edit-help" class="field-help">Earlier prices stay available. Saving adds a new version.</p></form><div id="revisions" class="table-wrap"></div></div>
         </section>
         <section class="view" id="view-dependencies" hidden><div class="card"><h3>How this curve is priced</h3><p class="muted">Follow the source contracts through each calculation to the final price.</p><div class="pricing-toolbar"><label for="pricing-contract">Contract</label><select id="pricing-contract"></select><button id="pricing-all" type="button" class="secondary" aria-pressed="false">Show all contracts</button></div><div id="dependencies" class="contract-flows"></div><h4 class="breakdown-heading">Calculation steps</h4><div id="mappings" class="table-wrap"></div></div></section>
+        </div>
+        <aside id="contract-panel" class="side-panel contract-panel" aria-label="Contract" tabindex="-1" hidden>
+          <div class="side-panel-frame">
+            <button id="contract-panel-close" type="button" class="icon-button side-panel-close" aria-label="Close the panel">×</button>
+            <div id="contract-panel-head" class="side-panel-head"></div>
+            <div id="contract-panel-tabs" class="side-panel-tabs"></div>
+            <div id="contract-panel-body" class="side-panel-body" tabindex="0">
+              <div id="contract-panel-view">
+                <section id="contract-history" class="contract-history">
+                  <div id="history-policy" class="revision-switch" role="group" aria-label="Revisions"></div>
+                  <p id="history-basis" class="contract-basis" role="status"></p>
+                  <details id="history-overlays" class="contract-overlays"><summary>Overlays</summary><div id="history-overlay-menu"></div></details>
+                  <div id="history-chart" class="contract-chart"></div>
+                  <h4 class="breakdown-heading">Values</h4>
+                  <div id="history-values" class="table-wrap"></div>
+                </section>
+                <section id="contract-pricing" class="contract-pricing contract-flows" hidden></section>
+              </div>
+              <div id="contract-panel-form" class="side-panel-form" hidden></div>
+            </div>
+          </div>
+        </aside>
+        </div>
       </section>
     </div></div>
   </section>

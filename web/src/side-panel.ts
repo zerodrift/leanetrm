@@ -1,15 +1,16 @@
-// The Blotter desk's side panel (blotter-desk.md, Side panel): one place beside the positions that holds a position, a new
-// trade or a risk report. This shell owns what every mode shares: showing and hiding, docked or overlay placement, focus,
+// The side panel (blotter-desk.md, Side panel): one place beside the Blotter's positions that holds a position, a new trade or a
+// risk report, and beside a curve on Curves & prices that holds one of its contracts (markets-desk.md). This shell owns what every mode shares: showing and hiding, docked or overlay placement, focus,
 // Escape, the tab strip and asking before unsaved edits are left. A mode draws its own content into the parts the shell hands out.
 
 /**
- * What the panel holds: one position (a trade's binding) at a revision, a new trade of a product or, until the person has chosen
- * one, of none, a risk report, or nothing.
+ * What a panel holds: on the Blotter, one position (a trade's binding) at a revision, a new trade of a product or, until the person
+ * has chosen one, of none, or a risk report; on Curves & prices, one contract (or maturity) of a curve; or nothing.
  */
 export type PanelMode=
   |{kind:'position';tradeId:string;bindingId:string;revision:number}
   |{kind:'new';product:'futures'|'swaps'|null}
   |{kind:'risk'}
+  |{kind:'contract';curve:string;contract:string}
   |null;
 
 /** The width of the main area from which the panel docks beside the positions; narrower, or beside the assistant, it overlays them. */
@@ -23,6 +24,7 @@ export function sameMode(a:PanelMode,b:PanelMode):boolean{
   if(a.kind!==b.kind)return false;
   if(a.kind==='position'&&b.kind==='position')return a.tradeId===b.tradeId&&a.bindingId===b.bindingId&&a.revision===b.revision;
   if(a.kind==='new'&&b.kind==='new')return a.product===b.product;
+  if(a.kind==='contract'&&b.kind==='contract')return a.curve===b.curve&&a.contract===b.contract;
   return true;
 }
 
@@ -32,6 +34,7 @@ export function modeLabel(mode:NonNullable<PanelMode>):string{
     case 'position':return 'Position';
     case 'new':return mode.product===null?'New trade':mode.product==='futures'?'New future':'New swap';
     case 'risk':return 'Risk report';
+    case 'contract':return 'Contract';
   }
 }
 
@@ -126,7 +129,7 @@ export function isolate(host:HTMLElement):()=>void{
 }
 
 /**
- * The shell over the markup of `#side-panel`: a head, a tab strip and a tab panel, which holds a `view` that a mode draws its tab
+ * The shell over a panel's markup, whose parts are named by its own id (`#side-panel-head` for `#side-panel`): a head, a tab strip and a tab panel, which holds a `view` that a mode draws its tab
  * into and a `form` that takes its place while the mode edits something. `unsaved` says whether leaving the current mode would
  * lose edits, and `confirmLeave` asks the person; it hears `abandoned` aborted when the page resets the panel under its question.
  * `docked` says whether the page has room to dock the panel now, and `sheet` whether the open panel covers the whole page, which
@@ -135,7 +138,7 @@ export function isolate(host:HTMLElement):()=>void{
  * that the person closed the panel, and `changed` hears every change of its mode or placement, for a page that makes room for it.
  */
 export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLeave:(abandoned:AbortSignal)=>Promise<boolean>;docked:()=>boolean;sheet?:()=>boolean;wide?:()=>boolean;closed?:()=>void;changed?:()=>void}){
-  const part=(name:'close'|'head'|'tabs'|'body'|'view'|'form')=>host.querySelector<HTMLElement>('#side-panel-'+name)!;
+  const part=(name:'close'|'head'|'tabs'|'body'|'view'|'form')=>host.querySelector<HTMLElement>(`#${host.id}-${name}`)!;
   const element=(name:'head'|'tabs'|'body'|'view'|'form')=>part(name);
   let mode:PanelMode=null,question:AbortController|undefined,release:(()=>void)|undefined;
   /** The page behind a panel that covers it is out of reach while the panel is open, and only then. */
@@ -203,7 +206,7 @@ export type SidePanel=ReturnType<typeof setupSidePanel>;
  * Escape keeps, as the first button does.
  */
 export function askInPanel(host:HTMLElement,question:{text:string;keep:string;go:string}){
-  const slot=host.querySelector<HTMLElement>('#side-panel-prompt')!;
+  const slot=host.querySelector<HTMLElement>(`#${host.id}-prompt`)!;
   return (abandoned:AbortSignal)=>new Promise<boolean>(resolve=>{
     const button=(label:string,going:boolean)=>{const b=document.createElement('button');b.type='button';b.textContent=label;if(!going)b.className='secondary';b.onclick=()=>finish(going);return b;};
     function finish(going:boolean){

@@ -26,7 +26,7 @@ import {renderRegularTable,clearTableFilters} from './regular-table.js';
 import {curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
 import {type PricingGraph,pricingGraph,pricingEquation} from './pricing-view.js';
 import {renderPricingGraph} from './pricing-graph-view.js';
-import {type Row,type Frame,type Workspace,type CurveResult,type PriceHistory,type ReferenceDisplay,displayReferenceRows,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText} from './market-view.js';
+import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,displayReferenceRows,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText} from './market-view.js';
 import {dataSections} from './data-sections.js';
 import {type Preferences,newPreferences,loadPreferences,savePreferences,validTimeZone,zoneChoices} from './preferences.js';
 import {setupShortcutEditor,scheduleErrorMessage} from './shortcut-view.js';
@@ -39,6 +39,10 @@ import {readPages,type TargetContext} from './assistant-events.js';
 import {readCurveShapes} from './curve-shapes.js';
 import type {CurveShape} from './desk-model.js';
 import {commodityDot,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
+import {renderTile} from './tiles.js';
+import {panelPlacement} from './side-panel.js';
+import type {OverlayCatalog,OverlayRequest,OverlaySeries} from './time-chart.js';
+import {type ContractHistory,type RevisionPolicy,revisionPolicies,historyBasis,historyOverlays,knownAtText,setupContractPanel} from './contract-panel.js';
 
 const exampleId=new URLSearchParams(location.search).get('example')??'baseline';
 if(!['baseline','exchange'].includes(exampleId))throw Error('Choose an available example.');
@@ -49,10 +53,13 @@ const groupNode=(id:string)=>$<HTMLDetailsElement>('nav-group-'+id);
 const text=(id:string,value:string)=>{$(id).textContent=publicText(value);};
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,content?:string){const node=document.createElement(tag);if(content!==undefined)node.textContent=publicText(content);return node;}
 function choose(id:string,options:{value:string;name:string}[],value:string){const node=select(id);node.replaceChildren(...options.map(o=>{const option=el('option',o.name);option.value=o.value;return option;}));node.value=value;}
-// Each history sample shows its snapshot's exact pins; the revision-policy choice arrives with its screen (D230).
-const historyRevisionPolicy='exact_snapshot_pins_v1';
-let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,contract='',historyData:PriceHistory|undefined,pricingContract='',showAllContracts=false,input='',draftFor='',busy=false,page='market';
-let sourceOnlyCurve=false,historyRequested=false;
+let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,pricingContract='',showAllContracts=false,input='',draftFor='',busy=false,page='market';
+let sourceOnlyCurve=false;
+// The contract the panel shows, and its history: the revision policy (D230) and overlays the person chose, the read's answer and the
+// overlays it returned, named from the catalog, or that the read failed. The panel opens on exact closes with no overlays.
+let contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
+// The overlay catalog, read for one account.
+let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
 let contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 let navigation:MarketNavigation|undefined,marketGeneration=0;
 // The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
@@ -95,7 +102,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -120,7 +127,7 @@ async function api<T>(path:string,body?:unknown):Promise<T>{
  if(['profile','market/current','market/context'].includes(path))stopLive();
  if(/^(trading\/(blotter|workspace)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|evaluate|history|power\/preview)$/.test(path)){
   // A workspace read's report and its desk summaries are both shown; its catalog is not.
-  const displayed=path==='trading/workspace'?{blotter:(payload as {blotter:unknown}).blotter,summaries:(payload as {summaries?:unknown}).summaries}:path==='evaluate'||path==='history'?{points:(payload as CurveResult|PriceHistory).points}:payload;
+  const displayed=path==='trading/workspace'?{blotter:(payload as {blotter:unknown}).blotter,summaries:(payload as {summaries?:unknown}).summaries}:path==='evaluate'||path==='history'?{points:(payload as CurveResult|ContractHistory).points}:payload;
   await prepareAmountDisplay(displayed,request=>transport<string[]>('amounts/display',request),path==='history'?decimalTick():undefined);
  }
  return payload;
@@ -158,13 +165,13 @@ async function mayLeaveForDialog(notDone:string){
 function leaving(work:()=>Promise<void>){void (async()=>{if(busy)return;if(await mayLeave())await act(work);})();}
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
-function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][]){
+function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][],onRowActivate?:(index:number)=>void){
   const referenceScope=[data().profile,page,select('reference-table').value,referencePage?.referenceRevision,referencePage?.offset,referencePage?.search,historicalContext()];
   const marketScope=[data().profile,curve,result?.snapshotId??'',target==='history-values'?contract:'',target==='revisions'?input:'',...(['inputs','mappings'].includes(target)?[showAllContracts||target==='inputs'&&sourceOnlyCurve?'all':pricingContract]:[])];
-  renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows});
+  renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows,onRowActivate});
 }
 
-function clearPrices(){historyRequested=false;result=undefined;pricingContract='';contract='';historyData=undefined;$('history-card').hidden=true;clearChart($('history-chart'));input='';draftFor='';$('revision-card').hidden=true;text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
+function clearPrices(){result=undefined;pricingContract='';closeContract();input='';draftFor='';$('revision-card').hidden=true;text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
 const showsDate=(next:string)=>!['admin','ai','jobs','interval-series','ppa','delivery'].includes(next);
 const showsContext=(next:string)=>showsDate(next)&&next!=='interval-curves';
 async function setPage(next:string){
@@ -308,8 +315,13 @@ function renderFrames(value:string){const frames=offeredFrames();choose('snapsho
 const boardScope=()=>JSON.stringify([administrationScope,currentProfile,select('snapshot').value,contextDirty]);
 function readShapes():ReadonlyMap<string,CurveShape|string>{const kept=boardShapes;return kept&&kept.owner===navigation&&kept.scope===boardScope()?kept.shapes:new Map();}
 const board=()=>marketBoard(directory(),{by:prefs.browseBy,commodity:prefs.market,type:prefs.marketType},readShapes());
-// Choosing a curve, from the library or from its card on the board.
-function chooseCurve(code:string){void act(async()=>{curve=code;invalidateMarketDates();clearPrices();if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}});}
+// Choosing a curve, from the library or from its card on the board, or no curve, which shows the board again.
+async function selectCurve(code:string){
+  curve=code;invalidateMarketDates();clearPrices();
+  if(!curve){renderContext();await loadBoard();}
+  else if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}
+}
+function chooseCurve(code:string){void act(()=>selectCurve(code));}
 // The market board, while no curve is shown: every listed curve at the selected close, or what to choose before there is one.
 function renderMarketBoard(){
   const shown=!curve||!workspace,close=navigation&&!contextDirty?navigation.frames.find(f=>f.id===select('snapshot').value):undefined;
@@ -356,7 +368,7 @@ function renderContext(){
     const specification=kind==='rates'?row('interest_rate_definitions','code',val(c,'interest_rate_code'),true):undefined;
     text('unit',specification?`${val(row('currencies','code',val(specification,'currency_code'),true),'display_code')} · % per year`:unit(val(c,'quote_code')));
     text('chart-title',kind==='rates'?'Zero-rate curve':kind==='futures'?'Futures curve':kind==='forwards'?'Forward curve':'Mixed curve');
-    text('source-title',kind==='rates'?'Rates behind this curve':'Prices behind this curve');text('source-help',kind==='rates'?'Annual zero rates for the listed maturities.':'Prices and conversion factors for the selected market date.');text('history-help',kind==='rates'?'One maturity, followed over time.':'One contract, followed over time.');
+    text('source-title',kind==='rates'?'Rates behind this curve':'Prices behind this curve');text('source-help',kind==='rates'?'Annual zero rates for the listed maturities.':'Prices and conversion factors for the selected market date.');text('contracts-help',kind==='rates'?'Choose a maturity to see its rate history and how it’s priced.':'Choose a contract to see its price history and how it’s priced.');
     renderDependencies();if(result)renderInputs();}
   showView(prefs.tab);
 }
@@ -383,18 +395,22 @@ function rateConvention(){
 function renderSummary(){
   const items=result&&curve?summaryTiles(result,result.kind==='rates'?'':settlementText()):[];
   $('curve-summary').hidden=!items.length;
-  $('curve-summary').replaceChildren(...items.map(item=>{const group=el('div'),value=el('dd',item.value);if(item.numeric)value.className='numeric';group.append(el('dt',item.name),value);return group;}));
+  // A figure is one token that never splits; the curve's words, as its settlement, wrap in their tile instead.
+  $('curve-summary').replaceChildren(...items.map(item=>{const tile=renderTile({label:item.name,rows:[{figure:item.value}]});if(!item.numeric)tile.classList.add('desk-tile-words');return tile;}));
   const context=historicalContext(),banner=$('curve-mode');banner.hidden=!curve||contextDirty||(!context&&!canCorrect());
   banner.dataset.tone=context?'historical':'editor';
   text('curve-mode',context?`Historical view: ${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}. Prices are read-only; return to working data to make changes.`:'You can correct source prices on the Price sources tab. Every earlier version stays available.');
 }
 function renderPrices(){
-  if(!result)return;renderSummary();const rates=result.kind==='rates';if(result.availability==='no_remaining_contracts'){pricingContract='';contract='';historyData=undefined;$('history-card').hidden=true;text('price-date',`As of: ${instant(result.at)}`);text('build-info','No remaining delivery days');clearChart($('curve-chart'),'No remaining delivery days for this market date.');clearChart($('history-chart'));$('contracts').replaceChildren();renderDependencies();renderInputs();return;}
+  if(!result)return;renderSummary();const rates=result.kind==='rates';if(result.availability==='no_remaining_contracts'){pricingContract='';closeContract();text('price-date',`As of: ${instant(result.at)}`);text('build-info','No remaining delivery days');clearChart($('curve-chart'),'No remaining delivery days for this market date.');$('contracts').replaceChildren();renderDependencies();renderInputs();return;}
   const exportCurve={snapshotId:result.snapshotId,curve:result.curve};
   renderChart($('curve-chart'),{exportImage:download=>void act(async()=>{try{await api('evaluate',exportCurve);}catch(error){clearPrices();throw error;}download();}),title:curveName(result.curve),axis:rates?'maturity':'delivery',unit:$('unit').textContent??'',series:[{name:curveName(result.curve),points:result.points.map(p=>({x:pointIdentity(p),label:rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!),y:p.value}))}]});
   text('price-date',`As of: ${instant(result.at)}`);text('build-info',contractCountText(result));
-  table('contracts',rates?['Maturity','Zero rate (%)','Discount factor','']:['Delivery period','Price','Expires',''],result.points.map(p=>[rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!),p.value,rates?p.displayDiscountFactor!:instant(p.expiry!),action(rates?'Rate history':'Price history',async()=>{contract=pointIdentity(p);await history();})]),rates?[1,2]:[1],result.points.map(p=>[rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!),amountText(p.value,'price',p.priceTick),rates?amountText(p.discountFactor!,'factor'):instant(p.expiry!),rates?'Rate history':'Price history']));
-  if(historyData)renderHistory();renderDependencies();renderInputs();
+  // A row, chosen or pressed with Enter, opens its contract in the panel, for the result it was drawn from.
+  const shown=result;
+  table('contracts',rates?['Maturity','Zero rate (%)','Discount factor']:['Delivery period','Price','Expires'],result.points.map(p=>[contractLabel(p),p.value,rates?p.displayDiscountFactor!:instant(p.expiry!)]),rates?[1,2]:[1],result.points.map(p=>[contractLabel(p),amountText(p.value,'price',p.priceTick),rates?amountText(p.discountFactor!,'factor'):instant(p.expiry!)]),
+    index=>void act(async()=>{if(result===shown)await openContract(pointIdentity(shown.points[index]));}));
+  renderContract();renderDependencies();renderInputs();
 }
 async function build(){
   if(contextDirty)throw Error('Apply the changed context before viewing prices.');
@@ -408,14 +424,69 @@ async function build(){
   try{workspace=hydrated;data().observations=next.observations;result=next;renderContext();renderPrices();}
   catch(error){clearPrices();if(includeWorkspace)workspace=undefined;throw error;}
 }
-function renderHistory(){
-  if(!result||!historyData)return;const p=result.points.find(p=>pointIdentity(p)===contract);if(!p)throw Error('Please select this sample again.');const rates=result.kind==='rates';$('history-card').hidden=false;text('history-title',`${rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!)} · ${rates?'rate':'price'} history`);
-  const labels=timeLabels(historyData.points.map(p=>p.at),prefs.timeZone);
-  const exportHistory={revisionPolicy:historyRevisionPolicy,snapshotId:result.snapshotId,curve:result.curve,...(rates?{seriesId:contract}:{contractId:contract})};
-  renderChart($('history-chart'),{exportImage:download=>void act(async()=>{try{await api('history',exportHistory);}catch(error){clearPrices();throw error;}download();}),title:`${rates?'Rates':'Prices'} over time`,axis:'observation',unit:$('unit').textContent??'',series:[{name:rates?'Zero rate':'Price',points:historyData.points.map((p,i)=>({x:p.snapshotId,label:labels[i],y:p.value}))}]});
-  table('history-values',['Market date',rates?'Zero rate (%)':'Price'],historyData.points.map((p,i)=>[labels[i],historyPriceLabel(p)]),[1],historyData.points.map((p,i)=>[labels[i],p.value===null?historyPriceLabel(p):amountText(p.value,'price',decimalTick())]));
+const contractLabel=(p:Point)=>result?.kind==='rates'?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!);
+const staleSelection=()=>Error('The account or market selection changed. Reload before continuing.');
+// Closes the contract panel without asking, and forgets the contract it showed and its history choices.
+function closeContract(){contractPanel.reset();forgetContract();}
+function forgetContract(){contract='';historyData=undefined;historySeries=[];historyFailed=false;historyPolicy=revisionPolicies[0].policy;overlayRequests=[];}
+// Opens a contract of the curve on screen in the panel and reads its history. The contract the panel shows already is only given focus,
+// unless its history could not be read, which is then read again.
+async function openContract(identity:string){
+  if(!result)return;
+  if(!result.points.some(p=>pointIdentity(p)===identity))throw Error('Please select this contract again.');
+  if(!await contractPanel.open({kind:'contract',curve:result.curve,contract:identity})||contract===identity&&!historyFailed)return;
+  contract=identity;historyData=undefined;historySeries=[];historyFailed=false;
+  renderContract();await history();
 }
-async function history(){historyRequested=true;if(!result||!contract)return;const owner=result,selected=contract,started=marketGeneration,scope=marketSelection();clearChart($('history-chart'));historyData=undefined;$('history-card').hidden=true;const next=await api<PriceHistory>('history',{revisionPolicy:historyRevisionPolicy,snapshotId:result.snapshotId,curve:result.curve,...(result.kind==='rates'?{seriesId:contract}:{contractId:contract})});if(result!==owner||contract!==selected||started!==marketGeneration||scope!==marketSelection())throw Error('The account or market selection changed. Reload before continuing.');historyData=next;renderHistory();}
+// Draws the panel's contract from the result on screen: its head, how it is priced and its history. A result that no longer prices
+// it closes the panel, and says so.
+function renderContract(){
+  if(!result||!contract)return;
+  const p=result.points.find(p=>pointIdentity(p)===contract);
+  if(!p){closeContract();notice('The contract the panel showed has no price at this close, so the panel was closed.');return;}
+  const rates=result.kind==='rates';
+  contractPanel.head({kicker:`${curveName(result.curve)} · ${rates?'Maturity':'Contract'}`,title:contractLabel(p),sub:rates?`Discount factor ${p.displayDiscountFactor}`:`Expires ${instant(p.expiry!)}`,figure:rates?p.value:amountText(p.value,'price',p.priceTick),unit:$('unit').textContent??''});
+  const pricing=el('section');pricing.className='contract-flow pricing-flow';
+  if(rates)pricing.append(el('h4',contractLabel(p)),rateFlow(p));else drawPricingGraph(pricing,pricingGraph(result,p));
+  contractPanel.pricing().replaceChildren(pricing);
+  renderHistory();
+}
+function renderHistory(){
+  if(!result||!contract)return;
+  const choices={policy:historyPolicy,overlays:overlayRequests.length},rates=result.kind==='rates';
+  if(!historyData){contractPanel.history({state:historyFailed?'failed':'reading',...choices});$('history-values').replaceChildren();return;}
+  const p=result.points.find(p=>pointIdentity(p)===contract)!,points=historyData.points,labels=timeLabels(points.map(p=>p.at),prefs.timeZone);
+  contractPanel.history({state:'read',...choices,basis:historyBasis(historyPolicy,historyData,instant),chart:{title:contractLabel(p),unit:$('unit').textContent??'',zone:prefs.timeZone,points,overlays:historySeries}});
+  table('history-values',['Market date',rates?'Zero rate (%)':'Price','Known at'],points.map((p,i)=>[labels[i],historyPriceLabel(p),knownAtText(p,instant)]),[1],
+    points.map((p,i)=>[labels[i],p.value===null?historyPriceLabel(p):amountText(p.value,'price',decimalTick()),knownAtText(p,instant)]));
+}
+// The overlay catalog, read once for the account on screen.
+async function readOverlayCatalog(){
+  const scope=administrationScope+':'+currentProfile;
+  if(overlayCatalog?.scope===scope)return overlayCatalog.catalog;
+  const started=marketGeneration,catalog=await api<OverlayCatalog>('analytics/overlays');
+  if(started!==marketGeneration||scope!==administrationScope+':'+currentProfile)throw staleSelection();
+  if(typeof catalog?.policy!=='string'||!Array.isArray(catalog.overlays))throw Error('The overlay catalog is missing or inconsistent. Refresh and try again.');
+  overlayCatalog={scope,catalog};return catalog;
+}
+// Reads the history of the panel's contract under the revision policy and overlays chosen. Each read, the catalog's included, is kept
+// only for the result, contract, account, close and choices it was made for; one the person closed the panel during is dropped.
+async function history(){
+  if(!result||!contract)return;
+  const owner=result,selected=contract,started=marketGeneration,scope=marketSelection(),policy=historyPolicy,overlays=overlayRequests;
+  const current=()=>result===owner&&contract===selected&&started===marketGeneration&&scope===marketSelection()&&policy===historyPolicy&&overlays===overlayRequests;
+  historyData=undefined;historySeries=[];historyFailed=false;renderHistory();
+  try{
+    const catalog=await readOverlayCatalog();
+    if(!contract)return;if(!current())throw staleSelection();
+    contractPanel.catalog(catalog);
+    const next=await api<ContractHistory>('history',{revisionPolicy:policy,snapshotId:owner.snapshotId,curve:owner.curve,...(owner.kind==='rates'?{seriesId:selected}:{contractId:selected}),...(overlays.length?{overlays}:{})});
+    if(!contract)return;if(!current())throw staleSelection();
+    historyBasis(policy,next,instant);
+    historySeries=historyOverlays(overlays,next.overlays,catalog);historyData=next;
+  }catch(error){if(current()){historyFailed=true;renderHistory();}throw error;}
+  renderHistory();
+}
 function renderInputs(){
   if(!result||!result.points.length){text('inputs',result?'No price sources are needed for an empty delivery window.':'Choose a market date to view price sources.');text('input-count','');return;}
   const used=new Set(sourcePoints().flatMap(p=>p.lineage));if([...used].some(id=>!pricingFrame().observationIds.includes(id)))throw Error('A required source observation is missing from this market date.');const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
@@ -441,6 +512,14 @@ function pricingPoints(){
 }
 function sourcePoints(){return sourceOnlyCurve&&result?result.points:pricingPoints();}
 function drawPricingGraph(target:HTMLElement,graph:PricingGraph){renderPricingGraph(target,graph,curveName,unit);}
+// A maturity's discount factor from its zero rate, under the convention the evaluated result states.
+function rateFlow(point:Point){
+  const convention=rateConvention();
+  if(point.annualRate===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
+  const flow=el('div');flow.className='rate-flow';
+  for(const [title,value,detail] of [['Zero rate',`${point.value}%`,'Annual rate'],['Time to maturity',`${point.actualDays} / 365`,convention.dayCount],['Discount factor',point.displayDiscountFactor,convention.compounding]]){const card=el('div');card.className='rate-step';card.append(el('small',title),el('strong',value),el('span',detail));flow.append(card);}
+  return flow;
+}
 function renderDependencies(){
   sourceOnlyCurve=false;select('source-contract').closest<HTMLElement>('.pricing-toolbar')!.hidden=false;
   document.body.classList.toggle('showing-all-contracts',showAllContracts&&!!result);
@@ -452,13 +531,11 @@ function renderDependencies(){
   for(const id of ['source-contract','pricing-contract'])choose(id,options,pricingContract);
   const sources=document.createDocumentFragment(),dependencies=document.createDocumentFragment();
   if(rates){
-    const convention=rateConvention();
+    rateConvention(); // the formula below is drawn only for the convention it states
     if(showAllContracts){for(const container of [sources,dependencies]){const host=el('section');renderWorkbook(host,rateWorkbook(result));container.append(host);}}
     for(const point of points){
       if(point.annualRate===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
-      if(!showAllContracts)for(const container of [sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';section.append(el('h4',displayDate(pointDate(point))));const flow=el('div');flow.className='rate-flow';
-        for(const [title,value,detail] of [['Zero rate',`${point.value}%`,'Annual rate'],['Time to maturity',`${point.actualDays} / 365`,convention.dayCount],['Discount factor',point.displayDiscountFactor,convention.compounding]]){const card=el('div');card.className='rate-step';card.append(el('small',title),el('strong',value),el('span',detail));flow.append(card);}
-        section.append(flow);container.append(section);}
+      if(!showAllContracts)for(const container of [sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';section.append(el('h4',displayDate(pointDate(point))),rateFlow(point));container.append(section);}
     }
     table('mappings',['Maturity','Calculation','Discount factor'],points.map(p=>[displayDate(pointDate(p)),`1 ÷ (1 + ${p.annualRate} × ${p.actualDays} / 365)`,p.discountFactor!]),[2]);
   }else{
@@ -561,7 +638,8 @@ async function refreshLiveScreen(update:LiveContextUpdate){
  if(liveId!==update.live.id||!navigation?.live||!navigation.context)throw Error('The live selection changed.');
  renderFrames(navigation.frames[0]?.id??'');dateEditor.showContext(navigation.context);
  jobs.contextChanged();
- if(page==='market'){if(curve){const selectedHistory=contract;await build();if(historyRequested&&selectedHistory){contract=selectedHistory;await history();}}await loadBoard();}
+ // The open contract panel is read again with the page (D188): its history at the new generation, or closed when the new result has no such contract.
+ if(page==='market'){if(curve){const open=contract;historyData=undefined;historySeries=[];await build();if(open&&contract===open)await history();}await loadBoard();}
  else if(page==='custom-curves')await customCurves.liveRefresh();
  else if(page==='futures')await futures.liveRefresh();
  else if(page==='reference')await loadReference();
@@ -751,6 +829,17 @@ const unitConverter=setupUnitConverter({api,act,busy:()=>busy});
 // The knowledge the Blotter is read at: working data at current knowledge, the selected historical view, or live corrections.
 const knowledgeView=()=>navigation?.live?'live' as const:historicalContext()?'historical' as const:'working' as const;
 const futures=setupFutures({newPpa:async()=>{await setPage('ppa');await ppa.load();$('page-title').tabIndex=-1;$('page-title').focus();},api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+// The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
+// otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, which is no longer marked open.
+const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
+const contractPanel=setupContractPanel($('contract-panel'),{instant,busy:()=>busy,
+  docked:()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked',sheet:()=>phone.matches&&!$('market-page').hidden,
+  closed:()=>{forgetContract();const row=$('contracts').querySelector<HTMLElement>('tbody tr[aria-current=true]');row?.removeAttribute('aria-current');row?.focus();},
+  policy:policy=>void act(async()=>{historyPolicy=policy;await history();}),
+  overlays:requests=>void act(async()=>{overlayRequests=requests;await history();})});
+let mainWidth=main.clientWidth;
+new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;contractPanel.place();}}).observe(main);
+new MutationObserver(()=>contractPanel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
 const touProducts=setupTouProducts(act,api,()=>busy,()=>prefs.timeZone,async()=>{power.reset();if(select('snapshot').value)await power.load();});
 $('reference-table').onchange=()=>void act(async()=>{$<HTMLInputElement>('reference-search').value='';await loadReference();});
 $('reference-search-form').onsubmit=event=>{event.preventDefault();void act(()=>loadReference(0,$<HTMLInputElement>('reference-search').value));};
@@ -758,7 +847,7 @@ $('reference-previous').onclick=()=>void act(()=>loadReference(Math.max(0,refere
 $('reference-next').onclick=()=>void act(()=>loadReference(referencePage!.offset+referencePage!.pageSize,referencePage!.search));
 for(const id of ['source-contract','pricing-contract'])select(id).onchange=()=>void act(async()=>{pricingContract=select(id).value;input='';draftFor='';renderDependencies();renderInputs();});
 for(const id of ['source-all','pricing-all'])$(id).onclick=()=>void act(async()=>{showAllContracts=!showAllContracts;renderDependencies();renderInputs();});
-$('history-close').onclick=()=>{historyRequested=false;clearChart($('history-chart'));$('history-card').hidden=true;historyData=undefined;contract='';};
+$('curve-all-markets').onclick=()=>chooseCurve('');
 $('correction-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const current=frame(),next=await api<{frame:Frame;observationId:string}>('corrections',{snapshotId:current.id,observationId:input,value:$<HTMLInputElement>('correction-value').value});closeCheckDue=true;clearPrices();await reload(next.frame.id);input=next.observationId;await build();notice('Your change was saved. The market date now shows the corrected prices. Earlier versions are still available.');});};
 // Opens a page as its navigation does. The assistant's moves and Back open pages the same way.
 async function showPage(next:string){
@@ -846,11 +935,9 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       const code=String(selection.curve);
       if(selection.view!=='curves'&&!directory().curves.some(c=>c.code===code))throw Error('That curve is not in this market data.');
       await setPage('market');
-      if(selection.view==='curves'){curve='';invalidateMarketDates();clearPrices();renderContext();await loadBoard();return;}
+      if(selection.view==='curves')return selectCurve('');
       prefs.tab=selection.view==='observations'?'inputs':prefs.tab==='inputs'?'prices':prefs.tab;persist();
-      curve=code;invalidateMarketDates();clearPrices();
-      if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}
-      return;
+      return selectCurve(code);
     }
     case 'reference_data':{
       const table=String(selection.table),search=String(selection.search);await loadWorkspace();
@@ -874,7 +961,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
     default:return showPage(next);
   }
 }
-// Opens Curves & prices on a curve, and the price history of one of its contracts when a contract is named. A contract the close
+// Opens Curves & prices on a curve, and one of its contracts in the panel when a contract is named. A contract the close
 // does not price leaves only the curve, and says so.
 async function openCurve(code:string,contractId:string|null){
   await showTarget('curves',{view:'prices',curve:code});
@@ -882,7 +969,7 @@ async function openCurve(code:string,contractId:string|null){
   if(!result){notice("Choose a market date to see this contract's price history.");return;}
   const point=result.points.find(p=>(p.seriesId??p.contractId)===contractId);
   if(!point){notice('That contract has no price at this close, so its price history is not shown.');return;}
-  contract=pointIdentity(point);await history();
+  await openContract(pointIdentity(point));
 }
 // Selects knowledge and an As of frame, as a target pins them or a place showed them, before a page opens there. Working data's time
 // controls then show the frame's effective date at current knowledge, as returning to working data leaves them (D217).
