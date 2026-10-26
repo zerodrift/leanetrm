@@ -1,4 +1,5 @@
 """One certified cutoff for market definitions, exact references, rates and observations."""
+from decimal import Decimal
 
 
 def run_checks(Client, check):
@@ -44,5 +45,25 @@ def run_checks(Client, check):
     check('explicit latest-correction policy updates the dependent curve', after['points'][0]['value'] != before['points'][0]['value'])
     history = c.call('history', {'snapshotId': newer['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId']})
     check('contract history stops at the context date', all(p['at'][:10] <= '2020-12-17' for p in history['points']))
+    sma = {'code': 'simple_moving_average_v1', 'parameters': {'window': 2}}
+    with_overlay = c.call('history', {'snapshotId': newer['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId'], 'overlays': [sma]})
+    points = with_overlay['points']
+    series = with_overlay['overlays'][0]['series']['value']
+    means = [None if i == 0 or points[i]['value'] is None or points[i-1]['value'] is None
+             else (Decimal(points[i]['value']) + Decimal(points[i-1]['value'])) / 2 for i in range(len(points))]
+    check('history overlays are the means of exactly the returned points under the selected context',
+          len(points) > 2 and with_overlay['overlays'][0]['policy'] == 'exact_rational_half_even_18_v1'
+          and [v['at'] for v in series] == [p['at'] for p in points] and with_overlay['points'] == history['points']
+          and all((v['value'] is None) == (m is None) and (m is None or Decimal(v['value']) == m) for v, m in zip(series, means))
+          and all(v['reason'] == 'window_incomplete' for v, m in zip(series, means) if m is None))
+    check('history carries no overlays field unless requested', 'overlays' not in history)
+    refusal = c.call('history', {'snapshotId': newer['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId'],
+                                 'overlays': [{'code': 'simple_moving_average_v1', 'parameters': {'window': 1}}]}, expected=422)
+    check('an out-of-range overlay window is a structured overlay_parameter refusal', refusal['code'] == 'overlay_parameter')
+    catalog = c.call('analytics/overlays')
+    check('the overlay catalog names the policy, codes and window bounds',
+          catalog['policy'] == 'exact_rational_half_even_18_v1' and
+          {o['code'] for o in catalog['overlays']} == {'simple_moving_average_v1', 'exponential_moving_average_v1', 'rolling_range_v1'} and
+          all(o['parameters'] == [{'name': 'window', 'label': 'Window', 'minimum': 2, 'maximum': 250}] for o in catalog['overlays']))
     c.call('market/context', {**request, 'selection': None}, expected=422)
     check('mark revision selection policy is mandatory')

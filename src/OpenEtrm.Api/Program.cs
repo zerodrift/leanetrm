@@ -105,6 +105,7 @@ app.Use(async (context,next)=>
             CloseRiskInputsException c => (422,CloseRiskInputsException.Code,c.Message),
             AutomationException a => (422,a.Code,a.Message),
             OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
+            OpenEtrm.Shared.Analytics.OverlayException o => (422,o.Code,o.Message),
             PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("curve_activation_",StringComparison.Ordinal) => (422,p.MessageText,"Supply disjoint effective intervals and exact published outputs under the complete timeline policy."),
             PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
@@ -833,8 +834,14 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,ct,
         session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
-    return Results.Ok(new {mode="exact_visible_close_history_with_selected_instant_v1",points});
+    const string mode="exact_visible_close_history_with_selected_instant_v1";
+    // Overlays run over exactly the points returned, so the pinned context and knowledge cutoff carry over; a null value is a missing input.
+    return body.Overlays is {} requests
+        ?Results.Ok(new {mode,points,overlays=OpenEtrm.Shared.Analytics.Overlays.Compute([..points.Select(p=>new OpenEtrm.Shared.Analytics.OverlayPoint(p.At,p.Value))],requests)})
+        :Results.Ok(new {mode,points});
 }));
+api.MapGet("/analytics/overlays",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>
+    Task.FromResult(Results.Ok(new {policy=OpenEtrm.Shared.Analytics.Overlays.Policy,overlays=OpenEtrm.Shared.Analytics.Overlays.Catalog})),c.RequestAborted))));
 api.MapPost("/corrections",(HttpContext c,CorrectionRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to current input editing before changing observations.");
@@ -1310,7 +1317,7 @@ public sealed record ProfileRequest(string Profile);
 public sealed class PreviewSessionEnded : Exception;
 public sealed record LocalTimeRequest(string? LocalTime,string? TimeZone);
 public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false);
-public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null);
+public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null,ImmutableArray<OpenEtrm.Shared.Analytics.OverlayRequest>? Overlays=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveShapesRequest(Guid SnapshotId,ImmutableArray<string> Curves);
 public sealed record CorrectionRequest(Guid SnapshotId,Guid ObservationId,string Value);
