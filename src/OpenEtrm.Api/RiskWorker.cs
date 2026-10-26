@@ -220,7 +220,9 @@ public static class RiskWorker
         foreach(var market in supplemental.OrderBy(p=>p.Key))
             markets.Add((await database.Read(connection,ct,market.Key,observationIds:market.Value.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),market.Value));
-        var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,request,ct,markets.ToImmutable(),connected);
+        if(job["frame"]!["excludedPositions"]?.Deserialize<ImmutableArray<ExcludedPosition>>(RiskJobs.Json) is not {IsDefault:false} excluded)
+            throw new MarketDataException("risk_job_context","The retained job must list the positions its submission left out.");
+        var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,request,ct,markets.ToImmutable(),new(connected,excluded));
         var axes=job["frame"]!["scenarioAxes"]?.Deserialize<ImmutableArray<RetainedRiskAxis>>(RiskJobs.Json)
             ??throw new MarketDataException("risk_graph_manifest","The retained job must include its exact resolved scenario coordinates.");
         if(JsonSerializer.Serialize(axes,RiskJobs.Json)!=JsonSerializer.Serialize(CurveRiskAxes.Retained(prepared),RiskJobs.Json))

@@ -82,8 +82,8 @@ def run_checks(c, check, direct_reads):
     repeated = c.call('trading/workspace', {'context': retained, 'view': view})
     old_catalog = c.call('futures/catalog', {**retained, 'convention': full['futuresConvention']})
     old_report = c.call('trading/blotter', {'context': retained, 'view': view})
-    check('combined workspace preserves the exact retained catalog and report contracts',
-          repeated == {'catalog': old_catalog, 'blotter': old_report})
+    check('combined workspace preserves the exact retained catalog and report contracts, and states the summaries it was asked for: none',
+          repeated == {'catalog': old_catalog, 'blotter': old_report, 'summaries': []})
     pivot = {**view, 'mode': 'pivot', 'groupBy': ['book', 'market', 'contract'],
              'measures': ['quantity'], 'pivotConvention': 'trading_blotter_totals_v1'}
     pivoted = c.call('trading/workspace', {'context': retained, 'view': pivot})

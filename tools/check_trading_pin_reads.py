@@ -22,8 +22,9 @@ def trading_workspace(c, context):
 
 
 def legacy_trading_reads(c, context, convention):
+    """What a trading workspace read that asks for no summaries combines."""
     return {'catalog': c.call('futures/catalog', {**context, 'convention': convention}),
-            'blotter': c.call('trading/blotter', {'context': context, 'view': VIEW})}
+            'blotter': c.call('trading/blotter', {'context': context, 'view': VIEW}), 'summaries': []}
 
 
 def _changed_value(observation, quote):

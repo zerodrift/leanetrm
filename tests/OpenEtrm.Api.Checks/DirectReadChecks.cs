@@ -87,6 +87,8 @@ internal static class DirectReadChecks
                 Same($"{view.Name} combined workspace retains the same bound catalog",new{definitions=metadata.Data.Definitions,references=metadata.Data.References,unitCatalog=metadata.Units,curveNames=metadata.CurveNames,referenceDisplay=metadata.ReferenceDisplay,unitReferenceDisplay=metadata.UnitReferenceDisplay},
                     view.Page("catalog"),"definitions","references","unitCatalog","curveNames","referenceDisplay","unitReferenceDisplay");
             }
+            var shapes=view.Page("curveShapes")["curves"]!;
+            Same($"{view.Name} curve shapes match their page",await Direct(view,"curve shapes",(c,ct)=>reads.CurveShapes(c,view.Pin(view.Selected),[..shapes.AsArray().Select(s=>s!["curve"]!.GetValue<string>())],ct)),shapes);
             var history=view.Page("history");
             Same($"{view.Name} history matches its page",await Direct(view,"history",(c,ct)=>reads.History(c,view.Pin(view.Selected),view.Initial,history["curve"]!.GetValue<string>(),history["contractId"]!.GetValue<Guid>(),null,ct)),
                 history["response"]!["points"]);
@@ -134,15 +136,16 @@ internal static class DirectReadChecks
         JsonNode Recorded(params string[] path)=>JsonNode.Parse(path.Aggregate(recorded,(e,p)=>e.GetProperty(p)).GetRawText())!;
         var at=recorded.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json).Single(f=>f.Id==recorded.GetProperty("frameId").GetGuid());
         var report=recorded.GetProperty("report").Deserialize<FuturesBlotterView>(Json)!;
+        var summaries=recorded.GetProperty("summaries").Deserialize<ImmutableArray<FuturesBlotterView>>(Json);
         var captured=Recorded("captured");
         var traded=captured["catalog"]!["context"].Deserialize<ScheduleContext>(Json)!;
         var (fresh,again)=(new TradingView(at,traded,true),TradingView.Reread(at,traded));
         var chosen=TradingView.Retained(Recorded("historical","frame").Deserialize<InputFrame>(Json),Recorded("historical","context").Deserialize<ScheduleContext>(Json)!);
-        Same("a captured trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,fresh,report,false,ct)),Unadorned(captured,fresh,"catalog","blotter"));
-        Same("a re-read trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,again,report,false,ct)),Unadorned(Recorded("reread"),again,"catalog","blotter"));
-        Same("a historical trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,chosen,report,false,ct)),
+        Same("a captured trading workspace, with its summaries, matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,fresh,report,summaries,false,ct)),Unadorned(captured,fresh,"catalog","blotter"));
+        Same("a re-read trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,again,report,[],false,ct)),Unadorned(Recorded("reread"),again,"catalog","blotter"));
+        Same("a historical trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,chosen,report,[],false,ct)),
             Unadorned(Recorded("historical","response"),chosen,"catalog","blotter"));
-        Same("a booking directory workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,again,report,true,ct)),Unadorned(Recorded("directory"),again,"catalog","blotter"));
+        Same("a booking directory workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,again,report,[],true,ct)),Unadorned(Recorded("directory"),again,"catalog","blotter"));
         Same("a pivoted blotter matches its page",await AsTrader((c,ct)=>tradeReads.Blotter(c,again,recorded.GetProperty("pivot").Deserialize<FuturesBlotterView>(Json)!,ct)),Unadorned(Recorded("pivoted"),again));
         Same("futures trade detail matches its page",await AsTrader((c,ct)=>tradeReads.FuturesTrade(c,again,recorded.GetProperty("trade").GetProperty("request").GetProperty("tradeId").GetGuid(),null,ct)),
             Unadorned(Recorded("trade","response"),again));
@@ -186,6 +189,7 @@ internal static class DirectReadChecks
         }
         Console.WriteLine("PASS schedule and TOU authoring follow each permission, in working data only");
         await Rejects("snapshot_missing","a frame-consuming read refuses a pin without a frame",()=>Read((c,ct)=>reads.Evaluate(c,working.Pin(),"local_power",ct)));
+        await Rejects("snapshot_missing","curve shapes refuse a pin without a frame",()=>Read((c,ct)=>reads.CurveShapes(c,working.Pin(),["local_power"],ct)));
         await Rejects("snapshot_missing","power hours refuse a pin without a frame",()=>Read((c,ct)=>schedules.PowerCatalog(c,working.Pin(),ct)));
         await Rejects("power_historical","power hours refuse a historical pin before asking for its frame",()=>Read((c,ct)=>schedules.PowerCatalog(c,historical.Pin(),ct)));
         await Rejects("power_historical","published TOU products refuse a historical pin",()=>Read((c,ct)=>schedules.PublishedProducts(c,historical.Pin(),ct)));
@@ -203,6 +207,7 @@ internal static class DirectReadChecks
         var earlier=historical.Frames.Where(f=>DateOnly.FromDateTime(f.At.UtcDateTime)!=effective).MinBy(f=>f.At)
             ??throw new Exception("The historical fixture needs a frame before its effective date.");
         await Rejects("market_date","a retained pin prices only its effective market date",()=>Read((c,ct)=>reads.Evaluate(c,historical.Pin(earlier),"local_power",ct)));
+        await Rejects("market_date","a retained pin shapes curves only on its effective market date",()=>Read((c,ct)=>reads.CurveShapes(c,historical.Pin(earlier),["local_power"],ct)));
     }
 
     sealed class View(JsonElement view)

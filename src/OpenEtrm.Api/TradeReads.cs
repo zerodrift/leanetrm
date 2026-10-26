@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Npgsql;
 
 namespace OpenEtrm.Api;
@@ -18,24 +19,29 @@ public sealed class TradeReads
         this.database=database;futures=new(database.Manifest);swaps=new(database);blotter=new(database.Manifest,futures,swaps);
     }
 
-    // The Blotter with the booking catalog, or with only the catalog's directory of books and parties.
-    public Task<object> Workspace(NpgsqlConnection connection,TradingView view,FuturesBlotterView report,bool directory,CancellationToken ct)
+    // The Blotter with the booking catalog, or with only the catalog's directory of books and parties, and the groupings
+    // the caller asks for of the Blotter's own valuation.
+    public Task<object> Workspace(NpgsqlConnection connection,TradingView view,FuturesBlotterView report,ImmutableArray<FuturesBlotterView> summaries,bool directory,CancellationToken ct)
     {
         // Without any visible trade revision, the directory's empty Blotter needs no valuation (D160).
         async Task<object?> EmptyDirectory()
         {
-            if(await blotter.ReadEmptyDirectory(connection,view.Frame,report,ct) is not {} empty)return null;
+            if(await blotter.ReadEmptyDirectory(connection,view.Frame,report,summaries,ct) is not {} empty)return null;
             var catalog=await futures.Directory(connection,ct);
             await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
-            return new{catalog,blotter=empty};
+            return new{catalog,blotter=empty.Blotter,summaries=empty.Summaries};
         }
-        return Read(connection,view,async data=>new{catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ct),
-            blotter=await blotter.Read(connection,data,view.CalculationFrame,report,ct)},ct,directory?EmptyDirectory:null,
+        return Read(connection,view,async data=>
+        {
+            var catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ct);
+            var read=await blotter.Read(connection,data,view.CalculationFrame,report,summaries,ct);
+            return new{catalog,blotter=read.Blotter,summaries=read.Summaries};
+        },ct,directory?EmptyDirectory:null,
             referenceScope:directory?ReferenceReadScope.DefinitionClosure:ReferenceReadScope.TradeValuation,
             observationScope:directory?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
     }
     public Task<object> Blotter(NpgsqlConnection connection,TradingView view,FuturesBlotterView report,CancellationToken ct)=>
-        Read(connection,view,data=>blotter.Read(connection,data,view.CalculationFrame,report,ct),ct);
+        Read(connection,view,async data=>(await blotter.Read(connection,data,view.CalculationFrame,report,[],ct)).Blotter,ct);
     // A trade's selected revision, or its latest under the view, with every revision the view knows.
     public Task<object> FuturesTrade(NpgsqlConnection connection,TradingView view,Guid tradeId,int? revision,CancellationToken ct)=>
         Read(connection,view,data=>futures.Editor(connection,data,view.CalculationFrame,tradeId,revision,ct),ct);

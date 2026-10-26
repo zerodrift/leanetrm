@@ -1290,10 +1290,17 @@ delivery prices open the latest available source/day, with explicit empty states
 The Assistant launcher floats at the lower right and its visibility is a browser
 profile preference. Historical-session support is unchanged.
 
-D220 adds selectable factor units and a versioned cross-commodity scheduled swap.
+D227 adds selectable factor units and a versioned cross-commodity scheduled swap.
 The [factor contract record](factor-swaps.md) describes supported monthly quantity
 bases, independent price/payment rules, native source risk, gross settlement and
 exact reference-version retention. Compatible new units consume published
 conversion data; new financial semantics require a versioned implementation.
 Physical delivery, cross-currency factors and interval-price × energy payoffs
 remain outside this contract.
+
+The Blotter desk's newest close (D219) takes the same latest instant: one
+mechanism, the workspace's availability calendar, chooses the close when working
+data opens or is returned to and states it with a **Latest close** badge; several
+closes at that instant still ask (D162), and a historical view selects none by
+itself. The As of control and its badge float with the Context panel, which names
+the knowledge in use and holds live corrections.

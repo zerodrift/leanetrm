@@ -61,7 +61,7 @@ internal static class SwapSettlementAgentChecks
             var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct);
             return await new TradeReads(database).Read(connection,view,async data=>
             {
-                var holdings=await new SwapStore(database).ReadRiskHoldings(connection,data,view.CalculationFrame,[],ct);
+                var holdings=await new SwapStore(database).ReadRiskHoldings(connection,data,view.CalculationFrame,[],excluded:[],ct);
                 var first=holdings.Single(h=>h.Row.Id("trade_id")==preview.TradeId);
                 var state=first.Settlement??throw new Exception("Missing settlement state.");
                 var zero=ExactMoney.Parse("0",first.Instrument.Currency);

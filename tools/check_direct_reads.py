@@ -19,6 +19,7 @@ def page_view(c, name, context=None):
     evaluations = {curve: c.call('evaluate', {'snapshotId': frame['id'], 'curve': curve})
                    for curve in ['local_power', 'interest_rates']}
     contract = evaluations['local_power']['points'][0]['contractId']
+    shapes = c.call('market/curve-shapes', {'snapshotId': frame['id'], 'curves': ['future', 'interest_rates', 'local_power']})
 
     def current_only(path, body=None):
         return c.call(path, body) if context is None else c.call(path, body, expected=422)['code']
@@ -27,7 +28,7 @@ def page_view(c, name, context=None):
             'workspace': full, 'catalog': c.call('workspace/catalog'),
             'curveNames': c.call('curve-names'),
             'references': c.call('reference/catalog?table=quantity_specifications'),
-            'evaluations': evaluations,
+            'evaluations': evaluations, 'curveShapes': shapes,
             'history': {'curve': 'local_power', 'contractId': contract,
                         'response': c.call('history', {'snapshotId': frame['id'],
                                                        'curve': 'local_power',
@@ -41,8 +42,8 @@ def page_view(c, name, context=None):
 
 def trade_view(c):
     """Record trading pages as a trader, who may read trades: the workspace over working data
-    captured now, a re-read of that capture and a selected historical context, and the booking
-    directory, a pivoted Blotter and trade detail under the re-read."""
+    captured now with two summaries, a re-read of that capture and a selected historical context,
+    and the booking directory, a pivoted Blotter and trade detail under the re-read."""
     c.call('profile', {'profile': TRADER})
     full = c.call('workspace')
     frame = initial_frame(full, '2020-12-18')
@@ -50,12 +51,13 @@ def trade_view(c):
               'measures': [], 'pivotConvention': None}
     pivot = {**report, 'mode': 'pivot', 'groupBy': ['book', 'market', 'contract'],
              'measures': ['quantity'], 'pivotConvention': 'trading_blotter_totals_v1'}
+    summaries = [pivot, {**pivot, 'groupBy': ['market'], 'measures': ['presentValue', 'tradeCount']}]
     current = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
-    captured = c.call('trading/workspace', {'context': current, 'view': report})
+    captured = c.call('trading/workspace', {'context': current, 'view': report, 'summaries': summaries})
     reread = {**current, 'knowledgeMode': 'retained', 'contextId': captured['catalog']['context']['contextId']}
     future = next(r for r in captured['blotter']['holdings'] if r['instrumentType'] != 'financial_swap')
     trade = {'context': {**reread, 'convention': full['futuresConvention']}, 'tradeId': future['tradeId'], 'revision': None}
-    recorded = {'profile': TRADER, 'frames': full['frames'], 'frameId': frame['id'], 'report': report, 'pivot': pivot,
+    recorded = {'profile': TRADER, 'frames': full['frames'], 'frameId': frame['id'], 'report': report, 'pivot': pivot, 'summaries': summaries,
                 'captured': captured, 'reread': c.call('trading/workspace', {'context': reread, 'view': report}),
                 'directory': c.call('trading/workspace', {'context': reread, 'view': report, 'bookingCatalog': 'directory'}),
                 'pivoted': c.call('trading/blotter', {'context': reread, 'view': pivot}),

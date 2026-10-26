@@ -7,6 +7,12 @@ import threading
 from urllib.parse import urlsplit
 from preview_client import PreviewClient, initial_frame
 
+FUTURES, SWAPS = 'fixed_total_cash_execution_pnl_v1', 'independent_side_financial_swap_v2'
+# A view that is not working data cannot book or amend, and its reasons say which view it is, so that the way back is the right one.
+LIVE_BOOKING = 'Live view is read-only. Return to working data, then select an As of date.'
+LIVE_AMEND = 'Live view is read-only. Return to working data to amend.'
+HISTORICAL_BOOKING = 'Historical view is read-only. Return to working data, then select an As of date.'
+
 
 class Events:
     def __init__(self, client, selection):
@@ -128,10 +134,20 @@ def run_checks(url, manifest, query):
         assert detail['valuation']['presentValue']!=previews[holding['tradeId']]['valuation']['presentValue']
         assert detail['valuation']['sides']!=previews[holding['tradeId']]['valuation']['sides']
         assert risk.call('swaps/editor',{'context':context(first,'independent_side_financial_swap_v2'),'tradeId':holding['tradeId'],'revision':int(holding['revision'])})['valuation']==previews[holding['tradeId']]['valuation']
+        # A live view cannot book or amend, and says that it is live: not that it is historical.
+        retained={'snapshotId':second['frame']['id'],'knowledgeMode':'retained','contextId':second['context']['contextId']}
+        for path,convention in (('futures/catalog',FUTURES),('swaps/catalog',SWAPS)):
+            offer=risk.call(path,{**retained,'convention':convention})
+            assert offer['canBook'] is False and offer['bookingUnavailableReason']==LIVE_BOOKING,(path,offer['canBook'],offer['bookingUnavailableReason'])
+        assert detail['canAmend'] is False and detail['amendUnavailableReason']==LIVE_AMEND,(detail['canAmend'],detail['amendUnavailableReason'])
         risk.call('market/live/pause',{'selection':risk_live['live']['id'],'snapshotId':first['frame']['id']})
         paused=risk.call('workspace/navigation')
         assert paused['live'] is None and paused['context']==first['context']
+        # The context a pause keeps is a historical view, and is called one.
+        kept=risk.call('futures/catalog',{'snapshotId':paused['frames'][0]['id'],'convention':FUTURES,'knowledgeMode':'retained','contextId':paused['context']['contextId']})
+        assert kept['canBook'] is False and kept['bookingUnavailableReason']==HISTORICAL_BOOKING,(kept['canBook'],kept['bookingUnavailableReason'])
     finally:
         risk_stream.close()
     print('PASS live calculation: common booked PV, independent side schedules, exact old-frame repricing and displayed-context pause',flush=True)
     print('PASS live calculation: committed corrections, scoped quiet wakeups, pinned generations and stream/session boundaries',flush=True)
+    print('PASS live calculation: a live view says it is live, not historical, in why it cannot book or amend',flush=True)

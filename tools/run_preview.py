@@ -65,6 +65,8 @@ def main():
     parser.add_argument('--custom-curves-check',action='store_true',help='Qualify custom curve definitions and calculations in an owned synthetic fixture')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
+    parser.add_argument('--valuation-status-check',action='store_true',help='Qualify Blotter reads and risk runs at closes that cannot value every seeded position')
+    parser.add_argument('--desk-fields-check',action='store_true',help='Qualify the commodity, swap direction and mark minus price of Blotter rows, commodity pivots, and the desk\'s summary groupings and curve shapes, in the seeded standard example')
     parser.add_argument('--with-custom-curves',action='store_true',help='Load synthetic monthly and daily NG panels for the custom curve editor')
     parser.add_argument('--exchange-check',action='store_true',help='Qualify the independent exchange futures dataset')
     parser.add_argument('--with-exchange',action='store_true',help='Publish the independent exchange futures dataset in this newly owned database')
@@ -93,12 +95,14 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
         if args.market_read_check and args.browser_check:
             parser.error('--market-read-check has no browser scenarios; omit --browser-check')
+        if args.desk_fields_check and args.browser_check:
+            parser.error('--desk-fields-check has no browser scenarios; omit --browser-check')
     if not 0 <= args.port <= 65535:
         parser.error('Port must be between 0 and 65535')
     if args.browser_check and (not args.check or args.example!='standard' or args.browser is None or not args.browser.is_file()):
@@ -272,7 +276,7 @@ def main():
             if args.close_risk_check:
                 from close_risk_fixture import prepare as prepare_close_risk
                 reference,market,security,manifest=prepare_close_risk(reference,market,security,manifest)
-        if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.with_custom_curves or args.market_dates_check:
+        if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.with_custom_curves or args.market_dates_check or args.valuation_status_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest,daily_lifecycle=args.connected_portfolio_check)
         if args.hosted_check:
@@ -305,10 +309,12 @@ def main():
         query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
-            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_observation_check or args.scheduled_swap_check,scheduled_periods=args.scheduled_swap_check);query(swap_market)
-            if args.connected_portfolio_check:
-                # The primary daily-consumer fixture also visits January. Its
-                # unrelated secondary bundle explicitly supplies no inputs there.
+            # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
+            swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_observation_check or args.scheduled_swap_check,
+                scheduled_periods=args.scheduled_swap_check,closes=['2020-12-31T16:00:00Z'] if args.valuation_status_check else ());query(swap_market)
+            if args.connected_portfolio_check or args.valuation_status_check or args.with_custom_curves:
+                # The primary custom-curve fixture visits closes beyond the four standard weekdays.
+                # Its unrelated secondary bundle explicitly supplies no inputs there.
                 times={f['at'] for f in swap_manifest['frames']}
                 swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'curveContracts':{}}
                     for f in manifest['frames'] if f['at'] not in times)
@@ -432,7 +438,7 @@ def main():
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
-        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check) and args.example=='standard' and not args.with_ppa:
+        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard' and not args.with_ppa:
             from seed_preview_positions import seed_positions
             seed_positions(url,run_id,temporary)
             from seed_preview_swaps import seed_swaps
@@ -506,7 +512,7 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--risk'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned risk browser checks failed')
+                    if browser_process.wait(timeout=360):raise RuntimeError('Owned risk browser checks failed')
             elif args.interval_series_benchmark:
                 from benchmark_interval_series import run_benchmark
                 print(json.dumps(run_benchmark(url,query,dotnet,child.pid),indent=2),flush=True)
@@ -647,7 +653,10 @@ def main():
                 check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id)
             elif args.scheduled_swap_check:
                 from check_scheduled_swaps import run_checks as check_scheduled
-                settlement_fixture=check_scheduled(url,query,manifest)
+                worker_env=prepare_risk_worker()
+                def run_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                settlement_fixture=check_scheduled(url,query,manifest,run_worker=run_worker)
                 from check_swap_settlement_agents import prepare as prepare_settlement_agent
                 agent_fixture=temporary/'settlement-agent.json'
                 agent_fixture.write_text(json.dumps(prepare_settlement_agent(query,settlement_fixture)))
@@ -655,10 +664,10 @@ def main():
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--scheduled-swaps'],cwd=ROOT,env=env,start_new_session=True)
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--scheduled-swaps'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
                     # Four owned browser suites: authoring, schedules, settlement and netting.
-                    # Keep an overall bound in addition to each action's readiness deadline.
-                    if browser_process.wait(timeout=600):raise RuntimeError('Owned scheduled-swap browser checks failed')
+                    # Every action here re-reads scheduled swaps, so each may wait up to thirty seconds; keep an overall bound too.
+                    if browser_process.wait(timeout=900):raise RuntimeError('Owned scheduled-swap browser checks failed')
             elif args.draft_check:
                 from check_draft_pricing import run_checks as check_draft
                 check_draft(url,query,manifest)
@@ -710,6 +719,23 @@ def main():
             elif args.market_read_check:
                 from check_market_read_authority import run_checks as check_market_authority
                 check_market_authority(query,manifest)
+            elif args.valuation_status_check:
+                from check_blotter_valuation_status import run_checks as check_valuation_status, run_risk_checks as check_valuation_status_risk, run_scheduled_checks as check_scheduled_valuation_status
+                worker_env=prepare_risk_worker()
+                def run_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                valuation_session=check_valuation_status(url)
+                check_valuation_status_risk(valuation_session,run_worker)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--valuation-status'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned valuation status browser checks failed')
+                # Last, as it books a scheduled swap beside the seeded positions the checks above count.
+                check_scheduled_valuation_status(valuation_session)
+            elif args.desk_fields_check:
+                from check_blotter_desk_fields import run_checks as check_desk_fields
+                check_desk_fields(url)
             elif args.provider_adapters_check:
                 from preview_client import PreviewClient
                 from check_additional_providers import run_checks as check_additional_providers
@@ -793,7 +819,7 @@ def main():
                 from check_direct_reads import run_checks as check_direct_reads
                 workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary))
                 from check_table_views import run_checks as check_table_views
-                check_table_views(url)
+                check_table_views(url,query)
                 from check_schedule_storage import run_checks as check_schedule_storage
                 check_schedule_storage(query,psql,env,manifest)
                 from check_temporal_storage import run_checks as check_temporal_storage
@@ -821,7 +847,8 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve())],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=360):
+                    # The desk's scenarios run in this suite; a slower runner needs more than six minutes for all of them.
+                    if browser_process.wait(timeout=900):
                         raise RuntimeError('Owned browser checks failed')
                 # Preview sessions are capped, so the checks below share this session instead of each opening one.
                 from check_swaps_preview import run_checks as check_swaps

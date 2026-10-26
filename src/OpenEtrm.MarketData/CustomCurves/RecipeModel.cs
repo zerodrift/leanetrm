@@ -72,6 +72,11 @@ public sealed record ExactUnitPrice
         if(Unit!=other.Unit)throw new MarketDataException("unit_mismatch","Curve aggregation requires identical price units.");
         return new(numerator*other.denominator+other.numerator*denominator,denominator*other.denominator,Unit);
     }
+    public ExactUnitPrice Subtract(ExactUnitPrice other)
+    {
+        if(Unit!=other.Unit)throw new MarketDataException("unit_mismatch","Price arithmetic requires identical price units.");
+        return new(numerator*other.denominator-other.numerator*denominator,denominator*other.denominator,Unit);
+    }
     public ExactUnitPrice Divide(int count)=>count>0?new(numerator,denominator*count,Unit):throw new MarketDataException("numeric_division","An average requires observations.");
     public ExactUnitPrice Scale(ExactDecimal weight)=>new(numerator*weight.ScaledValue,denominator*ExactDecimal.WorkingScale,Unit);
     public ExactUnitPrice Divide(ExactDecimal divisor)=>divisor.CompareTo(default)>0?

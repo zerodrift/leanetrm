@@ -97,7 +97,7 @@ internal static class SwapRiskHoldingChecks
         }
         if(denied)
         {
-            try{await Read(async(connection,data,ct)=>{await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],ct);});}
+            try{await Read(async(connection,data,ct)=>{await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct);});}
             catch(PreviewDeniedException){Console.WriteLine("PASS stored swap risk: revoked exact market scope refuses the read before materialization");return;}
             catch(PostgresException error)when(error.SqlState=="42501"){Console.WriteLine("PASS stored swap risk: revoked exact market scope refuses the context before materialization");return;}
             throw new Exception("A revoked market scope produced a successful stored risk read.");
@@ -107,7 +107,7 @@ internal static class SwapRiskHoldingChecks
             var snapshot=data.Snapshot(frame);
             var final=data.Snapshot(frame with {ObservationIds=[request.Id("frozenObservationId")]}).Selections.Single();
             var frozen=snapshot with { Selections=snapshot.Selections.Add(final with {Input=final.Input with {Use=InputUse.FrozenFact}}) };
-            var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],ct,frozen);
+            var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct,frozen);
             var expected=request.GetProperty("holdings").EnumerateArray().ToArray();
             Check("actual persisted latest revisions retain their external quantities and exact references",holdings.Length==3&&holdings.All(holding=>
             {
@@ -135,15 +135,40 @@ internal static class SwapRiskHoldingChecks
             var undiscounted=holdings.Single(h=>h.Instrument is FinancialSwapInstrument{Discounting:false});
             Check("the immutable undiscounted instrument remains separate and consumes no rate factors",undiscounted.Instrument.Id!=shared[0].Instrument.Id&&
                 ((CurrencyDefaultDiscounting)undiscounted.Discounting).Inputs.Values.All(p=>!p.Enabled&&p.Factor==ExactDecimal.Parse("1")&&p.Observations.IsEmpty));
-            try{await store.ReadRiskHoldings(connection,data,frame,[request.Id("unsupportedBookId")],ct,supplemental:[]);throw new Exception("A supplemental model was silently loaded.");}
+            try{await store.ReadRiskHoldings(connection,data,frame,[request.Id("unsupportedBookId")],excluded:[],ct,supplemental:[]);throw new Exception("A supplemental model was silently loaded.");}
             catch(MarketDataException error)when(error.Code=="swap_risk_model"){Check("an explicit empty supplemental frame set cannot recapture a different stored model",true);}
-            try{await store.ReadRiskHoldings(connection,data,frame,[Guid.NewGuid()],ct);throw new Exception("An unavailable book was accepted.");}
+            try{await store.ReadRiskHoldings(connection,data,frame,[Guid.NewGuid()],excluded:[],ct);throw new Exception("An unavailable book was accepted.");}
             catch(MarketDataException error)when(error.Code=="blotter_view"){Check("an unavailable exact book is refused",true);}
+        });
+        await Read(async(connection,data,ct)=>
+        {
+            // D220: a portfolio risk run leaves out exactly the positions it lists, each a distinct held position of its
+            // scope with a position-specific reason. Anything else it is asked to leave out is refused.
+            var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct);
+            var row=holdings[0].Row;
+            var leftOut=new ExcludedPosition(row.Id("trade_id"),row.Id("binding_id"),row.Id("book_id"),TradingReference.Trade(row),"financial_swap","missing_observation");
+            var kept=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],[leftOut],ct);
+            Check("a risk run leaves out exactly the listed held swap and resolves the others",
+                kept.Select(h=>h.Row.Id("trade_id")).SequenceEqual(holdings.Skip(1).Select(h=>h.Row.Id("trade_id"))));
+            foreach(var invalid in new ImmutableArray<ExcludedPosition>[]{[leftOut with{TradeReference="TR-999999"}],[leftOut with{BindingId=Guid.NewGuid()}],[leftOut with{BookId=Guid.NewGuid()}],[leftOut,leftOut]})
+                try{await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],invalid,ct);throw new Exception("A risk run left out a position that is not a distinct held swap of its scope.");}
+                catch(MarketDataException error)when(error.Code=="risk_contract"){}
+            Check("a risk run refuses to leave out anything but distinct held swaps of its scope",true);
+            var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
+                SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
+            var pinned=frame with{ContextId=current.ContextId};
+            try
+            {
+                await new PortfolioValuation(database).Prepare(connection,data,pinned,data.Snapshot(pinned),current,[request.Id("bookId")],policy,[],
+                    [leftOut with{Reason="index_fixing_missing"}],ct);
+                throw new Exception("A risk run left out a position for a reason that is not position-specific.");
+            }
+            catch(MarketDataException error)when(error.Code=="risk_contract"){Check("a risk run refuses to leave out a position for a reason that is not position-specific",true);}
         });
         var retained=JsonSerializer.Deserialize<ScheduleContext>(request.GetProperty("earlierContext"),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         await Read(async(connection,data,ct)=>
         {
-            var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],ct);
+            var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct);
             var earlier=holdings.Single(h=>h.Row.Id("trade_id")==request.Id("amendedTradeId"));
             Check("certified knowledge retains the earlier visible trade revision and quantity",earlier.Row.Text("revision")=="1"&&earlier.Quantity.Amount.ToString()==request.Text("earlierQuantity"));
         },retained);
@@ -176,7 +201,7 @@ internal static class SwapRiskHoldingChecks
             {
                 try{r.Up.ToMoney();return false;}catch(MarketDataException error)when(error.Code=="precision_loss"){return true;}
             }));
-            var standalone=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],ct,frozen);
+            var standalone=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct,frozen);
             var dealRuns=standalone.Select(h=>DealRisk.Calculate(data.Model,frozen,h.Instrument.Dependencies,
                 market=>h.Instrument.PV(new SideValuationContext(market,h.Discounting)).PresentValue.Scale(h.Quantity.Amount),
                 DealRisk.BumpPolicy,DealRisk.NumericalPolicy,ct)).ToArray();

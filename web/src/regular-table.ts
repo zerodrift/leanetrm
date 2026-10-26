@@ -19,6 +19,8 @@ export function matchesTableRow(cells:string[],query:string,columns:(string|null
 }
 export const columnValues=(values:string[])=>[...new Set(values.map(publicText))];
 export function clearTableFilters(){filters.clear();}
+/** The controls of a table's filters, which only read with what the table holds: a form around the table takes them for no entry. */
+export const tableFilterControls='.table-filters,.column-filter-row';
 
 // Pure presentation over the already-authorized displayed values. This renderer
 // is used only by ordinary tables; the connected worksheet has its own renderer.

@@ -220,16 +220,576 @@ Leaf futures contracts retain exact market terms; composed instruments retain no
 Pricing reports typed gross execution P&L and open quote sensitivity; it does not
 implement futures PV, settlement cash, variation margin or fees.
 
+A close that cannot value a held position no longer fails the Blotter (D220). The
+trading workspace, Blotter and pivot reads, and the futures holdings and futures
+Blotter reads, return every position in scope. Exactly `source_expired` and
+`missing_observation` are position-specific (`ValuationStatus`): such a position keeps
+its booked facts and states the code as `unavailableReason`, with null mark, execution
+P&L and PV. Futures build all held markets once; only when that build fails with one
+of the two codes are the markets that fail alone isolated (`ValuationStatus.BuildValued`,
+shared with the curve shapes and the risk run's exclusion list), and the markets that build
+are then priced together in one build. Swaps catch the codes per unit valuation and reuse the
+outcome for every position holding that unit. Pivot groups, futures book totals and
+the report add only valued positions to PV, execution P&L and curve-price statistics,
+count every position in trades, lots, quantity and execution- and fixed-price
+statistics, and state `unvaluedPositions`. The Blotter desk shows a **Not valued** chip with
+the reason in plain words in place of a position's value: for a future's expired contract
+"Contract expired · awaiting settlement", for a swap's expired source "Past marking cutoff", and
+"Missing price at this close" for either. The CSV export writes the reason in the value cells.
+Each summary tile notes the positions its own total excludes, from its own group's count, as
+does a pivot chart's scope line when it plots PV, execution P&L or a curve-price statistic. Pivots add
+a **Not valued** count per group, beside each column group of a cross-tab, whenever a
+group leaves a position out; saved views do not keep that column. The export metadata
+states the report's count. Every other failure still fails the read.
+
+Portfolio risk runs, their catalog and their queued jobs leave out the positions the
+run's base close cannot value and list them as `excludedPositions` (trade, binding, the
+book it is held in, reference, instrument type and reason). Normally one preparation covers every held
+position. Only when it fails with one of the two codes are the positions the Blotter
+reports unvalued at that close left out and the rest prepared, so holding rows, inputs,
+book totals and work are those of a run over exactly the remaining positions. A queued
+run retains its submission's list and leaves out exactly those positions. A failure under
+a shock or stress, like every other failure, still fails the run. Generated pilot close
+reports, the trade editors and the priced futures booking catalog still fail when the
+close cannot value one of their contracts. `tools/run_preview.py --check
+--valuation-status-check` qualifies the reads and risk runs on the seeded example with
+the custom-curve closes through Dec 31, 2020.
+
+Blotter rows also state the commodity, swap direction and mark minus price the desk groups
+and compares (blotter-desk.md, Backend changes). `commodity` is `{code, name}`, the reference
+commodity of the position's curve, the pair the curve directory gives as the curve's category
+before any reviewed display label, which the Blotter, like its unit symbols, does not apply; a
+curve whose commodity reference is missing or ambiguous fails the read with
+`ambiguous_reference`, and nothing is read from a curve or trade name. `direction` is
+`pay_fixed` or `receive_fixed` from the stored coefficient of a swap's fixed side (-1 or 1),
+`multi_side` for a swap of two floating sides, and null for a future; it follows the trade's
+latest revision. `markMinusPrice` is the exact mark less a future's executed price or a swap's
+fixed price, kept as an exact rational where the mark is one. It is null for a multi-side swap,
+for a position the close cannot value and for a swap whose floating side has no single mark.
+Commodity is also a pivot dimension, a column choice, a saved-view dimension and a grouping the
+assistant's Blotter read accepts. The desk shows a position's commodity beside its market and its
+direction beside its size, and the side panel shows its mark minus price. `tools/run_preview.py --check --desk-fields-check`
+qualifies the fields on the seeded example, adding a receive-fixed swap, a floating/floating swap
+and an amendment that changes a direction.
+
+The desk's groupings and curve shapes each come from one read (blotter-desk.md, Backend
+changes). `trading/workspace` takes up to four `summaries`, each a pivot view of exactly the
+books and portfolios of the request's own view, each named once as the Blotter requires, and
+states `summaries` beside `catalog` and `blotter`: one `{view, groups}` per summary in
+request order, grouped from the rows the report was built from. Nothing is valued again, so
+the report's `work` is that of the read without them. A fifth summary, a view that is not a
+pivot, and a view of other books or portfolios, or one that repeats a book or portfolio, are
+refused with `blotter_view`, over an empty book too. Under either pivot convention, a pivot whose
+dimensions name a market or a contract keeps the definition revisions of one market apart, and each
+of its groups states its `definitionRevisionId`, so two groups of one market never look alike.
+
+The Blotter's trade rows are a desk (blotter-desk.md, Desk layout), drawn from one workspace
+read and its four summaries. Its tiles show swap PV and futures execution P&L per exact currency
+with a split per book, from the money totals; the number of positions read with their mix by
+commodity and instrument type; and the risk run: not run at this close, its report open in the
+panel, a queued run under way, a run's results, or a run made at another market context. Its button
+opens the side panel's Risk report mode, and it follows a queued part that finishes on the report's
+own timer through the report's `onChange`. Swap PV by market is one card with a
+panel per currency, and long and short by market one card with a panel per quantity unit; each
+panel has a caption, bars about 20px tall, and its bars listed as text beside the canvas. A swap's
+booked quantity is unsigned, so its bar takes the side the backend's direction states (pay fixed
+long, receive fixed short) where every swap of that market and unit shares one, and is otherwise
+not drawn. Where two markets, currencies or units share a name, the label adds what identifies
+each, never an ordinal: the code, or the start of the revision's id, the same eight or more
+characters for a market's definition revision and for a currency's or unit's reference revision.
+Positions group by book, market and definition revision, instrument type, or not at all, under
+the subtotals of the matching summary; a header says "N of M positions" when row filters hide some
+of its positions, and opens and closes from the keyboard. The market summary keeps quantity
+specifications and currencies apart, so a market whose futures, or whose swaps, are held in more
+than one would state that measure twice in its header, and grouping by market refuses it, as the
+charts refuse a market they would draw as two bars of one name. A market whose futures and swaps
+differ in unit or currency is not refused: its header states PV and P&L once each, and its long and
+short bars sit in the panels of their own units. A grouping the read cannot show is refused in the
+error banner and the grouping on screen stays. The desk selects everything it shows from a read
+(tiles, rows, group headers and both charts) before it draws anything, so a read it refuses, such as
+a live refresh, leaves the desk on screen and the read it was drawn from whole. The grid's row
+search reads the words
+its cells draw, such as the delivery month, the instrument kind, the direction, the unit and the
+value's measure and currency, beside the exact amounts. Price and Mark each state the price unit
+they are in (the currency per quantity unit, with the quote multiplier when it is not one), and a
+valued swap without one mark says "Several marks". Each row draws its market's forward curve from
+`market/curve-shapes` after the rows render, at most 64 curves to a read, in the market context the
+positions were read in and only for markets of the close's own definition revision; a curve that
+cannot be drawn, or was read in another context, says why in its own row, and so does every curve
+of a desk kept after a live refresh that failed while they were being read. Pivot views keep their
+table and configurable chart under the same tiles. Commodity colors are the design's identity
+colors for gas and power, under the codes of the imported reference catalog (`gas`, `electricity`)
+and of the synthetic one (`test_gas`, `test_power`), and palette colors for any other.
+
+The desk fits the screens it is used on. The toolbar is one row at 1440 pixels wide, and Group by
+sits with the positions heading, the grid's search and its row count on one line above the rows.
+The tiles take the room their content needs, in two pairs (the money tiles, and the positions and
+risk tiles), so a narrower desk, or an open assistant panel, shows them two by two and then one by one.
+A figure is one token that never splits or is cut off: its currency drops beneath it when they do
+not fit side by side, a row of tiles wraps before the figure or a book's split would not fit, and on
+a desk too narrow even for a lone tile the figure shrinks to the desk's width. The saved views list
+shows its whole label wherever the toolbar has room for it. The browser checks assert that, at 1440
+by 900 and at 1280 by 800, the first position starts above the fold, at 1366 and 1280 that no money
+total is clipped, and at 1280 that a total of twenty characters or more stays on one line and whole.
+
+A row, or Enter on a focused row, opens its position in the desk's side panel (blotter-desk.md, Side
+panel), and Escape closes it and returns focus to the row. The panel shell (`side-panel.ts`) holds
+one mode at a time, here a position, which is a trade's binding at a revision: a trade can hold
+several bindings, the Blotter lists each, and each is its own position (`desk-panel.ts` finds the
+position in each read the desk draws, and opens the row asked for). The panel is docked beside the
+charts and the positions, under the tiles, when the main area is 1180 pixels wide or more and the
+assistant is closed; otherwise it is a drawer over the window's right edge, left of the assistant,
+and a full-width sheet at 760 pixels and below. While a swap's settlement view is in it, the panel
+is wide off a phone: a drawer of up to 720 pixels over the desk, which keeps its layout beneath,
+docked or not, never over the navigation and, with the assistant open, left of it, so narrower where
+the window beside them has less room. Leaving the view, by closing it, opening another position or
+New trade, gives the panel its own width again. Opening the panel moves focus into it and never
+moves the tiles. A docked panel takes the grid's width, so the grid gives up its Curve column, and
+then its Mark column, which the panel shows for the position, for as long as the columns it shows do
+not fit the room it has. It measures that room, so how much it gives up depends on what the rows say
+and on the width the navigation leaves: a window wide enough for all seven keeps all seven (about
+1700), and a narrower one gives up Curve before Mark, never gives up a column it has room for, and
+takes a column back when the room returns. The sheet is the only part of the page in reach while it
+is open: everything behind it is inert, except dialogs, and the page is given back when the sheet
+closes, stops covering the page or the Blotter is left. A switch of mode or position asks first,
+inside the panel, when it holds unsaved edits, which are what a person has typed or chosen in the
+form of an amendment or of a new trade, tracked by the forms (`trackEdits`). A calendar or the date
+lookup sets a value for the person through events that a form cannot tell from a script's, so each
+marks the form edited itself, and Escape inside a calendar closes only the calendar. The same
+question is asked before the panel is closed, before its form is closed, before another revision
+replaces the form's, and before every other way out of the form inside the page: a new read of the
+Blotter, which closes the panel, Save preferences included; a move to another page (the sidebar,
+including its own Blotter, Open curve, and New trade for a PPA); another As of date, which is
+applied only once the person agrees: the As of select, which every read and command takes its close
+from, stays on the close the Blotter shows while the question is open, and so do the calendar and
+the badge of a newer close, which is judged by that close and by no close that has only been chosen;
+another context, a live selection or Current inputs; another user or signing out; another market
+example in the sidebar, which loads another page; and the Context panel's time controls, which clear the
+Blotter as they are changed: opening them asks, and so do a change of their date or knowledge time
+and Use current knowledge once they are open. A dialog that is open keeps the panel, and the
+question, out of reach, so the profile dialog is closed for the question. The page asks before it is
+busy, so the buttons of the question stay enabled. While it is busy and the panel holds edits,
+nothing can be asked and what reaches the page is not done: the time controls stay closed, a change
+in them is put back, and Use current knowledge does not run; while the panel holds none, a change is
+made as ever. Escape or Keep editing leaves everything as it was, and puts back what the person had
+changed: the As of select was never moved, the time controls' date and knowledge time go back
+exactly, and the sidebar's example select goes back to the example the page is. Keeping the
+amendment over a route that closed the profile dialog (Save preferences, another user, signing out)
+leaves the dialog closed and says what was not done. A reload, closing the tab and going back leave
+the page without the panel's question, so the browser asks (`beforeunload`) while the panel holds
+the form of an amendment or a new trade with edits: the listener is on from the first edit and off
+once the edits are saved or given up. A page that is left on the person's word without the panel's
+question, as by the assistant's Go anyway, gives the forms up as it goes, so that no form stays held
+that nothing can return to. A session that has ended cannot send what the form holds, and is not
+asked about. A chart's image export that fails reports the error and leaves the Blotter as
+it is, unless the failure is a denial of access, which clears it as it does for every read. The
+assistant's moves hold for unsaved edits through their own Go anyway (D191). A live correction
+(D188) reads a position or new trade open in the panel again, unless it holds edits, which it leaves
+alone, and clears a risk run before it reads, with the note "Risk results cleared · live corrections
+changed the inputs" when its results were on screen or a queued part of it was under way
+(`liveRefreshPlan`), so that a read that then fails leaves the note, as it leaves the desk it had. An
+unconfirmed risk submission, which the report shows again under the inputs it was captured at, is
+said to keep them ("Live corrections changed the inputs · the unconfirmed risk submission keeps the
+inputs it was captured at") rather than to be cleared. An open risk report is read again at the
+corrected inputs, so that a run is always made at the inputs on screen: a setup holding edits has the
+person's choices carried over, and the setup says so and names what the new catalog no longer offers
+(`riskRefreshPlan`, which a settlement record follows too, in its own words). No live view can book,
+so no new-trade form is held while corrections arrive. The notices one action says are kept beside each other, and none replaces another unseen.
+
+The position view shows the instrument, trade reference, revision and book, the market, delivery,
+side and size, the value with its measure or the reason the close cannot value the position, and the
+backend's `markMinusPrice`, labeled `Mark − executed` or `Mark − fixed` and left out where the
+backend has none. The value is a gain or a loss and has its color; the mark minus price is a price
+move, which way it cuts depends on the position's direction, and the browser does not combine the
+two, so it has its sign in its text and the panel's own ink. Its tabs are a tablist that the arrow,
+Home and End keys move along. Curve draws the desk's own curve-shapes response for the position's
+market, which is never read again for the panel, with the delivery period's contracts marked and the
+trade's price as a dashed reference line when the curve is quoted in the price's unit; it says why
+when it is not, or when the curve cannot be shown. Terms and History come from one read of the amend
+editor's own endpoint (`futures/editor` or `swaps/editor`) in the desk's market context, made when
+either tab is first shown, and a read of the position's own revision that holds another binding of
+the trade (a future's state names its binding) or another instrument of it (a swap's) than the
+position is refused. Terms lists the booking facts, the position, with a future's price in its unit,
+and the contract terms of a future, or the structure and each side of a swap, each side titled by
+its own direction, and a swap's valuation and the schedule of each side, drawn as its form draws
+them, in the display formats of the deal, which are read with it. History lists every revision with
+the instrument it was of, when it took effect and was recorded and its facts, its numbers written as
+Terms writes them, each price in the unit of its own contract, which for the position's contract is
+the position's unit whether or not the editor's catalog holds it, and each quantity in the unit of
+its own index, which it says are unavailable when the catalog does not hold them, in the panel's
+width, as titled lists like Terms (a table of eleven to thirteen columns does not fit it). Risk says
+that a risk run's results for the position will show there, and shows none yet.
+
+Amend (D221) is offered to an account that may amend, and puts the position's form in the Terms tab
+in place of its read view: the revision selector, the booking facts, the instrument and, for a swap,
+each side with its valuation and payment schedules, the amendment reason and its effective time, the
+preview and its confirmation, a retained request's Check status and Retry, and the deal's money
+display, in the panel's one column. The editor is read for the position when Amend is pressed, and a
+read that holds another binding of the trade, or for a swap another instrument, than the position is
+refused. In the form, another revision of the trade can be chosen: an earlier one can be of another
+binding, which an amendment of the instrument gives a trade, and is read as it is, names its
+instrument, and is read-only, because only the position's own binding at its current revision can be
+amended from it. While the form is open the head's button is Close editor, another tab keeps the
+form and what it holds out of sight, a docked panel is scrolled to so that the form has the window's
+height, and pressing Amend takes focus into the form, which travelling along the tabs does not. An
+account that cannot amend is not offered Amend, and neither is a revision that cannot be amended
+once the editor has been read, when Terms or History is first shown, and the panel says why in words
+under its head; before that Amend opens the form, which is read-only and says why. When an amendment
+has been sent, or its outcome found, the read that follows closes the panel as any new read does,
+and the panel returns to the trade at the revision that read holds, on its Terms, at the binding the
+amendment produced, which is another when it changed the instrument (a future's contract; a swap's
+price, dates or payment terms), and says so; it says too when the trade is not in the read, or not
+at the binding the receipt names, or is there as several positions when the receipt names none. A
+request whose outcome is not known is kept in a card that names it (a futures or swap amendment of
+its trade, a new futures trade, a new swap), with Check status and Retry: in the panel, above
+whatever the panel shows, while it is open, and at the top of the Blotter while it is closed, so
+that nothing leaves a person with a booking to enter again. Open curve opens
+Curves & prices on the position's curve with the price history of its contract: a future's own, or a
+swap's when its delivery period holds exactly one. It is unavailable for a market Curves & prices
+does not list, and says why beside the button, which points assistive technology at that reason
+(`aria-describedby`). A new read, a change of context or an access denial closes the panel; a newer
+drawing of the same read, including a live refresh or the arrival of the curves, redraws it, and
+closes it with a notice when the read no longer holds its position. A live refresh holds the page
+busy, and the page disables every control while it is, which drops keyboard focus from the one that
+had it; the panel keeps the id of the control that had focus when the page went busy (Open curve, a
+tab or Retry) and gives focus back once it is enabled, if nothing else has taken focus meanwhile.
+The page's other controls lose focus as before. Pressing the row that is already open leaves the
+panel as it is. The assistant's page report names the trade the panel shows, at the revision the
+Blotter holds or, while its form is open, the one the form shows, which can be an earlier one
+(D221); a target for another revision opens the position at the Blotter's and says which way they
+differ, and a target for a trade is refused in a pivot, before the page moves, in words that name
+the Individual trades view: the view is the one the Blotter has applied, and not a Display choice
+that has not been applied. The page report states no risk lens, which is not built. The browser
+checks assert the placement at 1440 by 900 (the first position above the fold, the tiles unmoved),
+the columns the grid keeps at 1440 with the navigation open and collapsed and at about 1700, and, as
+a wider panel narrows the grid, that Curve goes before Mark, down to neither; the layout at 1100,
+with the assistant open and at 760 with the page behind the sheet out of reach, the keyboard
+behavior, the tabs, the reads, the ink of the mark minus price of a
+short future and of a receive-fixed swap, and Open curve of a future and of a swap, the form of an
+amendment in the Terms tab, and the questions asked before edits are given up: by a switch of
+position, by each route out of the Blotter, by a calendar's or the date lookup's edit, by a change
+in the time controls once they are open, by Use current knowledge, by Save preferences, by another
+user, by signing out (kept only: the preview hides its button), by a newer close, by another market
+example and by a swap's revision, each answered both ways. A close chosen in the calendar leaves the
+As of select, the calendar, what the form sends and the offer of a newer close on the close the
+Blotter shows until the person agrees, and keeping the amendment over a route of the profile dialog
+says what was not done. The browser's own question is checked as the page's answer to the event it
+sends, and the assistant's Go anyway leaves nothing for it to ask. The sidebar and its own Blotter,
+another As of date, Open curve, the time controls, Save preferences, New trade for a PPA and Reload
+latest revision ask nothing of a form with no edits, and Reload latest revision reads the editor
+again. An amendment of the instrument, of a future's month and of a swap's price, is followed to its
+new binding, with its first revision still readable. `--live-calculation-check` asserts that an
+account that cannot amend is told why and not offered Amend, that a live refresh reads the panel's
+terms again, a swap's among them, and draws the panel again, that it keeps focus on a tab and on
+Open curve, and that it clears a risk run with a note that a failed read keeps, reads an open risk
+report's catalog again for the new context, reads a setup holding the person's choice and typed size
+again at the corrected inputs and runs it there with that size, and says an unconfirmed submission it
+shows again keeps the inputs it was captured at.
+
+The panel's Risk report mode (blotter-desk.md, Side panel) holds the risk report (`risk-view.ts`),
+which the toolbar's Risk report and the risk tile open for an account that can run scenarios; one that
+cannot is told why by both, and is offered neither. The mode reads the risk catalog of the Blotter read
+on screen and offers three reports, none of them chosen for the person. Shock every held contract and
+Parallel shift shock the scenario targets the catalog names for what the books hold
+(`heldContractTargets`, `heldCurveTargets`), taken by their ids and in the catalog's order: the
+browser matches no curve or contract (`risk-presets.ts`). Each target is shocked by the size entered
+for its price unit, and there are no built-in sizes: the sizes a run used are kept for the session, by
+account (`openetrm.desk.shockSizes.<profile>`), and prefilled the next time, each marked as prefilled
+until the person changes it, once the backend has taken a part of a run of them; without session
+storage the sizes start empty. Custom scenario is the
+scenario lab with nested stresses. Each preset says how many contracts or curves it shocks, names the
+held prices and curves the catalog has no whole target for, which it does not shock, and the report
+lists the positions the close cannot value, which a run leaves out; a catalog or a result that does
+not say these is refused, never read as saying none. A run of more than sixteen shocks
+is made in parts of at most sixteen, at the catalog's one retained context: Run now sends the parts
+one after another, and Queue as job submits one job for each part, each kept as the request it was
+first sent as until its outcome is known. A part whose submission has no known outcome keeps the run
+retained for Reconcile, which sends the same requests again and takes a job they return already done
+with its result, and blocks another run until it is settled; meanwhile the other parts show their
+results and that part says it has none. A part that is refused or fails is said to be, and the others
+still run, until the run is no longer the one on screen. Each part of a queued run made in parts states
+the run, its part and the part count, which its job keeps (D222), and the job history lists such a run
+as one entry, read again after a run is queued, when its parts have ended and when the mode is opened,
+so a reload shows the parts as one run too; choosing it reads each part the history lists. The mode
+keeps the work each part's calculation did. What the report holds stays while the panel shows a
+position or a new trade; a new read of the Blotter, a change of context and an access denial clear it,
+and a live correction or a settlement record clears its run and reads it again at the new inputs,
+carrying a setup's choices over. The setup's choices and entries are edits the panel asks about before
+they are left, as a form's are, and a run takes them as its own. The page report names the mode
+(`blotter_risk`), which the assistant does not read.
+
+A run's results come back inline (D222, `risk-lens.ts`). A run bar above the tiles states the report
+the run was set up as, with its size for each price unit and the held prices or curves it did not
+shock, how many it shocked, the close, the knowledge the read was made at and when it ran, or how its
+queued jobs stand, and its notes: a nested stress, the positions it leaves out, a part that failed, has
+no known outcome, is missing from the job history or is not yet queued, and why results are not shown.
+Edit shocks opens the Risk report mode on the run's choices, Export downloads every part's report read
+again under current authority (it needs every part, and results that are refused are not offered), and
+Clear takes the run off the desk. The trade rows' Values | Risk lens turns to Risk when a run's results
+first arrive: Shock, Up, Down and Delta in place of Price, Mark, Value and Curve, each change with a small
+diverging bar on one scale per currency and its exact amount, and **n shocks** for a position several
+factors move; a factor moves a position when its up or down change is not zero. The risk tile shows each
+currency's largest move, picked by exact comparison of magnitudes, its position and factor, the number of
+factors and each position's own largest move as a small bar, or says that no position moves; it states a
+run whose results are refused, with why, and a run no part of which has results, as a position's Risk tab
+does. The run bar and the tile count the shocks known, of how many the run ran when its page or the jobs of
+all its parts state it. The long and short chart
+becomes Change if each contract moves up, a bar for each position one factor moves, naming those several
+factors move and those none moves; and a position's Risk tab says its results come from the risk run on
+the desk, points to the Risk report, and lists each factor that moves it with its base, up and down values,
+changes, delta and gamma. Nothing is added across factors, parts or positions. Missing results are never
+facts: while a part has no results, a position no shock with results moves is Not known, with the part and
+why, in the lens, the chart, the tile and its Risk tab; the chart and the tile say "No known move" when no
+shock with results moves a position, and the tile's largest move is the largest known one. The run bar, the tile, the chart and the lens's book and instrument-type headers say what the run
+leaves out, from its own list and the book each entry names, and a row it leaves out says so with its own
+reason. Results are shown in each position's own deal format, prepared by the backend's amount display, only
+against the read they were run at: its market context, its close, by time and by the frame each part's
+report names, as every close of one date in a historical view shares the view's context, and its books and
+portfolios, which each queued job keeps in its frame; and only once every part states the same positions
+it leaves out and the positions valued and left out are those of the read. Anything else is made
+elsewhere, stated by the run bar and exported, never drawn against other positions; a queued run shows its
+results once none of its parts is under way, and results prepared late, for a run no longer on screen, are
+dropped. A pivot view has no lens, and the run bar points to Export and to a run made on trade rows. Every
+new read of the Blotter clears a run, with or without results: a change of close, context or book scope
+with "Risk results cleared · the close or books changed", any other new read (Refresh, another Display or
+pivot, the Blotter opened again) with "Risk results cleared · the Blotter was read again", and a change of
+account with none. The page report states the lens: trade rows under the Risk lens are `blotter_risk_lens`,
+which the assistant does not read, after the panel's risk report, a new trade and a position. A run for one
+position alone is not built: the portfolio risk operation scopes runs by books.
+`tools/run_preview.py --check --risk-jobs-check --browser-check` drives each preset, the split run made
+now and queued with its run identity, the run bar, the lens, the tile, the change chart and a position's
+Risk tab, the Values lens and Clear, a part that fails, is refused or loses its reply and the positions
+only it could move, a run with no results and one that moves nothing, results prepared late, polling that
+does not place the panel again, the prefilled sizes, which a refused run does not change, what a preset
+leaves out in its setup, results and download, the catalogs and results that do not say what they leave
+out, a rational change and its exact amount, a pivot's note, the question asked before the setup's edits
+are left, the notes a Refresh, another book scope and another close leave, the retained submissions and
+the job history before and after a reload; and, in a historical view with two closes of one date, a run
+from the job history made at the other close, which is made elsewhere, the same run at its own close, and a
+part the job history no longer lists. The settlement netting check settles a retained record from its card
+while the setup holds typed sizes, and the valuation-status check reads the positions a close cannot value
+in the setup, the run bar, the lens, its book headers, the tile and the change chart.
+
+New trade (D221) opens the side panel on a head with the title New trade, a Future | Swap switch of
+two buttons with neither pressed, and the way to PPA bookings, which are booked on their own page.
+It reads nothing and chooses nothing for the person. The panel is named for what it holds (New
+trade, New future, New swap) and its body is a group of that name; the roles of a tablist and a
+tabpanel belong to the tabs a position shows and go with them (`setupTabs`, `clearTabs`), so that no
+mode shows a tabpanel without a tablist. New trade is offered only where the backend allows booking:
+`newTradeControl` words the catalog's `canBook` and `bookingUnavailableReason` for the view and the
+account, a request whose outcome is not known coming first, and before any read the page's own
+reason, which names the view as the backend does (`bookingFallback`). A historical view, a live
+view, which the backend says is live and not historical, and an account without Book Trade
+permission are told why in a line under the toolbar that the button points assistive technology at,
+never in a tooltip, and no field opens there; a new swap's catalog read is held to the same answer
+(`bookingAllowed`). Choosing a product reads what its form needs and opens it in one action: a
+future's form needs the priced futures catalog, which is a new read of the whole Blotter and closes
+what the panel held, and a swap's needs its catalog and observation choices. A question about
+unsaved edits is asked first, before the page is busy, and the panel keeps what it held until the
+form that replaces it is ready. A product whose read fails, whichever product it is and whichever
+read it was, leaves the panel asking for a product with the failure said, never a product with
+nothing in it, unless the person has been moved elsewhere in the meantime, as by a change of the
+market selection, in which case the panel stays as that left it; an answer that comes while the page
+is busy leaves the panel as it was and says that the product was not opened. A new trade starts
+empty, with no contract, book or price of the trade before it. The form of a new future is
+`futures-booking.ts`, which the page hosts as it hosts the forms of the amendments, and a form is
+held by the panel as an amendment's is: what is typed in either is an edit, switching Future and
+Swap, closing the panel and every other way out ask first, and the browser asks before the page is
+left.
+
+Price before booking is the draft valuation under its own title: Price and Risk, the draft's value
+and exposure, and after Price the curve of each market the draft is for with the draft's delivery
+period marked, a future's from the contract the draft was priced with, found in the catalog by its
+curve and id and not by what the form offers now, and a swap's from each floating side
+(`draftValuation`, `futuresDraftMarkets`, `swapDraftMarkets`; the chart is `curveChart`, which the
+position's Curve tab draws too). The curve is the desk's own read of the curves it holds when the
+desk holds it for the revision of the close's curves, which is waited for while it is under way, and
+otherwise one read of that curve, kept until the desk reads again and never repeated for a second
+price (`draftShapes`, `readCurveShapes`). A market defined in another revision than the close's
+curves is said not to have a shape, and one that names its revision is said so too when the revision
+of the close's curves cannot be read, as that is not the same reason. A curve that cannot be read or
+drawn, a desk read that failed included, says why beside the price and never fails it. A booked
+trade, or one that Check status finds committed, is shown as the position it is: the Blotter is read
+again, its row is marked and brought into view and the panel opens on the position
+(`bookedPosition`), saying why when the read has no row to open for it, in a pivot or beyond the
+books selected; when a row search or a column filter of the table hides the row, the table says so
+above its rows and offers to clear the filter, which shows the row and moves focus to it. A booking
+whose outcome is not known is kept in the card that names it, its form and its panel are gone, and
+New trade is held back until it is settled, so that the same booking is never offered twice; a
+booking or an amendment, of a future or of a swap, that the backend refused for good keeps its form
+and the edits in it, with the reason, for the person to correct, and what was previewed or prepared
+for it is dropped, so that it is previewed or prepared again. No live view can book, so no new-trade
+form is held while corrections arrive: the browser checks assert that New trade is not offered in a
+live view, and that it says the view is live. The assistant's page report names the new trade by its
+product, or by none while none is chosen (`blotter_new_future`, `blotter_new_swap`,
+`blotter_new_trade`, three more pages of the closed set that the assistant does not read), and its
+Looking at says so. The browser checks assert the switch, the roles, the form and the focus in it
+for each product, that neither the kind dialog nor the inline booking card exists, Price before
+booking and its curve with its delivery marked, no curve read twice and a curve that cannot be drawn
+leaving the price, the booked row selected in view with the panel on it, and the table's note when a
+filter hides it, a new trade that starts empty, the reason New trade is not offered to a historical
+view, a live view and a role without the permission, a product that cannot be read leaving the panel
+on the choice, a refused booking or amendment keeping its form, the retained booking and Check
+status, a question answered while the page is busy, and the questions asked before a new trade's
+edits are given up, each answered both ways.
+
+Scheduled swaps (D214) and swaps whose settlement lifecycle is under way (D215) are positions of the
+desk like any other, and their rows state what the desk shows. A scheduled swap
+(`contractIdentityKind` `scheduled_swap_instrument`) states no single quantity, mark or mark minus
+price, a fixed price only when every fixed period shares one, its delivery as the envelope of its
+periods and, when its periods project from several curves, those curves (`projectionCurves`) and the
+market they make together (`marketKey`, `marketLabel`), by which pivots group it. `settlement` is
+`Projection`, or `Active` once a settlement determination exists: an active swap's PV is its
+lifecycle's remaining value, with that lifecycle's measures (`lifecycle`), it has no mark, and its
+other facts are those its projection stated (P41). A scheduled or lifecycle valuation that fails
+with one of the two position-specific codes leaves the position unvalued with that code (D220), and
+a risk run leaves it out and lists it. The read's `work.swapValuations` counts the valuations it
+attempts: one for each distinct single-period unit, which the positions holding it share, and one
+for each scheduled swap and each swap valued by its lifecycle, which are valued for their own
+binding, whether or not the close can value them. The desk refuses a swap kind or valuation state it
+does not define. A scheduled swap's quantity reads By period, as does its fixed price where its
+fixed periods differ, and its mark; a lifecycle-valued swap's mark reads Settlement lifecycle. Each
+says what it means in its tooltip. The long and short chart draws no bar for a market whose swaps
+have no single quantity, as where one of them is scheduled, and refuses a market the backend gives
+none when no held swap of it lacks one; each of its panels names under its caption the markets it
+draws no bar for and why, as it does for swaps of mixed directions or of two floating sides. A
+position that projects from several curves has no curve shape and no Open curve, and says why. In
+the panel, Terms lists a scheduled swap's structure, with no single quantity, and each side's
+quantity basis and unit and every period's quantity and price or index, a term every period shares
+once and any other By period, with the quantity review beneath; a lifecycle-valued swap adds its
+lifecycle's measures. Each side's kind and direction are the read's: its valuation's, or, for a
+revision valued by its lifecycle, which has no pure valuation, the `memberships` the read states
+(D207); the page works none out. Amend of a scheduled swap opens its ticket
+(`scheduled-swap-editor.ts`) in the form part, as any amendment opens, and the swap ticket's
+Monthly schedules · one or more months opens it for a new swap, after the panel has asked about the
+swap ticket's edits; generating period rows over entered ones asks in the panel first, before the
+page is busy, and D216's reviewed common-term edits of selected periods are made there too.
+A swap's Terms, and either ticket, offer Settlement and P&L (`swap-settlement.ts`), which takes the
+form part in place of the terms, with the head's Close editor, after the panel has asked about a
+ticket's edits; there it also settles selected gross contributions of the trade by one net amount,
+and reconciles P&L from a captured opening under an explicitly chosen contractual-change policy
+(D216). Where the wide drawer has its 720 pixels, figures of up to 17 characters, and every
+payment's action, are read without scrolling sideways (checked at 1440 by 900 and 1280 by 800
+pixels); elsewhere, as on a phone, a table may scroll sideways, and each figure and action can be
+scrolled to. Its tables wrap their labels and keep each figure on one line, and five of them stack a
+row's identifying facts in one column beside its figures: payments (with each payment's action),
+balances, net candidates, cash history and period transitions; a stacked column has no column
+filter, its text is searched instead, and a long unbroken reference breaks within it. A cash record
+or a net settlement being entered, and a correction's due instant, are edits the panel asks about,
+and a filter of a table in them is not; an action of the view that would replace a typed due instant
+(another payment's calculation, a refresh, a cash or net record) asks first, while an edit of the
+net form, a choice of opening or policy, and a net review, opening capture or reconciliation that
+fails keep it. Reading the view again keeps the selected contributions and their typed allocations,
+by contribution, and a chosen contribution, cash movement or opening the new read still offers;
+opening another trade's view starts with none of them, and with no contractual-change policy chosen.
+A net settlement or its reversal is recorded only from the review of its exact allocations still
+shown, which an edit of the net or payment form removes, and a filter does not. A determination the
+backend refuses for good keeps its calculation and due instant, with the reason, and after any other
+failure of a settlement command, which may follow one that went through, as when the Blotter cannot
+be read after it, the view is read again. A settlement command that goes through clears risk results
+run before it, with a note, and reads the Blotter again as a live correction does, so that the panel
+and the view stay, and the view reads its state again, having cleared what the command consumed,
+also when the Blotter cannot be read after it: a cash record its contribution, amount, instant and
+reference; a reversal its instant, reference and movement, not a cash amount being entered for
+another record; a net settlement its header and the contributions it allocates. One whose outcome is
+not known is kept in the panel's card, named for what it was, across a reload too, with its entries
+while the view is open; Check status settles it, and Retry, which needs AmendTrade as an amendment's
+does, sends it again, each with the view left open and what the command consumed cleared once it is
+known to have gone through. A retained swap booking, amendment or settlement command whose retry the
+backend refuses for good is released with the backend's reason, as a first send's refusal is: their
+backend answers a retry with the original's outcome before it refuses one, so the refusal means
+nothing was written. A refusal of the caller (access, request token, a historical view), or of an
+operation identity the backend holds for another actor or payload, which may be the original's, says
+nothing of a retried original and keeps it, as does any refused retry of a futures booking or
+amendment, which the backend admits before it looks up the earlier outcome.
+`--valuation-status-check` books a
+scheduled swap after its other checks and qualifies it valued at Dec 18 and unvalued at Dec 31, with
+its booked facts, its totals and its risk exclusion. `--scheduled-swap-check` compares each swap's
+row before and after its first determination (P41), checks the memberships a lifecycle read states
+for a pay-fixed and a receive-fixed swap, and adds a close after the January determinations that
+pins no February future, at which a swap whose lifecycle is under way is unvalued with
+`missing_observation` and keeps its facts, its book total and the desk's money totals (D223) leave
+it out, and a risk run, the same run queued and the risk catalog list it; its browser checks drive
+qualified authoring in the scheduled ticket, its review, the settlement view with net settlement
+and the contractual bridge, and their retained commands in the panel.
+
+The desk's money totals come from a second pivot convention (D223). `trading_blotter_totals_v1`
+also partitions by quantity specification (D98), so a currency's swap present value across MWh and
+MMBtu positions is never one number in it, and the browser may not add amounts.
+`trading_blotter_money_totals_v1` partitions by the view's dimensions, the exact instrument type and
+the exact currency reference only, and by definition revision when a dimension names a market or
+contract; it ignores quantity specification and price multiplier. It accepts only `presentValue`,
+`executionPnl` and `tradeCount`: `quantity`, `lots`, every price statistic and a price policy are
+refused with `blotter_view`, over an empty book too. A group states `instrumentType`, `currency`,
+`currencyReference`, its dimension fields, its measures and `unvaluedPositions`, and no `unit`,
+`quantitySpecification` or `priceUnit`. PV and execution P&L add the valued positions of the group
+as exact money of its one currency (`ExactMoney.Add` raises `currency_mismatch` for any other) and
+are null where none is valued or the measure does not apply to the instrument type (swaps have no
+execution P&L, futures no PV). `tradeCount` counts the group's distinct trades and
+`unvaluedPositions` those left out (D220). `trading/blotter`, the workspace
+`view` and each of its `summaries` accept either convention, together, with the summary limits and
+the single valuation unchanged. `--desk-fields-check` qualifies the totals on the seeded example
+against exact sums of its rows, across its MWh and MMBtu swaps, and `--valuation-status-check` at
+the mixed Dec 31 close. The example holds one currency and one definition revision of each market
+it holds, so the API checks (`TradingBlotterChecks`) qualify a second currency, a second reference
+revision of a currency code and a second definition revision on synthetic positions.
+
+`POST /api/market/curve-shapes` (`snapshotId` and 1 to 64 distinct `curves`, otherwise
+`curve_shapes`) reads the contract prices of several curves from one load of the data
+`/evaluate` would load and one snapshot of its inputs, under the same pin, identity and
+permission, including a selected historical context, which the response states as
+`/evaluate` does. Each curve states `curve`, `unit`, `points` and `unavailableReason`. A
+curve the pinned data can read has its price `unit`, named as the Blotter names the price
+units of its pivots, and a point for each contract its view selects, in the order
+`/evaluate` gives them, with the delivery period and the exact price `/evaluate` gives; its
+`unavailableReason` is null. One build prices a whole curve. Only if it fails with
+`source_expired` or `missing_observation` are the contracts that fail alone isolated, and
+each states that code as its point's `unavailableReason` with no price (D220). A curve whose
+view selects no contract has no points. A curve that cannot be read has null `unit` and
+`points` and states the code its own `/evaluate` read raises, which is the failure of its
+one build of every contract, whatever isolating its contracts then met: `missing_curve` for
+a curve the pinned data does not define, `missing_curve_view` for one the frame selects no
+view for, and the code of the build for any other failure, including a snapshot the model
+refuses (the same for every curve). Its neighbours are still shaped. The one code
+`/evaluate` does not raise is `missing_curve` for a rate curve: `/evaluate` answers a rate
+curve with its rates, which are not contract prices, so the shapes state that the pinned
+data defines no price curve of that code. What fails the whole request is what is not one
+curve's: authorization, the pin and its context, the request's form, a pinned observation
+that cannot be found when the snapshot is assembled, and a catalog inconsistency in the
+references of the price unit of a curve that can be read. The isolation passes contracts
+that build in blocks that double in size and halves a block that fails, so its builds follow
+the contracts that fail and never exceed three for each contract; on a 405-contract curve
+with four unpriceable contracts it takes about 15 builds, not 406. Each build still
+validates the whole snapshot, which is what bounds the saving when every contract fails.
+`tools/run_preview.py --check --desk-fields-check` qualifies both against the reads they
+replace, and `--valuation-status-check` the contracts and curves a close cannot price.
+
 The editor opens from trade rows. Amendments append immutable latest-head booking
 states with expected revision, explicit reason/effective instant, current authority
 and idempotent operation identity. Previous states remain read-only. Book moves
 and amendments preserve stable trade references; reusable instruments have their
-own references. UUIDs remain relationship keys. New table layouts show references;
-existing saved layouts retain their selections.
+own references. UUIDs remain relationship keys. New table layouts show references.
 
-The header distinguishes working knowledge, retained history, selected price date
-and actual today in the user's time zone. Disabled booking has an explanation and
-an explicit return to working inputs. Power TOUs and Reference data are under
+Saved Blotter views are layout version 4, the only version the application saves or reads
+(`blotter-layout.ts`, `TableViews.Validate`). Besides the grid, column split and chart choices
+it records `rowGroup`, how trade rows are grouped: `book` (what a new view starts with),
+`market`, `instrumentType`, or `null` for a flat list. Pivot views keep their own `groupBy`. Nothing is
+migrated. The API refuses to save a layout of versions 1 to 3, or of any version it does not
+know, with `table_view`. A stored view from an earlier version appears in the saved-view list as
+`<name> · Earlier format · save again`: choosing it explains and applies nothing, saving a view
+under its name replaces it, and Delete view removes it. A stored view that fails to read for any
+other reason still fails the Blotter's load with that reason. A pivot that groups by instrument
+type lists the column once (`pivotColumns`), so it also saves as a view.
+
+The floating context distinguishes working knowledge, retained history, the selected
+close and actual today in the user's time zone: the As of control and its close
+badge float beside the Context panel, whose summary names the knowledge in use and
+whose panel holds the time controls, actual today, the Blotter's read context and
+Follow live corrections. Return to working data floats beside them when a historical
+view is shown, and opens working data on its newest close (D217, D219). Panels that
+slide over the page keep that band clear, and the Assistant launcher steps aside from
+a docked side panel. Disabled booking has an explanation and an explicit return to
+working inputs. Power TOUs and Reference data are under
 Settings. Visible branding is LeanETRM. These presentation choices do not alter
 financial contexts or authorization.
 
