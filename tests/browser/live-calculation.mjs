@@ -52,6 +52,8 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await check('a refresh that fails while the curves are being read leaves each unavailable with the reason, not loading',"(()=>{const lines=[...document.querySelectorAll('#desk-positions svg.sparkline')],rows=document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)');return rows.length>0&&lines.length===rows.length&&document.querySelectorAll('#desk-positions .sparkline-loading').length===0&&lines.every(s=>s.classList.contains('sparkline-unavailable')&&s.querySelector('title').textContent.includes('refresh'));})()","[...document.querySelectorAll('#desk-positions .desk-cell:has(.sparkline), #desk-positions .sparkline-loading')].map(n=>n.className+' '+n.textContent).slice(0,3)");
  await evaluate('window.releaseShapes()');
  await click('#live-retry');await wait(`document.querySelector('#live-status').dataset.state==='live'&&${shapesLoading}===0&&`+idle);
+ // The curves are read after the rows are drawn, so wait for them before saying Retry read them.
+ await wait(`document.querySelectorAll('#desk-positions svg.sparkline:not(.sparkline-unavailable)').length>0&&${shapesLoading}===0`);
  await check('Retry reads the curves again',"document.querySelectorAll('#desk-positions svg.sparkline:not(.sparkline-unavailable)').length>0");
  // A read the desk refuses leaves the desk it had: its new totals and rows do not appear beside its old charts.
  // The injected read has new futures totals and prices, and a swap market held in a second quantity specification, which the charts refuse.
