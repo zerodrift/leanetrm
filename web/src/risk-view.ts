@@ -43,12 +43,12 @@ type Choice=Preset|'custom';
  */
 type RunSetup={report:Choice;label:string;sizes:Record<string,string>;withoutTarget:string[]};
 /**
- * A run on screen: run now or queued, its parts in the order of its shocks, the context it was made at, and its setup, which a retained
- * job read from the history does not record. `key` tells one run on screen from another; `id` is the identity a run queued in parts
- * states with each part; `scope` the books and portfolios it was asked for, which a job read from the history states too; `making` is a
- * run made now that is under way, and `finishedAt` when a run made now finished.
+ * A run on screen: run now or queued, its parts in the order of its shocks, the context it was made at, and its setup and the choices it
+ * was made from, which a retained job read from the history does not record. `key` tells one run on screen from another; `id` is the
+ * identity a run queued in parts states with each part; `scope` the books and portfolios it was asked for, which a job read from the
+ * history states too; `making` is a run made now that is under way, and `finishedAt` when a run made now finished.
  */
-type Run={key:number;queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string;setup?:RunSetup;id?:string;scope?:RunScope;making?:boolean;finishedAt?:string};
+type Run={key:number;queued:boolean;parts:Part[];context?:FinancialContext;asOf?:string;setup?:RunSetup;choices?:Choices;id?:string;scope?:RunScope;making?:boolean;finishedAt?:string};
 /** A part of the run on screen as the desk shows it: its report once it has one, or what became of it. */
 export type RunPart={report?:RiskReport;job?:{state:JobState;finishedAt?:string|null;shocks?:number};failure?:string;unknown:boolean;unlisted:boolean};
 /**
@@ -138,7 +138,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function reveal(id:string){if(mounted())get(id).scrollIntoView({block:'start'});}
   function resetControls(){
     select.replaceChildren(new Option('Choose a scenario target…',''));stressFactor.replaceChildren(new Option('Choose a scenario target…',''));
-    get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''));bump.value='';stressSize.value='';get('risk-unit').textContent='';get('risk-stress-unit').textContent='';
+    bump.value='';stressSize.value='';get('risk-unit').textContent='';get('risk-stress-unit').textContent='';
     get<HTMLDetailsElement>('risk-stress').open=false;
     for(const prefix of ['risk','risk-stress']){get<HTMLSelectElement>(prefix+'-coordinate').value='all';get<HTMLSelectElement>(prefix+'-target-kind').value='all';get(prefix+'-bucket').hidden=true;
       for(const suffix of ['from','to']){const input=get<HTMLInputElement>(prefix+'-'+suffix);input.value='';input.required=false;input.disabled=true;}}
@@ -147,8 +147,18 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   /** Forgets everything the report holds but the submissions whose outcome is unknown, which are kept until they are settled. */
   function reset(){
     generation++;forgetRun();catalog=undefined;scope=undefined;stress=[];recent=[];reading=false;unread=undefined;sizes=new Map();carried=undefined;
-    get('risk-carried').hidden=true;get('risk-carried').textContent='';
+    get('risk-carried').hidden=true;get('risk-carried').textContent='';get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''));
     resetControls();edits.clear();renderStress();showChoice();describe();sync();
+  }
+  /**
+   * Starts the setup again, as the person agreed to give its edits up: on the choices the run on the desk was made from, which Edit shocks
+   * opens it on, or afresh. The run is the desk's: only a change of close, context or books, a new read, a live correction or a settlement
+   * record clears it, each with its note (D222).
+   */
+  function restartSetup(){
+    stress=[];carried=undefined;get('risk-carried').hidden=true;get('risk-carried').textContent='';
+    resetControls();offer();if(run?.choices&&catalog)put(run.choices);
+    edits.clear();renderStress();showChoice();describe();sync();
   }
   function denied(error:unknown){if(code(error)==='access_denied'){reset();options.onDenied();}}
   async function call<T>(path:string,body?:unknown):Promise<T>{try{return await options.api<T>(path,body);}catch(error){denied(error);throw error;}}
@@ -235,8 +245,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(!Array.isArray(loaded.excludedPositions))throw Error('The risk catalog is inconsistent. Reload it.');
       catalog=loaded;
       scope={...scope,context:{...(scope.context as Record<string,unknown>),knowledgeMode:'retained',contextId:catalog.context.contextId}};
-      sizes=new Map([...storedSizes()].map(([unit,value])=>[unit,{value,prefilled:true}]));
-      for(const prefix of ['risk','risk-stress'])targetChoices(prefix);
+      offer();
       if(carried)restore(carried);
       await recentJobs(version);
       if(version===generation)carried=undefined;
@@ -249,11 +258,16 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     return {choice:chosen(),sizes:new Map(sizes),fields:Object.fromEntries(customFields.map(id=>[id,get<HTMLInputElement|HTMLSelectElement>(id).value])),
       stressOpen:get<HTMLDetailsElement>('risk-stress').open,targets:{risk:target('risk'),'risk-stress':target('risk-stress')},stress:[...stress]};
   }
+  /** Offers the setup what the catalog read for the Blotter on screen holds: its scenario targets, and the sizes last used, prefilled. */
+  function offer(){
+    sizes=new Map([...storedSizes()].map(([unit,value])=>[unit,{value,prefilled:true}]));
+    for(const prefix of ['risk','risk-stress'])targetChoices(prefix);
+  }
   /**
-   * Puts the person's choices back over a catalog read at changed inputs, which they stay the person's edits in, and names what it no
-   * longer offers: a chosen scenario target or stress, or a size typed for a price unit no target of the chosen preset is quoted in.
+   * Puts choices back in the setup over the catalog it has, and says what the catalog no longer offers of them: a chosen scenario target
+   * or stress, or a size typed for a price unit no target of the chosen preset is quoted in.
    */
-  function restore(kept:Choices){
+  function put(kept:Choices){
     const offered=new Set(catalog!.scenarioTargets.map(t=>t.id)),gone:string[]=[];
     for(const input of choices())input.checked=input.value===kept.choice;
     sizes=new Map([...sizes,...kept.sizes]);
@@ -271,7 +285,11 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       const shown=preset(kept.choice),units='error' in shown?[]:sizesByUnit(shown.targets);
       for(const [unit,entry] of kept.sizes)if(!entry.prefilled&&entry.value.trim()&&!units.includes(unit))gone.push(`the shock size for ${unit}`);
     }
-    const line=get('risk-carried');line.hidden=false;
+    return gone;
+  }
+  /** Puts the person's choices back over a catalog read at changed inputs, as their edits still, and names what it no longer offers. */
+  function restore(kept:Choices){
+    const gone=put(kept),line=get('risk-carried');line.hidden=false;
     line.textContent=publicText(`The inputs on screen changed, so this setup was read again for them with your choices.${gone.length?` No longer offered, so left out: ${gone.join('; ')}.`:''}`);
     renderStress();edits.mark();
   }
@@ -394,7 +412,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     forgetRun();const version=++generation;
     // What was run is no longer an edit: the run answers it, and the setup it was carried over in is the run's.
     edits.clear();get('risk-carried').hidden=true;
-    const current:Run={key:++runs,queued,making:!queued,parts:plan.parts.map(request=>({request})),context:catalog!.context,asOf:catalog!.asOf,setup:plan.setup,
+    const current:Run={key:++runs,queued,making:!queued,parts:plan.parts.map(request=>({request})),context:catalog!.context,asOf:catalog!.asOf,setup:plan.setup,choices:choicesNow(),
       scope:{bookIds:[...scope!.bookIds],portfolioIds:[...scope!.portfolioIds]},
       ...(queued&&plan.parts.length>1?{id:crypto.randomUUID()}:{})};
     run=current;
@@ -607,8 +625,8 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     },
     /** Takes the report out of the panel; what it holds stays for when it is opened again. */
     shelve(){if(root.parentElement!==shelf)shelf.append(root);root.hidden=true;},
-    /** Gives up the setup's edits, which the person has agreed to leave: the report starts afresh. Without edits it is left as it is. */
-    dropEdits(){if(edited())reset();},
+    /** Gives up the setup's edits, which the person has agreed to leave, and starts the setup again; the run stays. Without edits, nothing changes. */
+    dropEdits(){if(edited())restartSetup();},
     /**
      * The inputs on screen changed, by a live correction or a settlement record: what the report holds is forgotten, as `reset` does, so
      * that a run is only ever made at the inputs on screen. With `carry` the setup's choices are kept for the next catalog read, which

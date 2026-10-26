@@ -480,6 +480,35 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('another effective date clears the run, and the note that says so stays while the date\'s knowledge is read',
     `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&${typedDate}==='2099-01-01'&&${knowledgeRead('2099-01-01')}`,
     `[${notice},${typedDate},${noRun},document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent,window.__riskReads.slice(-4).map(r=>[r.path,JSON.stringify(r.data).slice(0,160)])]`);
+  // Working data again, read at the date's own close as the rest of the scenario is; a question about the newest close is closed unanswered.
+  await click('#return-working');await wait(idle);
+  if(await evaluate("document.querySelector('#market-date-dialog').open"))await click('#market-date-close');
+  await set('#snapshot',frame);await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled&&"+idle);
+  // Giving the setup's edits up starts the setup again and never clears the run on the desk: only a change of close, context or books, a
+  // new read, a live correction or a settlement record clears a run, each with its note (D222). While a run is on the desk its setup can
+  // hold edits in the nested stress, a size not yet added, which change nothing the run was made with.
+  const stressEdit=async()=>{
+    await click('#desk-run-edit');await wait(panelRisk+'&&'+idle);
+    if(!await evaluate("document.querySelector('#risk-stress').open"))await click('#risk-stress>summary');
+    await typeInto('#risk-stress-size','0.2');
+  };
+  const runChoices="document.querySelector('input[name=risk-choice][value=custom]').checked&&document.querySelector('#risk-factor').value!==''&&document.querySelector('#risk-bump').value==='0.1'";
+  await runOnDesk();await stressEdit();
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel-prompt').hidden");
+  await check('opening a position while the setup holds a nested stress edit asks first, and the run stays on the desk meanwhile',`${inline}&&document.querySelector('#side-panel').dataset.mode==='risk'`);
+  await click('#side-panel-prompt button:not(.secondary)');await wait("document.querySelector('#side-panel').dataset.mode==='position'&&"+idle);
+  await check('Discard changes gives the edit up and opens the position, and the run stays on the desk',`${inline}&&document.querySelector('#side-panel').dataset.mode==='position'`,
+    "[document.querySelector('#desk-run').hidden,document.querySelector('#side-panel').dataset.mode,document.querySelector('#desk-tile-risk').textContent]");
+  await click('#desk-run-edit');await wait(panelRisk+'&&'+idle);
+  await check('Edit shocks then opens the setup on the run\'s choices, without the edit that was given up',`${runChoices}&&document.querySelector('#risk-stress-size').value===''&&${inline}`,
+    "[document.querySelector('input[name=risk-choice]:checked')?.value,document.querySelector('#risk-factor').value,document.querySelector('#risk-bump').value,document.querySelector('#risk-stress-size').value]");
+  await stressEdit();
+  await set('#date-context-on','2099-01-03');await wait("!document.querySelector('#side-panel-prompt').hidden");
+  await check('a date typed while the setup holds a nested stress edit waits for the person, and the run stays meanwhile',`${inline}&&!(${notice}).includes(${JSON.stringify(cleared)})`,notice);
+  await click('#side-panel-prompt button:not(.secondary)');await wait(idle);
+  await check('Discard changes keeps the run until the date it lets through clears it, and the note says so',
+    `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&${typedDate}==='2099-01-03'&&${knowledgeRead('2099-01-03')}`,
+    `[${notice},${typedDate},${noRun},document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent]`);
   await click('#return-working');await wait(idle);
   // An account that may amend trades and run risk, so that the change waits for the amendment its panel holds.
   await persona('admin');
