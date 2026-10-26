@@ -6,14 +6,10 @@ import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
 import {curvePoints,minus,noteMeaning,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
 import {publicText} from './market-view.js';
 import {kpi,label,node,space} from './tiles.js';
-import {divergingBar,sparklineGeometry} from './mini-charts.js';
+import {divergingBar} from './mini-charts.js';
+import {drawSparkline,svgNode as shape,svgTooltip as tooltip} from './mini-chart-view.js';
 import type {LensShock,RunNote} from './risk-lens.js';
 
-const svgNamespace='http://www.w3.org/2000/svg';
-function shape<K extends keyof SVGElementTagNameMap>(tag:K,attributes:Record<string,string|number>){
-  const element=document.createElementNS(svgNamespace,tag);for(const [name,value] of Object.entries(attributes))element.setAttribute(name,String(value));return element;
-}
-function tooltip(element:SVGElement,text:string){const title=shape('title',{});title.textContent=publicText(text);element.prepend(title);return element;}
 // The largest magnitude among exact amounts, for a shared bar scale: chosen by exact comparison, never computed.
 function largest(values:readonly string[]){
   let top='0';for(const value of values){const magnitude=value.replace(/^-/,'');if(compareDecimalStrings(magnitude,top)>0)top=magnitude;}return top;
@@ -212,21 +208,13 @@ export type LensRowView={state:'shocks';shocks:readonly LensShock[];scale:string
 // The sizes of a row's shocks, each once, as the Shock cell states them under a count.
 const sizesOf=(shocks:readonly LensShock[])=>[...new Set(shocks.map(s=>`±${s.bump} ${s.unit}`))].join('; ');
 const sparkWidth=84,sparkHeight=22;
-// A row's sparkline from its market's curve shape, or the reason it has none.
+// A row's sparkline from its market's curve shape, or the reason it has none. One row's curve that cannot be drawn says so in its own
+// cell; the other rows are unaffected.
 function sparklineSvg(shown:CurveShape|string,row:DeskRow,color:string):SVGElement{
-  const box=shape('svg',{class:'sparkline',width:sparkWidth,height:sparkHeight,viewBox:`0 0 ${sparkWidth} ${sparkHeight}`,role:'img'});
-  const unavailable=(reason:string)=>{box.setAttribute('class','sparkline sparkline-unavailable');box.setAttribute('aria-label',publicText(reason));
-    box.replaceChildren(shape('line',{x1:3,x2:sparkWidth-3,y1:sparkHeight/2,y2:sparkHeight/2}));return tooltip(box,reason);};
-  if(typeof shown==='string')return unavailable(shown);
-  // One row's curve that cannot be drawn says so in its own cell; the other rows are unaffected.
-  try{
-    const sparkline:Sparkline=curvePoints(shown,row);if(sparkline.state==='unavailable')return unavailable(sparkline.reason);
-    const geometry=sparklineGeometry(sparkline.points,sparkWidth,sparkHeight);
-    if(!geometry.path)return unavailable('Curve shape unavailable · no prices at this close');
-    box.append(shape('path',{d:geometry.path,stroke:color,class:'sparkline-line'}));
-    for(const x of sparkline.marks){const mark=sparklineGeometry(sparkline.points,sparkWidth,sparkHeight,x).mark;if(mark)box.append(shape('circle',{cx:mark.x,cy:mark.y,r:3,fill:color,class:'sparkline-mark'}));}
-    box.setAttribute('aria-label',publicText(sparkline.title.split('\n')[0]));return tooltip(box,sparkline.title);
-  }catch{return unavailable('Curve shape unavailable');}
+  const draw=(sparkline:Sparkline)=>drawSparkline(sparkline,sparkWidth,sparkHeight,color);
+  if(typeof shown==='string')return draw({state:'unavailable',reason:shown});
+  try{return draw(curvePoints(shown,row));}
+  catch{return draw({state:'unavailable',reason:'Curve shape unavailable'});}
 }
 
 /**

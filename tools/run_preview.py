@@ -869,6 +869,9 @@ def main():
                     # The desk's scenarios run in this suite; a slower runner needs more than six minutes for all of them.
                     if browser_process.wait(timeout=900):
                         raise RuntimeError('Owned browser checks failed')
+                    if evidence:=os.environ.get('OPENETRM_MARKETS_BROWSER_EVIDENCE'):
+                        destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                        for screenshot in temporary.glob('markets-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
                 # Preview sessions are capped, so the checks below share this session instead of each opening one.
                 from check_swaps_preview import run_checks as check_swaps
                 session=check_swaps(url)

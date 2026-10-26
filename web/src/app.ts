@@ -26,7 +26,7 @@ import {renderRegularTable,clearTableFilters} from './regular-table.js';
 import {curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
 import {type PricingGraph,pricingGraph,pricingEquation} from './pricing-view.js';
 import {renderPricingGraph} from './pricing-graph-view.js';
-import {type Row,type Frame,type Workspace,type CurveResult,type PriceHistory,type ReferenceDisplay,displayReferenceRows,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,marketTypeName,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText} from './market-view.js';
+import {type Row,type Frame,type Workspace,type CurveResult,type PriceHistory,type ReferenceDisplay,displayReferenceRows,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText} from './market-view.js';
 import {dataSections} from './data-sections.js';
 import {type Preferences,newPreferences,loadPreferences,savePreferences,validTimeZone,zoneChoices} from './preferences.js';
 import {setupShortcutEditor,scheduleErrorMessage} from './shortcut-view.js';
@@ -36,6 +36,9 @@ import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} fro
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
 import {readPages,type TargetContext} from './assistant-events.js';
+import {readCurveShapes} from './curve-shapes.js';
+import type {CurveShape} from './desk-model.js';
+import {commodityDot,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
 
 const exampleId=new URLSearchParams(location.search).get('example')??'baseline';
 if(!['baseline','exchange'].includes(exampleId))throw Error('Choose an available example.');
@@ -52,6 +55,8 @@ let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,
 let sourceOnlyCurve=false,historyRequested=false;
 let contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 let navigation:MarketNavigation|undefined,marketGeneration=0;
+// The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
+let boardShapes:{owner:MarketNavigation;scope:string;shapes:ReadonlyMap<string,CurveShape|string>}|undefined;
 let liveSucceeded:Date|undefined;
 let liveStream:EventSource|undefined,liveUpdates:LiveUpdates<LiveContextUpdate & {generation:number}>|undefined,liveId='',lastLiveUpdate:LiveContextUpdate|undefined;
 type ReferencePage={table:string;rows:Row[];references:Record<string,Row[]>;referenceDisplay?:ReferenceDisplay|null;offset:number;pageSize:number;maximumOffset:number;hasMore:boolean;search:string;referenceRevision:{catalogId:string;revisionId:string};definitionRevisionId:string;context:Context|null;profile:string;referenceScope:'selected_table'};
@@ -299,6 +304,36 @@ function renderCloseBadge(){
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
 function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
 function renderFrames(value:string){const frames=offeredFrames();choose('snapshot',[{value:'',name:frames.length?'Choose a date…':'No inputs for this context date'},...frameOptions(frames,prefs.timeZone)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}
+// The board's shapes are those of one close of one directory, read for one account and context: any change of them leaves none read.
+const boardScope=()=>JSON.stringify([administrationScope,currentProfile,select('snapshot').value,contextDirty]);
+function readShapes():ReadonlyMap<string,CurveShape|string>{const kept=boardShapes;return kept&&kept.owner===navigation&&kept.scope===boardScope()?kept.shapes:new Map();}
+const board=()=>marketBoard(directory(),{by:prefs.browseBy,commodity:prefs.market,type:prefs.marketType},readShapes());
+// Choosing a curve, from the library or from its card on the board.
+function chooseCurve(code:string){void act(async()=>{curve=code;invalidateMarketDates();clearPrices();if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}});}
+// The market board, while no curve is shown: every listed curve at the selected close, or what to choose before there is one.
+function renderMarketBoard(){
+  const shown=!curve||!workspace,close=navigation&&!contextDirty?navigation.frames.find(f=>f.id===select('snapshot').value):undefined;
+  $('market-board').hidden=!shown;$('market-board-empty').hidden=!!close;$('market-board-groups').hidden=!close;
+  text('market-board-status',close?`Prices at the close of ${instant(close.at)}`:'');
+  text('market-board-empty-title',contextDirty?'Apply the changed context':'Choose a market date');
+  text('market-board-empty-help',contextDirty?'View the changed context, then choose a close in As of to see every curve at it.':'Pick a close in As of above to see every curve at that close, or choose a curve from the list.');
+  if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve);else $('market-board-groups').replaceChildren();
+}
+// Reads the curve shapes of the listed curves at the selected close that are not read yet, at most 64 to a read, and draws them on the
+// board and in the library. A read that a change of account, directory, close or context overtakes is refused, as build() refuses one.
+async function loadBoard(){
+  if(page!=='market'||contextDirty||!navigation||!select('snapshot').value)return;
+  const owner=directory(),started=marketGeneration,scope=boardScope(),known=readShapes(),reads=shapeReads(board());
+  if(reads.length){
+    const source={snapshotId:frame().id,context:historicalContext()};
+    const read=await Promise.all(reads.map(curves=>readCurveShapes(api,source,curves)));
+    if(navigation!==owner||started!==marketGeneration||scope!==boardScope())throw Error('The account or market selection changed. Reload before continuing.');
+    const shapes=new Map(known);
+    reads.forEach((curves,i)=>{for(const code of curves)shapes.set(code,read[i].get(code)??'Curve shape unavailable · the read did not return this curve');});
+    boardShapes={owner,scope,shapes};
+  }
+  renderBrowse();renderMarketBoard();
+}
 function renderBrowse(){
   const categories=navigationCategories(directory()),commodities=categories.map(c=>c.code);
   // No commodity code is empty, so the empty value can only mean All markets.
@@ -306,15 +341,16 @@ function renderBrowse(){
   // Discard an unavailable presentation filter; market inputs remain separately pinned.
   if(prefs.market!==null&&!commodities.includes(prefs.market)){prefs.market=null;select('commodity').value='';}
   select('browse-by').value=prefs.browseBy;document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>{const active=b.dataset.type===prefs.marketType;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
-  const groups=navigationGroups(directory(),prefs.browseBy,prefs.market,prefs.marketType);text('curve-count',String(groups.reduce((n,g)=>n+g.curves.length,0)));
+  const groups=board();text('curve-count',String(groups.reduce((n,g)=>n+g.cards.length,0)));
   const owner=directory();
   $('curves').replaceChildren(...groups.map(group=>{const section=el('details'),key=prefs.browseBy+'|'+group.key;section.className='curve-group';section.open=!prefs.collapsedCurveGroups.includes(key);section.append(el('summary',group.name));
     section.ontoggle=()=>{if(!section.isConnected||navigation!==owner)return;const closed=prefs.collapsedCurveGroups.includes(key);if(closed===!section.open)return;prefs.collapsedCurveGroups=section.open?prefs.collapsedCurveGroups.filter(k=>k!==key):[...prefs.collapsedCurveGroups,key].slice(-64);persist();};
-    group.curves.forEach(c=>{const button=el('button');button.className='curve-button'+(c.code===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.code===curve));button.append(el('span',curveName(c.code)),el('small',marketTypeName(c.marketType)));button.onclick=()=>void act(async()=>{curve=c.code;invalidateMarketDates();clearPrices();if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}});section.append(button);});return section;}));
+    // The name and type are the row's text; the commodity dot and the curve's sparkline beside them are decorative.
+    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c);button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(commodityDot(c),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
   if(!groups.length)$('curves').append(el('p','No curves match these choices.'));
 }
 function renderContext(){
-  const example=directory().example;$('example').hidden=!example;text('example-help',example?`${curveName(example.curve)} · ${instant(example.at)}`:'No market inputs have been imported.');renderLayout();renderBrowse();$('welcome').hidden=!!curve&&!!workspace;$('curve-detail').hidden=!curve||!workspace;
+  const example=directory().example;$('example').hidden=!example;text('example-help',example?`${curveName(example.curve)} · ${instant(example.at)}`:'No market inputs have been imported.');renderLayout();renderBrowse();renderMarketBoard();$('curve-detail').hidden=!curve||!workspace;
   $('curve-power').hidden=!curve||!workspace?.powerCurveCodes.includes(curve);
   if(curve&&workspace){const c=selectedCurve(),listed=listedCurve(),kind=listed.marketType;renderSummary();text('curve-kind',navigationCurveKind(listed));text('curve-title',curveName(curve));
     const specification=kind==='rates'?row('interest_rate_definitions','code',val(c,'interest_rate_code'),true):undefined;
@@ -525,7 +561,7 @@ async function refreshLiveScreen(update:LiveContextUpdate){
  if(liveId!==update.live.id||!navigation?.live||!navigation.context)throw Error('The live selection changed.');
  renderFrames(navigation.frames[0]?.id??'');dateEditor.showContext(navigation.context);
  jobs.contextChanged();
- if(page==='market'&&curve){const selectedHistory=contract;await build();if(historyRequested&&selectedHistory){contract=selectedHistory;await history();}}
+ if(page==='market'){if(curve){const selectedHistory=contract;await build();if(historyRequested&&selectedHistory){contract=selectedHistory;await history();}}await loadBoard();}
  else if(page==='custom-curves')await customCurves.liveRefresh();
  else if(page==='futures')await futures.liveRefresh();
  else if(page==='reference')await loadReference();
@@ -546,11 +582,11 @@ function connectLive(selection:LiveSelection){
  });
  stream.onerror=()=>{if(liveStream===stream)liveUpdates?.disconnected();};
 }
-async function reload(selected:string){await loadNavigation();renderFrames(selected);if(curve)await loadWorkspace();renderContext();}
-function updateFilters(){
+async function reload(selected:string){await loadNavigation();renderFrames(selected);if(curve)await loadWorkspace();renderContext();await loadBoard();}
+async function updateFilters(){
   prefs.browseBy=select('browse-by').value as Preferences['browseBy'];prefs.market=select('commodity').value||null;persist();
   if(curve&&!navigationGroups(directory(),prefs.browseBy,prefs.market,prefs.marketType).some(g=>g.curves.some(c=>c.code===curve))){curve='';invalidateMarketDates();clearPrices();}
-  renderContext();syncControls();
+  renderContext();await loadBoard();syncControls();
 }
 async function openProfile(){
   try{
@@ -622,7 +658,7 @@ function closeChanged(){
 }
 async function loadSelectedClose(){
   if(!select('snapshot').value)return;
-  if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'&&curve)await build();
+  if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}
 }
 // A close the person chooses waits for them to agree to what choosing it gives up. The hidden select that every read and command takes its close from
 // stays on the close the page shows until they do, so that nothing made while the question is open uses a close they have not confirmed, and keeping
@@ -633,11 +669,11 @@ function chooseClose(id:string){
 }
 $('snapshot').onchange=()=>chooseClose(select('snapshot').value);
 $('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await initializeContext();await build();});
-$('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').onchange=()=>void act(async()=>updateFilters());
-document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];updateFilters();}));
+$('browse-by').onchange=()=>void act(updateFilters);$('commodity').onchange=()=>void act(updateFilters);
+document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];await updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
-function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();clearReference();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();text('environment-context-note','Context changed · choose View this context to apply it.');}
+function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();clearReference();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=>administrationScope+':'+currentProfile,profileChoices);
 // A person's own agent grants, in the profile dialog (docs/ai-assistant.md §7.1).
@@ -725,7 +761,7 @@ $('correction-form').onsubmit=event=>{event.preventDefault();void act(async()=>{
 // Opens a page as its navigation does. The assistant's moves and Back open pages the same way.
 async function showPage(next:string){
   switch(next){
-    case 'market':await setPage('market');return;
+    case 'market':await setPage('market');await loadBoard();return;
     case 'custom-curves':await setPage('custom-curves');await customCurves.load();return;
     case 'delivery':await setPage('delivery');await deliveryPrices.load();return;
     case 'interval-series':await setPage('interval-series');await intervalSeries.load();return;
@@ -808,7 +844,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       const code=String(selection.curve);
       if(selection.view!=='curves'&&!directory().curves.some(c=>c.code===code))throw Error('That curve is not in this market data.');
       await setPage('market');
-      if(selection.view==='curves'){curve='';invalidateMarketDates();clearPrices();renderContext();return;}
+      if(selection.view==='curves'){curve='';invalidateMarketDates();clearPrices();renderContext();await loadBoard();return;}
       prefs.tab=selection.view==='observations'?'inputs':prefs.tab==='inputs'?'prices':prefs.tab;persist();
       curve=code;invalidateMarketDates();clearPrices();
       if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}

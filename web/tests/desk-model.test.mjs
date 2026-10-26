@@ -284,6 +284,9 @@ test('the explicit energy codes of the imported catalog take the same identity c
  assert.equal(colors.get('other'),'#2f8a66');
 });
 
+// The shapes of a curve whose view selects no contract, and of one whose contracts the close prices none of, as the backend states them.
+const noRemaining={...fixture.shapes[0],points:[],contractCount:0,front:null,availability:'no_remaining_contracts'};
+const nonePriced={...fixture.shapes[0],points:fixture.shapes[0].points.map(p=>({...p,price:null,unavailableReason:'missing_observation'})),front:null,availability:'no_priced_contract'};
 test('a curve shape becomes sparkline points in its order, with gaps kept and the delivery period marked',()=>{
  const [shape]=fixture.shapes,[swap]=positionRows(fixture.holdings);
  const drawn=curvePoints(shape,swap);
@@ -300,8 +303,16 @@ test('a curve the close cannot shape says why, quietly, and never draws a defaul
  assert.deepEqual(curvePoints(unread,rows[4]),{state:'unavailable',reason:"Curve shape unavailable · this market's curve is not in the definitions of this close"});
  assert.deepEqual(curvePoints({...unread,unavailableReason:'missing_curve_view'},rows[4]),{state:'unavailable',reason:'Curve shape unavailable · no curve view at this close'});
  assert.deepEqual(curvePoints({...unread,unavailableReason:'other_code'},rows[4]),{state:'unavailable',reason:'Curve shape unavailable'});
- assert.deepEqual(curvePoints({...fixture.shapes[0],points:[]},rows[0]),{state:'unavailable',reason:'Curve shape unavailable · no contracts at this close'});
- assert.deepEqual(curvePoints({...fixture.shapes[0],points:fixture.shapes[0].points.map(p=>({...p,price:null,unavailableReason:'missing_observation'}))},rows[0]),{state:'unavailable',reason:'Curve shape unavailable · no prices at this close'});
+ assert.deepEqual(curvePoints(noRemaining,rows[0]),{state:'unavailable',reason:'Curve shape unavailable · no contracts at this close'});
+ assert.deepEqual(curvePoints(nonePriced,rows[0]),{state:'unavailable',reason:'Curve shape unavailable · no prices at this close'});
+});
+test('a curve says it has no contracts or no prices because the backend states it, not because the browser counted',()=>{
+ const [shape]=fixture.shapes,rows=positionRows(fixture.holdings);
+ // The points alone would draw a line: only the backend's availability says the close prices none of them.
+ assert.deepEqual(curvePoints({...shape,front:null,availability:'no_priced_contract'},rows[0]),{state:'unavailable',reason:'Curve shape unavailable · no prices at this close'});
+ assert.deepEqual(curvePoints({...shape,front:null,availability:'no_remaining_contracts'},rows[0]),{state:'unavailable',reason:'Curve shape unavailable · no contracts at this close'});
+ // A shape that states neither a front nor why it has none is inconsistent, and is never drawn.
+ assert.deepEqual(curvePoints({...shape,front:null},rows[0]),{state:'unavailable',reason:'Curve shape unavailable · the curve read is inconsistent'});
 });
 
 test('a position formats its amounts by its own deal: its swap price by the fixed side\'s precision, its marks by the clearing increment',async()=>{
@@ -353,7 +364,7 @@ test('a delivery period over several contracts marks each, and one the curve doe
 
 test('a curve the close cannot draw says why, in the words a row says it in',()=>{
  assert.deepEqual(curveChart(fixture.shapes[1],draftTarget),{state:'unavailable',reason:"Curve shape unavailable · this market's curve is not in the definitions of this close"});
- assert.deepEqual(curveChart({...fixture.shapes[0],points:[]},draftTarget),{state:'unavailable',reason:'Curve shape unavailable · no contracts at this close'});
+ assert.deepEqual(curveChart(noRemaining,draftTarget),{state:'unavailable',reason:'Curve shape unavailable · no contracts at this close'});
 });
 
 // A scheduled swap (D214) holds quantities and prices by period, and a swap whose settlement lifecycle is under way is valued by it.

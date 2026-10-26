@@ -216,7 +216,11 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .browse-controls select{width:100%;font-size:12.5px;min-height:32px;padding:5px 8px}
 .curve-group{margin-bottom:6px}
 .curve-group summary{display:flex;justify-content:space-between;align-items:center;list-style:none;font-size:12px;color:var(--text-3);font-weight:600;padding:6px 6px}
-.curve-button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;white-space:normal;background:none;border:1px solid transparent;color:var(--text);padding:7px 10px;border-radius:var(--radius-sm);font-weight:500;font-size:13px}
+.curve-button{display:grid;grid-template-columns:8px minmax(0,1fr) auto;grid-template-areas:"dot name line" "dot type line";align-items:center;column-gap:9px;row-gap:1px;width:100%;text-align:left;white-space:normal;background:none;border:1px solid transparent;color:var(--text);padding:7px 8px 7px 10px;border-radius:var(--radius-sm);font-weight:500;font-size:13px}
+.curve-button .commodity-dot{grid-area:dot;align-self:start;margin-top:6px}
+.curve-button span{grid-area:name;min-width:0}
+.curve-button small{grid-area:type}
+.curve-button .sparkline{grid-area:line}
 .curve-button:hover{background:var(--surface-3);border-color:transparent}
 .curve-button small{font-size:11.5px;color:var(--text-3);font-weight:400}
 .curve-button.selected{background:var(--accent-soft);border-color:#c5ddd0;color:var(--accent-text)}
@@ -225,11 +229,48 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .library-collapsed .library-title,.library-collapsed #curve-count,.library-collapsed .library-filters{display:none}
 .library-collapsed .library-chevron{transform:rotate(180deg);margin:0 auto}
 .market-content{min-width:0}
-.welcome{min-height:380px;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:48px 24px}
-.welcome h2{font-size:22px}
-.welcome p{max-width:420px;color:var(--text-3);margin:10px 0 20px}
-.welcome-icon{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:var(--accent-soft);color:var(--accent);margin-bottom:18px}
-.welcome-icon svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+/* A curve's commodity dot, in the library and on the board; a curve without a commodity has a hollow one. */
+.commodity-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--commodity);flex:none}
+.commodity-dot-none{background:none;box-shadow:inset 0 0 0 1.5px var(--border-strong)}
+/* The market board: every listed curve at the selected close, while no curve is shown. */
+.market-board-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px 24px;flex-wrap:wrap;margin:2px 0 18px}
+.market-board-head .eyebrow{margin:0 0 2px}
+.market-board-head h2{font-size:22px;letter-spacing:-.4px}
+.market-board-status{margin:4px 0 0;font-size:13px;color:var(--text-3)}
+.market-board-sample{display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:100%}
+.market-board-sample .fine-print{margin:0;text-align:right}
+.market-board-empty{min-height:340px;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:44px 24px;background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--radius-lg)}
+.market-board-empty h3{font-size:18px;margin:0}
+.market-board-empty p{max-width:420px;color:var(--text-3);margin:8px 0 0}
+.market-board-empty-icon{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:var(--accent-soft);color:var(--accent);margin-bottom:16px}
+.market-board-empty-icon svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.market-board-group{margin:0 0 24px}
+.market-board-group-name{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:650;margin:0 0 10px}
+.market-board-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,248px),1fr));gap:12px}
+.market-board-none{color:var(--text-3)}
+.market-card{position:relative;display:flex;flex-direction:column;min-width:0;padding:14px 16px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);transition:border-color .15s,box-shadow .15s,transform .15s}
+.market-card:hover{border-color:var(--border-strong);box-shadow:0 6px 18px rgba(18,34,27,.08);transform:translateY(-1px)}
+.market-card:has(.market-card-open:focus-visible){outline:3px solid #e0b35a;outline-offset:2px}
+.market-card[data-state=unavailable],.market-card[data-state=unread]{background:var(--surface-2)}
+.market-card-head{display:flex;align-items:center;gap:8px;min-width:0}
+.market-card-name{flex:1;min-width:0;margin:0;font-size:14px;line-height:1.35}
+.market-card-open{background:none;border:0;padding:0;color:var(--text);font-weight:600;font-size:14px;text-align:left;white-space:normal;overflow-wrap:anywhere}
+.market-card-open:hover{background:none;color:var(--accent-text)}
+.market-card-open:focus-visible{outline:none}
+/* The name's button covers the whole card, so the card opens the curve wherever it is clicked. */
+.market-card-open::after{content:'';position:absolute;inset:0;border-radius:var(--radius-lg)}
+.market-card-kind{margin:1px 0 0 16px;font-size:12px;color:var(--text-3)}
+.market-card-figures{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:8px 12px;margin:14px 0 10px}
+.market-card-front{display:flex;flex-direction:column;gap:1px;min-width:0}
+.market-card-label{font-size:12px;font-weight:550;color:var(--text-3)}
+.market-card .kpi-value{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.6px}
+.market-card .kpi-figure{white-space:nowrap}
+.market-card-figures .sparkline{flex:none;margin-bottom:4px}
+.market-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto;padding-top:9px;border-top:1px solid var(--border);font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.market-card-unit{font-size:11px;padding:1px 8px}
+.market-card-reason,.market-card-note{margin:14px 0 12px;font-size:13px;line-height:1.45;color:var(--text-3)}
+.market-card-reason{color:var(--text-2);font-weight:500}
+@media(max-width:760px){.market-board-head{align-items:flex-start}.market-board-sample{align-items:flex-start}.market-board-sample .fine-print{text-align:left}}
 .curve-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
 .curve-header h2{font-size:22px}
 .curve-header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
