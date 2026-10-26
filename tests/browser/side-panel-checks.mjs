@@ -207,8 +207,8 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await evaluate("document.body.classList.add('assistant-open')");
   await wait(`${panel}.dataset.placement==='overlay'`);
   await check('with the assistant open the panel is an overlay beside it, not docked',
-    `${panel}.dataset.placement==='overlay'&&Math.round(${panel}.getBoundingClientRect().right)===innerWidth-parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--assistant-width'))&&document.querySelector('#desk-positions [role=columnheader][tabulator-field=c6]').style.display!=='none'`,
-    `[${panel}.dataset.placement,${panel}.getBoundingClientRect().right,innerWidth,getComputedStyle(document.documentElement).getPropertyValue('--assistant-width')]`);
+    `${panel}.dataset.placement==='overlay'&&Math.round(${panel}.getBoundingClientRect().right)===document.documentElement.clientWidth-parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--assistant-width'))&&document.querySelector('#desk-positions [role=columnheader][tabulator-field=c6]').style.display!=='none'`,
+    `[${panel}.dataset.placement,${panel}.getBoundingClientRect().right,document.documentElement.clientWidth,getComputedStyle(document.documentElement).getPropertyValue('--assistant-width')]`);
   await evaluate("document.body.classList.remove('assistant-open')");
   await wait(`${panel}.dataset.placement==='docked'`);
   await check('and docks again when the assistant closes',`${panel}.dataset.placement==='docked'&&document.querySelector('#desk-positions [role=columnheader][tabulator-field=c6]').style.display==='none'`);

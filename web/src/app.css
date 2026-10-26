@@ -693,13 +693,13 @@ dialog label{margin-top:16px}
 .side-panel[data-placement=docked] .side-panel-frame{position:sticky;top:8px;max-height:calc(100vh - 16px)}
 .side-panel[data-placement=overlay]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-overlay-width),100%);border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
 .side-panel[data-placement=overlay] .side-panel-frame{height:100%}
-body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100vw - var(--assistant-width)))}
+body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100% - var(--assistant-width)))}
 @media(max-width:760px){.side-panel[data-placement=overlay],body.assistant-open .side-panel[data-placement=overlay]{right:0;left:0;width:100%;border-left:0}}
 /* What needs more room than a docked panel has, a swap's settlement figures, opens the panel wide: it lies over the page, which keeps
    its layout beneath, docked or not, and never over the navigation, which stays in view and in reach (D221). */
 .side-panel[data-wide]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-wide-width),calc(100% - var(--sidebar-width)));border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
 .side-panel[data-wide] .side-panel-frame{position:relative;top:auto;height:100%;max-height:none}
-body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:min(var(--panel-wide-width),calc(100vw - var(--assistant-width) - var(--sidebar-width)))}
+body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:min(var(--panel-wide-width),calc(100% - var(--assistant-width) - var(--sidebar-width)))}
 .side-panel-close{position:absolute;top:8px;right:8px;z-index:1;width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:var(--radius-sm)}
 .side-panel-close:hover{background:var(--surface-3);color:var(--text)}
 /* The close button sits over the prompt's right edge too, so the question keeps clear of it. */
