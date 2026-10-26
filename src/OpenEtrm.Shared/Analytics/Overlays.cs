@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Numerics;
 using System.Text.RegularExpressions;
 using OpenEtrm.Shared.Numerics;
@@ -26,7 +27,7 @@ public static partial class Overlays
     public const string Policy = "exact_rational_half_even_18_v1";
     private const string Simple = "simple_moving_average_v1", Exponential = "exponential_moving_average_v1", Range = "rolling_range_v1";
     private const string Incomplete = "window_incomplete";
-    private const int MaxRequests = 4, Scale = 18;
+    private const int MaxRequests = 4, MaxPoints = 35_136, Scale = 18;
 
     private static ImmutableArray<OverlayParameter> WindowParameter { get; } = [new("window", "Window", 2, 250)];
 
@@ -41,6 +42,8 @@ public static partial class Overlays
     {
         if (requests.Length > MaxRequests)
             throw new OverlayException("overlay_parameter", $"At most {MaxRequests} overlays can be requested.");
+        if (requests.Any(r => r.Parameters is null))
+            throw new OverlayException("overlay_parameter", "Overlay parameters are required.");
         var windows = requests.Select(Window).ToArray();
         var values = Parse(series);
         return [.. requests.Zip(windows, (request, window) => new OverlayResult(request.Code,
@@ -61,6 +64,8 @@ public static partial class Overlays
 
     private static Ratio?[] Parse(ImmutableArray<OverlayPoint> series)
     {
+        if (series.Length > MaxPoints)
+            throw new OverlayException("overlay_input", $"At most {MaxPoints} points can be overlaid.");
         for (var i = 1; i < series.Length; i++)
             if (series[i].At <= series[i - 1].At)
                 throw new OverlayException("overlay_input", "Series instants must be strictly increasing.");
@@ -93,8 +98,8 @@ public static partial class Overlays
                 for (var i = 0; i < values.Length; i++)
                 {
                     if (values[i] is not { } x) continue;
-                    if (i > 0 && ema[i - 1] is { } previous) ema[i] = alpha * x + retained * previous;
-                    else if (Window(i) is { Length: > 0 } w) ema[i] = Ratio.Sum(w) / window;
+                    if (i > 0 && ema[i - 1] is { } previous) ema[i] = (alpha * x + retained * previous).Rounded();
+                    else if (Window(i) is { Length: > 0 } w) ema[i] = (Ratio.Sum(w) / window).Rounded();
                 }
                 return Single(Build(i => ema[i]));
         }
@@ -118,7 +123,7 @@ public static partial class Overlays
             if (!Decimal().IsMatch(text))
                 throw new OverlayException("overlay_input", $"'{text}' is not a plain decimal number.");
             var places = text.Contains('.') ? text.Length - text.IndexOf('.') - 1 : 0;
-            return new(BigInteger.Parse(text.Replace(".", "")), BigInteger.Pow(10, places));
+            return new(BigInteger.Parse(text.Replace(".", ""), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture), BigInteger.Pow(10, places));
         }
 
         public static Ratio Sum(IEnumerable<Ratio> terms) => terms.Aggregate(new Ratio(0, 1), (sum, term) => sum + term);
@@ -126,6 +131,9 @@ public static partial class Overlays
         public static Ratio operator *(Ratio a, Ratio b) => new(a.numerator * b.numerator, a.denominator * b.denominator);
         public static Ratio operator /(Ratio a, int divisor) => new(a.numerator, a.denominator * divisor);
         public int CompareTo(Ratio other) => (numerator * other.denominator).CompareTo(other.numerator * denominator);
+
+        // The value as reported: rounded once at the policy scale.
+        public Ratio Rounded() => Parse(Format());
 
         public string Format()
         {
@@ -136,7 +144,7 @@ public static partial class Overlays
             return (scaled.Sign < 0 ? "-" : "") + (fraction.Length == 0 ? whole : $"{whole}.{fraction}");
         }
 
-        [GeneratedRegex(@"^-?\d+(\.\d+)?$")]
+        [GeneratedRegex(@"^-?[0-9]+(\.[0-9]+)?\z")]
         private static partial Regex Decimal();
     }
 }

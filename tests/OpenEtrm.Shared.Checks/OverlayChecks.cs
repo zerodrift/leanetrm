@@ -24,6 +24,12 @@ internal static class OverlayChecks
             Equal(Values("simple_moving_average_v1", 2, "0.000000000000000003", "0.000000000000000002"), "null,0.000000000000000002");
             Equal(Values("simple_moving_average_v1", 2, "-0.000000000000000001", "-0.000000000000000002"), "null,-0.000000000000000002");
         });
+        Check("the exponential recurrence carries the previously reported rounded value", () =>
+        {
+            // Seed 4/3 reports 1.333333333333333333; half of it is a tie at 18 places that rounds to the even digit 6.
+            // An exact carry would report ...667.
+            Equal(Values("exponential_moving_average_v1", 3, "1", "1", "2", "0"), "null,null,1.333333333333333333,0.666666666666666666");
+        });
         Check("exponential moving average seeds with the simple mean and restarts after a missing point", () =>
         {
             Equal(Values("exponential_moving_average_v1", 3, "2", "4", "6", "8"), "null,null,4,6");
@@ -60,12 +66,31 @@ internal static class OverlayChecks
             Refuse("overlay_parameter", Enumerable.Repeat(Request("rolling_range_v1", ("window", 3)), 5).ToArray());
             Equal(Overlays.Compute(Points("1", "2"), [Request("simple_moving_average_v1", ("window", 250)), Request("rolling_range_v1", ("window", 2))]).Length, 2);
         });
+        Check("missing windows carry the window_incomplete reason on every overlay", () =>
+        {
+            Equal(Reasons("exponential_moving_average_v1", 3, "2", "4", "6", "8"), "window_incomplete,window_incomplete,,");
+            var range = Compute("rolling_range_v1", 2, "3", null, "5")[0];
+            foreach (var name in new[] { "high", "low" })
+                Equal(string.Join(",", range.Series[name].Select(v => v.Reason ?? "")), "window_incomplete,window_incomplete,window_incomplete");
+        });
+        Check("a null parameter set is refused and an empty series is computed as empty", () =>
+        {
+            Refuse("overlay_parameter", new OverlayRequest("simple_moving_average_v1", null!));
+            Equal(Compute("simple_moving_average_v1", 3)[0].Series["value"].Length, 0);
+        });
+        Check("the series is capped at one year of half-hour points", () =>
+        {
+            var request = Request("simple_moving_average_v1", ("window", 2));
+            ImmutableArray<OverlayPoint> Of(int count) => [.. Enumerable.Range(0, count).Select(i => new OverlayPoint(Start.AddMinutes(30 * i), "1"))];
+            Equal(Overlays.Compute(Of(35136), [request])[0].Series["value"].Length, 35136);
+            Refuse("overlay_input", Of(35137), request);
+        });
         Check("series must be strictly ordered exact decimals", () =>
         {
             var request = Request("simple_moving_average_v1", ("window", 2));
             Refuse("overlay_input", [new(Start.AddHours(1), "1"), new(Start, "2")], request);
             Refuse("overlay_input", [new(Start, "1"), new(Start, "2")], request);
-            foreach (var bad in new[] { "abc", "1e3", "", "NaN", "1.", ".5", "+1", " 1" })
+            foreach (var bad in new[] { "abc", "1e3", "", "NaN", "1.", ".5", "+1", " 1", "1\n", "1.5\n", "\u0661" })
                 Refuse("overlay_input", [new(Start, bad), new(Start.AddHours(1), "1")], request);
         });
         return passed;

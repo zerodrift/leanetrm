@@ -106,14 +106,18 @@ ordered series of `(instant, exact value or missing)`. Definitions, versioned:
 | Code | Parameters | Value at point *i* |
 | --- | --- | --- |
 | `simple_moving_average_v1` | window *n* (2–250) | mean of points *i−n+1…i* |
-| `exponential_moving_average_v1` | window *n* (2–250) | α·x*i* + (1−α)·EMA*i−1*, α = 2/(n+1), seeded by the simple mean of the first *n* points |
+| `exponential_moving_average_v1` | window *n* (2–250) | α·x*i* + (1−α)·EMA*i−1*, α = 2/(n+1), where EMA*i−1* is the previously reported (rounded) value; seeded by the rounded simple mean of the first *n* points |
 | `rolling_range_v1` | window *n* (2–250) | highest and lowest of points *i−n+1…i* |
 
-- Arithmetic is exact rational (`ExactRatio`), rounded half to even at 18
+- Arithmetic is exact signed rational (the module's private ratio, rounded with
+  `IntegerRounding`), rounded half to even at 18
   decimal places under `exact_rational_half_even_18_v1`; the response names the
   policy and the definition version.
 - A window that contains a missing point has no value, with reason
   `window_incomplete`. An EMA restarts its seed after a missing point.
+- The input series holds at most 35,136 points (one year of half-hour
+  intervals); more is an `overlay_input` refusal, as are unordered instants and
+  values that are not plain ASCII decimals.
 - Parameters are required. A missing, out-of-range or unknown parameter is a
   structured `overlay_parameter` refusal, never a default.
 - `GET analytics/overlays` returns the catalog (code, label, parameters with
