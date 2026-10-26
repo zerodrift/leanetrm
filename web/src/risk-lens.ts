@@ -168,21 +168,22 @@ export type ChangeRow={key:string;reference:string;market:string;commodity:strin
 /**
  * The change if each contract moves up, which the long and short chart becomes after a run: one horizontal panel per currency, with a bar
  * for each position one shock moves at its up change, gains right and losses left, largest gain first. A position several shocks move
- * has no one change, so it has no bar and its panel names it; a position no shock moves is named for the card; one the run leaves out
- * has no cell and is not drawn. `text` is the display text of an exact amount of the position at a row.
+ * has no one change, so it has no bar and its panel counts it, pointing to its Risk tab, as a book can hold many such positions; a
+ * position no shock moves is named for the card; one the run leaves out has no cell and is not drawn. `text` is the display text of an
+ * exact amount of the position at a row.
  */
 export function changeChart(rows:readonly ChangeRow[],cells:ReadonlyMap<string,LensCell>,colors:ReadonlyMap<string,string>,text:(index:number,value:string)=>string):{panels:ChartSpec[];unmoved:string[]}{
-  const panels=new Map<string,{currency:string;points:ChartPoint[];several:string[]}>(),unmoved:string[]=[];
+  const panels=new Map<string,{currency:string;points:ChartPoint[];several:number}>(),unmoved:string[]=[];
   rows.forEach((row,index)=>{
     const cell=cells.get(row.key);
     if(!cell)return;
     if(!cell.shocks.length){unmoved.push(row.reference);return;}
-    const [first]=cell.shocks,panel=panels.get(first.currencyKey)??{currency:first.currency,points:[],several:[]};panels.set(first.currencyKey,panel);
-    if(cell.shocks.length>1){panel.several.push(`${row.reference} · ${plural(cell.shocks.length,'shock')}`);return;}
+    const [first]=cell.shocks,panel=panels.get(first.currencyKey)??{currency:first.currency,points:[],several:0};panels.set(first.currencyKey,panel);
+    if(cell.shocks.length>1){panel.several++;return;}
     panel.points.push({x:row.key,label:`${row.reference} · ${row.market}`,y:first.up,marker:colors.get(row.commodity),text:signedText(first.up,value=>text(index,value))});
   });
   const specs=[...panels.values()].sort((a,b)=>a.currency.localeCompare(b.currency)).map(panel=>({
-    title:`${panel.currency} · bar right = gain`,...(panel.several.length?{subtitle:`Not drawn: ${panel.several.sort(byText).join('; ')}`}:{}),axis:'category',categoryTitle:'Position',unit:panel.currency,
+    title:`${panel.currency} · bar right = gain`,...(panel.several?{subtitle:`Not drawn: ${plural(panel.several,'position')} several shocks move · ${panel.several===1?'its changes are in its':'their changes are in each one\'s'} Risk tab`}:{}),axis:'category',categoryTitle:'Position',unit:panel.currency,
     kind:'bar',orientation:'horizontal',colorBySign:true,
     series:[{name:'Up change',points:panel.points.sort((a,b)=>compareDecimalStrings(b.y!,a.y!)||a.label!.localeCompare(b.label!))}]} satisfies ChartSpec));
   return {panels:specs,unmoved:unmoved.sort(byText)};

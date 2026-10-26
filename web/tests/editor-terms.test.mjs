@@ -17,14 +17,14 @@ const unit='USD/MMBtu (IT)';
 test('a future\'s terms are its booking facts, its position and the contract terms of the editor, each exact, and its price in its unit',()=>{
  const sections=tradeTerms(details.future,'UTC',formats,unit);
  assert.deepEqual(sections.map(s=>s.title),['Trade','Position','Contract']);
- assert.deepEqual(rowsOf(sections,'Trade'),{Trade:'TR-000001 · IN-000001',Revision:'1 · Booked',Book:'Synthetic portfolio · Book A',Trader:'Synthetic trader','Trade date':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Executed:'Oct 24, 2026, 5:53 AM',Memo:'None'});
+ assert.deepEqual(rowsOf(sections,'Trade'),{Trade:'TR-000001 · IN-000001',Revision:'1 · Booked',Book:'Synthetic portfolio · Book A',Trader:'Synthetic trader',Effective:'Dec 15, 2020, 4:00 PM','Trade date · when booked':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1','Executed · when booked':'Oct 24, 2026, 5:53 AM',Memo:'None'});
  assert.deepEqual(rowsOf(sections,'Position'),{Lots:'2','Execution price':'p:2.95 USD/MMBtu (IT)'});
  const contract=rowsOf(sections,'Contract');
  assert.equal(contract.Product,'Synthetic fixed-lot gas future');assert.equal(contract['Contract size'],'40 MMBtu (IT) per lot');assert.equal(contract['Generated price'],'m:3');
 });
 
 test('a future\'s executed time follows the user\'s zone, and a contract the catalog no longer offers is said to be unavailable',()=>{
- assert.equal(rowsOf(tradeTerms(details.future,'America/Chicago',formats,unit),'Trade').Executed,'Oct 24, 2026, 12:53 AM');
+ assert.equal(rowsOf(tradeTerms(details.future,'America/Chicago',formats,unit),'Trade')['Executed · when booked'],'Oct 24, 2026, 12:53 AM');
  const retained={...details.future,catalog:{...details.future.catalog,contracts:[]}};
  assert.deepEqual(rowsOf(tradeTerms(retained,'UTC',formats,unit),'Contract'),{'Contract terms':'Retained contract terms are unavailable in this selectable catalog.'});
 });
@@ -34,8 +34,8 @@ test('a future\'s revisions are listed one by one with their instrument and fact
  amended.history.push({...clone(details.future.history[0]),revision:2,kind:'amended',instrumentReference:'IN-000002',lots:'-3',executionPrice:'2.975',memo:'Synthetic note',reason:'Synthetic correction',traderCode:null,booking:{...details.future.history[0].booking,legalEntity:null,tradeDate:null}});
  const history=tradeHistory(amended,'UTC',formats);
  assert.deepEqual(history.map(entry=>entry.title),['Revision 1 · Booked','Revision 2 · Amended']);
- assert.deepEqual(Object.fromEntries(history[0].rows),{Effective:'Dec 15, 2020, 4:00 PM',Recorded:'Oct 24, 2026, 5:53 AM',Book:'Book A',Instrument:'IN-000001',Lots:'2','Execution price':'p:2.95 USD/MMBtu (IT)','Trader ID':'trader',Memo:'None','Trade date':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Reason:'Initial booking'});
- assert.deepEqual(Object.fromEntries(history[1].rows),{Effective:'Dec 15, 2020, 4:00 PM',Recorded:'Oct 24, 2026, 5:53 AM',Book:'Book A',Instrument:'IN-000002',Lots:'−3','Execution price':'p:2.975 USD/MMBtu (IT)','Trader ID':'None',Memo:'Synthetic note','Trade date':'Not recorded','Legal entity':'None',Counterparty:'Synthetic party 1',Reason:'Synthetic correction'});
+ assert.deepEqual(Object.fromEntries(history[0].rows),{Effective:'Dec 15, 2020, 4:00 PM',Recorded:'Oct 24, 2026, 5:53 AM',Book:'Book A',Instrument:'IN-000001',Lots:'2','Execution price':'p:2.95 USD/MMBtu (IT)','Trader ID':'trader',Memo:'None','Trade date · when booked':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Reason:'Initial booking'});
+ assert.deepEqual(Object.fromEntries(history[1].rows),{Effective:'Dec 15, 2020, 4:00 PM',Recorded:'Oct 24, 2026, 5:53 AM',Book:'Book A',Instrument:'IN-000002',Lots:'−3','Execution price':'p:2.975 USD/MMBtu (IT)','Trader ID':'None',Memo:'Synthetic note','Trade date · when booked':'Not recorded','Legal entity':'None',Counterparty:'Synthetic party 1',Reason:'Synthetic correction'});
  assert.equal(Object.fromEntries(tradeTerms(amended,'UTC',formats,unit)[1].rows).Lots,'2','Terms and History write a number alike');
 });
 
@@ -103,7 +103,7 @@ test('the editor\'s read of a trade is never shown for another binding of it: th
 test('a swap\'s terms are its booking facts, its structure and one section for each side, titled as the editor titles them',()=>{
  const sections=swapTerms(details.swap,'UTC',formats);
  assert.deepEqual(sections.map(s=>s.title),['Trade','Structure','Fixed side · Pay','Floating side · Receive']);
- assert.deepEqual(rowsOf(sections,'Trade'),{Trade:'TR-000011 · IN-000004',Revision:'1 · Booked',Book:'Synthetic portfolio · Book B',Trader:'Synthetic trader','Trade date':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Executed:'Oct 24, 2026, 5:53 AM',Memo:'None'});
+ assert.deepEqual(rowsOf(sections,'Trade'),{Trade:'TR-000011 · IN-000004',Revision:'1 · Booked',Book:'Synthetic portfolio · Book B',Trader:'Synthetic trader',Effective:'Dec 15, 2020, 4:00 PM','Trade date · when booked':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1','Executed · when booked':'Oct 24, 2026, 5:53 AM',Memo:'None'});
  assert.deepEqual(rowsOf(sections,'Structure'),{Type:'Fixed for floating',Commodity:'Synthetic gas',Quantity:'q:100 MMBtu (IT)',Discounting:'Explicitly undiscounted'});
  assert.deepEqual(rowsOf(sections,'Fixed side · Pay'),{'Fixed price':'p:3 USD/MMBtu (IT)',Currency:'USD',Delivery:'Jan 2021','Payment frequency':'Monthly','Payment rule':'Day of the following month · day 18','Short months':'Reject a missing day',Adjustment:'Unadjusted'});
  assert.deepEqual(rowsOf(sections,'Floating side · Receive'),{Index:'Price','Projection curve':'Daily gas','Reset frequency':'Daily',Averaging:'Arithmetic',Spread:'0 USD/MMBtu (IT)','Projected prices':'Contractual projection curve',Currency:'USD',Delivery:'Jan 2021','Payment frequency':'Monthly','Payment rule':'Days after last delivery day · 46 days','Day basis':'Calendar days',Adjustment:'Unadjusted'});
@@ -147,7 +147,7 @@ test('a swap\'s revisions are listed one by one with their instrument and facts,
  const history=swapHistory(amended,'UTC',formats);
  assert.deepEqual(history.map(entry=>entry.title),['Revision 1 · Booked','Revision 2 · Amended']);
  const first=Object.fromEntries(history[0].rows);
- assert.deepEqual(first,{Effective:first.Effective,Recorded:first.Recorded,Instrument:details.swap.history[0].instrumentReference,Quantity:`q:100 ${swapUnit}`,'Trader ID':'trader',Memo:'None','Trade date':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Reason:'Initial booking'});
+ assert.deepEqual(first,{Effective:first.Effective,Recorded:first.Recorded,Instrument:details.swap.history[0].instrumentReference,Quantity:`q:100 ${swapUnit}`,'Trader ID':'trader',Memo:'None','Trade date · when booked':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1',Reason:'Initial booking'});
  assert.equal(first.Quantity,rowsOf(swapTerms(details.swap,'UTC',formats),'Structure').Quantity,'Terms and History write a quantity alike');
  const plain=swapHistory(amended,'UTC',{...formats,quantity:v=>v});
  assert.deepEqual(plain[1].rows.filter(([label])=>['Instrument','Quantity','Memo','Reason'].includes(label)),[['Instrument','IN-000002'],['Quantity',`−200 ${swapUnit}`],['Memo','Synthetic note'],['Reason','Synthetic correction']]);

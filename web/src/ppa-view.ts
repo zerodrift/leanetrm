@@ -8,6 +8,12 @@ export function measureRows(m:Measures):string[][]{return [
  ['Complete PV',m.completePv===null?`Unavailable · ${m.unavailableReason}`:exactText(m.completePv)],
  ['Value excl. overdue cash (undue PV + holdings)',exactText(m.valueExcludingOverdue)],
  ['Overdue balance (known)',exactText(m.overdueKnownBalance)],['Overdue (estimated)',exactText(m.overdueEstimated)]];}
+/** The words a label gives its field: its own text and that of its other children, never the choices or value of the control inside it. */
+type LabelNode={nodeName:string;textContent:string|null;childNodes?:ArrayLike<LabelNode>};
+const controls=new Set(['INPUT','SELECT','TEXTAREA']);
+export function labelText(label:LabelNode):string{
+  return Array.from(label.childNodes??[]).filter(child=>!controls.has(child.nodeName)).map(child=>child.textContent??'').join('').trim();
+}
 export type Reference={revision?:{catalogId:string;revisionId:string};code:string};
 export function quantityLabel(reference:Reference,catalog:Pick<Catalog,'reference'|'references'>):string{
  if(reference.revision?.catalogId!==catalog.reference.catalogId||reference.revision?.revisionId!==catalog.reference.revisionId)throw Error('The displayed quantity requires a different exact reference revision.');
