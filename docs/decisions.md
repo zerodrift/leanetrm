@@ -666,7 +666,7 @@ discount provider. New persisted forward booking and futures settlement PV remai
 outside this increment. See [implementation contracts](instrument-contracts.md).
 
 
-## D219 — Typed curve evaluation and explicit saved lookup policies
+## D224 — Typed curve evaluation and explicit saved lookup policies
 
 Implement `CurveBase<TRequest,TValue>` with asset-price and discount-factor
 families. Keep exact contract identity, delivery containment and point dates
