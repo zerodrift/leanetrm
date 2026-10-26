@@ -522,6 +522,10 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await amend(1,refB);await typeInto('#trade-lots','5');
   const readsBeforeChoice=await evaluate(workspaceReads);
   await click('#market-date-open');await click(`#market-date-grid button[data-date="${chosenDate}"]`);await asks();
+  // The calendar closes as the close is chosen, and its closing comes after the question has taken the focus: the question keeps it.
+  await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+  await check('the question a close chosen in the calendar asks keeps the focus once the calendar has closed',`${prompt}.contains(document.activeElement)&&!document.querySelector('#market-date-dialog').open`,
+    '[document.activeElement?.id,document.activeElement?.textContent,document.querySelector(\'#market-date-dialog\').open]');
   await check('a close chosen in the calendar asks before it is applied, and the control, the calendar and the Blotter are on the close they showed while it does',`${prompt}.querySelectorAll('button').length===2&&document.querySelector('#snapshot').value===${JSON.stringify(olderClose)}&&${closeLabel}===${JSON.stringify(labelBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforeChoice}`,`[${prompt}.textContent,document.querySelector('#snapshot').value,${JSON.stringify(olderClose)},${closeLabel},${JSON.stringify(labelBefore)},${workspaceReads},${readsBeforeChoice}]`);
   await typeInto('#trade-reason','Synthetic close question');
   await evaluate("document.querySelector('#trade-amend-form').requestSubmit()");await wait(idle);

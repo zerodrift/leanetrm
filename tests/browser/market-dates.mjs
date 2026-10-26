@@ -15,6 +15,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(body.curve===null&&body.definition===null){data.dates.pop();data.maxDate=data.dates.at(-1)?.date??null;}
     response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
+   // A workspace calendar whose newest close has a time that cannot be read, as an inconsistent answer would.
+   if(path.endsWith('/market/dates')&&window.unreadableNewestInstant&&response.ok){
+    const body=JSON.parse(args[1].body),data=await response.json();
+    if(body.curve===null&&body.definition===null)data.dates.at(-1).frames[0].at='Synthetic unreadable instant';
+    response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
+   }
    if(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview'))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    return response;
   };
@@ -29,11 +35,34 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  // A close that arrives later is offered, never selected: the control says so and only a click on it switches.
  await evaluate('window.hideNewestDate=true');await persona('viewer');
  await check('a user opens on the newest close its calendar offered',`(()=>{const read=window.marketDateRequests.at(-1);return read.payload.maxDate<window.newestDate&&document.querySelector('#snapshot').value===read.payload.dates.at(-1).frames[0].id&&${badge}.textContent==='Latest close';})()`);
+ // The calendar's own read of the whole workspace is as new as a check: opening it on a newer close makes the badge offer that close.
+ await evaluate(`window.hideNewestDate=false;window.readsBeforeCalendar=${dateReads}`);
+ await click('#market-date-open');await wait(settled+`&&${dateReads}===window.readsBeforeCalendar+1`);
+ await check('the calendar read over the whole workspace finds the newer close, and the badge offers it',
+  `(()=>{const read=window.marketDateRequests.at(-1);return read.body.curve===null&&read.body.definition===null&&read.payload.maxDate===window.newestDate&&document.querySelector('#market-date-dialog').open&&${badge}.textContent==='Newer close available'&&!!${badge}.querySelector('button')&&document.querySelector('#error').hidden;})()`,
+  `JSON.stringify({last:window.marketDateRequests.at(-1).body,maxDate:window.marketDateRequests.at(-1).payload.maxDate,badge:${badge}.hidden?'(hidden)':${badge}.textContent})`);
+ await click('#market-date-close');await evaluate('window.hideNewestDate=true');await persona('viewer');
  await evaluate(`window.hideNewestDate=false;window.readsBeforeFocus=${dateReads};window.closeBeforeFocus=document.querySelector('#snapshot').value;window.dispatchEvent(new Event('focus'))`);
  await wait(settled+`&&${dateReads}===window.readsBeforeFocus+1`);
  await check('returning to the window offers a newer close without switching to it',`(()=>{const read=window.marketDateRequests.at(-1);return read.body.curve===null&&read.payload.maxDate===window.newestDate&&document.querySelector('#snapshot').value===window.closeBeforeFocus&&${badge}.textContent==='Newer close available'&&${badge}.querySelector('button')&&document.querySelector('#error').hidden;})()`);
+ // A display time zone does not move a close in time: another zone reads the calendar again in that zone and keeps the offer.
+ const zoneBefore=await evaluate('window.marketDateRequests.at(-1).body.timeZone'),zoneAfter=zoneBefore==='Asia/Tokyo'?'UTC':'Asia/Tokyo';
+ const showZone=async zone=>{await evaluate(`window.readsBeforeZone=${dateReads}`);await click('#profile-open');await set('#zone',zone);await submit('#preferences-form');await wait(settled+`&&${dateReads}>window.readsBeforeZone`);};
+ await showZone(zoneAfter);
+ await check('another display time zone reads the calendar again in that zone and still offers the newer close',
+  `(()=>{const read=window.marketDateRequests.at(-1);return read.body.timeZone===${JSON.stringify(zoneAfter)}&&read.body.curve===null&&document.querySelector('#snapshot').value===window.closeBeforeFocus&&${badge}.textContent==='Newer close available'&&!!${badge}.querySelector('button')&&document.querySelector('#error').hidden;})()`,
+  `JSON.stringify({last:window.marketDateRequests.at(-1).body,badge:${badge}.hidden?'(hidden)':${badge}.textContent})`);
+ await showZone(zoneBefore);
  await click('#market-date-badge button');
  await check('one click on Newer close available selects the newest close',`(()=>{const read=window.marketDateRequests.at(-1);return document.querySelector('#snapshot').value===read.payload.dates.at(-1).frames[0].id&&read.payload.maxDate===window.newestDate&&${badge}.textContent==='Latest close'&&!${badge}.querySelector('button')&&!document.querySelector('#market-date-dialog').open&&document.querySelector('#error').hidden;})()`);
+ // A calendar naming a close whose time cannot be read is refused before anything keeps it: the badge stays as the last check left it,
+ // and the page goes on working.
+ await evaluate(`window.unreadableNewestInstant=true;window.readsBeforeFocus=${dateReads};window.dispatchEvent(new Event('focus'))`);
+ await wait(settled+`&&${dateReads}===window.readsBeforeFocus+1`);
+ await evaluate('window.unreadableNewestInstant=false');await click('#nav-market');await wait(settled);
+ await check('a calendar naming a close whose time cannot be read is refused, the badge stays as it was, and the page still works',
+  `${badge}.textContent==='Latest close'&&!document.querySelector('#market-date-open').disabled&&!document.querySelector('#nav-market').disabled&&document.querySelector('#error').hidden`,
+  `JSON.stringify({badge:${badge}.hidden?'(hidden)':${badge}.textContent,open:document.querySelector('#market-date-open').disabled,navigation:document.querySelector('#nav-market').disabled,error:document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent})`);
  // A close a person picked is told about a newer close as well, and is never switched away from.
  await evaluate('window.hideNewestDate=true');await persona('viewer');await click('#market-date-open');
  const earlier=await evaluate("window.marketDateRequests.at(-1).payload.dates.at(-2).date");await click(`#market-date-grid button[data-date="${earlier}"]`);
@@ -55,6 +84,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate(`(async()=>{const boot=await(await fetch('/api/bootstrap')).json(),workspace=await(await fetch('/api/workspace')).json();let frame=boot.frames.find(f=>f.at.startsWith('2020-12-18T16:00:00')),observation=workspace.observations.find(o=>frame.observationIds.includes(o.id)&&o.role==='daily_settlement');while(workspace.observations.some(o=>o.corrects_id===observation.id))observation=workspace.observations.find(o=>o.corrects_id===observation.id);async function post(path,body){const response=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)}),payload=await response.json();if(!response.ok)throw Error('Synthetic close setup failed: '+path+' '+payload.code);return payload;}if(!frame.observationIds.includes(observation.id))frame=(await post('select-observation',{snapshotId:frame.id,observationId:observation.id})).frame;await post('corrections',{snapshotId:frame.id,observationId:observation.id,value:observation.value});})()`);
  await evaluate(`window.readsBeforeExample=${dateReads}`);await click('#example');
  await check('the As of header retains the selected instant before availability is loaded',`document.querySelector('#snapshot').value&&document.querySelector('#market-date-open').textContent.includes('Dec 18')&&!document.querySelector('#market-date-open').textContent.includes('No available')&&${dateReads}===window.readsBeforeExample`);
+ // The sample opens working data, whose time controls show the selected close's effective date at current knowledge (D217).
+ const controlsShowClose="(async()=>{const frames=(await(await fetch('/api/workspace')).json()).frames,shown=frames.find(f=>f.id===document.querySelector('#snapshot').value);return !!shown&&document.querySelector('#date-context-on').value===shown.at.slice(0,10)&&document.querySelector('#date-context-view').value!=='';})()";
+ const controlsShown="[document.querySelector('#snapshot').value,document.querySelector('#date-context-on').value,document.querySelector('#date-context-view').value]";
+ await check('Open sample prices leaves the time controls on the sample close\'s effective date at current knowledge',controlsShowClose,controlsShown);
  await evaluate("[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.includes('Synthetic NG monthly futures')).click()");await wait(idle);
  await click('#market-date-open');
  await check('opening the calendar asks for the selected curve and displays its covered dates',"document.querySelector('#market-date-dialog').open&&window.marketDateRequests.at(-1).body.curve==='ng_monthly'&&!document.querySelector('#market-date-grid button[data-date=\"2020-12-11\"]').disabled");
@@ -103,6 +136,16 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('opening a page checks the whole workspace for a newer close once, in the background',`${dateReads}===window.readsBeforeNavigation+1&&window.marketDateRequests.at(-1).body.curve===null&&window.marketDateRequests.at(-1).body.definition===null&&document.querySelector('#error').hidden`);
  await evaluate("window.callsBeforeEmpty=window.marketDateCalls.filter(p=>p.endsWith('/market/dates')).length");await click('#market-date-open');
  await check('an empty custom graph explains its scope without falling back to workspace dates',"document.querySelector('#market-date-dialog').open&&document.querySelector('#market-date-scope').textContent.includes('Complete a curve graph')&&window.marketDateCalls.filter(p=>p.endsWith('/market/dates')).length===window.callsBeforeEmpty");
+ // Returning to working data asks which of several closes at the workspace's latest instant to open, on the workspace calendar the
+ // question comes from, whatever the page's own calendar can show: here, a custom graph with no curve yet.
+ await click('#market-date-close');
+ await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
+ await wait("document.querySelector('#workspace-mode-label').textContent==='Historical view · read only'&&"+idle);
+ await click('#return-working');await wait(settled);
+ await check('returning to working data on a page whose calendar has no scope yet still asks which close at the latest instant',
+  `document.querySelector('#market-date-dialog').open&&document.querySelectorAll('.market-close-choice').length>=2&&document.querySelector('#market-date-closes h3')?.textContent.includes(window.newestLabel)&&document.querySelector('#snapshot').value===''&&${badge}.textContent==='Choose a close'&&document.querySelector('#error').hidden`,
+  `JSON.stringify({open:document.querySelector('#market-date-dialog').open,choices:document.querySelectorAll('.market-close-choice').length,scope:document.querySelector('#market-date-scope').textContent,snapshot:document.querySelector('#snapshot').value,badge:${badge}.hidden?'(hidden)':${badge}.textContent,error:document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent})`);
+ await click('.market-close-choice:nth-of-type(1)');
  await click('#market-date-close');await set('#custom-curves-template','ng_average');await click('#market-date-open');
  await check('custom curve availability validates its full history window in the backend',"(()=>{const request=window.marketDateRequests.at(-1);return request.body.curve===null&&request.body.definition.code==='ng_average'&&!request.payload.dates.some(d=>d.date==='2020-11-18')&&request.payload.dates.some(d=>d.date==='2020-12-17');})()");
  await evaluate("window.calendarGraphNodes=[...document.querySelectorAll('.custom-curve-node')].map(n=>n.dataset.nodeId).sort();window.graphClose=window.marketDateRequests.at(-1).payload.dates.find(d=>d.date==='2020-12-17').frames[0].id");

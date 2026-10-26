@@ -120,10 +120,12 @@ async function api<T>(path:string,body?:unknown):Promise<T>{
 }
 function pageStatus(){return page==='delivery'?'Delivery prices · selected delivery dates and knowledge cutoff.':page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval data · working data, known at the chosen time.':page==='interval-curves'?'Hourly / sub-hourly prices · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Custom curves · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:select('snapshot').value?'Choose a curve to get started.':'Choose a curve and a market date to get started.';}
 const errorMessage=(error:unknown)=>error instanceof Error?error.message:'Something went wrong. Please refresh the page.';
-async function act(work:()=>Promise<void>){
+// `keepNotice` is for work that completes a change the person has already made, as reading a changed effective date's end-of-day
+// knowledge does: what that change said, such as that it cleared a risk run, stays on screen.
+async function act(work:()=>Promise<void>,{keepNotice=false}={}){
   // Context changes, writes and reads are serialized. Never retry a mutation.
   // Errors and notices describe the previous action; the next one starts clean.
-  if(busy)return;busy=true;syncControls();$('error').hidden=true;$('notice').hidden=true;text('status','Loading…');
+  if(busy)return;busy=true;syncControls();$('error').hidden=true;if(!keepNotice)$('notice').hidden=true;text('status','Loading…');
   try{await work();text('status',pageStatus());}
   catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');}
   finally{busy=false;syncControls();if(closeCheckDue){closeCheckDue=false;void recheckNewestClose();}}
@@ -205,9 +207,10 @@ async function readAvailability(request:MarketDatesRequest):Promise<MarketDates|
  try{catalog=await api<MarketDates>('market/dates',request);}catch(error){if(stale())return undefined;throw error;}
  if(stale())return undefined;
  const frames=catalog.dates.flatMap(group=>group.frames);
+ // Every close's time must be readable, as the newest close and the badge compare them, before anything keeps the answer.
  if(catalog.selectionPolicy!=='exact_snapshot_no_close_substitution_v1'||catalog.timeZone!==prefs.timeZone||catalog.curve!==request.curve||
   JSON.stringify(catalog.context??null)!==JSON.stringify(historicalContext()??null)||new Set(frames.map(close=>close.id)).size!==frames.length||
-  catalog.dates.some(group=>!/^\d{4}-\d{2}-\d{2}$/.test(group.date)||!group.frames.length))
+  catalog.dates.some(group=>!/^\d{4}-\d{2}-\d{2}$/.test(group.date)||!group.frames.length)||frames.some(close=>Number.isNaN(Date.parse(close.at))))
   throw datesMismatch();
  newestDate(catalog); // refuses a newest date its dates do not support
  return catalog;
@@ -236,6 +239,8 @@ async function openMarketCalendar(date?:string):Promise<void>{
  try{
   const catalog=await readMarketDates(request);
   if(!catalog)return;
+  // Read for the whole workspace of working data, the calendar is as new as a check for a newer close, and the badge says what it found.
+  if(request.curve===null&&request.definition===null&&!historicalContext())workspaceCloses=catalog;
   marketDatesLoaded=true;marketCalendar.update(catalog);marketCalendar.show(date);
  }catch(error){
   if((error as {code?:string}).code==='access_denied'){clearPrices();if(page==='custom-curves')customCurves.contextChanged();}
@@ -256,11 +261,17 @@ async function selectNewestClose():Promise<CloseChoice>{
  if(choice.kind==='single'){select('snapshot').value=choice.closeId;closeChanged();}
  return choice;
 }
+// Several closes at the workspace's latest instant ask which (D162): the question is put on the workspace calendar it comes from, which
+// offers them whatever the page's own calendar covers. The page's calendar is read again when it is next opened.
+function askNewestClose(date:string){
+ if(!workspaceCloses)return;
+ marketDatesLoaded=false;marketCalendar.update(workspaceCloses);marketCalendar.show(date);
+}
 // A click on Newer close available. Selecting it loads the page like a close the person picked.
 async function openNewestClose(){
  const choice=await selectNewestClose();
  if(choice.kind==='single')await loadSelectedClose();
- else if(choice.kind==='choose')await openMarketCalendar(choice.date);
+ else if(choice.kind==='choose')askNewestClose(choice.date);
 }
 // A newer close can arrive while a session is open. Opening a page and returning to the window ask again, in the
 // background and without polling. The badge reports what the check found and only a click on it selects the newer close.
@@ -565,7 +576,7 @@ async function profileAction(control:HTMLElement,work:()=>Promise<void>){
 }
 $('profile-dialog').addEventListener('close',()=>profileError());
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
-$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(!await mayLeaveForDialog('Your preferences were not saved'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeBasis=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;persist();assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});})();};
+$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(!await mayLeaveForDialog('Your preferences were not saved'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;persist();assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});})();};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
   hostedPilot=mode==='hosted-pilot';
@@ -603,7 +614,7 @@ async function loadIdentity(initialAccess?:unknown){
   if(first!==null){
     await showPage(first);
     closeCheckDue=false; // the read that chose the close is this page's check for a newer one
-    if(opening.kind==='choose')await openMarketCalendar(opening.date);
+    if(opening.kind==='choose')askNewestClose(opening.date);
   }
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
 }
@@ -625,7 +636,7 @@ function chooseClose(id:string){
   leaving(async()=>{select('snapshot').value=id;closeChanged();await loadSelectedClose();});
 }
 $('snapshot').onchange=()=>chooseClose(select('snapshot').value);
-$('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await build();});
+$('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await initializeContext();await build();});
 $('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').onchange=()=>void act(async()=>updateFilters());
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
@@ -638,7 +649,7 @@ const agentGrants=setupAgentGrants({api,act,busy:()=>busy,zone:()=>prefs.timeZon
 $('profile-dialog').addEventListener('close',agentGrants.hide);
 // Settings › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
-const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:()=>page==='futures'&&futures.editing(),mayChange:async()=>!busy&&await mayLeave()});
+const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:()=>page==='futures'&&futures.editing(),mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}));
 $('date-context').addEventListener('input',dirtyContext);
 // Opening the time controls is how a person starts to change the context the Blotter is read in, which clears it as the first change is made:
 // so it asks first, as every other way out of an amendment does, and the controls stay closed when the person keeps the amendment, or while
@@ -672,7 +683,7 @@ async function returnToWorking(){
   if(page==='reference')await loadReference();else if(page==='interval-series')await intervalSeries.load();
   else if(choice.kind==='single')await loadSelectedClose();
   else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();
-  if(choice.kind==='choose')await openMarketCalendar(choice.date);
+  if(choice.kind==='choose')askNewestClose(choice.date);
 }
 // The time controls of working data show the selected close's effective date at current knowledge, ready to be changed (D217).
 async function initializeContext(){await dateEditor.initialize(directory().frames.find(f=>f.id===select('snapshot').value)?.at.slice(0,10)??'');}
@@ -839,15 +850,18 @@ async function openCurve(code:string,contractId:string|null){
   if(!point){notice('That contract has no price at this close, so its price history is not shown.');return;}
   contract=pointIdentity(point);await history();
 }
-// Selects knowledge and an As of frame, as a target pins them or a place showed them, before a page opens there.
+// Selects knowledge and an As of frame, as a target pins them or a place showed them, before a page opens there. Working data's time
+// controls then show the frame's effective date at current knowledge, as returning to working data leaves them (D217).
 async function selectContext(knowledge:TargetContext|{mode:'current'|'retained';contextId:string|null;frameId:string|null}){
   if(knowledge.mode==='current'){if(contextDirty||historicalContext())await currentInputs();}
   else if(contextDirty||historicalContext()?.contextId!==knowledge.contextId)await selectRetained(knowledge.contextId!);
   const frame=knowledge.frameId??'';
-  if(select('snapshot').value===frame)return;
-  if(frame&&!offeredFrames().some(f=>f.id===frame))throw Error('That As of date is not available in this session. Choose an As of date, or ask again.');
-  renderFrames(frame);
-  closeChanged();
+  if(select('snapshot').value!==frame){
+    if(frame&&!offeredFrames().some(f=>f.id===frame))throw Error('That As of date is not available in this session. Choose an As of date, or ask again.');
+    renderFrames(frame);
+    closeChanged();
+  }
+  if(knowledge.mode==='current')await initializeContext();
 }
 // A historical view selected again by its id, exactly as it was captured.
 async function selectRetained(contextId:string){

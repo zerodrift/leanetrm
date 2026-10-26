@@ -380,6 +380,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await press('Back');await wait(`${q('#page-title')}.textContent==='Curves & prices'&&${idle}`);
   await check('Back returns to working data and the page it left',
     `${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${q('#assistant-looking-shows')}.textContent==='Curve directory'`);
+  await check('and the time controls of working data show the close\'s effective date at current knowledge, as returning to working data leaves them',
+    `(async()=>{const frames=(await(await fetch('/api/workspace')).json()).frames,shown=frames.find(f=>f.id===${q('#snapshot')}.value);return !!shown&&${q('#date-context-on')}.value===shown.at.slice(0,10)&&${q('#date-context-view')}.value!=='';})()`,
+    `[${q('#snapshot')}.value,${q('#date-context-on')}.value,${q('#date-context-view')}.value]`);
 
   // A move that fails once it has changed the page keeps Back (§10.1).
   await reload(`${shown('#assistant-panel')}&&document.querySelectorAll('#assistant-turns > li').length>1`);

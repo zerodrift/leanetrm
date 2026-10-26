@@ -464,5 +464,37 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('and the run bar shows its parts as one run, made at the context it was captured at, which is not the one on screen',
     `document.querySelector('#desk-run-detail').textContent.includes(' · queued as '+${parts}+' jobs, completed ')&&document.querySelectorAll('#risk-job-parts li').length===${parts}&&document.querySelector('#desk-lens').hidden&&!document.querySelector('#risk-export').disabled`,
     "[document.querySelector('#desk-run').textContent,document.querySelectorAll('#risk-job-parts li').length]");
+
+  // Another effective date in the Context panel is another context: it clears a run on the desk with the note that says so, and the
+  // note stays while that date's end-of-day knowledge is read (D217, D222), also when the change waited for an amendment to be given up.
+  // The dates are later than the preview's knowledge, so their end of day is capped at current knowledge and is read without error.
+  const typedDate="document.querySelector('#date-context-on').value";
+  const knowledgeRead=date=>`window.__riskReads.findLast(r=>r.path==='/api/date-schedules/context')?.data?.context?.effectiveOn===${JSON.stringify(date)}&&document.querySelector('#date-context-view').value!==''`;
+  const runOnDesk=async()=>{
+    await openReport();await choose('custom');await set('#risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#risk-bump','0.1');
+    await submit('#risk-form',60000);await wait(inline+'&&'+idle,60000);
+  };
+  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await runOnDesk();
+  await set('#date-context-on','2099-01-01');await wait(idle);
+  await check('another effective date clears the run, and the note that says so stays while the date\'s knowledge is read',
+    `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&${typedDate}==='2099-01-01'&&${knowledgeRead('2099-01-01')}`,
+    `[${notice},${typedDate},${noRun},document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent,window.__riskReads.slice(-4).map(r=>[r.path,JSON.stringify(r.data).slice(0,160)])]`);
+  await click('#return-working');await wait(idle);
+  // An account that may amend trades and run risk, so that the change waits for the amendment its panel holds.
+  await persona('admin');
+  await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();const r=await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'context_risk_browser',name:'Synthetic context and risk account',kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);
+  await persona('context_risk_browser');
+  await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
+  await runOnDesk();
+  await click('#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-pill-fut)');await wait("document.querySelector('#side-panel').dataset.mode==='position'&&"+idle);
+  await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
+  await typeInto('#trade-lots','5');
+  await set('#date-context-on','2099-01-02');await wait("!document.querySelector('#side-panel-prompt').hidden");
+  await check('a date typed while the panel holds an amendment waits for the person, and the run stays meanwhile',`${inline}&&!document.querySelector('#trade-editing').hidden&&!(${notice}).includes(${JSON.stringify(cleared)})`,notice);
+  await click('#side-panel-prompt button:not(.secondary)');await wait(idle);
+  await check('Discard changes lets the date through, which clears the run, and the note that says so stays while the date\'s knowledge is read',
+    `${noRun}&&document.querySelector('#trade-editing').hidden&&(${notice}).includes(${JSON.stringify(cleared)})&&${typedDate}==='2099-01-02'&&${knowledgeRead('2099-01-02')}`,
+    `[${notice},${typedDate},${noRun},document.querySelector('#trade-editing').hidden,document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent,window.__riskReads.slice(-4).map(r=>[r.path,JSON.stringify(r.data).slice(0,160)])]`);
   await check('risk workflow raises no uncaught browser exceptions',JSON.stringify(errors.length===0));
 }

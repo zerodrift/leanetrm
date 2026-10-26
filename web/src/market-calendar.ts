@@ -46,7 +46,10 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
   open.textContent=index>=0?timeLabels(frames.map(frame=>frame.at),options.zone())[index]:selected?displayInstant(selected.at,options.zone()):catalog&&!catalog.dates.length?'No available closes':'Choose a date…';
   open.title=`Market close · ${options.zone()}`;status.textContent=pending?'Checking available closes…':message;sync();
  }
- function select(id:string){if(options.busy()||pending||!allCloses().some(frame=>frame.id===id))return;dialog.close();options.select(id);}
+ // A close chosen closes the dialog and hands what follows to the page, which may ask a question and focus it before the dialog's close
+ // event comes: focus goes back to the trigger only when the dialog closes without a choice.
+ let chose=false;
+ function select(id:string){if(options.busy()||pending||!allCloses().some(frame=>frame.id===id))return;chose=true;dialog.close();options.select(id);}
  function renderChoices(){
   choices.replaceChildren();if(!catalog||!chosenDate)return;const frames=closesOnDate(catalog,chosenDate);
   if(frames.length<2)return;
@@ -79,7 +82,7 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
  }
  function navigate(direction:number){const value=shiftCalendarMonth(shownMonth,direction);if(catalog?.minDate&&value<catalog.minDate.slice(0,7)||catalog?.maxDate&&value>catalog.maxDate.slice(0,7))return;shownMonth=value;chosenDate='';render();}
  previous.onclick=()=>navigate(-1);next.onclick=()=>navigate(1);month.onchange=()=>{if(!/^\d{4}-\d{2}$/.test(month.value)||catalog?.minDate&&month.value<catalog.minDate.slice(0,7)||catalog?.maxDate&&month.value>catalog.maxDate.slice(0,7)){month.value=shownMonth;return;}shownMonth=month.value;chosenDate='';render();};
- open.onclick=()=>{if(!open.disabled)options.open();};close.onclick=()=>dialog.close();dialog.addEventListener('close',()=>open.focus());
+ open.onclick=()=>{if(!open.disabled)options.open();};close.onclick=()=>dialog.close();dialog.addEventListener('close',()=>{if(!chose)open.focus();chose=false;});
  function reset(note='Choose a market date.'){catalog=undefined;shownMonth='';chosenDate='';pending=false;message=note;if(dialog.open)dialog.close();scope.textContent=note;grid.replaceChildren();choices.replaceChildren();header();}
  return{
   sync,

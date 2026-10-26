@@ -45,7 +45,9 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
    * What changing the context would drop: `holds` says whether the page holds anything that a change of context gives up, and `mayChange`
    * asks the person whether it may be given up, false meaning they kept it.
    */
-  guard:{holds:()=>boolean;mayChange:()=>Promise<boolean>}={holds:()=>false,mayChange:async()=>true}){
+  guard:{holds:()=>boolean;mayChange:()=>Promise<boolean>}={holds:()=>false,mayChange:async()=>true},
+  /** Runs work that completes a change made in these controls, the end-of-day knowledge of a changed effective date, leaving on screen what the change said. */
+  complete:(work:()=>Promise<void>)=>Promise<void>=run){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const input=(id:string)=>get<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>(id);
   const value=(id:string)=>input(id).value;
@@ -102,7 +104,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     if(!current(started)||date!==value('date-context-on'))return;
     showContext(snapshot.context);
   }
-  get('date-context-on').addEventListener('change',()=>void run(sameDayKnowledge));
+  get('date-context-on').addEventListener('change',()=>void complete(sameDayKnowledge));
   function showContext(context:Context){pinnedContext=context;exactKnownAt=context.knownAt;set('date-context-on',context.effectiveOn);if(context.knownAt)knownInput.set(context.knownAt);else knownInput.clear();settle();}
   function setContext(context:Context){onContextChanged();showContext(context);}
   async function context():Promise<Context>{
