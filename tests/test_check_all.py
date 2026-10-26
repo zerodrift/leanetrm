@@ -71,6 +71,8 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--custom-curves-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--connected-portfolio-check' in c for c in commands))
         self.assertTrue(any('--market-dates-check' in c and '--browser-check' in c for c in commands))
+        self.assertTrue(any('--valuation-status-check' in c and '--browser-check' in c for c in commands))
+        self.assertTrue(any('--desk-fields-check' in c for c in commands))
         self.assertTrue(any('--jobs-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('tools/check_reference_editing.py' in c for c in commands))
         self.assertTrue(any('tools/check_power_integrity.py' in c for c in commands))
@@ -137,7 +139,7 @@ class CheckAllTests(unittest.TestCase):
         # The long trading workflows must not consume the workspace job's budget.
         for flag in ('--draft-check', '--scheduled-swap-check', '--index-fixing-check',
                      '--swap-risk-holdings-check', '--pilot-close-check',
-                     '--connected-portfolio-check'):
+                     '--connected-portfolio-check', '--valuation-status-check', '--desk-fields-check'):
             self.assertTrue(any(flag in c for c in groups['trading']), flag)
             self.assertFalse(any(flag in c for c in groups['workspace']), flag)
         self.assertTrue(any('--hosted-check' in c for c in groups['workspace']))

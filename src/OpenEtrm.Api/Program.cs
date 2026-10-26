@@ -817,6 +817,13 @@ api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async sessio
     }
     return Results.Ok(result);
 }));
+// The same pin, identity and permission as /evaluate, for the contract prices of several curves in one read; a selected context is stated as there.
+api.MapPost("/market/curve-shapes",(HttpContext c,CurveShapesRequest body)=>Locked(c,async session=>
+{
+    var pin=Pin(session,body.SnapshotId);
+    var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.CurveShapes(connection,pin,body.Curves,ct),c.RequestAborted);
+    return pin.Context is {} context?Results.Ok(new {curves,context}):Results.Ok(new {curves});
+}));
 api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async session=>
 {
     await RefreshFrames(session,c.RequestAborted);
@@ -905,6 +912,8 @@ api.MapPost("/table-views/blotter/delete",(HttpContext c,DeleteTableView body)=>
 var futuresStore=new FuturesStore(database.Manifest);
 // Working data, the only editable view: current knowledge captured for this read over a working frame.
 bool Working(PreviewSession session,FuturesReadRequest body)=>session.MarketContext is null&&body is {KnowledgeMode:"current",ContextId:null};
+// What a view that is not working data is called when it is said to be read-only, so that the way back is the right one: a live selection, or a historical context.
+string ReadOnlyView(PreviewSession session)=>session.Live is not null?"Live view":"Historical view";
 // Trading pages name their knowledge: current knowledge, captured now at the working frame's date;
 // a context captured earlier, re-read over a working frame; or the selected historical view's own.
 async Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,FuturesReadRequest body,InputFrame frame,CancellationToken ct)
@@ -951,7 +960,7 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
         {
             json["canAmendTrades"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct));
             json["bookingUnavailableReason"]=JsonSerializer.SerializeToNode(!working
-                ?"Historical view is read-only. Return to working data, then select an As of date."
+                ?$"{ReadOnlyView(session)} is read-only. Return to working data, then select an As of date."
                 :!await PreviewDatabase.HasPermission(connection,"BookTrade",ct)?"Your current role does not have Book Trade permission.":null);
         }
         if(headTrade is not null)
@@ -961,7 +970,7 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
             var canAmend=working&&currentHead==selectedRevision&&lifecycleEligible&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct);
             if(amendmentPreview&&!canAmend)throw new MarketDataException(expectedConvention==SwapStore.Convention?"swap_revision_conflict":"futures_revision_conflict","Reload the latest eligible trade revision before amending.");
             json["canAmend"]=JsonSerializer.SerializeToNode(canAmend);
-            json["amendUnavailableReason"]=JsonSerializer.SerializeToNode(!working?"Historical view is read-only. Return to working data to amend."
+            json["amendUnavailableReason"]=JsonSerializer.SerializeToNode(!working?$"{ReadOnlyView(session)} is read-only. Return to working data to amend."
                 :currentHead!=selectedRevision?"This is an earlier trade revision. Open the latest revision at its working As of date."
                 :!lifecycleEligible?"This retained state is outside the supported live, unprocessed futures lifecycle. Settlement must be handled separately."
                 :!canAmend?"Your current role does not have Amend Trade permission.":null);
@@ -1009,7 +1018,8 @@ api.MapPost("/trading/workspace",(HttpContext c,TradingWorkspaceRequest body)=>
 {
  if(body.BookingCatalog is not(null or "directory" or "priced_contracts"))throw new MarketDataException("blotter_view","Choose an available booking catalog projection.");
  return TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
-  (connection,view,ct)=>tradeReads.Workspace(connection,view,body.View,body.BookingCatalog=="directory",ct),expectedConvention:TradingBlotter.Convention,combinedWorkspace:true);
+  (connection,view,ct)=>tradeReads.Workspace(connection,view,body.View,body.Summaries.IsDefault?[]:body.Summaries,body.BookingCatalog=="directory",ct),
+  expectedConvention:TradingBlotter.Convention,combinedWorkspace:true);
 });
 api.MapPost("/trading/blotter",(HttpContext c,FuturesBlotterRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Blotter(connection,view,body.View,ct),expectedConvention:TradingBlotter.Convention));
@@ -1301,6 +1311,8 @@ public sealed class PreviewSessionEnded : Exception;
 public sealed record LocalTimeRequest(string? LocalTime,string? TimeZone);
 public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false);
 public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record CurveShapesRequest(Guid SnapshotId,ImmutableArray<string> Curves);
 public sealed record CorrectionRequest(Guid SnapshotId,Guid ObservationId,string Value);
 public sealed record SelectionRequest(Guid SnapshotId,Guid ObservationId);
 public sealed partial class PreviewSession

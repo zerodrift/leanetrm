@@ -4,7 +4,7 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
-D219 adds typed asset and rate curve evaluators and an explicit saved lookup
+D224 adds typed asset and rate curve evaluators and an explicit saved lookup
 operator in the existing custom-curve graph. Exact prices, interpolation and
 scenario dependencies share the connected evaluator; payment discounting uses
 `RatesCurve`. See [curve evaluation](curve-evaluation.md) for policies, consumers
@@ -1289,3 +1289,10 @@ retain native cutoff contracts. Interval data opens the latest trailing day;
 delivery prices open the latest available source/day, with explicit empty states.
 The Assistant launcher floats at the lower right and its visibility is a browser
 profile preference. Historical-session support is unchanged.
+
+The Blotter desk's newest close (D219) takes the same latest instant: one
+mechanism, the workspace's availability calendar, chooses the close when working
+data opens or is returned to and states it with a **Latest close** badge; several
+closes at that instant still ask (D162), and a historical view selects none by
+itself. The As of control and its badge float with the Context panel, which names
+the knowledge in use and holds live corrections.

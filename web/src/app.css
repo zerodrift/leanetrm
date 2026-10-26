@@ -11,8 +11,12 @@
   --accent:#1e6a4e;--accent-hover:#175a41;--accent-soft:#e6f1ec;--accent-text:#155239;
   --spread:#a9823f;--warn:#7a5200;--warn-soft:#fff5dc;--warn-border:#f0dca5;
   --danger:#9b3227;--danger-soft:#fdefec;--danger-border:#f2cdc6;
+  /* Commodity identity and polarity. Fills are for dots, bars and marks (3:1 or better on white); text that
+     carries a gain or loss uses the ink steps (above 6:1). Color never stands alone: signs and bar direction
+     always accompany gain and loss. */
+  --gas:#eb6834;--power:#2a78d6;--gain:#1f8a5b;--loss:#d6453d;--gain-ink:#0f6b3c;--loss-ink:#b3261e;
   --sidebar:#12221b;--sidebar-2:#1b3128;--sidebar-text:#b4c6bc;--sidebar-muted:#7f978a;--sidebar-active:#264536;
-  --radius:8px;--radius-sm:6px;--shadow:0 1px 2px rgba(18,34,27,.05),0 1px 1px rgba(18,34,27,.03);
+  --radius:8px;--radius-sm:6px;--radius-lg:12px;--shadow:0 1px 2px rgba(18,34,27,.05),0 1px 1px rgba(18,34,27,.03);
   --sidebar-width:224px;
   font-family:var(--font);font-size:14px;line-height:1.5;color:var(--text);background:var(--bg);font-synthesis:none;-webkit-font-smoothing:antialiased;
 }
@@ -34,6 +38,7 @@ p{margin:0 0 12px}
 .muted{font-size:13px;color:var(--text-3)}
 .field-help{font-size:12px;color:var(--text-3);line-height:1.55;margin:6px 0 12px}
 .fine-print{font-size:12px;color:var(--text-3)}
+.kpi-value{font-size:27px;font-weight:650;font-variant-numeric:tabular-nums}
 
 /* Controls */
 button{background:var(--accent);color:#fff;border:1px solid var(--accent);padding:8px 14px;border-radius:var(--radius-sm);font-weight:550;font-size:13px;white-space:nowrap;line-height:1.3}
@@ -90,10 +95,16 @@ header>div:first-child{flex:1 1 280px;min-width:0}
 .date-control{display:flex;align-items:center;gap:8px}
 .date-control label{margin:0;font-size:12px;color:var(--text-3);white-space:nowrap}
 .date-control select{width:230px}
-#market-date-calendar{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;max-width:280px}
+#market-date-calendar{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;max-width:380px}
 .market-date-trigger{min-width:220px;max-width:100%;text-align:left;white-space:normal;font-size:12px;padding:9px 12px}
 .market-date-trigger::after{content:'▦';float:right;margin-left:14px;color:var(--text-3)}
 .market-date-status{font-size:10px;line-height:1.3;color:var(--text-3);max-width:270px}
+.market-date-row{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0}
+.close-badge{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface-3);color:var(--text-2);font-size:11px;font-weight:600;line-height:1.3;white-space:nowrap}
+.close-badge[data-badge=latest]{border-color:#b9d9c9;background:var(--accent-soft);color:var(--accent-text)}
+.close-badge[data-badge=newer],.close-badge[data-badge=choose]{border-color:var(--warn-border);background:var(--warn-soft);color:var(--warn)}
+.close-badge-action{min-height:22px;padding:0;border:0;background:none;color:inherit;font:inherit;text-decoration:underline}
+.close-badge-action:hover{background:none;text-decoration:none}
 .market-date-dialog{width:390px;padding:20px;overflow:auto;box-sizing:border-box}
 .market-date-dialog h2{font-size:18px;margin:0}.market-date-dialog h3{font-size:13px;margin:12px 0 6px}
 .market-date-dialog .dialog-heading{align-items:center;gap:12px}.market-date-dialog .field-help{line-height:1.5}
@@ -138,7 +149,7 @@ footer{font-size:12px;color:var(--text-3);margin-top:24px}
 #environment-context-note{display:inline-block;font-size:12px;padding:3px 9px;border-radius:999px;background:var(--surface-3);color:var(--text-2);margin:0 0 14px}
 
 /* Cards and shared layout */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:var(--shadow);min-width:0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;box-shadow:var(--shadow);min-width:0}
 .card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px}
 .card-heading p{font-size:13px;color:var(--text-3);margin:2px 0 0}
 .card>p{font-size:13px;color:var(--text-2)}
@@ -165,7 +176,7 @@ footer{font-size:12px;color:var(--text-3);margin-top:24px}
 /* Tables */
 .table-wrap{min-width:0}
 table{border-collapse:collapse;text-align:left;width:100%;font-size:13px;white-space:nowrap}
-th{font-size:12px;font-weight:600;color:var(--text-3);background:var(--surface-2);position:sticky;top:0;z-index:1}
+th{font-size:10px;font-weight:600;color:var(--text-2);background:var(--surface-2);position:sticky;top:0;z-index:1}
 td,th{padding:9px 12px;border-bottom:1px solid var(--border)}
 tbody tr:hover td{background:#fafcfb}
 th.numeric{text-align:right}
@@ -436,8 +447,8 @@ dialog label{margin-top:16px}
 /* Trading workbench, shared time controls, charts and data grids (from the trading release). */
 .futures-fields{border:0;padding:0;margin:0;min-width:0}.futures-fields input,.futures-fields select{max-width:100%;box-sizing:border-box}
 /* Shared time controls and the trading workbench. */
-.header-actions{flex-wrap:wrap;align-items:center}.date-control #header-calculation-time{display:block;font-size:9px;max-width:360px}.header-context{position:relative;font-size:11px}.header-context>summary{cursor:pointer;color:#536e43;max-width:180px}.header-context-panel{position:absolute;top:calc(100% + 12px);right:0;z-index:20;background:#fff;border:1px solid #dce5d2;border-radius:9px;padding:18px;width:400px;max-width:calc(100vw - 40px);box-shadow:0 10px 35px #122b2020;box-sizing:border-box}.header-context-panel .schedule-fields{grid-template-columns:1fr}.header-context-panel input{width:100%;box-sizing:border-box}.profile-button{max-width:230px}.profile-button #profile-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:760px){.header-context[open]{flex-basis:100%}.header-context-panel{position:static;max-width:none;width:100%;max-height:none;margin-top:12px}.header-actions .date-control{flex-basis:100%}.profile-button{max-width:190px}}
+.header-actions{flex-wrap:wrap;align-items:center}.header-context{position:relative;font-size:11px}.header-context>summary{cursor:pointer;color:#536e43;max-width:180px}.header-context-panel{position:absolute;top:calc(100% + 12px);right:0;z-index:20;background:#fff;border:1px solid #dce5d2;border-radius:9px;padding:18px;width:400px;max-width:calc(100vw - 40px);box-shadow:0 10px 35px #122b2020;box-sizing:border-box}.header-context-panel .schedule-fields{grid-template-columns:1fr}.header-context-panel input{width:100%;box-sizing:border-box}.profile-button{max-width:230px}.profile-button #profile-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:760px){.header-context[open]{flex-basis:100%}.header-context-panel{position:static;max-width:none;width:100%;max-height:none;margin-top:12px}.profile-button{max-width:190px}}
 /* Reusable table workspace: compact controls, optional configuration panels. */
 .table-workspace{background:#fff;border:1px solid #dce5d8;border-radius:8px;min-width:0}
 .table-workspace-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid #e5ebdf;background:#f8faf6;border-radius:8px 8px 0 0}
@@ -456,7 +467,7 @@ dialog label{margin-top:16px}
 .table-workspace-title{font-size:11px;color:#74816d;margin:12px 14px 0;font-weight:500}
 .table-workspace .table-filters{padding:0 12px;margin:8px 0 12px}.table-workspace .regular-table-scroll{max-height:calc(100vh - 330px);min-height:220px}
 .table-workspace table{font-size:12px}.table-workspace th{font-size:10px;padding:12px 14px;background:#f3f6ef}.table-workspace td{padding:12px 14px;border-bottom:1px solid #edf1e8;white-space:nowrap}.table-workspace tbody tr:hover{background:#f7faf3}
-.table-workspace-footer{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;font-size:11px;color:#74816d;padding:10px 2px 16px}.table-workspace-footer p{margin:0}.blotter-scope>summary,.table-totals>summary{cursor:pointer;font-size:11px;color:#536e43}.blotter-scope p{margin:10px 0}.table-totals{margin-top:8px}.table-totals[open]{background:#fff;border:1px solid #e1e8da;border-radius:8px;padding:14px}
+.table-workspace-footer{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;font-size:11px;color:#74816d;padding:10px 2px 16px}.table-workspace-footer p{margin:0}.blotter-scope>summary{cursor:pointer;font-size:11px;color:#536e43}.blotter-scope p{margin:10px 0}
 @media(max-width:760px){.table-workspace-toolbar{gap:4px;padding:8px}.table-workspace-toolbar>select{max-width:100%;flex:1 1 100%;margin-bottom:4px}.table-workspace-actions{margin-left:0;flex-wrap:wrap}.table-menu{position:static}.table-workspace-toolbar{position:relative}.table-menu-panel{left:8px;right:8px;top:100%;width:auto;max-width:none;max-height:55vh}.table-workspace .regular-table-scroll{max-height:65vh;min-height:180px}.table-workspace td,.table-workspace th{padding:10px 12px}.table-workspace-footer{gap:8px}}
 /* Shared analytical charts and the read-only data grid. */
 .chart{height:auto;min-height:300px;overflow:hidden}.standard-chart-plot{height:300px;width:100%;min-width:0}.chart-toolbar{display:flex;align-items:center;justify-content:end;gap:12px;min-height:30px;margin:6px 0}.chart-toolbar>span{margin-right:auto;color:#6b7e62;font-size:11px}.chart-toolbar button{font-size:10px;padding:5px 7px}
@@ -468,33 +479,26 @@ dialog label{margin-top:16px}
 
 .standard-data-grid .tabulator-col-resize-handle:hover{border-color:#71905e;background:#dcebd1}
 
-.workspace-mode{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1rem;margin:-.25rem 0 .75rem;font-size:.8rem;color:var(--muted,#657080)}.workspace-mode strong{color:var(--ink,#182735)}
+.editing fieldset{border:0;padding:0;min-width:0}.openable-row{cursor:pointer}.openable-row:focus-visible{outline:2px solid #23674d;outline-offset:-2px}
 
-.trade-editor{width:min(780px,calc(100vw - 24px));max-height:90vh;overflow:auto;box-sizing:border-box}.trade-editor fieldset{border:0;padding:0;min-width:0}.trade-editor .table-wrap{max-height:220px;overflow:auto}.openable-row{cursor:pointer}.openable-row:focus-visible{outline:2px solid #23674d;outline-offset:-2px}
+.trade-booking-terms{margin:16px 0 24px}.trade-booking-terms input,.trade-booking-terms select{width:100%}.editing .schedule-fields label{margin-top:12px}
+.instrument-sides{display:flex;flex-direction:column;gap:16px;margin:20px 0 12px}.instrument-side{min-width:0;padding:14px;border:1px solid #dce5d5;border-radius:8px;background:#fcfdf9}.instrument-side h3{margin:0 0 12px}.instrument-side label{margin-top:0}.side-contract{margin-bottom:12px}.side-terms{display:contents}.side-term{display:grid;grid-template-columns:minmax(110px,.9fr) minmax(0,1.2fr);gap:16px;padding:10px 0;border-top:1px solid #e6ebdf;font-size:12px;line-height:1.5}.side-term dt{color:#6b7d66}.side-term dd{margin:0;overflow-wrap:anywhere;color:#304f3d;font-variant-numeric:tabular-nums}#trade-editor-terms{margin:8px 0 16px}
+@media(max-width:480px){.instrument-side{padding:12px}.side-term{grid-template-columns:minmax(90px,.9fr) minmax(0,1.2fr);gap:10px}}
 
-.trade-booking-terms{margin:16px 0 24px}.trade-booking-terms input,.trade-booking-terms select{width:100%}.trade-editor .schedule-fields label{margin-top:12px}
-.instrument-sides{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(min(100%,320px),1fr);column-gap:16px;overflow-x:auto;margin:20px 0 12px}.instrument-side{display:grid;grid-template-rows:subgrid;grid-row:span var(--side-rows,2);min-width:0;padding:18px;border:1px solid #dce5d5;border-radius:8px;background:#fcfdf9}.instrument-side h3{margin:0 0 12px}.instrument-side label{margin-top:0}.side-contract{margin-bottom:12px}.side-terms{display:contents}.side-term{display:grid;grid-template-columns:minmax(110px,.9fr) minmax(0,1.2fr);gap:16px;padding:10px 0;border-top:1px solid #e6ebdf;font-size:12px;line-height:1.5}.side-term dt{color:#6b7d66}.side-term dd{margin:0;overflow-wrap:anywhere;color:#304f3d;font-variant-numeric:tabular-nums}.trade-editor #trade-editor-terms{margin:8px 0 16px}
-@media(max-width:480px){.instrument-side{padding:12px}.side-term{grid-template-columns:minmax(90px,.9fr) minmax(0,1.2fr);gap:10px}.trade-editor{padding:18px}}
-
-.trade-editor .dialog-heading{position:sticky;top:-28px;z-index:3;background:white;padding:14px 0;border-bottom:1px solid #edf1e6}
-@media(max-width:480px){.trade-editor .dialog-heading{top:-18px}}
-
-.trade-kind-actions{display:grid;gap:12px;margin-top:24px}.swap-editor{width:min(1100px,calc(100vw - 24px))}.swap-sides{grid-template-rows:repeat(12,auto);grid-auto-columns:minmax(280px,1fr);gap:16px}.swap-sides .instrument-side>div{padding:9px 0;border-top:1px solid #e6ebdf}.swap-sides input,.swap-sides select{width:100%}.swap-sides p{margin:0;min-height:38px;display:flex;align-items:center}.swap-editor fieldset{border:0;padding:0;min-width:0}.swap-editor #swap-error{color:#8c3830;background:#fff1ed;padding:12px}.swap-editor #swap-result{margin:24px 0}.swap-schedule{margin:20px 0;padding:16px;border:1px solid #e2e8dc;border-radius:8px}.swap-schedule details{margin-top:14px}.swap-editor #swap-reason{width:100%;margin-bottom:16px}.swap-editor .table-wrap{max-height:300px}.swap-editor #swap-confirmation{padding:16px 0;border-top:1px solid #e2e8dc}.swap-editor #swap-revisions{margin:12px 0}.swap-editor #swap-revisions select{width:auto;margin-right:12px}
-
-.swap-sides>.instrument-side{grid-row:1 / span 12;grid-auto-flow:row}
+.swap-sides .instrument-side>div{padding:9px 0;border-top:1px solid #e6ebdf}.swap-sides input,.swap-sides select{width:100%}.swap-sides p{margin:0;display:flex;align-items:center}#swap-error{color:#8c3830;background:#fff1ed;padding:12px}#swap-result{margin:24px 0}.swap-schedule{margin:20px 0;padding:16px;border:1px solid #e2e8dc;border-radius:8px}.swap-schedule details{margin-top:14px}#swap-reason{width:100%;margin-bottom:16px}#swap-confirmation{padding:16px 0;border-top:1px solid #e2e8dc}#swap-revisions{margin:12px 0}#swap-revisions select{width:auto;margin-right:12px}
 
 .swap-evidence{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.6;max-height:320px;overflow:auto;padding:12px;background:#f4f7f1;border-radius:6px}
 
 .swap-commodity{margin:20px 0}.swap-commodity select{min-width:240px}.side-payment-rule h4{font-size:13px;margin:4px 0 16px}.side-payment-rule label{margin:14px 0 7px}.swap-sides .side-payment-rule p{min-height:0;line-height:1.6;margin-top:14px}.side-payment-rule [hidden]{display:none}
 
-.swap-editor #swap-reference:empty{display:none}@media(min-width:761px){.swap-editor .trade-booking-terms .schedule-fields{grid-template-columns:repeat(3,minmax(0,1fr))}}
+#swap-reference:empty{display:none}
 
 /* Shared controls: clear labels, consistent sizing and native keyboard support. */
-.trade-editor label{font-size:12px;line-height:1.5;font-weight:550;color:#4b6154}.trade-editor .field-help{font-size:11px;line-height:1.65}
+.editing label{font-size:12px;line-height:1.5;font-weight:550;color:#4b6154}.editing .field-help{font-size:11px;line-height:1.65}
 .side-payment-rule label{margin-top:16px}.side-payment-rule select{background-color:#fff}.swap-sides .instrument-side{background:#f9fbf8}
-.swap-sides input,.swap-sides select{min-width:0}.swap-editor .trade-booking-terms{padding-bottom:4px;border-bottom:1px solid #e1e8de}
+.swap-sides input,.swap-sides select{min-width:0}.swap-editing .trade-booking-terms{padding-bottom:4px;border-bottom:1px solid #e1e8de}
 /* The table owns its scroll area; its enclosing section never adds a second one. */
-.trade-editor .table-wrap{overflow:visible;max-height:none}.trade-editor .regular-table-scroll{max-height:280px;border:1px solid #e0e7dd;border-radius:6px}
+.editing .table-wrap{overflow:visible;max-height:none}.editing .regular-table-scroll{max-height:280px;border:1px solid #e0e7dd;border-radius:6px}
 .regular-table-scroll table{font-size:12px;line-height:1.5}.regular-table-scroll th{font-size:11px;font-weight:600;color:#52675b;background:#f2f6ef}.regular-table-scroll td,.regular-table-scroll th{padding:10px 12px;vertical-align:middle}.regular-table-scroll td.numeric{font:inherit;font-variant-numeric:tabular-nums;text-align:right;color:#294436}.regular-table-scroll tbody tr:nth-child(even){background:#fafcf9}
 .standard-data-grid.tabulator{font-size:13px;line-height:1.45}.standard-data-grid .tabulator-header{font-size:12px;font-weight:600}.standard-data-grid .tabulator-row .tabulator-cell{padding:10px 12px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.standard-data-grid .grid-number{font-variant-numeric:tabular-nums}.standard-data-grid .tabulator-tableholder{scrollbar-gutter:stable;overscroll-behavior-x:contain}.standard-data-grid .tabulator-row.openable-row:hover{background:#edf5ed}.standard-data-grid .tabulator-row.openable-row:focus-visible{background:#e5efe5;outline:2px solid #367759;outline-offset:-2px}
 .schedule-date-picker{margin:16px 0;padding:14px 16px;border:1px solid #dce6d9;border-radius:8px;background:#f5f8f2}.schedule-date-picker>summary{cursor:pointer;font-size:12px;font-weight:550;color:#365c43}.schedule-date-fields{display:grid;grid-template-columns:minmax(170px,1fr) minmax(220px,2fr) auto;gap:12px;align-items:end;margin-top:16px}.schedule-date-fields label{margin:0 0 6px}.schedule-date-fields input,.schedule-date-fields select{width:100%}.schedule-date-fields button{min-height:38px}.schedule-date-result{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;background:#fff;border:1px solid #dce6d9;border-radius:6px;font-size:12px;line-height:1.6}.schedule-date-result span{overflow-wrap:anywhere}
@@ -503,38 +507,29 @@ dialog label{margin-top:16px}
 /* Configuration expands above the grid rather than covering selectable rows. */
 .table-menu[open]{display:contents}.table-menu[open]>.table-menu-panel{position:static;order:20;flex:1 1 100%;width:100%;max-width:none;max-height:360px;margin-top:6px;box-shadow:none;border-radius:6px;padding:16px}
 .table-menu-panel .table-field-choices{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 16px}.table-menu-panel .table-menu-actions{flex-wrap:wrap}.table-menu[open]>summary{border:1px solid #cbd9c5;background:#eaf0e3;border-radius:5px}
-.trade-editor{scroll-padding-top:110px}.trade-editor .dialog-heading{isolation:isolate}.trade-editor .dialog-heading::before{content:'';position:absolute;inset:-28px -28px 0;background:white;z-index:-1}.trade-editor .dialog-heading .icon-button{align-self:start}
-.trade-editor button{line-height:1.4}.trade-editor .profile-note{overflow-wrap:anywhere}.swap-schedule>p{overflow-wrap:anywhere}.regular-table-scroll{scrollbar-gutter:stable}.table-workspace-title{margin-top:14px;color:#53675a;font-size:12px}.table-workspace .table-row-count{font-size:11px;color:#65796b}
+.editing button{line-height:1.4}.editing .profile-note{overflow-wrap:anywhere}.swap-schedule>p{overflow-wrap:anywhere}.regular-table-scroll{scrollbar-gutter:stable}.table-workspace-title{margin-top:14px;color:#53675a;font-size:12px}.table-workspace .table-row-count{font-size:11px;color:#65796b}
 @media(max-width:760px){.table-menu[open]>.table-menu-panel{max-height:50vh}.table-menu-panel .table-field-choices{grid-template-columns:1fr 1fr}}
 .trade-annotation-fields{display:grid;grid-template-columns:minmax(180px,1fr) minmax(0,2fr);gap:18px;margin:16px 0 20px}.trade-annotation-fields select,.trade-annotation-fields textarea{width:100%}.trade-annotation-fields textarea{min-height:70px;resize:vertical;color:#294436;font-size:13px;line-height:1.5}.trade-annotation-fields label{margin-top:0}
 @media(max-width:760px){.trade-annotation-fields{grid-template-columns:1fr}}
 
 /* Merged shell: the example switcher and header time controls use the token palette. */
-.example-switch{margin:0 4px 6px}.example-switch label{color:var(--sidebar-muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+.example-switch{margin:10px 0 0}.example-switch label{color:var(--sidebar-muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
 .example-switch select{width:100%;background:var(--sidebar-2);color:var(--sidebar-text);border-color:#2f4b3e}
 .header-context>summary{color:var(--accent-text)}
-.workspace-mode{color:var(--text-3)}.workspace-mode strong{color:var(--text)}
 
 /* Blotter: headline strip, compact toolbar and a dense, scannable grid. */
 .table-workspace{border-color:var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:clip}
-.table-workspace-toolbar{gap:4px;padding:8px 10px;background:var(--surface-2);border-bottom-color:var(--border)}
+.table-workspace-toolbar{gap:4px;padding:8px;background:var(--surface-2);border-bottom-color:var(--border)}
 .table-workspace-toolbar>select{min-height:32px;font-size:12px;font-weight:500;padding:5px 28px 5px 10px;border-radius:var(--radius-sm)}
 .table-menu>summary{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text-2);padding:7px 10px;border-radius:var(--radius-sm)}
 .table-menu>summary::after{content:'';width:6px;height:6px;margin-top:-3px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(45deg);opacity:.6}
 .table-menu[open]>summary::after{margin-top:3px;transform:rotate(-135deg)}
 .table-menu>summary:hover,.table-menu[open]>summary{background:var(--surface);border-color:var(--border);color:var(--text)}
-.table-workspace-actions{gap:6px;padding-left:8px;border-left:1px solid var(--border)}
+.table-workspace-actions{gap:4px;padding-left:6px;border-left:1px solid var(--border)}
 .table-workspace-actions button{font-size:12px;font-weight:500;padding:7px 12px;border-radius:var(--radius-sm)}
 .table-workspace-actions button:last-child{background:var(--accent);border-color:var(--accent);color:#fff}
 .table-workspace-actions button:last-child:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
-.table-workspace-summary{display:flex;flex-wrap:wrap;gap:0;margin:0;border-bottom:1px solid var(--border)}
-.table-workspace-summary[hidden]{display:none}
-.table-workspace-summary>div{flex:1 1 160px;min-width:0;padding:12px 16px;border-right:1px solid var(--border)}
-.table-workspace-summary>div:last-child{border-right:0}
-.table-workspace-summary dt{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.table-workspace-summary dd{margin:4px 0 0;font-size:17px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
-.table-workspace-summary dd[data-sign=negative],.standard-data-grid .grid-negative{color:var(--danger)}
-.table-workspace-summary dd[data-sign=positive]{color:var(--accent-text)}
+.standard-data-grid .grid-negative{color:var(--loss-ink)}
 .table-workspace-title{margin:12px 16px 0;font-size:13px;font-weight:600;color:var(--text)}
 .table-workspace .table-filters{padding:0 16px;margin:8px 0 10px}
 .table-workspace .standard-data-grid.tabulator{font-size:13px;border-top-color:var(--border)}
@@ -551,14 +546,11 @@ dialog label{margin-top:16px}
 .standard-data-grid .tabulator-col .tabulator-col-sorter{opacity:0;transition:opacity .12s}
 .standard-data-grid .tabulator-col:hover .tabulator-col-sorter,.standard-data-grid .tabulator-col[aria-sort=ascending] .tabulator-col-sorter,.standard-data-grid .tabulator-col[aria-sort=descending] .tabulator-col-sorter{opacity:1}
 .table-workspace-footer{padding:10px 4px 14px;color:var(--text-3)}
-.date-control #header-calculation-time{font-size:11px;color:var(--text-3)}
-@media(min-width:1200px){.date-control #header-calculation-time{white-space:nowrap;max-width:none}}
 .table-workspace .standard-data-grid .tabulator-row .tabulator-cell{border-right:0}
-@media(max-width:760px){.table-workspace-actions{border-left:0;padding-left:0}.table-workspace-summary>div{flex-basis:45%;border-bottom:1px solid var(--border)}.table-workspace-summary dd{font-size:15px}}
+@media(max-width:760px){.table-workspace-actions{border-left:0;padding-left:0}}
 /* Sidebar controls stay inside the rail; long labels truncate instead of overflowing. */
 .sidebar .nav-item,.sidebar select{box-sizing:border-box;max-width:100%;min-width:0}
 .sidebar .nav-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:760px){.date-control{flex-wrap:wrap}.date-control select{flex:1 1 0;min-width:0}.date-control #header-calculation-time{flex-basis:100%;max-width:none}}
 /* Curve-type filter as one segmented control. */
 .library-filters .filter-tabs{gap:2px;padding:3px;background:var(--surface-3);border-radius:8px}
 .library-filters .filter-tabs button{border:0;border-radius:6px;padding:5px 2px;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -566,10 +558,254 @@ dialog label{margin-top:16px}
 .library-filters .filter-tabs button.active{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 2px #1b2e2324}
 .chart-toolbar>span strong{color:var(--text);font-weight:600}
 
+/* Blotter desk: summary tiles, market charts and grouped positions (blotter-desk.md, Desk layout). Every
+   figure is a backend string; signs, bar direction and words always accompany gain, loss and commodity colors. */
+/* The saved views list takes the room the toolbar has left, up to a limit, so its label shows whole; it gives way before the toolbar wraps. */
+.table-workspace-toolbar>select{flex:1 1 150px;min-width:120px;max-width:260px}
+.table-workspace-heading{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;padding:9px 16px 7px}
+.table-workspace-heading .table-workspace-title{margin:0}
+.table-group-by{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:500;color:var(--text-2)}
+.table-group-by select{width:auto;max-width:170px;min-height:32px;font-size:12px;font-weight:500;padding:5px 28px 5px 10px}
+.table-workspace-filters{display:flex;flex:1 1 300px;justify-content:flex-end;min-width:0}
+.table-workspace-filters .table-filters{flex:1;justify-content:flex-end;margin:0;padding:0}
+/* The desk is a size container: a figure that would not fit even a lone tile shrinks to its width (.kpi-figure below). */
+.table-workspace>.desk{container:desk/inline-size;display:grid;gap:12px;padding:14px 16px 12px;background:var(--bg)}
+/* Under the tiles, the charts and the positions share a column, and the side panel docks beside it (see Side panel below). */
+.table-workspace-stage{display:block;min-width:0}
+.table-workspace-main{min-width:0}
+.table-workspace-main>.table-workspace-heading{border-top:1px solid var(--border)}
+/* Tiles take the room their content needs. A row of them wraps before a figure or a split would be cut off: the money tiles
+   and the positions and risk tiles are two pairs, so a narrower desk shows two by two, and a narrower one still one by one. */
+.desk-tiles,.desk-tile-pair{display:flex;flex-wrap:wrap;gap:12px}
+.desk-tile-pair{flex:1 1 422px}.desk-tile-pair:first-child{flex:1.8 1 492px}
+.desk-tile{display:flex;flex:1 1 176px;flex-direction:column;gap:4px;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.desk-tile-pair:first-child .desk-tile{flex-basis:240px}
+#desk-tile-positions{flex-basis:200px}
+.desk-tile-label{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:550;color:var(--text-3)}
+.desk-tile-row{display:flex;flex-direction:column;gap:6px;min-width:0}
+.desk-tile-row+.desk-tile-row{padding-top:8px;border-top:1px solid var(--border)}
+.desk-tile .kpi-value{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.6px}
+.desk-tile .kpi-value small{font-size:13px;font-weight:500;letter-spacing:0;color:var(--text-3)}
+/* A figure is one token: it never splits, and its currency wraps beneath it. A tile only gets narrower than its figure when the desk
+   itself is, and then the figure shrinks to the desk's width (about two thirds of its size per character, for the widest digits). */
+.desk-tile .kpi-figure{white-space:nowrap;font-size:min(1em,calc((100cqw - 30px)/(var(--figure-length)*.66)))}
+.desk-tile-several .kpi-value{font-size:20px}
+.desk-tile .desk-not-valued{font-size:20px;color:var(--text-3)}
+.desk-tile-currency{margin:0;font-size:11px;font-weight:600;color:var(--text-2)}
+.desk [data-sign=positive],#desk-positions [data-sign=positive]{color:var(--gain-ink)}
+.desk [data-sign=negative],#desk-positions [data-sign=negative]{color:var(--loss-ink)}
+.desk-splits{display:grid;gap:5px}
+.desk-split{display:grid;grid-template-columns:minmax(44px,max-content) minmax(40px,1fr) max-content;align-items:center;gap:8px;font-size:11.5px;color:var(--text-2)}
+.desk-split-book{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.desk-split-bar{display:block;width:100%;height:10px}
+.desk-split-amount{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.desk-track{fill:var(--surface-3)}.desk-axis{stroke:var(--border-strong)}.desk-bar-gain{fill:var(--gain)}.desk-bar-loss{fill:var(--loss)}
+.desk-tile-note{margin:auto 0 0;font-size:11.5px;line-height:1.4;color:var(--warn)}
+.desk-mix{display:flex;gap:2px;height:10px;margin:1px 0;overflow:hidden;border-radius:5px}
+.desk-mix i{display:block;min-width:3px;height:100%}
+.desk-mix .desk-mix-financial_swap,.desk-swatch.desk-mix-financial_swap{opacity:.55}
+.desk-legend{display:flex;flex-wrap:wrap;gap:1px 12px;margin:0;padding:0;list-style:none;font-size:11px;line-height:1.3;color:var(--text-2)}
+.desk-legend li{display:inline-flex;align-items:center;gap:5px}.desk-legend b{font-weight:600;font-variant-numeric:tabular-nums}
+.desk-swatch{display:inline-block;width:9px;height:9px;border-radius:3px}
+.desk-tile-risk{flex:1.05 1 210px;background:radial-gradient(120% 140% at 100% 0%,var(--accent-soft) 0%,var(--surface) 58%)}
+.desk-risk-state{margin:0;font-size:18px;font-weight:650;letter-spacing:-.3px}
+.desk-tile-hint{margin:0;font-size:11.5px;line-height:1.4;color:var(--text-2)}
+.desk-tile-risk button{align-self:flex-start;margin-top:auto;font-size:12px;padding:6px 12px}
+.desk-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px;padding:0 16px 14px;background:var(--bg)}
+.desk-chart{min-width:0;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.desk-chart-title{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--text)}
+.desk-chart>.chart{min-height:0}.desk-chart>.chart+.chart{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.desk-chart .chart-toolbar{align-items:flex-start;min-height:0;margin:0 0 2px}
+.desk-chart .chart-toolbar>span{display:flex;flex-direction:column;gap:1px;font-size:11.5px}
+.desk-chart .chart-toolbar>span strong{font-weight:550;color:var(--text-2)}
+.desk-chart .chart-toolbar small{font-size:11.5px;color:var(--text-2)}
+.desk-chart .standard-chart-plot{height:var(--plot-height,180px)}
+.desk-chart-empty{margin:0;padding:24px 0;text-align:center;font-size:12px;color:var(--text-3)}
+#desk-positions .tabulator-row.tabulator-group{min-height:0;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:12px;font-weight:650;color:var(--text)}
+#desk-positions .tabulator-row.tabulator-group:hover{background:var(--surface-3)}
+.desk-group{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;width:calc(100% - 24px)}
+/* Tabulator's own theme colors group header text; the desk's headers use the shared ink. */
+#desk-positions .tabulator-group span{margin-left:0;color:inherit}
+#desk-positions .tabulator-group span.desk-group-count{font-weight:500;color:var(--text-2)}
+#desk-positions .tabulator-group span.desk-group-totals{display:inline-flex;flex-wrap:wrap;gap:2px 14px;margin-left:auto;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
+.desk-group-totals b{font-weight:650}
+.desk-group:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+#desk-positions .tabulator-row .tabulator-cell{vertical-align:middle}
+/* A little less padding keeps the desk's seven columns, with their units, within a 1280 pixel window. */
+.table-workspace #desk-positions .standard-data-grid .tabulator-row .tabulator-cell{padding:7px 10px}
+.table-workspace #desk-positions .standard-data-grid .tabulator-header .tabulator-col .tabulator-col-content{padding:8px 10px}
+.desk-cell{display:flex;flex-direction:column;justify-content:center;min-width:0;line-height:1.35}
+.grid-number .desk-cell{align-items:flex-end}
+.desk-line{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.desk-sub{font-size:10.5px;line-height:1.3;color:var(--text-2)}
+.desk-cell:has(>.desk-pill){flex-direction:row;align-items:center;gap:6px}
+.desk-pill{display:inline-block;min-width:38px;padding:2px 6px;border-radius:5px;font-size:9.5px;font-weight:750;letter-spacing:.05em;text-align:center;color:var(--text-2)}
+.desk-pill-fut{background:var(--surface-3)}.desk-pill-swap{background:var(--surface);box-shadow:inset 0 0 0 1px var(--border-strong)}
+.commodity-dot{display:inline-block;flex:none;width:7px;height:7px;border-radius:50%}
+.desk-market{overflow:hidden;text-overflow:ellipsis}
+.desk-figure{font-variant-numeric:tabular-nums}.desk-value{font-weight:600}
+.desk-unit,.desk-muted{font-size:11px;color:var(--text-2)}.desk-sub .desk-unit{font-size:inherit}
+.desk-size-bar{flex:none}
+.desk-size .desk-line{display:flex;width:100%}.desk-size .desk-figure{margin-left:auto}
+.desk-chip{display:inline-block;padding:0 7px;border:1px solid var(--warn-border);border-radius:999px;background:var(--warn-soft);font-size:10px;font-weight:650;line-height:16px;color:var(--warn)}
+.sparkline{display:block;overflow:visible}.sparkline-line{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.sparkline-mark{stroke:var(--surface);stroke-width:1.5}
+.sparkline-unavailable line{stroke:var(--border-strong);stroke-dasharray:2 3}
+.sparkline-loading{display:block;width:84px;height:22px;border-radius:4px;background:var(--surface-2)}
+/* A risk run inline (blotter-desk.md, Risk report inline; D222): the run bar above the tiles says what ran, the risk tile its largest
+   move, the positions' Values | Risk lens each position's shock, changes and delta, and the change chart each contract's up move. */
+.desk-run{display:flex;align-items:center;gap:12px;padding:8px 10px 8px 12px;border:1px solid var(--warn-border);border-radius:var(--radius-lg);background:linear-gradient(90deg,var(--warn-soft),var(--surface) 72%);font-size:12px;color:var(--warn)}
+.desk-run-mark{display:grid;place-items:center;flex:none;width:26px;height:26px;border-radius:8px;background:#f5dfa8;color:var(--warn)}
+.desk-run-mark svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.desk-run-text{flex:1 1 auto;min-width:0}
+.desk-run-text p{margin:0;line-height:1.45}
+.desk-run-title strong,.desk-run-title span{color:#3d2f08}.desk-run-title span{font-weight:550;overflow-wrap:anywhere}
+.desk-run-detail{color:var(--warn)}
+.desk-run-notes{margin:2px 0 0;padding:0;list-style:none;color:var(--text-2);overflow-wrap:anywhere}
+.desk-run-notes .risk-part-failed,.desk-run-notes .risk-run-alert{color:var(--danger)}.desk-run-notes .risk-part-missing{color:var(--warn)}
+.desk-run-export-note{color:var(--text-2)}
+.desk-run-actions{display:flex;flex:none;flex-wrap:wrap;gap:6px}
+.desk-run-actions button{padding:5px 10px;font-size:12px}
+.desk-lens{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:var(--surface-3)}
+.desk-lens button{padding:4px 10px;border:0;border-radius:7px;background:none;font-size:11.5px;font-weight:550;color:var(--text-2)}
+.desk-lens button:hover{background:var(--surface)}
+.desk-lens button[aria-pressed=true]{background:var(--surface);color:var(--text);font-weight:650;box-shadow:0 1px 2px rgba(18,34,27,.1)}
+.desk-risk-count{flex:none;font-weight:600;white-space:nowrap;color:var(--text-2)}
+.desk-risk-moves{display:grid;gap:4px}
+.desk-risk-largest,.desk-risk-none{margin:0;font-size:11.5px;line-height:1.4;color:var(--text-2);overflow-wrap:anywhere}
+.desk-risk-bars{display:block;max-width:100%;overflow:visible}
+.desk-chart-note{margin:0 0 6px;font-size:11.5px;line-height:1.4;color:var(--text-2)}
+.desk-group-left{font-weight:500;color:var(--warn)}
+.desk-risk .desk-sub{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side-risk-shock h3{overflow-wrap:anywhere}.side-risk-shock .field-help{margin:0}
+.side-risk-shock .side-panel-facts{grid-template-columns:repeat(2,minmax(0,1fr))}
+.side-risk-shock b[data-sign=positive]{color:var(--gain-ink)}.side-risk-shock b[data-sign=negative]{color:var(--loss-ink)}
+@media(max-width:760px){.table-workspace>.desk{padding:12px 12px 10px}.desk-charts{grid-template-columns:minmax(0,1fr);padding:0 12px 12px}.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}
+  .desk-run{flex-wrap:wrap;align-items:flex-start}.desk-run-mark{display:none}.desk-run-actions{flex-basis:100%}}
+
+/* Side panel (blotter-desk.md, Side panel). Docked, it is a column beside the charts and the positions that keeps in view as they
+   scroll; as an overlay (a narrower main area, or the assistant open) it is a drawer over the window's right edge, left of the
+   assistant. The tiles never move: the panel sits under them either way. */
+.side-panel{background:var(--surface);color:var(--text)}
+.side-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.side-panel-frame{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
+.table-workspace-stage:has(>.side-panel[data-placement=docked]:not([hidden])){display:grid;grid-template-columns:minmax(0,1fr) var(--panel-width)}
+.side-panel[data-placement=docked]{border-left:1px solid var(--border)}
+.side-panel[data-placement=docked] .side-panel-frame{position:sticky;top:8px;max-height:calc(100vh - 16px)}
+.side-panel[data-placement=overlay]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-overlay-width),100%);border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
+.side-panel[data-placement=overlay] .side-panel-frame{height:100%}
+body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100% - var(--assistant-width)))}
+@media(max-width:760px){.side-panel[data-placement=overlay],body.assistant-open .side-panel[data-placement=overlay]{right:0;left:0;width:100%;border-left:0}}
+/* What needs more room than a docked panel has, a swap's settlement figures, opens the panel wide: it lies over the page, which keeps
+   its layout beneath, docked or not, and never over the navigation, which stays in view and in reach (D221). */
+.side-panel[data-wide]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-wide-width),calc(100% - var(--sidebar-width)));border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
+.side-panel[data-wide] .side-panel-frame{position:relative;top:auto;height:100%;max-height:none}
+body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:min(var(--panel-wide-width),calc(100% - var(--assistant-width) - var(--sidebar-width)))}
+.side-panel-close{position:absolute;top:8px;right:8px;z-index:1;width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:var(--radius-sm)}
+.side-panel-close:hover{background:var(--surface-3);color:var(--text)}
+/* The close button sits over the prompt's right edge too, so the question keeps clear of it. */
+.side-panel-prompt{padding:10px 44px 10px 16px;background:var(--warn-soft);border-bottom:1px solid var(--warn-border);font-size:12.5px;color:var(--text)}
+.side-panel-prompt p{margin:0 0 8px}
+.side-panel-prompt-actions{display:flex;flex-wrap:wrap;gap:8px}
+/* A request whose outcome is not known is kept in a card nobody can miss: above the Blotter, or above whatever the open panel shows. */
+.retained-request{margin:0 0 12px;padding:10px 16px;background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius-sm);font-size:12.5px;color:var(--text)}
+.retained-request p{margin:0 0 8px}
+.side-panel-retained .retained-request{margin:0;padding-right:44px;border-width:0 0 1px;border-radius:0}
+.side-panel-head{padding:14px 16px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);min-width:0}
+.side-panel-head:empty{display:none}
+/* The close button sits over the head's top right corner, so only the lines beside it keep clear of it. */
+.side-panel-kicker{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding-right:32px;font-size:11.5px;color:var(--text-2)}
+.side-panel-reference{font-weight:650;color:var(--text)}
+.side-panel-meta{overflow-wrap:anywhere}
+.side-panel-title{display:flex;align-items:center;gap:8px;margin:8px 0 2px;padding-right:32px;font-size:17px;line-height:1.3;overflow-wrap:anywhere}
+.side-panel-title .commodity-dot{width:9px;height:9px}
+.side-panel-sub{margin:0;font-size:12.5px;color:var(--text-2);overflow-wrap:anywhere}
+.side-panel-value{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:8px 16px;margin-top:12px}
+.side-panel-figure{min-width:0}
+.side-panel-label{display:block;font-size:11px;font-weight:550;color:var(--text-2)}
+.side-panel .kpi-value{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.6px;overflow-wrap:anywhere}
+.side-panel .kpi-value small{font-size:13px;font-weight:500;letter-spacing:0;color:var(--text-2)}
+/* Only a value is a gain or a loss. A mark minus price is a price move in the panel's own ink: which way it cuts depends on the direction. */
+.side-panel-figure [data-sign=positive]{color:var(--gain-ink)}.side-panel-figure [data-sign=negative]{color:var(--loss-ink)}
+.side-panel-reason{margin:4px 0 0;font-size:12.5px;color:var(--text)}
+.side-panel-delta{text-align:right;font-variant-numeric:tabular-nums}
+.side-panel-delta b{display:block;font-size:15px;font-weight:650}
+.side-panel-delta small{font-size:11px;color:var(--text-2)}
+.side-panel-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.side-panel-actions button{font-size:12px;padding:6px 12px}
+.side-panel-head .side-panel-note{margin:8px 0 0}
+.side-panel-tabs{display:flex;gap:18px;padding:0 16px;border-bottom:1px solid var(--border);background:var(--surface)}
+.side-panel-tab{background:transparent;color:var(--text-2);border:0;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;padding:10px 0 8px;font-size:13px;font-weight:550}
+.side-panel-tab:hover{background:transparent;border-color:transparent;border-bottom-color:var(--border-strong);color:var(--text)}
+.side-panel-tab[aria-selected=true]{color:var(--accent-text);border-bottom-color:var(--accent)}
+.side-panel-body{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 16px 16px}
+.side-panel-status{margin:8px 0;font-size:12.5px;color:var(--text-2)}
+.side-panel-error{color:var(--danger)}
+.side-panel-chart{height:auto;min-height:0}
+.side-panel .chart-toolbar{margin:0 0 4px}
+.side-panel .chart-toolbar>span{display:flex;flex-direction:column;gap:1px;font-size:11.5px}
+.side-panel .chart-toolbar>span strong{font-weight:550;color:var(--text-2)}
+.side-panel .standard-chart-plot{height:240px}
+.side-panel-note{margin:6px 0 0}
+.side-panel-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0 0}
+.side-panel-fact{min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.side-panel-fact dt{font-size:10.5px;font-weight:550;color:var(--text-2)}
+.side-panel-fact dd{margin:2px 0 0;font-size:13px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.side-panel-fact small{font-size:10.5px;color:var(--text-2)}
+.side-panel-section+.side-panel-section{margin-top:14px}
+.side-panel-section h3{margin:0 0 4px;font-size:12px;font-weight:650;color:var(--text)}
+.side-terms-list{margin:0}
+.side-panel .side-term{grid-template-columns:minmax(84px,.8fr) minmax(0,1.2fr);gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12px}
+.side-panel .side-term dt{color:var(--text-2)}.side-panel .side-term dd{color:var(--text)}
+.side-panel .table-wrap{min-width:0}
+.side-panel .table-filters{padding:0;margin:0 0 8px}
+.side-panel .regular-table-scroll{max-height:none}
+.side-panel table{font-size:12px}.side-panel th{font-size:10.5px;padding:8px 10px}.side-panel td{padding:8px 10px;white-space:nowrap}
+/* In the panel the settlement view's tables wrap their labels and keep each figure on one line, so that in the wide panel every figure,
+   and each payment's action, is read without scrolling sideways (D221); a phone's sheet may scroll a table sideways. */
+.side-panel .swap-settlement-editing th,.side-panel .swap-settlement-editing td:not(.numeric){white-space:normal}
+.swap-settlement-stack{display:grid;gap:4px;justify-items:start;overflow-wrap:anywhere}.swap-settlement-stack button{white-space:normal;text-align:left}
+/* The form of an amendment, or of a new swap, takes the tab panel in place of the tab's view, and its fields the panel's one column. */
+.side-panel-tabs:empty{display:none}
+.side-panel-form .schedule-fields,.side-panel-form .trade-annotation-fields,.side-panel-form .schedule-date-fields{grid-template-columns:minmax(0,1fr);gap:12px}
+.side-panel-form .instrument-choices{grid-template-columns:minmax(0,1fr);margin:12px 0}
+.side-panel-form .instrument-choices button{white-space:normal;min-width:0}
+.side-panel-form .available-date-calendar{width:min(21rem,100%)}
+.side-panel-form select,.side-panel-form input:not([type=checkbox]),.side-panel-form textarea{width:100%}
+/* The swap tickets and the settlement view take the panel's one column too (D221): each side's terms stack, and a payment table too wide
+   for the panel gives way to its one-line summary of each payment, as it does on a phone. */
+.side-panel-form .swap-term-columns,.side-panel-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
+/* The swap ticket's way to the scheduled ticket has a long name, which wraps in the panel's column rather than widen it. */
+.side-panel-form #swap-scheduled-open{max-width:100%;white-space:normal}
+.side-panel .swap-payment-summary{display:block;line-height:1.7}.side-panel .swap-payment-table{display:none}
+.scheduled-swap-heading,.swap-settlement-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 8px}
+.scheduled-swap-heading h3,.swap-settlement-heading h3{margin:0;min-width:0;overflow-wrap:anywhere}
+.side-panel-terms-actions{margin:0 0 12px}
+/* New trade (blotter-desk.md, Side panel). Under the toolbar, why New trade is not offered; in the panel's head, the switch of the product, a segmented
+   control with none of its two choices made for the person. */
+.table-workspace-note{margin:0;padding:8px 16px;border-top:1px solid var(--border);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
+/* Above the rows, that the open position's row is hidden by the table's own filters, with the way to show it. */
+.table-open-note{margin:0 0 8px;padding:8px 12px;border:1px solid var(--warn-border);border-radius:var(--radius-sm);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
+.table-open-note .text-button{margin-left:6px}
+.product-switch{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.product-switch button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
+.product-switch button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
+.product-switch button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.new-trade-head .side-panel-title{margin-top:0}
+.new-trade-head .side-panel-note{margin:8px 0 0}
+/* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
+.draft-valuation{margin:20px 0 12px;padding-top:14px;border-top:1px solid var(--border)}
+.draft-title{margin:0 0 8px;font-size:15px}
+.draft-curves .draft-chart,.draft-curves .field-help{margin-top:10px}
+.draft-curves .draft-chart{min-height:0}
+.draft-curves .draft-chart .standard-chart-plot{height:200px}
+/* The row the panel shows: marked as a hovered row is, and by a bar at its edge. */
+.table-workspace .standard-data-grid .tabulator-row.open-row{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+/* A row brought into view, as a position opened by a booking is, comes to rest with room around it, not flush with an edge. */
+.table-workspace .standard-data-grid .tabulator-row{scroll-margin-block:24px}
+
 /* Pivot builder and linked visual analysis */
-.table-workspace-toolbar>select{max-width:190px}
-.table-workspace-toolbar .table-menu>summary{padding:7px}
-.table-workspace-actions button{padding:7px 10px}
+.table-workspace-toolbar .table-menu>summary{padding:7px 6px}
+.table-workspace-actions button{padding:7px 9px}
 .table-menu[open]::details-content{display:contents}
 .table-menu>summary>svg,.plot-style-controls svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
 #blotter-pivot[open]>.table-menu-panel{width:100%;max-height:none;padding:20px;background:linear-gradient(135deg,#fbfdfb,#f5f8f6);border-color:#dce6df}
@@ -633,7 +869,7 @@ dialog label{margin-top:16px}
 #power-form,#dates-form{counter-reset:power-step}
 #power-form .form-section,#dates-form .form-section{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--text)}
 #power-form .form-section::before,#dates-form .form-section::before{counter-increment:power-step;content:counter(power-step);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font-size:12px;font-weight:600;flex:none}
-#power-form>div:has(>button[type=submit]),#dates-form>div:has(>button[type=submit]){position:sticky;bottom:0;z-index:3;margin:0 -20px -20px;padding:12px 20px;background:var(--surface);border-top:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius)}
+#power-form>div:has(>button[type=submit]),#dates-form>div:has(>button[type=submit]){position:sticky;bottom:0;z-index:3;margin:0 -20px -20px;padding:12px 20px;background:var(--surface);border-top:1px solid var(--border);border-radius:0 0 var(--radius-lg) var(--radius-lg)}
 .advanced-settings{margin-block:1rem;color:#657080}
 .advanced-settings>summary{cursor:pointer;font-size:.875rem}
 .advanced-settings[open]>summary{margin-bottom:.75rem}
@@ -702,17 +938,39 @@ dialog label{margin-top:16px}
 .curve-contract-row input,.curve-contract-row select{font-size:12px;min-width:0}
 .curve-contract-row input[inputmode=decimal]{font-family:var(--mono)}
 .curve-contract-mapping>button{width:100%;margin-top:4px}
-#risk-card{padding:24px}
-.risk-scenario-editor{padding:20px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(125deg,#f4f9f6,#fff 75%);margin:18px 0}
-.risk-scenario-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
-.risk-scenario-heading p{max-width:58ch;margin:4px 0 0}
-.risk-target-filters,.risk-bucket-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.risk-target-filters{max-width:640px;margin:14px 0}
+/* The side panel's risk report: a choice of report, its sizes or the scenario lab, and the run's jobs and the work it did. */
+.risk-report fieldset{border:0;padding:0;margin:0;min-width:0}
+.risk-report input,.risk-report select{max-width:100%;box-sizing:border-box}
+.risk-report>.field-help:first-child{margin-top:0}
+#risk-history{margin:0 0 12px;padding:8px 0;border-bottom:1px solid var(--border)}
+#risk-history>summary{font-size:12.5px;font-weight:600;color:var(--accent-text)}
+#risk-history select{display:block;width:100%;margin-top:6px}
+.risk-choices legend{padding:0;margin-bottom:6px;font-size:12px;font-weight:650;color:var(--text)}
+.risk-choice{display:flex;align-items:flex-start;gap:10px;margin:0 0 6px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);font-size:13px;cursor:pointer}
+.risk-choice:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.risk-choice input{min-height:0;margin:2px 0 0;flex:none}
+.risk-choice>span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.risk-choice small{font-size:11.5px;color:var(--text-2);overflow-wrap:anywhere}
+.risk-preset{margin:12px 0 0}
+.risk-sizes{display:grid;gap:10px}
+.risk-size label{display:block;margin:0 0 4px;font-size:12px;color:var(--text-2)}
+.risk-size input{display:block;width:100%;font-family:var(--mono)}
+.risk-prefilled{display:inline-block;margin-top:4px;padding:1px 8px;border:1px solid #b9d9c9;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);font-size:11px}
+.risk-custom{margin-top:12px}
+.risk-scenario-editor{padding:14px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(125deg,#f4f9f6,#fff 75%);margin:0 0 12px}
+.risk-scenario-heading{margin-bottom:12px}
+.risk-scenario-heading p{margin:4px 0 0}
+.risk-target-filters,.risk-bucket-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.risk-target-filters{margin:12px 0}
 .risk-target-filters select,.risk-bucket-fields input{display:block;width:100%;margin-top:6px}
 #risk-factor,#risk-stress-factor{width:100%;margin-bottom:12px}
-.risk-bucket-fields{max-width:640px;padding:14px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;margin-bottom:14px}
-.risk-bucket-fields .field-help{grid-column:1/-1;margin:0}
+.risk-bucket-fields{padding:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;margin-bottom:14px}
+.risk-bucket-fields .field-help{margin:0}
 #risk-bump,#risk-stress-size{font-family:var(--mono);width:220px}
+#risk-excluded{margin:12px 0 0;color:var(--text-2)}
+.risk-job-parts{list-style:none;margin:4px 0 8px;padding:0;font-size:12px;color:var(--text-2)}
+.risk-job-parts:empty{display:none}
+.risk-part-attention{color:var(--warn)}
 #risk-stress{border-top:1px solid var(--border);padding-top:16px;margin-top:18px}
 #risk-stress>summary{font-weight:600;color:var(--accent-text)}
 #risk-stress>p{margin-top:10px;max-width:80ch}
@@ -723,14 +981,12 @@ dialog label{margin-top:16px}
 #risk-stress-stack li>span:last-child{grid-column:2;font-size:12px;color:var(--text-3);font-family:var(--mono)}
 .risk-layer-number{grid-row:1/3;align-self:center;display:grid;place-items:center;width:26px;height:26px;background:#dcece2;border-radius:50%;font-size:11px;font-weight:700;color:var(--accent-text)}
 .risk-run-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
-#risk-results>h4{margin:24px 0 10px}
-#risk-results>details{padding:12px 0;border-bottom:1px solid var(--border)}
 .swap-projection-choice{margin-top:12px;padding:12px;background:var(--accent-soft);border:1px solid #c5ded0;border-radius:8px}
 .swap-projection-choice select{display:block;width:100%}
 .swap-projection-choice .field-help{margin-bottom:0}
 @media(max-width:1200px){.custom-curve-workspace,.custom-curve-workspace.inspector-collapsed{grid-template-columns:140px minmax(0,1fr)}.custom-curve-workspace.palette-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-inspector{grid-column:1/-1}.custom-curve-inspector #custom-curves-properties{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 18px}.custom-curve-inspector h4,.custom-curve-inspector p{grid-column:1/-1}}
 @media(max-width:760px){.custom-curve-workspace,.custom-curve-workspace.inspector-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-inspector{grid-column:auto}.custom-curve-inspector #custom-curves-properties{display:block}.custom-curve-palette #custom-curves-operators{flex-direction:row;flex-wrap:wrap}.custom-curve-palette button{width:auto}.custom-curve-board{height:350px}}
-@media(max-width:600px){#risk-card{padding:16px}.risk-scenario-editor{padding:14px}.risk-scenario-heading{display:block}.risk-target-filters,.risk-bucket-fields{grid-template-columns:minmax(0,1fr)}.risk-target-filters{gap:6px}.risk-bucket-fields .field-help{grid-column:1}.curve-contract-row{padding:10px}.risk-run-actions>button{flex:1}}
+@media(max-width:600px){.curve-contract-row{padding:10px}.risk-run-actions>button{flex:1}}
 /* Interval series: plain fieldsets, a monospaced paste area and full-width single-line controls. */
 #interval-series-page fieldset,#interval-curves-page fieldset{border:0;padding:0;margin:0;min-width:0}
 #interval-series-select,#interval-series-reason,#interval-series-change-value{width:100%;max-width:480px}
@@ -752,7 +1008,7 @@ dialog label{margin-top:16px}
 .live-status[data-state="stale"] {color:#9c283a;background:#fff0f2;}
 /* The assistant panel (docs/ai-assistant.md §10.1): docked right with the page narrowing beside it, its left edge resizing
    it; below 760 px a full-width sheet. Answers are text nodes in paragraphs, lists and code. */
-:root{--assistant-width:400px}
+:root{--assistant-width:400px;--panel-width:340px;--panel-overlay-width:440px;--panel-wide-width:720px}
 .assistant-launcher{display:inline-flex;align-items:center;gap:6px}
 .assistant-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
 body.assistant-open main{margin-right:var(--assistant-width)}
@@ -826,8 +1082,8 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 #ppa-page .ppa-pricing-summary th,#ppa-page .ppa-pricing-summary td { white-space:normal; overflow-wrap:anywhere; width:50%; }
 
 /* Trade → instrument → side hierarchy. */
-#trade-kind{width:min(760px,calc(100vw - 32px))}.instrument-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0 22px}.trade-kind-actions.instrument-choices{grid-template-columns:repeat(3,minmax(0,1fr))}.instrument-choices button{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:20px;text-align:left;border:1px solid #ccd9cd;border-radius:12px;background:#fff;color:#294737;box-shadow:0 2px 5px #20382e06}.instrument-choices button>span:last-child{font-size:12px;line-height:1.6;font-weight:400;color:#64736a}.instrument-choices button:hover{background:#f4f8f1;border-color:#739879}.instrument-choices button[aria-pressed=true]{border:2px solid #3e7055;padding:19px;background:#edf5ee;box-shadow:0 0 0 3px #3e70550d}.instrument-choices button:focus-visible{outline:3px solid #8faa75;outline-offset:3px}.choice-symbol{font-size:28px;color:#527b5e}.choice-diagram{display:flex;align-items:center;gap:10px;margin-bottom:7px;width:100%}.choice-diagram b{background:#f0f4ed;padding:7px 12px;border:1px solid #dce6d9;border-radius:5px;font-size:11px;font-weight:500}.entry-section-heading{display:flex;align-items:center;gap:12px;margin:24px 0 10px}.entry-section-heading h3{margin:3px 0;font-size:18px}.entry-step{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#eaf0e7;color:#587052;font-size:12px;font-weight:600}.swap-sides .swap-commodity{margin:0}.swap-sides .swap-commodity select{min-width:0}.swap-sides .swap-commodity p{font-size:11px;min-height:0;margin-top:8px}.swap-editor #swap-template-note{padding:12px 15px;background:#f3f6f0;border-radius:7px}.fixed-side-description .eyebrow{color:#75836f}
-@media(max-width:600px){.instrument-choices,.trade-kind-actions.instrument-choices{grid-template-columns:1fr}.choice-diagram{width:auto}.instrument-choices button{gap:6px;padding:15px}.instrument-choices button[aria-pressed=true]{padding:14px}}
+.instrument-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0 22px}.instrument-choices button{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:20px;text-align:left;border:1px solid #ccd9cd;border-radius:12px;background:#fff;color:#294737;box-shadow:0 2px 5px #20382e06}.instrument-choices button>span:last-child{font-size:12px;line-height:1.6;font-weight:400;color:#64736a}.instrument-choices button:hover{background:#f4f8f1;border-color:#739879}.instrument-choices button[aria-pressed=true]{border:2px solid #3e7055;padding:19px;background:#edf5ee;box-shadow:0 0 0 3px #3e70550d}.instrument-choices button:focus-visible{outline:3px solid #8faa75;outline-offset:3px}.choice-symbol{font-size:28px;color:#527b5e}.choice-diagram{display:flex;align-items:center;gap:10px;margin-bottom:7px;width:100%}.choice-diagram b{background:#f0f4ed;padding:7px 12px;border:1px solid #dce6d9;border-radius:5px;font-size:11px;font-weight:500}.entry-section-heading{display:flex;align-items:center;gap:12px;margin:24px 0 10px}.entry-section-heading h3{margin:3px 0;font-size:18px}.entry-step{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#eaf0e7;color:#587052;font-size:12px;font-weight:600}.swap-sides .swap-commodity{margin:0}.swap-sides .swap-commodity select{min-width:0}.swap-sides .swap-commodity p{font-size:11px;min-height:0;margin-top:8px}#swap-template-note{padding:12px 15px;background:#f3f6f0;border-radius:7px}.fixed-side-description .eyebrow{color:#75836f}
+@media(max-width:600px){.instrument-choices{grid-template-columns:1fr}.choice-diagram{width:auto}.instrument-choices button{gap:6px;padding:15px}.instrument-choices button[aria-pressed=true]{padding:14px}}
 
 #swap-trade-terms>h3{display:flex;align-items:center;gap:12px;font-size:18px}#swap-trade-terms>h3::before{content:"01";display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#eaf0e7;color:#587052;font-size:12px;font-weight:600}
 
@@ -852,11 +1108,9 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 .swap-term-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:16px;margin:16px 0}
 .swap-term-columns>section{min-width:0;padding:16px;border:1px solid #dce5d5;border-radius:8px;background:#f9fbf8}
 .swap-term-columns input,.swap-term-columns select{width:100%;min-width:0}
-.swap-editor .swap-sides{grid-template-rows:none;grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;overflow:visible}
-.swap-editor .swap-sides .instrument-side{display:block;grid-row:auto}
-.swap-editor #swap-quantity-terms{padding:16px;background:#f4f7f0;border-radius:8px}
+#swap-quantity-terms{padding:16px;background:#f4f7f0;border-radius:8px}
 .swap-payment-summary{display:none}
-@media(max-width:650px){.swap-term-columns,.swap-editor .swap-sides{grid-template-columns:minmax(0,1fr)}.swap-payment-summary{display:block;line-height:1.7}.swap-payment-table{display:none}}
+@media(max-width:650px){.swap-term-columns{grid-template-columns:minmax(0,1fr)}.swap-payment-summary{display:block;line-height:1.7}.swap-payment-table{display:none}}
 
 .scheduled-side-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
 #scheduled-swap-editor .scheduled-period { margin-block:1rem; padding:1rem; min-width:0; }
@@ -869,25 +1123,47 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 #scheduled-swap-editor input[type=checkbox] { width:auto; }
 #scheduled-swap-editor .scheduled-period { border:1px solid var(--border); border-radius:8px; }
 #scheduled-swap-editor section { overflow-wrap:anywhere; }
-#scheduled-swap-editor .dialog-heading::before { left:-24px; right:-24px; }
-@media(max-width:480px) { #scheduled-swap-editor .dialog-heading::before { left:-18px; right:-18px; } }
 #swap-settlement>*{min-width:0;max-width:100%;box-sizing:border-box}
 #swap-settlement form>div{display:grid;gap:6px;margin-block:12px;min-width:0}
 #swap-settlement input,#swap-settlement select{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
-#swap-settlement .dialog-heading h2{min-width:0;overflow-wrap:anywhere}
-#swap-settlement .dialog-heading::before{left:-24px;right:-24px}
-@media(max-width:480px){#swap-settlement .dialog-heading::before{left:-18px;right:-18px}}
 
-/* Shared temporal controls keep their screen's form and exact read contract. */
-.floating-context{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:35;font-size:12px;max-width:calc(100vw - 160px)}
-.floating-context>summary{background:var(--surface,#fff);color:var(--text,#182735);border:1px solid var(--border,#dce5d2);border-radius:24px;padding:10px 18px;box-shadow:0 3px 18px #122b2020;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(620px,calc(100vw - 170px))}
-.floating-context .header-context-panel{position:absolute;top:auto;bottom:calc(100% + 10px);left:50%;right:auto;transform:translateX(-50%);width:440px;max-width:calc(100vw - 32px);max-height:70vh;overflow:auto;background:var(--surface,#fff);color:var(--text,#182735);border:1px solid var(--border,#dce5d2);border-radius:12px;padding:18px;box-shadow:0 10px 35px #122b2020;box-sizing:border-box}
+/* Shared temporal controls keep their screen's form and exact read contract. The page keeps a band at its foot free
+   for them (D217): the As of control with its close badge floats beside the shared Context panel, whose summary names the
+   knowledge in use and whose panel holds the time controls and live corrections; a page's own context floats there too,
+   and the Assistant launcher at the lower right. Panels that slide over the page keep the band clear of their content,
+   and the launcher and the dock step aside from a docked side panel. */
+:root{--dock-band:84px;--launcher-right:24px;--launcher-room:132px}
+body{--dock-center:calc((var(--sidebar-width) + 100vw - var(--launcher-right) - var(--launcher-room)) / 2)}
+body.assistant-open{--launcher-right:calc(var(--assistant-width) + 16px)}
+body:has(#futures-page:not([hidden]) .side-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--panel-width) + 49px)}
+main{padding-bottom:calc(var(--dock-band) + 16px)}
+html{scroll-padding-bottom:var(--dock-band)}
+.floating-context{position:fixed;bottom:16px;left:var(--dock-center);transform:translateX(-50%);z-index:35;font-size:12px;max-width:calc(100vw - 160px)}
+.floating-context>summary{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:24px;padding:10px 18px;box-shadow:0 3px 18px #122b2020;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(620px,calc(100vw - 170px))}
+.floating-context .header-context-panel{position:absolute;top:auto;bottom:calc(100% + 10px);left:50%;right:auto;transform:translateX(-50%);width:440px;max-width:calc(100vw - 32px);max-height:min(70vh,calc(100vh - var(--dock-band) - 24px));overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:18px;box-shadow:0 10px 35px #122b2020;box-sizing:border-box}
 .floating-context .schedule-fields{grid-template-columns:1fr}
 .floating-context input,.floating-context select{max-width:100%;box-sizing:border-box}
-.assistant-launcher{position:fixed;right:24px;bottom:22px;z-index:40;border-radius:28px;box-shadow:0 4px 20px #122b2030;padding:13px 17px}
-.assistant-hide{position:fixed;right:15px;bottom:62px;z-index:41;border-radius:50%;width:24px;height:24px;background:var(--surface,#fff);box-shadow:0 2px 8px #122b2020}
-body.assistant-open .assistant-launcher{right:calc(var(--assistant-width) + 16px)}
+.context-dock{position:fixed;left:var(--sidebar-width);right:calc(var(--launcher-right) + var(--launcher-room));bottom:16px;z-index:35;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 12px;font-size:12px;pointer-events:none}
+.context-dock>*{pointer-events:auto}
+.context-dock .floating-context{position:relative;left:auto;bottom:auto;transform:none;flex:0 1 auto;min-width:120px;max-width:min(460px,100%)}
+.context-dock .floating-context>summary{max-width:100%;box-sizing:border-box}
+.context-dock .date-control{flex:0 0 auto;min-width:0;padding:5px 6px 5px 16px;background:var(--surface);border:1px solid var(--border);border-radius:28px;box-shadow:0 3px 18px #122b2020}
+.context-dock #market-date-calendar{gap:1px;max-width:none}
+.context-dock .market-date-trigger{min-width:0;padding:6px 12px;border-radius:18px}
+.context-dock .market-date-status{max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:12px}
+.context-kicker{margin-right:8px;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+#workspace-mode-label{font-weight:600;color:var(--text)}
+.context-values{color:var(--text-2)}.context-values:not(:empty)::before{content:' · '}
+.context-read:empty{display:none}
+.context-action{border-radius:24px;padding:9px 16px;box-shadow:0 3px 18px #122b2020}
+.context-dock .live-status{padding:8px 14px;box-shadow:0 3px 18px #122b2020}
+main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
+main:has(>section:not([hidden]) .floating-context) .context-dock{bottom:72px}
+header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{opacity:.55}
+.side-panel[data-placement=overlay],.side-panel[data-wide]{padding-bottom:var(--dock-band)}
+.assistant-launcher{position:fixed;right:var(--launcher-right);bottom:16px;z-index:40;border-radius:28px;box-shadow:0 4px 20px #122b2030;padding:13px 17px}
+.assistant-hide{position:fixed;right:calc(var(--launcher-right) - 9px);bottom:54px;z-index:41;border-radius:50%;width:24px;height:24px;background:var(--surface);box-shadow:0 2px 8px #122b2020}
 .assistant-preference{display:flex;gap:8px;align-items:center;margin-top:16px}
 .assistant-preference input{width:auto}
-main{padding-bottom:90px}
-@media(max-width:760px){.floating-context{left:16px;transform:none;max-width:calc(100vw - 110px)}.floating-context>summary{max-width:calc(100vw - 150px)}.floating-context .header-context-panel{left:0;transform:none}.assistant-launcher{right:16px}.assistant-hide{right:7px}body.assistant-open .assistant-launcher{right:16px}}
+@media(max-width:760px){:root,body.assistant-open{--launcher-right:16px}:root{--launcher-room:64px}body{--dock-center:16px}.floating-context{transform:none;max-width:calc(100vw - 110px)}.floating-context>summary{max-width:calc(100vw - 150px)}.floating-context .header-context-panel{left:0;transform:none}.context-dock{left:0;justify-content:flex-start}.context-dock .floating-context{position:static;max-width:100%}.context-dock .floating-context .header-context-panel{left:16px;right:16px;width:auto}.context-dock .floating-context>summary{max-width:100%}.context-dock .market-date-status{max-width:200px}.header-actions{width:auto}body.assistant-open .context-dock{display:none}}
+@media(max-width:480px){:root{--dock-band:124px}.context-dock{flex-wrap:wrap-reverse}.context-dock .date-control{flex:1 1 100%;padding-left:6px}.context-dock .floating-context{flex:1 1 100%}.context-dock .date-control>label,.context-dock .market-date-status{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.context-dock .market-date-trigger::after{display:none}}

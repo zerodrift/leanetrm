@@ -38,7 +38,8 @@ export function createAvailableDatePicker(host:HTMLElement,options:{id:string;la
   }
  }
  trigger.addEventListener('click',event=>{if(options.busy?.()||!dates.length)event.preventDefault();});
- panel.addEventListener('keydown',event=>{if(event.key==='Escape'){panel.open=false;trigger.focus();}});
+ // Escape closes the calendar that is open and goes no further: what holds the calendar, a panel that closes on Escape, stays open.
+ panel.addEventListener('keydown',event=>{if(event.key==='Escape'&&panel.open){panel.open=false;trigger.focus();event.preventDefault();}});
  previous.onclick=()=>{if(previous.disabled)return;month=months[months.indexOf(month)-1];render();};next.onclick=()=>{if(next.disabled)return;month=months[months.indexOf(month)+1];render();};
  return{set(available:readonly string[],value:string){dates=[...new Set(available)].sort();selected=dates.includes(value)?value:'';months=[...new Set(dates.map(d=>d.slice(0,7)))];month=selected?selected.slice(0,7):months.includes(month)?month:months[0]??'';render();},sync:render,value:()=>selected};
 }

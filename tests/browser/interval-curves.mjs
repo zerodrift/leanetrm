@@ -28,7 +28,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  // Interval curves read the first market date's pinned marks; it values at 11:00 AM New York time on 15 December 2020.
  await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));await wait(idle);
  await check('interval pricing is a view under Curves & prices, not a separate sidebar object',
-  "document.querySelector('#curve-price-navigation').contains(document.querySelector('#nav-interval-curves'))&&!document.querySelector('#market-menu').contains(document.querySelector('#nav-interval-curves'))&&!document.querySelector('#curve-price-navigation').hidden");
+  "document.querySelector('#curve-price-navigation').contains(document.querySelector('#nav-interval-curves'))&&!document.querySelector('#nav-group-markets').contains(document.querySelector('#nav-interval-curves'))&&!document.querySelector('#curve-price-navigation').hidden");
  await click('#nav-interval-curves');
  await check('the page lists interval curves beside the market date, with Known at from the database clock',
   "!document.querySelector('#interval-curves-page').hidden&&document.querySelector('#page-title').textContent==='Curves & prices'&&!document.querySelector('#snapshot').closest('.date-control').hidden"+

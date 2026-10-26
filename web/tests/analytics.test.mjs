@@ -116,3 +116,27 @@ test('finite rational chart coordinates remain finite at the Number exponent bou
  const option=chartOptions({title:'Large ratio',axis:'delivery',unit:'TST/EA',series:[{name:'Exact',points:[{x:'Jan',y:value}]}]});
  assert.ok(Number.isFinite(option.series[0].data[0])&&option.series[0].data[0]>1e308);
 });
+
+test('cross-tab gives every column group its own count of positions it leaves out',()=>{
+ const common={bookId:'a',book:'Book A',unit:'EA',currency:'TST',quantitySpecification:{code:'q'},currencyReference:{code:'c'}};
+ const groups=[{...common,contractId:'jan',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',executionPnl:null,unvaluedPositions:4},
+  {...common,contractId:'feb',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01',executionPnl:'8.16',unvaluedPositions:0}];
+ const result=pivotMatrix(groups,['book','contract'],['contract'],['executionPnl','unvaluedPositions']);
+ const counts=result.columns.filter(c=>c.measure==='unvaluedPositions');
+ assert.deepEqual(counts.map(c=>c.title),['Jan 2021 · Not valued','Feb 2021 · Not valued']);
+ assert.deepEqual(counts.map(c=>result.rows[0][c.key]),['4','0']);
+});
+
+test('a commodity pivot tells commodities apart by code and labels them by name',()=>{
+ const common={instrumentType:'future',unit:'EA',currency:'TST',quantitySpecification:{code:'q'},currencyReference:{code:'c'}};
+ const groups=[{...common,commodity:{code:'gas',name:'Same label'},quantity:'80'},{...common,commodity:{code:'power',name:'Same label'},quantity:'3'},
+  {...common,instrumentType:'financial_swap',commodity:{code:'gas',name:'Same label'},quantity:'5'}];
+ const result=pivotMatrix(groups,['commodity','instrumentType'],['instrumentType'],['quantity']);
+ assert.equal(result.columns[0].title,'Commodity');assert.deepEqual(result.rows.map(r=>r.commodity),['Same label','Same label','Same label']);
+ const future=result.columns.find(c=>c.measure==='quantity'&&c.groupTitle==='Future');
+ assert.deepEqual(result.rows.map(r=>r[future.key]).filter(value=>value!==null),['80','3']);
+ const [panel]=analytics.pivotChartPanels(groups.slice(0,2),['commodity'],[],'quantity');
+ assert.deepEqual(panel.series[0].points.map(p=>[p.label,p.y]),[['Same label','80'],['Same label','3']]);
+ assert.equal(new Set(panel.series[0].points.map(p=>p.x)).size,2);
+ assert.throws(()=>pivotMatrix([{...groups[0],commodity:undefined}],['commodity','instrumentType'],['instrumentType'],['quantity']));
+});

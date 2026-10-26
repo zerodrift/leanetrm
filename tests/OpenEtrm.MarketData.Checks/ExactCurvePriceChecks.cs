@@ -22,7 +22,13 @@ internal static class ExactCurvePriceChecks
         Reject("numeric_division",()=>third.Divide(default(ExactDecimal)));
         Reject("numeric_division",()=>third.Divide(ExactDecimal.Parse("-1")));
         Reject("quantity_mismatch",()=>third.ExactTimes(new(ExactDecimal.Parse("1"),new(revision,"other_quantity"))));
-        Console.WriteLine("PASS exact curve prices: rational scaling, units and explicit decimal projection");
+        var half=ExactUnitPrice.FromPrice(new(ExactDecimal.Parse("0.5"),unit));
+        var gap=third.Subtract(half);
+        Equal(gap.Numerator,"-1");Equal(gap.Denominator,"6");
+        Equal(half.Subtract(third).Add(gap).ToExactString(),"0");
+        Equal(ExactUnitPrice.FromPrice(new(ExactDecimal.Parse("3.1"),unit)).Subtract(ExactUnitPrice.FromPrice(new(ExactDecimal.Parse("3.5"),unit))).ToExactString(),"-0.4");
+        Reject("unit_mismatch",()=>third.Subtract(ExactUnitPrice.FromPrice(new(ExactDecimal.Parse("1"),new PriceUnit(currency,quantity,ExactDecimal.Parse("1"))))));
+        Console.WriteLine("PASS exact curve prices: rational scaling, differences, units and explicit decimal projection");
         return 1;
     }
 }

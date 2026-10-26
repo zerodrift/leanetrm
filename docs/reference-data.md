@@ -473,7 +473,7 @@ entries, contract milestones, lot resolutions and unit conversions reference the
 parent keys and are queried through those parents. Their rows require no separate
 inbound FK. Retain their validated outbound relationships and executable consumers.
 
-Migration 0116 removes the disconnected cash-rounding reference table and category.
+Migration 0115 removes the disconnected cash-rounding reference table and category.
 It refuses retained rows and uses no cascading drop. Executable cash rounding
 continues to use the explicit settlement policy and exact currency precision;
 there was no reference-table binding to preserve.

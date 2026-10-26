@@ -1,9 +1,14 @@
 import {renderDataGrid} from './data-grid.js';
 
 type Choice=readonly [string,string];
+// note: a line of the consumer's own under the toolbar, such as why one of its actions is not offered.
+// lead: the consumer's own content between the toolbar and the table, across the workspace's whole width, such as summary tiles.
+// overview: more of it, in the column of the table and above its heading, such as charts. aside: a panel the consumer docks beside the overview and the table.
+// rowGroups: how trade rows can be grouped; the Group by control, in the heading row above the table, also offers None, an empty value.
+// lens: a control of the consumer's own beside the rows' heading, such as a choice of what the rows show.
 type WorkspaceOptions={
   key:string;rowMode:string;rowLabel:string;dimensions:readonly Choice[];measures:readonly Choice[];
-  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;
+  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;note?:HTMLElement;lead?:HTMLElement;overview?:HTMLElement;aside?:HTMLElement;rowGroups?:readonly Choice[];lens?:HTMLElement;
 };
 
 /** Shared presentation shell. Consumers supply authorized rows and server pivot operations. */
@@ -46,9 +51,18 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   const chartHelp=node('p','Charts follow the selected pivot axes. Trade rows show dated contracts by book and market. Units and currencies have separate panels; table row filters do not change the chart.');chartHelp.className='field-help';chartPanel.append(chartHelp);
   const chartApply=button('Apply chart','chart-apply');chartApply.onclick=()=>options.onApply();chartPanel.append(chartApply);
   const actions=node('div');actions.className='table-workspace-actions';for(const [id,label] of options.actions)actions.append(button(label,id));toolbar.append(actions);
-  const summary=node('dl',undefined,'summary');summary.className='table-workspace-summary';summary.hidden=true;
-  const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';const definition=node('div',undefined,'definition');definition.className='table-view-definition';definition.hidden=true;const content=node('div',undefined,'rows');content.className='table-wrap';
-  shell.append(toolbar,summary,title,definition,content);host.replaceChildren(shell);
+  // One line above the rows: what they are, how they are grouped, and the grid's search and row count.
+  const heading=node('div');heading.className='table-workspace-heading';
+  const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';heading.append(title,...(options.lens?[options.lens]:[]));
+  if(options.rowGroups){
+    const wrap=node('label',undefined,'row-group-control'),caption=node('span','Group by'),select=node('select',undefined,'row-group');wrap.className='table-group-by';
+    select.append(...options.rowGroups.map(([key,label])=>new Option(label,key)),new Option('None',''));wrap.append(caption,select);heading.append(wrap);
+  }
+  const filters=node('div',undefined,'filters');filters.className='table-workspace-filters';heading.append(filters);
+  const definition=node('div',undefined,'definition');definition.className='table-view-definition';definition.hidden=true;const content=node('div',undefined,'rows');content.className='table-wrap';
+  const main=node('div');main.className='table-workspace-main';main.append(...(options.overview?[options.overview]:[]),heading,definition,content);
+  const stage=node('div');stage.className='table-workspace-stage';stage.append(main,...(options.aside?[options.aside]:[]));
+  shell.append(toolbar,...(options.note?[options.note]:[]),...(options.lead?[options.lead]:[]),stage);host.replaceChildren(shell);
   shell.addEventListener('keydown',event=>{if(event.key==='Escape'){const open=menus.find(m=>m.open);if(open){open.open=false;open.querySelector('summary')?.focus();}}});
   function fillChoices(target:HTMLElement,choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){
     const order=[...choices].sort(([a],[b])=>{const ai=selected.indexOf(a),bi=selected.indexOf(b);return (ai<0?choices.length:ai)-(bi<0?choices.length:bi);});
@@ -73,16 +87,10 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   function setPivot(dimensions:string[],measures:string[],splitBy:string[]=[]){fillChoices(fields.querySelector('#'+options.key+'-dimensions')!,options.dimensions,dimensions.filter(d=>!splitBy.includes(d)),()=>{});fillChoices(fields.querySelector('#'+options.key+'-split-dimensions')!,options.dimensions,splitBy,()=>{});fillChoices(fields.querySelector('#'+options.key+'-measures')!,options.measures,measures,()=>{});}
   let grid:ReturnType<typeof renderDataGrid>|undefined;
   return {
-    clear(){grid?.destroy();grid=undefined;content.replaceChildren();summary.replaceChildren();summary.hidden=true;definition.replaceChildren();definition.hidden=true;},
+    clear(){grid?.destroy();grid=undefined;content.replaceChildren();definition.replaceChildren();definition.hidden=true;},
     describe(axes:{label:string;values:string[]}[]){definition.replaceChildren(...axes.map(axis=>{const group=node('div'),label=node('span',axis.label);group.append(label,...(axis.values.length?axis.values:['None']).map(value=>node('strong',value)));return group;}));definition.hidden=!axes.length;},
-    /** Headline figures supplied by the consumer; a signed value is shaded by its sign. */
-    summary(items:{label:string;value:string;signed?:string}[]){
-      summary.replaceChildren(...items.map(item=>{const wrap=node('div'),term=node('dt',item.label),value=node('dd',item.value);
-        if(item.signed!==undefined)value.dataset.sign=item.signed.startsWith('-')?'negative':/^0(\.0*)?$/.test(item.signed)?'zero':'positive';wrap.append(term,value);return wrap;}));
-      summary.hidden=!items.length;
-    },
     busy(value:boolean){content.inert=value;},
-    render(...args:Parameters<typeof renderDataGrid> extends [HTMLElement,...infer Rest]?Rest:never){grid?.destroy();grid=renderDataGrid(content,...args);return grid;},
+    render(...[key,scope,headers,rows,numeric,isBusy,gridOptions]:Parameters<typeof renderDataGrid> extends [HTMLElement,...infer Rest]?Rest:never){grid?.destroy();grid=renderDataGrid(content,key,scope,headers,rows,numeric,isBusy,{...gridOptions,toolbarHost:filters});return grid;},
     columns(choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){fillChoices(columnChoices,choices,selected,change,required);},
     pivot:setPivot,
     closeMenus(){for(const menu of menus)menu.open=false;},
