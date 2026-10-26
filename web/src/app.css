@@ -251,7 +251,7 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .market-card{position:relative;display:flex;flex-direction:column;min-width:0;padding:14px 16px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);transition:border-color .15s,box-shadow .15s,transform .15s}
 .market-card:hover{border-color:var(--border-strong);box-shadow:0 6px 18px rgba(18,34,27,.08);transform:translateY(-1px)}
 .market-card:has(.market-card-open:focus-visible){outline:3px solid #e0b35a;outline-offset:2px}
-.market-card[data-state=unavailable],.market-card[data-state=unread]{background:var(--surface-2)}
+.market-card[data-state=unavailable],.market-card[data-state=failed],.market-card[data-state=unread]{background:var(--surface-2)}
 .market-card-head{display:flex;align-items:center;gap:8px;min-width:0}
 .market-card-name{flex:1;min-width:0;margin:0;font-size:14px;line-height:1.35}
 .market-card-open{background:none;border:0;padding:0;color:var(--text);font-weight:600;font-size:14px;text-align:left;white-space:normal;overflow-wrap:anywhere}

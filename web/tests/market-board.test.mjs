@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {marketBoard,shapeReads} from '../dist/market-board.js';
+import {marketBoard,renderBoard,shapeReads} from '../dist/market-board.js';
+import {curvePoints} from '../dist/desk-model.js';
 import {navigationGroups} from '../dist/market-navigation.js';
 import {setCurveNames} from '../dist/market-view.js';
 
@@ -46,23 +47,29 @@ test('a priced card shows the backend\'s front contract, exact price, unit and c
  assert.deepEqual([restated.front.delivery,restated.front.price,restated.count,restated.line.marks],['Feb 2021','3.41','9 contracts',[1]]);
 });
 
+test('a card states the backend\'s availability in the words the Blotter uses for it',()=>{
+ const none={...priced,points:[],contractCount:0,front:null,availability:'no_remaining_contracts'},rows=[{market:'Gas forward',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'}];
+ const unpriced={...priced,front:null,availability:'no_priced_contract'};
+ for(const shape of [none,unpriced])
+  assert.equal(card(marketBoard(navigation,all,new Map([['gas_forward',shape]])),'gas_forward').figures.reason.toLowerCase(),curvePoints(shape,rows[0]).reason.replace('Curve shape unavailable · ',''));
+});
 test('a curve with no remaining contracts says so on its card, with no price, count or line',()=>{
  const none={...priced,points:[],contractCount:0,front:null,availability:'no_remaining_contracts'};
  assert.deepEqual(card(marketBoard(navigation,all,new Map([['gas_forward',none]])),'gas_forward').figures,
-  {state:'unavailable',unit:'USD/MMBtu (IT)',count:null,reason:'No remaining contracts'});
+  {state:'unavailable',unit:'USD/MMBtu (IT)',count:null,reason:'No contracts at this close'});
 });
 
 test('a curve the close prices no contract of says so, with the count the backend states',()=>{
  const unpriced={...priced,points:priced.points.map(p=>({...p,price:null,unavailableReason:'missing_observation'})),front:null,availability:'no_priced_contract'};
  assert.deepEqual(card(marketBoard(navigation,all,new Map([['gas_forward',unpriced]])),'gas_forward').figures,
-  {state:'unavailable',unit:'USD/MMBtu (IT)',count:'4 contracts',reason:'No priced contract at this close'});
+  {state:'unavailable',unit:'USD/MMBtu (IT)',count:'4 contracts',reason:'No prices at this close'});
 });
 
 test('a curve the close cannot read, or a read that failed, says why on its card',()=>{
  const shapes=new Map([['gas_forward',{...fixture.shapes[1],curve:'gas_forward'}],['power_forward','Curve shape unavailable · the curve read failed']]);
  const board=marketBoard(navigation,all,shapes);
  assert.deepEqual(card(board,'gas_forward').figures,{state:'unavailable',unit:null,count:null,reason:"Curve shape unavailable · this market's curve is not in the definitions of this close"});
- assert.deepEqual(card(board,'power_forward').figures,{state:'unavailable',unit:null,count:null,reason:'Curve shape unavailable · the curve read failed'});
+ assert.deepEqual(card(board,'power_forward').figures,{state:'failed',reason:'Curve shape unavailable · the curve read failed'},'a read that failed is not what the backend states of the curve');
  const inconsistent=card(marketBoard(navigation,all,new Map([['gas_forward',{...priced,front:null}]])),'gas_forward').figures;
  assert.deepEqual(inconsistent,{state:'unavailable',unit:null,count:null,reason:'Curve shape unavailable · the curve read is inconsistent'});
 });
@@ -73,6 +80,10 @@ test('a curve not read yet waits for its read, and a rates curve, which has no c
  assert.deepEqual(card(board,'usd_rates').figures,{state:'rates'});
 });
 
+test('a curve whose read failed is read again by the next read; one the backend stated a shape for, even an unavailable one, is not',()=>{
+ const shapes=new Map([['gas_forward','Curve shape unavailable · the curve read failed'],['gas_futures',{...fixture.shapes[1],curve:'gas_futures'}],['power_forward',priced]]);
+ assert.deepEqual(shapeReads(marketBoard(navigation,all,shapes)),[['gas_forward']]);
+});
 test('the board reads every listed curve it has not read, but no rates curve, in reads of at most 64 curves',()=>{
  const many=Array.from({length:130},(_,i)=>({code:`curve_${String(i).padStart(3,'0')}`,name:`Curve ${String(i).padStart(3,'0')}`,marketType:'forwards',category:{code:'test_gas',name:'Synthetic gas'}}));
  const wide={...navigation,curves:[...many,curves[3]],curveNames:[...many,curves[3]].map(({code,name})=>({code,name}))};
@@ -83,4 +94,28 @@ test('the board reads every listed curve it has not read, but no rates curve, in
   assert.deepEqual(reads.flat(),many.slice(1).map(c=>c.code),'each curve once, in the library\'s order, without the one already read or the rates curve');
   assert.deepEqual(shapeReads(marketBoard({...wide,curves:[curves[3]]},all,new Map())),[],'a board of rates only makes no read');
  }finally{setCurveNames(navigation.curveNames);}
+});
+
+// A minimal DOM for the board's cards: elements with a class, text, dataset, attributes, style properties and children.
+class Text{constructor(text){this.textContent=text;}}
+class Element{
+ constructor(tag){this.tag=tag;this.className='';this.dataset={};this.children=[];this.attributes={};this.style={setProperty:(k,v)=>{this.style[k]=v;}};this.classList={add:c=>{this.className+=' '+c;}};this._text='';}
+ get textContent(){return this._text+this.children.map(c=>c.textContent).join('');}
+ set textContent(value){this._text=value;this.children=[];}
+ setAttribute(k,v){this.attributes[k]=v;}
+ append(...items){this.children.push(...items);}
+ replaceChildren(...items){this.children=items;}
+}
+const walk=(e,found=[])=>{found.push(e);for(const c of e.children??[])if(c instanceof Element)walk(c,found);return found;};
+test('a card\'s button is disabled while the page is busy, as the library\'s rows are',()=>{
+ globalThis.document={createElement:tag=>new Element(tag),createTextNode:text=>new Text(text)};
+ try{
+  const board=marketBoard(navigation,all,new Map([['gas_forward','Curve shape unavailable · the curve read failed']]));
+  for(const busy of [true,false]){
+   const target=new Element('div');renderBoard(target,board,()=>{},busy);
+   const buttons=walk(target).filter(e=>e.className==='market-card-open');
+   assert.equal(buttons.length,board.flatMap(g=>g.cards).length);
+   assert.ok(buttons.every(b=>b.disabled===busy));
+  }
+ }finally{delete globalThis.document;}
 });

@@ -317,10 +317,10 @@ function renderMarketBoard(){
   text('market-board-status',close?`Prices at the close of ${instant(close.at)}`:'');
   text('market-board-empty-title',contextDirty?'Apply the changed context':'Choose a market date');
   text('market-board-empty-help',contextDirty?'View the changed context, then choose a close in As of to see every curve at it.':'Pick a close in As of above to see every curve at that close, or choose a curve from the list.');
-  if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve);else $('market-board-groups').replaceChildren();
+  if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve,busy);else $('market-board-groups').replaceChildren();
 }
-// Reads the curve shapes of the listed curves at the selected close that are not read yet, at most 64 to a read, and draws them on the
-// board and in the library. A read that a change of account, directory, close or context overtakes is refused, as build() refuses one.
+// Reads the curve shapes of the listed curves at the selected close that have none the backend stated, at most 64 to a read, and draws
+// them on the board and in the library. A curve whose read failed shows why, and is read again by the next load. A read that a change of account, directory, close or context overtakes is refused, as build() refuses one.
 async function loadBoard(){
   if(page!=='market'||contextDirty||!navigation||!select('snapshot').value)return;
   const owner=directory(),started=marketGeneration,scope=boardScope(),known=readShapes(),reads=shapeReads(board());
@@ -655,6 +655,8 @@ $('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was 
 function closeChanged(){
   shownClose=select('snapshot').value;closeBasis=undefined;
   marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset('inputs');clearPrices();
+  // The board and the library show nothing of the previous close while the new one is read.
+  if(navigation)renderBrowse();renderMarketBoard();
 }
 async function loadSelectedClose(){
   if(!select('snapshot').value)return;
@@ -673,7 +675,7 @@ $('browse-by').onchange=()=>void act(updateFilters);$('commodity').onchange=()=>
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];await updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
-function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();clearReference();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
+function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();clearReference();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=>administrationScope+':'+currentProfile,profileChoices);
 // A person's own agent grants, in the profile dialog (docs/ai-assistant.md §7.1).
