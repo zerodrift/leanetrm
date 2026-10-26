@@ -389,7 +389,7 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
   });
 }
 
-export type CurveShape={curve:string;unit:string|null;points:{contractId:string;deliveryFrom:string;deliveryTo:string;price:string|null;unavailableReason:string|null}[]|null;unavailableReason:string|null};
+export type CurveShape={curve:string;unit:string|null;points:{contractId:string;deliveryFrom:string;deliveryTo:string;price:string|null;unavailableReason:string|null}[]|null;unavailableReason:string|null;contractCount:number|null;front:{contractId:string;deliveryFrom:string;deliveryTo:string;price:string}|null};
 export type Sparkline={state:'drawn';points:ShapePoint[];marks:number[];title:string}|{state:'unavailable';reason:string};
 const shapeReasons:Readonly<Record<string,string>>={missing_curve:"this market's curve is not in the definitions of this close",missing_curve_view:'no curve view at this close'};
 /**

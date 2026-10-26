@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,curveName,setCurveNames} from '../dist/market-view.js';
+import {summaryTiles,contractCountText,displayDate,frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,curveName,setCurveNames} from '../dist/market-view.js';
 import {dataSections,referenceSections,setupSections} from '../dist/data-sections.js';
 import {newPreferences,parsePreferences,loadPreferences,savePreferences} from '../dist/preferences.js';
 const id='12345678-1234-1234-1234-123456789012';
@@ -56,3 +56,18 @@ test('collapsed sidebar library and menus persist independently per persona',()=
 test('menus collapsed in the earlier sidebar are dropped when a saved profile loads',()=>{const load=collapsedMenus=>parsePreferences(JSON.stringify({...newPreferences('UTC'),browseBy:'marketType',collapsedMenus}));assert.deepEqual(load(['market-menu','trading-menu','settings']).collapsedMenus,['settings']);assert.deepEqual(load(['settings-menu']).collapsedMenus,[]);assert.equal(load(['market-menu']).browseBy,'marketType');});
 test('invalid and unbounded layout preferences are rejected',()=>{for(const patch of [{sidebarCollapsed:'true'},{libraryCollapsed:1},{collapsedMenus:['unknown']},{collapsedMenus:['markets','markets']},{collapsedCurveGroups:['x'.repeat(129)]},{collapsedCurveGroups:Array.from({length:65},(_,i)=>String(i))}])assert.throws(()=>parsePreferences(JSON.stringify({...newPreferences('UTC'),...patch})));});
 test('curve names come from the served directory and are never invented from codes',()=>{setCurveNames([{code:'future',name:'Synthetic futures'},{code:'rates',name:'Synthetic rates'},{code:'split',name:'One'},{code:'split',name:'Two'}]);assert.equal(curveName('future'),'Synthetic futures');assert.equal(curveName('rates'),'Synthetic rates');assert.throws(()=>curveName('missing_curve'),/missing or inconsistent/);assert.throws(()=>curveName('split'),/missing or inconsistent/);setCurveNames([]);assert.throws(()=>curveName('future'),/missing or inconsistent/);});
+test('summary tiles and the contract count come from the backend summary, not from the order or number of points',()=>{
+ const point=(from,to,value)=>({contractId:from,deliveryFrom:from,deliveryTo:to,value,lineage:[]});
+ const futures={curve:'gas',points:[point('2021-03-01','2021-04-01','9.99'),point('2021-02-01','2021-03-01','8.88')],
+  summary:{kind:'contracts',contractCount:24,front:{contractId:'k',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',price:'3.49'},availability:null}};
+ assert.deepEqual(summaryTiles(futures,'Follows this futures contract'),[
+  {name:'Contracts',value:'24'},{name:'Front contract',value:deliveryLabel('2021-01-01','2021-02-01')},{name:'Front price',value:'3.49',numeric:true},{name:'Settlement',value:'Follows this futures contract'}]);
+ assert.equal(contractCountText(futures),'24 contracts');
+ assert.equal(contractCountText({...futures,summary:{...futures.summary,contractCount:1}}),'1 contract');
+ const none={curve:'gas',points:[],summary:{kind:'contracts',contractCount:0,front:null,availability:'no_remaining_contracts'}};
+ assert.deepEqual(summaryTiles(none,'S'),[{name:'Contracts',value:'None remaining'},{name:'Settlement',value:'S'}]);
+ const rates={kind:'rates',curve:'r',points:[{maturity:'2030-01-01',value:'0',lineage:[]}],summary:{kind:'rates',maturityCount:3,firstMaturity:'2021-06-01',firstZeroRate:'1.25',dayCount:'ACT/365F'}};
+ assert.deepEqual(summaryTiles(rates,'ignored'),[{name:'Maturities',value:'3'},{name:'First maturity',value:displayDate('2021-06-01')},{name:'First zero rate (%)',value:'1.25',numeric:true},{name:'Day count',value:'ACT/365F'}]);
+ assert.equal(contractCountText(rates),'3 rate samples');
+ assert.throws(()=>summaryTiles({curve:'gas',points:[]},'S'),/summary/);
+});

@@ -7,7 +7,10 @@ import type {PricingNode} from './pricing-view.js';
 import type {FrameSummary} from './market-navigation.js';
 
 export type Point = {priceTick?:string;contractId?:string; seriesId?:string; maturity?:string; deliveryFrom?:string; deliveryTo?:string; expiry?:string; value:string; quote?:string; lineage:string[]; discountFactor?:string; displayDiscountFactor?:string; annualRate?:string; actualDays?:number};
-export type CurveResult = {kind?:'rates';convention?:{dayCount:string;compounding:string};availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
+export type CurveFront={contractId:string;deliveryFrom:string;deliveryTo:string;price:string};
+/** A curve's counts and front, stated by the backend (D226): contracts for futures and forwards, maturities for rates. */
+export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstZeroRate:string|null;dayCount:string};
+export type CurveResult = {summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string};availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
 export type HistoryPoint = {at:string; value:string|null; snapshotId:string;unavailableReason?:string|null};
 export type PriceHistory = {points:HistoryPoint[]};
 export const val = (row:Row,key:string) => String(row[key] ?? '—');
@@ -94,3 +97,22 @@ export function quoteUnit(quoteCode:string,workspace:Workspace){
 }
 export const fieldNames:Record<string,string>={eligible_from:'Trading eligibility from',qualification_source_code:'Qualification source',source_series_code:'Source contract code',usage_policy:'Usage policy',execution_venue:'Execution venue',eligibility_rule:'Eligibility rule',eligibility_offset_seconds:'Eligibility offset (seconds)',eligibility_tzdb_version:'Eligibility time-zone release',latitude:'Latitude (°)',longitude:'Longitude (°)',day_count:'Day count',compounding:'Compounding',display_code:'Code',display_minor_units:'Decimal places',code:'Name',name:'Description',symbol:'Symbol',dimension_code:'Measurement',commodity_code:'Commodity',basis_code:'Measurement basis',unit_code:'Unit',quantity_code:'Quantity',currency_code:'Currency',multiplier:'Price multiplier',trading_tick:'Trading tick',clearing_increment:'Settlement increment',minimum:'Minimum',maximum:'Maximum',kind:'Type',numerator_quantity_code:'Input quantity',denominator_quantity_code:'Output quantity',location_code:'Location',profile_code:'Delivery pattern',clock_code:'Market clock',calendar_code:'Calendar',type_code:'Location type',delivery_from:'Delivery starts',delivery_to:'Delivery ends',event_at:'Date and time',event_date:'Date',milestone:'Event',value_state:'Availability',definition_state:'Status',product_code:'Product',series_code:'Contract',series_label:'Contract month',exchange_code:'Exchange',source_code:'Source',lot_unit_code:'Contract unit',contract_size:'Contract size',lot_basis:'Quantity basis',quote_currency_code:'Price currency',quote_unit_code:'Price unit',quote_multiplier:'Price multiplier',outright_tick_size:'Trading tick',market_clock_code:'Market clock',trading_calendar_code:'Trading calendar',clearing_house_code:'Clearing house',numerator:'Numerator',denominator:'Denominator',increment:'Rounding increment',tie_rule:'Rounding method',stage:'Applies to',retrieved_at:'Retrieved',locator:'Source',evidence:'Evidence',index_a_code:'First index',index_b_code:'Second index',quantity_basis:'Quantity basis',interval_minutes:'Interval (minutes)',utc_offset_minutes:'UTC offset (minutes)',zone_name:'Time zone',iana_zone:'Time zone',tzdb_version:'tzdb release',fixed_offset_seconds:'Fixed offset (seconds)',weekend_mask:'Weekend mask (bit 0 = Monday)',coverage_from:'Covers from',coverage_to:'Covers until (excluded)',peak_start_hour:'Peak starts (hour beginning)',peak_end_hour:'Peak ends (hour beginning, excluded)',peak_saturday:'Saturday peak',business_date:'Date',date:'Date',is_business_day:'Business day'};
 export function publicColumns(rows:Row[]){return rows.length?Object.keys(rows[0]).filter(k=>!k.endsWith('_id')&&k!=='id'&&k!=='implementation'&&!rows.some(r=>typeof r[k]==='string'&&String(r[k]).match(UUID)!==null)).map(key=>({key,name:fieldNames[key]??friendly(key)})):[];}
+
+const summaryOf=(result:Pick<CurveResult,'summary'>)=>result.summary??(()=>{throw Error('This curve has no summary. Refresh and try again.');})();
+/** The summary tiles of a selected curve, from the backend's summary; the browser neither counts points nor reads the first one. */
+export function summaryTiles(result:Pick<CurveResult,'summary'>,settlement:string){
+  const summary=summaryOf(result),tiles:{name:string;value:string;numeric?:boolean}[]=[];
+  if(summary.kind==='rates'){
+    tiles.push({name:'Maturities',value:String(summary.maturityCount)});
+    if(summary.firstMaturity!==null&&summary.firstZeroRate!==null)tiles.push({name:'First maturity',value:displayDate(summary.firstMaturity)},{name:'First zero rate (%)',value:summary.firstZeroRate,numeric:true});
+    return [...tiles,{name:'Day count',value:summary.dayCount}];
+  }
+  if(summary.front)tiles.push({name:'Contracts',value:String(summary.contractCount)},{name:'Front contract',value:deliveryLabel(summary.front.deliveryFrom,summary.front.deliveryTo)},{name:'Front price',value:summary.front.price,numeric:true});
+  else tiles.push({name:'Contracts',value:'None remaining'});
+  return [...tiles,{name:'Settlement',value:settlement}];
+}
+/** The count under a curve's chart, from the backend's summary. */
+export function contractCountText(result:Pick<CurveResult,'summary'>){
+  const summary=summaryOf(result),count=summary.kind==='rates'?summary.maturityCount:summary.contractCount;
+  return `${count} ${summary.kind==='rates'?(count===1?'rate sample':'rate samples'):(count===1?'contract':'contracts')}`;
+}

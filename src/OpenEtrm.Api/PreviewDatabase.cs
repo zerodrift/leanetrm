@@ -806,19 +806,27 @@ public sealed class PreviewData
         var value=Model.Build(Snapshot(frame),[new(new(revision,code),K(contract.Value))]).Values[0];
         return (value.Price.Value.ToString(),value.Lineage.Select(k=>k.Id).Order().ToArray());
     }
+    // The summary the browser states for a curve (D226): counts and the front contract come from here, never from its points.
+    static object ContractSummary(int contractCount,CurveFront? front,string? availability)=>new{kind="contracts",contractCount,front,availability};
+    static object RateSummary(ZeroRateBuild rates)
+    {
+        var first=rates.Values.OrderBy(p=>p.Maturity).FirstOrDefault();
+        return new{kind="rates",maturityCount=rates.Values.Length,firstMaturity=first?.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),firstZeroRate=first?.RatePercent,dayCount=OpenEtrm.Rates.RateConventions.DayCountName};
+    }
     public object Result(InputFrame frame,string code)
     {
         if(IsRateCurve(code))
         {
             var rates=BuildRates(frame,code);
             return new {kind="rates",snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,referenceDate=rates.ReferenceDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),currency=rates.Currency.Code,numericalPolicy=rates.NumericalPolicy,convention=new {dayCount=OpenEtrm.Rates.RateConventions.DayCountName,compounding=OpenEtrm.Rates.RateConventions.CompoundingName},
+                summary=RateSummary(rates),
                 points=rates.Values.Select(p=>new {seriesId=p.Series.Id,maturity=p.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),annualRate=p.AnnualRate,value=p.RatePercent,discountFactor=p.DiscountFactor,displayDiscountFactor=p.DisplayDiscountFactor,actualDays=p.Days,lineage=new[]{p.Observation.Id}}).ToArray()};
         }
         if(frame.CurveContracts.TryGetValue(code,out var selected) && selected.IsEmpty)
         {
             if(!DefinitionRows("curves","code",code).Any())throw new MarketDataException("missing_curve","Select an exact curve definition.");
             return new {snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,availability="no_remaining_contracts",
-                evaluated=0,numericalPolicy=CurveModel.NumericalPolicy,trace=Array.Empty<object>(),points=Array.Empty<object>(),observationIds=frame.ObservationIds};
+                evaluated=0,numericalPolicy=CurveModel.NumericalPolicy,summary=ContractSummary(0,null,"no_remaining_contracts"),trace=Array.Empty<object>(),points=Array.Empty<object>(),observationIds=frame.ObservationIds};
         }
         var build=Build(frame,code);
         var nodeIds=build.Evaluations.Select((e,i)=>(e,i)).ToDictionary(p=>(p.e.Result.Request,p.e.Use),p=>"step_"+p.i.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -838,7 +846,13 @@ public sealed class PreviewData
         }).ToArray();
         // The display count describes the complete resolved trace, including
         // memoized results. Physical work remains in the graph's work counters.
+        var contracts=build.Values.Select(v=>
+        {
+            var c=Single(contractDefinitions[v.Request.Contract.Id]);
+            return new CurveShapePoint(v.Request.Contract.Id,c.Text("delivery_from"),c.Text("delivery_to"),v.Price.Value.ToString(),null);
+        }).ToArray();
         return new { snapshotId=frame.Id, frame.Name, at=frame.At, curve=code, evaluated=build.Evaluations.Length, numericalPolicy=build.NumericalPolicy,
+            summary=ContractSummary(contracts.Length,CurveFront.First(contracts),null),
             trace, points=build.Values.Select(v=>
             {
                 var c=Single(contractDefinitions[v.Request.Contract.Id]);

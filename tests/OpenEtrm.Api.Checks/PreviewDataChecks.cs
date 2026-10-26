@@ -195,6 +195,40 @@ internal static class PreviewDataChecks
                     Day(priced.ContractRows(v.Request.Contract.Id).Single().DeliveryFrom),Day(priced.ContractRows(v.Request.Contract.Id).Single().DeliveryTo),v.Price.Value.ToString(),null))))
                 throw new Exception("A curve shape hid a contract it could not price, or priced another differently.");
         });
+        Check("a curve's summary counts its contracts and fronts the first one the close prices, in its shape and in its evaluation alike",()=>
+        {
+            var priced=Data(references:Quoting());
+            var own=Row(priced.Result(fixture.Frame,"future")).GetProperty("points").EnumerateArray().ToArray();
+            var first=own[0];
+            var summary=Wire(priced.Result(fixture.Frame,"future")).GetProperty("summary");
+            var front=summary.GetProperty("front");
+            if(summary.Text("kind")!="contracts"||summary.GetProperty("contractCount").GetInt32()!=405||summary.GetProperty("availability").ValueKind!=JsonValueKind.Null||
+                front.Id("contractId")!=first.Id("contractId")||front.Text("deliveryFrom")!=first.Text("deliveryFrom")||
+                front.Text("deliveryTo")!=first.Text("deliveryTo")||front.Text("price")!=first.Text("value"))
+                throw new Exception("An evaluation did not summarize its curve by its count and first contract.");
+            if(MarketReads.Shape(priced,priced.Snapshot(fixture.Frame),fixture.Frame,"future") is not {ContractCount:405,Front:{} shaped}||
+                shaped!=new CurveFront(first.Id("contractId"),first.Text("deliveryFrom"),first.Text("deliveryTo"),first.Text("value")))
+                throw new Exception("A curve shape did not summarize its curve as its evaluation does.");
+            // The first three contracts have expired and the fourth has no pinned price: the front is the fifth.
+            var (gapped,gap)=Unpriceable(3,true);
+            var fifth=data.Build(fixture.Frame,"future").Values[4];
+            var fifthRow=gapped.ContractRows(fifth.Request.Contract.Id).Single();
+            if(MarketReads.Shape(gapped,gapped.Snapshot(gap),gap,"future") is not {ContractCount:405,Front:{} next}||
+                next!=new CurveFront(fifth.Request.Contract.Id,Day(fifthRow.DeliveryFrom),Day(fifthRow.DeliveryTo),fifth.Price.Value.ToString()))
+                throw new Exception("A curve whose first contract has no price did not front the next priced one.");
+            var definitions=new Dictionary<string,ImmutableArray<JsonElement>>(fixture.Definitions)
+            {
+                ["curves"]=[..fixture.Definitions["curves"],Change(fixture.Definitions["curves"].Single(),"code","completed_future")],
+                ["curve_members"]=[..fixture.Definitions["curve_members"],..fixture.Definitions["curve_members"].Select(row=>Change(row,"curve_code","completed_future"))]
+            };
+            var both=Data(references:Quoting(),definitions:definitions);
+            var emptied=fixture.Frame with{CurveContracts=fixture.Frame.CurveContracts.Add("completed_future",[])};
+            var none=Wire(both.Result(emptied,"completed_future")).GetProperty("summary");
+            if(none.Text("kind")!="contracts"||none.GetProperty("contractCount").GetInt32()!=0||none.GetProperty("front").ValueKind!=JsonValueKind.Null||none.Text("availability")!="no_remaining_contracts")
+                throw new Exception("A curve with no remaining contracts did not say so in its summary.");
+            if(MarketReads.Shape(both,both.Snapshot(emptied),emptied,"completed_future") is not {ContractCount:0,Front:null})
+                throw new Exception("A curve shape with no remaining contracts did not state a zero count and no front.");
+        });
         Check("the contracts a close cannot price are isolated in builds that grow with them and not with the curve",()=>
         {
             // The fastest of three runs, so the first run's start-up does not count.
@@ -432,6 +466,8 @@ internal static class PreviewDataChecks
     }
 
     private static JsonElement Row(object value)=>JsonSerializer.SerializeToElement(value);
+    // A result as the HTTP API states it.
+    private static JsonElement Wire(object value)=>JsonSerializer.SerializeToElement(value,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
     private static JsonElement Change(JsonElement row,string key,object? value)
     {var fields=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(row.GetRawText())!;fields[key]=Row(value!);return Row(fields);}
     private static (PreviewManifest Manifest,Dictionary<string,ImmutableArray<JsonElement>> Definitions,

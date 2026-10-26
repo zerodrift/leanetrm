@@ -34,7 +34,15 @@ public static class HistoryRevisionPolicy
 public sealed record CurveShapePoint(Guid ContractId,string DeliveryFrom,string DeliveryTo,string? Price,string? UnavailableReason);
 // A curve at the pinned frame: its price unit and a point for each contract its view selects, or, with neither, the code its own
 // Evaluate read raises when the pinned data cannot read it.
-public sealed record CurveShape(string Curve,string? Unit,ImmutableArray<CurveShapePoint>? Points,string? UnavailableReason);
+// ContractCount and Front are D226's summary of Points: how many contracts the view selects, and its first priced one.
+public sealed record CurveShape(string Curve,string? Unit,ImmutableArray<CurveShapePoint>? Points,string? UnavailableReason,int? ContractCount=null,CurveFront? Front=null);
+// The front contract of a curve (D226): the first contract in delivery order that the selected close prices.
+public sealed record CurveFront(Guid ContractId,string DeliveryFrom,string DeliveryTo,string Price)
+{
+    public static CurveFront? First(IEnumerable<CurveShapePoint> points)=>points.Where(p=>p.Price is not null)
+        .OrderBy(p=>p.DeliveryFrom,StringComparer.Ordinal).ThenBy(p=>p.DeliveryTo,StringComparer.Ordinal)
+        .Select(p=>new CurveFront(p.ContractId,p.DeliveryFrom,p.DeliveryTo,p.Price!)).FirstOrDefault();
+}
 
 // Market and reference reads callable without an HTTP request or workspace session. Each
 // runs in a transaction already bound to an issued request context and binds its own pin,
@@ -145,11 +153,12 @@ public sealed class MarketReads(PreviewDatabase database)
             throw;
         }
         var prices=(build?.Values??ImmutableArray<BuiltValue>.Empty).ToDictionary(v=>v.Request,v=>v.Price.Value.ToString());
-        return new(curve,data.PriceUnit(curve),[..requests.Select(request=>
+        ImmutableArray<CurveShapePoint> points=[..requests.Select(request=>
         {
             var delivery=data.ContractRows(request.Contract.Id).Single();
             return new CurveShapePoint(request.Contract.Id,Date(delivery.DeliveryFrom),Date(delivery.DeliveryTo),prices.GetValueOrDefault(request),unvalued.GetValueOrDefault(request));
-        })],null);
+        })];
+        return new(curve,data.PriceUnit(curve),points,null,points.Length,CurveFront.First(points));
     }
     static string Date(DateOnly date)=>date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
 
