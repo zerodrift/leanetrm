@@ -219,6 +219,30 @@ context or curve closes the panel.
 - **Graph.** The workbench keeps its palette, board, formula mode and
   behavior. It becomes the main area, styled with tokens instead of literal
   colors.
+- **Graph objects.** Each card shows its input ports and an output dot. A
+  weighted contract mapping lists each explicit contract connection as its own
+  row, labelled "Fixed contract · <catalog label>" with its weight exactly as
+  typed, and an arrow runs from the source to that row. Arrows are focusable
+  objects: right-click, the context-menu key or Shift+F10 opens Change
+  source…, Change target port…, Edit weight (contract connections) and Remove
+  arrow. A card's menu offers Add arrow from here…, Add contract connection…
+  (mappings) and Remove operation. Add arrow, Change target port and dragging
+  from an output dot enter connect mode: only the inputs whose catalog type
+  accepts the output are offered, a click or Enter connects and Escape
+  cancels. Every edit is an ordinary definition edit: it marks the curve
+  unsaved and clears the preview; Formula then shows the edited graph (or none
+  while the backend cannot format it). The backend validates every edit on
+  preview or save. Read-only accounts get only View.
+- **Expandable sources.** A source card whose catalog entry lists contracts
+  expands to show them as the catalog names them; picking one into a mapping
+  (Connect to…, or dragging it onto the mapping) adds a fixed contract
+  connection with no weight or output position chosen, focuses its weight, and
+  Preview and Save wait until every weight is entered. Published custom-curve
+  sources list no contracts in the catalog, so they do not expand. Expanded
+  state is page state and is not saved.
+- **Rolling selections.** A Select contracts card states its relative
+  positions as its definition does. The preview does not yet state which
+  contracts each selection resolved, so the card shows no resolved contracts.
 - **Side panel modes:** Selected operation (today's inspector), Details,
   Effective versions (today's accordion) and Combine curves (today's
   accordion). Selecting a card opens Selected operation.

@@ -51,3 +51,61 @@ test('preview tiles show the backend summary without counting points or choosing
  for(const summary of [undefined,{points:'12',unavailablePoints:0,firstPeriod:null,lastPeriod:null,unit:''},{points:1,firstPeriod:null,lastPeriod:null,unit:''},{points:1,unavailablePoints:0,lastPeriod:null,unit:''}])
   assert.throws(()=>previewTiles(summary),/summary/);
 });
+
+const operators=[
+ {kind:'source',inputPorts:[],outputType:'curve',fields:[]},
+ {kind:'window',inputPorts:[],outputType:'dates',fields:[]},
+ {kind:'sample',inputPorts:[{name:'curve',type:'curve'},{name:'dates',type:'dates'}],outputType:'samples',fields:[]},
+ {kind:'average',inputPorts:[{name:'values',type:'samples'}],outputType:'curve',fields:[]},
+ {kind:'weighted_contracts',inputPorts:[],outputType:'selection',fields:[{key:'contractWeights',type:'contract_weights'}],dynamicInputs:{type:'curve',label:'Source',prefix:'source_'}}];
+const mapping=()=>{const d=definition();d.nodes.push({id:'other',kind:'source',parameters:{curve:'synthetic_local'},inputs:{}},
+ {id:'basket',kind:'weighted_contracts',parameters:{},inputs:{source_a:'source',source_b:'other'},contractWeights:[
+  {outputPosition:1,sourcePort:'source_a',contractId:'contract-a',weight:'0.7'},{outputPosition:1,sourcePort:'source_b',contractId:'contract-b',weight:'-0.2'},{outputPosition:2,sourcePort:'source_c',contractId:'contract-c',weight:'1'}]});return d;};
+test('removing an arrow removes only that port, keeps mapped contract rows and never mutates',async()=>{
+ const {removeCurveConnection}=await import('../dist/custom-curve-model.js');
+ const before=mapping(),edited=removeCurveConnection(before,'basket','source_a');
+ assert.deepEqual(edited.nodes.at(-1).inputs,{source_b:'other'});
+ assert.equal(edited.nodes.at(-1).contractWeights.length,3,'rows naming the port stay for the backend to reject or for reconnection');
+ assert.deepEqual(before.nodes.at(-1).inputs,{source_a:'source',source_b:'other'});
+ assert.deepEqual(removeCurveConnection(before,'sample','curve').nodes[2].inputs,{dates:'dates'});
+});
+test('contract objects are the explicit contract connections of a mapping, in order, with their feeding node',async()=>{
+ const {contractObjects}=await import('../dist/custom-curve-model.js');
+ const d=mapping();
+ assert.deepEqual(contractObjects(d,d.nodes.at(-1)),[
+  {index:0,source:'source',sourcePort:'source_a',contractId:'contract-a',weight:'0.7',outputPosition:1},
+  {index:1,source:'other',sourcePort:'source_b',contractId:'contract-b',weight:'-0.2',outputPosition:1},
+  {index:2,source:null,sourcePort:'source_c',contractId:'contract-c',weight:'1',outputPosition:2}]);
+ assert.deepEqual(contractObjects(d,d.nodes[0]),[]);
+});
+test('connectable targets follow catalog port types, without self-loops or duplicate ports',async()=>{
+ const {connectableTargets}=await import('../dist/custom-curve-model.js');
+ const catalog={operators:[...operators,{kind:'shift',inputPorts:[{name:'curve',type:'curve'}],outputType:'curve',fields:[]}]};
+ const d=definition();d.nodes.push({id:'sample_2',kind:'sample',parameters:{},inputs:{}},{id:'shift',kind:'shift',parameters:{},inputs:{}},{id:'basket',kind:'weighted_contracts',parameters:{},inputs:{source_a:'other'}});
+ assert.deepEqual(connectableTargets(d,catalog,'source'),[{target:'sample_2',port:'curve',added:false},{target:'shift',port:'curve',added:false},{target:'basket',port:'source_1',added:true}]);
+ assert.deepEqual(connectableTargets(d,catalog,'shift'),[{target:'sample',port:'curve',added:false},{target:'sample_2',port:'curve',added:false},{target:'basket',port:'source_1',added:true}],'a node never feeds itself');
+ assert.deepEqual(connectableTargets(d,catalog,'sample'),[],'the port it already feeds is not offered again');
+ d.nodes.at(-1).inputs.source_b='source';
+ assert.ok(!connectableTargets(d,catalog,'source').some(t=>t.target==='basket'),'a mapping it already feeds gets no second port');
+ assert.deepEqual(connectableTargets(d,{operators:[]},'source'),[],'without catalog metadata nothing is offered');
+});
+test('picking a contract into a mapping adds an explicit row with no weight or position chosen',async()=>{
+ const {pickContract,contractTargets}=await import('../dist/custom-curve-model.js');
+ const d=mapping(),before=JSON.stringify(d);
+ assert.deepEqual(contractTargets(d,{operators},'other'),['basket']);assert.deepEqual(contractTargets(d,{operators},'sample'),[],'only a source the mapping accepts');
+ const reused=pickContract(d,{operators},'basket','other','contract-z');
+ assert.equal(reused.row,3);assert.deepEqual(reused.definition.nodes.at(-1).contractWeights[3],{outputPosition:null,sourcePort:'source_b',contractId:'contract-z',weight:''});
+ assert.deepEqual(reused.definition.nodes.at(-1).inputs,{source_a:'source',source_b:'other'});
+ d.nodes.push({id:'third',kind:'source',parameters:{},inputs:{}});
+ const added=pickContract(d,{operators},'basket','third','contract-t');
+ assert.equal(added.definition.nodes.find(n=>n.id==='basket').inputs.source_1,'third');
+ assert.equal(added.definition.nodes.find(n=>n.id==='basket').contractWeights.at(-1).sourcePort,'source_1');
+ assert.equal(JSON.stringify(d.nodes.slice(0,-1)),JSON.stringify(JSON.parse(before).nodes),'the original definition is unchanged');
+ assert.throws(()=>pickContract(d,{operators},'sample','third','contract-t'),/contract/);
+});
+test('a contract connection without its weight is incomplete',async()=>{
+ const {incompleteContractWeights}=await import('../dist/custom-curve-model.js');
+ const d=mapping();assert.equal(incompleteContractWeights(d),false);
+ d.nodes.at(-1).contractWeights[1].weight='';assert.equal(incompleteContractWeights(d),true);
+ assert.equal(incompleteContractWeights(definition()),false);
+});
