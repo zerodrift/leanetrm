@@ -332,3 +332,20 @@ test('every swap\'s Terms offer its settlement and P&L view',async()=>{
  const read=await readSwapView(swapApi([]),{},heldSwap(),formats,{busy:()=>false,act:async work=>work(),settle:()=>{}});
  assert.deepEqual(read.view('UTC').actions.map(a=>a.label),['Settlement and P&L']);
 });
+
+
+test('a retained factor swap states its factor units and derived quantities in the position panel',()=>{
+ const detail=clone(details.scheduledSwap),scheduled=detail.state.terms.scheduled;
+ const reference=scheduled.first.quantity;
+ const numerator={...reference,code:'factor_numerator'},denominator={...reference,code:'factor_denominator'};
+ detail.catalog.indices[0].quantityChoices.push({specification:numerator,unit:'TU'},{specification:denominator,unit:'PU'});
+ scheduled.factor={value:'0.0035',numeratorQuantity:numerator,denominatorQuantity:denominator};
+ scheduled.second.basis='factor_of_first_side_v1';
+ for(const period of scheduled.second.periods)period.amount=null;
+ const sections=swapTerms(detail,'UTC',formats),structure=rowsOf(sections,'Structure');
+ assert.equal(structure['Contractual factor'],'0.0035 TU / PU');
+ const second=sections.find(s=>s.title.startsWith('Second side'));
+ assert.equal(Object.fromEntries(second.rows)['Quantity basis'],'Derived from first-side quantity × factor');
+ assert.ok(second.rows.some(([,value])=>value.includes('Derived quantity')));
+ assert.ok(!second.rows.some(([,value])=>value.includes('q: ')), 'no blank entered quantity is shown for the derived side');
+});

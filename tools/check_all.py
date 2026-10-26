@@ -70,6 +70,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     preview_check('independent swap sides, spreads and reviewed par pricing', [*preview, '--draft-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('scheduled swap settlement, delegated operations and lifecycle browser', [*preview, '--scheduled-swap-check', '--browser-check', '--browser', str(browser)], suite='trading')
+    preview_check('typed factor units, cross-commodity lifecycle and risk', [*preview, '--factor-swap-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('published index fixing price and risk', [*preview, '--index-fixing-check'], suite='trading')
     preview_check('side observation authoring, storage and valued schedules', [*preview, '--side-observation-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('mapped collected power interval settlement', [*preview, '--power-actual-check'])

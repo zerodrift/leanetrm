@@ -24,8 +24,8 @@ import type {RequestCommand} from './pending-command.js';
 import {renderSwapObservationInspection,setupSwapObservationControls} from './swap-observations-view.js';
 import type {SamplingChoice,ObservationInspection,ObservationOptions,ObservationSchedule} from './swap-observations.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-export type Index={definitionRevisionId:string;curve:string;index:string;commodity:string;currencyCode:string;currency:string;unit:string;quoteMultiplier:string;quantityCode:string;powerQuantitySupported:boolean;quantityChoices:{specification:{code:string};unit:string}[];defaultDiscountCurve:string|null;fixingConvention:'published_index_observations_v1'|null;fixingUnavailableReason:string|null;customProjections:ProjectionChoice[];averaging:string[];samplings:SamplingChoice[];contracts:{deliveryFrom:string;deliveryTo:string}[]};
-export type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];commodities:{code:string;name:string}[];paymentCalendars:{code:string}[];paymentOptions:PaymentOptions;entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean;bookingUnavailableReason?:string|null};
+export type Index={primitiveEntrySupported:boolean;definitionRevisionId:string;curve:string;index:string;commodity:string;currencyCode:string;currency:string;unit:string;quoteMultiplier:string;quantityCode:string;powerQuantitySupported:boolean;quantityChoices:{specification:{code:string};unit:string}[];defaultDiscountCurve:string|null;fixingConvention:'published_index_observations_v1'|null;fixingUnavailableReason:string|null;customProjections:ProjectionChoice[];averaging:string[];samplings:SamplingChoice[];contracts:{deliveryFrom:string;deliveryTo:string}[]};
+export type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];commodities:{code:string;name:string}[];paymentCalendars:{code:string;definitionRevisionId:string}[];paymentOptions:PaymentOptions;entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean;bookingUnavailableReason?:string|null};
 type FloatingTerms={curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null;firstFixingAt?:string|null;customProjection?:CustomProjection|null;observationSchedule?:ObservationSchedule;resetFrequency:string;averagingMethod:string;spread:string};
 type Terms={scheduled?:Scheduled|null;swapType:string;firstCoefficient:string|null;firstFloating:FloatingTerms|null;commodity:string;definitionRevisionId:string;bookId:string;executedAt:string;quantity:string;fixedCoefficient:string;discounting:boolean;fixed:{price:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null}|null;floating:FloatingTerms};
 type State=Annotation&{tradeId:string;tradeReference:string;instrumentId:string;instrumentReference:string;revision:number;quantity:string;kind:string;reason:string;effectiveAt:string;recordedAt:string;terms:Terms};
@@ -101,13 +101,13 @@ function scheduledTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSe
  const shared=<T,>(values:readonly T[])=>values.every(v=>JSON.stringify(v)===JSON.stringify(values[0]))?values[0]:undefined;
  const [firstSide,secondSide]=sidesOf(detail),fixedFirst=!!scheduled.first.periods[0]?.fixed;
  const section=(side:Scheduled['first'],title:string):TermSection=>{
-  const unit=unitOf(side.quantity),rows:(readonly [string,string])[]=[['Quantity basis',choice(quantityBases,side.basis)],['Quantity unit',unit]];
+  const unit=unitOf(side.quantity),rows:(readonly [string,string])[]=[['Quantity basis',side.basis==='factor_of_first_side_v1'?'Derived from first-side quantity × factor':choice(quantityBases,side.basis)],['Quantity unit',unit]];
   if(side.basis==='contract_total')rows.push(['Contract total',`${minus(formats.quantity(side.amount??''))} ${unit} · ${choice(allocations,side.allocation)}`]);
   if(side.power)rows.push(['Delivery hours',`${choice(deliveryProducts,side.power.product)}${side.power.product==='weekday_block'?` · ${side.power.startHour}:00–${side.power.endHour}:00${side.power.saturday?' · Saturdays':''}`:''} · clock ${clockOf(side.power.clock)}`]);
   const periods=side.periods.map(p=>({...p,terms:(p.fixed??p.floating)!}));
   rows.push(['Periods',`${periods.length} monthly · ${deliveryLabel(periods[0].terms.deliveryFrom,periods[periods.length-1].terms.deliveryTo)}`]);
   for(const p of periods){
-   const amount=side.basis==='contract_total'?null:`${minus(formats.quantity(p.amount??''))} ${unit}${side.basis==='calendar_day_rate'?' per day':''}`;
+   const amount=side.basis==='factor_of_first_side_v1'?'Derived quantity':side.basis==='contract_total'?null:`${minus(formats.quantity(p.amount??''))} ${unit}${side.basis==='calendar_day_rate'?' per day':''}`;
    const price=p.fixed?`fixed ${p.fixed.price===null?'None':minus(formats.price(p.fixed.price))} ${priceUnit(settlement)}`:`${friendly(p.floating!.index)} · ${curveName(p.floating!.curve)}`;
    rows.push([deliveryLabel(p.terms.deliveryFrom,p.terms.deliveryTo),[amount,price].filter(Boolean).join(' · ')]);
   }
@@ -123,6 +123,7 @@ function scheduledTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSe
  };
  return [tradeSection(detail,zone),
   {title:'Structure',rows:[['Type',`Scheduled ${fixedFirst?'fixed':'floating'} for floating`],['Commodity',catalog.commodities.find(c=>c.code===t.commodity)?.name??friendly(t.commodity)],['Quantity',byPeriod],
+   ...(scheduled.factor?[['Contractual factor',`${scheduled.factor.value} ${unitOf(scheduled.factor.numeratorQuantity)} / ${unitOf(scheduled.factor.denominatorQuantity)}`] as const]:[]),
    ['Price application',priceApplications[scheduled.first.priceApplication]??friendly(scheduled.first.priceApplication)],['Discounting',discountingLabels[t.discounting?Discounting.CurrencyDefault:Discounting.None]]]},
   section(scheduled.first,`First side · ${sideDirection(firstSide.coefficient)}`),section(scheduled.second,`Second side · ${sideDirection(secondSide.coefficient)}`)];
 }
@@ -320,7 +321,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const floatingPair=()=>field('swap-type').value==='financial_floating_floating';
  const observationId=(side:string,suffix:string)=>`swap-${side==='first'?'first-':''}${suffix}`;
  const selectedIndex=(side='floating')=>catalog?.indices.find(i=>indexKey(i)===field(observationId(side,'projection')).value);
- const availableIndices=(side='floating')=>filterSwapIndices(catalog?.indices??[],field(observationId(side,'commodity')).value,field(observationId(side,'index-search')).value,side==='first'?selectedIndex()?.definitionRevisionId:undefined);
+ const availableIndices=(side='floating')=>filterSwapIndices(catalog?.indices.filter(i=>i.primitiveEntrySupported)??[],field(observationId(side,'commodity')).value,field(observationId(side,'index-search')).value,side==='first'?selectedIndex()?.definitionRevisionId:undefined);
  const sources=(side='floating')=>availableIndices(side).filter(i=>!field(observationId(side,'index')).value||i.index===field(observationId(side,'index')).value);
  const projectionChoices=(side='floating')=>selectedIndex(side)?.customProjections.filter(p=>p.samplings.some(s=>s.resetFrequency===field(observationId(side,'reset-frequency')).value&&s.averagingMethod===field(observationId(side,'averaging')).value))??[];
  let observationOptions:Record<string,ObservationOptions|undefined>={};
@@ -464,7 +465,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   annotations.populate(catalog.bookingActor,catalog,detail?.state);
   const policies=catalog.paymentOptions;field('swap-par-places').value=String(catalog.parRateOptions.initialDecimalPlaces);
   for(const side of ['fixed','first','floating'])for(const [suffix,choices] of [['payment-frequency',policies.frequencies],['payment-rule',policies.rules],['day-basis',policies.dayBases],['short-month',policies.shortMonths],['payment-adjustment',policies.adjustments]] as const)choose(`swap-${side}-${suffix}`,choices);
- choose('swap-book',catalog.books.map(b=>({value:b.id,label:`${b.portfolio} · ${b.name}`})));for(const side of ['floating','first'])choose(observationId(side,'commodity'),catalog.commodities.filter(c=>catalog!.indices.some(i=>i.commodity===c.code)).map(c=>({value:c.code,label:c.name})));commodityControls();for(const side of ['fixed','first','floating'])choose(`swap-${side}-payment-calendar`,catalog.paymentCalendars.map(c=>({value:c.code,label:friendly(c.code)})));}
+ choose('swap-book',catalog.books.map(b=>({value:b.id,label:`${b.portfolio} · ${b.name}`})));for(const side of ['floating','first'])choose(observationId(side,'commodity'),catalog.commodities.filter(c=>catalog!.indices.some(i=>i.commodity===c.code)).map(c=>({value:c.code,label:c.name})));commodityControls();for(const side of ['fixed','first','floating'])choose(`swap-${side}-payment-calendar`,catalog.paymentCalendars.filter(c=>catalog!.indices.some(i=>i.primitiveEntrySupported&&i.definitionRevisionId===c.definitionRevisionId)).filter((c,n,a)=>a.findIndex(v=>v.code===c.code)===n).map(c=>({value:c.code,label:friendly(c.code)})));}
  function paymentControls(side:string){
   const rule=field(`swap-${side}-payment-rule`).value,lag=rule===PaymentDateRule.DaysAfterPeriodEnd,next=rule===PaymentDateRule.DayOfFollowingMonth;
   text(`swap-${side}-payment-number-label`,lag?'Days after last delivery day':next?'Day of following month':'Rule parameter');

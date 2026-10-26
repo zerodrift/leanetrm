@@ -252,12 +252,14 @@ test('long and short by market is one panel per quantity unit; swaps are drawn o
  assert.equal(gas[1].text,'#0');
  assert.deepEqual(panels.map(p=>p.subtitle),['Not drawn: Gas forward · Swaps · mixed directions','Not drawn: Power forward · Swaps · multi-side'],'each panel names the markets it draws no bar for');
 });
-test('a market held in more than one unit or currency is refused with a message of the desk, not drawn as one bar',()=>{
+test('PV keeps quantity partitions distinct, while a position chart refuses currency partitions in one unit',()=>{
  const message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
  const colors=commodityColors(['test_gas','test_power']);
  const otherUnit={...fixture.summaries[3].groups[0].quantitySpecification,code:'other_quantity'};
  const twoUnits=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],quantitySpecification:otherUnit}]);
- assert.throws(()=>pvChartPanels(twoUnits,colors,format),{message});
+ const points=pvChartPanels(twoUnits,colors,format).find(p=>p.unit==='USD').series[0].points;
+ assert.equal(new Set(points.map(p=>p.x)).size,points.length);
+ assert.equal(new Set(points.map(p=>p.label)).size,points.length);
  const otherCurrency={...fixture.summaries[3].groups[0].currencyReference,code:'other'};
  const twoCurrencies=changed(fixture.summaries,3,groups=>[...groups,{...groups[0],currencyReference:otherCurrency,currency:'OTH'}]);
  const held=[...fixture.holdings,{...fixture.holdings[0],tradeId:'t7',bindingId:'b7',currencyReference:otherCurrency,currency:'OTH'}];
@@ -410,4 +412,18 @@ test('the long and short chart draws no bar for a market the backend gives no si
  assert.deepEqual([euro.y,euro.label,euro.text,euro.direction],[null,'Power euro forward · Swaps · no single quantity',undefined,undefined]);
  assert.equal(panel.subtitle,'Not drawn: Power euro forward · Swaps · no single quantity; Power forward · Swaps · multi-side','a panel with no bar left still says why');
  assert.throws(()=>positionChartPanels(changed(fixture.summaries,3,groups=>groups.map(g=>g.market==='gas_future'?{...g,quantity:null}:g)),fixture.holdings,colors,format),{message});
+});
+
+
+test('opposite commodity orientations of the same factor markets keep separate native-quantity PV bars',()=>{
+ const [gas,,power]=fixture.summaries[3].groups;
+ const summaries=changed(fixture.summaries,3,()=>[
+  {...gas,market:'daily_gas+daily_power',marketLabel:'Daily gas + Daily power',presentValue:'42'},
+  {...gas,market:'daily_gas+daily_power',marketLabel:'Daily gas + Daily power',commodity:power.commodity,quantitySpecification:power.quantitySpecification,unit:power.unit,presentValue:'-17'},
+ ]);
+ const panel=pvChartPanels(summaries,commodityColors(['test_gas','test_power']),format).find(p=>p.unit==='USD');
+ assert.deepEqual(panel.series[0].points.map(p=>[p.label,p.y]),[['Daily gas + Daily power · MMBtu (IT)','42'],['Daily gas + Daily power · MWh','-17']]);
+ assert.equal(new Set(panel.series[0].points.map(p=>p.x)).size,2);
+ const duplicated=changed(summaries,3,groups=>[...groups,groups[0]]);
+ assert.throws(()=>pvChartPanels(duplicated,commodityColors(['test_gas','test_power']),format),/inconsistent desk summary/);
 });

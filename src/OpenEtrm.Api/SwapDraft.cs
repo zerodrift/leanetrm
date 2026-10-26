@@ -24,8 +24,8 @@ public sealed partial class SwapStore
 {
     private static object[] DraftQuantities(PreviewData data,ReferenceKey target)
     {
-        var source=data.References["quantity_specifications"].Single(q=>q.Text("code")==target.Code);
-        return data.References["quantity_specifications"].Where(q=>q.Text("commodity_code")==source.Text("commodity_code")&&q.Text("basis_code")==source.Text("basis_code")&&q.Text("dimension_code")==source.Text("dimension_code"))
+        var converter=UnitOperations.Converter(new(data.ReferenceRevision,data.References));
+        return data.References["quantity_specifications"].Where(q=>converter.CanConvert(new ReferenceKey(data.ReferenceRevision,q.Text("code")),target))
             .OrderBy(q=>q.Text("code")==target.Code?0:1).ThenBy(q=>q.Text("code"),StringComparer.Ordinal)
             .Select(q=>(object)new{specification=new ReferenceKey(data.ReferenceRevision,q.Text("code")),unit=data.References["units"].Single(u=>u.Text("code")==q.Text("unit_code")).Text("symbol")}).ToArray();
     }

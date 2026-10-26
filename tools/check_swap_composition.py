@@ -102,8 +102,14 @@ def run_checks(url, query=None, manifest=None):
     print('PASS blotter prices: explicit extrema and arithmetic means match independent decimal oracles with unavailable values and quote partitions',flush=True)
     if query is not None:
         assert query("SELECT bool_and(NOT has_function_privilege('openetrm_runtime',p.oid,'EXECUTE')) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security' AND p.proname='retain_floating_swap_side';")=='t'
-        # Five primitive relationships plus the two scheduled-side memberships.
-        assert query("SELECT count(*) FROM pg_constraint WHERE conrelid='trading.swap_instruments'::regclass AND contype='f';")== '7'
+        # Check the exact normalized relationships, including both independent
+        # floating/scheduled memberships and the selected contractual factor.
+        relationships=query("SELECT a.attname||':'||c.confrelid::regclass::text FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=c.conkey[2] WHERE c.conrelid='trading.swap_instruments'::regclass AND c.contype='f' ORDER BY 1;")
+        assert set(relationships.splitlines())=={
+            'instrument_id:trading.instruments','fixed_side_id:trading.swap_fixed_sides',
+            'floating_side_id:trading.swap_floating_sides','first_floating_side_id:trading.swap_floating_sides',
+            'publication_order:trading.publications','scheduled_first_id:trading.swap_scheduled_sides',
+            'scheduled_second_id:trading.swap_scheduled_sides','quantity_factor_id:trading.swap_quantity_factors'}
         print('PASS swap composition: private side-retention helper and exact-version side foreign keys',flush=True)
     if manifest is not None:check_custom_sides(c,context,query,manifest)
 

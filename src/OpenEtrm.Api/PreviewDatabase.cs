@@ -281,6 +281,13 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2 ORDER BY {key}) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
         }
         if (definitions["revisions"].Length != 1 || definitions["revisions"][0].Text("state") != "sealed") throw new PreviewDeniedException();
+        if(ppaBundle is null&&selectedRevision is {} supplemental&&supplemental!=Manifest.RevisionId)
+        {
+            var exact=definitions["revisions"][0];
+            if(exact.Id("reference_catalog_id")!=Manifest.ReferenceCatalogId)
+                throw new MarketDataException("reference_pin_mismatch","A swap market must name a version of its declared reference catalog.");
+            selectedManifest=selectedManifest with{ReferenceRevisionId=exact.Id("reference_revision_id")};
+        }
         PreviewData.RequireBundlePin(selectedManifest, definitions["revisions"][0]);
         IReadOnlyDictionary<string,ImmutableArray<JsonElement>> references;
         if(sharedReferences is not null && (sharedReferences.ReferenceRevision!=new ReferenceRevision(selectedManifest.ReferenceCatalogId,selectedManifest.ReferenceRevisionId)||sharedReferences.DefinitionRevision.CatalogId!=selectedManifest.CatalogId))
@@ -497,7 +504,14 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             if(!await SwapMarketAvailable(connection,market,ct))continue;
             var seed=market.Frames.SingleOrDefault(f=>f.At==selected.At)??throw new MarketDataException("swap_context","No explicit daily-market frame exists for the selected As of time.");
             var pins=SwapMarketPins(selected,market)!.Value;
-            var data=await Read(connection,ct,market.RevisionId,sharedReferences,pins);
+            var references=sharedReferences;
+            if(references is not null)
+            {
+                var exact=await Rows(connection,"SELECT row_to_json(r)::text FROM market_data.revisions r WHERE catalog_id=$1 AND id=$2",[Manifest.CatalogId,market.RevisionId],ct);
+                if(exact.Length!=1)throw new PreviewDeniedException();
+                if(new ReferenceRevision(exact[0].Id("reference_catalog_id"),exact[0].Id("reference_revision_id"))!=references.ReferenceRevision)references=null;
+            }
+            var data=await Read(connection,ct,market.RevisionId,references,pins);
             var frame=new InputFrame(selected.Id,"Selected swap market",selected.At,pins,seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),selected.ContextId);
             // A snapshot prices its exact pins; only a certified context's own frames apply its
             // latest-correction policy at that cutoff (D172).

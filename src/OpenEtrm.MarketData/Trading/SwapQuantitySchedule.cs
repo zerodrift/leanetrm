@@ -25,6 +25,9 @@ public sealed record SwapQuantitySchedule
         if(numerator.Specification!=denominator.Specification||numerator.NumeratorValue.Sign<=0||denominator.NumeratorValue.Sign<=0)throw Invalid();
         return new(numerator.NumeratorValue*denominator.DenominatorValue,numerator.DenominatorValue*denominator.NumeratorValue);
     }
+    public SwapQuantitySchedule ConvertTo(ReferenceKey target,UnitConverter converter)=>new(Periods.Select(q=>converter.Convert(q,target)).ToImmutableArray());
+    public SwapQuantitySchedule Times(QuantityFactor factor,ReferenceKey target,UnitConverter converter)=>
+        new(Periods.Select(q=>q.Times(factor,target,converter)).ToImmutableArray());
     public static SwapQuantitySchedule Resolve(ImmutableArray<QuantityPeriod> periods,ImmutableArray<ExactDecimal> amounts,
         SwapQuantityBasis basis,SwapQuantityAllocation? allocation,ReferenceKey specification,ImmutableArray<PowerQuantitySchedule> power=default)
     {

@@ -26,6 +26,7 @@ public sealed record ExactQuantity
  public static ExactQuantity FromQuantity(Quantity value)=>new(value.Amount.ScaledValue,ExactDecimal.WorkingScale,value.Specification);
  public ExactQuantity Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(numerator*ratio.Numerator,denominator*ratio.Denominator,Specification);
  public ExactQuantity Scale(ExactDecimal factor)=>ScaleFraction(factor.ScaledValue,ExactDecimal.WorkingScale);
+ public ExactQuantity Times(QuantityFactor factor,ReferenceKey target,UnitConverter converter)=>factor.Apply(this,target,converter);
  internal ExactQuantity ScaleFraction(BigInteger factor,BigInteger divisor)=>new(numerator*factor,denominator*divisor,Specification);
  public ExactQuantity Add(ExactQuantity other)
  {

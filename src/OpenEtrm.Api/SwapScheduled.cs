@@ -20,7 +20,10 @@ public sealed record SwapPowerScheduleInput(ReferenceKey Clock,string Product,in
 public sealed record SwapScheduledSideInput(string Basis,ReferenceKey Quantity,string? Amount,string? Allocation,
     string PriceApplication,SwapPowerScheduleInput? Power,ImmutableArray<SwapScheduledPeriodInput> Periods);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record SwapScheduledInput(string Implementation,SwapScheduledSideInput First,SwapScheduledSideInput Second)
+public sealed record SwapQuantityFactorInput(string Value,ReferenceKey NumeratorQuantity,ReferenceKey DenominatorQuantity,string Implementation,string UnitConversionImplementation);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record SwapScheduledInput(string Implementation,SwapScheduledSideInput First,SwapScheduledSideInput Second,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]SwapQuantityFactorInput? Factor=null)
 {
     [JsonIgnore] internal ImmutableArray<RetainedScheduledSide> Retained { get; init; }
 }
@@ -34,7 +37,7 @@ public sealed partial class SwapStore
 {
     public const string ScheduledPriceApplication="period_average_times_quantity_v1";
     private sealed record ScheduledPreview(int? ExpectedRevision,object Valuation,object QuantityInputs,[property:JsonIgnore]ScheduledResolution Prepared,[property:JsonIgnore]MarketSnapshot Snapshot);
-    private sealed record ScheduledResolution(ScheduledFinancialSwap Instrument,Quantity Quantity,
+    private sealed record ScheduledResolution(SidedInstrument Instrument,Quantity Quantity,
         ImmutableArray<SwapQuantitySchedule> Quantities,ImmutableArray<ImmutableArray<PowerQuantitySchedule>> Power);
     private static SwapScheduledInput CanonicalScheduled(SwapScheduledInput input)
     {
@@ -44,12 +47,13 @@ public sealed partial class SwapStore
                 Fixed=p.Fixed is {} fixedInput?fixedInput with{Price=fixedInput.Price is null?null:ExactDecimal.Parse(Required(fixedInput.Price)).ToString()}:null,
                 Floating=p.Floating is {} floating?floating with{Spread=floating.Spread is null?null:ExactDecimal.Parse(Required(floating.Spread)).ToString()}:null}).ToImmutableArray()};
         if(input.First is null||input.Second is null)throw Error("scheduled_swap_input","Supply both independent sides.");
-        return input with{First=Side(input.First),Second=Side(input.Second)};
+        return input with{First=Side(input.First),Second=Side(input.Second),Factor=input.Factor is {} factor?factor with{Value=ExactDecimal.Parse(Required(factor.Value)).ToString()}:null};
     }
     private ScheduledResolution ResolveScheduled(PreviewData data,SwapWriteRequest body,Guid? instrumentId=null)
     {
         var input=body.Scheduled??throw Error("scheduled_swap_input","Supply scheduled side terms.");
-        if(input.Implementation!=ScheduledFinancialSwap.Implementation||body.Convention!=Convention||body.Discounting is null||
+        var factorContract=input.Implementation==CrossCommodityScheduledSwap.Implementation;
+        if((!factorContract&&input.Implementation!=ScheduledFinancialSwap.Implementation)||body.Convention!=Convention||body.Discounting is null||
             body.Fixed is not null||body.Floating is not null||body.FirstFloating is not null||body.FixedCoefficient is not null||
             body.SwapType!="scheduled_financial_swap"||body.Quantity is not null&&input.Retained.IsDefaultOrEmpty||body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId||
             body.KnowledgeMode is not("current" or "retained"))throw Error("scheduled_swap_input","Choose the explicit scheduled-swap version, independent side terms and direction. Its binding quantity is calculated by the backend.");
@@ -58,7 +62,11 @@ public sealed partial class SwapStore
             s.Periods.Any(p=>p is null||(p.Fixed is null)==(p.Floating is null))))throw Error("scheduled_swap_input","Supply one to 120 explicit monthly periods per side and the contractual period-average price application.");
         if(sides[1].Periods.Any(p=>p.Floating is null)||sides[0].Periods.Any(p=>p.Fixed is null)&&sides[0].Periods.Any(p=>p.Floating is null))
             throw Error("scheduled_swap_input","Use a fixed/floating or floating/floating composition; each side has one pricing kind.");
-        var common=ResolveFloating(data,sides[1].Periods[0].Floating!,Required(body.Commodity),null);
+        if(factorContract?input.Factor is null||sides[0].Periods.Any(p=>p.Floating is null)||sides[0].Basis=="factor_of_first_side_v1"||sides[1].Basis!="factor_of_first_side_v1":input.Factor is not null)
+            throw Error("quantity_factor","Choose the explicit factor contract, two floating sides, authored first-side quantities and derived second-side quantities.");
+        if(input.Factor is {} selectedFactor&&selectedFactor.UnitConversionImplementation!=UnitConverter.Implementation)throw Error("quantity_factor","Select the supported pinned unit-conversion implementation.");
+        var factor=input.Factor is {} f?new QuantityFactor(ExactDecimal.Parse(Required(f.Value)),f.NumeratorQuantity,f.DenominatorQuantity,f.Implementation):null;
+        var common=ResolveFloating(data,sides[factorContract?0:1].Periods[0].Floating!,Required(body.Commodity),null);
         var converter=UnitOperations.Converter(new(data.ReferenceRevision,data.References));
         var quantities=ImmutableArray.CreateBuilder<SwapQuantitySchedule>();
         var powers=ImmutableArray.CreateBuilder<ImmutableArray<PowerQuantitySchedule>>();
@@ -74,7 +82,7 @@ public sealed partial class SwapStore
                 {
                     if(floating.PaymentAt is not null||floating.FirstFixingAt is not null||floating.PaymentSchedule is null||floating.Spread is null)
                         throw Error("scheduled_swap_input","Each floating period needs its own payment and observation rules and explicit spread. Fixing boundaries come from the qualified index.");
-                    child=ResolveFloating(data,floating,body.Commodity,id);
+                    child=ResolveFloating(data,floating,factorContract&&slot==1?null:body.Commodity,id);
                     if(retained is not null)ValidateProjections(((SidePaymentSchedule)child.GenerateSchedule()).Payments.SelectMany(p=>p.Prices),retained.Evidence[n]);
                 }
                 else
@@ -86,6 +94,15 @@ public sealed partial class SwapStore
                 }
                 var plan=((SidePaymentSchedule)child.GenerateSchedule()).Payments.Single();
                 boundaries.Add(new(plan.DeliveryFrom,plan.DeliveryTo));periods.Add(child);
+            }
+            var native=periods[0] is FloatingSide floatingSide?floatingSide.UnitQuantity.Specification:common.UnitQuantity.Specification;
+            if(factorContract&&slot==1)
+            {
+                if(side.Amount is not null||side.Allocation is not null||side.Power is not null||side.Periods.Any(p=>p.Amount is not null)||side.Quantity!=native)
+                    throw Error("quantity_factor","The second side is derived only from the first-side quantity and the explicit factor, in its native quote quantity.");
+                if(retained is null)quantities.Add(quantities[0].Times(factor!,native,converter));
+                resolved.Add(new(retained?.Id??Guid.NewGuid(),periods.ToImmutable(),retained?.Shares??quantities[1].Shares,ScheduledSwapSide.Implementation));
+                powers.Add([]);continue;
             }
             var basis=side.Basis switch {"period_total"=>SwapQuantityBasis.PeriodTotal,"calendar_day_rate"=>SwapQuantityBasis.CalendarDayRate,"contract_total"=>SwapQuantityBasis.ContractTotal,"selected_interval_power"=>SwapQuantityBasis.SelectedIntervalPower,_=>throw Error("scheduled_quantity","Choose a supported quantity basis explicitly.")};
             var allocation=side.Allocation switch {null=>(SwapQuantityAllocation?)null,"equal_periods"=>SwapQuantityAllocation.EqualPeriods,"calendar_days"=>SwapQuantityAllocation.CalendarDays,_=>throw Error("scheduled_quantity","Select an explicit supported allocation.")};
@@ -116,14 +133,18 @@ public sealed partial class SwapStore
                 power=boundaries.Select((p,n)=>PowerQuantitySchedule.Compile(new(amounts[n],side.Quantity),PowerQuantityBasis.FlatPower,source,energy,p.From,p.To,clock,mask,
                     powerInput.Calendar is {} calendar?PowerPreview.Holidays(data,One(data.References["calendars"].Where(c=>new ReferenceKey(data.ReferenceRevision,c.Text("code"))==calendar)),p.From,p.To):[],60,null)).ToImmutableArray();
             }
-            else amounts=amounts.Select(a=>converter.Convert(new Quantity(a,side.Quantity),common.UnitQuantity.Specification).Amount).ToImmutableArray();
-            var quantity=SwapQuantitySchedule.Resolve(boundaries.ToImmutable(),amounts,basis,allocation,common.UnitQuantity.Specification,power);
+            if(!factorContract&&power.IsEmpty)amounts=amounts.Select(a=>converter.Convert(new Quantity(a,side.Quantity),common.UnitQuantity.Specification).Amount).ToImmutableArray();
+            var quantity=SwapQuantitySchedule.Resolve(boundaries.ToImmutable(),amounts,basis,allocation,factorContract&&power.IsEmpty?side.Quantity:common.UnitQuantity.Specification,power);
+            if(factorContract)quantity=quantity.ConvertTo(common.UnitQuantity.Specification,converter);
             quantities.Add(quantity);powers.Add(power);resolved.Add(new(Guid.NewGuid(),periods.ToImmutable(),quantity.Shares,ScheduledSwapSide.Implementation));
         }
         var coefficient=ExactDecimal.Parse(Required(body.FirstCoefficient));
         var firstRatio=input.Retained.IsDefaultOrEmpty?ExactRatio.One:input.Retained[0].RelativeQuantity;
-        var secondRatio=input.Retained.IsDefaultOrEmpty?SwapQuantitySchedule.Ratio(quantities[1].Total,quantities[0].Total):input.Retained[1].RelativeQuantity;
-        var instrument=new ScheduledFinancialSwap(instrumentId??Guid.NewGuid(),[new(resolved[0],coefficient,firstRatio),new(resolved[1],default(ExactDecimal)-coefficient,secondRatio)],body.Discounting.Value,ScheduledFinancialSwap.Implementation);
+        var secondRatio=!input.Retained.IsDefaultOrEmpty?input.Retained[1].RelativeQuantity:
+            factorContract?factor!.NativeRatio(quantities[0].Total.Specification,quantities[1].Total.Specification,converter):SwapQuantitySchedule.Ratio(quantities[1].Total,quantities[0].Total);
+        ImmutableArray<SideMembership> memberships=[new(resolved[0],coefficient,firstRatio),new(resolved[1],default(ExactDecimal)-coefficient,secondRatio)];
+        SidedInstrument instrument=factorContract?new CrossCommodityScheduledSwap(instrumentId??Guid.NewGuid(),memberships,factor!,converter,body.Discounting.Value,input.Implementation):
+            new ScheduledFinancialSwap(instrumentId??Guid.NewGuid(),memberships,body.Discounting.Value,input.Implementation);
         var quantityBinding=input.Retained.IsDefaultOrEmpty?quantities[0].Total.ToQuantity():new Quantity(ExactDecimal.Parse(Required(body.Quantity)),instrument.UnitQuantity.Specification);
         return new(instrument,quantityBinding,quantities.ToImmutable(),powers.ToImmutable());
     }
@@ -147,9 +168,13 @@ public sealed partial class SwapStore
         if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the exact retained context.");
         var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
         var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct);
-        return(FinancialSwapValuation.Evaluate(resolved.Instrument,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct).Scale(resolved.Quantity),resolved);
+        var evaluated=resolved.Instrument switch {
+            ScheduledFinancialSwap legacy=>FinancialSwapValuation.Evaluate(legacy,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct),
+            CrossCommodityScheduledSwap cross=>FinancialSwapValuation.Evaluate(cross,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct),
+            _=>throw Error("swap_definition","Unsupported swap version.")};
+        return(evaluated.Scale(resolved.Quantity),resolved);
     }
-    private static bool ScheduledAmendmentEligible(ScheduledFinancialSwap instrument,DateTimeOffset at)=>
+    private static bool ScheduledAmendmentEligible(SidedInstrument instrument,DateTimeOffset at)=>
         instrument.Sides.SelectMany(s=>((SidePaymentSchedule)s.Side.GenerateSchedule()).Payments).All(p=>at<p.PaymentAt&&(p.FirstFixingAt is null||at<p.FirstFixingAt));
     private async Task<object> PreviewScheduled(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
     {
@@ -162,6 +187,7 @@ public sealed partial class SwapStore
         {
             var head=(await Rows(connection,trade,ct))[^1];
             var retained=Terms(data,head,frame.Id);
+            if(retained.Scheduled?.Implementation!=body.Scheduled!.Implementation)throw Error("swap_amendment","An amendment must preserve the retained contract implementation. Book a separate contract to change its quantity semantics.");
             var original=(await ScheduledMarket(connection,data,frame,retained.DefinitionRevisionId,ct)).Data;
             if(retained.Scheduled is null||!ScheduledAmendmentEligible(ResolveScheduled(original,retained,head.Id("instrument_id")).Instrument,frame.At))throw Error("swap_amendment","Fixings or payments are due on a retained side; use an explicit lifecycle operation.");
             if(head.OptionalId("scheduled_first_id") is null||body.ExpectedRevision!=int.Parse(head.Text("revision"),CultureInfo.InvariantCulture)||
