@@ -1,4 +1,4 @@
-import {dispose,init,registerIndicator,type Chart,type DeepPartial,type KLineData,type Styles} from './vendor/klinecharts.js';
+import {dispose,init,registerIndicator,type Chart,type DeepPartial,type IndicatorCreateTooltipDataSourceParams,type IndicatorFigure,type KLineData,type Styles} from './vendor/klinecharts.js';
 import {palette} from './chart-view.js';
 import {displayInstant,timeLabels} from './market-view.js';
 import {plotNumber} from './plot-number.js';
@@ -39,6 +39,24 @@ export function overlayLookup(overlay:OverlaySeries):(timestamp:number)=>Record<
     return [name,byInstant] as const;
   });
   return timestamp=>Object.fromEntries(named.map(([name,byInstant])=>[name,byInstant.get(timestamp)]));
+}
+
+/** The exact strings the backend stated, by instant and series name: what a tooltip shows, never a re-rounded number. */
+export function exactTexts(series:Record<string,OverlayPoint[]>):(timestamp:number)=>Record<string,string|undefined>{
+  const named=Object.entries(series).map(([name,points])=>[name,new Map(points.map(p=>[instantOf(p.at),p.value] as const))] as const);
+  return timestamp=>Object.fromEntries(named.map(([name,byInstant])=>[name,byInstant.get(timestamp)??undefined]));
+}
+
+const present=(value:number|null|undefined)=>typeof value==='number';
+/** The indexes of values with no value beside them. A line is drawn only between neighbours, so these need a marker. */
+export function isolatedPoints(values:(number|null|undefined)[]):number[]{
+  return values.flatMap((value,i)=>present(value)&&!present(values[i-1])&&!present(values[i+1])?[i]:[]);
+}
+const markerKey=(key:string)=>`${key}_point`;
+/** Adds `<key>_point` beside each isolated value, for the marker figure. */
+export function withIsolatedPoints<R extends Record<string,number|null|undefined>>(rows:R[],keys:string[]):(R&Record<string,number|null|undefined>)[]{
+  const isolated=new Map(keys.map(key=>[key,new Set(isolatedPoints(rows.map(row=>row[key])))]));
+  return rows.map((row,i)=>({...row,...Object.fromEntries(keys.map(key=>[markerKey(key),isolated.get(key)!.has(i)?row[key]:undefined]))}));
 }
 
 /** The definition and the parameters the read sent, for example "Simple moving average · 5". */
@@ -128,17 +146,26 @@ const readTokens=(element:Element)=>{
 };
 
 type Bar=KLineData&{price:number|null};
-type Lookup={lookup:(timestamp:number)=>Record<string,number|undefined>};
+type Lookup=Shown&{lookup:(timestamp:number)=>Record<string,number|undefined>};
+type Shown={exact:(timestamp:number)=>Record<string,string|undefined>;titles:Record<string,string>};
 const priceIndicator='openetrm_price',overlayIndicator='openetrm_overlay';
+// The hovered instant's legend rows: the exact backend strings, with no rounding, grouping or folding.
+type Row=Record<string,number|null|undefined>;
+const tooltipOf=({chart,indicator,crosshair}:IndicatorCreateTooltipDataSourceParams<Row>)=>{
+  const shown=indicator.extendData as Shown,texts=shown.exact(crosshair.kLineData?.timestamp??crosshair.timestamp??NaN);
+  return {name:indicator.shortName,calcParamsText:'',features:[],legends:Object.entries(shown.titles).map(([key,title])=>({title,value:texts[key]??chart.getStyles().indicator.tooltip.legend.defaultValue}))};
+};
+const markerFigure=(key:string,color:string):IndicatorFigure=>({key:markerKey(key),type:'circle',attrs:()=>({r:3}),styles:()=>({color,style:'fill' as const})});
 let registered=false;
 function registerIndicators(){
   if(registered)return;registered=true;
-  registerIndicator<{price:number|null},string,undefined>({name:priceIndicator,figures:[{key:'price',title:'Price: ',type:'line'}],
-    calc:bars=>bars.map(bar=>({price:(bar as Bar).price}))});
+  registerIndicator<Record<string,number|null|undefined>,string,Shown>({name:priceIndicator,figures:[{key:'price',title:'Price: ',type:'line'}],
+    calc:bars=>withIsolatedPoints(bars.map(bar=>({price:(bar as Bar).price})),['price']),createTooltipDataSource:tooltipOf});
   // The calc only looks values up by instant; calcParams name the series so the figures follow the definition.
-  registerIndicator<Record<string,number|undefined>,string,Lookup>({name:overlayIndicator,calcParams:[],
+  registerIndicator<Record<string,number|null|undefined>,string,Lookup>({name:overlayIndicator,calcParams:[],
     regenerateFigures:names=>names.map(name=>({key:name,title:`${name}: `,type:'line'})),
-    calc:(bars,indicator)=>bars.map(bar=>indicator.extendData.lookup(bar.timestamp))});
+    calc:(bars,indicator)=>withIsolatedPoints(bars.map(bar=>indicator.extendData.lookup(bar.timestamp)),indicator.calcParams),
+    createTooltipDataSource:tooltipOf});
 }
 const decimals=(points:TimePoint[])=>Math.min(6,Math.max(0,...points.map(p=>p.value?.split('.')[1]?.length??0)));
 
@@ -153,7 +180,9 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
   const body=document.createElement('div');body.className='time-chart-body';body.append(canvas,latest);
   const note=document.createElement('p');note.className='fine-print';note.textContent='Drawings are not saved.';
   host.replaceChildren(toolbar,body,note);
-  const started=init(canvas,{timezone:spec.zone,styles:chartStyles(readTokens(host))});
+  const started=init(canvas,{timezone:spec.zone,styles:chartStyles(readTokens(host)),
+    // Legends show the backend's strings as they are: no digit grouping and no folding of zeros.
+    thousandsSeparator:{format:value=>String(value)},decimalFold:{format:value=>String(value)}});
   if(!started)throw Error('The time chart could not start.');
   const chart:Chart=started;
   let bars:Bar[]=[];
@@ -178,13 +207,17 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
     chart.setPeriod({type:'minute',span:1});
     chart.removeIndicator();
     chart.resetData();
-    chart.createIndicator({name:priceIndicator,shortName:`${next.title} (${next.unit})`,precision:decimals(next.points),paneId:'candle_pane'},true);
+    // Axis ticks use the precision of the stated prices; every legend value is the exact backend string (see tooltipOf).
+    const accent=readTokens(host)['--accent'];
+    chart.createIndicator({name:priceIndicator,shortName:`${next.title} (${next.unit})`,precision:decimals(next.points),paneId:'candle_pane',
+      extendData:{exact:exactTexts({price:next.points}),titles:{price:'Price: '}},
+      figures:[{key:'price',title:'Price: ',type:'line',styles:()=>({color:accent})},markerFigure('price',accent)]},true);
     let color=0;
     for(const overlay of next.overlays){
       const series=Object.keys(overlay.series),colors=series.map(()=>palette[1+color++%(palette.length-1)]);
       chart.createIndicator({name:overlayIndicator,shortName:overlayLegend(overlay),calcParams:series,precision:decimals(next.points),paneId:'candle_pane',
-        extendData:{lookup:overlayLookup(overlay)},
-        figures:series.map((name,i)=>({key:name,title:`${name}: `,type:'line',styles:()=>({color:colors[i]})}))},true);
+        extendData:{lookup:overlayLookup(overlay),exact:exactTexts(overlay.series),titles:Object.fromEntries(series.map(name=>[name,`${name}: `]))},
+        figures:series.flatMap((name,i)=>[{key:name,title:`${name}: `,type:'line',styles:()=>({color:colors[i]})},markerFigure(name,colors[i])])},true);
     }
     latest.replaceChildren(...latestValues(next).flatMap(row=>{const term=document.createElement('dt'),value=document.createElement('dd');term.textContent=row.name;value.textContent=row.value;return [term,value];}));
   }

@@ -86,12 +86,15 @@ on the shared ECharts component, which preserves gaps between periods.
 - **Data.** Each bar is one backend point. Its value is the exact decimal string,
   turned into a number only for pixels, as the existing charts do. A point
   without a price is passed as a gap. The chart draws no line across it.
-- **Theme.** Colors, fonts and grid come from the CSS tokens, in light and dark.
+  A priced point with no priced neighbour gets a dot, since a line joins only
+  neighbours. Hovering shows the exact backend string for the instant, for the
+  price and every overlay series, never a rounded number.
+- **Theme.** Colors, fonts and grid come from the CSS tokens; a dark scheme follows when the app defines one (it defines none yet).
 - **Overlays.** The overlay menu lists the backend's overlay catalog. Choosing an
   overlay asks for its parameters (the window, with no prefilled value), sends
   them with the read, and draws the values the backend returns as a registered
   indicator whose `calc` only looks values up by instant. The legend names the
-  definition and parameters, for example "Simple moving average · 5 closes".
+  definition and parameters, for example "Simple moving average · 5".
 - **Drawing tools.** Horizontal price line, trend line, ray and text note, from
   the library. Drawings are presentation state for the open chart. They are not
   saved, and the toolbar says so.

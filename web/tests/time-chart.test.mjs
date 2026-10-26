@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 // The chart library reads the browser's user agent when it loads; the pure functions under test never draw.
 globalThis.window??={navigator:{userAgent:'node'}};
-const {timeChartData,overlayLookup,overlayLegend,overlayMenuState,latestValues,chartStyles}=await import('../dist/time-chart.js');
+const {timeChartData,overlayLookup,overlayLegend,overlayMenuState,latestValues,chartStyles,exactTexts,isolatedPoints,withIsolatedPoints}=await import('../dist/time-chart.js');
 import {plotNumber} from '../dist/plot-number.js';
 
 const at=n=>`2027-03-${String(n).padStart(2,'0')}T00:00:00Z`;
@@ -84,4 +84,28 @@ test('chart styles come from the page tokens',()=>{
   assert.equal(styles.grid.horizontal.color,'#444444');
   assert.equal(styles.indicator.lines[0].color,'#666666');
   assert.throws(()=>chartStyles({}),/--font token/);
+});
+
+test('the text shown for an instant is the exact string the backend stated, never a rounded number',()=>{
+  const shown=exactTexts({price:[{at:at(1),value:'10'},{at:at(2),value:'10.50'},{at:at(3),value:null}],
+    average:[{at:at(2),value:'-2.416666666666666667'},{at:at(3),value:null,reason:'window_incomplete'}]});
+  assert.deepEqual(shown(ms(2)),{price:'10.50',average:'-2.416666666666666667'});
+  assert.deepEqual(shown(ms(1)),{price:'10',average:undefined});
+  assert.deepEqual(shown(ms(3)),{price:undefined,average:undefined});
+  assert.deepEqual(shown(ms(9)),{price:undefined,average:undefined});
+});
+
+test('a point is isolated when neither neighbour has a value',()=>{
+  assert.deepEqual(isolatedPoints([1,undefined,2,3,undefined,4,null]),[0,5]);
+  assert.deepEqual(isolatedPoints([undefined,1]),[1]);
+  assert.deepEqual(isolatedPoints([1,undefined]),[0]);
+  assert.deepEqual(isolatedPoints([undefined,5,undefined]),[1]);
+  assert.deepEqual(isolatedPoints([null,undefined]),[]);
+  assert.deepEqual(isolatedPoints([7]),[0]);
+  assert.deepEqual(isolatedPoints([]),[]);
+});
+
+test('marker values appear only at isolated points',()=>{
+  const rows=withIsolatedPoints([{price:1},{price:undefined},{price:2},{price:3}],['price']);
+  assert.deepEqual(rows.map(row=>row.price_point),[1,undefined,undefined,undefined]);
 });
