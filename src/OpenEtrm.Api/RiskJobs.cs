@@ -54,7 +54,7 @@ public static class RiskJobs
         payload["engineVersion"]=EngineVersion;
         var supplemental=new JsonObject();
         foreach(var market in prepared.SupplementalMarkets.OrderBy(m=>m.Data.DefinitionRevision.RevisionId))
-            supplemental.Add(market.Data.DefinitionRevision.RevisionId.ToString(),PinFrame(market.Frame with {ContextId=contextId}));
+            supplemental.Add(market.Data.DefinitionRevision.RevisionId.ToString(),PinFrame(market.Frame with {ContextId=contextId,SwapMarketSelections=null}));
         var pinnedFrame=PinFrame(frame with {ContextId=contextId,SwapMarketSelections=prepared.SupplementalMarkets
             .ToImmutableDictionary(m=>m.Data.DefinitionRevision.RevisionId,m=>m.Frame.ObservationIds)});
         pinnedFrame["supplementalMarkets"]=supplemental;

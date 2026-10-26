@@ -24,7 +24,7 @@ public static class ReferenceEditors
     public static ReferenceRevision Source(PreviewManifest manifest,string table)
     {
         if(!PreviewDatabase.ReferenceTables.Contains(table))throw Error("reference_edit","Choose an available reference category.");
-        return new(manifest.ReferenceCatalogId,PreviewDatabase.UnitTables.Contains(table)&&manifest.UnitCatalog is {} units?units.ReferenceRevisionId:manifest.ReferenceRevisionId);
+        return PreviewDatabase.ReferenceSource(manifest,table).Revision;
     }
     public static async Task<ReferenceDisplayData?> Display(NpgsqlConnection connection,ReferenceRevision source,CancellationToken ct)
     {

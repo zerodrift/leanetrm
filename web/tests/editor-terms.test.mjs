@@ -334,6 +334,17 @@ test('every swap\'s Terms offer its settlement and P&L view',async()=>{
 });
 
 
+test('supplemental scheduled terms use their selected market’s power units and clock labels',()=>{
+ const detail=clone(details.scheduledSwap),revision=detail.state.terms.definitionRevisionId;
+ const quantity={code:'demo_power'},clock={code:'demo_clock'};
+ Object.assign(detail.state.terms.scheduled.first,{quantity,power:{clock,product:'all_hours'}});
+ detail.catalog.scheduledOptions={powerQuantities:[{specification:quantity,unit:'Wrong primary unit'}],clocks:[{reference:clock,label:'Wrong primary clock'}]};
+ detail.catalog.referenceChoices=[{definitionRevisionId:revision,commodities:[],paymentCalendars:[],powerQuantities:[{specification:quantity,unit:'MW'}],clocks:[{reference:clock,label:'Synthetic delivery clock'}]}];
+ const first=rowsOf(swapTerms(detail,'UTC',formats),'First side · Pay');
+ assert.equal(first['Quantity unit'],'MW');
+ assert.equal(first['Delivery hours'],'All actual delivery hours · clock Synthetic delivery clock');
+});
+
 test('a retained factor swap states its factor units and derived quantities in the position panel',()=>{
  const detail=clone(details.scheduledSwap),scheduled=detail.state.terms.scheduled;
  const reference=scheduled.first.quantity;
