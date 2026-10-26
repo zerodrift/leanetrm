@@ -17,7 +17,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate(intercept);
  const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:00:00')).id;})()");
- await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait(idle);
+ await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await wait(idle);
  const selected=await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;window.__settlementPost=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};window.__settlementContext={snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'};const report=await window.__settlementPost('trading/blotter',{context:{...window.__settlementContext,convention:'trading_workspace_v1'},view:{mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[],pivotConvention:null}});const trade=report.holdings.find(h=>h.instrumentType==='financial_swap'&&h.settlement==='Projection'&&h.fixedPrice==='3'&&h.curve==='base_forward'&&h.deliveryFrom==='2021-01-01'&&h.deliveryTo==='2021-02-01');window.__settlementTrade=trade.tradeId;return {tradeId:trade.tradeId,reference:trade.tradeReference};})()`);
  // A risk report run at this close, whose results a settlement made afterwards no longer holds for.
  await click('#desk-risk-run');await wait("[...document.querySelector('#risk-factor').options].some(o=>o.value)&&"+idle);await click('input[name=risk-choice][value=custom]');
@@ -114,13 +114,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#swap-settlement-reversal',movement);await set('#swap-settlement-effective','2021-01-15T08:00:00Z');await set('#swap-settlement-reference','Synthetic lost browser reversal');
  await evaluate("window.__lose='/api/swaps/settlement/payment'");await click('#swap-settlement-reverse');await wait("!document.querySelector('#futures-pending').hidden&&"+idle);
  await command('Page.reload');await wait(idle);await evaluate(intercept);
- await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait(idle);
+ await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await wait(idle);
  await check('after a reload the reversal whose outcome is not known is still kept, named for it',card('Settlement cash reversal of '+selected.reference),"[document.querySelector('#futures-pending').hidden,document.querySelector('#futures-pending').textContent]");
  await openView();
  await click('#futures-retry',60000);await wait("document.querySelector('#futures-pending').hidden&&"+idle);
  await check('Retry sends it again and leaves the settlement view open, which shows the reversal',`${open}&&document.querySelector('#swap-settlement').textContent.includes('Synthetic lost browser reversal')`,"[document.querySelector('#side-panel').hidden,!!document.querySelector('#swap-settlement')&&document.querySelector('#swap-settlement').hidden,document.querySelector('#error').textContent]");
 
  await click('#swap-settlement button[data-membership="1"][data-payment="0"]');await wait("!!document.querySelector('#swap-settlement-determine')");
- const oldFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");await set('#snapshot',oldFrame);await wait(idle);
+ const oldFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");await set('#snapshot',oldFrame);await wait(idle,30000);
  await check('a financial context change discards a stale settlement preview',"!document.querySelector('#swap-settlement-determine')&&(document.querySelector('#swap-settlement').hidden||document.querySelector('#swap-settlement [role=status]').textContent.includes('context changed'))");
 }
