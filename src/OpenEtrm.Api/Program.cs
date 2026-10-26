@@ -835,9 +835,9 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,ct,
         session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
     const string mode="exact_visible_close_history_with_selected_instant_v1";
-    // Overlays run over exactly the points returned, so the pinned context and knowledge cutoff carry over; a null value is a missing input.
+    // Overlays run over the points returned, one sample per instant (HistoryOverlays), so the pinned context and knowledge cutoff carry over; a null value is a missing input.
     return body.Overlays is {} requests
-        ?Results.Ok(new {mode,points,overlays=OpenEtrm.Shared.Analytics.Overlays.Compute([..points.Select(p=>new OpenEtrm.Shared.Analytics.OverlayPoint(p.At,p.Value))],requests)})
+        ?Results.Ok(new {mode,points,overlays=OpenEtrm.Shared.Analytics.Overlays.Compute(HistoryOverlays.Points(points),requests)})
         :Results.Ok(new {mode,points});
 }));
 api.MapGet("/analytics/overlays",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>

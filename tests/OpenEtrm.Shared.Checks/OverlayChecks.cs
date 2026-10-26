@@ -76,6 +76,7 @@ internal static class OverlayChecks
         Check("a null parameter set is refused and an empty series is computed as empty", () =>
         {
             Refuse("overlay_parameter", new OverlayRequest("simple_moving_average_v1", null!));
+            Refuse("overlay_parameter", (OverlayRequest)null!);
             Equal(Compute("simple_moving_average_v1", 3)[0].Series["value"].Length, 0);
         });
         Check("the series is capped at one year of half-hour points", () =>

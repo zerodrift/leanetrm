@@ -42,7 +42,7 @@ public static partial class Overlays
     {
         if (requests.Length > MaxRequests)
             throw new OverlayException("overlay_parameter", $"At most {MaxRequests} overlays can be requested.");
-        if (requests.Any(r => r.Parameters is null))
+        if (requests.Any(r => r?.Parameters is null))
             throw new OverlayException("overlay_parameter", "Overlay parameters are required.");
         var windows = requests.Select(Window).ToArray();
         var values = Parse(series);

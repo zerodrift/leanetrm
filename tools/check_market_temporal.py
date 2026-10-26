@@ -1,5 +1,6 @@
 """One certified cutoff for market definitions, exact references, rates and observations."""
 from decimal import Decimal
+from uuid import uuid4
 
 
 def run_checks(Client, check):
@@ -65,5 +66,27 @@ def run_checks(Client, check):
           catalog['policy'] == 'exact_rational_half_even_18_v1' and
           {o['code'] for o in catalog['overlays']} == {'simple_moving_average_v1', 'exponential_moving_average_v1', 'rolling_range_v1'} and
           all(o['parameters'] == [{'name': 'window', 'label': 'Window', 'minimum': 2, 'maximum': 250}] for o in catalog['overlays']))
+    # Current-context history: closes of the seed frame and of the corrected frame add samples at the seed's instant.
+    c.call('profile', {'profile': 'approver'}); c.call('market/current', {})
+    current_frames = c.call('workspace')['frames']
+    pinned = next(f for f in current_frames if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
+    contract = after['points'][0]['contractId']
+    query = {'snapshotId': pinned['id'], 'curve': 'local_power', 'contractId': contract}
+    def expected_means(samples):
+        distinct = list(dict.fromkeys((p['at'], p['value']) for p in samples))
+        return [(at, None if i == 0 or value is None or distinct[i-1][1] is None else (Decimal(value) + Decimal(distinct[i-1][1])) / 2)
+                for i, (at, value) in enumerate(distinct)]
+    c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': seed['id'], 'name': 'Synthetic duplicate sample'})
+    duplicated = c.call('history', {**query, 'overlays': [sma]})
+    instants = [p['at'] for p in duplicated['points']]
+    series = duplicated['overlays'][0]['series']['value']
+    check('identical samples at one instant count once: points are unchanged and the overlay is aligned by instant',
+          len(instants) == len(set(instants)) + 1 and duplicated['points'] == c.call('history', query)['points']
+          and [(v['at'], None if v['value'] is None else Decimal(v['value'])) for v in series] == expected_means(duplicated['points']))
+    c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': changed['frame']['id'], 'name': 'Synthetic differing sample'})
+    conflict = c.call('history', {**query, 'overlays': [sma]}, expected=422)
+    check('different samples at one instant refuse overlays by naming the instant, never choosing a frame',
+          conflict['code'] == 'overlay_input' and '2020-12-17' in conflict['message'] and len(c.call('history', query)['points']) > 2)
+    c.call('profile', {'profile': 'editor'})
     c.call('market/context', {**request, 'selection': None}, expected=422)
     check('mark revision selection policy is mandatory')
