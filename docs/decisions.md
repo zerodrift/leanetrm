@@ -735,3 +735,21 @@ conversion algorithms or schedule semantics still require a versioned release;
 missing paths or ambiguous financial behavior raise structured errors.
 
 See [factor contracts and qualification](factor-swaps.md).
+
+
+## D228 — Booked terms and explicit change review
+
+An unavailable editor choice identifies the value saved on the trade and explains
+that its absence from the selected context does not change the booked terms.
+Amendment previews compare the authorized saved revision with validated proposed
+terms on the backend. The ticket shows booked and proposed values, the revision
+and the required amendment action. A saved custom projection is a trade term in
+the present storage contract; replacing it uses the same amendment workflow.
+No generic acceptance can bypass that operation. New input invalidates the review.
+
+Display metadata, market observations, valuation configuration and contractual
+changes have separate lifecycles. This increment introduces no economic-index
+publication, cross-version migration or valuation-configuration acceptance
+operation. A future publication workflow must classify changes, qualify their
+effective/knowledge coordinates and show affected trades before offering an
+authorized action. Earlier trade revisions and calculation contexts remain intact.

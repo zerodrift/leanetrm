@@ -36,7 +36,7 @@ internal sealed record RetainedScheduledSide(Guid Id,ImmutableArray<Guid> Period
 public sealed partial class SwapStore
 {
     public const string ScheduledPriceApplication="period_average_times_quantity_v1";
-    private sealed record ScheduledPreview(int? ExpectedRevision,object Valuation,object QuantityInputs,[property:JsonIgnore]ScheduledResolution Prepared,[property:JsonIgnore]MarketSnapshot Snapshot);
+    private sealed record ScheduledPreview(int? ExpectedRevision,object Valuation,object QuantityInputs,SwapChangeReview? ChangeReview,[property:JsonIgnore]ScheduledResolution Prepared,[property:JsonIgnore]MarketSnapshot Snapshot);
     private sealed record ScheduledResolution(SidedInstrument Instrument,Quantity Quantity,
         ImmutableArray<SwapQuantitySchedule> Quantities,ImmutableArray<ImmutableArray<PowerQuantitySchedule>> Power);
     private static SwapScheduledInput CanonicalScheduled(SwapScheduledInput input)
@@ -183,10 +183,11 @@ public sealed partial class SwapStore
         await TradeAnnotations.Validate(connection,manifest.CatalogId,body.TraderId,body.TraderRevision,body.Memo,SchedulePreview.ParseAt(body.ExecutedAt),ct);
         await TradeParties.Validate(connection,manifest.CatalogId,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision),SchedulePreview.ParseAt(body.ExecutedAt),ct);
         if(!(await new FuturesStore(manifest).Books(connection,ct)).Any(b=>b.Id("id")==body.BookId))throw Error("swap_book","Choose an authorized book.");
+        SwapWriteRequest? booked=null;
         if(body.TradeId is {} trade)
         {
             var head=(await Rows(connection,trade,ct))[^1];
-            var retained=Terms(data,head,frame.Id);
+            var retained=Terms(data,head,frame.Id);booked=retained;
             if(retained.Scheduled?.Implementation!=body.Scheduled!.Implementation)throw Error("swap_amendment","An amendment must preserve the retained contract implementation. Book a separate contract to change its quantity semantics.");
             var original=(await ScheduledMarket(connection,data,frame,retained.DefinitionRevisionId,ct)).Data;
             if(retained.Scheduled is null||!ScheduledAmendmentEligible(ResolveScheduled(original,retained,head.Id("instrument_id")).Instrument,frame.At))throw Error("swap_amendment","Fixings or payments are due on a retained side; use an explicit lifecycle operation.");
@@ -197,7 +198,7 @@ public sealed partial class SwapStore
         }
         else if(body.ExpectedRevision is not null)throw Error("swap_input","A new trade has no prior revision.");
         var priced=await ScheduledPriceDetail(connection,data,frame,body,null,ct);
-        return new ScheduledPreview(body.ExpectedRevision,Value(priced.Value),QuantityInputs(body.Scheduled!,priced.Resolved),priced.Resolved,priced.Value.Instrument.Snapshot);
+        return new ScheduledPreview(body.ExpectedRevision,Value(priced.Value),QuantityInputs(body.Scheduled!,priced.Resolved),booked is null?null:ReviewChanges(booked,body),priced.Resolved,priced.Value.Instrument.Snapshot);
     }
     private async Task<JsonElement> SaveScheduled(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
     {
@@ -208,6 +209,8 @@ public sealed partial class SwapStore
         if(prior.TryGetProperty("tradeId",out _))return await WriteScheduled(connection,body,Array.Empty<object>(),"0",frame.At,[],ct);
         var prepared=await WithBookingRead(connection,frame,async(selected,pinned)=>{
             var preview=(ScheduledPreview)await PreviewScheduled(connection,selected,pinned,body,ct);
+            if(preview.ChangeReview is {Action:"keep_booked_terms"})
+                throw Error("swap_no_change","Change at least one booked trade term before submitting an amendment.");
             return(Resolved:preview.Prepared,preview.Snapshot);
         },ct);
         var resolved=prepared.Resolved;
@@ -276,7 +279,7 @@ public sealed partial class SwapStore
         {
             if(request.ParRatePolicy is not null)throw Error("swap_par_rate","Precision belongs only to a par calculation.");
             var agreed=(ScheduledPreview)await PreviewScheduled(connection,data,frame,body,ct);
-            return new{terms=body,valuation=agreed.Valuation,quantityInputs=agreed.QuantityInputs,parRate=(object?)null};
+            return new{expectedRevision=agreed.ExpectedRevision,terms=body,valuation=agreed.Valuation,quantityInputs=agreed.QuantityInputs,changeReview=agreed.ChangeReview,parRate=(object?)null};
         }
         if(request.PriceMode!="par"||request.ParRatePolicy is not {Implementation:FinancialSwapValuation.ParRatePolicy,DecimalPlaces:>=0 and <=18,TieRule:"to_even"} policy||
             input.First.Periods.IsDefaultOrEmpty||input.First.Periods.Any(p=>p is null||p.Fixed is null||!string.IsNullOrEmpty(p.Fixed.Price)))
@@ -287,7 +290,7 @@ public sealed partial class SwapStore
         var par=FinancialSwapValuation.ParRate(value,new AmountFormat(policy.DecimalPlaces,CashTieRule.ToEven,false,true));
         body=body with{Scheduled=body.Scheduled! with{First=body.Scheduled.First with{Periods=body.Scheduled.First.Periods.Select(p=>p with{Fixed=p.Fixed! with{Price=par.Price.Value.ToString()}}).ToImmutableArray()}}};
         var preview=(ScheduledPreview)await PreviewScheduled(connection,data,frame,body,ct);
-        return new{terms=body,valuation=preview.Valuation,quantityInputs=preview.QuantityInputs,parRate=par};
+        return new{expectedRevision=preview.ExpectedRevision,terms=body,valuation=preview.Valuation,quantityInputs=preview.QuantityInputs,changeReview=preview.ChangeReview,parRate=par};
     }
     private static SwapWriteRequest ScheduledTerms(JsonElement row,Guid snapshot)
     {

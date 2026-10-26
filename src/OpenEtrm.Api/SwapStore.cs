@@ -414,11 +414,6 @@ public sealed partial class SwapStore(PreviewDatabase database)
   side.PaymentSchedule,averaging=Sampling(side),spread=ExactDecimal.Parse(side.Spread??"0").ToString(),side.CustomProjection,
   observationSchedule=side.ObservationSchedule is {} observation?observation with{
    Quantities=observation.Quantities is {} quantities?quantities.Select(row=>row with{Quantity=row.Quantity with{Value=ExactDecimal.Parse(row.Quantity.Value).ToString()}}).ToImmutableArray():null}:null};
- private static string CanonicalTerms(SwapWriteRequest body)=>JsonSerializer.Serialize(new{
-  body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision,body.TraderId,body.TraderRevision,body.Memo,body.BookId,executed=SchedulePreview.ParseAt(body.ExecutedAt).ToUniversalTime(),quantity=ExactDecimal.Parse(Required(body.Quantity)).ToString(),
-  coefficient=ExactDecimal.Parse(Coefficient(body)).ToString(),body.Discounting,body.DefinitionRevisionId,
-  fixedSide=body.Fixed is {} a?new{price=ExactDecimal.Parse(Required(a.Price)).ToString(),currency=Required(a.Currency),from=Date(a.DeliveryFrom),to=Date(a.DeliveryTo),payment=a.PaymentAt is {} payment?SchedulePreview.ParseAt(payment).ToUniversalTime():(DateTimeOffset?)null,a.PaymentSchedule}:null,
-  firstFloating=CanonicalFloating(body.FirstFloating),floatingSide=CanonicalFloating(body.Floating)});
  private async Task<SwapWriteRequest> BookingTerms(NpgsqlConnection connection,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {
   TradeAnnotations.RequireServerFacts(body.ExecutedAt,body.TraderId,body.TraderRevision,body.TradeDate);
@@ -435,10 +430,11 @@ public sealed partial class SwapStore(PreviewDatabase database)
   await TradeParties.Validate(connection,manifest.CatalogId,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision),SchedulePreview.ParseAt(body.ExecutedAt),ct);
   if(SchedulePreview.ParseAt(body.ExecutedAt)>frame.At||!(await new FuturesStore(manifest).Books(connection,ct)).Any(b=>b.Id("id")==body.BookId))
    throw Error("swap_input","Choose an available book and execution no later than As of.");
+  SwapWriteRequest? booked=null;
   if(body.TradeId is {} trade)
   {
    var rows=await Rows(connection,trade,ct);if(rows.IsEmpty)throw Error("swap_trade","The retained trade is unavailable.");
-   var head=rows[^1];var retained=Terms(data,head,frame.Id);
+   var head=rows[^1];var retained=Terms(data,head,frame.Id);booked=retained;
    if(body.ExpectedRevision!=int.Parse(head.Text("revision"),CultureInfo.InvariantCulture)||body.ExpectedRevision>=256||
     SchedulePreview.ParseAt(body.EffectiveAt)!=frame.At||frame.At<head.Instant("effective_at")||
     string.IsNullOrWhiteSpace(body.Reason)||body.Reason.Length>500||
@@ -451,11 +447,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
     selectedData=One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId)).Data;
    if(One(selectedData.Definitions["curves"].Where(c=>c.Text("code")==body.Floating!.Curve)).Text("quote_code")!=head.Text("quote_code"))
     throw Error("swap_amendment","The replacement curve must preserve the retained exact quote and quantity specification.");
-   if(CanonicalTerms(body)==CanonicalTerms(retained))
-    throw Error("swap_no_change","Change at least one retained trade term.");
   }
   else if(body.ExpectedRevision is not null)throw Error("swap_input","A new trade has no prior revision.");
-  var value=await Price(connection,data,frame,body,null,null,null,ct);return new{expectedRevision=body.ExpectedRevision,valuation=Value(value)};
+  var value=await Price(connection,data,frame,body,null,null,null,ct);return new{expectedRevision=body.ExpectedRevision,valuation=Value(value),changeReview=booked is null?null:ReviewChanges(booked,body)};
  }
  public async Task<JsonElement> Save(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {

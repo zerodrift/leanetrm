@@ -1167,3 +1167,11 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .assistant-preference input{width:auto}
 @media(max-width:760px){:root,body.assistant-open{--launcher-right:16px}:root{--launcher-room:64px}body{--dock-center:16px}.floating-context{transform:none;max-width:calc(100vw - 110px)}.floating-context>summary{max-width:calc(100vw - 150px)}.floating-context .header-context-panel{left:0;transform:none}.context-dock{left:0;justify-content:flex-start}.context-dock .floating-context{position:static;max-width:100%}.context-dock .floating-context .header-context-panel{left:16px;right:16px;width:auto}.context-dock .floating-context>summary{max-width:100%}.context-dock .market-date-status{max-width:200px}.header-actions{width:auto}body.assistant-open .context-dock{display:none}}
 @media(max-width:480px){:root{--dock-band:124px}.context-dock{flex-wrap:wrap-reverse}.context-dock .date-control{flex:1 1 100%;padding-left:6px}.context-dock .floating-context{flex:1 1 100%}.context-dock .date-control>label,.context-dock .market-date-status{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.context-dock .market-date-trigger::after{display:none}}
+
+/* Saved trade terms and amendment review share the ticket's narrow panel. */
+.trade-change-review th,.trade-change-review td{white-space:normal;overflow-wrap:anywhere;vertical-align:top;max-width:28rem}
+.trade-change-review caption{text-align:left;padding:.5rem 0}
+.booked-value-note summary{cursor:pointer}
+
+.trade-change-review th:nth-child(n+2){white-space:nowrap}
+.trade-change-review .change-category{display:block;margin-top:.25rem;font-weight:normal;opacity:.8}

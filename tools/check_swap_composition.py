@@ -78,7 +78,9 @@ def run_checks(url, query=None, manifest=None):
     pv=c.call('swaps/editor',{'context':context,'tradeId':pb['tradeId'],'revision':None})
     assert pv['valuation']['presentValue']=='0' and pv['state']['terms']['floating']['spread']=='0.2'
     c.call('swaps/amend',{**par_book,'operationId':str(uuid4()),'tradeId':pb['tradeId'],'expectedRevision':1,'effectiveAt':catalog['asOf'],'reason':'Synthetic zero spread selection','floating':{**right,'spread':'0'}})
-    c.call('swaps/preview',{**amendment,'expectedRevision':2,'firstFloating':{**left,'spread':'0.30'}},expected=422)
+    unchanged={**amendment,'operationId':str(uuid4()),'expectedRevision':2,'firstFloating':{**left,'spread':'0.30'}}
+    assert c.call('swaps/preview',unchanged)['changeReview']['action']=='keep_booked_terms'
+    c.call('swaps/amend',unchanged,expected=422)
     c.call('swaps/amend',{**par_book,'operationId':str(uuid4()),'tradeId':booked['tradeId'],'expectedRevision':2,'effectiveAt':catalog['asOf'],'reason':'Synthetic rejected subtype conversion','floating':{**right,'spread':'0'}},expected=422)
     print('PASS swap composition: reviewed par quote books concrete terms and zero-spread amendments preserve legacy admission',flush=True)
     view={'mode':'trades','bookIds':[],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}
