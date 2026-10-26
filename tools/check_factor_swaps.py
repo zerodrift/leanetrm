@@ -156,8 +156,8 @@ def run_checks(url,query,manifest,run_worker=None):
     access=query('SELECT access_mode FROM security.reference_catalog_scopes WHERE '+scope+';')
     try:
         query('DELETE FROM security.reference_catalog_scopes WHERE '+scope+';')
-        c.call('swaps/catalog',warm,expected=403)
-        c.call('swaps/preview',body,expected=403)
+        assert c.call('swaps/catalog',warm,expected=422)['code']=='ambiguous_reference'
+        assert c.call('swaps/preview',body,expected=422)['code']=='ambiguous_reference'
     finally:
         query(f"INSERT INTO security.reference_catalog_scopes VALUES('{manifest['referenceCatalogId']}','{manifest['tenantId']}','{manifest['workspaceId']}','{access}');")
     print('PASS factor integration: prior knowledge invisibility, explicit refusals, discounting, 118 independent native source shocks, retained worker parity, gross actual settlement/cash and DST-derived completion',flush=True)

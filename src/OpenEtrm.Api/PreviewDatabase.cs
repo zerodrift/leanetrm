@@ -294,6 +294,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             throw new MarketDataException("reference_pin_mismatch","Shared reference rows require the same exact authorized catalog and revision.");
         async Task RequireSharedReferenceAccess()
         {
+            if(sharedReferences is null)return;
             await using var access=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData') AND security.reference_version_visible($1,$2)",selectedManifest.ReferenceCatalogId,selectedManifest.ReferenceRevisionId);
             if(!Equals(await access.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
         }
