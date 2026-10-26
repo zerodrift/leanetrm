@@ -8,7 +8,7 @@
   --bg:#f4f6f5;--surface:#fff;--surface-2:#f8faf9;--surface-3:#eef2f0;
   --border:#e1e7e4;--border-strong:#cbd5d0;
   --text:#18261f;--text-2:#45554d;--text-3:#68776f;
-  --accent:#1e6a4e;--accent-hover:#175a41;--accent-soft:#e6f1ec;--accent-text:#155239;
+  --accent:#1e6a4e;--accent-hover:#175a41;--accent-soft:#e6f1ec;--accent-border:#c5ddd0;--accent-text:#155239;
   --spread:#a9823f;--warn:#7a5200;--warn-soft:#fff5dc;--warn-border:#f0dca5;
   --danger:#9b3227;--danger-soft:#fdefec;--danger-border:#f2cdc6;
   /* Commodity identity and polarity. Fills are for dots, bars and marks (3:1 or better on white); text that
@@ -223,7 +223,7 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .curve-button .sparkline{grid-area:line}
 .curve-button:hover{background:var(--surface-3);border-color:transparent}
 .curve-button small{font-size:11.5px;color:var(--text-3);font-weight:400}
-.curve-button.selected{background:var(--accent-soft);border-color:#c5ddd0;color:var(--accent-text)}
+.curve-button.selected{background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent-text)}
 .library-collapsed .market-layout{grid-template-columns:48px minmax(0,1fr)}
 .library-collapsed .curve-library{padding:8px 4px}
 .library-collapsed .library-title,.library-collapsed #curve-count,.library-collapsed .library-filters{display:none}
@@ -282,7 +282,7 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 /* The selected curve's summary, in the desk tiles: a word that is no figure, as a settlement rule, wraps in its tile. */
 .curve-tiles{margin:0 0 16px}
 .curve-tiles .desk-tile{flex-basis:150px}
-.curve-tiles .desk-tile-words .kpi-figure{white-space:normal;font-size:20px;line-height:1.25;letter-spacing:-.3px}
+.desk-tile.desk-tile-words .kpi-figure{white-space:normal;font-size:20px;line-height:1.25;letter-spacing:-.3px}
 .mode-banner{display:flex;gap:10px;align-items:flex-start;font-size:13px;padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:14px;background:var(--accent-soft);color:var(--accent-text);border:1px solid #cfe3d8}
 .mode-banner[data-tone=historical]{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-border)}
 .chart{height:240px;overflow:hidden}
@@ -830,10 +830,10 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 /* Above the rows, that the open position's row is hidden by the table's own filters, with the way to show it. */
 .table-open-note{margin:0 0 8px;padding:8px 12px;border:1px solid var(--warn-border);border-radius:var(--radius-sm);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
 .table-open-note .text-button{margin-left:6px}
-.product-switch,.revision-switch{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
-.product-switch button,.revision-switch button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
-.product-switch button:hover:not(:disabled),.revision-switch button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
-.product-switch button[aria-pressed=true],.revision-switch button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.product-switch,.revision-switch,.custom-curve-mode{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.product-switch button,.revision-switch button,.custom-curve-mode button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
+.product-switch button:hover:not(:disabled),.revision-switch button:hover:not(:disabled),.custom-curve-mode button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
+.product-switch button[aria-pressed=true],.revision-switch button[aria-pressed=true],.custom-curve-mode button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
 .new-trade-head .side-panel-title{margin-top:0}
 .new-trade-head .side-panel-note{margin:8px 0 0}
 /* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
@@ -934,54 +934,109 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 #dates-form>div:has(>button[type=submit]){margin:0 -20px;border-radius:0}
 #admin-form-title{margin-bottom:16px}#admin-form>#admin-name{margin-bottom:16px}
 
-/* Custom curve authoring retains a compact, typed graph above evaluated data. */
-.custom-curve-heading{max-width:80ch;color:var(--muted,#697b66)}
-.custom-curve-workspace{display:grid;grid-template-columns:170px minmax(360px,1fr) 260px;gap:16px;align-items:start;margin-bottom:18px}
-.custom-curve-panel-tools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.custom-curve-panel-tools button{font-size:12px;padding:6px 10px}
-.custom-curve-workspace.palette-collapsed{grid-template-columns:minmax(0,1fr) 260px}
-.custom-curve-workspace.inspector-collapsed{grid-template-columns:170px minmax(0,1fr)}
-.custom-curve-workspace.palette-collapsed.inspector-collapsed{grid-template-columns:minmax(0,1fr)}
-.custom-curve-workspace>.card{margin:0;padding:16px;min-width:0}
-.custom-curve-palette #custom-curves-operators{display:flex;flex-direction:column;gap:8px}
-.custom-curve-palette button{text-align:left;white-space:normal;width:100%;background:#f3f7f0;color:#345945;border:1px solid #d9e5d1}
-.custom-curve-centre .tabs{margin:0 0 14px}
-.custom-curve-centre>p{font-size:12px;color:#6c7e63;margin:12px 0 0}
-.custom-curve-board{height:410px;overflow:auto;position:relative;border:1px solid #d9e3d3;border-radius:8px;background-color:#f7faf5;background-image:radial-gradient(#dce5d5 1px,transparent 1px);background-size:18px 18px}
-.custom-curve-scene{position:relative}.custom-curve-graph-tools{display:flex;align-items:center;gap:8px;margin-bottom:10px}.custom-curve-graph-tools button{padding:5px 9px;font-size:11px}.custom-curve-canvas{position:absolute;left:0;top:0;transform-origin:0 0;min-width:100%;min-height:100%}
-.custom-curve-canvas>p{padding:24px;max-width:38ch;color:#6c7e63}
+/* Custom curves as a desk (markets-desk.md, Custom curves): a header with the curve's state and actions, the saved-curve library, the
+   operations beside the calculation graph with the preview beneath, and the side panel's views. Every color is a token. */
+:root{--curve-panel-width:340px;--curve-library-width:192px}
+.custom-curve-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px 24px;flex-wrap:wrap;margin:2px 0 16px}
+.custom-curve-titles{min-width:0}
+.custom-curve-titles .eyebrow{margin:0 0 2px}
+.custom-curve-titles h2{font-size:22px;letter-spacing:-.4px;overflow-wrap:anywhere}
+.custom-curve-status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:6px 0 0;font-size:12.5px;color:var(--text-2)}
+.custom-curve-actions{display:flex;flex-wrap:wrap;gap:8px}
+.curve-state-chip{display:inline-flex;align-items:center;padding:0 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface-3);font-size:11px;font-weight:650;line-height:18px;color:var(--text-2);white-space:nowrap}
+.curve-state-chip[data-state=published]{border-color:var(--accent-border);background:var(--accent-soft);color:var(--accent-text)}
+.curve-state-chip[data-state=unsaved]{border-color:var(--warn-border);background:var(--warn-soft);color:var(--warn)}
+.custom-curve-about{max-width:90ch;margin:-6px 0 14px;font-size:13px;color:var(--text-2)}
+.custom-curve-pending{flex-wrap:wrap;align-items:center}.custom-curve-pending p{flex:1 1 100%;margin:0}
+.custom-curve-desk{display:grid;grid-template-columns:var(--curve-library-width) minmax(0,1fr);gap:16px;align-items:start}
+/* A panel docks only where the main area is wide enough (side-panel.ts); the page's width decides the columns even before it is placed again. */
+@media(min-width:1180px){.custom-curve-desk:has(>.custom-curve-panel[data-placement=docked]:not([hidden])){grid-template-columns:var(--curve-library-width) minmax(0,1fr) var(--curve-panel-width)}}
+.custom-curve-library{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.custom-curve-library-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 6px}
+.custom-curve-library-head h3,.custom-curve-palette h3{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--text-3)}
+.custom-curve-library-head .text-button{font-size:12px;padding:2px 0}
+.custom-curve-new{width:100%;margin:4px 0 10px}
+.custom-curve-list{display:grid;gap:2px;margin:0;padding:0;list-style:none}
+.custom-curve-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name name" "meta chip";align-items:center;gap:2px 8px;width:100%;padding:7px 8px 7px 10px;text-align:left;white-space:normal;background:none;border:1px solid transparent;border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-weight:500}
+.custom-curve-entry:hover{background:var(--surface-3);border-color:transparent}
+.custom-curve-entry[aria-current=true]{background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent-text)}
+.custom-curve-entry-name{grid-area:name;min-width:0;overflow-wrap:anywhere}
+.custom-curve-entry .curve-state-chip{grid-area:chip}
+.custom-curve-entry small{grid-area:meta;min-width:0;font-size:11.5px;font-weight:400;color:var(--text-3);overflow-wrap:anywhere}
+.custom-curve-empty{padding:8px 10px;font-size:12.5px;color:var(--text-3)}
+.custom-curve-main{display:grid;grid-template-columns:124px minmax(0,1fr);gap:16px;align-items:start;min-width:0}
+.custom-curve-main.palette-collapsed{grid-template-columns:minmax(0,1fr)}
+.custom-curve-main>.card{margin:0;padding:14px 16px}
+.custom-curve-palette h3{margin-bottom:10px}
+.custom-curve-palette #custom-curves-operators{display:flex;flex-direction:column;gap:5px}
+.custom-curve-palette button{width:100%;padding:6px 9px;text-align:left;white-space:normal;line-height:1.35;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500}
+.custom-curve-palette button:hover:not(:disabled){background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent-text)}
+.custom-curve-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-bottom:12px}
+.custom-curve-toolbar .custom-curve-mode{margin:0}
+.custom-curve-toolbar .custom-curve-mode button{min-height:28px;padding:4px 14px;font-size:12.5px}
+.custom-curve-graph-tools,.custom-curve-panel-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.custom-curve-panel-tools{margin-left:auto}
+.custom-curve-graph-tools{order:1;flex-basis:100%}
+.custom-curve-toolbar .secondary{padding:5px 10px;font-size:12px}
+.custom-curve-zoom{min-width:3.5em;font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums;text-align:right}
+.custom-curve-board{position:relative;height:470px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background-color:var(--surface-2);background-image:radial-gradient(var(--border-strong) 1px,transparent 1px);background-size:18px 18px}
+.custom-curve-scene{position:relative}
+.custom-curve-canvas{position:absolute;left:0;top:0;transform-origin:0 0;min-width:100%;min-height:100%}
+.custom-curve-canvas>p{max-width:40ch;padding:24px;color:var(--text-3)}
 .custom-curve-wires{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
-.custom-curve-wires path{fill:none;stroke:#a6b99c;stroke-width:2}
-.custom-curve-wires path.selected{stroke:#287356;stroke-width:3}
-.custom-curve-node{position:absolute;width:224px;min-height:116px;background:#fff;border:1px solid #c8d6c0;border-radius:8px;box-shadow:0 2px 7px #24482f0b;padding-bottom:10px;overflow:hidden}
-.custom-curve-node.selected{border-color:#287356;box-shadow:0 0 0 2px #28735625}
-.custom-curve-node.output{border-top:3px solid #287356}
-.custom-curve-node-handle{display:block;width:100%;padding:10px 12px;border:0;border-radius:0;text-align:left;background:#eaf2e5;color:#305a40;cursor:grab;touch-action:none;user-select:none;font-weight:650}
+.custom-curve-wires path{fill:none;stroke:var(--text-3);stroke-opacity:.5;stroke-width:2}
+.custom-curve-wires path.selected{stroke:var(--accent);stroke-opacity:1;stroke-width:2.5}
+.custom-curve-node{position:absolute;width:224px;min-height:116px;padding-bottom:10px;overflow:hidden;background:var(--surface);border:1px solid var(--border-strong);border-top:3px solid var(--border-strong);border-radius:var(--radius);box-shadow:var(--shadow)}
+.custom-curve-node.selected{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.custom-curve-node[data-kind=weighted_contracts]{border-top-color:var(--spread)}
+.custom-curve-node.output{border-top-color:var(--accent)}
+.custom-curve-node-handle{display:block;width:100%;padding:9px 12px;border:0;border-radius:0;text-align:left;background:var(--surface-3);color:var(--text);cursor:grab;touch-action:none;user-select:none;font-weight:650}
+.custom-curve-node-handle:hover{background:var(--surface-3);border-color:transparent}
 .custom-curve-node-handle:active{cursor:grabbing}
-.custom-curve-node>span,.custom-curve-node>p,.custom-curve-node>small{display:block;margin:5px 12px;font-size:11px;overflow-wrap:anywhere}
-.custom-curve-node>span{color:#7b8972}.custom-curve-node>p{line-height:1.4;max-height:48px;overflow:hidden}.custom-curve-node>small{color:#356847}
-.custom-curve-inspector h4{margin:14px 0 8px}.custom-curve-inspector p{font-size:12px;color:#6c7e63}.custom-curve-inspector label{display:block;margin-bottom:12px;font-size:12px}.custom-curve-inspector input:not([type=checkbox]),.custom-curve-inspector select{display:block;width:100%;margin-top:5px}.custom-curve-inspector input[type=checkbox]{margin-left:8px}.custom-curve-inspector small{display:block;color:#6c7e63;margin-top:5px}.custom-curve-inspector pre{max-height:180px;overflow:auto;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}
-#custom-curves-expression textarea{display:block;width:100%;margin:8px 0 12px;font-family:ui-monospace,monospace;resize:vertical}
-#custom-curves-lineage pre{max-height:300px;overflow:auto;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
-.workbench-eyebrow{font-size:10px;letter-spacing:.12em;font-weight:700;color:var(--accent);margin-bottom:6px}
-.custom-curve-heading{max-width:78ch;line-height:1.65;margin:10px 0 22px}
-.custom-curve-workspace{grid-template-columns:164px minmax(330px,1fr) 310px}
-.custom-curve-workspace.palette-collapsed{grid-template-columns:minmax(0,1fr) 310px}
-.custom-curve-board{height:470px;background-color:#f5f9f7;background-image:radial-gradient(#cdded4 1px,transparent 1px)}
-.custom-curve-node{border-radius:10px;box-shadow:0 3px 12px #183e3010}
-.custom-curve-node[data-kind=source]{border-top:3px solid #658caa}
-.custom-curve-node[data-kind=source] .custom-curve-node-handle{background:#edf4fa;color:#345976}
-.custom-curve-node[data-kind=weighted_contracts]{border-top:3px solid #ad8655}
-.custom-curve-node[data-kind=weighted_contracts] .custom-curve-node-handle{background:#faf4e9;color:#76592f}
+.custom-curve-node[data-kind=weighted_contracts] .custom-curve-node-handle{background:color-mix(in srgb,var(--spread) 12%,var(--surface))}
 .custom-curve-node.output .custom-curve-node-handle{background:var(--accent-soft);color:var(--accent-text)}
-.curve-contract-mapping{grid-column:1/-1;min-width:0;padding-top:4px}
-.curve-contract-row{padding:12px;margin:10px 0;border:1px solid #e4dbc9;border-radius:8px;background:#fdfbf7;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px}
-.curve-contract-row-heading{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#76592f}
+.custom-curve-node>span,.custom-curve-node>p,.custom-curve-node>small{display:block;margin:5px 12px;font-size:11px;overflow-wrap:anywhere}
+.custom-curve-node>span{font-family:var(--mono);color:var(--text-3)}
+.custom-curve-node>p{max-height:48px;overflow:hidden;line-height:1.4;color:var(--text-2)}
+.custom-curve-node>small{color:var(--accent-text)}
+.custom-curve-hint{margin:10px 0 0;font-size:12px;color:var(--text-3)}
+#custom-curves-expression textarea{display:block;width:100%;margin:8px 0 12px;font-family:var(--mono);resize:vertical}
+.custom-curve-preview{grid-column:1/-1}
+.custom-curve-preview-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px}
+.custom-curve-preview-head h3{margin:0}.custom-curve-preview-head .field-help{margin:0}
+.custom-curve-tiles{margin:12px 0 14px}
+.custom-curve-tiles .desk-tile{flex-basis:108px;padding:10px 12px}
+#custom-curves-lineage pre{max-height:300px;overflow:auto;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+/* The panel: docked beside the graph as a card of its own, an overlay drawer, or on a phone a sheet. Each view is one column. */
+.custom-curve-panel[data-placement=docked]{align-self:stretch;border-left:0;background:transparent}
+.custom-curve-panel[data-placement=docked] .side-panel-frame{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden}
+.custom-curve-panel .side-panel-tabs{gap:14px;padding-right:44px}
+.custom-curve-view h3{margin:2px 0 10px;font-size:14px}
+.custom-curve-view h4{margin:16px 0 8px;font-size:12.5px}
+.custom-curve-view label{display:block;margin:0 0 12px;font-size:12.5px}
+.custom-curve-view input:not([type=checkbox]),.custom-curve-view select,.custom-curve-view textarea{display:block;width:100%;margin-top:5px}
+.custom-curve-view input[type=checkbox]{margin-left:8px}
+.custom-curve-view p,.custom-curve-view small{font-size:12px;color:var(--text-2)}
+.custom-curve-view small{display:block;margin-top:5px}
+.custom-curve-view pre{max-height:180px;overflow:auto;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}
+.custom-curve-view .schedule-fields{grid-template-columns:minmax(0,1fr);gap:0;margin-bottom:0}
+.custom-curve-view form>button{margin:0 8px 10px 0}
+.custom-curve-view-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+#curve-activation-rows>.schedule-fields .text-button,.curve-blend-row .text-button{justify-self:start;padding:2px 0}
+#curve-activation-rows>.schedule-fields,.curve-blend-row{margin:0 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+#custom-curves-details .field-help{margin:-6px 0 14px}
+.curve-contract-mapping{min-width:0;padding-top:4px}
+.curve-contract-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px;margin:10px 0;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.curve-contract-row-heading{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--text-2)}
 .curve-contract-row label{margin:0;font-size:11px;min-width:0}
 .curve-contract-row label:has(select){grid-column:1/-1}
 .curve-contract-row .text-button{font-size:11px;padding:2px}
 .curve-contract-row input,.curve-contract-row select{font-size:12px;min-width:0}
 .curve-contract-row input[inputmode=decimal]{font-family:var(--mono)}
 .curve-contract-mapping>button{width:100%;margin-top:4px}
+@media(max-width:1200px){:root{--curve-library-width:176px}}
+@media(max-width:960px){.custom-curve-desk{grid-template-columns:minmax(0,1fr)}.custom-curve-library{position:static;max-height:240px}}
+@media(max-width:760px){.custom-curve-main{grid-template-columns:minmax(0,1fr)}.custom-curve-palette #custom-curves-operators{flex-direction:row;flex-wrap:wrap}.custom-curve-palette button{width:auto}.custom-curve-board{height:360px}.custom-curve-actions{width:100%}.custom-curve-actions button{flex:1}.custom-curve-panel-tools{margin-left:0}}
 /* The side panel's risk report: a choice of report, its sizes or the scenario lab, and the run's jobs and the work it did. */
 .risk-report fieldset{border:0;padding:0;margin:0;min-width:0}
 .risk-report input,.risk-report select{max-width:100%;box-sizing:border-box}
@@ -1028,8 +1083,6 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .swap-projection-choice{margin-top:12px;padding:12px;background:var(--accent-soft);border:1px solid #c5ded0;border-radius:8px}
 .swap-projection-choice select{display:block;width:100%}
 .swap-projection-choice .field-help{margin-bottom:0}
-@media(max-width:1200px){.custom-curve-workspace,.custom-curve-workspace.inspector-collapsed{grid-template-columns:140px minmax(0,1fr)}.custom-curve-workspace.palette-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-inspector{grid-column:1/-1}.custom-curve-inspector #custom-curves-properties{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 18px}.custom-curve-inspector h4,.custom-curve-inspector p{grid-column:1/-1}}
-@media(max-width:760px){.custom-curve-workspace,.custom-curve-workspace.inspector-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-inspector{grid-column:auto}.custom-curve-inspector #custom-curves-properties{display:block}.custom-curve-palette #custom-curves-operators{flex-direction:row;flex-wrap:wrap}.custom-curve-palette button{width:auto}.custom-curve-board{height:350px}}
 @media(max-width:600px){.curve-contract-row{padding:10px}.risk-run-actions>button{flex:1}}
 /* Interval series: plain fieldsets, a monospaced paste area and full-width single-line controls. */
 #interval-series-page fieldset,#interval-curves-page fieldset{border:0;padding:0;margin:0;min-width:0}
@@ -1181,6 +1234,7 @@ body{--dock-center:calc((var(--sidebar-width) + 100vw - var(--launcher-right) - 
 body.assistant-open{--launcher-right:calc(var(--assistant-width) + 16px)}
 body:has(#futures-page:not([hidden]) .side-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--panel-width) + 49px)}
 body:has(#market-page:not([hidden]) .contract-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--contract-panel-width) + 49px)}
+body:has(#custom-curves-page:not([hidden]) .custom-curve-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--curve-panel-width) + 49px)}
 main{padding-bottom:calc(var(--dock-band) + 16px)}
 html{scroll-padding-bottom:var(--dock-band)}
 .floating-context{position:fixed;bottom:16px;left:var(--dock-center);transform:translateX(-50%);z-index:35;font-size:12px;max-width:calc(100vw - 160px)}

@@ -344,3 +344,8 @@ test('a mode is named for the person and for assistive technology: a position, a
  assert.equal(modeLabel({kind:'position',tradeId:'t',bindingId:'b',revision:1}),'Position');assert.equal(modeLabel({kind:'risk'}),'Risk report');
  assert.equal(modeLabel({kind:'new',product:null}),'New trade');assert.equal(modeLabel({kind:'new',product:'futures'}),'New future');assert.equal(modeLabel({kind:'new',product:'swaps'}),'New swap');
 });
+test('a custom curve is one panel mode whose views are tabs',()=>{
+ assert.ok(sameMode({kind:'custom-curve'},{kind:'custom-curve'}));
+ assert.ok(!sameMode({kind:'custom-curve'},{kind:'risk'}));
+ assert.equal(modeLabel({kind:'custom-curve'}),'Custom curve');
+});

@@ -1,3 +1,6 @@
+import {deliveryLabel} from './market-view.js';
+import type {TileSpec} from './tiles.js';
+
 /** Presentation contracts for the managed custom-curve operations. No market
  * selection, dates, aggregation or financial arithmetic runs in this module. */
 export type ContractWeight={outputPosition:number|null;sourcePort:string;contractId:string;weight:string};
@@ -37,4 +40,29 @@ export function curveFieldVisible(field:ConditionalCurveField,parameters:Record<
 export function editCurveParameters(parameters:Record<string,unknown>,key:string,value:unknown,fields:ConditionalCurveField[]):Record<string,unknown>{
  const next={...parameters};if(value===null)delete next[key];else next[key]=value;
  for(const field of fields)if(!curveFieldVisible(field,next))delete next[field.key];return next;
+}
+
+/** What a saved curve's state is called. A state this page does not know is refused rather than shown as another. */
+export function recipeStateLabel(state:unknown):'Draft'|'Published'{
+ if(state==='draft')return 'Draft';
+ if(state==='published')return 'Published';
+ throw Error('A saved curve has a state this page cannot show. Reload the library.');
+}
+
+type DeliveryPeriod={from:string;to:string};
+export type PreviewSummary={points:number;unavailablePoints:number;firstPeriod:DeliveryPeriod|null;lastPeriod:DeliveryPeriod|null;unit:string};
+const statedPeriod=(value:unknown)=>value===null||typeof value==='object'&&typeof (value as DeliveryPeriod).from==='string'&&typeof (value as DeliveryPeriod).to==='string';
+/**
+ * The preview's tiles, from the summary the backend states with it: nothing is counted and no period is chosen here. A tile of words
+ * (a period or a unit) wraps in its tile; a preview without a complete summary is refused.
+ */
+export function previewTiles(summary:PreviewSummary|undefined):(TileSpec&{words:boolean})[]{
+ if(!summary||!Number.isSafeInteger(summary.points)||!Number.isSafeInteger(summary.unavailablePoints)||!statedPeriod(summary.firstPeriod)||!statedPeriod(summary.lastPeriod)||typeof summary.unit!=='string')
+  throw Error('The preview does not state its summary. Preview again.');
+ const words=(label:string,figure:string)=>({label,rows:[{figure}],words:true});
+ const period=(value:DeliveryPeriod|null)=>value===null?'None':deliveryLabel(value.from,value.to);
+ return [
+  {label:'Points',rows:[{figure:String(summary.points)}],...(summary.unavailablePoints?{note:`${summary.unavailablePoints} without a price`}:{}),words:false},
+  words('First period',period(summary.firstPeriod)),words('Last period',period(summary.lastPeriod)),words('Unit',summary.unit||'None'),
+ ];
 }

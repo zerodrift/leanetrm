@@ -1,16 +1,19 @@
 // The side panel (blotter-desk.md, Side panel): one place beside the Blotter's positions that holds a position, a new trade or a
-// risk report, and beside a curve on Curves & prices that holds one of its contracts (markets-desk.md). This shell owns what every mode shares: showing and hiding, docked or overlay placement, focus,
+// risk report, beside a curve on Curves & prices that holds one of its contracts, and beside the graph on Custom curves that holds the
+// curve's views (markets-desk.md). This shell owns what every mode shares: showing and hiding, docked or overlay placement, focus,
 // Escape, the tab strip and asking before unsaved edits are left. A mode draws its own content into the parts the shell hands out.
 
 /**
  * What a panel holds: on the Blotter, one position (a trade's binding) at a revision, a new trade of a product or, until the person
- * has chosen one, of none, or a risk report; on Curves & prices, one contract (or maturity) of a curve; or nothing.
+ * has chosen one, of none, or a risk report; on Curves & prices, one contract (or maturity) of a curve; on Custom curves, the curve
+ * being edited, whose views are the panel's tabs; or nothing.
  */
 export type PanelMode=
   |{kind:'position';tradeId:string;bindingId:string;revision:number}
   |{kind:'new';product:'futures'|'swaps'|null}
   |{kind:'risk'}
   |{kind:'contract';curve:string;contract:string}
+  |{kind:'custom-curve'}
   |null;
 
 /** The width of the main area from which the panel docks beside the positions; narrower, or beside the assistant, it overlays them. */
@@ -35,6 +38,7 @@ export function modeLabel(mode:NonNullable<PanelMode>):string{
     case 'new':return mode.product===null?'New trade':mode.product==='futures'?'New future':'New swap';
     case 'risk':return 'Risk report';
     case 'contract':return 'Contract';
+    case 'custom-curve':return 'Custom curve';
   }
 }
 

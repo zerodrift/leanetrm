@@ -33,3 +33,21 @@ test('removing a panel input removes only its matching weight',()=>{
  assert.deepEqual(after.nodes[0].panelWeights,[{sourcePort:'b',weight:'3'}]);
  assert.equal(before.nodes[0].panelWeights.length,2);
 });
+test('saved curve states are named exactly and an unknown state is refused',async()=>{
+ const {recipeStateLabel}=await import('../dist/custom-curve-model.js');
+ assert.equal(recipeStateLabel('draft'),'Draft');assert.equal(recipeStateLabel('published'),'Published');
+ for(const state of ['','retired',undefined])assert.throws(()=>recipeStateLabel(state),/state/);
+});
+test('preview tiles show the backend summary without counting points or choosing periods',async()=>{
+ const {previewTiles}=await import('../dist/custom-curve-model.js');
+ const tiles=previewTiles({points:12,unavailablePoints:0,firstPeriod:{from:'2021-01-01',to:'2021-02-01'},lastPeriod:{from:'2021-12-01',to:'2022-01-01'},unit:'USD/MMBtu'});
+ assert.deepEqual(tiles.map(t=>t.label),['Points','First period','Last period','Unit']);
+ assert.deepEqual(tiles.map(t=>t.rows[0].figure),['12','Jan 2021','Dec 2021','USD/MMBtu']);
+ assert.equal(tiles[0].note,undefined,'no unavailable points needs no note');
+ const partial=previewTiles({points:3,unavailablePoints:2,firstPeriod:{from:'2021-01-05',to:'2021-01-06'},lastPeriod:{from:'2021-01-05',to:'2021-01-06'},unit:'USD/MMBtu'});
+ assert.equal(partial[0].rows[0].figure,'3');assert.match(partial[0].note,/2 /);
+ const empty=previewTiles({points:0,unavailablePoints:0,firstPeriod:null,lastPeriod:null,unit:''});
+ assert.deepEqual(empty.map(t=>t.rows[0].figure),['0','None','None','None']);
+ for(const summary of [undefined,{points:'12',unavailablePoints:0,firstPeriod:null,lastPeriod:null,unit:''},{points:1,firstPeriod:null,lastPeriod:null,unit:''},{points:1,unavailablePoints:0,lastPeriod:null,unit:''}])
+  assert.throws(()=>previewTiles(summary),/summary/);
+});
