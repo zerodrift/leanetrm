@@ -110,6 +110,13 @@ static class PowerImportChecks
         Require(fall.Intervals==100&&fall.ExpectedIntervals==100&&fall.MissingIntervals==0,"a fall-back day of quarter-hours expects 100 intervals from its operating-day bounds");
         Require(fall.Average=="1.36"&&fall.Policy=="exact_rational_half_even_18_v1","fall-back average weights every published quarter-hour by its duration");
 
+        // 2026-03-08 skips an hour: 23 hours, or 92 quarter-hours, expected.
+        var springHours=PowerImportProtocol.Window(new(2026,3,8),new(2026,3,8),eastern,60);
+        var springQuarters=PowerImportProtocol.Window(new(2026,3,8),new(2026,3,8),central,15);
+        var spring=PowerHistory.Summarize(springHours,[..springHours.Select(interval=>Row(interval,"2"))]);
+        Require(spring is {Intervals:23,ExpectedIntervals:23,MissingIntervals:0,Average:"2"},"a spring-forward day of hours expects 23 intervals from its operating-day bounds");
+        Require(PowerHistory.Summarize(springQuarters,[])is {ExpectedIntervals:92,MissingIntervals:92},"a spring-forward day of quarter-hours expects 92 intervals from its operating-day bounds");
+
         // 2026-11-02 in New York, hour 5 unpublished. Hand total 286.5 over 23 published hours.
         var day=PowerImportProtocol.Window(new(2026,11,2),new(2026,11,2),eastern,60);
         string?[] prices=["-2.5","4","7.25","-2.50","0",null,..Enumerable.Range(6,14).Select(h=>h.ToString(System.Globalization.CultureInfo.InvariantCulture)),"31.125","21","22","31.125"];

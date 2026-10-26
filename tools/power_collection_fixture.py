@@ -30,7 +30,8 @@ class Collector:
               INSERT INTO power_data.job_sources VALUES('{self.jobs[key]}','{source['sourceId']}','{c}');""")
 
     def publish(self, key, day, start, count, minutes, prices, revision):
-        """Publish and certify one batch of consecutive intervals; returns its batch id and knowledge time."""
+        """Publish and certify one day's collection; returns the batch id and knowledge time of the
+        intervals it changed, or None when every price was already recorded (D229)."""
         source = self.sources[key]
         end = start + timedelta(minutes=count * minutes)
         self.query(f"""INSERT INTO power_data.operating_days VALUES('{self.reference}','{self.revision}','{source['clock']}',
@@ -45,8 +46,10 @@ class Collector:
             PERFORM power_data.finish_attempt(attempt,'{payload}'::jsonb,NULL);
           END$$;""")
         self.query(f"SELECT power_data.certify('{self.catalog}');")
-        return json.loads(self.query(f"""SELECT json_build_object('batchId',b.id,'knownAt',
+        # The batch shares its attempt's identity: this job's newest attempt for the day.
+        published = self.query(f"""SELECT json_build_object('batchId',b.id,'knownAt',
           to_char(k.known_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))::text
           FROM power_data.batches b JOIN power_data.receipts k USING(sequence)
-          JOIN power_data.prices p ON p.batch_id=b.id WHERE p.source_id='{source['sourceId']}'
-          ORDER BY b.sequence DESC LIMIT 1;"""))
+          WHERE b.id=(SELECT id FROM power_data.attempts WHERE job_id='{self.jobs[key]}' AND from_date='{day}'
+            ORDER BY started_at DESC LIMIT 1);""")
+        return json.loads(published) if published else None

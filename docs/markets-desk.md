@@ -126,6 +126,11 @@ ordered series of `(instant, exact value or missing)`. Definitions, versioned:
   and different ones are an `overlay_input` refusal naming it; no frame is ever
   chosen, the returned points are unchanged, and the overlay series is aligned
   by instant.
+- The delivery period read (`power-imports/period`) instead gives overlays one
+  point per expected interval of its operating days, each the interval's price
+  as known at the read's cutoff. An unpublished interval is a missing point, so
+  windows that touch it have no value (`window_incomplete`) rather than
+  bridging the gap.
 - Parameters are required. A missing, out-of-range or unknown parameter is a
   structured `overlay_parameter` refusal, never a default.
 - `GET analytics/overlays` returns the catalog (code, label, parameters with
