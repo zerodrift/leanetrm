@@ -274,11 +274,11 @@ has `front: null` and an availability reason.
 
 | ID | Decision |
 | --- | --- |
-| D224 | Prices over time use KLineChart (`klinecharts` 10.0.3, Apache-2.0). Cross-sections by delivery period stay on ECharts |
-| D225 | Chart overlays are server-computed from a versioned catalog under an exact rational policy, with required parameters and gaps for incomplete windows. Drawings are unsaved presentation state |
-| D226 | Curve summaries (contract count, front contract and price, rate-curve fields) come from the backend; front is the first priced contract in delivery order |
-| D227 | Delivery prices opens on a backend-chosen `newest_available_delivery_day_v1` selection, stated with a badge; its summary statistics are backend fields |
-| D228 | Custom curves asks before discarding unsaved edits on navigation, unload or a context change |
+| D231 | Prices over time use KLineChart (`klinecharts` 10.0.3, Apache-2.0). Cross-sections by delivery period stay on ECharts |
+| D232 | Chart overlays are server-computed from a versioned catalog under an exact rational policy, with required parameters and gaps for incomplete windows. Drawings are unsaved presentation state |
+| D233 | Curve summaries (contract count, front contract and price, rate-curve fields) come from the backend; front is the first priced contract in delivery order |
+| D234 | Delivery prices opens on a backend-chosen `newest_available_delivery_day_v1` selection, stated with a badge; its summary statistics are backend fields |
+| D235 | Custom curves asks before discarding unsaved edits on navigation, unload or a context change |
 
 ## Verification
 
