@@ -109,3 +109,36 @@ test('a contract connection without its weight is incomplete',async()=>{
  d.nodes.at(-1).contractWeights[1].weight='';assert.equal(incompleteContractWeights(d),true);
  assert.equal(incompleteContractWeights(definition()),false);
 });
+test('auto-layout stacks each column by measured card heights so cards never overlap',async()=>{
+ const d=mapping(),heights={source:120,dates:150,other:330,basket:260,sample:140,average:118};
+ const layout=curveLayout(d,{},heights),gap=Object.values(layout);
+ for(const a of d.nodes)for(const b of d.nodes){if(a.id>=b.id||layout[a.id].x!==layout[b.id].x)continue;const [top,bottom]=layout[a.id].y<layout[b.id].y?[a,b]:[b,a];
+  assert.ok(layout[top.id].y+heights[top.id]<layout[bottom.id].y,`${top.id} overlaps ${bottom.id}`);}
+ assert.ok(gap.length===d.nodes.length);
+ const kept=curveLayout(d,{source:{x:24,y:400}},heights);assert.deepEqual(kept.source,{x:24,y:400});
+ assert.ok(kept.other.y>=400+heights.source||kept.other.y+heights.other<400,'a placed card leaves room for a saved one before it');
+});
+test('connectable targets reuse an empty dynamic port and accept any-typed ports',async()=>{
+ const {connectableTargets}=await import('../dist/custom-curve-model.js');
+ const catalog={operators:[...operators,{kind:'inspect',inputPorts:[{name:'value',type:'any'}],outputType:'text',fields:[]}]};
+ const d=definition();d.nodes.push({id:'basket',kind:'weighted_contracts',parameters:{},inputs:{source_1:'other',source_2:''}},{id:'inspect',kind:'inspect',parameters:{},inputs:{}});
+ assert.deepEqual(connectableTargets(d,catalog,'source').filter(t=>t.target!=='sample'),[{target:'basket',port:'source_2',added:false},{target:'inspect',port:'value',added:false}]);
+ assert.deepEqual(connectableTargets(d,catalog,'dates').map(t=>t.target+'.'+t.port),['inspect.value'],'any accepts every output type');
+});
+test('picking a contract fills an existing empty mapping port before adding one',async()=>{
+ const {pickContract,contractPort}=await import('../dist/custom-curve-model.js');
+ const d=definition();d.nodes.push({id:'basket',kind:'weighted_contracts',parameters:{},inputs:{source_1:'other',source_2:''},contractWeights:[]});
+ assert.equal(contractPort(d,{operators},'basket','other'),'source_1','a source already connected keeps its port');
+ assert.equal(contractPort(d,{operators},'basket','source'),'source_2');
+ const picked=pickContract(d,{operators},'basket','source','contract-s');
+ assert.deepEqual(picked.definition.nodes.at(-1).inputs,{source_1:'other',source_2:'source'});
+ assert.equal(picked.definition.nodes.at(-1).contractWeights[0].sourcePort,'source_2');
+ assert.equal(contractPort(d,{operators},'sample','source'),undefined);
+});
+test('a fed input can change to any other operation whose output its catalog type accepts',async()=>{
+ const {connectableSources}=await import('../dist/custom-curve-model.js');
+ const d=mapping();d.nodes.push({id:'third',kind:'source',parameters:{},inputs:{}});
+ assert.deepEqual(connectableSources(d,{operators},'basket','source_a'),['average','third'],'not the current source, not one already feeding the mapping, not the mapping itself');
+ assert.deepEqual(connectableSources(d,{operators},'sample','dates'),[],'only the date sequence it already has fits');
+ assert.deepEqual(connectableSources(d,{operators},'sample','curve'),['average','other','third'],'types only: the backend rejects a cycle');
+});

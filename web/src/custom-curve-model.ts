@@ -17,6 +17,14 @@ export function curveEdges(definition:CurveDefinition):CurveEdge[]{
 export function changeCurveConnection(definition:CurveDefinition,target:string,port:string,source:string):CurveDefinition{
  return {...definition,nodes:definition.nodes.map(node=>{if(node.id!==target)return node;const inputs={...node.inputs};if(source)inputs[port]=source;else delete inputs[port];return {...node,inputs,...(node.panelWeights?{panelWeights:node.panelWeights.filter(weight=>weight.sourcePort in inputs)}:{})};})};
 }
+/** The operations that may feed an input instead of its current source: those whose output its catalog type accepts, never the operation
+ * itself, its current source, or (for a dynamic input) one already feeding another of its inputs. The backend still validates, cycles included. */
+export function connectableSources(definition:CurveDefinition,catalog:{operators:OperatorPorts[]},target:string,port:string):string[]{
+ const node=definition.nodes.find(n=>n.id===target),spec=catalog.operators.find(op=>op.kind===node?.kind);if(!node||!spec)return [];
+ const fixed=spec.inputPorts.find(p=>p.name===port),type=fixed?.type??(port in node.inputs?spec.dynamicInputs?.type:undefined);if(type===undefined)return [];
+ const fed=new Set(fixed?[node.inputs[port]]:Object.values(node.inputs));
+ return definition.nodes.filter(c=>{const output=catalog.operators.find(op=>op.kind===c.kind)?.outputType;return c.id!==target&&!fed.has(c.id)&&output!==undefined&&(type===output||type==='any');}).map(c=>c.id);
+}
 /** Removes one arrow. Contract rows naming the port stay, for the person to reconnect or the backend to reject. */
 export function removeCurveConnection(definition:CurveDefinition,target:string,port:string):CurveDefinition{
  return changeCurveConnection(definition,target,port,'');
@@ -51,7 +59,8 @@ export function connectableTargets(definition:CurveDefinition,catalog:{operators
  });
 }
 const holdsContracts=(catalog:{operators:OperatorPorts[]},node:CurveNode|undefined)=>!!catalog.operators.find(op=>op.kind===node?.kind)?.fields.some(field=>field.type==='contract_weights');
-function contractPort(definition:CurveDefinition,catalog:{operators:OperatorPorts[]},target:string,source:string):string|undefined{
+/** The mapping port a contract listed by `source` would use: the port already connecting it, else a free one; none if the mapping cannot take it. */
+export function contractPort(definition:CurveDefinition,catalog:{operators:OperatorPorts[]},target:string,source:string):string|undefined{
  const node=definition.nodes.find(n=>n.id===target);if(!holdsContracts(catalog,node))return undefined;
  return Object.entries(node!.inputs).find(([,input])=>input===source)?.[0]??connectableTargets(definition,catalog,source).find(t=>t.target===target)?.port;
 }
@@ -69,11 +78,17 @@ export function pickContract(definition:CurveDefinition,catalog:{operators:Opera
 export function incompleteContractWeights(definition:CurveDefinition):boolean{
  return definition.nodes.some(node=>(node.contractWeights??[]).some(row=>row.weight.trim()===''));
 }
-export function curveLayout(definition:CurveDefinition,saved:CurveLayout={}):CurveLayout{
+/** Places cards in columns by graph depth. Each column stacks its cards by their measured heights (presentation only), keeping saved
+ * positions, so placed cards never overlap one another or a saved card placed before them. */
+export function curveLayout(definition:CurveDefinition,saved:CurveLayout={},heights:Record<string,number>={}):CurveLayout{
  const positions:CurveLayout={},depths=new Map<string,number>(),visited=new Set<string>();
  function depth(id:string,path:Set<string>):number{if(depths.has(id))return depths.get(id)!;if(path.has(id))return 0;const node=definition.nodes.find(n=>n.id===id);if(!node)return 0;
   const next=new Set(path).add(id),inputs=Object.values(node.inputs),level=inputs.length?1+Math.max(...inputs.map(input=>depth(input,next))):0;depths.set(id,level);return level;}
- const rows=new Map<number,number>();for(const node of definition.nodes){const column=depth(node.id,visited),row=rows.get(column)??0;rows.set(column,row+1);positions[node.id]=saved[node.id]?{...saved[node.id]}:{x:24+column*288,y:24+row*164};}return positions;
+ const gap=28,below=new Map<number,number>();
+ for(const node of definition.nodes){const column=depth(node.id,visited),height=heights[node.id]??136,kept=saved[node.id];
+  const position=kept?{...kept}:{x:24+column*288,y:below.get(column)??24};positions[node.id]=position;
+  below.set(column,Math.max(below.get(column)??24,position.y+height+gap));}
+ return positions;
 }
 export function previewTable(preview:{columns:string[];rows:(string|null)[][]}){
  return {headers:preview.columns,rows:preview.rows.map(row=>row.map(cell=>cell===null?'Unavailable':cell))};

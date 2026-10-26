@@ -989,7 +989,7 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-scene{position:relative}
 .custom-curve-canvas{position:absolute;left:0;top:0;transform-origin:0 0;min-width:100%;min-height:100%}
 .custom-curve-canvas>p{max-width:40ch;padding:24px;color:var(--text-3)}
-.custom-curve-wires{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.custom-curve-wires{position:absolute;left:0;top:0;z-index:0;pointer-events:none;overflow:visible}
 .custom-curve-wire{cursor:context-menu;outline:none}
 .custom-curve-wire .wire-hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke}
 .custom-curve-wire .wire-line{fill:none;stroke:var(--text-3);stroke-opacity:.55;stroke-width:2;transition:stroke .12s,stroke-width .12s}
@@ -1004,7 +1004,7 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-wire:hover .wire-head,.custom-curve-wire:focus-visible .wire-head,.custom-curve-wire.shown .wire-head{fill:var(--accent);fill-opacity:1}
 .custom-curve-wire:focus-visible .wire-hit{stroke:#e0b35a;stroke-opacity:.55}
 .custom-curve-draft{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-dasharray:6 4}
-.custom-curve-node{position:absolute;width:224px;min-height:116px;padding-bottom:8px;background:var(--surface);border:1px solid var(--border-strong);border-top:3px solid var(--border-strong);border-radius:var(--radius);box-shadow:var(--shadow)}
+.custom-curve-node{position:absolute;z-index:1;width:224px;min-height:116px;padding-bottom:8px;background:var(--surface);border:1px solid var(--border-strong);border-top:3px solid var(--border-strong);border-radius:var(--radius);box-shadow:var(--shadow)}
 .custom-curve-node.selected{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .custom-curve-node[data-kind=weighted_contracts]{border-top-color:var(--spread)}
 .custom-curve-node.output{border-top-color:var(--accent)}
@@ -1019,7 +1019,7 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-node>small{color:var(--accent-text)}
 .custom-curve-node.dimmed{opacity:.45}
 .custom-curve-node.connect-source{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.custom-curve-node:has(.custom-curve-listed){z-index:1}
+.custom-curve-node:has(.custom-curve-listed){z-index:2}
 .custom-curve-node-handle{border-radius:calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0}
 .custom-curve-node .custom-curve-output{position:absolute;margin:0;top:12px;right:-7px;width:14px;height:14px;min-height:0;padding:0;border:2px solid var(--surface);border-radius:50%;background:var(--text-3);box-shadow:0 0 0 1px var(--border-strong)}
 .custom-curve-node button.custom-curve-output{cursor:crosshair;touch-action:none}
@@ -1036,8 +1036,12 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .custom-curve-ports li.added,.custom-curve-contracts li.added{color:var(--accent-text);font-weight:600}
 .custom-curve-contracts{margin:8px 8px 2px 0;border-top:1px dashed var(--border)}
 .custom-curve-contracts li{padding-top:4px;padding-bottom:4px;border-bottom:1px dashed var(--border)}
-.custom-curve-contracts li>div{display:grid;flex:1;min-width:0}
-.custom-curve-contracts li>div>span{font-weight:600;color:var(--text);overflow-wrap:anywhere}
+.custom-curve-row-open{display:flex;flex:1;align-items:center;gap:8px;min-width:0;white-space:normal;min-height:0;padding:0;border:0;border-radius:var(--radius-sm);background:transparent;color:inherit;font:inherit;text-align:left;cursor:context-menu}
+.custom-curve-row-open:hover{background:transparent;border-color:transparent}
+.custom-curve-row-open>span{display:grid;flex:1;min-width:0}
+.custom-curve-row-open>span>span{font-weight:600;color:var(--text);overflow-wrap:anywhere}
+.custom-curve-contracts li.incomplete .custom-curve-row-open>span>span{color:var(--warn)}
+.custom-curve-contracts li.incomplete .custom-curve-dot:not(.filled){background:var(--surface);box-shadow:0 0 0 1px var(--warn)}
 .custom-curve-contracts small{font-size:10.5px;color:var(--text-3)}
 .custom-curve-contracts b{flex:none;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text)}
 .custom-curve-contracts b.missing{font-family:var(--font);color:var(--warn)}

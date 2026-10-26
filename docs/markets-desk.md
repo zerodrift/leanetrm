@@ -232,7 +232,11 @@ context or curve closes the panel.
   cancels. Every edit is an ordinary definition edit: it marks the curve
   unsaved and clears the preview; Formula then shows the edited graph (or none
   while the backend cannot format it). The backend validates every edit on
-  preview or save. Read-only accounts get only View.
+  preview or save. Read-only accounts get only View. A row whose source
+  input was removed shows "Source disconnected" and opens the same menu from
+  the row; changing a row's source clears its contract for an explicit new
+  choice. Auto-layout and Fit use the cards' rendered heights, so cards never
+  overlap and expanded sources stay inside the board.
 - **Expandable sources.** A source card whose catalog entry lists contracts
   expands to show them as the catalog names them; picking one into a mapping
   (Connect to…, or dragging it onto the mapping) adds a fixed contract

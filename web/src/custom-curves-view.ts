@@ -1,4 +1,4 @@
-import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,incompleteContractWeights} from './custom-curve-model.js';
+import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,incompleteContractWeights,contractPort,connectableSources} from './custom-curve-model.js';
 import {renderRegularTable} from './regular-table.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
 import {displayInstant,publicText} from './market-view.js';
@@ -50,6 +50,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  let wire:{pointer:number;x:number;y:number;startX:number;startY:number;moved:boolean}|undefined;
  let shown:{source:string;contract:string}|undefined;
  const expanded=new Set<string>(),listScroll=new Map<string,number>();
+ // Cards placed before they could be measured (the board was hidden); they are placed again by their heights once it shows.
+ const estimated=new Set<string>();
  // The panel's view. The panel opens only when the person asks: by selecting a card, starting a new curve or with its toggle.
  let activeView:View='details';
  const pending=new PendingCommand(knownCurveRejection);
@@ -155,13 +157,13 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  svg.classList.add('custom-curve-wires');svg.setAttribute('role','group');svg.setAttribute('aria-label','Connections');draft.classList.add('custom-curve-draft');draft.style.display='none';svg.append(wires,draft);
  const menu=el('div');menu.className='custom-curve-menu';menu.setAttribute('role','menu');menu.hidden=true;
  const connectNote=el('div');connectNote.className='custom-curve-connect';connectNote.hidden=true;const connectText=el('span');connectText.setAttribute('role','status');
- const cancelConnectButton=button('Cancel','custom-curves-connect-cancel',()=>cancelConnect());cancelConnectButton.className='secondary';connectNote.append(connectText,cancelConnectButton);const graphTools=el('div');graphTools.className='custom-curve-graph-tools';const zoomLabel=el('span');zoomLabel.className='custom-curve-zoom';const fitButton=button('Fit graph','custom-curves-fit',()=>{if(o.busy())return;fit=true;positionCanvas();});const actualButton=button('100%','custom-curves-actual-size',()=>{if(o.busy())return;fit=false;zoom=1;positionCanvas();});const arrangeButton=button('Arrange','custom-curves-arrange',()=>{if(o.busy()||!editAllowed())return;layout=curveLayout(definition);renderGraph();});for(const b of [fitButton,actualButton,arrangeButton])b.className='secondary';graphTools.append(zoomLabel,fitButton,actualButton,arrangeButton);
+ const cancelConnectButton=button('Cancel','custom-curves-connect-cancel',()=>cancelConnect());cancelConnectButton.className='secondary';connectNote.append(connectText,cancelConnectButton);const graphTools=el('div');graphTools.className='custom-curve-graph-tools';const zoomLabel=el('span');zoomLabel.className='custom-curve-zoom';const fitButton=button('Fit graph','custom-curves-fit',()=>{if(o.busy())return;fit=true;positionCanvas();});const actualButton=button('100%','custom-curves-actual-size',()=>{if(o.busy())return;fit=false;zoom=1;positionCanvas();});const arrangeButton=button('Arrange','custom-curves-arrange',()=>{if(o.busy()||!editAllowed())return;layout={};renderGraph();});for(const b of [fitButton,actualButton,arrangeButton])b.className='secondary';graphTools.append(zoomLabel,fitButton,actualButton,arrangeButton);
  const panelTools=el('div');panelTools.className='custom-curve-panel-tools';panelTools.setAttribute('role','group');panelTools.setAttribute('aria-label','Graph panels');
  const panelToggle=button('Show panel','custom-curves-toggle-panel',()=>{if(shell.current()!==null)void shell.show(null);else void openPanel();});
  panelToggle.setAttribute('aria-controls',panel.id);panelToggle.setAttribute('aria-expanded','false');
  panelToggle.className='secondary';panelTools.append(panelToggle);toolbar.append(modes,graphTools,panelTools);
  const expression=el('div');expression.id='custom-curves-expression';expression.hidden=true;const formula=el('textarea');formula.id='custom-curves-formula';formula.rows=7;formula.spellcheck=false;formula.setAttribute('aria-label','Curve formula');
- const compile=button('Apply formula','custom-curves-compile',()=>void o.act(async()=>{clearPreview();const request=guard();const result=await o.api<{definition:CurveDefinition;layout?:CurveLayout}>('custom-curves/compile',{formula:formula.value,snapshotId:o.source().snapshotId,code:code.value,name:name.value});if(!current(request))return;definition=clone(result.definition);layout=curveLayout(definition,result.layout??layout);dirty=true;formulaDirty=false;render();notifyMarketScope();}));
+ const compile=button('Apply formula','custom-curves-compile',()=>void o.act(async()=>{clearPreview();const request=guard();const result=await o.api<{definition:CurveDefinition;layout?:CurveLayout}>('custom-curves/compile',{formula:formula.value,snapshotId:o.source().snapshotId,code:code.value,name:name.value});if(!current(request))return;definition=clone(result.definition);layout={...(result.layout??layout)};dirty=true;formulaDirty=false;render();notifyMarketScope();}));
  const syntax=el('p');syntax.className='field-help';syntax.textContent='Use one assignment per line: node = operation(parameter="value", input=@other_node). Parameters are quoted strings; contract mappings use typed JSON rows and connected inputs use @node. The backend compiles this into the same typed graph.';expression.append(label('Formula',formula),compile,syntax);
  const hint=el('p','Drag cards to arrange the graph and drag from a card’s output dot to an input to connect. Right-click an arrow, card or listed contract (or press Shift+F10) for its actions; select a card to edit it in the panel.');hint.className='custom-curve-hint';
  centre.append(toolbar,connectNote,board,expression,hint);
@@ -201,8 +203,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  }
  // The formula shows only the graph it was formatted from: an earlier one is cleared first, so a graph the backend cannot format shows none.
  async function formatFormula(){if(!catalog?.formulaSupported||formulaDirty)return;formula.value='';const request=guard();const result=await o.api<{formula:string}>('custom-curves/format',{definition});if(!current(request))return;formula.value=result.formula;formulaDirty=false;sync();}
- function setMode(value:string){if(o.busy())return;mode=value;board.hidden=value!=='visual';expression.hidden=value!=='formula';graphTools.hidden=value!=='visual';if(value==='visual')positionCanvas();for(const b of [visualButton,formulaButton]){const active=b.id.endsWith(value);b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}sync();}
- function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:View){generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='visual';definition=clone(next);layout=curveLayout(definition,positions);selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)showView(show);}
+ function setMode(value:string){if(o.busy())return;mode=value;board.hidden=value!=='visual';expression.hidden=value!=='formula';graphTools.hidden=value!=='visual';if(value==='visual'){if(estimated.size)renderGraph();else{sizeCanvas();positionCanvas();}}for(const b of [visualButton,formulaButton]){const active=b.id.endsWith(value);b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}sync();}
+ function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:View){generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='visual';definition=clone(next);layout={...positions};estimated.clear();selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)showView(show);}
  function openRecipe(recipe:Recipe,show?:View){if(catalog){catalog.recipes=[...catalog.recipes.filter(r=>r.id!==recipe.id||r.version!==recipe.version),recipe];renderLibrary();}openDefinition(recipe.definition,recipe.layout,recipe,show);templates.value='';}
  function renderLibrary(){const recipes=catalog?.recipes??[];
   library.replaceChildren(...recipes.map(recipe=>{const item=el('li'),entry=button('','',()=>{if(o.busy())return;openRecipe(recipe,activeView);}),title=el('span',recipe.definition.name);entry.className='custom-curve-entry';entry.dataset.recipe=recipe.id+'|'+recipe.version;title.className='custom-curve-entry-name';entry.setAttribute('aria-label',`${recipe.definition.name}, ${recipeStateLabel(recipe.state)}, ${recipe.definition.code} version ${recipe.version}`);entry.append(title,chip(recipeStateLabel(recipe.state),recipe.state),el('small',`${recipe.definition.code} · v${recipe.version}`));item.append(entry);return item;}));
@@ -216,7 +218,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  templates.onchange=()=>{if(o.busy()||!editAllowed())return;const template=catalog?.templates.find(t=>t.code===templates.value);if(!template)return;openDefinition(template.definition,{},undefined,'operation');templates.value=template.code;templateHelp.textContent=template.description??template.unavailableReason??'';dirty=true;renderStatus();};
  code.oninput=()=>{definition={...definition,code:code.value};invalidate();};name.oninput=()=>{definition={...definition,name:name.value};invalidate();};formula.oninput=()=>{formulaDirty=true;invalidate();};
  function renderPalette(){operations.replaceChildren();for(const operator of catalog?.operators??[]){const b=button(operator.label,'',()=>{if(o.busy()||!editAllowed())return;addNode(operator);});b.title=operator.description??operator.label;operations.append(b);}}
- function addNode(operator:Operator,parameters:Record<string,unknown>={}){let i=1;while(definition.nodes.some(n=>n.id===operator.kind+'_'+i))i++;const id=operator.kind+'_'+i;definition={...definition,nodes:[...definition.nodes,{id,kind:operator.kind,parameters,inputs:{}}]};layout=curveLayout(definition,layout);selectedNode=id;invalidate();render();showView('operation');}
+ function addNode(operator:Operator,parameters:Record<string,unknown>={}){let i=1;while(definition.nodes.some(n=>n.id===operator.kind+'_'+i))i++;const id=operator.kind+'_'+i;definition={...definition,nodes:[...definition.nodes,{id,kind:operator.kind,parameters,inputs:{}}]};selectedNode=id;invalidate();render();showView('operation');}
  /** Selecting a card shows its operation in the panel, opening it; focus on the card stays on it, unless the panel covers the page. */
  function selectNode(id:string){if(o.busy()||drag)return;const fromCard=canvas.contains(document.activeElement);selectedNode=id;renderGraph();renderInspector();
   void openPanel('operation').then(()=>{if(fromCard&&!o.sheet())canvas.querySelector<HTMLButtonElement>(`[data-node-id="${CSS.escape(id)}"] button`)?.focus({preventScroll:true});});}
@@ -258,7 +260,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   definition=changeCurveConnection(replace?removeCurveConnection(definition,replace.target,replace.port):definition,target,port,source);invalidate();renderGraph();renderInspector();focusWire(`${target}|${port}`);
  }
  /** Opens the panel on a mapping and puts focus in one field of one of its rows: the existing editor is where every row value is entered. */
- function editRow(target:string,row:number,fieldName:'Weight'|'Source'){selectedNode=target;renderGraph();renderInspector();
+ function editRow(target:string,row:number,fieldName:'Weight'|'Source'|'Contract'){selectedNode=target;renderGraph();renderInspector();
   void openPanel('operation').then(()=>properties.querySelector<HTMLElement>(`[aria-label="${fieldName} for connection ${row+1}"]`)?.focus());}
  function addContractRow(target:string){const rows=definition.nodes.find(n=>n.id===target)?.contractWeights??[];definition=changeContractWeights(definition,target,[...rows,{outputPosition:null,sourcePort:'',contractId:'',weight:''}]);invalidate();return rows.length;}
  function removeNode(id:string){for(const target of definition.nodes)for(const [port,source] of Object.entries(target.inputs))if(source===id)definition=removeCurveConnection(definition,target.id,port);definition={...definition,output:definition.output===id?'':definition.output,nodes:definition.nodes.filter(n=>n.id!==id)};delete layout[id];expanded.delete(id);selectedNode=definition.nodes[0]?.id??'';invalidate();render();}
@@ -267,52 +269,56 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
 
  // Menus: role=menu with menuitems; arrow keys, Home and End move, Escape closes and returns focus to the arrow, card or contract it opened from.
  type Item={label:string;run?:()=>void};
- let menuReturn:(()=>void)|undefined;
+ let menuReturn:(()=>void)|undefined,menuTrigger:Element|undefined,expandedTrigger:Element|undefined;
  function openMenu(name:string,items:Item[],at:{x:number;y:number},back:()=>void){
-  closeMenu();if(!items.length)return;menuReturn=back;menu.setAttribute('aria-label',name);
+  closeMenu();if(!items.length)return;menuReturn=back;expandedTrigger=menuTrigger;expandedTrigger?.setAttribute('aria-expanded','true');menu.setAttribute('aria-label',name);
   menu.replaceChildren(...items.map(item=>{const entry=el('button',item.label);entry.type='button';entry.setAttribute('role','menuitem');entry.tabIndex=-1;
    if(item.run)entry.onclick=()=>{closeMenu(false);item.run!();};else entry.setAttribute('aria-disabled','true');return entry;}));
   menu.hidden=false;const box=menu.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(at.x,innerWidth-box.width-8))+'px';menu.style.top=Math.max(8,Math.min(at.y,innerHeight-box.height-8))+'px';
   menu.querySelector<HTMLElement>('[role=menuitem]:not([aria-disabled])')?.focus();
  }
- function closeMenu(refocus=false){if(menu.hidden)return;menu.hidden=true;menu.replaceChildren();const back=menuReturn;menuReturn=undefined;if(refocus)back?.();}
+ function closeMenu(refocus=false){if(menu.hidden)return;menu.hidden=true;expandedTrigger?.setAttribute('aria-expanded','false');expandedTrigger=undefined;menu.replaceChildren();const back=menuReturn;menuReturn=undefined;if(refocus)back?.();}
  menu.onkeydown=event=>{const entries=[...menu.querySelectorAll<HTMLElement>('[role=menuitem]')],i=entries.indexOf(document.activeElement as HTMLElement);
   const move:Record<string,number>={ArrowDown:i+1,ArrowUp:i-1,Home:0,End:entries.length-1};
   if(event.key in move){event.preventDefault();entries[(move[event.key]+entries.length)%entries.length]?.focus();}
   else if(event.key==='Escape'||event.key==='Tab'){event.preventDefault();event.stopPropagation();closeMenu(true);}};
  document.addEventListener('pointerdown',event=>{if(!menu.hidden&&!menu.contains(event.target as Node))closeMenu();},true);
  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&connecting&&menu.hidden&&host.contains(document.activeElement)){event.preventDefault();cancelConnect();}});
+ const wireMenus=new WeakMap<SVGGElement,(at:{x:number;y:number})=>void>();
  const menuKey=(event:KeyboardEvent)=>event.key==='ContextMenu'||event.shiftKey&&event.key==='F10';
  const placeOf=(element:Element)=>{const r=element.getBoundingClientRect();return {x:r.left+Math.min(r.width/2,24),y:r.bottom+4};};
  /** Wires a graph object's context menu to right-click and to the context-menu key or Shift+F10. */
- function withMenu(element:HTMLElement|SVGElement,open:(at:{x:number;y:number})=>void){
-  element.addEventListener('contextmenu',event=>{event.preventDefault();event.stopPropagation();open({x:(event as MouseEvent).clientX,y:(event as MouseEvent).clientY});});
-  element.addEventListener('keydown',event=>{if(!menuKey(event as KeyboardEvent))return;event.preventDefault();event.stopPropagation();open(placeOf(element));});
+ function withMenu(element:HTMLElement|SVGElement,open:(at:{x:number;y:number})=>void,trigger:Element=element){
+  element.addEventListener('contextmenu',event=>{event.preventDefault();event.stopPropagation();menuTrigger=trigger;open({x:(event as MouseEvent).clientX,y:(event as MouseEvent).clientY});});
+  element.addEventListener('keydown',event=>{if(!menuKey(event as KeyboardEvent))return;event.preventDefault();event.stopPropagation();menuTrigger=trigger;open(placeOf(element));});
  }
  function cardMenu(node:CurveNode,at:{x:number;y:number}){
   const back=()=>focusCard(node.id);
   if(!editAllowed()){openMenu('Operation',[{label:'View',run:()=>selectNode(node.id)}],at,back);return;}
   const mapping=operatorOf(node)?.fields.some(f=>f.type==='contract_weights');
   openMenu('Operation',[{label:'Add arrow from here…',run:()=>startConnect(node.id,{},back)},
-   ...(mapping?[{label:'Add contract connection…',run:()=>editRow(node.id,addContractRow(node.id),'Source')}]:[]),
+   ...(mapping?[{label:'Add contract connection…',run:()=>{if(!o.busy()&&editAllowed())editRow(node.id,addContractRow(node.id),'Source');}}]:[]),
    {label:'Remove operation',run:()=>{if(!o.busy()&&editAllowed())removeNode(node.id);}}],at,back);
  }
  function portWireMenu(edge:{source:string;target:string;port:string},at:{x:number;y:number}){
   const back=()=>focusWire(`${edge.target}|${edge.port}`);
   if(!editAllowed()){openMenu('Arrow',[{label:'View',run:()=>selectNode(edge.target)}],at,back);return;}
-  const sources=definition.nodes.filter(c=>connectableTargets(definition,catalog!,c.id).some(t=>t.target===edge.target&&t.port===edge.port));
-  openMenu('Arrow',[{label:'Change source…',run:()=>openMenu('Choose a new source',sources.length?sources.map(c=>({label:`${nodeTitle(c)} · ${c.id}`,run:()=>{if(o.busy()||!editAllowed())return;definition=changeCurveConnection(definition,edge.target,edge.port,c.id);invalidate();renderGraph();renderInspector();back();}})):[{label:'No other operation fits this input'}],at,back)},
+  const sources=connectableSources(definition,catalog!,edge.target,edge.port).map(id=>definition.nodes.find(n=>n.id===id)!);
+  openMenu('Arrow',[{label:'Change source…',run:()=>openMenu('Choose a new source',sources.length?sources.map(c=>({label:`${nodeTitle(c)} · ${c.id}`,run:()=>{if(o.busy()||!editAllowed())return;definition=changeCurveConnection(definition,edge.target,edge.port,c.id);invalidate();renderGraph();renderInspector();back();}})):[{label:'No other operation’s output fits this input'}],at,back)},
    {label:'Change target port…',run:()=>startConnect(edge.source,{replace:{target:edge.target,port:edge.port}},back)},
    {label:'Remove arrow',run:()=>{if(o.busy()||!editAllowed())return;definition=removeCurveConnection(definition,edge.target,edge.port);invalidate();renderGraph();renderInspector();focusCard(edge.target);}}],at,back);
  }
- function contractWireMenu(target:string,row:number,at:{x:number;y:number}){
-  const back=()=>focusWire(`${target}#${row}`),node=definition.nodes.find(n=>n.id===target)!;
+ /** A contract connection's menu, from its arrow or its row. A row whose source input was removed has no arrow; its menu is how it is mended or removed.
+  * Changing the source clears the contract, which belongs to the old source's catalog, so the person picks one again. */
+ function contractMenu(target:string,row:number,at:{x:number;y:number}){
+  const rowButton=()=>cardOf(target)?.querySelector<HTMLElement>(`[data-contract-row="${row}"] button`),node=definition.nodes.find(n=>n.id===target)!;
+  const orphan=!contractObjects(definition,node)[row]?.source,back=()=>{if(!orphan&&svg.querySelector(`[data-wire="${CSS.escape(target+'#'+row)}"]`))focusWire(`${target}#${row}`);else rowButton()?.focus({preventScroll:true});};
   if(!editAllowed()){openMenu('Contract connection',[{label:'View',run:()=>editRow(target,row,'Weight')}],at,back);return;}
   const rows=()=>definition.nodes.find(n=>n.id===target)?.contractWeights??[];
   const ports=Object.entries(node.inputs).filter(([port,input])=>input&&port!==rows()[row]?.sourcePort);
-  openMenu('Contract connection',[{label:'Change source…',run:()=>openMenu('Choose a new source',ports.length?ports.map(([port,input])=>{const fed=definition.nodes.find(n=>n.id===input);return {label:`${port.replaceAll('_',' ')} · ${fed?nodeTitle(fed)+' '+fed.id:input}`,run:()=>{if(o.busy()||!editAllowed())return;definition=changeContractWeights(definition,target,rows().map((r,n)=>n===row?{...r,sourcePort:port}:r));invalidate();renderGraph();renderInspector();back();}};}):[{label:'No other source input on this mapping'}],at,back)},
+  openMenu('Contract connection',[{label:'Change source…',run:()=>openMenu('Choose a new source',ports.length?ports.map(([port,input])=>{const fed=definition.nodes.find(n=>n.id===input);return {label:`${port.replaceAll('_',' ')} · ${fed?nodeTitle(fed)+' '+fed.id:input}`,run:()=>{if(o.busy()||!editAllowed())return;definition=changeContractWeights(definition,target,rows().map((r,n)=>n===row?{...r,sourcePort:port,contractId:''}:r));invalidate();editRow(target,row,'Contract');}};}):[{label:'No other source input on this mapping'}],at,back)},
    {label:'Edit weight',run:()=>editRow(target,row,'Weight')},
-   {label:'Remove arrow',run:()=>{if(o.busy()||!editAllowed())return;definition=changeContractWeights(definition,target,rows().filter((_,n)=>n!==row));invalidate();renderGraph();renderInspector();focusCard(target);}}],at,back);
+   {label:orphan?'Remove row':'Remove arrow',run:()=>{if(o.busy()||!editAllowed())return;definition=changeContractWeights(definition,target,rows().filter((_,n)=>n!==row));invalidate();renderGraph();renderInspector();focusCard(target);}}],at,back);
  }
  function listedMenu(source:string,contractId:string,at:{x:number;y:number}){
   const back=()=>cardOf(source)?.querySelector<HTMLElement>(`[data-contract-id="${CSS.escape(contractId)}"] button`)?.focus({preventScroll:true});
@@ -342,32 +348,39 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   card.className='custom-curve-node'+(selectedNode===node.id?' selected':'')+(definition.output===node.id?' output':'')+(isSource?' connect-source':'')+(connecting&&!isSource&&!mine.length?' dimmed':'');
   card.dataset.nodeId=node.id;card.dataset.kind=node.kind;card.style.left=position.x+'px';card.style.top=position.y+'px';card.setAttribute('aria-label',title+' '+node.id);
   card.onclick=event=>{if((event.target as Element).closest('button,li[data-contract-id]'))return;selectNode(node.id);};
-  withMenu(card,at=>cardMenu(node,at));
-  const handle=button(title,'',()=>selectNode(node.id));handle.className='custom-curve-node-handle';handle.setAttribute('aria-label','Select or move '+title);handle.setAttribute('aria-pressed',String(selectedNode===node.id));handle.setAttribute('aria-haspopup','menu');
-  handle.onkeydown=event=>{if(o.busy()||!editAllowed()||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();layout[node.id]={x:Math.max(0,layout[node.id].x+(event.key==='ArrowRight'?12:event.key==='ArrowLeft'?-12:0)),y:Math.max(0,layout[node.id].y+(event.key==='ArrowDown'?12:event.key==='ArrowUp'?-12:0))};renderGraph();focusCard(node.id);};
+  const handle=button(title,'',()=>selectNode(node.id));handle.className='custom-curve-node-handle';handle.setAttribute('aria-label','Select or move '+title);handle.setAttribute('aria-pressed',String(selectedNode===node.id));handle.setAttribute('aria-haspopup','menu');handle.setAttribute('aria-expanded','false');
+  withMenu(card,at=>cardMenu(node,at),handle);
+  handle.onkeydown=event=>{if(o.busy()||!editAllowed()||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();layout[node.id]={x:Math.max(0,layout[node.id].x+(event.key==='ArrowRight'?12:event.key==='ArrowLeft'?-12:0)),y:Math.max(0,layout[node.id].y+(event.key==='ArrowDown'?12:event.key==='ArrowUp'?-12:0))};estimated.delete(node.id);renderGraph();focusCard(node.id);};
   handle.onpointerdown=event=>{if(o.busy()||!editAllowed()||event.button!==0)return;selectedNode=node.id;drag={id:node.id,pointer:event.pointerId,startX:event.clientX,startY:event.clientY,x:position.x,y:position.y};handle.setPointerCapture(event.pointerId);};
   handle.onpointermove=event=>{if(!drag||drag.id!==node.id||drag.pointer!==event.pointerId)return;layout[node.id]={x:Math.max(0,drag.x+(event.clientX-drag.startX)/zoom),y:Math.max(0,drag.y+(event.clientY-drag.startY)/zoom)};card.style.left=layout[node.id].x+'px';card.style.top=layout[node.id].y+'px';drawWires();};
-  const end=(event:PointerEvent)=>{if(!drag||drag.id!==node.id||drag.pointer!==event.pointerId)return;drag=undefined;renderGraph();renderInspector();};handle.onpointerup=end;handle.onpointercancel=end;
+  const end=(event:PointerEvent)=>{if(!drag||drag.id!==node.id||drag.pointer!==event.pointerId)return;drag=undefined;estimated.delete(node.id);renderGraph();renderInspector();};handle.onpointerup=end;handle.onpointercancel=end;
   const output=editable?button('','',()=>startConnect(node.id,{},()=>focusCard(node.id))):el('span');output.className='custom-curve-output';
   if(editable){output.setAttribute('aria-label','Add arrow from '+title+' '+node.id);output.onpointerdown=event=>beginWire(event,node.id,undefined,()=>focusCard(node.id));}
   card.append(handle,output,el('span',node.id),el('p',describe(node)||'Select to configure'));
   const ports=nodePorts(node);if(ports.length||mine.some(t=>t.added)){const list=el('ul');list.className='custom-curve-ports';
-   for(const port of ports){const item=el('li'),t=mine.find(t=>t.port===port.name);item.dataset.port=port.name;item.append(t?targetButton(`Connect to ${title} ${node.id} · ${port.label??port.name}`,()=>connectTo(node.id,port.name)):Object.assign(el('span'),{className:'custom-curve-dot'+(node.inputs[port.name]?' filled':'')}),el('span',port.label??port.name));list.append(item);}
+   for(const port of ports){const item=el('li'),t=mine.find(t=>t.port===port.name),fed=node.inputs[port.name],replaces=t&&fed?` · replaces ${fed}`:'';item.dataset.port=port.name;
+    item.append(t?targetButton(`Connect to ${title} ${node.id} · ${port.label??port.name}${replaces}`,()=>connectTo(node.id,port.name)):Object.assign(el('span'),{className:'custom-curve-dot'+(fed?' filled':'')}),el('span',(port.label??port.name)+replaces));list.append(item);}
    for(const t of mine.filter(t=>t.added)){const item=el('li'),name=`New ${operator?.dynamicInputs?.label.toLowerCase()??'input'}`;item.dataset.port=t.port;item.className='added';item.append(targetButton(`Connect to ${title} ${node.id} · ${name}`,()=>connectTo(node.id,t.port)),el('span',name));list.append(item);}
    card.append(list);}
   if(operator?.fields.some(f=>f.type==='contract_weights')){const list=el('ul');list.className='custom-curve-contracts';list.setAttribute('aria-label','Contract connections of '+node.id);
-   for(const row of contractObjects(definition,node)){const item=el('li'),name=el('span','Fixed contract · '+contractName(row.source,row.contractId)),meta=el('small',`${row.sourcePort.replaceAll('_',' ')||'no source'} · output ${row.outputPosition??'—'}`),weight=el('b',row.weight===''?'Weight needed':row.weight);
-    item.dataset.contractRow=String(row.index);if(shown&&shown.source===row.source&&shown.contract===row.contractId)item.classList.add('shown');if(row.weight==='')weight.className='missing';
-    const dot=el('span');dot.className='custom-curve-dot filled';const text=el('div');text.append(name,meta);item.append(dot,text,weight);list.append(item);}
-   if(mine.length&&connecting?.contract!==undefined){const item=el('li');item.className='added';item.dataset.contractRow='new';item.append(targetButton(`Add the fixed contract to ${title} ${node.id}`,()=>connectTo(node.id,CONTRACT)),el('span','Add as a fixed contract'));list.append(item);}
+   for(const row of contractObjects(definition,node)){
+    const item=el('li'),orphan=row.source===null,text=orphan?'Fixed contract · Source disconnected':'Fixed contract · '+contractName(row.source,row.contractId);
+    const open=button('','',()=>{menuTrigger=open;contractMenu(node.id,row.index,placeOf(open));}),weight=el('b',row.weight===''?'Weight needed':row.weight),meta=el('small',`${row.sourcePort.replaceAll('_',' ')||'no source'} · output ${row.outputPosition??'—'}`);
+    open.className='custom-curve-row-open';open.setAttribute('aria-haspopup','menu');open.setAttribute('aria-expanded','false');open.setAttribute('aria-label',`${text} · weight ${row.weight||'not entered'}`);
+    const words=el('span');words.append(el('span',text),meta);open.append(words,weight);withMenu(open,at=>contractMenu(node.id,row.index,at));
+    item.dataset.contractRow=String(row.index);if(shown&&shown.source===row.source&&shown.contract===row.contractId)item.classList.add('shown');
+    if(orphan||!row.contractId)item.classList.add('incomplete');if(row.weight==='')weight.className='missing';
+    const dot=el('span');dot.className='custom-curve-dot'+(orphan?'':' filled');item.append(dot,open);list.append(item);}
+   if(mine.length&&connecting?.contract!==undefined){const source=connecting.source,port=contractPort(definition,catalog!,node.id,source)!,connects=node.inputs[port]===source?'':` · connects ${source} as ${port.replaceAll('_',' ')}`,item=el('li');
+    item.className='added';item.dataset.contractRow='new';item.append(targetButton(`Add the fixed contract to ${title} ${node.id}${connects}`,()=>connectTo(node.id,CONTRACT)),el('span','Add as a fixed contract'+connects));list.append(item);}
    if(list.childElementCount)card.append(list);}
   const contracts=listedContracts(node);if(contracts.length){
    const open=expanded.has(node.id),toggle=button(`${open?'Hide':'Show'} contracts · ${contracts.length}`,'',()=>{if(expanded.has(node.id))expanded.delete(node.id);else expanded.add(node.id);renderGraph();cardOf(node.id)?.querySelector<HTMLButtonElement>('.custom-curve-expand')?.focus({preventScroll:true});});
    toggle.className='custom-curve-expand';toggle.setAttribute('aria-expanded',String(open));toggle.setAttribute('aria-controls','custom-curve-listed-'+node.id);card.append(toggle);
    if(open){const list=el('ul');list.id='custom-curve-listed-'+node.id;list.className='custom-curve-listed';list.setAttribute('aria-label','Contracts of '+node.id);
     for(const contract of contracts){const item=el('li'),back=()=>cardOf(node.id)?.querySelector<HTMLElement>(`[data-contract-id="${CSS.escape(contract.id)}"] button`)?.focus({preventScroll:true});
-     const pick=button(contract.label,'',()=>{if(editAllowed())startConnect(node.id,{contract:contract.id},back);else listedMenu(node.id,contract.id,placeOf(pick));});
-     item.dataset.contractId=contract.id;pick.className='custom-curve-pick';pick.setAttribute('aria-haspopup','menu');pick.setAttribute('aria-label',`Fixed contract ${contract.label}`+(editAllowed()?', connect to a contract mapping':''));
+     const pick=button(contract.label,'',()=>{if(editAllowed())startConnect(node.id,{contract:contract.id},back);else{menuTrigger=pick;listedMenu(node.id,contract.id,placeOf(pick));}});
+     item.dataset.contractId=contract.id;pick.className='custom-curve-pick';pick.setAttribute('aria-haspopup','menu');pick.setAttribute('aria-expanded','false');pick.setAttribute('aria-label',`Fixed contract ${contract.label}`+(editAllowed()?', connect to a contract mapping':''));
      if(shown?.source===node.id&&shown.contract===contract.id)item.classList.add('shown');if(connected(node.id,contract.id))item.classList.add('connected');
      if(editAllowed())pick.onpointerdown=event=>beginWire(event,node.id,contract.id,back);withMenu(pick,at=>listedMenu(node.id,contract.id,at));item.append(pick);list.append(item);}
     card.append(list);list.scrollTop=listScroll.get(node.id)??0;list.addEventListener('scroll',()=>{listScroll.set(node.id,list.scrollTop);drawWires();},{passive:true});}
@@ -375,25 +388,39 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   card.append(el('small',(operator?.outputType??'Value')+(definition.output===node.id?' · Curve output':'')));
   return card;
  }
+ /** Draws the cards; a card without a kept position is placed by the measured heights of the rendered cards, so placed cards never overlap. */
  function renderGraph(){
   if(connecting&&!definition.nodes.some(n=>n.id===connecting!.source)){connecting=undefined;connectNote.hidden=true;}
-  canvas.replaceChildren();layout=curveLayout(definition,layout);const width=Math.max(720,...Object.values(layout).map(p=>p.x+248)),height=Math.max(340,...Object.values(layout).map(p=>p.y+184));canvas.style.width=width+'px';canvas.style.height=height+'px';
-  svg.setAttribute('width',String(width));svg.setAttribute('height',String(height));canvas.append(svg);
-  canvas.classList.toggle('connecting',!!connecting);const targets=connectTargets();
-  for(const node of definition.nodes)canvas.append(renderCard(node,targets));
+  canvas.replaceChildren();canvas.classList.toggle('connecting',!!connecting);const targets=connectTargets();
+  const fresh=new Set(definition.nodes.filter(n=>!layout[n.id]||estimated.has(n.id)).map(n=>n.id)),kept=Object.fromEntries(Object.entries(layout).filter(([id])=>!fresh.has(id)));
+  layout=curveLayout(definition,kept);const cards=definition.nodes.map(node=>renderCard(node,targets));canvas.append(...cards,svg);
+  if(fresh.size&&measurable()){layout=curveLayout(definition,kept,Object.fromEntries(cards.map(card=>[card.dataset.nodeId!,card.offsetHeight])));
+   for(const card of cards){const position=layout[card.dataset.nodeId!];card.style.left=position.x+'px';card.style.top=position.y+'px';}estimated.clear();}
+  else for(const id of fresh)estimated.add(id);
   if(!definition.nodes.length)canvas.append(el('p','Choose a saved curve, a template in Details, or add an operation to start your curve.'));
-  positionCanvas();
+  sizeCanvas();positionCanvas();
+ }
+ const measurable=()=>canvas.getClientRects().length>0;
+ /** Sizes the canvas to the rendered cards (their output dots included), so Fit and scrolling reach every card however tall it grows. */
+ function sizeCanvas(){
+  const cards=[...canvas.querySelectorAll<HTMLElement>('.custom-curve-node')],measured=measurable()&&cards.length>0,places=definition.nodes.map(n=>layout[n.id]).filter(Boolean);
+  const width=Math.max(720,...(measured?cards.map(c=>c.offsetLeft+c.offsetWidth+32):places.map(p=>p.x+256))),height=Math.max(340,...(measured?cards.map(c=>c.offsetTop+c.offsetHeight+24):places.map(p=>p.y+184)));
+  canvas.style.width=width+'px';canvas.style.height=height+'px';svg.setAttribute('width',String(width));svg.setAttribute('height',String(height));
  }
  /** Draws the arrows from where the cards' dots now are: each is a focusable object with a wide hit area and a context menu. */
  function drawWires(){
-  const focused=(document.activeElement as SVGElement|null)?.dataset?.wire;wires.replaceChildren();if(board.hidden||!svg.isConnected)return;const base=canvas.getBoundingClientRect();if(!base.width)return;
+  if(board.hidden||!svg.isConnected)return;const base=canvas.getBoundingClientRect();if(!base.width)return;
   const at=(element:Element|null|undefined,side:'left'|'right',within?:Element|null)=>{if(!element)return undefined;const r=element.getBoundingClientRect();let y=r.top+r.height/2;if(within){const w=within.getBoundingClientRect();y=Math.max(w.top+6,Math.min(w.bottom-6,y));}return {x:((side==='left'?r.left:r.right)-base.left)/zoom,y:(y-base.top)/zoom};};
+  // Arrows are kept and updated by key rather than rebuilt, so a focused arrow keeps its focus while cards move or lists scroll.
+  const existing=new Map([...wires.children].map(g=>[(g as SVGGElement).dataset.wire!,g as SVGGElement])),drawn=new Set<string>();
   const draw=(from:{x:number;y:number}|undefined,to:{x:number;y:number}|undefined,key:string,label:string,classes:string[],open:(at:{x:number;y:number})=>void)=>{
-   if(!from||!to)return;const g=document.createElementNS(ns,'g'),dx=Math.max(36,Math.abs(to.x-from.x)/2),d=`M ${from.x} ${from.y} C ${from.x+dx} ${from.y}, ${to.x-7-dx} ${to.y}, ${to.x-7} ${to.y}`;
-   g.classList.add('custom-curve-wire',...classes);g.dataset.wire=key;g.setAttribute('tabindex','0');g.setAttribute('role','button');g.setAttribute('aria-haspopup','menu');g.setAttribute('aria-label',label);
-   const title=document.createElementNS(ns,'title');title.textContent=label;const part=(name:string,shape:string)=>{const p=document.createElementNS(ns,'path');p.classList.add(name);p.setAttribute('d',shape);return p;};
-   g.append(title,part('wire-hit',d),part('wire-line',d),part('wire-head',`M ${to.x-8} ${to.y-4.5} L ${to.x} ${to.y} L ${to.x-8} ${to.y+4.5} Z`));
-   withMenu(g,open);g.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();open(placeOf(g));}});wires.append(g);};
+   if(!from||!to)return;drawn.add(key);const dx=Math.max(36,Math.abs(to.x-from.x)/2),d=`M ${from.x} ${from.y} C ${from.x+dx} ${from.y}, ${to.x-7-dx} ${to.y}, ${to.x-7} ${to.y}`;
+   let g=existing.get(key);
+   if(!g){g=document.createElementNS(ns,'g');const wire=g;wire.dataset.wire=key;wire.setAttribute('tabindex','0');wire.setAttribute('role','button');wire.setAttribute('aria-haspopup','menu');wire.setAttribute('aria-expanded','false');
+    const part=(name:string)=>{const p=document.createElementNS(ns,'path');p.classList.add(name);return p;};wire.append(document.createElementNS(ns,'title'),part('wire-hit'),part('wire-line'),part('wire-head'));
+    withMenu(wire,place=>wireMenus.get(wire)?.(place));wire.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();menuTrigger=wire;wireMenus.get(wire)?.(placeOf(wire));}});wires.append(wire);}
+   wireMenus.set(g,open);g.setAttribute('class',['custom-curve-wire',...classes].join(' '));g.setAttribute('aria-label',label);g.querySelector('title')!.textContent=label;
+   g.querySelector('.wire-hit')!.setAttribute('d',d);g.querySelector('.wire-line')!.setAttribute('d',d);g.querySelector('.wire-head')!.setAttribute('d',`M ${to.x-8} ${to.y-4.5} L ${to.x} ${to.y} L ${to.x-8} ${to.y+4.5} Z`);};
   const output=(id:string)=>at(cardOf(id)?.querySelector('.custom-curve-output'),'right');
   for(const edge of curveEdges(definition)){const source=definition.nodes.find(n=>n.id===edge.source),target=definition.nodes.find(n=>n.id===edge.target);if(!source||!target)continue;
    const port=cardOf(edge.target)?.querySelector(`[data-port="${CSS.escape(edge.port)}"] .custom-curve-dot`)??cardOf(edge.target)?.querySelector('.custom-curve-node-handle');
@@ -401,8 +428,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   for(const node of definition.nodes)for(const row of contractObjects(definition,node)){if(!row.source)continue;const list=expanded.has(row.source)?cardOf(row.source)?.querySelector('.custom-curve-listed'):null;
    const from=list?at(list.querySelector(`[data-contract-id="${CSS.escape(row.contractId)}"]`),'right',list):undefined;
    const classes=['contract',...(node.id===selectedNode?['selected']:[]),...(shown?.source===row.source&&shown.contract===row.contractId?['shown']:[]),...(row.weight===''?['missing']:[])];
-   draw(from??output(row.source),at(cardOf(node.id)?.querySelector(`[data-contract-row="${row.index}"] .custom-curve-dot`),'left'),`${node.id}#${row.index}`,`Fixed contract · ${contractName(row.source,row.contractId)} · weight ${row.weight||'not entered'} · to ${nodeTitle(node)} ${node.id}`,classes,place=>contractWireMenu(node.id,row.index,place));}
-  if(focused)focusWire(focused);
+   draw(from??output(row.source),at(cardOf(node.id)?.querySelector(`[data-contract-row="${row.index}"] .custom-curve-dot`),'left'),`${node.id}#${row.index}`,`Fixed contract · ${contractName(row.source,row.contractId)} · weight ${row.weight||'not entered'} · to ${nodeTitle(node)} ${node.id}`,classes,place=>contractMenu(node.id,row.index,place));}
+  for(const [key,g] of existing)if(!drawn.has(key))g.remove();
  }
  function choicesFor(field:Field):Choice[]{if(field.options?.length)return field.options;
   if(field.type==='curve')return (catalog?.sources??[]).map(source=>({value:source.code,label:source.name}));
