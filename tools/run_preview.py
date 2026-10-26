@@ -253,7 +253,7 @@ def main():
                 from swap_fixture import fixture as swap_fixture
                 from preview_fixture import trading_fixture
                 check_default_upgrade(query,[reference,market,swap_fixture(fixing_frames=fixing_frames)[0],security,trading_fixture(manifest['catalogId'],swap_defaults=True)],migration.read_text())
-            if args.check and migration.name=='0114_remove_unused_cash_rounding.sql':
+            if args.check and migration.name=='0116_remove_unused_cash_rounding.sql':
                 from check_cash_rounding_retirement import run_checks as check_cash_retirement
                 check_cash_retirement(query,migration.read_text())
             query(migration.read_text())

@@ -663,7 +663,7 @@ construction and rate scenario coordinates remain unimplemented. See
 [curve evaluation](curve-evaluation.md) for executable coverage and limits.
 
 
-## D220 — Supported reference demos and retirement of disconnected catalogs
+## D226 — Supported reference demos and retirement of disconnected catalogs
 
 Remove the unused cash-rounding reference table and its viewer category with an
 atomic migration that refuses retained rows, stale snapshots and unexpected
