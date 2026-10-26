@@ -53,7 +53,7 @@ live eligibility. Expired points belonging only to actual resets are excluded;
 a missing or expired endpoint still required by a projected reset rejects. Native source samples and lookup provenance remain bounded by the
 existing 50,000-reference preparation limit.
 
-Migration 0113 admits lookup nodes and validates policies and typed ports at
+Migration 0114 admits lookup nodes and validates policies and typed ports at
 publication, including publication attempted outside the application. It extends
 the existing immutable recipe tables and guards without changing old graphs.
 Read, write, publication and worker permissions use the existing operations.

@@ -6,7 +6,7 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
-D219 adds typed asset and rate curve evaluators and an explicit saved lookup
+D224 adds typed asset and rate curve evaluators and an explicit saved lookup
 operator in the existing custom-curve graph. Exact prices, interpolation and
 scenario dependencies share the connected evaluator; payment discounting uses
 `RatesCurve`. See [curve evaluation](curve-evaluation.md) for policies, consumers

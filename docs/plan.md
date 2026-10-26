@@ -4,7 +4,7 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
-D219 adds typed asset and rate curve evaluators and an explicit saved lookup
+D224 adds typed asset and rate curve evaluators and an explicit saved lookup
 operator in the existing custom-curve graph. Exact prices, interpolation and
 scenario dependencies share the connected evaluator; payment discounting uses
 `RatesCurve`. See [curve evaluation](curve-evaluation.md) for policies, consumers
