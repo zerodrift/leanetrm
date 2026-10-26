@@ -32,7 +32,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await openRow(reference);await amend();return reference;
  }
  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
- await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await newTrade({click,wait},'swaps');
+ // Choosing the close reads that close's prices for every page; on a slower runner that outlasts a single action's wait.
+ await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await newTrade({click,wait},'swaps');
  await click('#swap-scheduled-open');await wait(ticket);await wait(idle);
  await check('the scheduled ticket takes the swap ticket\'s place in the panel, under the head New swap',"(()=>{const swap=document.querySelector('#swap-editing');return document.querySelector('#side-panel').dataset.mode==='new'&&document.querySelector('#side-panel-title').textContent==='New swap'&&swap.hidden&&document.querySelector('#editor-shelf').contains(swap)&&!document.querySelector('#side-panel-form').contains(swap);})()");
  await set('#scheduled-kind','fixed_floating');await set('#scheduled-commodity','test_gas');

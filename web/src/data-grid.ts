@@ -41,7 +41,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     select.onchange=()=>{if(!current())return;state.columns[i]=select.value===''?null:choices[Number(select.value)];apply();};label.append(select);filterPanel.append(label);selects.push(select);
   });
   const container=el('div');container.className='standard-data-grid';host.replaceChildren(...(options.toolbarHost?[]:[toolbar]),filterPanel,hiddenNote,container);options.toolbarHost?.replaceChildren(toolbar);
-  let alive=true,ready=false;
+  let alive=true,ready=false,markBuilt=()=>{};
+  // Resolves once the table is built, so work asked for earlier waits for it instead of being skipped.
+  const built=new Promise<void>(resolve=>{markBuilt=resolve;});
   const current=()=>alive&&host.isConnected&&container.parentElement===host&&!isBusy();
   // A pointer gesture belongs to one row. Selection, dragging and scrolling
   // must not become an accidental edit when the pointer is released.
@@ -134,7 +136,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // fitDataFill refits every column without a definition width whenever the
   // grid is redrawn for a new size, so a user's resize becomes that width.
   table.on('columnResized',(column:any)=>{column.getDefinition().width=column.getWidth();});
-  table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;fit();apply();options.onReady?.();});
+  table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;markBuilt();fit();apply();options.onReady?.();});
   for(const event of ['columnMoved','columnResized','dataSorted'])table.on(event,()=>{if(ready&&current())options.onLayout(layout());});
   search.oninput=()=>{if(!current())return;state.query=search.value;apply();};
   toggle.onclick=()=>{if(!current())return;filterPanel.hidden=!filterPanel.hidden;toggle.setAttribute('aria-expanded',String(!filterPanel.hidden));};
@@ -151,7 +153,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Once the grid has drawn, which a grid that has only just been made has not when it is asked, the row of a source index is scrolled to within the grid and then `use`d.
   function whenDrawn(index:number,use:(row:GridRow)=>void){
     if(!alive)return;
-    void new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))).then(()=>{
+    void built.then(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))).then(()=>{
       const row=alive&&ready?table.getRows().find(candidate=>sourceIndex(candidate)===index):undefined;
       return row?.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive)use(row);});
     });
