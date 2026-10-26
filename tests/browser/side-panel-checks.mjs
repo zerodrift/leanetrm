@@ -570,8 +570,8 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   const phoneWidth=await evaluate('document.documentElement.scrollWidth');
   await open('fut');
   await check('at 760 the panel is a full-width sheet and the page does not scroll sideways',
-    `${panel}.dataset.placement==='overlay'&&Math.round(${panel}.getBoundingClientRect().left)===0&&Math.round(${panel}.getBoundingClientRect().width)===innerWidth&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1&&document.documentElement.scrollWidth===${phoneWidth}`,
-    `[${panel}.getBoundingClientRect().width,innerWidth,document.documentElement.scrollWidth,${phoneWidth}]`);
+    `${panel}.dataset.placement==='overlay'&&Math.round(${panel}.getBoundingClientRect().left)===0&&Math.round(${panel}.getBoundingClientRect().width)===document.documentElement.clientWidth&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1&&document.documentElement.scrollWidth===${phoneWidth}`,
+    `[${panel}.getBoundingClientRect().width,document.documentElement.clientWidth,document.documentElement.scrollWidth,${phoneWidth}]`);
   const behind="['#futures-refresh','#nav-futures','#page-title']";
   await check('the sheet contains focus: the page behind it is inert and takes none, and its own controls do',
     `(()=>{const nodes=${behind}.map(s=>document.querySelector(s));nodes.forEach(n=>n.focus());const amend=document.querySelector('#side-panel-amend');amend.focus();return nodes.every(n=>n.closest('[inert]')!==null)&&!${panel}.closest('[inert]')&&document.activeElement===amend;})()`,
