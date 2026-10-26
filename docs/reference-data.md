@@ -27,7 +27,7 @@ Existing exact-version foreign keys stay intact in their current storage schema.
 Physical table consolidation and retirement of overlapping legacy definitions
 require a separate migration rather than a cosmetic schema rename.
 
-The category list contains 25 business categories. Each has a current consumer;
+The category list contains 24 business categories. Each has a current consumer;
 none is retained solely to populate the inspector. The categories are grouped for
 presentation, while the exact reference/version keys remain the calculation inputs.
 
@@ -57,7 +57,6 @@ presentation, while the exact reference/version keys remain the calculation inpu
 | Quantity definitions | Exact commodity, unit and measurement-basis identity used by amounts, conversions and side quantities |
 | Measurement bases | Compatible quantity/price arithmetic and declared conversion-ratio orientation |
 | Numeric input types | Dimensionless/quantity-ratio series validation and typed multiplication in scale/add curves |
-| Cash rounding | Explicit currency, increment, tie rule and stage when forming a final cash amount |
 
 The managed consumers live in the market-data amount/curve/power modules,
 [the reference adapter](../src/OpenEtrm.Api/PreviewDatabase.cs),
@@ -239,7 +238,6 @@ version and relationship tables. Their bounded uses are:
 | `sources`, `product_evidence` | Exact observation source checks; futures evidence/provenance capture and source/product linkage constraints. Data-rights qualification remains separate |
 | `futures_products`, `futures_series`, `futures_milestones` | Product economics, dated delivery and authoritative last-trading validation in the five-layer example |
 | `delivery_profiles` | Explicit equal-profile/equal-period constituent mappings; unsupported shaping fails |
-| `cash_rounding_conventions` | Money rounding with explicit currency, increment, tie rule and stage, exercised with positive/negative ties |
 
 [0005](../db/migrations/0005_retire_unused_definitions.sql) retires the unused FX,
 heat-rate, standalone day-count and standalone compounding catalogs. It refuses
@@ -466,3 +464,39 @@ trusted-importer role. Import never grants data distribution rights or execution
 eligibility. Activation, certified reference publication and the selected futures
 execution policy retain their existing separate contracts. The complete synthetic
 runner covers managed intake and an owned PostgreSQL import/authority check.
+
+
+## Reference coverage and retirement
+
+Inbound FK count alone does not establish use. Child tables such as calendar
+entries, contract milestones, lot resolutions and unit conversions reference their
+parent keys and are queried through those parents. Their rows require no separate
+inbound FK. Retain their validated outbound relationships and executable consumers.
+
+Migration 0116 removes the disconnected cash-rounding reference table and category.
+It refuses retained rows and uses no cascading drop. Executable cash rounding
+continues to use the explicit settlement policy and exact currency precision;
+there was no reference-table binding to preserve.
+
+An optional exact `referenceCatalog` manifest pin selects the catalog inspected by
+explicitly listed reference categories, without replacing valuation inputs or
+historical references. Other categories retain their original source.
+It includes the category list, reference revision and its sealed market-definition revision in
+the same configured catalogs. The existing unit-catalog pin takes precedence for
+unit categories. Supplemental market reads resolve their reference version from
+the authorized persisted market FK, and reload references instead of sharing a
+cache from another version. Primary manifest pins remain strict. These boundaries
+allow an additive demo catalog and discounting bundle alongside retained trades.
+
+
+The synthetic reference-demo fixture supplies annual decimal rate inputs, a
+simple ACT/365 rate definition, three dated pillars, a currency discount mapping
+and a monthly indexed forward. It retains original market frames and adds an
+explicit supplemental bundle. Qualified scenarios exercise discounted swap PV,
+booking, reopening and portfolio quote risk under the exact new reference version.
+Its data and publication are explicit; no existing trade acquires discounting.
+
+Use [the read-only FK inventory](../tools/reference_integrity_audit.sql) to inspect
+exact table counts, inbound/outbound keys and constraint validation. The output
+identifies whether the current login's counts are filtered by RLS. A zero inbound
+count is not an unused-table finding; verify child-table queries and operations.

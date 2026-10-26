@@ -20,7 +20,6 @@ INSERT INTO ref_data.settlement_targets VALUES ('10000000-0000-0000-0000-0000000
 INSERT INTO ref_data.settlement_targets VALUES ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_power_target','index','test_power_price',NULL);
 INSERT INTO ref_data.settlement_targets VALUES ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_basis_target','index_difference','test_price','test_price_b');
 INSERT INTO ref_data.settlement_targets VALUES ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_power_basis_target','index_difference','test_power_price','test_power_price_b');
-INSERT INTO ref_data.cash_rounding_conventions VALUES ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_cash_round','test_currency_a',0.01,'to_even','cashflow');
 INSERT INTO ref_data.locations (catalog_id,revision_id,code,name,type_code,clock_code) VALUES ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_hub_b','Synthetic hub B','test_hub','test_utc');
 INSERT INTO ref_data.commodity_locations VALUES ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_gas','test_hub_b');
 INSERT INTO ref_data.value_specifications VALUES ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_conversion_ratio','quantity_ratio','test_gas_quantity','test_power_quantity',0,100);

@@ -194,7 +194,7 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
  function render(value:Valuation,quantities?:QuantityReview[]){
   visibleValuation=value;visibleQuantities=quantities;review.replaceChildren();
   if(factorContract())review.append(node('p',`Contractual factor: ${factorValue.value} ${factorNumerator.selectedOptions[0]?.text??''} / ${factorDenominator.selectedOptions[0]?.text??''}.`));
-  renderScheduledReview(review,value,quantities,{indices:catalog?.indices??[],clocks:catalog?.scheduledOptions.clocks??[],text:(amount,kind,role)=>display.text(amount,kind,role),zone:options.zone(),busy:options.busy,act:run,
+  renderScheduledReview(review,value,quantities,{indices:catalog?.indices.filter(i=>i.definitionRevisionId===market.value)??[],clocks:clocks(),text:(amount,kind,role)=>display.text(amount,kind,role),zone:options.zone(),busy:options.busy,act:run,
    intervals:detail&&(detail.state.terms.scheduled.first.power||detail.state.terms.scheduled.second.power)?retainedIntervals(options.api,context(),detail):undefined});
  }
  function readFactor():Factor{if(!factorValue.value||!factorNumerator.value||!factorDenominator.value)throw Error('Enter the factor value and explicitly select its numerator and denominator units.');return{value:factorValue.value,numeratorQuantity:JSON.parse(factorNumerator.value),denominatorQuantity:JSON.parse(factorDenominator.value),implementation:catalog!.factorOptions.factorImplementation,unitConversionImplementation:catalog!.factorOptions.unitConversionImplementation};}

@@ -15,3 +15,11 @@ export function filterSwapIndices<T extends {commodity:string;index:string;curve
  const query=search.trim().toLowerCase().replaceAll('_',' ');
  return rows.filter(i=>i.commodity===commodity&&(!revision||i.definitionRevisionId===revision)&&`${i.index} ${i.curve}`.toLowerCase().replaceAll('_',' ').includes(query));
 }
+
+// Choose only backend-supplied metadata for an explicitly selected market.
+export function marketReferenceChoices<T extends {definitionRevisionId:string}>(choices:readonly T[]|undefined,revision?:string):T|undefined{
+ if(!choices||!revision)return undefined;
+ const matched=choices.filter(c=>c.definitionRevisionId===revision);
+ if(matched.length!==1)throw Error('Reload the exact market reference choices.');
+ return matched[0];
+}

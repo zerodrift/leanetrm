@@ -20,7 +20,7 @@ public sealed partial class SwapStore
   // authorized database operation; JSON is only the bounded command envelope.
   await using var command=ScheduleStore.Command(connection,"SELECT security.save_composed_swap($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13::numeric,$14::numeric,$15,$16,$17,$18,$19,$20,$21::jsonb,$22::uuid[])::text",
    manifest.CatalogId,body.OperationId,body.TradeId is {} trade?trade:DBNull.Value,body.ExpectedRevision is {} expected?expected:DBNull.Value,
-   body.BookId,body.DefinitionRevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,Required(body.Commodity),
+   body.BookId,body.DefinitionRevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId,Required(body.Commodity),
    body.Fixed is null?DBNull.Value:JsonSerializer.Serialize(body.Fixed,json),body.FirstFloating is null?DBNull.Value:JsonSerializer.Serialize(body.FirstFloating,json),JsonSerializer.Serialize(body.Floating,json),
    ExactDecimal.Parse(Required(body.Quantity)).ToString(),ExactDecimal.Parse(Coefficient(body)).ToString(),body.Discounting.Value,frame.At,
    body.TradeId is null?frame.At:SchedulePreview.ParseAt(body.EffectiveAt),body.Reason??"Initial booking",Required(body.Convention),body.Memo is {} memo?memo:DBNull.Value,

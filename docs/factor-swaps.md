@@ -56,9 +56,9 @@ retained risk workers use certified knowledge and current scoped authority;
 cache reuse requires the exact catalog/revision pair. Compatible units and their
 conversion ratios can be introduced by publishing a new reference version and
 configuring a consuming supplemental model, without changing application code.
-Old trades continue consuming their original model/reference versions. Existing
-primitive single-period entry keeps its original configured reference boundary;
-newer supplemental reference versions are offered in scheduled entry.
+Old trades continue consuming their original model/reference versions.
+Single-period and scheduled entry both consume the selected model’s exact
+reference version, including its quantity choices, calendars and discount mapping.
 
 ## Verification
 
