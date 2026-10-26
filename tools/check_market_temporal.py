@@ -3,7 +3,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 
-def run_checks(Client, check):
+def run_checks(Client, check, after_browser):
     c = Client(); c.bootstrap(); c.call('profile', {'profile': 'editor'})
     source = c.call('workspace')
     seed = next(f for f in source['frames'] if f['at'].startswith('2020-12-17'))
@@ -66,64 +66,67 @@ def run_checks(Client, check):
           catalog['policy'] == 'exact_rational_half_even_18_v1' and
           {o['code'] for o in catalog['overlays']} == {'simple_moving_average_v1', 'exponential_moving_average_v1', 'rolling_range_v1'} and
           all(o['parameters'] == [{'name': 'window', 'label': 'Window', 'minimum': 2, 'maximum': 250}] for o in catalog['overlays']))
-    # Current-context history: closes of the seed frame and of the corrected frame add samples at the seed's instant.
-    c.call('profile', {'profile': 'approver'}); c.call('market/current', {})
-    current_frames = c.call('workspace')['frames']
-    pinned = next(f for f in current_frames if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
-    contract = after['points'][0]['contractId']
-    query = {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': pinned['id'], 'curve': 'local_power', 'contractId': contract}
-    def expected_means(samples):
-        distinct = list(dict.fromkeys((p['at'], p['value']) for p in samples))
-        return [(at, None if i == 0 or value is None or distinct[i-1][1] is None else (Decimal(value) + Decimal(distinct[i-1][1])) / 2)
-                for i, (at, value) in enumerate(distinct)]
-    c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': seed['id'], 'name': 'Synthetic duplicate sample'})
-    duplicated = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
-    instants = [p['at'] for p in duplicated['points']]
-    series = duplicated['overlays'][0]['series']['value']
-    check('identical samples at one instant count once: points are unchanged and the overlay is aligned by instant',
-          len(instants) == len(set(instants)) + 1 and duplicated['points'] == c.call('history', query)['points']
-          and [(v['at'], None if v['value'] is None else Decimal(v['value'])) for v in series] == expected_means(duplicated['points']))
-    c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': changed['frame']['id'], 'name': 'Synthetic differing sample'})
-    conflict = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]}, expected=422)
-    check('different samples at one instant refuse overlays by naming the instant, never choosing a frame',
-          conflict['code'] == 'overlay_input' and '2020-12-17' in conflict['message'] and len(c.call('history', query)['points']) > 2)
-    c.call('profile', {'profile': 'editor'})
-    # Revision policy (D230): the correction was recorded after `context['knownAt']`; the closes above record the original and the corrected frame.
-    asknown = 'as_known_at_cutoff_v1'
-    def context_history(ctx, **extra):
-        frame = next(f for f in c.call('workspace')['frames'] if f.get('contextId') == ctx['contextId'])
-        return c.call('history', {'revisionPolicy': asknown, 'snapshotId': frame['id'], 'curve': 'local_power', 'contractId': contract, **extra})
-    def at_seed_day(history):
-        return [p for p in history['points'] if p['at'][:10] == '2020-12-17']
-    old_ctx = c.call('market/context', {**request, 'mode': 'at', 'knownAt': context['knownAt']})['context']
-    old_view = context_history(old_ctx)
-    check('under a cutoff before the correction the original is shown and the cutoff used is echoed',
-          old_view['revisionPolicy'] == asknown and old_view['knowledgeCutoff'] == old_ctx['knownAt']
-          and len(at_seed_day(old_view)) == 1 and Decimal(at_seed_day(old_view)[0]['value']) != Decimal('30.43') and at_seed_day(old_view)[0]['knownAt'] <= old_ctx['knownAt'])
-    later = c.call('market/context', request)['context']
-    new_view = context_history(later)
-    check('under a cutoff after the correction the corrected value is shown, with its recorded knowledge instant',
-          len(at_seed_day(new_view)) == 1 and Decimal(at_seed_day(new_view)[0]['value']) != Decimal(at_seed_day(old_view)[0]['value'])
-          and new_view['knowledgeCutoff'] == later['knownAt'] and at_seed_day(new_view)[0]['knownAt'] > old_ctx['knownAt'])
-    c.call('market/current', {})
-    working = c.call('workspace')['frames']
-    working_pin = next(f for f in working if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
-    base = {'snapshotId': working_pin['id'], 'curve': 'local_power', 'contractId': contract}
-    exact_view = c.call('history', {**base, 'revisionPolicy': 'exact_snapshot_pins_v1'})
-    check('exact pins keep the original and the corrected sample apart at the seed instant',
-          exact_view['revisionPolicy'] == 'exact_snapshot_pins_v1' and len(at_seed_day(exact_view)) == 3)
-    resolved = c.call('history', {**base, 'revisionPolicy': asknown, 'overlays': [sma]})
-    check('working data under the cutoff policy shows the corrected value once and states that it used current knowledge',
-          [Decimal(p['value']) for p in at_seed_day(resolved)] == [Decimal(at_seed_day(new_view)[0]['value'])]
-          and resolved['knowledgeCutoff'] is None and resolved['knowledgeBasis'] == 'current_knowledge')
-    resolved_means = [None if i == 0 or p['value'] is None or resolved['points'][i-1]['value'] is None
-                      else (Decimal(p['value']) + Decimal(resolved['points'][i-1]['value'])) / 2 for i, p in enumerate(resolved['points'])]
-    resolved_series = resolved['overlays'][0]['series']['value']
-    check('overlays run over the resolved series',
-          [v['at'] for v in resolved_series] == [p['at'] for p in resolved['points']]
-          and all((v['value'] is None) == (m is None) and (m is None or Decimal(v['value']) == m) for v, m in zip(resolved_series, resolved_means)))
-    for bad in ({}, {'revisionPolicy': 'latest'}, {'revisionPolicy': None}):
-        refused = c.call('history', {**base, **bad}, expected=422)
-        check('a missing or unknown history revision policy is refused, never defaulted', refused['code'] == 'history_revision_policy')
+    def history_versions():
+        # Registers durable closes at the seed's instant, which later browser suites would show as extra samples; run after them (run_preview.py).
+        # Current-context history: closes of the seed frame and of the corrected frame add samples at the seed's instant.
+        c.call('profile', {'profile': 'approver'}); c.call('market/current', {})
+        current_frames = c.call('workspace')['frames']
+        pinned = next(f for f in current_frames if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
+        contract = after['points'][0]['contractId']
+        query = {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': pinned['id'], 'curve': 'local_power', 'contractId': contract}
+        def expected_means(samples):
+            distinct = list(dict.fromkeys((p['at'], p['value']) for p in samples))
+            return [(at, None if i == 0 or value is None or distinct[i-1][1] is None else (Decimal(value) + Decimal(distinct[i-1][1])) / 2)
+                    for i, (at, value) in enumerate(distinct)]
+        c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': seed['id'], 'name': 'Synthetic duplicate sample'})
+        duplicated = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
+        instants = [p['at'] for p in duplicated['points']]
+        series = duplicated['overlays'][0]['series']['value']
+        check('identical samples at one instant count once: points are unchanged and the overlay is aligned by instant',
+              len(instants) == len(set(instants)) + 1 and duplicated['points'] == c.call('history', query)['points']
+              and [(v['at'], None if v['value'] is None else Decimal(v['value'])) for v in series] == expected_means(duplicated['points']))
+        c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': changed['frame']['id'], 'name': 'Synthetic differing sample'})
+        conflict = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]}, expected=422)
+        check('different samples at one instant refuse overlays by naming the instant, never choosing a frame',
+              conflict['code'] == 'overlay_input' and '2020-12-17' in conflict['message'] and len(c.call('history', query)['points']) > 2)
+        c.call('profile', {'profile': 'editor'})
+        # Revision policy (D230): the correction was recorded after `context['knownAt']`; the closes above record the original and the corrected frame.
+        asknown = 'as_known_at_cutoff_v1'
+        def context_history(ctx, **extra):
+            frame = next(f for f in c.call('workspace')['frames'] if f.get('contextId') == ctx['contextId'])
+            return c.call('history', {'revisionPolicy': asknown, 'snapshotId': frame['id'], 'curve': 'local_power', 'contractId': contract, **extra})
+        def at_seed_day(history):
+            return [p for p in history['points'] if p['at'][:10] == '2020-12-17']
+        old_ctx = c.call('market/context', {**request, 'mode': 'at', 'knownAt': context['knownAt']})['context']
+        old_view = context_history(old_ctx)
+        check('under a cutoff before the correction the original is shown and the cutoff used is echoed',
+              old_view['revisionPolicy'] == asknown and old_view['knowledgeCutoff'] == old_ctx['knownAt']
+              and len(at_seed_day(old_view)) == 1 and Decimal(at_seed_day(old_view)[0]['value']) != Decimal('30.43') and at_seed_day(old_view)[0]['knownAt'] <= old_ctx['knownAt'])
+        later = c.call('market/context', request)['context']
+        new_view = context_history(later)
+        check('under a cutoff after the correction the corrected value is shown, with its recorded knowledge instant',
+              len(at_seed_day(new_view)) == 1 and Decimal(at_seed_day(new_view)[0]['value']) != Decimal(at_seed_day(old_view)[0]['value'])
+              and new_view['knowledgeCutoff'] == later['knownAt'] and at_seed_day(new_view)[0]['knownAt'] > old_ctx['knownAt'])
+        c.call('market/current', {})
+        working = c.call('workspace')['frames']
+        working_pin = next(f for f in working if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
+        base = {'snapshotId': working_pin['id'], 'curve': 'local_power', 'contractId': contract}
+        exact_view = c.call('history', {**base, 'revisionPolicy': 'exact_snapshot_pins_v1'})
+        check('exact pins keep the original and the corrected sample apart at the seed instant',
+              exact_view['revisionPolicy'] == 'exact_snapshot_pins_v1' and len(at_seed_day(exact_view)) == 3)
+        resolved = c.call('history', {**base, 'revisionPolicy': asknown, 'overlays': [sma]})
+        check('working data under the cutoff policy shows the corrected value once and states that it used current knowledge',
+              [Decimal(p['value']) for p in at_seed_day(resolved)] == [Decimal(at_seed_day(new_view)[0]['value'])]
+              and resolved['knowledgeCutoff'] is None and resolved['knowledgeBasis'] == 'current_knowledge')
+        resolved_means = [None if i == 0 or p['value'] is None or resolved['points'][i-1]['value'] is None
+                          else (Decimal(p['value']) + Decimal(resolved['points'][i-1]['value'])) / 2 for i, p in enumerate(resolved['points'])]
+        resolved_series = resolved['overlays'][0]['series']['value']
+        check('overlays run over the resolved series',
+              [v['at'] for v in resolved_series] == [p['at'] for p in resolved['points']]
+              and all((v['value'] is None) == (m is None) and (m is None or Decimal(v['value']) == m) for v, m in zip(resolved_series, resolved_means)))
+        for bad in ({}, {'revisionPolicy': 'latest'}, {'revisionPolicy': None}):
+            refused = c.call('history', {**base, **bad}, expected=422)
+            check('a missing or unknown history revision policy is refused, never defaulted', refused['code'] == 'history_revision_policy')
     c.call('market/context', {**request, 'selection': None}, expected=422)
     check('mark revision selection policy is mandatory')
+    after_browser.append(history_versions)

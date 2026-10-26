@@ -1,7 +1,7 @@
 """HTTP checks against a newly owned synthetic preview; invoked by run_preview.py."""
 from preview_client import PreviewClient
 
-def run_checks(url,query,manifest,direct_reads):
+def run_checks(url,query,manifest,direct_reads,after_browser):
     passed=0
     class Client(PreviewClient):
         def __init__(self):
@@ -136,7 +136,7 @@ def run_checks(url,query,manifest,direct_reads):
     from check_temporal_preview import run_checks as check_temporal
     check_temporal(Client,check)
     from check_market_temporal import run_checks as check_market_temporal
-    check_market_temporal(Client,check)
+    check_market_temporal(Client,check,after_browser)
     from check_admin_preview import run_checks as check_admin
     check_admin(Client,check)
     from check_power_preview import run_checks as check_power

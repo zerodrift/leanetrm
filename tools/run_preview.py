@@ -836,7 +836,8 @@ def main():
             else:
                 from check_preview import run_checks
                 from check_direct_reads import run_checks as check_direct_reads
-                workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary))
+                after_browser=[]
+                workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary),after_browser)
                 from check_table_views import run_checks as check_table_views
                 check_table_views(url,query)
                 from check_schedule_storage import run_checks as check_schedule_storage
@@ -872,6 +873,8 @@ def main():
                     if evidence:=os.environ.get('OPENETRM_MARKETS_BROWSER_EVIDENCE'):
                         destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
                         for screenshot in temporary.glob('markets-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
+                # Checks that record durable closes would add samples to the browser suites' history, so they run after them.
+                for later in after_browser:later()
                 # Preview sessions are capped, so the checks below share this session instead of each opening one.
                 from check_swaps_preview import run_checks as check_swaps
                 session=check_swaps(url)
