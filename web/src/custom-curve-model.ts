@@ -74,9 +74,13 @@ export function pickContract(definition:CurveDefinition,catalog:{operators:Opera
  const connected=changeCurveConnection(definition,target,port,source),rows=connected.nodes.find(n=>n.id===target)!.contractWeights??[];
  return {definition:changeContractWeights(connected,target,[...rows,{outputPosition:null,sourcePort:port,contractId,weight:''}]),row:rows.length};
 }
-/** Whether a contract connection still lacks its weight: the person enters every weight, so preview and save wait for it. */
-export function incompleteContractWeights(definition:CurveDefinition):boolean{
- return definition.nodes.some(node=>(node.contractWeights??[]).some(row=>row.weight.trim()===''));
+/** What the contract connections still lack, in alphabetical order: the person chooses every contract, output position and weight, so preview and save wait for them. */
+export function missingContractInputs(definition:CurveDefinition):string[]{
+ const rows=definition.nodes.flatMap(node=>node.contractWeights??[]),missing:string[]=[];
+ if(rows.some(row=>row.contractId===''))missing.push('contract');
+ if(rows.some(row=>row.outputPosition===null))missing.push('output position');
+ if(rows.some(row=>row.weight.trim()===''))missing.push('weight');
+ return missing;
 }
 /** Places cards in columns by graph depth. Each column stacks its cards by their measured heights (presentation only), keeping saved
  * positions, so placed cards never overlap one another or a saved card placed before them. */

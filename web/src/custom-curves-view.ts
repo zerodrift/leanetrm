@@ -1,10 +1,10 @@
-import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,incompleteContractWeights,contractPort,connectableSources} from './custom-curve-model.js';
+import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,missingContractInputs,contractPort,connectableSources} from './custom-curve-model.js';
 import {renderRegularTable} from './regular-table.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
 import {displayInstant,publicText} from './market-view.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {setupCurveBlend} from './curve-blend.js';
-import {setupSidePanel,setupTabs} from './side-panel.js';
+import {askInPanel,setupSidePanel,setupTabs} from './side-panel.js';
 import {renderTile,space} from './tiles.js';
 
 type Choice={value:unknown;label:string};
@@ -19,7 +19,7 @@ type Schedule={id?:string;version:number;symbol?:string;name:string};
 type Catalog={context?:{effectiveOn?:string;knownAt?:string};canEdit:boolean;canPublish:boolean;operators:Operator[];templates:Template[];sources:Source[];publishedSources?:{label:string;reference:PublishedSourceReference}[];calendars:(Source&{reference?:unknown})[];schedules:Schedule[];recipes:Recipe[];formulaSupported?:boolean};
 type Preview={columns:string[];rows:(string|null)[][];at?:string;snapshotId?:string;summary?:PreviewSummary;chart?:ChartSpec;context?:{effectiveOn?:string;knownAt?:string};dependencies?:unknown[];inputs?:unknown[];trace?:unknown;warnings?:string[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Options={api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;source:()=>{snapshotId:string;context?:unknown};historical:()=>boolean;marketScopeChanged?:()=>void;
+type Options={api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;source:()=>{snapshotId:string;context?:unknown};historical:()=>boolean;marketScopeChanged?:()=>void;unsavedChanged?:()=>void;
  /** Whether the page has room to dock the panel beside the graph, and whether the open panel covers the whole page (a phone's sheet). */
  docked:()=>boolean;sheet:()=>boolean};
 /** The panel's views (markets-desk.md, Custom curves): the selected graph operation, the curve's details, its effective versions and combining published curves. */
@@ -120,9 +120,10 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const panel=el('aside');panel.id='custom-curves-panel';panel.className='side-panel custom-curve-panel';panel.tabIndex=-1;panel.hidden=true;
  const panelPart=(part:string,className?:string)=>{const node=el('div');node.id='custom-curves-panel-'+part;if(className)node.className=className;return node;};
  const panelFrame=el('div');panelFrame.className='side-panel-frame';const panelClose=button('×','custom-curves-panel-close',()=>{});panelClose.className='icon-button side-panel-close';panelClose.setAttribute('aria-label','Close the panel');
+ const prompt=panelPart('prompt','side-panel-prompt');prompt.setAttribute('role','alertdialog');prompt.setAttribute('aria-label','Unsaved changes');prompt.hidden=true;
  const panelBody=panelPart('body','side-panel-body'),panelView=panelPart('view'),panelForm=panelPart('form','side-panel-form');panelBody.tabIndex=0;panelForm.hidden=true;
  const views:Record<View,HTMLElement>={operation:inspector,details,versions:activation,combine:blend.element};
- panelView.append(...Object.values(views));panelBody.append(panelView,panelForm);panelFrame.append(panelClose,panelPart('head','side-panel-head'),panelPart('tabs','side-panel-tabs'),panelBody);panel.append(panelFrame);
+ panelView.append(...Object.values(views));panelBody.append(panelView,panelForm);panelFrame.append(prompt,panelClose,panelPart('head','side-panel-head'),panelPart('tabs','side-panel-tabs'),panelBody);panel.append(panelFrame);
  // The panel holds no edits of its own: the curve's edits are the page's, and closing the panel keeps them.
  const shell=setupSidePanel(panel,{unsaved:()=>false,confirmLeave:async()=>false,docked:o.docked,sheet:o.sheet,
   closed:()=>panelToggle.focus({preventScroll:true}),changed:()=>{
@@ -186,15 +187,17 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   if(selected?.publishedAt)parts.push(el('span','Published '+displayInstant(selected.publishedAt,o.zone())));
   if(!selected&&!dirty)parts.push(el('span','Choose a saved curve, or start from a template or an operation.'));
   if(o.historical())parts.push(el('span','Historical view is read-only.'));
-  if(incompleteContractWeights(definition)){const note=el('span','Enter every contract connection’s weight to preview or save.');note.id='custom-curves-weight-needed';parts.push(note);}
+  const missing=missingContractInputs(definition);
+  if(missing.length){const note=el('span',`Enter every contract connection’s ${missing.join(', ').replace(/, ([^,]*)$/,' and $1')} to preview or save.`);note.id='custom-curves-weight-needed';parts.push(note);}
   if(blend.dirty()){const go=button('Build or discard the ingredient changes in Combine curves','custom-curves-open-combine',()=>void openPanel('combine'));go.className='text-button';parts.push(go);}
   status.replaceChildren(...parts.flatMap((part,i)=>i?[space(),part]:[part]));
   markLibrary();sync();}
  /** Marks the library's entry for the exact version open, if it is one. */
  function markLibrary(){for(const entry of library.querySelectorAll<HTMLElement>('[data-recipe]')){if(selected&&entry.dataset.recipe===selected.id+'|'+selected.version)entry.setAttribute('aria-current','true');else entry.removeAttribute('aria-current');}}
- function sync(){const busy=o.busy(),editable=editAllowed(),retryAllowed=['custom-curves/publish','custom-curves/activation'].includes(pending.command?.path??'')?!!catalog?.canPublish&&!o.historical():pending.command?.path==='custom-curves/save'?editable:false;for(const input of [code,name,templates])input.disabled=busy||!editable;code.disabled ||=!!selected;retryButton.disabled=busy||!retryAllowed;discardButton.disabled=busy;pendingPanel.hidden=!pending.command;newButton.disabled=busy||!editable;reloadButton.disabled=busy;for(const entry of library.querySelectorAll('button'))entry.disabled=busy;templateHelp.hidden=!templateHelp.textContent;const unweighted=incompleteContractWeights(definition);previewButton.disabled=busy||!catalog||!definition.nodes.length||formulaDirty||unweighted;effectiveButton.disabled=busy||!selected||dirty||formulaDirty;saveButton.disabled=busy||!editable||!definition.nodes.length||formulaDirty||unweighted;publishButton.disabled=busy||!catalog?.canPublish||o.historical()||!selected||selected.state==='published'||dirty;compile.disabled=busy||!editable||!catalog?.formulaSupported;formula.disabled=busy||!editable||!catalog?.formulaSupported;fitButton.disabled=busy;actualButton.disabled=busy;arrangeButton.disabled=busy||!editable;for(const b of operations.querySelectorAll('button'))b.disabled=busy||!editable;for(const input of properties.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button,textarea'))input.disabled=busy||!editable;
+ function sync(){const busy=o.busy(),editable=editAllowed(),retryAllowed=['custom-curves/publish','custom-curves/activation'].includes(pending.command?.path??'')?!!catalog?.canPublish&&!o.historical():pending.command?.path==='custom-curves/save'?editable:false;for(const input of [code,name,templates])input.disabled=busy||!editable;code.disabled ||=!!selected;retryButton.disabled=busy||!retryAllowed;discardButton.disabled=busy;pendingPanel.hidden=!pending.command;newButton.disabled=busy||!editable;reloadButton.disabled=busy;for(const entry of library.querySelectorAll('button'))entry.disabled=busy;templateHelp.hidden=!templateHelp.textContent;const incomplete=missingContractInputs(definition).length>0;previewButton.disabled=busy||!catalog||!definition.nodes.length||formulaDirty||incomplete;effectiveButton.disabled=busy||!selected||dirty||formulaDirty;saveButton.disabled=busy||!editable||!definition.nodes.length||formulaDirty||incomplete;publishButton.disabled=busy||!catalog?.canPublish||o.historical()||!selected||selected.state==='published'||dirty;compile.disabled=busy||!editable||!catalog?.formulaSupported;formula.disabled=busy||!editable||!catalog?.formulaSupported;fitButton.disabled=busy;actualButton.disabled=busy;arrangeButton.disabled=busy||!editable;for(const b of operations.querySelectorAll('button'))b.disabled=busy||!editable;for(const input of properties.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button,textarea'))input.disabled=busy||!editable;
   for(const control of [previewButton,effectiveButton,saveButton,publishButton])control.disabled ||=blend.dirty();
   effectiveButton.disabled ||=activationDirty;
+  o.unsavedChanged?.();
   blend.sync(busy,editable&&!pending.command,definition.nodes.length>0);
   // Combining needs the catalog's weighted-panel operation; without it the view is not offered.
   combineTab.hidden=!catalog?.operators.some(op=>op.kind==='weighted_panels');if(combineTab.hidden&&activeView==='combine')showView('details');
@@ -546,7 +549,18 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  async function publish(){if(!selected||dirty)throw Error('Save the exact draft before publishing.');clearPreview();const command=pending.begin('custom-curves/publish',{id:selected.id,version:selected.version,generation:selected.generation});storePending();pendingPanel.hidden=false;await sendMutation(command);}
  function reset(){shell.reset();clearGraphModes();blend.reset();generation++;effectiveCurve=undefined;clearActivation();mode='visual';pending.clear();catalog=undefined;definition=empty();layout={};selected=undefined;selectedNode='';dirty=false;formulaDirty=false;drag=undefined;library.replaceChildren();templates.replaceChildren();operations.replaceChildren();clearPreview();render();notifyMarketScope();}
  function snapshotChanged(){generation++;effectiveCurve=undefined;clearActivation();drag=undefined;clearPreview();catalog=undefined;renderStatus();notifyMarketScope();}
- function contextChanged(){blend.reset();clearGraphModes();generation++;effectiveCurve=undefined;clearActivation();mode='visual';clearPreview();catalog=undefined;selected=undefined;definition=empty();layout={};selectedNode='';dirty=false;render();notifyMarketScope();}
+ function contextChanged(){formulaDirty=false;formula.value='';blend.reset();clearGraphModes();generation++;effectiveCurve=undefined;clearActivation();mode='visual';clearPreview();catalog=undefined;selected=undefined;definition=empty();layout={};selectedNode='';dirty=false;render();notifyMarketScope();}
+ /** Edits not yet saved, which leaving discards; a request whose outcome is unknown is not among them, for it is retained across a move. */
+ const editing=()=>dirty||formulaDirty||activationDirty||blend.dirty();
+ /** Asks whether to discard the curve's unsaved edits, in the panel (opened for the question when closed), and discards them when the person agrees: false means they were kept. */
+ async function leave(){
+  if(!editing())return true;
+  const wasClosed=shell.current()===null;
+  if(wasClosed)await openPanel();
+  const going=await shell.ask(askInPanel(panel,{text:'This curve has unsaved edits. Leaving discards them.',keep:'Keep editing',go:'Discard edits'}));
+  if(going)contextChanged();else if(wasClosed)shell.reset();
+  return going;
+ }
  function refresh(){renderStatus();if(lastPreview)showPreview(lastPreview.values,lastPreview.source);}
  async function liveRefresh(){generation++;drag=undefined;if(!activationDirty)clearActivation();else activationLoaded=false;renderStatus();if(lastPreview){if(effectiveCurve)await previewEffective(true);else await preview(true);}}
  function openPrepared(prepared:{definition:CurveDefinition;origin:{effectiveOn:string;knownAt:string}},request:ReturnType<typeof guard>){
@@ -556,5 +570,5 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   templateHelp.textContent=`Proposed for ${prepared.origin.effectiveOn}, as known at ${displayInstant(prepared.origin.knownAt,o.zone(),true)}. This is an unpriced draft. Preview calculates under the selected header context.`;
   renderStatus();
  }
- showView(activeView);reset();initialized=true;return {load,reset,place:()=>shell.place(),refresh,snapshotChanged,contextChanged,liveRefresh,sync,dateDefinition,openPrepared,guard,unconfirmed:()=>!!pending.command||dirty||formulaDirty||activationDirty||blend.dirty()};
+ showView(activeView);reset();initialized=true;return {load,reset,place:()=>shell.place(),refresh,snapshotChanged,contextChanged,liveRefresh,sync,dateDefinition,openPrepared,guard,editing,leave,unconfirmed:()=>!!pending.command||editing()};
 }

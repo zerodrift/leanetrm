@@ -257,7 +257,10 @@ context or curve closes the panel.
 - **Leaving with unsaved edits asks first**, through the same `leaving()` path
   and `beforeunload` guard as the Blotter. Today only the assistant waits. A
   historical-context change with unsaved edits also asks before discarding
-  them.
+  them. A request whose outcome is unconfirmed is not an unsaved edit: it is
+  retained across a move, so it neither asks nor registers the unload guard.
+  Preview and Save also wait, naming what is missing, while a contract
+  connection lacks its contract, output position or weight.
 - The retained-request banner, optimistic versions, read-only explanations and
   assistant proposals are unchanged.
 

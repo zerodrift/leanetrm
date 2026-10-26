@@ -144,21 +144,23 @@ async function act(work:()=>Promise<void>,{keepNotice=false}={}){
   catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');}
   finally{busy=false;syncControls();if(closeCheckDue){closeCheckDue=false;void recheckNewestClose();}}
 }
-// A move of the person's that would give up the amendment the Blotter's panel holds, as another page, another context or another close
-// does, asks first, in the panel, whether to; and it asks before the page is busy, because every control, the question's own included,
+// A move of the person's that would give up the amendment the Blotter's panel holds, or the edits of a custom curve, as another page, another
+// context or another close does, asks first, in the panel, whether to; and it asks before the page is busy, because every control, the question's own included,
 // is disabled while it is. `modal` is a dialog open over the page, which keeps the panel out of reach, and is closed for the question.
 // false means the person kept the amendment.
 async function mayLeave(modal?:HTMLDialogElement){
-  if(page!=='futures')return true;
-  if(modal?.open&&futures.editing())modal.close();
-  return futures.leave();
+  if(!holdsEdits())return true;
+  if(modal?.open)modal.close();
+  return page==='futures'?futures.leave():customCurves.leave();
 }
+// Whether the page showing holds edits that a move of the person's gives up: the Blotter's amendment, or a custom curve's unsaved edits.
+function holdsEdits(){return page==='futures'?futures.editing():page==='custom-curves'&&customCurves.editing();}
 // What the profile dialog does gives up what the Blotter holds, which is asked about with the dialog closed, for a modal dialog keeps the panel, and
 // the question, out of reach. Keeping the amendment leaves the dialog closed and nothing done, which is said, for a closed dialog looks like a done one.
 async function mayLeaveForDialog(notDone:string){
   if(busy)return false;
   if(await mayLeave($<HTMLDialogElement>('profile-dialog')))return true;
-  notice(`${notDone}, because you kept the amendment you were editing.`);
+  notice(`${notDone}, because you kept the ${page==='futures'?'amendment':'curve edits'} you were editing.`);
   return false;
 }
 // Runs `work` as an action, once the person has agreed to leave what the Blotter holds.
@@ -767,14 +769,14 @@ const agentGrants=setupAgentGrants({api,act,busy:()=>busy,zone:()=>prefs.timeZon
 $('profile-dialog').addEventListener('close',agentGrants.hide);
 // Settings › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
-const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:()=>page==='futures'&&futures.editing(),mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}));
+const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:holdsEdits,mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}));
 $('date-context').addEventListener('input',dirtyContext);
 // Opening the time controls is how a person starts to change the context the Blotter is read in, which clears it as the first change is made:
 // so it asks first, as every other way out of an amendment does, and the controls stay closed when the person keeps the amendment, or while
 // the page is busy, which cannot be asked. Controls that are open already ask before each change of theirs (the date editor's guard).
 $<HTMLElement>('date-context').querySelector('summary')!.addEventListener('click',event=>{
   const controls=$<HTMLDetailsElement>('date-context');
-  if(controls.open||page!=='futures'||!futures.editing())return;
+  if(controls.open||!holdsEdits())return;
   event.preventDefault();
   if(busy)return;
   void mayLeave().then(agreed=>{if(agreed)controls.open=true;});
@@ -816,7 +818,7 @@ $('live-retry').onclick=()=>{if(liveStream?.readyState===EventSource.CLOSED&&nav
 // The side panels of Curves & prices and Custom curves dock beside the page when the main area has the room and the assistant is closed.
 const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
 const panelDocked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
-const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScopeChanged:invalidateMarketDates,docked:panelDocked,sheet:()=>phone.matches&&!$('custom-curves-page').hidden,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
+const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScopeChanged:invalidateMarketDates,unsavedChanged:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},docked:panelDocked,sheet:()=>phone.matches&&!$('custom-curves-page').hidden,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
 // The hidden select remains the shared exact-frame adapter consumed by the
 // existing pricing, trading and knowledge-context widgets. The calendar is its UI.
 const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
@@ -1018,12 +1020,12 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,api,roo
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A reload, closing the tab and going back leave the page without the panel's own question, so the browser asks while the panel holds an
-// amendment with edits: the listener is on while it does, and off once the edits are saved or given up. A session that has ended cannot
+// amendment with edits, or a custom curve holds unsaved ones: the listener is on while it does, and off once the edits are saved or given up. A session that has ended cannot
 // send what the form holds, and is not asked about.
 const askBeforeUnload=(event:BeforeUnloadEvent)=>{if(sessionEnded)return;event.preventDefault();event.returnValue='';};
 let askingBeforeUnload=false;
 function syncUnloadQuestion(){
-  const holds=futures.editing();
+  const holds=futures.editing()||customCurves.editing();
   if(holds===askingBeforeUnload)return;
   askingBeforeUnload=holds;
   if(holds)window.addEventListener('beforeunload',askBeforeUnload);else window.removeEventListener('beforeunload',askBeforeUnload);
@@ -1035,7 +1037,7 @@ const chooser=select('example-dataset');chooser.replaceChildren(...examples.map(
   const selected=examples.find(e=>e.id===chooser.value);
   if(!selected)return;
   // Another example is another page load, which gives up what the panel holds unless the person keeps it: the select then shows the example the page is.
-  if(page==='futures'&&futures.editing()&&(busy||!await mayLeave())){chooser.value=exampleId;return;}
+  if(holdsEdits()&&(busy||!await mayLeave())){chooser.value=exampleId;return;}
   location.assign(selected.url);
 })();
 csrf=boot.csrfToken;administrationScope=[boot.runId,boot.tenantId,boot.workspaceId].join(':');setHostMode(boot.mode);

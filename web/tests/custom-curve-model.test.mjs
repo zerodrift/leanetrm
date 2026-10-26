@@ -103,11 +103,14 @@ test('picking a contract into a mapping adds an explicit row with no weight or p
  assert.equal(JSON.stringify(d.nodes.slice(0,-1)),JSON.stringify(JSON.parse(before).nodes),'the original definition is unchanged');
  assert.throws(()=>pickContract(d,{operators},'sample','third','contract-t'),/contract/);
 });
-test('a contract connection without its weight is incomplete',async()=>{
- const {incompleteContractWeights}=await import('../dist/custom-curve-model.js');
- const d=mapping();assert.equal(incompleteContractWeights(d),false);
- d.nodes.at(-1).contractWeights[1].weight='';assert.equal(incompleteContractWeights(d),true);
- assert.equal(incompleteContractWeights(definition()),false);
+test('a contract connection names what it still lacks, so preview and save wait for it',async()=>{
+ const {missingContractInputs}=await import('../dist/custom-curve-model.js');
+ const d=mapping();assert.deepEqual(missingContractInputs(d),[]);
+ const rows=d.nodes.at(-1).contractWeights;
+ rows[1].weight=' ';assert.deepEqual(missingContractInputs(d),['weight']);
+ rows[2].contractId='';assert.deepEqual(missingContractInputs(d),['contract','weight']);
+ rows[0].outputPosition=null;assert.deepEqual(missingContractInputs(d),['contract','output position','weight']);
+ assert.deepEqual(missingContractInputs(definition()),[]);
 });
 test('auto-layout stacks each column by measured card heights so cards never overlap',async()=>{
  const d=mapping(),heights={source:120,dates:150,other:330,basket:260,sample:140,average:118};

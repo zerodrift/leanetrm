@@ -48,7 +48,10 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  await check('loading a timeline admits its newly published version without changing the selected exact recipe',`document.querySelector('.activation-version').value==='2'&&document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|1')}`);
  await click('#custom-curves-retry');
  await check('retrying another curve’s accepted timeline cannot install it into the selected curve',`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|1')}&&document.querySelector('#curve-activation-rows').children.length===0&&document.querySelector('#curve-activation-state').textContent.includes('original curve')`);
- await click('#curve-activation-load');await click('#curve-activation-add');await set('#curve-activation-reason','Synthetic unpublished draft');await persona('viewer');
+ await click('#curve-activation-load');await click('#curve-activation-add');await set('#curve-activation-reason','Synthetic unpublished draft');
+ await click('#profile-open');await set('#profile','viewer');await click('#open');
+ await check('switching identity asks before an unpublished timeline draft is given up',"!document.querySelector('#custom-curves-panel-prompt').hidden&&document.querySelector('#curve-activation-reason').value==='Synthetic unpublished draft'");
+ await click('#custom-curves-panel-prompt button:not(.secondary)',30000);
  await check('identity changes clear previous activation rows, reason and timeline metadata',"document.querySelector('#curve-activation-rows').children.length===0&&document.querySelector('#curve-activation-reason').value===''&&document.querySelector('#curve-activation-state').textContent===''");
  await click('#nav-custom-curves');await click(`#custom-curves-library [data-recipe="${a.id}|1"]`);await click('#curve-activation-load');
  await check('readers inspect retained timelines with mutation controls disabled',"document.querySelectorAll('#curve-activation-rows .activation-from').length===1&&document.querySelector('#curve-activation-publish').disabled&&document.querySelector('#curve-activation-add').disabled");
