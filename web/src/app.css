@@ -1167,3 +1167,13 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .assistant-preference input{width:auto}
 @media(max-width:760px){:root,body.assistant-open{--launcher-right:16px}:root{--launcher-room:64px}body{--dock-center:16px}.floating-context{transform:none;max-width:calc(100vw - 110px)}.floating-context>summary{max-width:calc(100vw - 150px)}.floating-context .header-context-panel{left:0;transform:none}.context-dock{left:0;justify-content:flex-start}.context-dock .floating-context{position:static;max-width:100%}.context-dock .floating-context .header-context-panel{left:16px;right:16px;width:auto}.context-dock .floating-context>summary{max-width:100%}.context-dock .market-date-status{max-width:200px}.header-actions{width:auto}body.assistant-open .context-dock{display:none}}
 @media(max-width:480px){:root{--dock-band:124px}.context-dock{flex-wrap:wrap-reverse}.context-dock .date-control{flex:1 1 100%;padding-left:6px}.context-dock .floating-context{flex:1 1 100%}.context-dock .date-control>label,.context-dock .market-date-status{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.context-dock .market-date-trigger::after{display:none}}
+
+/* Time chart (time-chart.ts): the toolbar, the canvas and the latest values beside it. */
+.time-chart-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.time-chart-body{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.time-chart-canvas{flex:1 1 480px;min-width:0;height:360px}
+.time-chart-latest{margin:0;min-width:200px;font-size:13px}
+.time-chart-latest dt{color:var(--text-3);font-size:12px}
+.time-chart-latest dd{margin:0 0 8px;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
+.overlay-menu fieldset{border:1px solid var(--border);border-radius:var(--radius-sm);margin:0 0 8px;padding:8px 12px}
+.overlay-menu legend{font-size:13px;font-weight:550;color:var(--text-2)}

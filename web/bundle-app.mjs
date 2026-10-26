@@ -2,7 +2,7 @@ import {mkdirSync,mkdtempSync,realpathSync,renameSync,rmSync,writeFileSync} from
 import {dirname,isAbsolute,join,relative,resolve,sep} from 'node:path';
 import {build} from 'esbuild';
 
-export const vendorModules=Object.freeze(['./vendor/echarts.js','./vendor/tabulator.js']);
+export const vendorModules=Object.freeze(['./vendor/echarts.js','./vendor/tabulator.js','./vendor/klinecharts.js']);
 
 export async function bundleApplication(directory){
   const root=realpathSync(directory);
@@ -13,9 +13,9 @@ export async function bundleApplication(directory){
     const path=relative(root,realpathSync(resolve(root,file)));
     if(path==='..'||path.startsWith('..'+sep)||isAbsolute(path))throw Error('Application bundle input escapes the build directory.');
   }
-  if(result.outputFiles.length!==1||outputs.length!==1||imports.length!==vendorModules.length||new Set(imports.map(item=>item.path)).size!==vendorModules.length||
+  if(result.outputFiles.length!==1||outputs.length!==1||new Set(imports.map(item=>item.path)).size!==imports.length||
       imports.some(item=>!item.external||item.kind!=='import-statement'||!vendorModules.includes(item.path)))
-    throw Error('The application bundle must import only the two declared vendor modules.');
+    throw Error('The application bundle must import only declared vendor modules, each once.');
   const cache=join(dirname(root),'.cache');mkdirSync(cache,{recursive:true});
   const staging=mkdtempSync(join(cache,'app-bundle-')),temporary=join(staging,'app.js');
   try{
