@@ -13,7 +13,10 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   window.__shapeReads=[];window.__evaluates=0;const send=window.fetch;window.fetch=async(input,init)=>{
    const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
    if(path==='/api/evaluate')window.__evaluates++;
-   if(path==='/api/history'){const response=await send(input,init);window.__historyReads=[...(window.__historyReads??[]),{body:JSON.parse(init.body),data:response.ok?await response.clone().json():null}];return response;}
+   if(path==='/api/history'){let response=await send(input,init);
+    // A series with different samples at one instant, as /history states it: its points kept, the conflict instead of a chart, no overlays.
+    if(window.__conflictHistory&&response.ok){const data=await response.json();data.chart={conflict:{at:data.points[0].at,message:'Several closes recorded different prices at '+data.points[0].at+'.'}};delete data.overlays;response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
+    window.__historyReads=[...(window.__historyReads??[]),{body:JSON.parse(init.body),data:response.ok?await response.clone().json():null}];return response;}
    if(path==='/api/market/curve-shapes'&&window.__holdShapes)await new Promise(resolve=>window.__releaseShapes=()=>{window.__holdShapes=false;window.__releaseShapes=undefined;resolve();});
    if(path==='/api/market/curve-shapes'&&window.__failShapes){window.__failShapes=false;window.__shapeReads.push({curves:JSON.parse(init.body).curves,snapshotId:JSON.parse(init.body).snapshotId,shapes:null});return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}
    const response=await send(input,init);
@@ -97,6 +100,8 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "document.querySelector('#history-policy [aria-pressed=true]').textContent==='Exact closes'&&document.querySelector('#history-basis').textContent==='Each close with the prices it was saved with'&&"+
    "document.querySelector('#contract-panel-tabs [aria-selected=true]').textContent==='History'&&document.querySelector('#history-chart .time-chart-canvas canvas')&&document.querySelector('#error').hidden;})()",
    `[document.querySelector('#contract-panel').dataset.placement,document.querySelector('#history-basis').textContent,document.querySelector('#error').textContent]`);
+  await check('the contracts table is described by the line saying that choosing a contract opens it',
+   "document.querySelector('#contracts table').getAttribute('aria-describedby')==='contracts-help'&&document.querySelector('#contracts-help').textContent.startsWith('Choose a contract')");
   await check('the values table lists every point the read returned, with when each was known',
    `(()=>{const read=${history}.data,rows=[...document.querySelectorAll('#history-values tbody tr')];return read.points.length>1&&rows.length===read.points.length&&[...document.querySelectorAll('#history-values thead th')].map(th=>th.textContent).slice(0,3).join('|')==='Market date|Price|Known at'&&rows.every(r=>r.cells[2].textContent.length>0);})()`);
   // An overlay is asked for with an explicit window; the chart draws the values the backend returned, named by definition and window.
@@ -111,6 +116,14 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    `[JSON.stringify(${history}.body),[...document.querySelectorAll('#history-chart .time-chart-latest')].map(n=>n.textContent),document.querySelector('#error').textContent]`);
   await evaluate("(()=>{window.scrollTo(0,document.querySelector('#contract-panel').getBoundingClientRect().top+scrollY-8);const body=document.querySelector('#contract-panel-body');body.scrollTop+=document.querySelector('#history-basis').getBoundingClientRect().top-body.getBoundingClientRect().top-8;})()");
   await shot('markets-contract-panel-desktop');
+  await evaluate('window.__conflictHistory=true');await click('#contracts tbody tr:nth-child(3)');
+  await check('a series the backend states as conflicting shows its message and why no overlay is drawn, no chart, and every close in the values',
+   `(()=>{const read=${history},note=document.querySelector('#history-chart .contract-chart-note');return read.body.overlays?.length===1&&!('overlays' in read.data)&&note&&note.textContent.startsWith(read.data.chart.conflict.message)&&`+
+   "note.textContent.includes('Overlays cannot be drawn over a series with different prices at one instant.')&&!document.querySelector('#history-chart canvas')&&document.querySelectorAll('#history-values tbody tr').length===read.data.points.length&&document.querySelector('#error').hidden;})()",
+   "[document.querySelector('#history-chart').textContent,document.querySelector('#error').textContent]");
+  await evaluate('window.__conflictHistory=false');await click('#contracts tbody tr:nth-child(2)');
+  await check('the chart returns with the overlay when the series has one point per instant again, with only the open contract marked',
+   "!!document.querySelector('#history-chart .time-chart-canvas canvas')&&[...document.querySelectorAll('#history-chart .time-chart-latest dt')].some(dt=>dt.textContent==='Simple moving average · 3 · value')&&document.querySelectorAll('#contracts tbody tr[aria-current]').length===1&&document.querySelector('#contracts tbody tr:nth-child(2)').getAttribute('aria-current')==='true'");
   await evaluate("[...document.querySelectorAll('#history-policy button')].find(b=>b.textContent==='As known at cutoff').click()");await wait(idle);
   await check('As known at cutoff reads under the cutoff policy, keeps the overlay, and states the knowledge the read used',
    `(()=>{const read=${history};return read.body.revisionPolicy==='as_known_at_cutoff_v1'&&read.data.revisionPolicy==='as_known_at_cutoff_v1'&&read.body.overlays?.length===1&&document.querySelector('#history-policy [aria-pressed=true]').textContent==='As known at cutoff'&&`+
@@ -126,8 +139,10 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "(()=>{const panel=document.querySelector('#contract-panel'),box=panel.getBoundingClientRect();return [panel.dataset.placement,box.left,box.width,innerWidth,document.querySelectorAll('[inert]').length];})()");
   await check('the sheet fits a 390px screen without page-wide horizontal scrolling',fitsWidth);
   await evaluate("document.querySelector('#contract-panel-body').scrollTop=0");await shot('markets-contract-panel-mobile');
+  await check('the sheet lies over the floating As of and Context docks, so its foot is in view',
+   "(()=>{const panel=document.querySelector('#contract-panel'),dock=document.querySelector('.context-dock'),r=dock.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return Number(getComputedStyle(panel).zIndex)>Number(getComputedStyle(dock).zIndex)&&panel.contains(hit)&&panel.getBoundingClientRect().bottom===innerHeight;})()");
   await click('#contract-panel-close');
-  await check('closing the sheet gives the page back',"document.querySelector('#contract-panel').hidden&&document.querySelectorAll('[inert]').length===0");
+  await check('closing the sheet gives the page back, with focus on the contract\'s row',"document.querySelector('#contract-panel').hidden&&document.querySelectorAll('[inert]').length===0&&document.activeElement===document.querySelector('#contracts tbody tr:nth-child(2)')&&!document.querySelector('#contracts tbody tr[aria-current]')");
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
   await click('#contracts tbody tr:first-child');
   await check('the panel opens again on exact closes with no overlay',`!document.querySelector('#contract-panel').hidden&&${history}.body.revisionPolicy==='exact_snapshot_pins_v1'&&!${history}.body.overlays&&document.querySelector('#history-overlays summary').textContent==='Overlays'`);

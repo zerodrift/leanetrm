@@ -11,6 +11,7 @@ if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChe
 if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
 if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
 if(args is ["--live-calculation"]){LiveContextChecks.Run();return;}
+if(args is ["--history-chart"]){HistoryChartChecks.Run();return;}
 
 if(args is ["--close-risk"]){CloseRiskChecks.Run();return;}
 if(args is ["--ppa-limits"]){PpaLimitChecks.Run();return;}
@@ -67,6 +68,7 @@ if (args is ["--schedules"])
     DirectReadChecks.ReportsDifferences();
     PpaLimitChecks.Run();
     CloseRiskChecks.Run();
+    HistoryChartChecks.Run();
     return;
 }
 

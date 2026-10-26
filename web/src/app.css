@@ -1206,6 +1206,8 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 main:has(>section:not([hidden]) .floating-context) .context-dock{bottom:72px}
 header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{opacity:.55}
 .side-panel[data-placement=overlay],.side-panel[data-wide]{padding-bottom:var(--dock-band)}
+/* On a phone the overlay is a sheet that holds the page, its docks included, out of reach: it lies over them, so its foot is in view. */
+@media(max-width:760px){body:not(.assistant-open) .side-panel[data-placement=overlay]{z-index:42;padding-bottom:0}}
 .assistant-launcher{position:fixed;right:var(--launcher-right);bottom:16px;z-index:40;border-radius:28px;box-shadow:0 4px 20px #122b2030;padding:13px 17px}
 .assistant-hide{position:fixed;right:calc(var(--launcher-right) - 9px);bottom:54px;z-index:41;border-radius:50%;width:24px;height:24px;background:var(--surface);box-shadow:0 2px 8px #122b2020}
 .assistant-preference{display:flex;gap:8px;align-items:center;margin-top:16px}

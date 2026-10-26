@@ -46,6 +46,10 @@ def run_checks(Client, check, after_browser):
     check('explicit latest-correction policy updates the dependent curve', after['points'][0]['value'] != before['points'][0]['value'])
     history = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': newer['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId']})
     check('contract history stops at the context date', all(p['at'][:10] <= '2020-12-17' for p in history['points']))
+    def chart_of(points):
+        return [{'at': p['at'], 'value': p['value'], 'unavailableReason': p['unavailableReason']} for p in points]
+    check('the history states its chart series: each returned point, one per instant, with its availability',
+          len({p['at'] for p in history['points']}) == len(history['points']) and history['chart'] == {'points': chart_of(history['points'])})
     sma = {'code': 'simple_moving_average_v1', 'parameters': {'window': 2}}
     with_overlay = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': newer['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId'], 'overlays': [sma]})
     points = with_overlay['points']
@@ -90,10 +94,16 @@ def run_checks(Client, check, after_browser):
         check('identical samples at one instant count once: points are unchanged and the overlay is aligned by instant',
               len(instants) == len(set(instants)) + 1 and duplicated['points'] == c.call('history', query)['points']
               and [(v['at'], None if v['value'] is None else Decimal(v['value'])) for v in series] == expected_means(duplicated['points']))
+        check('the chart series holds identical samples at one instant once, as the overlays do',
+              [p['at'] for p in duplicated['chart']['points']] == list(dict.fromkeys(instants)) and [v['at'] for v in series] == [p['at'] for p in duplicated['chart']['points']])
         c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': corrected_frame['id'], 'name': 'Synthetic differing sample'})
-        conflict = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]}, expected=422)
-        check('different samples at one instant refuse overlays by naming the instant, never choosing a frame',
-              conflict['code'] == 'overlay_input' and '2020-12-17' in conflict['message'] and len(c.call('history', query)['points']) > 2)
+        plain = c.call('history', query)
+        conflict = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
+        check('different samples at one instant are a stated chart conflict naming the instant, with every point kept and no overlays, never a chosen frame',
+              list(conflict['chart']) == ['conflict'] and conflict['chart']['conflict']['at'].startswith('2020-12-17') and '2020-12-17' in conflict['chart']['conflict']['message']
+              and 'overlays' not in conflict and conflict['points'] == plain['points'] and len(plain['points']) > 2 and plain['chart'] == conflict['chart'])
+        malformed = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [{'code': 'simple_moving_average_v1', 'parameters': {'window': 1}}]}, expected=422)
+        check('an overlay request is still checked over a conflicting series: a bad window is an overlay_parameter refusal', malformed['code'] == 'overlay_parameter')
         c.call('profile', {'profile': 'editor'})
         # Revision policy (D230): the correction was recorded after `context['knownAt']`; the closes above record the original and the corrected frame.
         asknown = 'as_known_at_cutoff_v1'
@@ -126,6 +136,7 @@ def run_checks(Client, check, after_browser):
         resolved_means = [None if i == 0 or p['value'] is None or resolved['points'][i-1]['value'] is None
                           else (Decimal(p['value']) + Decimal(resolved['points'][i-1]['value'])) / 2 for i, p in enumerate(resolved['points'])]
         resolved_series = resolved['overlays'][0]['series']['value']
+        check('under the cutoff policy the chart series is the resolved points', resolved['chart'] == {'points': chart_of(resolved['points'])})
         check('overlays run over the resolved series',
               [v['at'] for v in resolved_series] == [p['at'] for p in resolved['points']]
               and all((v['value'] is None) == (m is None) and (m is None or Decimal(v['value']) == m) for v, m in zip(resolved_series, resolved_means)))

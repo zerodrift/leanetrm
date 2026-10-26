@@ -121,14 +121,22 @@ ordered series of `(instant, exact value or missing)`. Definitions, versioned:
 - The input series holds at most 35,136 points (one year of half-hour
   intervals); more is an `overlay_input` refusal, as are unordered instants and
   values that are not plain ASCII decimals.
-- Overlays run over the history points the read returns. Under
-  `as_known_at_cutoff_v1` (D230) these hold one sample per instant, resolved to
-  the latest revision recorded at or before the read's knowledge cutoff, so the
-  chart and the overlays show the same series. Under `exact_snapshot_pins_v1`
-  several samples may share an instant: identical ones count once for overlays
-  and different ones are an `overlay_input` refusal naming it; no frame is ever
-  chosen, the returned points are unchanged, and the overlay series is aligned
-  by instant.
+- The history read states the series it is charted from as `chart`: either
+  `{points:[{at,value|null,unavailableReason}]}`, one point per instant, or
+  `{conflict:{at,message}}`. Under `as_known_at_cutoff_v1` (D230) the points
+  hold one sample per instant, resolved to the latest revision recorded at or
+  before the read's knowledge cutoff. Under `exact_snapshot_pins_v1` several
+  samples may share an instant: samples that agree on value and availability
+  are one point, and samples that differ make the chart a conflict naming the
+  first such instant. No frame is ever chosen and the returned points are
+  unchanged either way; the browser draws only `chart`, and shows a conflict's
+  message with the values table instead of a chart.
+- Overlays run over the chart's points, so the chart and the overlays show the
+  same series, aligned by instant. Over a conflicting series the read returns
+  its points and the conflict with no `overlays` (status 200); the requests are
+  still checked, so a bad parameter or input that is not the conflict remains
+  an `overlay_parameter` or `overlay_input` refusal. The panel then says that
+  overlays cannot be drawn over a series with different prices at one instant.
 - The delivery period read (`power-imports/period`) instead gives overlays one
   point per expected interval of its operating days, each the interval's price
   as known at the read's cutoff. An unpublished interval is a missing point, so

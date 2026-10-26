@@ -23,11 +23,17 @@ public static class HistoryRevisionPolicy
     {
         foreach(var instant in samples.GroupBy(s=>s.At))
         {
-            var first=instant.First();
-            if(instant.Any(s=>s.Value!=first.Value||s.UnavailableReason!=first.UnavailableReason))
+            if(!Agree(instant))
                 throw new MarketDataException("history_conflict",$"Several different prices are known at {instant.Key:O} under this cutoff. Choose one version before reading this history.");
             yield return instant.OrderByDescending(s=>s.KnownAt).First();
         }
+    }
+
+    /// <summary>Whether the samples at one instant are one point: the same value and the same availability.</summary>
+    public static bool Agree(IEnumerable<HistorySample> instant)
+    {
+        var first=instant.First();
+        return instant.All(s=>s.Value==first.Value&&s.UnavailableReason==first.UnavailableReason);
     }
 }
 // A contract's delivery period and its exact price at the pinned frame, or the position-specific reason it has none (D220).

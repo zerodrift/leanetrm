@@ -42,7 +42,7 @@ import {commodityDot,librarySparkline,marketBoard,renderBoard,shapeReads} from '
 import {renderTile} from './tiles.js';
 import {panelPlacement} from './side-panel.js';
 import type {OverlayCatalog,OverlayRequest,OverlaySeries} from './time-chart.js';
-import {type ContractHistory,type RevisionPolicy,revisionPolicies,historyBasis,historyOverlays,knownAtText,setupContractPanel} from './contract-panel.js';
+import {type ContractHistory,type RevisionPolicy,revisionPolicies,historyBasis,historyChart,historyOverlays,knownAtText,setupContractPanel} from './contract-panel.js';
 
 const exampleId=new URLSearchParams(location.search).get('example')??'baseline';
 if(!['baseline','exchange'].includes(exampleId))throw Error('Choose an available example.');
@@ -57,7 +57,7 @@ let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,
 let sourceOnlyCurve=false;
 // The contract the panel shows, and its history: the revision policy (D230) and overlays the person chose, the read's answer and the
 // overlays it returned, named from the catalog, or that the read failed. The panel opens on exact closes with no overlays.
-let contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
+let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
 // The overlay catalog, read for one account.
 let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
 let contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
@@ -410,6 +410,7 @@ function renderPrices(){
   const shown=result;
   table('contracts',rates?['Maturity','Zero rate (%)','Discount factor']:['Delivery period','Price','Expires'],result.points.map(p=>[contractLabel(p),p.value,rates?p.displayDiscountFactor!:instant(p.expiry!)]),rates?[1,2]:[1],result.points.map(p=>[contractLabel(p),amountText(p.value,'price',p.priceTick),rates?amountText(p.discountFactor!,'factor'):instant(p.expiry!)]),
     index=>void act(async()=>{if(result===shown)await openContract(pointIdentity(shown.points[index]));}));
+  $('contracts').querySelector('table')?.setAttribute('aria-describedby','contracts-help');
   renderContract();renderDependencies();renderInputs();
 }
 async function build(){
@@ -428,13 +429,18 @@ const contractLabel=(p:Point)=>result?.kind==='rates'?displayDate(pointDate(p)):
 const staleSelection=()=>Error('The account or market selection changed. Reload before continuing.');
 // Closes the contract panel without asking, and forgets the contract it showed and its history choices.
 function closeContract(){contractPanel.reset();forgetContract();}
+// The contract's row is marked open in every drawing of the table, as the panel is open on it.
+function openRow(){const index=result?.points.findIndex(p=>pointIdentity(p)===contract)??-1;return index<0?undefined:$('contracts').querySelectorAll<HTMLElement>('tbody tr')[index];}
+function markOpenRow(){$('contracts').querySelectorAll('tbody tr[aria-current]').forEach(row=>row.removeAttribute('aria-current'));if(contract)openRow()?.setAttribute('aria-current','true');}
 function forgetContract(){contract='';historyData=undefined;historySeries=[];historyFailed=false;historyPolicy=revisionPolicies[0].policy;overlayRequests=[];}
 // Opens a contract of the curve on screen in the panel and reads its history. The contract the panel shows already is only given focus,
 // unless its history could not be read, which is then read again.
 async function openContract(identity:string){
   if(!result)return;
   if(!result.points.some(p=>pointIdentity(p)===identity))throw Error('Please select this contract again.');
+  const opener=contractPanel.current()===null?document.activeElement:undefined;
   if(!await contractPanel.open({kind:'contract',curve:result.curve,contract:identity})||contract===identity&&!historyFailed)return;
+  if(opener instanceof HTMLElement)contractOpener=opener;
   contract=identity;historyData=undefined;historySeries=[];historyFailed=false;
   renderContract();await history();
 }
@@ -449,14 +455,14 @@ function renderContract(){
   const pricing=el('section');pricing.className='contract-flow pricing-flow';
   if(rates)pricing.append(el('h4',contractLabel(p)),rateFlow(p));else drawPricingGraph(pricing,pricingGraph(result,p));
   contractPanel.pricing().replaceChildren(pricing);
-  renderHistory();
+  markOpenRow();renderHistory();
 }
 function renderHistory(){
   if(!result||!contract)return;
   const choices={policy:historyPolicy,overlays:overlayRequests.length},rates=result.kind==='rates';
   if(!historyData){contractPanel.history({state:historyFailed?'failed':'reading',...choices});$('history-values').replaceChildren();return;}
   const p=result.points.find(p=>pointIdentity(p)===contract)!,points=historyData.points,labels=timeLabels(points.map(p=>p.at),prefs.timeZone);
-  contractPanel.history({state:'read',...choices,basis:historyBasis(historyPolicy,historyData,instant),chart:{title:contractLabel(p),unit:$('unit').textContent??'',zone:prefs.timeZone,points,overlays:historySeries}});
+  contractPanel.history({state:'read',...choices,basis:historyBasis(historyPolicy,historyData,instant),chart:{title:contractLabel(p),unit:$('unit').textContent??'',zone:prefs.timeZone,series:historyChart(historyData),overlays:historySeries}});
   table('history-values',['Market date',rates?'Zero rate (%)':'Price','Known at'],points.map((p,i)=>[labels[i],historyPriceLabel(p),knownAtText(p,instant)]),[1],
     points.map((p,i)=>[labels[i],p.value===null?historyPriceLabel(p):amountText(p.value,'price',decimalTick()),knownAtText(p,instant)]));
 }
@@ -483,7 +489,7 @@ async function history(){
     const next=await api<ContractHistory>('history',{revisionPolicy:policy,snapshotId:owner.snapshotId,curve:owner.curve,...(owner.kind==='rates'?{seriesId:selected}:{contractId:selected}),...(overlays.length?{overlays}:{})});
     if(!contract)return;if(!current())throw staleSelection();
     historyBasis(policy,next,instant);
-    historySeries=historyOverlays(overlays,next.overlays,catalog);historyData=next;
+    historySeries=historyOverlays(overlays,next.overlays,catalog,'conflict' in historyChart(next));historyData=next;
   }catch(error){if(current()){historyFailed=true;renderHistory();}throw error;}
   renderHistory();
 }
@@ -830,11 +836,11 @@ const unitConverter=setupUnitConverter({api,act,busy:()=>busy});
 const knowledgeView=()=>navigation?.live?'live' as const:historicalContext()?'historical' as const:'working' as const;
 const futures=setupFutures({newPpa:async()=>{await setPage('ppa');await ppa.load();$('page-title').tabIndex=-1;$('page-title').focus();},api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
 // The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
-// otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, which is no longer marked open.
+// otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, or else to what opened it.
 const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
-const contractPanel=setupContractPanel($('contract-panel'),{instant,busy:()=>busy,
+const contractPanel=setupContractPanel($('contract-panel'),{
   docked:()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked',sheet:()=>phone.matches&&!$('market-page').hidden,
-  closed:()=>{forgetContract();const row=$('contracts').querySelector<HTMLElement>('tbody tr[aria-current=true]');row?.removeAttribute('aria-current');row?.focus();},
+  closed:()=>{const row=openRow();forgetContract();markOpenRow();(row??(contractOpener?.isConnected?contractOpener:undefined))?.focus();contractOpener=undefined;},
   policy:policy=>void act(async()=>{historyPolicy=policy;await history();}),
   overlays:requests=>void act(async()=>{overlayRequests=requests;await history();})});
 let mainWidth=main.clientWidth;

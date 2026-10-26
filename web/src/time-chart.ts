@@ -204,7 +204,7 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
     thousandsSeparator:{format:value=>String(value)},decimalFold:{format:value=>String(value)}});
   if(!started)throw Error('The time chart could not start.');
   const chart:Chart=started;
-  let bars:Bar[]=[];
+  let bars:Bar[]=[],fitting=0;
   const button=(label:string,click:()=>void)=>{const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.addEventListener('click',click);toolbar.append(b);return b;};
   for(const tool of tools)button(tool.label,()=>{chart.createOverlay(tool.name);});
   const noteText=document.createElement('input');noteText.type='text';noteText.placeholder='Note text';noteText.setAttribute('aria-label','Note text');
@@ -236,8 +236,9 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
     chart.removeIndicator();
     chart.resetData();
     // Fitted once the chart has laid out its axis, whose width depends on the data just loaded.
-    requestAnimationFrame(fit);
-    // Axis ticks use the precision of the stated prices; every legend value is the exact backend string (see tooltipOf).
+    cancelAnimationFrame(fitting);fitting=requestAnimationFrame(fit);
+    // The indicators keep the precision of the stated prices (the axis has one decimal more, above); every legend value is the exact
+    // backend string (see tooltipOf).
     const accent=readTokens(host)['--accent'];
     chart.createIndicator({name:priceIndicator,shortName:`${next.title} (${next.unit})`,precision:decimals(next.points),paneId:'candle_pane',
       extendData:{exact:exactTexts({price:next.points}),titles:{price:'Price: '}},
@@ -252,5 +253,5 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
     latest.replaceChildren(...latestValues(next).flatMap(row=>{const term=document.createElement('dt'),value=document.createElement('dd');term.textContent=row.name;value.textContent=row.value;return [term,value];}));
   }
   update(spec);
-  return {update,dispose(){scheme.removeEventListener('change',restyle);resize.disconnect();dispose(canvas);host.replaceChildren();}};
+  return {update,dispose(){cancelAnimationFrame(fitting);scheme.removeEventListener('change',restyle);resize.disconnect();dispose(canvas);host.replaceChildren();}};
 }

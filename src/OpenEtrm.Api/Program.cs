@@ -836,11 +836,19 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,policy,ct,
         session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
     const string mode="exact_visible_close_history_with_selected_instant_v1";
-    // Overlays run over the points returned, one sample per instant (HistoryOverlays), so the pinned context and knowledge cutoff carry over; a null value is a missing input.
+    // The chart is the points returned, one per instant (HistoryChart), or the instant where different samples remain; overlays run over
+    // the chart's points, so the pinned context and knowledge cutoff carry over, and a null value is a missing input. A conflicting series
+    // has no overlays: the requests are still checked, and the read states the conflict with its points.
     // The cutoff read is the selected context's own; working data states that it used current knowledge.
+    var chart=HistoryChart.Of(points);
     var read=new Dictionary<string,object?>{["mode"]=mode,["revisionPolicy"]=policy,["knowledgeCutoff"]=pin.Context?.KnownAt,
-        ["knowledgeBasis"]=pin.Context is null?"current_knowledge":"selected_context",["points"]=points};
-    if(body.Overlays is {} requests)read["overlays"]=OpenEtrm.Shared.Analytics.Overlays.Compute(HistoryOverlays.Points(points),requests);
+        ["knowledgeBasis"]=pin.Context is null?"current_knowledge":"selected_context",["points"]=points,
+        ["chart"]=chart.Conflict is {} conflict?new{conflict=new{at=conflict.At,message=conflict.Message}}:new{points=chart.Points}};
+    if(body.Overlays is {} requests)
+    {
+        if(chart.Conflict is null)read["overlays"]=OpenEtrm.Shared.Analytics.Overlays.Compute(chart.OverlayInput(),requests);
+        else OpenEtrm.Shared.Analytics.Overlays.Compute([],requests);
+    }
     return Results.Ok(read);
 }));
 api.MapGet("/analytics/overlays",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>
