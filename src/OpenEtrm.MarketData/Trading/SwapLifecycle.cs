@@ -65,7 +65,7 @@ public sealed class SwapSettlementInputs
 
     private IEnumerable<(int Membership, SidePaymentPlan Plan)> Plans(SidedInstrument instrument)
     {
-        if (instrument is not (FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap) ||
+        if (instrument is not (FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap or CrossCommodityScheduledSwap) ||
             instrument.Currency != NetCash.Currency || instrument.UnitQuantity.Specification != Quantity.Specification)
             throw Error("settlement_capability", "Lifecycle valuation requires the exact enrolled financial swap currency and quantity basis.");
         var plans = instrument.Sides.SelectMany((m,n) => ((SidePaymentSchedule)m.Side.GenerateSchedule()).Payments.Select(p => (Membership:n, Plan:p))).ToArray();
@@ -89,7 +89,7 @@ public sealed class SwapSettlementInputs
         var plans = Plans(instrument).ToArray(); var keys = DiscountKeys(instrument,context.Snapshot);
         var factors = context.Discounting.Resolve(keys,context.Snapshot);
         var enabled = instrument switch { FinancialSwapInstrument s => s.Discounting, MonthlyFinancialSwap s => s.Discounting,
-            ScheduledFinancialSwap s => s.Discounting, _ => throw Error("settlement_capability","Unsupported financial swap.") };
+            ScheduledFinancialSwap s => s.Discounting,CrossCommodityScheduledSwap s=>s.Discounting, _ => throw Error("settlement_capability","Unsupported financial swap.") };
         if (factors.IsDefault || factors.Length != keys.Length || factors.Any(f => f is null ||
                 f.DiscountFactor.CompareTo(default) <= 0 || !Enum.IsDefined(f.Source) ||
                 f.Source == DiscountFactorSource.Undiscounted && f.DiscountFactor != ExactDecimal.Parse("1") ||

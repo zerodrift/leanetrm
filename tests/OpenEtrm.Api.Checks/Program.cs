@@ -96,6 +96,10 @@ var resolvedBundle=PreviewData.ResolveBundleManifest(supplemental,JsonSerializer
 if(resolvedBundle.ReferenceRevisionId!=(Guid)supplementalRow["reference_revision_id"]||resolvedBundle.CatalogId!=manifest.CatalogId)
     throw new Exception("A selected bundle must retain its persisted exact reference version.");
 Console.WriteLine("PASS supplemental market uses its own persisted reference revision");
+var foreignCatalog=new Dictionary<string,object>(supplementalRow){["reference_catalog_id"]=Guid.NewGuid()};
+try {PreviewData.ResolveBundleManifest(supplemental,JsonSerializer.SerializeToElement(foreignCatalog));throw new Exception("Accepted a supplemental market in another reference catalog");}
+catch(MarketDataException e) when(e.Code=="reference_pin_mismatch") {Console.WriteLine("PASS supplemental market cannot substitute its declared reference catalog");}
+
 var browserReference=Guid.NewGuid();var browsed=manifest with{ReferenceCatalog=new(browserReference,Guid.NewGuid(),["interest_rate_definitions"])};
 if(ReferenceEditors.Source(browsed,"interest_rate_definitions").RevisionId!=browserReference||ReferenceEditors.Source(browsed,"currencies").RevisionId!=referenceRevision||manifest.ReferenceRevisionId!=referenceRevision)
     throw new Exception("An explicit reference browser catalog must preserve the original valuation manifest.");
@@ -108,7 +112,7 @@ if(sourceFrame.SwapMarketSelections!=selectedFrame.SwapMarketSelections||!source
  sourceFrame.OriginCloseId is not null||sourceFrame.Id!=selectedFrame.Id)
  throw new Exception("Supplemental booking revalidation lost the reviewed correction or retained source context.");
 Console.WriteLine("PASS supplemental market revalidation preserves reviewed correction selections and context");
-var passed=9;
+var passed=10;
 if(args.Length==1)
 {
     using var fixture=JsonDocument.Parse(File.ReadAllText(args[0])); var root=fixture.RootElement;

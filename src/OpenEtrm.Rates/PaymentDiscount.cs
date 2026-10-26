@@ -256,6 +256,10 @@ public static class FinancialSwapValuation
         Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
     public static FinancialSwapEvaluation Evaluate(MonthlyFinancialSwap instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault) =>
         Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
+    public static CurrencyDefaultDiscounting CreateDiscounting(CrossCommodityScheduledSwap instrument,MarketSnapshot snapshot,CurrencyDiscountCurve? currencyDefault)=>CreateDiscounting(instrument,instrument?.Discounting,snapshot,currencyDefault);
+    public static FinancialSwapEvaluation Evaluate(CrossCommodityScheduledSwap instrument,ConnectedValuation valuation,
+        ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,CurrencyDiscountCurve? currencyDefault,CancellationToken cancellation=default)=>
+        EvaluateConnected(instrument,instrument?.Discounting,valuation,bindings,authority,currencyDefault,cancellation);
     public static CurrencyDefaultDiscounting CreateDiscounting(ScheduledFinancialSwap instrument,MarketSnapshot snapshot,CurrencyDiscountCurve? currencyDefault)=>CreateDiscounting(instrument,instrument?.Discounting,snapshot,currencyDefault);
     public static FinancialSwapEvaluation Evaluate(ScheduledFinancialSwap instrument,CurveBuild market,bool discounting,CurrencyDiscountCurve? currencyDefault)=>Evaluate(instrument,market,discounting,currencyDefault,instrument?.Discounting);
     public static FinancialSwapEvaluation Evaluate(ScheduledFinancialSwap instrument,ConnectedValuation valuation,

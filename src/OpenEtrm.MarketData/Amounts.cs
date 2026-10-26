@@ -55,6 +55,8 @@ public sealed record Quantity
         return new(Amount + other.Amount, Specification);
     }
     public Quantity Scale(ExactDecimal scalar) => new(Amount * scalar, Specification);
+    public ExactQuantity Times(QuantityFactor factor,ReferenceKey target,UnitConverter converter)=>
+        factor.Apply(ExactQuantity.FromQuantity(this),target,converter);
 }
 
 // A working price unit is independent of a quote's observed-value domain and tick.

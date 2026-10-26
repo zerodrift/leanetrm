@@ -62,6 +62,11 @@ public sealed class UnitConverter
     }
     public QuantitySpecification Specification(ReferenceKey key) => quantities.TryGetValue(key, out var value) ? value :
         throw new MarketDataException("missing_reference", "The exact quantity specification is unavailable in this unit catalog.");
+    public bool CanConvert(ReferenceKey from,ReferenceKey to)
+    {
+        _=Specification(from);_=Specification(to);
+        try{_=Between(from,to);return true;}catch(MarketDataException e) when(e.Code=="quantity_conversion"){return false;}
+    }
     public string Symbol(ReferenceKey specification) => units[Specification(specification).Unit].Symbol;
     private ExactRatio Between(ReferenceKey from, ReferenceKey to)
     {
@@ -81,6 +86,11 @@ public sealed class UnitConverter
     }
     public Quantity Convert(Quantity value, ReferenceKey target, AmountFormat? rounding = null) =>
         new(Scale(value.Amount, Between(value.Specification, target), rounding), target);
+    public ExactQuantity Convert(ExactQuantity value,ReferenceKey target)
+    {
+        var scaled=value.Scale(Between(value.Specification,target));
+        return new(scaled.NumeratorValue,scaled.DenominatorValue,target);
+    }
     public UnitPrice Convert(UnitPrice value, ReferenceKey target, AmountFormat? rounding = null) =>
         new(Scale(value.Value, Between(value.Unit.Quantity, target).Inverse(), rounding), new PriceUnit(value.Unit.Currency, target, value.Unit.Multiplier));
 }

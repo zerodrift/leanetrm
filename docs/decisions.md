@@ -699,7 +699,39 @@ synthetic market bundle. Per-category reference browsing can inspect that bundle
 without replacing existing valuation references. Supplemental reads, booking,
 retained terms, discount mapping and risk must use the selected exact references;
 frontend commodity/calendar/clock choices remain scoped to that market.
+Single-period entry and draft pricing support these exact supplemental references
+as scheduled entry does; supported sampling determines new-entry eligibility.
 
 Inbound FK counts alone do not classify a table as unused. Preserve child tables
 with validated outbound FKs and named runtime consumers. See
 [reference coverage](reference-data.md#reference-coverage-and-retirement).
+
+## D227 — Typed contractual quantity factors
+
+An explicitly selected `factor_scheduled_financial_swap_v1` composes two floating
+scheduled sides in distinct commodities and one exact currency. Its positive
+`contractual_quantity_factor_v1` has exact numerator and denominator quantity
+references and pins `consistent_exact_unit_ratios_v1`. First-side quantity entry
+uses the existing supported schedule bases; `factor_of_first_side_v1` derives
+the second side without a second authored amount or allocation.
+
+The managed compiler converts each first-side quantity to the denominator,
+multiplies the contractual scalar, rebases to the numerator and converts to the
+second quote's native quantity. Conversion paths, commodity, measurement basis
+and dimension come from the immutable database reference version. Calculations
+retain exact rational values through final cash rounding. Aligned delivery
+periods and equal normalized shares enforce the factor in every period. Each
+side retains its independent observation and payment terms. Market shocks never
+change contractual sizing. Factor units/value and implementation versions enter
+economic and settlement identity; equivalent unit expressions retain distinct
+selected contracts. Prior swap versions and their identities remain unchanged.
+
+Supplemental swap markets resolve their reference revision from the selected
+sealed model's exact foreign key, under the same certified knowledge context and
+current authorization. Reference caching requires an identical catalog/revision
+pair and rechecks authority. Publishing a compatible unit/reference version and
+an explicitly configured consuming model is data/configuration work. New
+conversion algorithms or schedule semantics still require a versioned release;
+missing paths or ambiguous financial behavior raise structured errors.
+
+See [factor contracts and qualification](factor-swaps.md).

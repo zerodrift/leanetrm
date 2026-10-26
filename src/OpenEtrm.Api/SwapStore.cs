@@ -246,7 +246,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
     (p.Reference.Selection==CustomCurveProjectionBinding.SupportedSelection?contracts.Length>0:
      daily.Any(g=>g.All(c=>p.Deliveries.Contains(new(c.DeliveryFrom,c.DeliveryTo))))))
     .Select(p=>new{p.Label,p.Reference,samplings=p.Reference.Selection==CustomCurveProjectionBinding.SupportedSelection?
-     new[]{new{resetFrequency="monthly",averagingMethod="none"}}:new[]{new{resetFrequency="daily",averagingMethod="arithmetic"}}}).ToArray(),definitionRevisionId=data.DefinitionRevision.RevisionId,curve=curve.Text("code"),index=target.Text("index_a_code"),commodity=curve.Text("commodity_code"),currencyCode=quote.Currency.Code,currency=currency.Text("display_code"),
+     new[]{new{resetFrequency="monthly",averagingMethod="none"}}:new[]{new{resetFrequency="daily",averagingMethod="arithmetic"}}}).ToArray(),definitionRevisionId=data.DefinitionRevision.RevisionId,primitiveEntrySupported=!samplings.IsEmpty,curve=curve.Text("code"),index=target.Text("index_a_code"),commodity=curve.Text("commodity_code"),currencyCode=quote.Currency.Code,currency=currency.Text("display_code"),
     fixingConvention=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?IndexFixing.SupportedImplementation:null,
     fixingUnavailableReason=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?null:"This index has no qualified fixing schedule for the selected observations.",
     quantityCode=quote.Quantity.Code,powerQuantitySupported=quantity.Text("unit_code")=="megawatt_hour"&&quantity.Text("dimension_code")=="energy",quantityChoices=DraftQuantities(data,quote.Quantity),unit=unit.Text("symbol"),quoteMultiplier=quote.Multiplier.ToString(),minimumPrice=quote.Minimum.ToString(),maximumPrice=quote.Maximum.ToString(),
@@ -260,12 +260,13 @@ public sealed partial class SwapStore(PreviewDatabase database)
    paymentCalendars=m.Data.References["calendars"].Select(c=>new{code=c.Text("code"),reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")}).ToArray(),
    powerQuantities=m.Data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power").Select(q=>new{specification=new ReferenceKey(m.Data.ReferenceRevision,q.Text("code")),unit="MW",commodity=q.Text("commodity_code")}).ToArray(),
    clocks=m.Data.References["clock_rules"].Select(c=>new{reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),label=c.OptionalText("iana_zone")??c.Text("code")}).ToArray()}).ToArray();
-  var primary=referenceChoices[0];
   return new{books=await new FuturesStore(manifest).Books(connection,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,referenceChoices,
-   commodities=referenceChoices.SelectMany(m=>m.commodities).DistinctBy(c=>c.code),
-   paymentCalendars=primary.paymentCalendars,
+   commodities=markets.SelectMany(m=>m.Data.References["commodities"]).DistinctBy(c=>c.Text("code")).Select(c=>new{code=c.Text("code"),name=c.Text("name")}),
+   paymentCalendars=markets.SelectMany(m=>m.Data.References["calendars"].Select(c=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,code=c.Text("code"),reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")})),
+   factorOptions=new{swapImplementation=CrossCommodityScheduledSwap.Implementation,factorImplementation=QuantityFactor.Implementation,unitConversionImplementation=UnitConverter.Implementation,quantityBasis="factor_of_first_side_v1"},
    scheduledOptions=new{implementation=ScheduledFinancialSwap.Implementation,priceApplication=ScheduledPriceApplication,maximumPeriods=120,
-    powerQuantities=primary.powerQuantities,clocks=primary.clocks},
+    powerQuantities=markets.SelectMany(m=>m.Data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power").Select(q=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,specification=new ReferenceKey(m.Data.ReferenceRevision,q.Text("code")),unit="MW",commodity=q.Text("commodity_code")})),
+    clocks=markets.SelectMany(m=>m.Data.References["clock_rules"].Select(c=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),label=c.OptionalText("iana_zone")??c.Text("code")}))},
    parRateOptions=new{implementation=FinancialSwapValuation.ParRatePolicy,initialDecimalPlaces=6,tieRule="to_even"},entryTemplate=SwapPaymentOptions.EntryTemplate,paymentOptions=SwapPaymentOptions.Catalog,convention=Convention};
  }
  private static SwapPaymentInput? StoredPayment(JsonElement row,string key)

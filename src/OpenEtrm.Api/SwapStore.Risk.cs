@@ -42,7 +42,7 @@ public sealed partial class SwapStore
         if(markets.Select(m=>m.Data.DefinitionRevision).Distinct().Count()!=markets.Length||markets.Any(m=>
             m.Frame.Id!=frame.Id||m.Frame.At!=frame.At||m.Frame.ContextId!=frame.ContextId||
             m.Data.DefinitionRevision.CatalogId!=data.DefinitionRevision.CatalogId))
-            throw Error("swap_context","Supplemental markets require unique exact revisions and the same retained context and instant.");
+            throw Error("swap_context","Supplemental markets require unique exact revisions and the same retained context and instant, each with its exact pinned references.");
         var identities=new InstrumentIdentityMap(manifest.CatalogId);
         var providers=new Dictionary<Guid,ISideDiscounting>();
         var result=ImmutableArray.CreateBuilder<ResolvedSwapHolding>(rows.Length);
@@ -70,9 +70,9 @@ public sealed partial class SwapStore
             }
             else if(!providers.TryGetValue(instrument.Id,out provider!))
             {
-                var enabled=instrument switch { FinancialSwapInstrument legacy=>legacy.Discounting,ScheduledFinancialSwap scheduled=>scheduled.Discounting,_=>throw Error("swap_definition","Unsupported swap version.") };
+                var enabled=instrument switch { FinancialSwapInstrument legacy=>legacy.Discounting,ScheduledFinancialSwap scheduled=>scheduled.Discounting,CrossCommodityScheduledSwap cross=>cross.Discounting,_=>throw Error("swap_definition","Unsupported swap version.") };
                 var mapping=enabled?await Discount(connection,market.Data,market.Frame,instrument.Currency,ct):null;
-                provider=instrument switch{FinancialSwapInstrument legacy=>FinancialSwapValuation.CreateDiscounting(legacy,market.Snapshot,mapping),ScheduledFinancialSwap scheduled=>FinancialSwapValuation.CreateDiscounting(scheduled,market.Snapshot,mapping),_=>throw Error("swap_definition","Unsupported swap version.")};
+                provider=instrument switch{FinancialSwapInstrument legacy=>FinancialSwapValuation.CreateDiscounting(legacy,market.Snapshot,mapping),ScheduledFinancialSwap scheduled=>FinancialSwapValuation.CreateDiscounting(scheduled,market.Snapshot,mapping),CrossCommodityScheduledSwap cross=>FinancialSwapValuation.CreateDiscounting(cross,market.Snapshot,mapping),_=>throw Error("swap_definition","Unsupported swap version.")};
                 providers.Add(instrument.Id,provider);
             }
             result.Add(new(row,instrument,resolved.Quantity,provider,market.Data,market.Frame,market.Snapshot,settlement));

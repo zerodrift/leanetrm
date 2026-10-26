@@ -285,9 +285,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2 ORDER BY {key}) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
         }
         if (definitions["revisions"].Length != 1 || definitions["revisions"][0].Text("state") != "sealed") throw new PreviewDeniedException();
-        // An explicitly selected, admitted market carries its own persisted
-        // reference version. The primary manifest pin remains strict.
-        if(selectedRevision is not null&&ppaBundle is null)
+        if(ppaBundle is null&&selectedRevision is {} supplemental&&supplemental!=Manifest.RevisionId)
             selectedManifest=PreviewData.ResolveBundleManifest(selectedManifest,definitions["revisions"][0]);
         PreviewData.RequireBundlePin(selectedManifest, definitions["revisions"][0]);
         if(selectedRevision is not null&&ppaBundle is null&&sharedReferences is not null&&
@@ -700,7 +698,8 @@ public sealed class PreviewData
     public bool HasCurveMember(string curve,Guid contract)=>curveMembers.Contains((curve,contract));
     public static PreviewManifest ResolveBundleManifest(PreviewManifest selected,JsonElement row)
     {
-        if(row.Id("catalog_id")!=selected.CatalogId||row.Id("id")!=selected.RevisionId||row.Text("state")!="sealed")
+        if(row.Id("catalog_id")!=selected.CatalogId||row.Id("id")!=selected.RevisionId||
+            row.Id("reference_catalog_id")!=selected.ReferenceCatalogId||row.Text("state")!="sealed")
             throw new MarketDataException("reference_pin_mismatch","The admitted market requires its exact persisted sealed definition.");
         return selected with{ReferenceCatalogId=row.Id("reference_catalog_id"),ReferenceRevisionId=row.Id("reference_revision_id")};
     }

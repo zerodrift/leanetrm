@@ -463,7 +463,8 @@ public sealed record InstrumentValuation
         :this(instrument,context,Policy)
     {
         if (values.IsDefault || values.Length != instrument.Sides.Length || values.Where((v, n) => v is null ||
-            v.SideId != instrument.Sides[n].Side.Id || v.Currency != instrument.Currency || v.UnitQuantity != instrument.UnitQuantity).Any())
+            v.SideId != instrument.Sides[n].Side.Id || v.Currency != instrument.Currency ||
+            v.UnitQuantity != (instrument is CrossCommodityScheduledSwap ? ((ScheduledSwapSide)instrument.Sides[n].Side).UnitQuantity : instrument.UnitQuantity)).Any())
             throw new MarketDataException("instrument_contribution", "Every membership requires its own exact side valuation in the instrument currency and unit basis.");
         if (values.Any(v => !ReferenceEquals(context, v.Context)))
             throw new MarketDataException("instrument_context", "All side PVs must belong to this valuation operation, including its exact scenario and discount inputs.");

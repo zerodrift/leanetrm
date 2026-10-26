@@ -28,6 +28,7 @@ def run_checks(url,manifest,demo,query,run_worker):
     assert choices[manifest['revisionId']]['paymentCalendars'] and choices[demo['definitionRevisionId']]['paymentCalendars']
     assert all(c['reference']['revision']['revisionId']==demo['referenceRevisionId'] for c in choices[demo['definitionRevisionId']]['paymentCalendars'])
     index=next(i for i in catalog0['indices'] if i['definitionRevisionId']==demo['definitionRevisionId'] and i['curve']=='demo_forward')
+    assert index['primitiveEntrySupported'], 'The qualified demo market must remain selectable in the ordinary swap editor'
     assert index['defaultDiscountCurve']=='demo_discount_curve'
     book=str(uuid4());query(f"INSERT INTO trading.books SELECT catalog_id,'{book}',portfolio_id,'Synthetic reference discounting',publication_order,effective_at FROM trading.books LIMIT 1;")
     delivery={'deliveryFrom':demo['deliveryFrom'],'deliveryTo':demo['deliveryTo']}
@@ -43,6 +44,10 @@ def run_checks(url,manifest,demo,query,run_worker):
     with localcontext() as ctx:
         ctx.prec=80;factor=(Decimal(365)/(Decimal(365)+Decimal('0.03')*days)).quantize(Decimal('1e-18'),rounding=ROUND_HALF_EVEN)
     assert Fraction(priced['valuation']['presentValue'])==Fraction(factor*100),priced
+    draft=client.call('swaps/price',{'context':context,**{key:request[key] for key in ('definitionRevisionId','commodity','fixedCoefficient','discounting','fixed','floating')},
+        'quantity':{'value':'10','specification':next(q['specification'] for q in index['quantityChoices'] if q['specification']['code']==index['quantityCode'])}})
+    assert Fraction(draft['valuation']['presentValue'])==Fraction(factor*100),draft
+
     booked=client.call('swaps/book',request)
     reopened=client.call('swaps/editor',{'context':context,'tradeId':booked['tradeId'],'revision':None})
     assert Fraction(reopened['valuation']['presentValue'])==Fraction(factor*100)
