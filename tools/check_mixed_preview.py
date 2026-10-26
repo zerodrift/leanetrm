@@ -74,12 +74,12 @@ def run_checks(url,export):
     check('explicit revision selection preserves period view',revised['curveContracts']==first['curveContracts'] and
           c.evaluate(revised,'location_delivery')['points'][0]['value']=='3.35')
     jan30=next(p for p in c.evaluate(first,'location_delivery')['points'] if p['deliveryFrom']=='2026-01-30')
-    history=c.call('history',{'snapshotId':first['id'],'curve':'location_delivery','contractId':jan30['contractId']})['points']
+    history=c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':first['id'],'curve':'location_delivery','contractId':jan30['contractId']})['points']
     check('dated daily history retains exact prices and explicit expired gaps',
           [p['value'] for p in history[:4]]==['3.404','3.252','3.281','3.41'] and
           all(p['value'] is None and p['unavailableReason']=='source_expired' for p in history[4:]))
     march=next(p for p in c.evaluate(first,'location_delivery')['points'] if p['deliveryFrom']=='2026-03-01')
-    history=c.call('history',{'snapshotId':first['id'],'curve':'location_delivery','contractId':march['contractId']})['points']
+    history=c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':first['id'],'curve':'location_delivery','contractId':march['contractId']})['points']
     check('same monthly contract has eight retained prices across the rollover',len(history)==8 and
           history[0]['value']=='3.85' and history[-1]['value']=='4' and all(p['unavailableReason'] is None for p in history))
     check('BALMO is explicitly empty on both month-end frames',all(c.evaluate(frames[i],'location_balmo')['availability']=='no_remaining_contracts' for i in [4,7]))
@@ -89,7 +89,7 @@ def run_checks(url,export):
     rates=c.evaluate(first,'interest_rates')
     check('basic interest-rate example still evaluates',rates['kind']=='rates' and len(rates['points'])==3)
     check('unknown curve remains an error',c.call('evaluate',{'snapshotId':first['id'],'curve':'absent'},status=422)['code']=='missing_curve')
-    check('arbitrary dated contract cannot be substituted in history',c.call('history',{'snapshotId':first['id'],'curve':'location_delivery',
+    check('arbitrary dated contract cannot be substituted in history',c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':first['id'],'curve':'location_delivery',
           'contractId':'00000000-0000-0000-0000-000000000001'},status=422)['code']=='request_member')
     other=Client();other.call('profile',{'profile':'viewer'})
     check('another browser session cannot use an edited frame',other.call('evaluate',{'snapshotId':changed['id'],'curve':'location_delivery'},status=422)['code']=='snapshot_missing')

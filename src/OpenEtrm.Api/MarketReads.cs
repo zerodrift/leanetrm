@@ -10,7 +10,26 @@ public sealed record CurveName(string Code,string Name);
 public sealed record WorkspaceRead(PreviewData Data,UnitCatalogData? Units,ImmutableArray<CurveName>? CurveNames,
     ReferenceDisplayData? ReferenceDisplay=null,ReferenceDisplayData? UnitReferenceDisplay=null);
 public sealed record PriceRead(object Result,ImmutableArray<JsonElement> Observations,WorkspaceRead? Workspace=null);
-public sealed record HistorySample(DateTimeOffset At,string? Value,Guid SnapshotId,Guid[] ObservationIds,string? UnavailableReason);
+// KnownAt is the latest certified publication instant among the sample's observations; null while any is not yet certified.
+public sealed record HistorySample(DateTimeOffset At,string? Value,Guid SnapshotId,Guid[] ObservationIds,string? UnavailableReason,DateTimeOffset? KnownAt=null);
+// How a history read chooses the revision each sample shows (D230); the caller must name one.
+public static class HistoryRevisionPolicy
+{
+    public const string ExactSnapshotPins="exact_snapshot_pins_v1",AsKnownAtCutoff="as_known_at_cutoff_v1";
+    public static string Require(string? policy)=>policy is ExactSnapshotPins or AsKnownAtCutoff?policy
+        :throw new MarketDataException("history_revision_policy","Choose a revision policy: exact snapshot pins or as known at the cutoff.");
+
+    public static IEnumerable<HistorySample> OnePerInstant(IEnumerable<HistorySample> samples)
+    {
+        foreach(var instant in samples.GroupBy(s=>s.At))
+        {
+            var first=instant.First();
+            if(instant.Any(s=>s.Value!=first.Value||s.UnavailableReason!=first.UnavailableReason))
+                throw new MarketDataException("history_conflict",$"Several different prices are known at {instant.Key:O} under this cutoff. Choose one version before reading this history.");
+            yield return instant.OrderByDescending(s=>s.KnownAt).First();
+        }
+    }
+}
 // A contract's delivery period and its exact price at the pinned frame, or the position-specific reason it has none (D220).
 public sealed record CurveShapePoint(Guid ContractId,string DeliveryFrom,string DeliveryTo,string? Price,string? UnavailableReason);
 // A curve at the pinned frame: its price unit and a point for each contract its view selects, or, with neither, the code its own
@@ -134,22 +153,39 @@ public sealed class MarketReads(PreviewDatabase database)
     }
     static string Date(DateOnly date)=>date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
 
-    // Rebuilds the given frames of the pinned view; the pinned frame replaces the frame at its instant.
+    // Rebuilds the given frames of the pinned view; the pinned frame replaces the frame at its instant. Under as_known_at_cutoff_v1
+    // each frame follows its pins to their latest revision visible at the pinned context's cutoff (the resolver certified contexts use),
+    // then samples at one instant collapse when identical and are refused when they still differ (D229, D230).
     public async Task<ImmutableArray<HistorySample>> History(NpgsqlConnection connection,PinnedContext pin,ImmutableArray<InputFrame> frames,
-        string curve,Guid? contractId,Guid? seriesId,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null)
+        string curve,Guid? contractId,Guid? seriesId,string revisionPolicy,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null)
     {
         var current=pin.RequireFrame();
         var data=await Data(connection,pin,ct);
         var selected=(resolveFrames?.Invoke(data)??frames).Select(pin.Require).Where(frame=>frame.At!=current.At).Append(current).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id).ToArray();
-        return [..selected.Select(f=>
+        var samples=selected.Select(f=>
         {
             try {
-                var value=data.HistoryValue(f,curve,contractId,seriesId);
+                var value=data.HistoryValue(revisionPolicy==HistoryRevisionPolicy.AsKnownAtCutoff?data.SelectPinned(f):f,curve,contractId,seriesId);
                 return new HistorySample(f.At,value.Value,f.Id,value.Inputs,null);
             }
             catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error))
             { return new HistorySample(f.At,null,f.Id,[],error.Code); }
-        })];
+        }).ToArray();
+        var knowledge=await KnownAt(connection,samples.SelectMany(s=>s.ObservationIds).Distinct().ToArray(),ct);
+        var known=samples.Select(s=>s with{KnownAt=s.ObservationIds.Length>0&&s.ObservationIds.All(knowledge.ContainsKey)?s.ObservationIds.Max(id=>knowledge[id]):null});
+        return revisionPolicy==HistoryRevisionPolicy.AsKnownAtCutoff?[..HistoryRevisionPolicy.OnePerInstant(known)]:[..known];
+    }
+
+    // Certified publication instants of the observations (never receipt audit times); observations not yet certified have none.
+    async Task<Dictionary<Guid,DateTimeOffset>> KnownAt(NpgsqlConnection connection,Guid[] observations,CancellationToken ct)
+    {
+        if(observations.Length==0)return [];
+        var rows=await PreviewDatabase.Rows(connection,"""
+            SELECT row_to_json(q)::text FROM(SELECT e.observation_id AS id,k.known_from FROM market_data.knowledge_events e
+            JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
+            WHERE e.catalog_id=$1 AND e.observation_id=ANY($2::uuid[]))q
+            """,[database.Manifest.CatalogId,observations],ct);
+        return rows.ToDictionary(r=>r.Id("id"),r=>r.Instant("known_from"));
     }
 
     async Task<ImmutableArray<CurveName>> Names(NpgsqlConnection connection,CancellationToken ct)

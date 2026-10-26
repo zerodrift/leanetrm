@@ -102,6 +102,14 @@ a constituent opens the history of that same dated identity. Its history axis is
 observation/mark time, not contract expiry. Keep delivery periods and expiry
 distinct in metadata even when a chart uses expiry as its axis.
 
+A history read names its revision policy (D230). `exact_snapshot_pins_v1` shows
+each retained snapshot's exact pins, so several samples can share a business
+instant. `as_known_at_cutoff_v1` shows, per instant, the latest revision recorded
+at or before the read's knowledge cutoff: the selected context's instant, or
+current knowledge for working data, which the response states. Identical
+samples at one instant collapse (D229); different ones are refused naming the
+instant. Each point carries its observation identities and certified `knownAt`.
+
 Histories attach to stable market factor identities and can be assembled into an
 aligned sample set: factors are columns and explicitly sampled intervals are
 rows. Retain sampling/calendar/cutoff rules, source/quality information, missing

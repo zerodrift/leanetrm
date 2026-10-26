@@ -21,6 +21,16 @@ internal static class PreviewDataChecks
             var session=new PreviewSession(fixture.Manifest with{Frames=[seed]});
             var id=session.InitialFrames.Single();session.Frames[id]=frame with{Id=id};return session;
         }
+        Check("history keeps one sample per instant: identical versions collapse, different ones are a conflict (D229, D230)",()=>
+        {
+            var at=new DateTimeOffset(2020,12,17,16,0,0,TimeSpan.Zero);
+            HistorySample Sample(string? value,DateTimeOffset? known,string? reason=null)=>new(at,value,Guid.NewGuid(),[],reason,known);
+            var early=at.AddDays(1);var late=at.AddDays(2);
+            var one=HistoryRevisionPolicy.OnePerInstant([Sample("1.5",early),Sample("1.5",late),new HistorySample(at.AddDays(1),"2",Guid.NewGuid(),[],null)]).ToArray();
+            if(one.Length!=2||one[0].KnownAt!=late||one[0].Value!="1.5")throw new Exception("Identical samples must count once, keeping the latest knowledge.");
+            Reject("history_conflict",()=>HistoryRevisionPolicy.OnePerInstant([Sample("1.5",early),Sample("1.6",late)]).ToArray());
+            Reject("history_conflict",()=>HistoryRevisionPolicy.OnePerInstant([Sample("1.5",early),Sample(null,early,"source_expired")]).ToArray());
+        });
         var data=Data();
         Check("all independently keyed futures retain their exact prices and input identities",()=>
         {

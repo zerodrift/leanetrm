@@ -827,18 +827,21 @@ api.MapPost("/market/curve-shapes",(HttpContext c,CurveShapesRequest body)=>Lock
 }));
 api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async session=>
 {
+    var policy=HistoryRevisionPolicy.Require(body.RevisionPolicy);
     await RefreshFrames(session,c.RequestAborted);
     var pin=Pin(session,body.SnapshotId);
     // Current history includes initial inputs and every offered stored close;
     // unselected manual edits remain separate explicit input choices.
     var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
-    var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,ct,
+    var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,policy,ct,
         session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
     const string mode="exact_visible_close_history_with_selected_instant_v1";
     // Overlays run over the points returned, one sample per instant (HistoryOverlays), so the pinned context and knowledge cutoff carry over; a null value is a missing input.
-    return body.Overlays is {} requests
-        ?Results.Ok(new {mode,points,overlays=OpenEtrm.Shared.Analytics.Overlays.Compute(HistoryOverlays.Points(points),requests)})
-        :Results.Ok(new {mode,points});
+    // The cutoff read is the selected context's own; working data states that it used current knowledge.
+    var read=new Dictionary<string,object?>{["mode"]=mode,["revisionPolicy"]=policy,["knowledgeCutoff"]=pin.Context?.KnownAt,
+        ["knowledgeBasis"]=pin.Context is null?"current_knowledge":"selected_context",["points"]=points};
+    if(body.Overlays is {} requests)read["overlays"]=OpenEtrm.Shared.Analytics.Overlays.Compute(HistoryOverlays.Points(points),requests);
+    return Results.Ok(read);
 }));
 api.MapGet("/analytics/overlays",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>
     Task.FromResult(Results.Ok(new {policy=OpenEtrm.Shared.Analytics.Overlays.Policy,overlays=OpenEtrm.Shared.Analytics.Overlays.Catalog})),c.RequestAborted))));
@@ -1317,7 +1320,7 @@ public sealed record ProfileRequest(string Profile);
 public sealed class PreviewSessionEnded : Exception;
 public sealed record LocalTimeRequest(string? LocalTime,string? TimeZone);
 public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false);
-public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null,ImmutableArray<OpenEtrm.Shared.Analytics.OverlayRequest>? Overlays=null);
+public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null,string? RevisionPolicy=null,ImmutableArray<OpenEtrm.Shared.Analytics.OverlayRequest>? Overlays=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveShapesRequest(Guid SnapshotId,ImmutableArray<string> Curves);
 public sealed record CorrectionRequest(Guid SnapshotId,Guid ObservationId,string Value);

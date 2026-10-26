@@ -118,10 +118,14 @@ ordered series of `(instant, exact value or missing)`. Definitions, versioned:
 - The input series holds at most 35,136 points (one year of half-hour
   intervals); more is an `overlay_input` refusal, as are unordered instants and
   values that are not plain ASCII decimals.
-- A history read may hold several samples at one instant. Overlays take one
-  sample per instant: identical samples count once, and different samples at one
-  instant are an `overlay_input` refusal naming it; no frame is ever chosen. The
-  returned points are unchanged, and the overlay series is aligned by instant.
+- Overlays run over the history points the read returns. Under
+  `as_known_at_cutoff_v1` (D230) these hold one sample per instant, resolved to
+  the latest revision recorded at or before the read's knowledge cutoff, so the
+  chart and the overlays show the same series. Under `exact_snapshot_pins_v1`
+  several samples may share an instant: identical ones count once for overlays
+  and different ones are an `overlay_input` refusal naming it; no frame is ever
+  chosen, the returned points are unchanged, and the overlay series is aligned
+  by instant.
 - Parameters are required. A missing, out-of-range or unknown parameter is a
   structured `overlay_parameter` refusal, never a default.
 - `GET analytics/overlays` returns the catalog (code, label, parameters with

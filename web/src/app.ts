@@ -46,6 +46,8 @@ const groupNode=(id:string)=>$<HTMLDetailsElement>('nav-group-'+id);
 const text=(id:string,value:string)=>{$(id).textContent=publicText(value);};
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,content?:string){const node=document.createElement(tag);if(content!==undefined)node.textContent=publicText(content);return node;}
 function choose(id:string,options:{value:string;name:string}[],value:string){const node=select(id);node.replaceChildren(...options.map(o=>{const option=el('option',o.name);option.value=o.value;return option;}));node.value=value;}
+// Each history sample shows its snapshot's exact pins; the revision-policy choice arrives with its screen (D230).
+const historyRevisionPolicy='exact_snapshot_pins_v1';
 let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,contract='',historyData:PriceHistory|undefined,pricingContract='',showAllContracts=false,input='',draftFor='',busy=false,page='market';
 let sourceOnlyCurve=false,historyRequested=false;
 let contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
@@ -379,11 +381,11 @@ async function build(){
 function renderHistory(){
   if(!result||!historyData)return;const p=result.points.find(p=>pointIdentity(p)===contract);if(!p)throw Error('Please select this sample again.');const rates=result.kind==='rates';$('history-card').hidden=false;text('history-title',`${rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!)} · ${rates?'rate':'price'} history`);
   const labels=timeLabels(historyData.points.map(p=>p.at),prefs.timeZone);
-  const exportHistory={snapshotId:result.snapshotId,curve:result.curve,...(rates?{seriesId:contract}:{contractId:contract})};
+  const exportHistory={revisionPolicy:historyRevisionPolicy,snapshotId:result.snapshotId,curve:result.curve,...(rates?{seriesId:contract}:{contractId:contract})};
   renderChart($('history-chart'),{exportImage:download=>void act(async()=>{try{await api('history',exportHistory);}catch(error){clearPrices();throw error;}download();}),title:`${rates?'Rates':'Prices'} over time`,axis:'observation',unit:$('unit').textContent??'',series:[{name:rates?'Zero rate':'Price',points:historyData.points.map((p,i)=>({x:p.snapshotId,label:labels[i],y:p.value}))}]});
   table('history-values',['Market date',rates?'Zero rate (%)':'Price'],historyData.points.map((p,i)=>[labels[i],historyPriceLabel(p)]),[1],historyData.points.map((p,i)=>[labels[i],p.value===null?historyPriceLabel(p):amountText(p.value,'price',decimalTick())]));
 }
-async function history(){historyRequested=true;if(!result||!contract)return;const owner=result,selected=contract,started=marketGeneration,scope=marketSelection();clearChart($('history-chart'));historyData=undefined;$('history-card').hidden=true;const next=await api<PriceHistory>('history',{snapshotId:result.snapshotId,curve:result.curve,...(result.kind==='rates'?{seriesId:contract}:{contractId:contract})});if(result!==owner||contract!==selected||started!==marketGeneration||scope!==marketSelection())throw Error('The account or market selection changed. Reload before continuing.');historyData=next;renderHistory();}
+async function history(){historyRequested=true;if(!result||!contract)return;const owner=result,selected=contract,started=marketGeneration,scope=marketSelection();clearChart($('history-chart'));historyData=undefined;$('history-card').hidden=true;const next=await api<PriceHistory>('history',{revisionPolicy:historyRevisionPolicy,snapshotId:result.snapshotId,curve:result.curve,...(result.kind==='rates'?{seriesId:contract}:{contractId:contract})});if(result!==owner||contract!==selected||started!==marketGeneration||scope!==marketSelection())throw Error('The account or market selection changed. Reload before continuing.');historyData=next;renderHistory();}
 function renderInputs(){
   if(!result||!result.points.length){text('inputs',result?'No price sources are needed for an empty delivery window.':'Choose a market date to view price sources.');text('input-count','');return;}
   const used=new Set(sourcePoints().flatMap(p=>p.lineage));if([...used].some(id=>!pricingFrame().observationIds.includes(id)))throw Error('A required source observation is missing from this market date.');const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
