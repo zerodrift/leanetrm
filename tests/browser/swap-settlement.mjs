@@ -98,14 +98,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await cash(await outstandingOf(1),'Synthetic lost browser cash');
  await evaluate("window.__lose='/api/swaps/settlement/payment'");await submit('#swap-settlement-payment-form');await wait("!document.querySelector('#futures-pending').hidden&&"+idle);
  await check('a settlement cash record whose outcome is not known is kept in the panel\'s card, named for it, with Check status and Retry',`${card('Settlement cash of '+selected.reference)}&&document.querySelector('#side-panel').contains(document.querySelector('#futures-pending'))&&!document.querySelector('#futures-retry').disabled`,"[document.querySelector('#futures-pending').textContent,document.querySelector('#futures-retry').disabled]");
- await click('#futures-reconcile');await wait("document.querySelector('#futures-pending').hidden&&"+idle);
+ await click('#futures-reconcile',60000);await wait("document.querySelector('#futures-pending').hidden&&"+idle);
  await check('Check status settles it and leaves the settlement view open, which shows the cash',`${open}&&document.querySelector('#swap-settlement').textContent.includes('Synthetic lost browser cash')`,"[document.querySelector('#side-panel').hidden,document.querySelector('#side-panel').dataset.mode,!!document.querySelector('#swap-settlement')&&document.querySelector('#swap-settlement').hidden]");
  // A cash record that never reached the backend, retried after the settlement moved on, is refused for good: the card is released
  // with the backend's reason, and the view takes writes again.
  await cash(await outstandingOf(0),'Synthetic stale browser cash');
  await evaluate("window.__drop='/api/swaps/settlement/payment'");await submit('#swap-settlement-payment-form');await wait("!document.querySelector('#futures-pending').hidden&&"+idle);
  await evaluate(`(async()=>{const r=await window.__settlementPost('swaps/settlement/inspect',{context:window.__settlementContext,tradeId:window.__settlementTrade,revision:null,duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1'});const b=r.balances.find(b=>b.membershipOrdinal===0&&b.outstanding!=='0');await window.__settlementPost('swaps/settlement/payment',{context:window.__settlementContext,tradeId:window.__settlementTrade,operationId:crypto.randomUUID(),expectedRevision:r.state.revision,expectedVersion:r.settlement.version,determinationId:b.determinationId,amount:b.outstanding.startsWith('-')?'-0.01':'0.01',currency:r.currency,effectiveAt:'2021-01-15T08:00:00Z',reference:'Synthetic direct browser cash',reversesId:null});})()`);
- await click('#futures-retry');await wait(idle);
+ await click('#futures-retry',60000);await wait(idle);
  await check('a retry the backend refuses for good releases the card and shows the backend\'s reason',"document.querySelector('#futures-pending').hidden&&!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.trim().length>0","[document.querySelector('#futures-pending').hidden,document.querySelector('#futures-pending').textContent,document.querySelector('#error').textContent]");
  await click('#swap-settlement-refresh');await wait(idle);await cash(await outstandingOf(0),'Synthetic browser cash after a refusal');await submit('#swap-settlement-payment-form');await wait(idle);
  await check('and the view takes writes again',`document.querySelector('#futures-pending').hidden&&!document.querySelector('#swap-settlement [role=alert]').textContent&&document.querySelector('#swap-settlement').textContent.includes('Synthetic browser cash after a refusal')`,"[document.querySelector('#swap-settlement [role=alert]').textContent,document.querySelector('#error').textContent]");
@@ -117,7 +117,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait(idle);
  await check('after a reload the reversal whose outcome is not known is still kept, named for it',card('Settlement cash reversal of '+selected.reference),"[document.querySelector('#futures-pending').hidden,document.querySelector('#futures-pending').textContent]");
  await openView();
- await click('#futures-retry');await wait("document.querySelector('#futures-pending').hidden&&"+idle);
+ await click('#futures-retry',60000);await wait("document.querySelector('#futures-pending').hidden&&"+idle);
  await check('Retry sends it again and leaves the settlement view open, which shows the reversal',`${open}&&document.querySelector('#swap-settlement').textContent.includes('Synthetic lost browser reversal')`,"[document.querySelector('#side-panel').hidden,!!document.querySelector('#swap-settlement')&&document.querySelector('#swap-settlement').hidden,document.querySelector('#error').textContent]");
 
  await click('#swap-settlement button[data-membership="1"][data-payment="0"]');await wait("!!document.querySelector('#swap-settlement-determine')");

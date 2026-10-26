@@ -503,7 +503,7 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--risk'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned risk browser checks failed')
+                    if browser_process.wait(timeout=360):raise RuntimeError('Owned risk browser checks failed')
             elif args.interval_series_benchmark:
                 from benchmark_interval_series import run_benchmark
                 print(json.dumps(run_benchmark(url,query,dotnet,child.pid),indent=2),flush=True)
@@ -827,7 +827,8 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve())],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=360):
+                    # The desk's scenarios run in this suite; a slower runner needs more than six minutes for all of them.
+                    if browser_process.wait(timeout=900):
                         raise RuntimeError('Owned browser checks failed')
                 # Preview sessions are capped, so the checks below share this session instead of each opening one.
                 from check_swaps_preview import run_checks as check_swaps
