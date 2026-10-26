@@ -91,7 +91,7 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
  async function run(work:()=>Promise<void>|void){await options.act(async()=>{error.textContent='';try{await work();}catch(e){invalidate();error.textContent=(e as Error).message;if((e as {code?:string}).code==='access_denied'){reset();options.onDenied();}}});sync();}
  const invalidate=()=>{renderChangeReview(changeReview,null);generation++;prepared=undefined;confirm.checked=false;visibleValuation=undefined;visibleQuantities=undefined;review.replaceChildren();confirmation.hidden=true;};
  product.append(node('h3','Product and commodity'),node('p','Author complete monthly periods. Stubs, irregular periods, non-monthly payment aggregation and arbitrary daily/hourly quantity profiles are unsupported. Existing single-payment contracts retain their original terms.'));
- const kind=select(product,'Swap structure',[{value:'fixed_floating',label:'Fixed for floating'},{value:'floating_floating',label:'Floating for floating'},{value:'factor_floating',label:'Cross-commodity floating swap with quantity factor'}]);identify(kind,'scheduled-kind');
+ const kind=select(product,'Swap structure',[{value:'fixed_floating',label:'Fixed for floating'},{value:'floating_floating',label:'Floating for floating'},{value:'factor_floating',label:'Heat rate · cross-commodity floating for floating'}]);identify(kind,'scheduled-kind');
  const commodity=select(product,'Commodity',[]);identify(commodity,'scheduled-commodity');
  const secondCommodity=select(product,'Second-side commodity',[]);identify(secondCommodity,'scheduled-second-commodity');
  const factorFields=node('fieldset');factorFields.append(node('legend','Contractual quantity factor'));product.append(factorFields);

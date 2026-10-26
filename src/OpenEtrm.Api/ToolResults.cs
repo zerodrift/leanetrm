@@ -99,6 +99,12 @@ static class ToolResults
     public static ToolResult Trade(object editor,string instrumentType,Dictionary<string,DealAmountFormats.Selection>? formats)
     {
         var read=Node(editor).AsObject();
+        if(instrumentType=="ppa"){read["instrumentType"]="ppa";return new(read,read["history"]!.AsArray().Count,false);}
+        if(instrumentType is "financial_swap" or "heat_rate")
+        {
+            var actual=read["state"]?["terms"]?["scheduled"]?["implementation"]?.GetValue<string>()==OpenEtrm.MarketData.Trading.CrossCommodityScheduledSwap.Implementation?"heat_rate":"financial_swap";
+            if(actual!=instrumentType)throw new MarketDataException("instrument_type","The requested instrument type does not match the retained trade terms.");
+        }
         var increment=instrumentType=="future"?Increment(read):null;
         foreach(var page in new[]{"catalog","amendmentConvention","lifecycleEligible"})read.Remove(page);
         var result=new JsonObject{["instrumentType"]=instrumentType};

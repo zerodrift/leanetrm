@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
 using Npgsql;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
@@ -16,7 +19,7 @@ public sealed class TradeReads
 
     public TradeReads(PreviewDatabase database)
     {
-        this.database=database;futures=new(database.Manifest);swaps=new(database);blotter=new(database.Manifest,futures,swaps);
+        this.database=database;futures=new(database.Manifest);swaps=new(database);blotter=new(database,futures,swaps);
     }
 
     // The Blotter with the booking catalog, or with only the catalog's directory of books and parties, and the groupings
@@ -47,6 +50,21 @@ public sealed class TradeReads
         Read(connection,view,data=>futures.Editor(connection,data,view.CalculationFrame,tradeId,revision,ct),ct);
     public Task<object> SwapTrade(NpgsqlConnection connection,TradingView view,Guid tradeId,int? revision,CancellationToken ct)=>
         Read(connection,view,data=>swaps.Editor(connection,data,view.CalculationFrame,tradeId,revision,ct),ct);
+
+    public Task<object> PpaTrade(NpgsqlConnection connection,TradingView view,Guid tradeId,int? revision,CancellationToken ct)=>
+        Read(connection,view,async data=>
+        {
+            var manifest=database.Manifest;
+            var store=new PpaStore(database,new TouProductStore(manifest.CatalogId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId));
+            var editor=JsonSerializer.SerializeToNode(await store.Editor(connection,view.CalculationFrame,new(view.Frame.Id,tradeId,SchedulePreview.ParseAt(view.Context.KnownAt).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",System.Globalization.CultureInfo.InvariantCulture)),ct),PpaStore.Json)!.AsObject();
+            var head=editor["head"]!.AsObject();var selected=head["revision"]!.GetValue<int>();
+            if(revision is {} requested&&requested!=selected)
+                throw new MarketDataException("ppa_revision","Select the historical context of the requested PPA revision; this context retains its current head and complete visible history.");
+            var references=await PreviewDatabase.Rows(connection,"SELECT json_build_object('trade_reference',reference_number)::text FROM trading.trade_references WHERE catalog_id=$1 AND trade_id=$2",[manifest.CatalogId,tradeId],ct);
+            if(references.Length!=1)throw new MarketDataException("ppa_trade","The retained PPA trade reference is unavailable.");
+            return new{state=new{tradeId,revision=selected,tradeReference=TradingReference.Trade(references[0]),head,
+                bindings=editor["bindings"]!.DeepClone(),instruments=editor["instruments"]!.DeepClone()},history=editor["history"]!.DeepClone()};
+        },ct);
 
     // The one trading read path: a read of the view's frame under its cutoff and trading context. A
     // read that can answer without the frame's market data goes first, and falls back with null.

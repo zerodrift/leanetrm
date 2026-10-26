@@ -144,6 +144,8 @@ static class AgentToolChecks
             ("read_trades",$$"""{"view":"blotter","mode":"pivot","bookIds":[],"portfolioIds":[],"groupBy":["commodity","instrumentType"],"measures":["tradeCount","quantity"],{{NoTrade}}}""","trades.blotter_v1"),
             ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":null}""","trades.trade_v1"),
             ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"financial_swap","revision":2}""","trades.trade_v1"),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"heat_rate","revision":null}""","trades.trade_v1"),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"ppa","revision":null}""","trades.trade_v1"),
             ("read_trade_parties","""{"kind":"legal_entity"}""","trade_parties.versions_v1"),
             ("read_schedules","""{"view":"library"}""","schedules.library_v1"),
             ("read_schedules","""{"view":"tou_products"}""","schedules.tou_products_v1"),
@@ -421,6 +423,10 @@ static class AgentToolChecks
             &&JsonNode.DeepEquals(unsaved.Value["history"]![0]!["executionPrice"],new JsonObject{["value"]="3.14159",["display"]="3.1416"}),
             "a futures trade returns its selected revision and history without the booking catalog or lifecycle flag, its prices shown by its "+
             "contract's settlement-price increment where the catalog lists the contract, else by the deal's trade format or the default");
+        try{ToolResults.Trade(new{state=new{terms=new{swapType="scheduled_financial_swap"}}},"heat_rate",null);throw new Exception("A swap must not be mislabeled as a heat rate.");}
+        catch(MarketDataException error) when(error.Code=="instrument_type"){}
+        try{ToolResults.Trade(new{state=new{terms=new{scheduled=new{implementation=OpenEtrm.MarketData.Trading.CrossCommodityScheduledSwap.Implementation}}}},"financial_swap",null);throw new Exception("A heat rate must not be mislabeled as an ordinary swap.");}
+        catch(MarketDataException error) when(error.Code=="instrument_type"){}
         var swap=ToolResults.Trade(new{state=new{revision=1,quantity="1000",terms=new{@fixed=new{price="3.14159"}}},history=new[]{new{revision=1,quantity="1000"}},
             valuation=new{presentValue="1234.5678",snapshotId=Guid.NewGuid(),asOf=Working.At,marketCutoff=Cutoff,
                 sides=new object[]{new{kind="fixed",presentValue="1234.5678",payments=new[]{new{cashAmount="-3.14159",discountFactor="0.987654"}}},

@@ -165,18 +165,39 @@ public sealed record CurveBuild
     private readonly Lazy<Calculation.ConnectedValuation> valuation;
     private readonly Lazy<Trading.PreparedValuationMarket> pricing;
     internal Trading.PreparedValuationMarket Pricing=>pricing.Value;
+    // Native interval consumers see prices from the same shared graph as ordinary
+    // sides. No quote overlay is reconstructed and no new market inputs are read.
+    internal CurveBuild BindConnected(Calculation.ConnectedValuation connected,
+        ImmutableDictionary<CurveRequest,Calculation.CurvePointKey> bindings,CancellationToken cancellation)
+    {
+        var graph=connected.Scenario;
+        if(!Snapshot.HasSameInputs(connected.Snapshot))throw new MarketDataException("ppa_context","Connected interval prices require the same pinned snapshot.");
+        var values=Values.Where(value=>bindings.ContainsKey(value.Request)).Select(value=>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if(!bindings.TryGetValue(value.Request,out var point))
+                throw new MarketDataException("risk_dependency","Every interval price dependency requires its exact connected binding.");
+            var price=graph.Price(point,cancellation).ToUnitPriceExact();
+            if(price.Unit!=value.Price.Unit)throw new MarketDataException("ppa_context","Connected interval prices must retain their exact native units.");
+            return price==value.Price?value:new BuiltValue(value.Request,Model.QuoteFor(value.Request),price,value.Lineage);
+        }).ToImmutableArray();
+        var byRequest=values.ToDictionary(v=>v.Request);
+        var evaluations=Evaluations.Where(e=>byRequest.ContainsKey(e.Result.Request)).Select(e=>e with{Result=byRequest[e.Result.Request]}).ToImmutableArray();
+        return new(Model,Snapshot,NumericalPolicy,values,SelectedInputs,0,evaluations,graph,Compiled,[..values.Select(v=>v.Request)],null,connected:connected,connectedBindings:bindings);
+    }
+
     internal CurveBuild(CurveModel model,MarketSnapshot snapshot,string numericalPolicy,ImmutableArray<BuiltValue> values,
         ImmutableDictionary<InputKey, SelectedObservation> selectedInputs,int evaluatedConstituents,ImmutableArray<CurveEvaluation> evaluations,
         Calculation.ConnectedScenario graph,Calculation.ConnectedCurveExport compiled,ImmutableArray<CurveRequest> requests,CurveBuild? parent,
         int reusedConstituents=0,Risk.QuoteShock? shock=null,
-        Risk.QuoteScenario? scenario=null)
+        Risk.QuoteScenario? scenario=null,Calculation.ConnectedValuation? connected=null,ImmutableDictionary<CurveRequest,Calculation.CurvePointKey>? connectedBindings=null)
     {
         Model=model; Snapshot=snapshot; NumericalPolicy=numericalPolicy; Values=values; SelectedInputs=selectedInputs;
         EvaluatedConstituents=evaluatedConstituents; Evaluations=evaluations;
         ReusedConstituents=reusedConstituents; Shock=shock; Scenario=scenario??Risk.QuoteScenario.Base(snapshot);
         Graph=graph;Compiled=compiled;Requests=requests;
-        valuation=new(()=>parent is null?Calculation.ConnectedValuation.Prepare(Graph,Snapshot):parent.valuation.Value.WithScenario(Graph));
-        pricing=new(()=>parent is null?valuation.Value.Market(requests.ToImmutableDictionary(r=>r,r=>compiled.Points[(r,InputUse.Variable)]),this,default,this):
+        valuation=new(()=>connected??(parent is null?Calculation.ConnectedValuation.Prepare(Graph,Snapshot):parent.valuation.Value.WithScenario(Graph)));
+        pricing=new(()=>parent is null?valuation.Value.Market(connectedBindings??requests.ToImmutableDictionary(r=>r,r=>compiled.Points[(r,InputUse.Variable)]),this,default,this):
             Calculation.ConnectedValuation.WithScenario(parent.Pricing,valuation.Value,this));
     }
 }

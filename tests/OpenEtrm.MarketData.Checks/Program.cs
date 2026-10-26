@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 
+if(args is ["--ppa-connected"]){PpaConnectedChecks.Run();return;}
 if(args is ["--curve-lookups"]){CurveLookupChecks.Run();return;}
 if(args is ["--trade-contracts"]){TradeContractChecks.Run();return;}
 if(args is ["--cross-commodity-swaps"]){CrossCommoditySwapChecks.Run();return;}
@@ -74,7 +75,7 @@ IntervalDataChecks.Run();
 PowerHoursChecks.Run();
 CustomCurveChecks.Run();
 ExactCurvePriceChecks.Run();
-var passed = CrossCommoditySwapChecks.Run()+PpaBenchmark.CheckWorkloads()+ScheduledSwapChecks.Run()+SwapSettlementChecks.Run()+SettlementDeterminationChecks.Run()+SwapLifecycleChecks.Run()+SwapNetSettlementChecks.Run()+SwapContractBridgeChecks.Run();
+var passed = PpaConnectedChecks.Run()+CrossCommoditySwapChecks.Run()+PpaBenchmark.CheckWorkloads()+ScheduledSwapChecks.Run()+SwapSettlementChecks.Run()+SettlementDeterminationChecks.Run()+SwapLifecycleChecks.Run()+SwapNetSettlementChecks.Run()+SwapContractBridgeChecks.Run();
 void Check(string label, Action run) { run(); passed++; Console.WriteLine($"PASS {label}"); }
 void Equal<T>(T actual, T expected) where T : notnull
 {

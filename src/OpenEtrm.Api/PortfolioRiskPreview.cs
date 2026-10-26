@@ -25,7 +25,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     public const string Convention="portfolio_instrument_repricing_v1";
     private static readonly AmountFormat Display=new(12,CashTieRule.ToEven,false,true);
     private static PortfolioValuationPolicy PricingPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
-        FuturesRisk.Implementation,SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
+        FuturesRisk.Implementation,SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1");
     internal sealed record Prepared(PortfolioRiskRequest Request,RiskDetail Detail,
         ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books,PortfolioValuation.Prepared Portfolio,
         ImmutableArray<PortfolioCurveBump> Bumps,ImmutableArray<PortfolioCurveShift> Stress,
@@ -107,6 +107,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
                 throw new MarketDataException("risk_stress","Choose the explicit additive convention and a nonzero signed shift.");
             return new PortfolioCurveShift(axis,size);
         }).ToImmutableArray();
+        PortfolioValuation.RequireWork(portfolio,bumps.Length);
         var canonical=body with{
             Bumps=bumps.Select(b=>new CurveBumpRequest(b.Axis.Request,b.Size.ToString(),ConnectedRiskBump.Convention)).ToImmutableArray(),
             Stress=stress.Select(s=>new CurveShiftRequest(s.Axis.Request,s.Size.ToString(),CurveShift.ParentAdditive)).ToImmutableArray()};
@@ -133,7 +134,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             engineVersion=RiskJobs.EngineVersion,displayPolicy=new{implementation="risk_decimal_display_v1",decimalPlaces=12,tieRule="to_even"},
             run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>p.InstrumentId).Distinct().Count(),
             excludedPositions=prepared.Portfolio.Excluded,
-            inputs=new{pricingPolicy=run.Policy,markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
+            ppaMeasures=run.PpaMeasures,inputs=new{pricingPolicy=run.Policy,ppaReceipt=run.PpaReceipt is {} receipt?PpaPortfolio.Receipt(receipt):null,markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
                 selectionPolicy=m.Snapshot.SelectionPolicy.ToString(),observations=m.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,
                     s.Observation.Series,s.Observation.Source,role=s.Observation.Role.ToString(),state=s.Observation.State.ToString(),
@@ -160,7 +161,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     }
     private static string Displayed(ExactMoney value)=>Display.FormatFraction(BigInteger.Parse(value.Numerator,CultureInfo.InvariantCulture),BigInteger.Parse(value.Denominator,CultureInfo.InvariantCulture));
     private static string MeasureLabel(string measure)=>measure switch{
-        PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",
+        PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};
     private static string Currency(ImmutableArray<PreviewData> markets,ReferenceKey key)=>Reference(markets,"currencies",key).Text("display_code");
     private static JsonElement Reference(ImmutableArray<PreviewData> markets,string table,ReferenceKey key)=>

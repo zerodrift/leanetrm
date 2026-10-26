@@ -213,7 +213,7 @@ public static class RiskWorker
                 p.Value.CurveContracts.ToDictionary(c=>c.Key,c=>c.Value.ToArray()))])).ToArray(),
             FuturesConvention:sourceConventions[0]);
         var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
-        await using var database=new PreviewDatabase(manifest,source,includePpaReferences:false);
+        await using var database=new PreviewDatabase(manifest,source);
         var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,
             referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
         var markets=ImmutableArray.CreateBuilder<(PreviewData Data,InputFrame Frame)>();

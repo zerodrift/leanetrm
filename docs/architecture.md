@@ -6,6 +6,12 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D229 integrates PPA bindings into the common blotter and interactive/queued
+portfolio risk, with an explicit pending-meter policy and distinct value measure.
+Heat-rate examples use the existing typed factor contract and independent
+floating-side schedules. See [demo instruments](demo-instruments.md) for the
+implemented contracts, synthetic preview and bounded verification.
+
 D224 adds typed asset and rate curve evaluators and an explicit saved lookup
 operator in the existing custom-curve graph. Exact prices, interpolation and
 scenario dependencies share the connected evaluator; payment discounting uses

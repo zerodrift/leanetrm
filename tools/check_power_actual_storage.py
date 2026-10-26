@@ -77,10 +77,15 @@ def run_checks(query, manifest):
     """) == 't')
     # This predicate is lossless but required for the actual reader's bounded
     # index path; endpoint result checks alone cannot detect its omission.
-    check('the authorized history reader retains its explicit upper index bound', query("""
-      SELECT position('p.starts_at<last_at' IN pg_get_functiondef(
+    check('the authorized history reader delegates between live worker-attempt checks', query("""
+      SELECT position('PERFORM risk.require_worker_attempt();result=power_data.read_prices_pre_portfolio_worker($1,$2,$3,$4);PERFORM risk.require_worker_attempt();RETURN result;' IN pg_get_functiondef(
         'power_data.read_prices(uuid,timestamptz,timestamptz,timestamptz)'::regprocedure))>0;
     """) == 't')
+    check('the delegated history query retains its explicit upper index bound', query("""
+      SELECT position('p.starts_at<last_at' IN pg_get_functiondef(
+        'power_data.read_prices_pre_portfolio_worker(uuid,timestamptz,timestamptz,timestamptz)'::regprocedure))>0;
+    """) == 't')
+    reject('BEGIN;' + runtime(issue(), f"SELECT power_data.read_prices_pre_portfolio_worker('{source}','2021-03-01T06:30:00Z','2021-03-01T08:30:00Z',clock_timestamp());") + 'ROLLBACK;', '42501')
     collector = Collector(query, manifest, {'pjm': {**selected, 'provider': 'PJM'}})
     receipt = collector.publish('pjm', '2021-03-01', datetime(2021, 3, 1, 5, tzinfo=timezone.utc),
                                 24, 60, [str(n) for n in range(24)], 1)

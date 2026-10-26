@@ -278,9 +278,9 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
         // The unit and the side or lots sit under the figure, so figures of different units keep their right edges aligned.
         const line=node('span','desk-line'),under=node('small','desk-sub');line.append(track,figure);under.append(node('span','desk-unit',row.unit),` · ${publicText(row.side)}`);cell.append(line,under);return cell;}
       case 'executionPrice':{
-        if(row.price===null&&row.priceNote!==null){cell.title=noteMeaning(row.priceNote);cell.append(node('span','desk-muted',row.priceNote),node('small','desk-sub',`${row.priceLabel} · ${row.priceUnit}`));return cell;}
+        if(row.price===null&&row.priceNote!==null){cell.title=noteMeaning(row.priceNote);cell.append(node('span','desk-muted',row.priceNote),node('small','desk-sub',[row.priceLabel,row.priceUnit].filter(Boolean).join(' · ')));return cell;}
         if(row.price===null){cell.append(node('span','desk-muted','None'),node('small','desk-sub','No fixed price'));return cell;}
-        cell.append(exact(node('span','desk-figure',minus(formats.price(index,row.price))),row.price),node('small','desk-sub',`${row.priceLabel} · ${row.priceUnit}`));return cell;}
+        cell.append(exact(node('span','desk-figure',minus(formats.price(index,row.price))),row.price),node('small','desk-sub',[row.priceLabel,row.priceUnit].filter(Boolean).join(' · ')));return cell;}
       case 'mark':{
         // A position the close cannot value leaves its mark blank; its reason is in its Value cell.
         if(row.mark===null){if(row.markNote!==null){cell.title=noteMeaning(row.markNote);cell.append(node('span','desk-muted',row.markNote));}return cell;}
