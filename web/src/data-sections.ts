@@ -25,8 +25,7 @@ export const setupSections=[
   {value:'quote_specifications',name:'Price conventions',consumer:'Used to validate price units, multipliers, domains and clearing grids.'},
   {value:'quantity_specifications',name:'Quantity definitions',consumer:'Used by amounts, unit conversion and side quantities for exact commodity/unit/basis identity.'},
   {value:'measurement_bases',name:'Measurement bases',consumer:'Used by compatible quantity/price arithmetic and declared conversion-ratio orientation.'},
-  {value:'value_specifications',name:'Numeric input types',consumer:'Used by numeric series and typed multiplication in scale/add curves.'},
-  {value:'cash_rounding_conventions',name:'Cash rounding',consumer:'Used to select the final cash increment, tie rule and rounding stage.'}
+  {value:'value_specifications',name:'Numeric input types',consumer:'Used by numeric series and typed multiplication in scale/add curves.'}
 ];
 export const sectionGroups=[
   {name:'Reference data',description:'Units, currencies, locations and contract details.',sections:referenceSections},

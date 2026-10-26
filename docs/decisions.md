@@ -661,3 +661,20 @@ and log-discount policies. Keep interpolation selection on the existing currency
 mapping until a separate persisted-contract migration is supported. Broader rate
 construction and rate scenario coordinates remain unimplemented. See
 [curve evaluation](curve-evaluation.md) for executable coverage and limits.
+
+
+## D220 — Supported reference demos and retirement of disconnected catalogs
+
+Remove the unused cash-rounding reference table and its viewer category with an
+atomic migration that refuses retained rows, stale snapshots and unexpected
+schema dependencies. Preserve the executable explicit settlement-rounding policy.
+
+Populate supported rate reference data through a separate, explicitly pinned
+synthetic market bundle. Per-category reference browsing can inspect that bundle
+without replacing existing valuation references. Supplemental reads, booking,
+retained terms, discount mapping and risk must use the selected exact references;
+frontend commodity/calendar/clock choices remain scoped to that market.
+
+Inbound FK counts alone do not classify a table as unused. Preserve child tables
+with validated outbound FKs and named runtime consumers. See
+[reference coverage](reference-data.md#reference-coverage-and-retirement).

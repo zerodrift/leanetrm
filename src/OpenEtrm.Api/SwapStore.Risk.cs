@@ -39,9 +39,9 @@ public sealed partial class SwapStore
         var markets=new[]{(Data:data,Frame:frame,Snapshot:snapshot)}.Concat((supplemental.IsDefault?[]:supplemental)
             .Select(m=>(m.Data,m.Frame,Snapshot:m.Data.Snapshot(m.Frame)))).ToArray();
         if(markets.Select(m=>m.Data.DefinitionRevision).Distinct().Count()!=markets.Length||markets.Any(m=>
-            m.Frame.Id!=frame.Id||m.Frame.At!=frame.At||m.Frame.ContextId!=frame.ContextId||m.Data.ReferenceRevision!=data.ReferenceRevision||
+            m.Frame.Id!=frame.Id||m.Frame.At!=frame.At||m.Frame.ContextId!=frame.ContextId||
             m.Data.DefinitionRevision.CatalogId!=data.DefinitionRevision.CatalogId))
-            throw Error("swap_context","Supplemental markets require unique exact revisions and the same retained context, instant and references.");
+            throw Error("swap_context","Supplemental markets require unique exact revisions and the same retained context and instant.");
         var identities=new InstrumentIdentityMap(manifest.CatalogId);
         var providers=new Dictionary<Guid,ISideDiscounting>();
         var result=ImmutableArray.CreateBuilder<ResolvedSwapHolding>(rows.Length);

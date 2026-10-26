@@ -3,7 +3,7 @@ import {setupSwapSettlement} from './swap-settlement.js';
 import {renderSwapTradePayments} from './swap-trade-review.js';
 import {mountIntervalDataWidget} from './interval-data-widget.js';
 import {sideScheduleData} from './side-schedule.js';
-import {linkedValue,quantityChoice,filterSwapIndices,deliveryChoices} from './swap-selection.js';
+import {linkedValue,quantityChoice,filterSwapIndices,deliveryChoices,marketReferenceChoices} from './swap-selection.js';
 import {createAvailableDatePicker} from './available-date-picker.js';
 import {draftValuation} from './draft-valuation.js';
 import {mountSwapSideEditor,mountFirstFloatingEditor,arrangeSwapSections} from './swap-side-editor.js';
@@ -22,7 +22,8 @@ import {renderSwapObservationInspection,setupSwapObservationControls} from './sw
 import type {SamplingChoice,ObservationInspection,ObservationOptions,ObservationSchedule} from './swap-observations.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 export type Index={definitionRevisionId:string;curve:string;index:string;commodity:string;currencyCode:string;currency:string;unit:string;quoteMultiplier:string;quantityCode:string;powerQuantitySupported:boolean;quantityChoices:{specification:{code:string};unit:string}[];defaultDiscountCurve:string|null;fixingConvention:'published_index_observations_v1'|null;fixingUnavailableReason:string|null;customProjections:ProjectionChoice[];averaging:string[];samplings:SamplingChoice[];contracts:{deliveryFrom:string;deliveryTo:string}[]};
-export type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];commodities:{code:string;name:string}[];paymentCalendars:{code:string}[];paymentOptions:PaymentOptions;entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean};
+export type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];referenceChoices?:ReferenceChoices[];commodities:{code:string;name:string}[];paymentCalendars:{code:string}[];paymentOptions:PaymentOptions;entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean};
+export type ReferenceChoices={definitionRevisionId:string;commodities:{code:string;name:string}[];paymentCalendars:{code:string;reference:import('./swap-observations.js').ReferenceKey;from:string;to:string}[];powerQuantities:{specification:import('./swap-observations.js').ReferenceKey;unit:string;commodity:string}[];clocks:{reference:import('./swap-observations.js').ReferenceKey;label:string}[]};
 type FloatingTerms={curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null;firstFixingAt?:string|null;customProjection?:CustomProjection|null;observationSchedule?:ObservationSchedule;resetFrequency:string;averagingMethod:string;spread:string};
 type Terms={scheduled?:unknown;swapType:string;firstCoefficient:string|null;firstFloating:FloatingTerms|null;commodity:string;definitionRevisionId:string;bookId:string;executedAt:string;quantity:string;fixedCoefficient:string;discounting:boolean;fixed:{price:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null}|null;floating:FloatingTerms};
 type State=Annotation&{tradeId:string;tradeReference:string;instrumentReference:string;revision:number;quantity:string;kind:string;reason:string;effectiveAt:string;recordedAt:string;terms:Terms};
@@ -165,6 +166,8 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   }
   const currencies=[...new Map((i?[i]:sources(side)).map(i=>[i.currencyCode,{value:i.currencyCode,label:i.currency}])).values()];
   for(const slot of side==='first'?['first']:['fixed','floating'])choose(`swap-${slot}-currency`,currencies,field(`swap-${slot}-currency`).value,undefined,true);
+  const calendars=marketReferenceChoices(catalog?.referenceChoices,i?.definitionRevisionId)?.paymentCalendars??catalog?.paymentCalendars??[];
+  for(const slot of side==='first'?['first']:['fixed','floating'])choose(`swap-${slot}-payment-calendar`,calendars.map(c=>({value:c.code,label:friendly(c.code)})),field(`swap-${slot}-payment-calendar`).value);
  }
  function indexControls(side='floating'){
   observationOptions[side]=undefined;choose(observationId(side,'reset-frequency'),[...new Set(sources(side).flatMap(i=>i.samplings.map(s=>s.resetFrequency)))].map(value=>({value,label:friendly(value)})),field(observationId(side,'reset-frequency')).value);projectionControls(side);
@@ -195,7 +198,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   annotations.populate(catalog.bookingActor,catalog,detail?.state);
   const policies=catalog.paymentOptions;field('swap-par-places').value=String(catalog.parRateOptions.initialDecimalPlaces);
   for(const side of ['fixed','first','floating'])for(const [suffix,choices] of [['payment-frequency',policies.frequencies],['payment-rule',policies.rules],['day-basis',policies.dayBases],['short-month',policies.shortMonths],['payment-adjustment',policies.adjustments]] as const)choose(`swap-${side}-${suffix}`,choices);
- choose('swap-book',catalog.books.map(b=>({value:b.id,label:`${b.portfolio} · ${b.name}`})));for(const side of ['floating','first'])choose(observationId(side,'commodity'),catalog.commodities.filter(c=>catalog!.indices.some(i=>i.commodity===c.code)).map(c=>({value:c.code,label:c.name})));commodityControls();for(const side of ['fixed','first','floating'])choose(`swap-${side}-payment-calendar`,catalog.paymentCalendars.map(c=>({value:c.code,label:friendly(c.code)})));}
+ choose('swap-book',catalog.books.map(b=>({value:b.id,label:`${b.portfolio} · ${b.name}`})));for(const side of ['floating','first'])choose(observationId(side,'commodity'),catalog.commodities.filter(c=>catalog!.indices.some(i=>i.commodity===c.code)).map(c=>({value:c.code,label:c.name})));commodityControls();}
  function paymentControls(side:string){
   const rule=field(`swap-${side}-payment-rule`).value,lag=rule===PaymentDateRule.DaysAfterPeriodEnd,next=rule===PaymentDateRule.DayOfFollowingMonth;
   text(`swap-${side}-payment-number-label`,lag?'Days after last delivery day':next?'Day of following month':'Rule parameter');

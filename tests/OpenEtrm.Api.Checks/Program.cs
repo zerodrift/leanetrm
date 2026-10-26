@@ -87,7 +87,25 @@ foreach(var key in new[]{"catalog_id","id","reference_catalog_id","reference_rev
     try {PreviewData.RequireBundlePin(manifest,JsonSerializer.SerializeToElement(changed)); throw new Exception($"Accepted mismatched {key}");}
     catch(MarketDataException e) when(e.Code=="reference_pin_mismatch") {Console.WriteLine($"PASS rejects mismatched bundle {key}");}
 }
-var passed=6;
+var supplemental=manifest with{RevisionId=Guid.NewGuid()};
+var supplementalRow=new Dictionary<string,object>(row){["id"]=supplemental.RevisionId,["reference_revision_id"]=Guid.NewGuid()};
+var resolvedBundle=PreviewData.ResolveBundleManifest(supplemental,JsonSerializer.SerializeToElement(supplementalRow));
+if(resolvedBundle.ReferenceRevisionId!=(Guid)supplementalRow["reference_revision_id"]||resolvedBundle.CatalogId!=manifest.CatalogId)
+    throw new Exception("A selected bundle must retain its persisted exact reference version.");
+Console.WriteLine("PASS supplemental market uses its own persisted reference revision");
+var browserReference=Guid.NewGuid();var browsed=manifest with{ReferenceCatalog=new(browserReference,Guid.NewGuid(),["interest_rate_definitions"])};
+if(ReferenceEditors.Source(browsed,"interest_rate_definitions").RevisionId!=browserReference||ReferenceEditors.Source(browsed,"currencies").RevisionId!=referenceRevision||manifest.ReferenceRevisionId!=referenceRevision)
+    throw new Exception("An explicit reference browser catalog must preserve the original valuation manifest.");
+Console.WriteLine("PASS explicit reference browser catalog is separate from pinned valuation inputs");
+var correctedPin=Guid.NewGuid();var contextId=Guid.NewGuid();var sourceDefinition=Guid.NewGuid();
+var selectedFrame=new InputFrame(Guid.NewGuid(),"Reviewed corrected inputs",DateTimeOffset.UtcNow,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,contextId)
+ {SwapMarketSelections=ImmutableDictionary<Guid,ImmutableArray<Guid>>.Empty.Add(sourceDefinition,[correctedPin]),ResolvesLatestCorrection=true,OriginCloseId=Guid.NewGuid()};
+var sourceFrame=selectedFrame.ForSwapMarket([correctedPin],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
+if(sourceFrame.SwapMarketSelections!=selectedFrame.SwapMarketSelections||!sourceFrame.ResolvesLatestCorrection||sourceFrame.ContextId!=contextId||
+ sourceFrame.OriginCloseId is not null||sourceFrame.Id!=selectedFrame.Id)
+ throw new Exception("Supplemental booking revalidation lost the reviewed correction or retained source context.");
+Console.WriteLine("PASS supplemental market revalidation preserves reviewed correction selections and context");
+var passed=9;
 if(args.Length==1)
 {
     using var fixture=JsonDocument.Parse(File.ReadAllText(args[0])); var root=fixture.RootElement;

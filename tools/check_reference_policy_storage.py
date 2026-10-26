@@ -3,7 +3,7 @@ import json
 from uuid import UUID, uuid4
 
 
-TABLES = ('calendar_days','calendars','cash_rounding_conventions','clearing_houses','clock_rules',
+TABLES = ('calendar_days','calendars','clearing_houses','clock_rules',
           'commodities','commodity_locations','commodity_units','currencies','delivery_profiles','dimensions',
           'exchange_clearing_houses','exchanges','futures_execution_admissions','futures_milestones',
           'futures_products','futures_series','imported_product_keys','imported_series_keys',
@@ -22,7 +22,7 @@ def run_checks(query, manifest):
         passed += 1
         print('PASS reference policy: '+name, flush=True)
     tables = ','.join("'"+table+"'" for table in TABLES)
-    shape = query(f"""SELECT count(*)=35 AND bool_and(p.permissive='PERMISSIVE' AND p.roles=ARRAY['openetrm_runtime']::name[]
+    shape = query(f"""SELECT count(*)=34 AND bool_and(p.permissive='PERMISSIVE' AND p.roles=ARRAY['openetrm_runtime']::name[]
       AND p.cmd='SELECT' AND p.qual='true' AND p.with_check IS NULL
       AND t.permissive='RESTRICTIVE' AND t.roles=p.roles AND t.cmd='SELECT' AND t.with_check IS NULL
       AND t.qual=CASE p.tablename WHEN 'revisions' THEN 'security.reference_version_visible(catalog_id, id)'
@@ -31,7 +31,7 @@ def run_checks(query, manifest):
       FROM pg_policies p JOIN pg_policies t USING(schemaname,tablename)
       JOIN pg_class c ON c.oid=('ref_data.'||quote_ident(p.tablename))::regclass
       WHERE p.schemaname='ref_data' AND p.tablename IN({tables}) AND p.policyname='scoped_read' AND t.policyname='temporal_read';""")
-    check('35 permissive read policies retain their mandatory temporal/current-authority barrier', shape=='t')
+    check('34 permissive read policies retain their mandatory temporal/current-authority barrier', shape=='t')
     check('catalog and combined policies remain independently scoped', query("""SELECT count(*)=5 AND bool_and(qual LIKE '%reference_access%')
         FROM pg_policies WHERE schemaname='ref_data' AND policyname='scoped_read'
         AND tablename IN('catalogs','futures_product_terms','futures_basis_settlements','futures_lot_resolutions','futures_execution_policies');""")=='t')

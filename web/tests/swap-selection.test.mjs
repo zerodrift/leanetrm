@@ -16,3 +16,12 @@ test('index text filtering stays within commodity and exact revision',()=>{
  const rows=[{commodity:'power',index:'north_hub',curve:'daily_north',definitionRevisionId:'a'},{commodity:'gas',index:'north_hub',curve:'daily_north',definitionRevisionId:'b'}];
  assert.deepEqual(filterSwapIndices(rows,'power','NORTH HUB','a'),[rows[0]]);assert.deepEqual(filterSwapIndices(rows,'power','','b'),[]);
 });
+
+test('reference choices belong to one explicitly selected backend market',async()=>{
+ const {marketReferenceChoices}=await import('../dist/swap-selection.js');
+ const a={definitionRevisionId:'old',paymentCalendars:['old-calendar']},b={definitionRevisionId:'demo',paymentCalendars:['demo-calendar']};
+ assert.equal(marketReferenceChoices([a,b],'old'),a);assert.equal(marketReferenceChoices([a,b],'demo'),b);
+ assert.throws(()=>marketReferenceChoices([a,b],'missing'),/Reload/);
+ assert.throws(()=>marketReferenceChoices([a,a],'old'),/Reload/);
+ assert.equal(marketReferenceChoices([a,b]),undefined);
+});

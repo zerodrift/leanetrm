@@ -57,6 +57,7 @@ def main():
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
     parser.add_argument('--reference-import-check',action='store_true',help='Qualify private inactive reference intake in an owned database')
+    parser.add_argument('--reference-demo-check',action='store_true',help='Qualify additive demo references and cross-version discounted swaps')
     parser.add_argument('--reference-check',action='store_true',help='Qualify reference metadata authoring and reviewed display activation')
     parser.add_argument('--booking-check',action='store_true',help='Qualify backend-owned immutable trade booking facts')
     parser.add_argument('--unit-check', action='store_true', help='Run amount/unit integration checks in the owned standard fixture')
@@ -92,7 +93,7 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
+    if args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.reference_demo_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -252,6 +253,9 @@ def main():
                 from swap_fixture import fixture as swap_fixture
                 from preview_fixture import trading_fixture
                 check_default_upgrade(query,[reference,market,swap_fixture(fixing_frames=fixing_frames)[0],security,trading_fixture(manifest['catalogId'],swap_defaults=True)],migration.read_text())
+            if args.check and migration.name=='0114_remove_unused_cash_rounding.sql':
+                from check_cash_rounding_retirement import run_checks as check_cash_retirement
+                check_cash_retirement(query,migration.read_text())
             query(migration.read_text())
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
@@ -371,6 +375,12 @@ def main():
         if args.jobs_check:
             from check_jobs_http import prepare as prepare_jobs
             prepare_jobs(query,manifest)
+        if args.reference_demo_check:
+            from reference_demo_fixture import install as install_reference_demo
+            reference_demo=install_reference_demo(query,manifest)
+            # One owned test date deliberately has no admitted demo input frame.
+            reference_demo['omittedAt']=max(f['at'] for f in reference_demo['frames'] if not f['at'].startswith('2020-12-18'))
+            manifest['swapMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.
@@ -607,6 +617,12 @@ def main():
             elif args.reference_import_check:
                 from check_reference_import import run_checks as check_reference_import
                 check_reference_import(query,manifest,temporary,dotnet,env)
+            elif args.reference_demo_check:
+                from check_reference_demo import run_checks as check_reference_demo
+                worker_env=prepare_risk_worker()
+                def run_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                check_reference_demo(url,manifest,reference_demo,query,run_worker)
             elif args.reference_check:
                 from check_reference_display_http import run_checks as check_reference_display
                 check_reference_display(url,query)

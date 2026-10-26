@@ -11,7 +11,8 @@ namespace OpenEtrm.Api;
 
 public sealed record PreviewManifest(string Mode, Guid CatalogId, Guid RevisionId, Guid ReferenceCatalogId,
     Guid ReferenceRevisionId, Guid TenantId, Guid WorkspaceId, PreviewSeedFrame[] Frames,PreviewExample? Example,
-    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",string FuturesConvention="fixed_total_cash_execution_pnl_v1");
+    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",string FuturesConvention="fixed_total_cash_execution_pnl_v1",PreviewReferenceCatalog? ReferenceCatalog=null);
+public sealed record PreviewReferenceCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId,ImmutableArray<string> Tables);
 public sealed record PreviewUnitCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
 public sealed record UnitCatalogData(ReferenceRevision Revision,ImmutableDictionary<string,ImmutableArray<JsonElement>> References);
 public enum ReferenceReadScope { DefinitionClosure, AllVisible, TradeValuation }
@@ -38,6 +39,9 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
     // Set only on frames a certified context resolves under its explicit latest-correction policy (D172).
     [System.Text.Json.Serialization.JsonIgnore]
     public bool ResolvesLatestCorrection{get;init;}
+    public InputFrame ForSwapMarket(ImmutableArray<Guid> pins,ImmutableDictionary<string,ImmutableArray<Guid>> contracts)=>
+        this with{Name="Selected swap market",ObservationIds=pins,CurveContracts=contracts,OriginCloseId=null,
+            FrozenObservationIds=FrozenObservationIds.IsDefault?[]:FrozenObservationIds.Where(pins.Contains).ToImmutableArray()};
     public InputFrame SelectRevision(Guid previous,Guid selected,string name)=>this with
     {
         Id=Guid.NewGuid(),Name=name,OriginCloseId=null,ObservationIds=ObservationIds.Replace(previous,selected),
@@ -79,7 +83,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         ("commodity_locations","commodity_code,location_code"), ("exchanges","code"), ("clearing_houses","code"),
         ("exchange_clearing_houses","exchange_code,clearing_house_code"), ("interest_rate_definitions","code"), ("price_index_definitions","code"),
         ("sources","code"), ("product_evidence","product_code,source_code,fact_group"), ("delivery_profiles","code"), ("settlement_targets","code"),
-        ("cash_rounding_conventions","code"), ("futures_products","code"), ("futures_series","code"),
+        ("futures_products","code"), ("futures_series","code"),
         ("futures_execution_policies","series_code,implementation"), ("futures_milestones","series_code,milestone"),
         ("futures_lot_resolutions","series_code"), ("futures_product_terms","product_code"), ("futures_basis_settlements","series_code")];
     public static readonly string[] ReferenceTables = [..ReferenceKeys.Select(r=>r.Table)];
@@ -281,7 +285,15 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2 ORDER BY {key}) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
         }
         if (definitions["revisions"].Length != 1 || definitions["revisions"][0].Text("state") != "sealed") throw new PreviewDeniedException();
+        // An explicitly selected, admitted market carries its own persisted
+        // reference version. The primary manifest pin remains strict.
+        if(selectedRevision is not null&&ppaBundle is null)
+            selectedManifest=PreviewData.ResolveBundleManifest(selectedManifest,definitions["revisions"][0]);
         PreviewData.RequireBundlePin(selectedManifest, definitions["revisions"][0]);
+        if(selectedRevision is not null&&ppaBundle is null&&sharedReferences is not null&&
+            sharedReferences.DefinitionRevision.CatalogId==selectedManifest.CatalogId&&
+            sharedReferences.ReferenceRevision!=new ReferenceRevision(selectedManifest.ReferenceCatalogId,selectedManifest.ReferenceRevisionId))
+            sharedReferences=null;
         IReadOnlyDictionary<string,ImmutableArray<JsonElement>> references;
         if(sharedReferences is not null && (sharedReferences.ReferenceRevision!=new ReferenceRevision(selectedManifest.ReferenceCatalogId,selectedManifest.ReferenceRevisionId)||sharedReferences.DefinitionRevision.CatalogId!=selectedManifest.CatalogId))
             throw new MarketDataException("reference_pin_mismatch","Shared reference rows require the same exact authorized catalog and revision.");
@@ -374,18 +386,25 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         .Where(row=>row.TryGetProperty(column,out var value)&&value.ValueKind==JsonValueKind.String)
         .Select(row=>row.GetProperty(column).GetString()!).Distinct();
 
+    public static (ReferenceRevision Revision,Guid Definition) ReferenceSource(PreviewManifest manifest,string table)
+    {
+        if(UnitTables.Contains(table)&&manifest.UnitCatalog is {} units)
+            return(new(manifest.ReferenceCatalogId,units.ReferenceRevisionId),units.DefinitionRevisionId);
+        if(manifest.ReferenceCatalog is {} catalog)
+        {
+            if(catalog.ReferenceRevisionId==Guid.Empty||catalog.DefinitionRevisionId==Guid.Empty||catalog.Tables.IsDefaultOrEmpty||
+                catalog.Tables.Distinct().Count()!=catalog.Tables.Length||catalog.Tables.Any(t=>!ReferenceTables.Contains(t)))
+                throw new MarketDataException("reference_catalog","Select exact reference and definition revisions and explicit supported categories.");
+            if(catalog.Tables.Contains(table))return(new(manifest.ReferenceCatalogId,catalog.ReferenceRevisionId),catalog.DefinitionRevisionId);
+        }
+        return(new(manifest.ReferenceCatalogId,manifest.ReferenceRevisionId),manifest.RevisionId);
+    }
     public async Task<ReferencePage> ReadReferencePage(NpgsqlConnection connection,string table,int offset,string? search,CancellationToken ct)
     {
         search??="";
         if(!ReferenceTables.Contains(table)||offset is <0 or >ReferenceMaximumOffset||search.Length>160)
             throw new MarketDataException("reference_page",$"Choose a supported reference table, an offset from 0 to {ReferenceMaximumOffset} and search text up to 160 characters.");
-        var revision=new ReferenceRevision(Manifest.ReferenceCatalogId,Manifest.ReferenceRevisionId);
-        var definition=Manifest.RevisionId;
-        if(UnitTables.Contains(table)&&Manifest.UnitCatalog is {} configured)
-        {
-            revision=new(Manifest.ReferenceCatalogId,configured.ReferenceRevisionId);
-            definition=configured.DefinitionRevisionId;
-        }
+        var (revision,definition)=ReferenceSource(Manifest,table);
         async Task RequireReferenceAccess()
         {
             await using var access=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData')",revision.CatalogId);
@@ -495,10 +514,15 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         {
             if(requiredRevisions is not null&&!requiredRevisions.Contains(market.RevisionId))continue;
             if(!await SwapMarketAvailable(connection,market,ct))continue;
-            var seed=market.Frames.SingleOrDefault(f=>f.At==selected.At)??throw new MarketDataException("swap_context","No explicit daily-market frame exists for the selected As of time.");
+            var seed=market.Frames.SingleOrDefault(f=>f.At==selected.At);
+            if(seed is null)
+            {
+                if(requiredRevisions is not null)throw new MarketDataException("swap_context","No explicit market frame exists for a required retained bundle at this As of time.");
+                continue;
+            }
             var pins=SwapMarketPins(selected,market)!.Value;
             var data=await Read(connection,ct,market.RevisionId,sharedReferences,pins);
-            var frame=new InputFrame(selected.Id,"Selected swap market",selected.At,pins,seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),selected.ContextId);
+            var frame=selected.ForSwapMarket(pins,seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()));
             // A snapshot prices its exact pins; only a certified context's own frames apply its
             // latest-correction policy at that cutoff (D172).
             result.Add((data,selected.ResolvesLatestCorrection?data.SelectPinned(frame):frame));
@@ -674,6 +698,12 @@ public sealed class PreviewData
     public IEnumerable<MarketContract> ContractRows(Guid id)=>contractRows[id];
     public IEnumerable<QuoteSpecification> QuoteRows(string code)=>quoteRows[code];
     public bool HasCurveMember(string curve,Guid contract)=>curveMembers.Contains((curve,contract));
+    public static PreviewManifest ResolveBundleManifest(PreviewManifest selected,JsonElement row)
+    {
+        if(row.Id("catalog_id")!=selected.CatalogId||row.Id("id")!=selected.RevisionId||row.Text("state")!="sealed")
+            throw new MarketDataException("reference_pin_mismatch","The admitted market requires its exact persisted sealed definition.");
+        return selected with{ReferenceCatalogId=row.Id("reference_catalog_id"),ReferenceRevisionId=row.Id("reference_revision_id")};
+    }
     public static void RequireBundlePin(PreviewManifest manifest, JsonElement row)
     {
         if (row.Id("catalog_id") != manifest.CatalogId || row.Id("id") != manifest.RevisionId ||
