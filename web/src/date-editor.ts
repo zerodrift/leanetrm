@@ -40,7 +40,14 @@ export function visibleVersions<T extends {state:string}>(versions:T[],author:bo
 export function knownContractDateRejection(code:string|undefined):boolean{
   return !!code&&['access_denied','contract_dates','contract_date_conflict','schedule_conflict','schedule_unpublished','schedule_context','temporal_context','request_format','request_too_large','request_token'].includes(code);
 }
-export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:Api,isBusy:()=>boolean,zone:()=>string,onContextChanged:()=>void=()=>{},identity:()=>string=()=>''){
+export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:Api,isBusy:()=>boolean,zone:()=>string,onContextChanged:()=>void=()=>{},identity:()=>string=()=>'',
+  /**
+   * What changing the context would drop: `holds` says whether the page holds anything that a change of context gives up, and `mayChange`
+   * asks the person whether it may be given up, false meaning they kept it.
+   */
+  guard:{holds:()=>boolean;mayChange:()=>Promise<boolean>}={holds:()=>false,mayChange:async()=>true},
+  /** Runs work that completes a change made in these controls, the end-of-day knowledge of a changed effective date, leaving on screen what the change said. */
+  complete:(work:()=>Promise<void>)=>Promise<void>=run){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const input=(id:string)=>get<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>(id);
   const value=(id:string)=>input(id).value;
@@ -62,9 +69,33 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   const clearExpression=()=>{get('date-expression-result').hidden=true;};
   for(const event of ['input','change']){
     form.addEventListener(event,clearDates);curveForm.addEventListener(event,()=>{contractDirty=true;clearCurve();contractState();});get('date-expression-form').addEventListener(event,clearExpression);
-    get('date-context').addEventListener(event,()=>{pinnedContext=undefined;clearCurve();clearExpression();});
+    get('date-context').addEventListener(event,()=>{pinnedContext=undefined;clearCurve();clearExpression();settle();});
     get('date-context-view').addEventListener(event,()=>{exactKnownAt=undefined;});
   }
+  // The controls of the time context, and the values they held when they last settled: what a change that is not agreed to puts back.
+  const contextControls=()=>Array.from(get('date-context').querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'));
+  let settled=new Map<Element,string>();
+  function settle(){settled=new Map(contextControls().map(control=>[control,control.value]));}
+  settle();
+  // A change of context clears what the page holds, so while the page holds something that is given up by it, a change the person makes in
+  // these controls is held back: none of the page's listeners, or this editor's, hears it until the person has been asked. Agreeing lets it
+  // through as if it had just been made, and keeping what the page holds puts the controls back exactly as they were.
+  let asking=false,replaying=false;
+  const held:{target:EventTarget;type:string}[]=[];
+  for(const event of ['input','change'])get('date-context').addEventListener(event,change=>{
+    if(replaying||!guard.holds())return;
+    change.stopPropagation();
+    if(!held.some(h=>h.target===change.target&&h.type===event))held.push({target:change.target!,type:event});
+    if(asking)return;
+    asking=true;
+    void guard.mayChange().then(agreed=>{
+      asking=false;
+      const changes=held.splice(0);
+      if(!agreed){for(const control of contextControls())control.value=settled.get(control)??control.value;return;}
+      replaying=true;
+      try{for(const {target,type} of changes)target.dispatchEvent(new Event(type,{bubbles:true}));}finally{replaying=false;}
+    });
+  },true);
   async function sameDayKnowledge(){
     const date=value('date-context-on'),started=fence();
     pinnedContext=undefined;exactKnownAt=undefined;knownInput.clear();
@@ -73,8 +104,8 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     if(!current(started)||date!==value('date-context-on'))return;
     showContext(snapshot.context);
   }
-  get('date-context-on').addEventListener('change',()=>void run(sameDayKnowledge));
-  function showContext(context:Context){pinnedContext=context;exactKnownAt=context.knownAt;set('date-context-on',context.effectiveOn);if(context.knownAt)knownInput.set(context.knownAt);else knownInput.clear();}
+  get('date-context-on').addEventListener('change',()=>void complete(sameDayKnowledge));
+  function showContext(context:Context){pinnedContext=context;exactKnownAt=context.knownAt;set('date-context-on',context.effectiveOn);if(context.knownAt)knownInput.set(context.knownAt);else knownInput.clear();settle();}
   function setContext(context:Context){onContextChanged();showContext(context);}
   async function context():Promise<Context>{
     if(!value('date-context-on')||!value('date-context-view'))throw Error('Choose the business date and knowledge time in your display time zone first.');
@@ -172,7 +203,8 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     // Exact example terms come from the backend; the calendar stays an explicit choice.
     fill(example.definition);set('dates-selection',example.selection);set('dates-effective-from',example.effectiveFrom);set('dates-effective-to',example.effectiveTo);set('date-context-on',example.contextDate);set('date-expression',example.expression);await currentKnowledge();
   });
-  get('date-context-latest').onclick=()=>void run(async()=>{await load();await currentKnowledge();});
+  // Capturing current knowledge changes the context, which is asked about first. With no context date it only says so and changes nothing.
+  get('date-context-latest').onclick=()=>void (async()=>{if(isBusy()||value('date-context-on')&&!await guard.mayChange())return;await run(async()=>{await load();await currentKnowledge();});})();
   get<HTMLFormElement>('date-expression-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
     clearExpression();const receipt=await api<Receipt>('date-schedules/resolve',{expression:value('date-expression'),context:await context()});
     get('date-expression-result').textContent=publicText(`${receipt.expression} → ${displayDate(receipt.date)}${receipt.source.version?` · ${receipt.source.name} v${receipt.source.version}`:' · literal date'}`);get('date-expression-result').hidden=false;
@@ -230,5 +262,5 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     },
     // Unsaved edits: a contract-date definition, or a command whose outcome is unconfirmed; and a date schedule.
     contractsUnsaved:()=>contractDirty||!!pending.command,datesUnsaved:dateEdits.edited,
-    clearContext(){pinnedContext=undefined;exactKnownAt=undefined;set('date-context-on','');knownInput.clear();},refresh(){knownInput.refresh();if(shownDates)showDates(shownDates);if(shownCurve)showCurve(shownCurve);},reset(){generation++;pending.clear();contractSelected=undefined;contractDirty=false;get('curve-dates-status').textContent='';library=empty();selected=undefined;form.reset();dateEdits.clear();curveForm.reset();get<HTMLFormElement>('date-expression-form').reset();set('date-context-on','');set('date-context-view','');pinnedContext=undefined;exactKnownAt=undefined;knownInput.clear();options('curve-dates-schedule',[],'Choose a published schedule…');options('curve-dates-example-kind',[],'Choose an example…');clearDates();clearCurve();clearExpression();get('curve-dates-rows').replaceChildren();get('dates-table').replaceChildren();get('curve-dates-table').replaceChildren();list();versionLabel();}};
+    clearContext(){pinnedContext=undefined;exactKnownAt=undefined;set('date-context-on','');knownInput.clear();settle();},refresh(){knownInput.refresh();settle();if(shownDates)showDates(shownDates);if(shownCurve)showCurve(shownCurve);},reset(){generation++;pending.clear();contractSelected=undefined;contractDirty=false;get('curve-dates-status').textContent='';library=empty();selected=undefined;form.reset();dateEdits.clear();curveForm.reset();get<HTMLFormElement>('date-expression-form').reset();set('date-context-on','');set('date-context-view','');pinnedContext=undefined;exactKnownAt=undefined;knownInput.clear();settle();options('curve-dates-schedule',[],'Choose a published schedule…');options('curve-dates-example-kind',[],'Choose an example…');clearDates();clearCurve();clearExpression();get('curve-dates-rows').replaceChildren();get('dates-table').replaceChildren();get('curve-dates-table').replaceChildren();list();versionLabel();}};
 }

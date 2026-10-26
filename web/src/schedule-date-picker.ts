@@ -8,7 +8,9 @@ type Target={input:HTMLInputElement;label:string;available?:()=>boolean;acceptsD
 
 /** One-time authoring helper. The backend resolves all date semantics; applying
  * a reviewed receipt sets a literal date, not a live relationship on a trade. */
-export function createScheduleDatePicker(host:HTMLElement,options:{id:string;api:Api;run:(work:()=>Promise<void>)=>Promise<void>;context:()=>Context|undefined;zone:()=>string;enabled:()=>boolean;busy:()=>boolean;targets:Target[]}){
+export function createScheduleDatePicker(host:HTMLElement,options:{id:string;api:Api;run:(work:()=>Promise<void>)=>Promise<void>;context:()=>Context|undefined;zone:()=>string;enabled:()=>boolean;busy:()=>boolean;targets:Target[];
+  /** Hears that the person applied a date, which sets a value in a form for them. */
+  edited?:()=>void}){
  const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
  const panel=el('details');panel.className='schedule-date-picker';panel.id=options.id;panel.append(el('summary','Use a schedule date'));
  const fields=el('div');fields.className='schedule-date-fields';
@@ -47,7 +49,7 @@ export function createScheduleDatePicker(host:HTMLElement,options:{id:string;api
  apply.onclick=()=>{
   if(options.busy()||!options.enabled()||!receipt||retainedContext!==stamp()||retainedTarget!==target.value){clear();return;}
   const chosen=options.targets.find(t=>t.input.id===retainedTarget);if(!chosen||chosen.available?.()===false||chosen.acceptsDate?.(receipt.date)===false){clear();return;}
-  chosen.input.value=receipt.date;chosen.input.dispatchEvent(new Event('input',{bubbles:true}));chosen.input.dispatchEvent(new Event('change',{bubbles:true}));clear();
+  chosen.input.value=receipt.date;chosen.input.dispatchEvent(new Event('input',{bubbles:true}));chosen.input.dispatchEvent(new Event('change',{bubbles:true}));options.edited?.();clear();
  };
  return{sync,invalidate:clear,reset(){clear();panel.open=false;target.value='';expression.value='';list.replaceChildren();context.textContent='';availability.textContent='';sync();}};
 }

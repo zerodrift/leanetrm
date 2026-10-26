@@ -8,8 +8,20 @@ using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
+/// <summary>A job to queue: its request identity and request, and the run it is a part of when the run is made in parts (D222).</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record SubmitPortfolioRiskJob(Guid RequestId,PortfolioRiskRequest Request);
+public sealed record SubmitPortfolioRiskJob(Guid RequestId,PortfolioRiskRequest Request,RiskJobRun? Run=null);
+
+/// <summary>
+/// The run a queued part belongs to: the run's identity, which part this is and how many parts the run has. The job's retained
+/// frame keeps it, and the store keeps every part of a run at one retained context, with one part count, and each part once.
+/// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record RiskJobRun(Guid Id,int Part,int Parts)
+{
+    /// <summary>The most parts a run takes: sixteen shocks to a part, 4,096 shocks in all, the most a books-detail request takes.</summary>
+    public const int MaxParts=256;
+}
 
 public static class RiskJobs
 {
@@ -33,6 +45,7 @@ public static class RiskJobs
     {
         if(body.RequestId==Guid.Empty||body.Request?.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
             throw new MarketDataException("risk_job_context","Queue an exact retained financial context with a stable request identity.");
+        var run=body.Run is {} part?RunFrame(part):null;
         var prepared=await calculator.Prepare(connection,data,frame,body.Request,ct);
         var request=prepared.Request with {BookIds=prepared.BookIds,PortfolioIds=[],
             Detail=prepared.Detail==OpenEtrm.MarketData.Risk.RiskDetail.Books?"books":"holdings",
@@ -47,12 +60,29 @@ public static class RiskJobs
         pinnedFrame["supplementalMarkets"]=supplemental;
         pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
         pinnedFrame["scenarioAxes"]=JsonSerializer.SerializeToNode(CurveRiskAxes.Retained(prepared),Json);
+        // The worker leaves out exactly the positions this submission left out (D220).
+        pinnedFrame["excludedPositions"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Excluded,Json);
+        // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D222).
+        pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds);
+        if(run is not null)pinnedFrame["run"]=run;
         await using var command=ScheduleStore.Command(connection,
             "SELECT risk.submit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
             data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),pinnedFrame.ToJsonString(Json));
         var submitted=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
         return await Read(connection,manifest.CatalogId,(submitted["id"]??submitted["jobId"])!.GetValue<Guid>(),ct);
     }
+
+    /// <summary>A part's run as its retained frame states it, once its identity, part and part count are the run's own.</summary>
+    internal static JsonObject RunFrame(RiskJobRun run)
+    {
+        if(run.Id==Guid.Empty||run.Parts is < 1 or > RiskJobRun.MaxParts||run.Part<1||run.Part>run.Parts)
+            throw new MarketDataException("risk_job_run",$"State the run's identity, its part count of at most {RiskJobRun.MaxParts} and the number of this part within it.");
+        return JsonSerializer.SerializeToNode(run,Json)!.AsObject();
+    }
+
+    /// <summary>The books and portfolios a run was asked for, in the order they were chosen, as its retained frame keeps them.</summary>
+    internal static JsonObject ScopeFrame(ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds)=>
+        JsonSerializer.SerializeToNode(new{bookIds,portfolioIds},Json)!.AsObject();
 
     internal static JsonObject PinFrame(InputFrame frame)
     {

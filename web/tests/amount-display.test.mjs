@@ -36,6 +36,12 @@ test('settlement marks retain their clearing increment separately from execution
  assert.equal(requests.find(r=>r.value==='3.1001').tick,'0.0001');
  assert.equal(requests.find(r=>r.value==='3.101').tick,'0.001');
 });
+test('a mark minus price shows to the mark increment, and a rational stays exact for the backend to format',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());const requests=[];
+ await prepareAmountDisplay({priceTick:'0.025',markTick:'0.001',markMinusPrice:'-1/3'},async body=>{requests.push(...body);return body.map(()=>'-0.333');});
+ assert.deepEqual(requests.map(r=>[r.value,r.tick,r.trimTrailingZeros]),[['-1/3','0.001',true]]);
+ assert.equal(amountText('-1/3','price','0.001'),'-0.333');
+});
 test('ordinary money display defaults to three decimal places',()=>{
  assert.equal(initialDisplayPrecision().money,3);
 });

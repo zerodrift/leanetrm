@@ -14,7 +14,7 @@ export function selectDisplayPrecision(value:DisplayPrecision){precision=display
 const key=(value:string,kind:Kind,tick?:string,policy=precision)=>JSON.stringify([value,policy[kind],tick??null,kind!=='money']);
 export function amountText(value:string,kind:Kind,tick?:string,policy=precision){return rendered.get(key(value,kind,tick,policy))??value;}
 const money=new Set(['tradeCashAmount','tradePresentValue','presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change']);
-const prices=new Set(['price','fixedPrice','executionPrice','mark','value','annualRate',...priceMeasureChoices.map(c=>c[0])]);
+const prices=new Set(['price','fixedPrice','executionPrice','mark','markMinusPrice','value','annualRate',...priceMeasureChoices.map(c=>c[0])]);
 const quantities=new Set(['resolvedQuantity','quantity','physicalQuantity','totalQuantity','weight']);
 const factors=new Set(['discountFactor','factor','multiplier','delta','gamma']);
 export async function prepareAmountDisplay(payload:unknown,format:(body:Request[])=>Promise<string[]>,initialTick?:string,initialPolicy=precision){
@@ -26,7 +26,7 @@ export async function prepareAmountDisplay(payload:unknown,format:(body:Request[
   for(const [field,raw] of Object.entries(row)){
    const kind:Kind|undefined=money.has(field)?'money':prices.has(field)?'price':quantities.has(field)?'quantity':factors.has(field)?'factor':undefined;
    if(kind&&typeof raw==='string'&&/^-?\d+(?:\.\d+|\/\d+)?$/.test(raw)){
-    const selectedTick=kind==='price'?(field==='mark'&&typeof row.markTick==='string'?row.markTick:priceTick):undefined,selectedPolicy=field==='fixedPrice'&&row.fixedAmountFormat?displayPrecision(row.fixedAmountFormat):policy,k=key(raw,kind,selectedTick,selectedPolicy);
+    const selectedTick=kind==='price'?(['mark','markMinusPrice'].includes(field)&&typeof row.markTick==='string'?row.markTick:priceTick):undefined,selectedPolicy=field==='fixedPrice'&&row.fixedAmountFormat?displayPrecision(row.fixedAmountFormat):policy,k=key(raw,kind,selectedTick,selectedPolicy);
     if(!rendered.has(k))requests.set(k,{value:raw,decimalPlaces:selectedPolicy[kind],tick:selectedTick??null,trimTrailingZeros:kind!=='money'});
    }else visit(raw,priceTick,policy);
   }

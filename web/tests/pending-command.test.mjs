@@ -43,5 +43,14 @@ test('reload restores every settlement mutation with the exact original identity
     const restored=restoreTradeRequest(saved);restored.body.allocations[0].amount='changed';
     assert.equal(saved.body.allocations[0].amount,'-300.00');
   }
-  for(const value of [null,{},[],{path:'swaps/settlement/status',operationId:'request',body:{}},{path:'swaps/settlement/net',operationId:'request',body:[]}])assert.equal(restoreTradeRequest(value),undefined);
+  for(const value of [null,'text',{},[],{path:'swaps/settlement/status',operationId:'request',body:{}},{path:'swaps/settlement/preview',operationId:'request',body:{}},{path:'admin/create',operationId:'request',body:{}},
+    {path:'swaps/settlement/net',operationId:'request',body:[]},{path:'swaps/book',operationId:7,body:{}},{path:'swaps/book',operationId:'request',body:null},{path:'swaps/book',operationId:'request',body:'text'}])
+    assert.equal(restoreTradeRequest(value),undefined,JSON.stringify(value));
+});
+
+test('a restored request keeps the label that names it for the person, and only a label that is text',async()=>{
+  const {restoreTradeRequest}=await import('../dist/pending-command.js');
+  const saved={operationId:'00000000-0000-0000-0000-000000000002',path:'swaps/settlement/net',body:{previewHash:'synthetic-hash'},uncertain:true,label:'Net settlement of TR-000001'};
+  assert.deepEqual(restoreTradeRequest(JSON.parse(JSON.stringify(saved))),saved);
+  assert.equal('label' in restoreTradeRequest({...saved,label:7}),false);
 });

@@ -1108,7 +1108,7 @@ amounts as the page does, each amount once, by the last walk that reaches it. Th
 check that each read issues its own selection as a target and then each curve or trade
 it lists as a record target, a trade at the revision read, under handles numbered from
 the turn's next, each a page report its page reads, labeled with the page and what it
-shows; that a page target names one of the seven pages the assistant reads, checked by
+shows; that a page target names one of the eight pages the assistant reads, checked by
 the accesses and permissions that page's reads all run under; that a target's event
 keeps the turn's pinned mode, context and frame, and Navigate answers with the
 target's page, kind and label; that Navigate's schema offers exactly those pages and
@@ -1600,8 +1600,9 @@ individual command and owned-resource deadlines remain in force. The expanded
 51-stage sequential gate exceeded that job deadline on Ubuntu. The workspace
 partition subsequently exceeded it as trading and settlement coverage grew.
 The trading partition now owns swap pricing, settlement, observation schedules,
-portfolio valuation and close-worker checks, leaving the other workspace browser
-checks in their own job. Every preview stage still runs once across the matrix;
+portfolio valuation and close-worker checks, and the Blotter desk's valuation-status
+browser and desk-field checks, leaving the other workspace browser checks in their
+own job. Every preview stage still runs once across the matrix;
 this split does not establish a measured runtime for the new partitions.
 Group completion is reported separately from full-gate completion, and the final required check
 accepts only successful completion of every group. Failures, cancellation and

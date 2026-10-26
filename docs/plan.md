@@ -1283,3 +1283,10 @@ retain native cutoff contracts. Interval data opens the latest trailing day;
 delivery prices open the latest available source/day, with explicit empty states.
 The Assistant launcher floats at the lower right and its visibility is a browser
 profile preference. Historical-session support is unchanged.
+
+The Blotter desk's newest close (D219) takes the same latest instant: one
+mechanism, the workspace's availability calendar, chooses the close when working
+data opens or is returned to and states it with a **Latest close** badge; several
+closes at that instant still ask (D162), and a historical view selects none by
+itself. The As of control and its badge float with the Context panel, which names
+the knowledge in use and holds live corrections.

@@ -129,6 +129,170 @@ internal static class PreviewDataChecks
                 Reject("ambiguous_reference",()=>Data(references:new(fixture.References){[table]=[..rows,rows[0]]}));
             }
         });
+        Check("a curve's commodity is the code and name of its reference, and a curve without one fails the read",()=>
+        {
+            ImmutableArray<JsonElement> Commodities(params string[] codes)=>[..codes.Select(code=>Row(new{code,name="Synthetic "+code}))];
+            ImmutableArray<JsonElement> Curve(string? commodity)=>[Change(fixture.Definitions["curves"].Single(),"commodity_code",commodity)];
+            PreviewData Held(ImmutableArray<JsonElement> commodities,ImmutableArray<JsonElement> curves)=>
+                Data(references:new(fixture.References){["commodities"]=commodities},definitions:new(fixture.Definitions){["curves"]=curves});
+            if(Held(Commodities("gas","power"),Curve("gas")).Commodity("future") is not {Code:"gas",Name:"Synthetic gas"})throw new Exception("A curve lost the commodity its reference names.");
+            Reject("ambiguous_reference",()=>Held(Commodities("gas"),Curve("gas")).Commodity("unlisted"));
+            Reject("ambiguous_reference",()=>Held(Commodities("power"),Curve("gas")).Commodity("future"));
+            Reject("ambiguous_reference",()=>Held(Commodities("gas","gas"),Curve("gas")).Commodity("future"));
+            Reject("ambiguous_reference",()=>Held(Commodities("gas"),Curve(null)).Commodity("future"));
+        });
+        // The reference rows that name a quote's currency and unit, which the fixture leaves out, and a quote multiplier its futures keep.
+        Dictionary<string,ImmutableArray<JsonElement>> Quoting(string multiplier="1")=>new(fixture.References)
+        {
+            ["currencies"]=[Row(new{code="usd",display_code="USD"})],["units"]=[Row(new{code="mwh",symbol="MWh"})],
+            ["quote_specifications"]=[Change(fixture.References["quote_specifications"].Single(),"multiplier",multiplier)],
+            ["futures_products"]=[Change(fixture.References["futures_products"].Single(),"quote_multiplier",multiplier)]
+        };
+        Check("a curve's price unit names its quote's currency and unit, then a multiplier other than one",()=>
+        {
+            if(Data(references:Quoting()).PriceUnit("future")!="USD/MWh"||Data(references:Quoting("100")).PriceUnit("future")!="USD/MWh × 100")
+                throw new Exception("A curve's price unit changed.");
+            Reject("ambiguous_reference",()=>Data(references:Quoting()).PriceUnit("unlisted"));
+        });
+        Check("a curve shape prices every contract its view selects exactly as the curve itself does",()=>
+        {
+            var priced=Data(references:Quoting());
+            var shape=MarketReads.Shape(priced,priced.Snapshot(fixture.Frame),fixture.Frame,"future");
+            var own=Row(priced.Result(fixture.Frame,"future")).GetProperty("points").EnumerateArray().ToArray();
+            if(shape is not {Curve:"future",Unit:"USD/MWh",UnavailableReason:null,Points:{} points}||points.Length!=405||!points.SequenceEqual(own.Select(p=>
+                new CurveShapePoint(p.Id("contractId"),p.Text("deliveryFrom"),p.Text("deliveryTo"),p.Text("value"),null))))
+                throw new Exception("A curve shape differs from the prices and delivery periods of its curve.");
+        });
+        // The first contracts expire before the frame's instant, and the one after them, if asked, has no pinned price.
+        (PreviewData Priced,InputFrame Frame) Unpriceable(int expired,bool unpinned,ImmutableArray<JsonElement>? observations=null)
+        {
+            var expiring=Enumerable.Range(0,expired).Select(i=>"synthetic_"+i).ToHashSet();
+            var priced=Data(observations,references:new(Quoting()){["futures_milestones"]=[..fixture.References["futures_milestones"].Select(row=>
+                    row.Text("milestone")=="last_trading"&&expiring.Contains(row.Text("series_code"))?Change(row,"event_at","2040-01-05T00:00:00Z"):row)]},
+                definitions:new(fixture.Definitions){["contracts"]=[..fixture.Definitions["contracts"].Select((row,i)=>i<expired?Change(row,"expiry_at","2040-01-05T00:00:00Z"):row)]});
+            return(priced,unpinned?fixture.Frame with{ObservationIds=fixture.Frame.ObservationIds.RemoveAt(expired)}:fixture.Frame);
+        }
+        string Day(DateOnly date)=>date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
+        Check("a curve shape states each contract its inputs cannot price, and prices the others as the curve prices them alone",()=>
+        {
+            var (priced,gap)=Unpriceable(3,true);
+            Reject("source_expired",()=>priced.Build(gap,"future"));
+            var shape=MarketReads.Shape(priced,priced.Snapshot(gap),gap,"future");
+            var whole=data.Build(fixture.Frame,"future").Values;
+            if(shape is not {UnavailableReason:null,Points:{} points}||points.Length!=405||points.Take(3).Any(p=>p is not {Price:null,UnavailableReason:"source_expired"})||
+                points[3] is not {Price:null,UnavailableReason:"missing_observation"}||
+                !points.Skip(4).SequenceEqual(whole.Skip(4).Select(v=>new CurveShapePoint(v.Request.Contract.Id,
+                    Day(priced.ContractRows(v.Request.Contract.Id).Single().DeliveryFrom),Day(priced.ContractRows(v.Request.Contract.Id).Single().DeliveryTo),v.Price.Value.ToString(),null))))
+                throw new Exception("A curve shape hid a contract it could not price, or priced another differently.");
+        });
+        Check("the contracts a close cannot price are isolated in builds that grow with them and not with the curve",()=>
+        {
+            // The fastest of three runs, so the first run's start-up does not count.
+            (int Builds,double Milliseconds,CurveBuild? Build,ImmutableDictionary<CurveRequest,string> Unvalued) Isolate(PreviewData priced,InputFrame frame)
+            {
+                var snapshot=priced.Snapshot(frame);
+                var requests=priced.Requests(frame,"future");
+                (int,double,CurveBuild?,ImmutableDictionary<CurveRequest,string>) fastest=(0,double.MaxValue,null,ImmutableDictionary<CurveRequest,string>.Empty);
+                for(var run=0;run<3;run++)
+                {
+                    var builds=0;
+                    var watch=System.Diagnostics.Stopwatch.StartNew();
+                    var (build,unvalued)=ValuationStatus.BuildValued(set=>{builds++;return priced.Model.Build(snapshot,set);},requests);
+                    watch.Stop();
+                    if(watch.Elapsed.TotalMilliseconds<fastest.Item2)fastest=(builds,watch.Elapsed.TotalMilliseconds,build,unvalued);
+                }
+                return fastest;
+            }
+            var (few,gap)=Unpriceable(3,true);
+            var (builds,milliseconds,rest,unvalued)=Isolate(few,gap);
+            var requests=few.Requests(gap,"future");
+            // About 3 x log2(405) builds for each of the four, besides the one for the rest; the old way built one for each of 405.
+            if(rest is null||rest.Values.Length!=401||unvalued.Count!=4||
+                requests.Take(4).Any(r=>unvalued.GetValueOrDefault(r)!=(r==requests[3]?"missing_observation":"source_expired"))||builds>4*(3*9+3)+9+2)
+                throw new Exception($"Four unpriceable contracts of 405 were not isolated in builds that grow with them; {builds} were built.");
+            Console.WriteLine($"INFO preview data: 4 of 405 contracts isolated in {builds} builds, {milliseconds:F0} ms");
+            // When every contract fails, each needs its own code and is built alone once: no more builds than contracts, and the whole curve first.
+            var (everyone,expired)=Unpriceable(405,false);
+            var (denseBuilds,denseMilliseconds,none,every)=Isolate(everyone,expired);
+            if(none is not null||every.Count!=405||every.Values.Any(code=>code!="source_expired")||denseBuilds>405+1)
+                throw new Exception($"Every contract unpriceable was not isolated in one build each; {denseBuilds} were built.");
+            Console.WriteLine($"INFO preview data: 405 of 405 contracts isolated in {denseBuilds} builds, {denseMilliseconds:F0} ms");
+        });
+        Check("whichever contracts fail, exactly those are isolated with their own codes, in at most three builds for each contract",()=>
+        {
+            var small=Fixture(48);
+            var model=new PreviewData(small.Manifest,small.Definitions,small.References,small.Observations);
+            var snapshot=model.Snapshot(small.Frame);
+            var requests=model.Requests(small.Frame,"future");
+            var random=new Random(7);
+            for(var round=0;round<200;round++)
+            {
+                var failing=requests.OrderBy(_=>random.Next()).Take(random.Next(1,requests.Length+1)).ToDictionary(r=>r,_=>random.Next(2)==0?"source_expired":"missing_observation");
+                var builds=0;
+                // A set fails with the code of the first contract in it that fails, as a build of the set does.
+                CurveBuild Build(ImmutableArray<CurveRequest> set)
+                {
+                    builds++;
+                    foreach(var request in set)if(failing.TryGetValue(request,out var code))throw new MarketDataException(code,"Synthetic failure of a contract.");
+                    return model.Model.Build(snapshot,set);
+                }
+                var (valued,unvalued)=ValuationStatus.BuildValued(Build,requests);
+                if(unvalued.Count!=failing.Count||failing.Any(f=>unvalued.GetValueOrDefault(f.Key)!=f.Value)||(valued?.Values.Length??0)!=requests.Length-failing.Count||builds>3*requests.Length+2)
+                    throw new Exception($"Round {round}: {failing.Count} failing contracts were isolated as {unvalued.Count}, with {builds} builds.");
+            }
+        });
+        Check("when no single contract fails alone the failure is not a contract's and fails the build, as is any other failure of one",()=>
+        {
+            var priced=Data(references:Quoting());
+            var snapshot=priced.Snapshot(fixture.Frame);
+            var requests=priced.Requests(fixture.Frame,"future");
+            // Each contract is priced alone and no two together: a failure of the combination, not of any contract.
+            CurveBuild Together(ImmutableArray<CurveRequest> set)=>set.Length>1?throw new MarketDataException("source_expired","Synthetic failure of a combination."):priced.Model.Build(snapshot,set);
+            Reject("source_expired",()=>ValuationStatus.BuildValued(Together,requests));
+            // A contract that fails alone for a reason that is not position-specific fails the build.
+            CurveBuild Other(ImmutableArray<CurveRequest> set)=>set.Contains(requests[5])?throw new MarketDataException(set.Length==1?"price_domain":"missing_observation","Synthetic."):priced.Model.Build(snapshot,set);
+            Reject("price_domain",()=>ValuationStatus.BuildValued(Other,requests));
+        });
+        Check("a curve that cannot be read is stated unavailable with the code its own read raises, and the curve beside it is still shaped",()=>
+        {
+            var definitions=new Dictionary<string,ImmutableArray<JsonElement>>(fixture.Definitions)
+            {
+                ["curves"]=[..fixture.Definitions["curves"],Change(fixture.Definitions["curves"].Single(),"code","completed_future")],
+                ["curve_members"]=[..fixture.Definitions["curve_members"],..fixture.Definitions["curve_members"].Select(row=>Change(row,"curve_code","completed_future"))]
+            };
+            var both=Data(references:Quoting(),definitions:definitions);
+            CurveShape Of(PreviewData read,InputFrame frame,string curve)=>MarketReads.Shape(read,read.Snapshot(frame),frame,curve);
+            if(Of(both,fixture.Frame,"unlisted") is not {Curve:"unlisted",Unit:null,Points:null,UnavailableReason:"missing_curve"})throw new Exception("An undefined curve is stated unavailable.");
+            Reject("missing_curve",()=>both.Result(fixture.Frame,"unlisted"));
+            if(Of(both,fixture.Frame,"completed_future") is not {Curve:"completed_future",Unit:null,Points:null,UnavailableReason:"missing_curve_view"})throw new Exception("A curve its frame has no view of is stated unavailable.");
+            Reject("missing_curve_view",()=>both.Result(fixture.Frame,"completed_future"));
+            var emptied=fixture.Frame with{CurveContracts=fixture.Frame.CurveContracts.Add("completed_future",[])};
+            if(Of(both,emptied,"completed_future") is not {Unit:"USD/MWh",UnavailableReason:null,Points:{IsEmpty:true}})throw new Exception("A curve whose view selects nothing has no points.");
+            var mismatched=Data(fixture.Observations.SetItem(0,Change(fixture.Observations[0],"role","final_contract_settlement")),Quoting());
+            if(Of(mismatched,fixture.Frame,"future") is not {Unit:null,Points:null,UnavailableReason:"selection_mismatch"})throw new Exception("A curve failing for another reason states that reason.");
+            Reject("selection_mismatch",()=>mismatched.Result(fixture.Frame,"future"));
+            if(Of(both,fixture.Frame,"future") is not {UnavailableReason:null,Points:{Length:405}})throw new Exception("A curve beside an unreadable one is shaped.");
+        });
+        Check("a catalog inconsistency in the references of a readable curve's price unit fails the read, and does not reach a curve that cannot be read",()=>
+        {
+            // Two currency rows for the quote's currency: the curve prices without them, but its unit cannot be named.
+            var inconsistent=Data(references:new(Quoting()){["currencies"]=[Row(new{code="usd",display_code="USD"}),Row(new{code="usd",display_code="Dollars"})]});
+            inconsistent.Result(fixture.Frame,"future");
+            var snapshot=inconsistent.Snapshot(fixture.Frame);
+            Reject("ambiguous_reference",()=>MarketReads.Shape(inconsistent,snapshot,fixture.Frame,"future"));
+            if(MarketReads.Shape(inconsistent,snapshot,fixture.Frame,"unlisted") is not {Unit:null,Points:null,UnavailableReason:"missing_curve"})
+                throw new Exception("A curve that cannot be read states its own failure, whatever its unit's references are.");
+        });
+        Check("a curve whose whole build fails for a position-specific reason states that failure, though isolating it meets another that the Blotter's isolation still raises",()=>
+        {
+            // The first contract expires, and the sixth has an observation the curve cannot take.
+            var (both,frame)=Unpriceable(1,false,fixture.Observations.SetItem(5,Change(fixture.Observations[5],"role","final_contract_settlement")));
+            Reject("source_expired",()=>both.Result(frame,"future"));
+            var snapshot=both.Snapshot(frame);
+            if(MarketReads.Shape(both,snapshot,frame,"future") is not {Curve:"future",Unit:null,Points:null,UnavailableReason:"source_expired"})
+                throw new Exception("A curve states the failure of its own read, not one met while its contracts were isolated.");
+            Reject("selection_mismatch",()=>ValuationStatus.BuildValued(set=>both.Model.Build(snapshot,set),both.Requests(frame,"future")));
+        });
         Check("duplicate typed definitions retain their domain error",()=>
         {
             Reject("duplicate_definition",()=>Data(definitions:new(fixture.Definitions){["contracts"]=[..fixture.Definitions["contracts"],fixture.Definitions["contracts"][0]]}));

@@ -280,25 +280,6 @@ public sealed partial class SwapStore
             contractualAmount=Exact(p.ContractualAmount),remainingValue=Exact(p.RemainingValue)})
     };
 
-    private JsonElement LifecycleHolding(PreviewData data,JsonElement row,JsonElement book,SwapWriteRequest terms,LifecycleEvaluation lifecycle)
-    {
-        var instrument=lifecycle.Instrument;var value=lifecycle.Value;
-        var quantity=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==instrument.UnitQuantity.Specification.Code));
-        var unit=One(data.References["units"].Where(u=>u.Text("code")==quantity.Text("unit_code")));
-        var currency=One(data.References["currencies"].Where(c=>c.Text("code")==instrument.Currency.Code));
-        var plans=instrument.Sides.SelectMany(s=>((SidePaymentSchedule)s.Side.GenerateSchedule()).Payments).ToArray();
-        var quote=plans.SelectMany(p=>p.Prices).First(p=>p.Lookup is not null).Lookup!.Quote;
-        return Json(new{booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),
-            traderId=row.Id("booker_id"),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),
-            tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentId=instrument.Id,instrumentReference=TradingReference.Instrument(row),bindingId=row.Id("binding_id"),
-            revision=row.Text("revision"),bookId=row.Id("book_id"),book=book.Text("name"),portfolioId=book.Id("portfolio_id"),portfolio=book.Text("portfolio"),instrumentType="financial_swap",definitionRevisionId=row.Id("definition_revision_id"),
-            contractId=instrument.Id,contractIdentityKind=terms.Scheduled is null?"swap_instrument":"scheduled_swap_instrument",curve=row.Text("curve_code"),
-            deliveryFrom=Date(plans.Min(p=>p.DeliveryFrom)),deliveryTo=Date(plans.Max(p=>p.DeliveryTo)),quoteMultiplier=quote.Multiplier.ToString(),lots=(string?)null,
-            quantity=terms.Scheduled is null?lifecycle.Quantity.Amount.ToString():null,unit=unit.Text("symbol"),quantitySpecification=lifecycle.Quantity.Specification,currencyReference=instrument.Currency,
-            executedAt=row.Text("booked_at"),executionPrice=(string?)null,fixedPrice=(string?)null,mark=(string?)null,executionPnl=(string?)null,
-            presentValue=Exact(value.RemainingValue),currency=currency.Text("display_code"),settlement="Active",lifecycle=LifecycleValue(value)});
-    }
-
     internal async Task<object> PnlRead(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapPnlRequest request,CancellationToken ct,SwapPnlSide? opening=null)
     {
         if(request.TradeIds.IsDefault||request.BookIds.IsDefault||request.TradeIds.Length>256||request.BookIds.Length>64||request.TradeIds.Distinct().Count()!=request.TradeIds.Length||

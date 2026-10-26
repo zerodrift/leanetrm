@@ -1,0 +1,1042 @@
+{
+ "curveNames": [
+  {
+   "code": "gas_forward",
+   "name": "Gas forward"
+  },
+  {
+   "code": "gas_future",
+   "name": "Gas future"
+  },
+  {
+   "code": "power_forward",
+   "name": "Power forward"
+  },
+  {
+   "code": "power_euro",
+   "name": "Power euro forward"
+  }
+ ],
+ "holdings": [
+  {
+   "tradeId": "t0000000-0000-0000-0000-000000000001",
+   "bindingId": "b0000000-0000-0000-0000-000000000001",
+   "tradeReference": "TR-000001",
+   "instrumentReference": "IN-000001",
+   "revision": "1",
+   "instrumentType": "financial_swap",
+   "bookId": "d1000000-0000-0000-0000-00000000000a",
+   "book": "Book A",
+   "portfolioId": "p0000000-0000-0000-0000-000000000001",
+   "portfolio": "Synthetic portfolio",
+   "curve": "gas_forward",
+   "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+   "commodity": {
+    "code": "test_gas",
+    "name": "Synthetic gas"
+   },
+   "contractId": "c0000000-0000-0000-0000-000000000001",
+   "deliveryFrom": "2021-01-01",
+   "deliveryTo": "2021-02-01",
+   "quantity": "1000",
+   "unit": "MMBtu (IT)",
+   "quantitySpecification": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "test_gas_quantity"
+   },
+   "currency": "USD",
+   "currencyReference": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "usd"
+   },
+   "lots": null,
+   "executionPrice": null,
+   "fixedPrice": "3.5",
+   "mark": "3.49",
+   "markMinusPrice": "-0.01",
+   "executionPnl": null,
+   "presentValue": "-10",
+   "direction": "pay_fixed",
+   "unavailableReason": null,
+   "contractIdentityKind": "swap_instrument",
+   "settlement": "Projection",
+   "marketKey": null,
+   "marketLabel": null,
+   "projectionCurves": null
+  },
+  {
+   "tradeId": "t0000000-0000-0000-0000-000000000002",
+   "bindingId": "b0000000-0000-0000-0000-000000000002",
+   "tradeReference": "TR-000002",
+   "instrumentReference": "IN-000002",
+   "revision": "1",
+   "instrumentType": "future",
+   "bookId": "d1000000-0000-0000-0000-00000000000b",
+   "book": "Book B",
+   "portfolioId": "p0000000-0000-0000-0000-000000000001",
+   "portfolio": "Synthetic portfolio",
+   "curve": "gas_future",
+   "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+   "commodity": {
+    "code": "test_gas",
+    "name": "Synthetic gas"
+   },
+   "contractId": "c0000000-0000-0000-0000-000000000002",
+   "deliveryFrom": "2021-01-01",
+   "deliveryTo": "2021-02-01",
+   "quantity": "2500",
+   "unit": "MMBtu (IT)",
+   "quantitySpecification": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "test_gas_quantity"
+   },
+   "currency": "USD",
+   "currencyReference": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "usd"
+   },
+   "lots": "1",
+   "executionPrice": "3.315",
+   "fixedPrice": null,
+   "mark": "3.3",
+   "markMinusPrice": "-0.015",
+   "executionPnl": "-37.5",
+   "presentValue": null,
+   "direction": null,
+   "unavailableReason": null,
+   "settlement": "unprocessed"
+  },
+  {
+   "tradeId": "t0000000-0000-0000-0000-000000000003",
+   "bindingId": "b0000000-0000-0000-0000-000000000003",
+   "tradeReference": "TR-000003",
+   "instrumentReference": "IN-000003",
+   "revision": "1",
+   "instrumentType": "future",
+   "bookId": "d1000000-0000-0000-0000-00000000000b",
+   "book": "Book B",
+   "portfolioId": "p0000000-0000-0000-0000-000000000001",
+   "portfolio": "Synthetic portfolio",
+   "curve": "gas_future",
+   "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+   "commodity": {
+    "code": "test_gas",
+    "name": "Synthetic gas"
+   },
+   "contractId": "c0000000-0000-0000-0000-000000000003",
+   "deliveryFrom": "2021-01-01",
+   "deliveryTo": "2021-02-01",
+   "quantity": "-2500",
+   "unit": "MMBtu (IT)",
+   "quantitySpecification": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "test_gas_quantity"
+   },
+   "currency": "USD",
+   "currencyReference": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "usd"
+   },
+   "lots": "-1",
+   "executionPrice": "3.4",
+   "fixedPrice": null,
+   "mark": null,
+   "markMinusPrice": null,
+   "executionPnl": null,
+   "presentValue": null,
+   "direction": null,
+   "unavailableReason": "source_expired",
+   "settlement": "unprocessed"
+  },
+  {
+   "tradeId": "t0000000-0000-0000-0000-000000000004",
+   "bindingId": "b0000000-0000-0000-0000-000000000004",
+   "tradeReference": "TR-000004",
+   "instrumentReference": "IN-000004",
+   "revision": "1",
+   "instrumentType": "financial_swap",
+   "bookId": "d1000000-0000-0000-0000-00000000000b",
+   "book": "Book B",
+   "portfolioId": "p0000000-0000-0000-0000-000000000001",
+   "portfolio": "Synthetic portfolio",
+   "curve": "power_forward",
+   "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+   "commodity": {
+    "code": "test_power",
+    "name": "Synthetic power"
+   },
+   "contractId": "c0000000-0000-0000-0000-000000000004",
+   "deliveryFrom": "2021-01-01",
+   "deliveryTo": "2021-02-01",
+   "quantity": "100",
+   "unit": "MWh",
+   "quantitySpecification": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "test_power_quantity"
+   },
+   "currency": "USD",
+   "currencyReference": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "usd"
+   },
+   "lots": null,
+   "executionPrice": null,
+   "fixedPrice": null,
+   "mark": null,
+   "markMinusPrice": null,
+   "executionPnl": null,
+   "presentValue": "230",
+   "direction": "multi_side",
+   "unavailableReason": null,
+   "contractIdentityKind": "swap_instrument",
+   "settlement": "Projection",
+   "marketKey": null,
+   "marketLabel": null,
+   "projectionCurves": null
+  },
+  {
+   "tradeId": "t0000000-0000-0000-0000-000000000005",
+   "bindingId": "b0000000-0000-0000-0000-000000000005",
+   "tradeReference": "TR-000005",
+   "instrumentReference": "IN-000005",
+   "revision": "1",
+   "instrumentType": "financial_swap",
+   "bookId": "d1000000-0000-0000-0000-00000000000b",
+   "book": "Book B",
+   "portfolioId": "p0000000-0000-0000-0000-000000000001",
+   "portfolio": "Synthetic portfolio",
+   "curve": "power_euro",
+   "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+   "commodity": {
+    "code": "test_power",
+    "name": "Synthetic power"
+   },
+   "contractId": "c0000000-0000-0000-0000-000000000005",
+   "deliveryFrom": "2021-01-01",
+   "deliveryTo": "2021-02-01",
+   "quantity": "50",
+   "unit": "MWh",
+   "quantitySpecification": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "test_power_quantity"
+   },
+   "currency": "EUR",
+   "currencyReference": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "eur"
+   },
+   "lots": null,
+   "executionPrice": null,
+   "fixedPrice": "45",
+   "mark": "44.8",
+   "markMinusPrice": "-0.2",
+   "executionPnl": null,
+   "presentValue": "15",
+   "direction": "receive_fixed",
+   "unavailableReason": null,
+   "contractIdentityKind": "swap_instrument",
+   "settlement": "Projection",
+   "marketKey": null,
+   "marketLabel": null,
+   "projectionCurves": null
+  },
+  {
+   "tradeId": "t0000000-0000-0000-0000-000000000006",
+   "bindingId": "b0000000-0000-0000-0000-000000000006",
+   "tradeReference": "TR-000006",
+   "instrumentReference": "IN-000006",
+   "revision": "1",
+   "instrumentType": "financial_swap",
+   "bookId": "d1000000-0000-0000-0000-00000000000a",
+   "book": "Book A",
+   "portfolioId": "p0000000-0000-0000-0000-000000000001",
+   "portfolio": "Synthetic portfolio",
+   "curve": "gas_forward",
+   "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+   "commodity": {
+    "code": "test_gas",
+    "name": "Synthetic gas"
+   },
+   "contractId": "c0000000-0000-0000-0000-000000000006",
+   "deliveryFrom": "2021-01-01",
+   "deliveryTo": "2021-02-01",
+   "quantity": "500",
+   "unit": "MMBtu (IT)",
+   "quantitySpecification": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "test_gas_quantity"
+   },
+   "currency": "USD",
+   "currencyReference": {
+    "revision": {
+     "catalogId": "10000000-0000-0000-0000-000000000001",
+     "revisionId": "20000000-0000-0000-0000-000000000001"
+    },
+    "code": "usd"
+   },
+   "lots": null,
+   "executionPrice": null,
+   "fixedPrice": "3.6",
+   "mark": null,
+   "markMinusPrice": null,
+   "executionPnl": null,
+   "presentValue": null,
+   "direction": "receive_fixed",
+   "unavailableReason": "missing_observation",
+   "contractIdentityKind": "swap_instrument",
+   "settlement": "Projection",
+   "marketKey": null,
+   "marketLabel": null,
+   "projectionCurves": null
+  }
+ ],
+ "summaries": [
+  {
+   "view": {
+    "mode": "pivot",
+    "bookIds": [],
+    "portfolioIds": [],
+    "groupBy": [
+     "instrumentType"
+    ],
+    "measures": [
+     "presentValue",
+     "executionPnl",
+     "tradeCount"
+    ],
+    "pivotConvention": "trading_blotter_money_totals_v1",
+    "priceNumericalPolicy": null
+   },
+   "groups": [
+    {
+     "instrumentType": "financial_swap",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": "220",
+     "executionPnl": null,
+     "tradeCount": 3,
+     "unvaluedPositions": 1
+    },
+    {
+     "instrumentType": "future",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": "-37.5",
+     "tradeCount": 2,
+     "unvaluedPositions": 1
+    },
+    {
+     "instrumentType": "financial_swap",
+     "currency": "EUR",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "eur"
+     },
+     "presentValue": "15",
+     "executionPnl": null,
+     "tradeCount": 1,
+     "unvaluedPositions": 0
+    }
+   ]
+  },
+  {
+   "view": {
+    "mode": "pivot",
+    "bookIds": [],
+    "portfolioIds": [],
+    "groupBy": [
+     "book"
+    ],
+    "measures": [
+     "presentValue",
+     "executionPnl",
+     "tradeCount"
+    ],
+    "pivotConvention": "trading_blotter_money_totals_v1",
+    "priceNumericalPolicy": null
+   },
+   "groups": [
+    {
+     "bookId": "d1000000-0000-0000-0000-00000000000a",
+     "book": "Book A",
+     "instrumentType": "financial_swap",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": "-10",
+     "executionPnl": null,
+     "tradeCount": 2,
+     "unvaluedPositions": 1
+    },
+    {
+     "bookId": "d1000000-0000-0000-0000-00000000000b",
+     "book": "Book B",
+     "instrumentType": "future",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": "-37.5",
+     "tradeCount": 2,
+     "unvaluedPositions": 1
+    },
+    {
+     "bookId": "d1000000-0000-0000-0000-00000000000b",
+     "book": "Book B",
+     "instrumentType": "financial_swap",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": "230",
+     "executionPnl": null,
+     "tradeCount": 1,
+     "unvaluedPositions": 0
+    },
+    {
+     "bookId": "d1000000-0000-0000-0000-00000000000b",
+     "book": "Book B",
+     "instrumentType": "financial_swap",
+     "currency": "EUR",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "eur"
+     },
+     "presentValue": "15",
+     "executionPnl": null,
+     "tradeCount": 1,
+     "unvaluedPositions": 0
+    }
+   ]
+  },
+  {
+   "view": {
+    "mode": "pivot",
+    "bookIds": [],
+    "portfolioIds": [],
+    "groupBy": [
+     "commodity",
+     "instrumentType"
+    ],
+    "measures": [
+     "tradeCount",
+     "quantity"
+    ],
+    "pivotConvention": "trading_blotter_totals_v1",
+    "priceNumericalPolicy": null
+   },
+   "groups": [
+    {
+     "commodity": {
+      "code": "test_gas",
+      "name": "Synthetic gas"
+     },
+     "instrumentType": "financial_swap",
+     "unit": "MMBtu (IT)",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "tradeCount": 2,
+     "quantity": "1500",
+     "unvaluedPositions": 1
+    },
+    {
+     "commodity": {
+      "code": "test_gas",
+      "name": "Synthetic gas"
+     },
+     "instrumentType": "future",
+     "unit": "MMBtu (IT)",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "tradeCount": 2,
+     "quantity": "0",
+     "unvaluedPositions": 1
+    },
+    {
+     "commodity": {
+      "code": "test_power",
+      "name": "Synthetic power"
+     },
+     "instrumentType": "financial_swap",
+     "unit": "MWh",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_power_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "tradeCount": 1,
+     "quantity": "100",
+     "unvaluedPositions": 0
+    },
+    {
+     "commodity": {
+      "code": "test_power",
+      "name": "Synthetic power"
+     },
+     "instrumentType": "financial_swap",
+     "unit": "MWh",
+     "currency": "EUR",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_power_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "eur"
+     },
+     "tradeCount": 1,
+     "quantity": "50",
+     "unvaluedPositions": 0
+    }
+   ]
+  },
+  {
+   "view": {
+    "mode": "pivot",
+    "bookIds": [],
+    "portfolioIds": [],
+    "groupBy": [
+     "commodity",
+     "market"
+    ],
+    "measures": [
+     "presentValue",
+     "executionPnl",
+     "quantity",
+     "tradeCount"
+    ],
+    "pivotConvention": "trading_blotter_totals_v1",
+    "priceNumericalPolicy": null
+   },
+   "groups": [
+    {
+     "commodity": {
+      "code": "test_gas",
+      "name": "Synthetic gas"
+     },
+     "market": "gas_forward",
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+     "instrumentType": "financial_swap",
+     "unit": "MMBtu (IT)",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": "-10",
+     "executionPnl": null,
+     "quantity": "1500",
+     "tradeCount": 2,
+     "unvaluedPositions": 1
+    },
+    {
+     "commodity": {
+      "code": "test_gas",
+      "name": "Synthetic gas"
+     },
+     "market": "gas_future",
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+     "instrumentType": "future",
+     "unit": "MMBtu (IT)",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": "-37.5",
+     "quantity": "0",
+     "tradeCount": 2,
+     "unvaluedPositions": 1
+    },
+    {
+     "commodity": {
+      "code": "test_power",
+      "name": "Synthetic power"
+     },
+     "market": "power_forward",
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+     "instrumentType": "financial_swap",
+     "unit": "MWh",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_power_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": "230",
+     "executionPnl": null,
+     "quantity": "100",
+     "tradeCount": 1,
+     "unvaluedPositions": 0
+    },
+    {
+     "commodity": {
+      "code": "test_power",
+      "name": "Synthetic power"
+     },
+     "market": "power_euro",
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+     "instrumentType": "financial_swap",
+     "unit": "MWh",
+     "currency": "EUR",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_power_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "eur"
+     },
+     "presentValue": "15",
+     "executionPnl": null,
+     "quantity": "50",
+     "tradeCount": 1,
+     "unvaluedPositions": 0
+    }
+   ]
+  }
+ ],
+ "allUnvalued": [
+  {
+   "view": {
+    "mode": "pivot",
+    "bookIds": [],
+    "portfolioIds": [],
+    "groupBy": [
+     "instrumentType"
+    ],
+    "measures": [
+     "presentValue",
+     "executionPnl",
+     "tradeCount"
+    ],
+    "pivotConvention": "trading_blotter_money_totals_v1",
+    "priceNumericalPolicy": null
+   },
+   "groups": [
+    {
+     "instrumentType": "financial_swap",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": null,
+     "tradeCount": 12,
+     "unvaluedPositions": 12
+    },
+    {
+     "instrumentType": "future",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": null,
+     "tradeCount": 4,
+     "unvaluedPositions": 4
+    }
+   ]
+  },
+  {
+   "view": {
+    "mode": "pivot",
+    "bookIds": [],
+    "portfolioIds": [],
+    "groupBy": [
+     "book"
+    ],
+    "measures": [
+     "presentValue",
+     "executionPnl",
+     "tradeCount"
+    ],
+    "pivotConvention": "trading_blotter_money_totals_v1",
+    "priceNumericalPolicy": null
+   },
+   "groups": [
+    {
+     "bookId": "d1000000-0000-0000-0000-00000000000a",
+     "book": "Book A",
+     "instrumentType": "financial_swap",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": null,
+     "tradeCount": 12,
+     "unvaluedPositions": 12
+    },
+    {
+     "bookId": "d1000000-0000-0000-0000-00000000000b",
+     "book": "Book B",
+     "instrumentType": "future",
+     "currency": "USD",
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": null,
+     "tradeCount": 4,
+     "unvaluedPositions": 4
+    }
+   ]
+  },
+  {
+   "view": {
+    "mode": "pivot",
+    "bookIds": [],
+    "portfolioIds": [],
+    "groupBy": [
+     "commodity",
+     "instrumentType"
+    ],
+    "measures": [
+     "tradeCount",
+     "quantity"
+    ],
+    "pivotConvention": "trading_blotter_totals_v1",
+    "priceNumericalPolicy": null
+   },
+   "groups": [
+    {
+     "commodity": {
+      "code": "test_gas",
+      "name": "Synthetic gas"
+     },
+     "instrumentType": "financial_swap",
+     "unit": "MMBtu (IT)",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "tradeCount": 12,
+     "quantity": "12000",
+     "unvaluedPositions": 12
+    },
+    {
+     "commodity": {
+      "code": "test_gas",
+      "name": "Synthetic gas"
+     },
+     "instrumentType": "future",
+     "unit": "MMBtu (IT)",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "tradeCount": 4,
+     "quantity": "10000",
+     "unvaluedPositions": 4
+    }
+   ]
+  },
+  {
+   "view": {
+    "mode": "pivot",
+    "bookIds": [],
+    "portfolioIds": [],
+    "groupBy": [
+     "commodity",
+     "market"
+    ],
+    "measures": [
+     "presentValue",
+     "executionPnl",
+     "quantity",
+     "tradeCount"
+    ],
+    "pivotConvention": "trading_blotter_totals_v1",
+    "priceNumericalPolicy": null
+   },
+   "groups": [
+    {
+     "commodity": {
+      "code": "test_gas",
+      "name": "Synthetic gas"
+     },
+     "market": "gas_forward",
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+     "instrumentType": "financial_swap",
+     "unit": "MMBtu (IT)",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": null,
+     "quantity": "12000",
+     "tradeCount": 12,
+     "unvaluedPositions": 12
+    },
+    {
+     "commodity": {
+      "code": "test_gas",
+      "name": "Synthetic gas"
+     },
+     "market": "gas_future",
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000001",
+     "instrumentType": "future",
+     "unit": "MMBtu (IT)",
+     "currency": "USD",
+     "quantitySpecification": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "test_gas_quantity"
+     },
+     "currencyReference": {
+      "revision": {
+       "catalogId": "10000000-0000-0000-0000-000000000001",
+       "revisionId": "20000000-0000-0000-0000-000000000001"
+      },
+      "code": "usd"
+     },
+     "presentValue": null,
+     "executionPnl": null,
+     "quantity": "10000",
+     "tradeCount": 4,
+     "unvaluedPositions": 4
+    }
+   ]
+  }
+ ],
+ "shapes": [
+  {
+   "curve": "gas_forward",
+   "unit": "USD/MMBtu (IT)",
+   "unavailableReason": null,
+   "points": [
+    {
+     "contractId": "k0000000-0000-0000-0000-000000000001",
+     "deliveryFrom": "2021-01-01",
+     "deliveryTo": "2021-02-01",
+     "price": "3.49",
+     "unavailableReason": null
+    },
+    {
+     "contractId": "k0000000-0000-0000-0000-000000000002",
+     "deliveryFrom": "2021-02-01",
+     "deliveryTo": "2021-03-01",
+     "price": "3.41",
+     "unavailableReason": null
+    },
+    {
+     "contractId": "k0000000-0000-0000-0000-000000000003",
+     "deliveryFrom": "2021-03-01",
+     "deliveryTo": "2021-04-01",
+     "price": null,
+     "unavailableReason": "missing_observation"
+    },
+    {
+     "contractId": "k0000000-0000-0000-0000-000000000004",
+     "deliveryFrom": "2021-04-01",
+     "deliveryTo": "2021-05-01",
+     "price": "3.02",
+     "unavailableReason": null
+    }
+   ]
+  },
+  {
+   "curve": "power_euro",
+   "unit": null,
+   "points": null,
+   "unavailableReason": "missing_curve"
+  }
+ ]
+}
