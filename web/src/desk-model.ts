@@ -399,21 +399,34 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
   });
 }
 
-export type CurveShape={curve:string;unit:string|null;points:{contractId:string;deliveryFrom:string;deliveryTo:string;price:string|null;unavailableReason:string|null}[]|null;unavailableReason:string|null};
+export type CurveShape={curve:string;unit:string|null;points:{contractId:string;deliveryFrom:string;deliveryTo:string;price:string|null;unavailableReason:string|null}[]|null;unavailableReason:string|null;contractCount:number|null;front:{contractId:string;deliveryFrom:string;deliveryTo:string;price:string}|null;availability:'no_remaining_contracts'|'no_priced_contract'|null};
 export type Sparkline={state:'drawn';points:ShapePoint[];marks:number[];title:string}|{state:'unavailable';reason:string};
 const shapeReasons:Readonly<Record<string,string>>={missing_curve:"this market's curve is not in the definitions of this close",missing_curve_view:'no curve view at this close'};
+/** What the backend's stated availability of a curve's contracts at a close means, in the words every desk uses for it. */
+export const availabilityText:Readonly<Record<'no_remaining_contracts'|'no_priced_contract',string>>={no_remaining_contracts:'no contracts at this close',no_priced_contract:'no prices at this close'};
+/** A curve shape's line: its contracts in the backend's order, a contract the close cannot price kept as a gap; or why it has none. */
+export type CurveLine={state:'drawn';points:ShapePoint[];range:string}|{state:'unavailable';reason:string};
 /**
- * A position's sparkline from its market's curve shape: the curve's contracts in the backend's order, a contract the close
- * cannot price kept as a gap, and the contracts of the position's delivery period marked. A curve the close cannot shape says why.
+ * The line of a curve shape. Whether the close has contracts on the curve, and prices any of them, is the backend's stated availability;
+ * a shape that states neither a front contract nor why it has none is inconsistent, and is never drawn.
+ */
+export function curveLine(shape:CurveShape):CurveLine{
+  const unavailable=(why?:string):CurveLine=>({state:'unavailable',reason:why?`Curve shape unavailable · ${why}`:'Curve shape unavailable'});
+  if(shape.points===null||typeof shape.unit!=='string')return unavailable(shape.points===null&&typeof shape.unavailableReason==='string'&&Object.hasOwn(shapeReasons,shape.unavailableReason)?shapeReasons[shape.unavailableReason]:undefined);
+  if(shape.availability!==null&&Object.hasOwn(availabilityText,shape.availability))return unavailable(availabilityText[shape.availability]);
+  if(shape.availability!==null||shape.front===null||!shape.points.length)return unavailable('the curve read is inconsistent');
+  const points=shape.points.map((p,x)=>({x,y:p.price,label:`${deliveryLabel(p.deliveryFrom,p.deliveryTo)} · ${p.price===null?'no price at this close':`${p.price} ${shape.unit}`}`}));
+  const range=`${deliveryLabel(shape.points[0].deliveryFrom,shape.points[0].deliveryTo)} to ${deliveryLabel(shape.points.at(-1)!.deliveryFrom,shape.points.at(-1)!.deliveryTo)}`;
+  return {state:'drawn',points,range};
+}
+/**
+ * A position's sparkline from its market's curve shape, with the contracts of the position's delivery period marked. A curve the
+ * close cannot shape says why.
  */
 export function curvePoints(shape:CurveShape,row:Pick<DeskRow,'market'|'deliveryFrom'|'deliveryTo'>):Sparkline{
-  const unavailable=(why?:string):Sparkline=>({state:'unavailable',reason:why?`Curve shape unavailable · ${why}`:'Curve shape unavailable'});
-  if(shape.points===null||typeof shape.unit!=='string')return unavailable(shape.points===null&&typeof shape.unavailableReason==='string'&&Object.hasOwn(shapeReasons,shape.unavailableReason)?shapeReasons[shape.unavailableReason]:undefined);
-  if(!shape.points.length)return unavailable('no contracts at this close');
-  if(shape.points.every(p=>p.price===null))return unavailable('no prices at this close');
-  const points=shape.points.map((p,x)=>({x,y:p.price,label:`${deliveryLabel(p.deliveryFrom,p.deliveryTo)} · ${p.price===null?'no price at this close':`${p.price} ${shape.unit}`}`}));
-  const marks=shape.points.flatMap((p,x)=>p.deliveryFrom>=row.deliveryFrom&&p.deliveryTo<=row.deliveryTo?[x]:[]);
-  const range=`${deliveryLabel(shape.points[0].deliveryFrom,shape.points[0].deliveryTo)} to ${deliveryLabel(shape.points.at(-1)!.deliveryFrom,shape.points.at(-1)!.deliveryTo)}`;
+  const line=curveLine(shape);
+  if(line.state==='unavailable')return line;
+  const {points,range}=line,marks=shape.points!.flatMap((p,x)=>p.deliveryFrom>=row.deliveryFrom&&p.deliveryTo<=row.deliveryTo?[x]:[]);
   return {state:'drawn',points,marks,title:`${row.market} · forward curve, ${range}\n${marks.length?`This position: ${marks.map(x=>points[x].label).join('; ')}`:"This position's delivery is not on the curve at this close"}`};
 }
 

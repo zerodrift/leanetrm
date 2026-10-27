@@ -10,6 +10,23 @@ test('the panel docks beside the desk only when the main area is wide and the as
  assert.equal(panelPlacement(1179,false),'overlay');
 });
 
+test('a contract of a curve is its own mode, the same only for the same curve and contract',()=>{
+ const contract={kind:'curve-contract',curve:'gas',contract:'c1'};
+ assert.ok(sameMode(contract,{...contract}));
+ assert.ok(!sameMode(contract,{...contract,contract:'c2'}));
+ assert.ok(!sameMode(contract,{...contract,curve:'power'}));
+ assert.ok(!sameMode(contract,{kind:'risk'}));
+ assert.ok(!sameMode(contract,{kind:'contract',factorId:'c1'}),'a contract of a curve is not a shocked contract of the delta ladder');
+ assert.equal(modeLabel(contract),'Contract');
+});
+
+test('a panel finds its parts by its own id, so a page can hold more than one',async()=>{
+ const {host,parts}=markup('contract-panel');
+ const shell=setupSidePanel(host,{unsaved:()=>false,confirmLeave:async()=>true,docked:()=>true});
+ assert.equal(shell.element('body'),parts.body);
+ await shell.show({kind:'curve-contract',curve:'gas',contract:'c1'});assert.equal(host.hidden,false);assert.equal(parts.form.hidden,true);
+});
+
 test('modes are the same when they name the same thing',()=>{
  const position={kind:'position',tradeId:'t1',bindingId:'b1',revision:2};
  assert.ok(sameMode(null,null));
@@ -26,11 +43,11 @@ test('modes are the same when they name the same thing',()=>{
 });
 
 // What the shell touches of its markup, as plain objects: the panel's own element and the parts index.html gives it.
-function markup(){
+function markup(id='side-panel'){
  const part=()=>({hidden:false,onclick:null,focused:false,children:[],replaceChildren(...nodes){this.children=nodes;}});
  const parts={close:part(),head:part(),tabs:part(),body:part(),view:part(),form:part(),prompt:part()};
  const handlers={};
- const host={hidden:true,dataset:{},focused:0,labels:[],focus(){host.focused++;},setAttribute(name,value){if(name==='aria-label')host.labels.push(value);},addEventListener(type,handler){handlers[type]=handler;},querySelector:selector=>parts[selector.replace('#side-panel-','')]};
+ const host={id,hidden:true,dataset:{},focused:0,labels:[],focus(){host.focused++;},setAttribute(name,value){if(name==='aria-label')host.labels.push(value);},addEventListener(type,handler){handlers[type]=handler;},querySelector:selector=>selector.startsWith(`#${id}-`)?parts[selector.slice(id.length+2)]:undefined};
  return {host,parts,handlers};
 }
 const position=(tradeId,revision=1,bindingId='b1')=>({kind:'position',tradeId,bindingId,revision});
@@ -327,4 +344,9 @@ test('a settlement record does to the risk report what a live correction does, i
 test('a mode is named for the person and for assistive technology: a position, a new trade with or without its product, a risk report',()=>{
  assert.equal(modeLabel({kind:'position',tradeId:'t',bindingId:'b',revision:1}),'Position');assert.equal(modeLabel({kind:'risk'}),'Risk report');
  assert.equal(modeLabel({kind:'new',product:null}),'New trade');assert.equal(modeLabel({kind:'new',product:'futures'}),'New future');assert.equal(modeLabel({kind:'new',product:'swaps'}),'New swap');
+});
+test('a custom curve is one panel mode whose views are tabs',()=>{
+ assert.ok(sameMode({kind:'custom-curve'},{kind:'custom-curve'}));
+ assert.ok(!sameMode({kind:'custom-curve'},{kind:'risk'}));
+ assert.equal(modeLabel({kind:'custom-curve'}),'Custom curve');
 });

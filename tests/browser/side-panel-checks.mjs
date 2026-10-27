@@ -25,8 +25,8 @@ export async function deltaInkCheck({evaluate,wait,click,set,check,idle},{what,r
   await click('#desk-positions .tabulator-row:not(.tabulator-group)');
   await wait(`!${panel}.hidden&&${panelReference}===${JSON.stringify(reference)}`);
   await check(`${what} shows its mark minus price, signed, in the panel's own ink and in neither a gain nor a loss color`,
-    `(()=>{const ink=value=>{const probe=document.createElement('i');probe.style.color=value;document.body.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color;},delta=document.querySelector('.side-panel-delta b');return !!delta&&/^[+−]/.test(delta.textContent)&&getComputedStyle(delta).color===ink('var(--text)')&&getComputedStyle(delta).color!==ink('var(--gain-ink)')&&getComputedStyle(delta).color!==ink('var(--loss-ink)');})()`,
-    "[document.querySelector('#side-panel-head').innerText,document.querySelector('.side-panel-delta b')&&getComputedStyle(document.querySelector('.side-panel-delta b')).color]");
+    `(()=>{const ink=value=>{const probe=document.createElement('i');probe.style.color=value;document.body.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color;},delta=document.querySelector('#side-panel .side-panel-delta b');return !!delta&&/^[+−]/.test(delta.textContent)&&getComputedStyle(delta).color===ink('var(--text)')&&getComputedStyle(delta).color!==ink('var(--gain-ink)')&&getComputedStyle(delta).color!==ink('var(--loss-ink)');})()`,
+    "[document.querySelector('#side-panel-head').innerText,document.querySelector('#side-panel .side-panel-delta b')&&getComputedStyle(document.querySelector('#side-panel .side-panel-delta b')).color]");
   await click('#side-panel-close');
   await set('#blotter-filters .table-search','');
 }
@@ -83,7 +83,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('the row the panel shows is marked in the grid',
     `(()=>{const rows=[...document.querySelectorAll('#desk-positions .open-row')];return rows.length===1&&rows[0].getAttribute('aria-current')==='true'&&rows[0].querySelector('.desk-reference').textContent===${JSON.stringify(futureReference)};})()`);
   await check('the panel states the position\'s backend value and measure, and its mark minus price labeled by what it was done at',
-    `(()=>{const h=${held(futureReference)},delta=document.querySelector('.side-panel-delta'),value=document.querySelector('.side-panel-value .kpi-value');return document.querySelector('.side-panel-figure .side-panel-label').textContent==='Execution P&L'&&value.title===h.executionPnl+' '+h.currency&&(h.markMinusPrice===null?!delta:delta.querySelector('.side-panel-label').textContent==='Mark − executed'&&delta.title===h.markMinusPrice+' '+h.currency+'/'+h.unit&&delta.querySelector('b').textContent.replace(/^[+−]/,'').length>0);})()`,
+    `(()=>{const h=${held(futureReference)},delta=document.querySelector('#side-panel .side-panel-delta'),value=document.querySelector('#side-panel .side-panel-value .kpi-value');return document.querySelector('#side-panel .side-panel-figure .side-panel-label').textContent==='Execution P&L'&&value.title===h.executionPnl+' '+h.currency&&(h.markMinusPrice===null?!delta:delta.querySelector('#side-panel .side-panel-label').textContent==='Mark − executed'&&delta.title===h.markMinusPrice+' '+h.currency+'/'+h.unit&&delta.querySelector('b').textContent.replace(/^[+−]/,'').length>0);})()`,
     `document.querySelector('#side-panel-head').innerText`);
   await check('the curve is the desk\'s own read of its market, with the delivery period marked, and it is not read again for the panel',
     `${shapeReads}===${shapesBefore}&&document.querySelector('#side-panel-body .chart-toolbar small').textContent==='Marked: delivery '+document.querySelector(${JSON.stringify(rowSelector('fut'))}+' [tabulator-field=c1] .desk-sub').textContent&&document.querySelector('#side-panel-body .side-panel-facts').children.length>=3`,
@@ -120,7 +120,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await press('ArrowRight','ArrowRight',39);
   await wait("!!document.querySelector('#side-panel-view .side-panel-section')");
   await check('History lists the trade\'s revisions one by one, each with its facts, from the same read, and in the width of the panel',
-    `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').at(-1).data,view=document.querySelector('#side-panel-view'),sections=[...view.querySelectorAll('.side-panel-section')];return document.activeElement.id==='side-panel-tabs-history'&&sections.length===read.history.length&&sections.every((section,i)=>section.querySelector('h3').textContent===\`Revision \${read.history[i].revision} · \${read.history[i].kind==='booked'?'Booked':'Amended'}\`&&[...section.querySelectorAll('dt')].map(n=>n.textContent).join()==='Effective,Recorded,Book,Instrument,Lots,Execution price,Trader ID,Memo,Trade date · when booked,Legal entity,Counterparty,Reason')&&!view.querySelector('table')&&view.scrollWidth<=view.clientWidth&&${editorReads}===${reads}+1;})()`,
+    `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').at(-1).data,view=document.querySelector('#side-panel-view'),sections=[...view.querySelectorAll('#side-panel .side-panel-section')];return document.activeElement.id==='side-panel-tabs-history'&&sections.length===read.history.length&&sections.every((section,i)=>section.querySelector('h3').textContent===\`Revision \${read.history[i].revision} · \${read.history[i].kind==='booked'?'Booked':'Amended'}\`&&[...section.querySelectorAll('dt')].map(n=>n.textContent).join()==='Effective,Recorded,Book,Instrument,Lots,Execution price,Trader ID,Memo,Trade date · when booked,Legal entity,Counterparty,Reason')&&!view.querySelector('table')&&view.scrollWidth<=view.clientWidth&&${editorReads}===${reads}+1;})()`,
     `[${editorReads},${reads},document.querySelector('#side-panel-view').innerText.slice(0,300)]`);
   await press('ArrowRight','ArrowRight',39);
   await check('the arrow keys wrap from the last tab to the first, which draws the curve again',`document.activeElement.id==='side-panel-tabs-curve'&&!!document.querySelector('#side-panel-body .chart canvas')`);
@@ -159,13 +159,13 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await set('#blotter-row-group','book');
   await wait(redrawn(idle));
 
-  // Open curve: Curves & prices on the position's curve, with its contract's price history.
+  // Open curve: Curves & prices on the position's curve, with its contract open in the panel.
   const market=await evaluate("document.querySelector('#side-panel-title').textContent");
   await click('#side-panel-open-curve');
-  await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#history-card').hidden");
-  await check('Open curve opens Curves & prices on the position\'s curve with its contract\'s price history shown',
-    `document.querySelector('#nav-market').classList.contains('active')&&document.querySelector('#curve-title').textContent===${JSON.stringify(market)}&&!document.querySelector('#history-card').hidden&&document.querySelector('#history-title').textContent.includes('price history')&&document.querySelector('#error').hidden`,
-    `[document.querySelector('#curve-title').textContent,document.querySelector('#history-title').textContent,document.querySelector('#error').textContent,document.querySelector('#notice').textContent]`);
+  await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#contract-panel').hidden&&!!document.querySelector('#history-values tbody tr')");
+  await check('Open curve opens Curves & prices on the position\'s curve with its contract\'s price history in the panel',
+    `document.querySelector('#nav-market').classList.contains('active')&&document.querySelector('#curve-title').textContent===${JSON.stringify(market)}&&!document.querySelector('#contract-panel').hidden&&document.querySelector('#contract-panel-head .side-panel-reference').textContent.startsWith(${JSON.stringify(market)})&&document.querySelector('#error').hidden`,
+    `[document.querySelector('#curve-title').textContent,document.querySelector('#contract-panel-head').textContent,document.querySelector('#error').textContent,document.querySelector('#notice').textContent]`);
   await click('#nav-futures');
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
   await check('coming back to the Blotter reads it afresh, with no panel left open',`${panel}.hidden&&!document.querySelector('#futures-page').hidden`);
@@ -572,6 +572,9 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('at 760 the panel is a full-width sheet and the page does not scroll sideways',
     `${panel}.dataset.placement==='overlay'&&Math.round(${panel}.getBoundingClientRect().left)===0&&Math.round(${panel}.getBoundingClientRect().width)===document.documentElement.clientWidth&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1&&document.documentElement.scrollWidth===${phoneWidth}`,
     `[${panel}.getBoundingClientRect().width,document.documentElement.clientWidth,document.documentElement.scrollWidth,${phoneWidth}]`);
+  await check('the sheet lies over the floating As of and Context docks, so its foot is in view',
+    `(()=>{const dock=document.querySelector('.context-dock'),r=dock.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return Number(getComputedStyle(${panel}).zIndex)>Number(getComputedStyle(dock).zIndex)&&${panel}.contains(hit)&&${panel}.getBoundingClientRect().bottom===innerHeight;})()`,
+    `[getComputedStyle(${panel}).zIndex,getComputedStyle(document.querySelector('.context-dock')).zIndex]`);
   const behind="['#futures-refresh','#nav-futures','#page-title']";
   await check('the sheet contains focus: the page behind it is inert and takes none, and its own controls do',
     `(()=>{const nodes=${behind}.map(s=>document.querySelector(s));nodes.forEach(n=>n.focus());const amend=document.querySelector('#side-panel-amend');amend.focus();return nodes.every(n=>n.closest('[inert]')!==null)&&!${panel}.closest('[inert]')&&document.activeElement===amend;})()`,
@@ -590,8 +593,12 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await wait(`${panel}.hidden`);
   await settle(760,900);await open('fut');
   await click('#side-panel-open-curve');
-  await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#history-card').hidden");
-  await check('leaving the Blotter from the sheet leaves the page it opens usable, not inert',`document.querySelectorAll('[inert]').length===0&&!document.querySelector('#nav-market').closest('[inert]')`,`document.querySelectorAll('[inert]').length`);
+  await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#contract-panel').hidden");
+  // The contract opens in Curves & prices' own sheet, which holds the page beside it out of reach; the Blotter's sheet holds nothing.
+  const heldByContract="(()=>{const panel=document.querySelector('#contract-panel');return !panel.closest('[inert]')&&[...document.querySelectorAll('[inert]')].every(n=>n.parentElement.contains(panel));})()";
+  await check('leaving the Blotter from the sheet releases what it held: only the contract sheet it opens holds the page out of reach',heldByContract,`document.querySelectorAll('[inert]').length`);
+  await click('#contract-panel-close');
+  await check('closing the contract sheet leaves the page usable, not inert',`document.querySelector('#contract-panel').hidden&&document.querySelectorAll('[inert]').length===0`,`document.querySelectorAll('[inert]').length`);
   await click('#nav-futures');
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
   await check('and the Blotter, read again, has no panel and nothing inert',`${panel}.hidden&&document.querySelectorAll('[inert]').length===0`);

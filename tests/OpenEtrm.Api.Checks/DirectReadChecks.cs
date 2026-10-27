@@ -90,7 +90,7 @@ internal static class DirectReadChecks
             var shapes=view.Page("curveShapes")["curves"]!;
             Same($"{view.Name} curve shapes match their page",await Direct(view,"curve shapes",(c,ct)=>reads.CurveShapes(c,view.Pin(view.Selected),[..shapes.AsArray().Select(s=>s!["curve"]!.GetValue<string>())],ct)),shapes);
             var history=view.Page("history");
-            Same($"{view.Name} history matches its page",await Direct(view,"history",(c,ct)=>reads.History(c,view.Pin(view.Selected),view.Initial,history["curve"]!.GetValue<string>(),history["contractId"]!.GetValue<Guid>(),null,ct)),
+            Same($"{view.Name} history matches its page",await Direct(view,"history",(c,ct)=>reads.History(c,view.Pin(view.Selected),view.Initial,history["curve"]!.GetValue<string>(),history["contractId"]!.GetValue<Guid>(),null,HistoryRevisionPolicy.ExactSnapshotPins,ct)),
                 history["response"]!["points"]);
             Same($"{view.Name} schedule library matches its page",await Direct(view,"schedule library",(c,ct)=>schedules.Library(c,view.Pin(),ct)),view.Page("schedules"),
                 "knownThrough","versions","canEdit","canPublish","calendars","contractDefinitions");
@@ -203,7 +203,7 @@ internal static class DirectReadChecks
             await Rejects("temporal_context","a retained pin binds only its stored context's "+field,()=>Read((c,ct)=>schedules.Library(c,PinnedContext.Retained(forged),ct)));
         await Rejects("snapshot_missing","a retained pin refuses a working frame",()=>Task.FromResult(PinnedContext.Retained(historical.Context!,working.Selected)));
         await Rejects("snapshot_missing","a working pin refuses a retained frame",()=>Task.FromResult(PinnedContext.Current(historical.Selected)));
-        await Rejects("snapshot_missing","history refuses a frame outside its pinned context",()=>Read((c,ct)=>reads.History(c,historical.Pin(historical.Selected),[..historical.Initial,working.Selected],"local_power",null,null,ct)));
+        await Rejects("snapshot_missing","history refuses a frame outside its pinned context",()=>Read((c,ct)=>reads.History(c,historical.Pin(historical.Selected),[..historical.Initial,working.Selected],"local_power",null,null,HistoryRevisionPolicy.ExactSnapshotPins,ct)));
         var earlier=historical.Frames.Where(f=>DateOnly.FromDateTime(f.At.UtcDateTime)!=effective).MinBy(f=>f.At)
             ??throw new Exception("The historical fixture needs a frame before its effective date.");
         await Rejects("market_date","a retained pin prices only its effective market date",()=>Read((c,ct)=>reads.Evaluate(c,historical.Pin(earlier),"local_power",ct)));

@@ -8,10 +8,10 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {bundleApplication} from '../bundle-app.mjs';
 
-test('initial HTML loads one application bundle and only the two existing vendor modules',()=>{
+test('initial HTML loads one application bundle and only the vendor modules it imports, the time chart\'s among them',()=>{
   const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
   const preloads=[...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(match=>match[1]);
-  assert.deepEqual(preloads.sort(),['/vendor/echarts.js','/vendor/tabulator.js']);
+  assert.deepEqual(preloads.sort(),['/vendor/echarts.js','/vendor/klinecharts.js','/vendor/tabulator.js']);
   assert.equal((html.match(/<script type="module" src="\/app.js"><\/script>/g)??[]).length,1);
 });
 
@@ -19,7 +19,7 @@ test('the emitted application has no remaining project-module imports',async()=>
   const result=await build({absWorkingDir:fileURLToPath(new URL('../dist/',import.meta.url)),entryPoints:['app.js'],
     bundle:false,write:false,metafile:true,format:'esm',platform:'browser',logLevel:'silent'});
   const imports=Object.values(result.metafile.outputs).flatMap(output=>output.imports);
-  assert.deepEqual(imports.map(item=>item.path).sort(),['./vendor/echarts.js','./vendor/tabulator.js']);
+  assert.deepEqual(imports.map(item=>item.path).sort(),['./vendor/echarts.js','./vendor/klinecharts.js','./vendor/tabulator.js']);
 });
 
 async function fixture(files,run){
@@ -52,6 +52,18 @@ test('bundling retains transitive application behavior and both external vendor 
     writeFileSync(join(root,'app.js'),entry);await bundleApplication(root);
     assert.deepEqual(readFileSync(join(root,'app.js')),first,'identical emitted input must produce identical bundle bytes');
   });
+});
+
+test('the chart library is a declared vendor module that the bundle imports only when the application uses it',async()=>{
+  const library=['vendor/klinecharts.js',`export const init=value=>'time:'+value;`];
+  await fixture({...vendors,[library[0]]:library[1],'app.js':`import {init} from './vendor/klinecharts.js'; export const report=()=>init('x');`},async root=>{
+    const metadata=await bundleApplication(root);
+    assert.deepEqual(Object.values(metadata.outputs)[0].imports.map(item=>item.path),['./vendor/klinecharts.js']);
+    assert.equal((await import(pathToFileURL(join(root,'app.js')).href)).report(),'time:x');
+  });
+  const built=readFileSync(new URL('../dist/vendor/klinecharts.js',import.meta.url),'utf8');
+  assert.match(built,/KLineChart v10\.0\.3/);
+  assert.doesNotMatch(built,/process\.env/,'a browser does not define process');
 });
 
 test('atomic publication stages outside the packaged site and cleans only its owned directory',async t=>{
@@ -103,7 +115,8 @@ test('a failed bundle leaves its emitted input untouched and rejects undeclared 
 test('building the application preserves every vendored license and notice',()=>{
   for(const [source,target] of [
     ['tabulator-tables/LICENSE','TABULATOR-LICENSE'],['echarts/LICENSE','ECHARTS-LICENSE'],['echarts/NOTICE','ECHARTS-NOTICE'],
-    ['zrender/LICENSE','ZRENDER-LICENSE'],['tslib/CopyrightNotice.txt','TSLIB-COPYRIGHT'],['tslib/LICENSE.txt','TSLIB-LICENSE'],
+    ['zrender/LICENSE','ZRENDER-LICENSE'],['klinecharts/LICENSE','KLINECHARTS-LICENSE'],['klinecharts/NOTICE','KLINECHARTS-NOTICE'],
+    ['klinecharts/licenses/LICENSE-lightweight-charts','KLINECHARTS-LICENSE-LIGHTWEIGHT-CHARTS'],['tslib/CopyrightNotice.txt','TSLIB-COPYRIGHT'],['tslib/LICENSE.txt','TSLIB-LICENSE'],
   ])assert.deepEqual(readFileSync(new URL('../dist/vendor/'+target,import.meta.url)),readFileSync(new URL('../node_modules/'+source,import.meta.url)));
 });
 

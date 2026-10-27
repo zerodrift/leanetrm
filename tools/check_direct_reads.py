@@ -30,7 +30,7 @@ def page_view(c, name, context=None):
             'references': c.call('reference/catalog?table=quantity_specifications'),
             'evaluations': evaluations, 'curveShapes': shapes,
             'history': {'curve': 'local_power', 'contractId': contract,
-                        'response': c.call('history', {'snapshotId': frame['id'],
+                        'response': c.call('history', {'revisionPolicy':'exact_snapshot_pins_v1','snapshotId': frame['id'],
                                                        'curve': 'local_power',
                                                        'contractId': contract})},
             'schedules': c.call('date-schedules'),
