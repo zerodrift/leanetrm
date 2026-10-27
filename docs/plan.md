@@ -1334,3 +1334,23 @@ single-period and scheduled tickets show the required amendment and exact change
 terms. Existing preview cashflows remain the valuation review. Publishing economic
 index changes, selecting newer versions for existing contracts, bulk impact
 analysis and a separate forecast-configuration migration remain future work.
+
+Operational limits (P42, proposed): move each operating value out of code into
+explicit, versioned configuration, keeping its ceiling fixed. See
+[operational limits](operational-limits.md) for the inventory. In order, each its own
+PR with failing checks first and none started before the owner accepts P42:
+
+1. Assistant installation limits: a revisioned table for the pins bound, workspace
+   turns, retained-context reserve and longest grant, saved under `ManageAgents`,
+   recorded on each turn; runtime set `turns_v8`.
+2. Sign-in policy: a revisioned table for sign-in lifetime and lockout under
+   `ManageAccess`, recorded on each hosted session; the cookie expires with the session
+   row, so the lifetime is stated once.
+3. Tool result records and bytes on the agent version, as 0121 added the history
+   window.
+4. A required `limits` section in the hosted configuration for request deadlines, body
+   sizes, pools, timeouts, the sign-in rate, heartbeats and provider transport; the API
+   serves its request deadlines to the page, which no longer has its own timeout.
+5. Settings pages for the installation limits and sign-in policy.
+
+The pilot's next schema window applies 0122 (D251) over its hotfixed `pin_turn`.
