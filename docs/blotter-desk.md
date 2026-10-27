@@ -299,6 +299,9 @@ Decided by the owner:
   to the panel and export for factor results (designer's call).
 - Run is disabled with today's explanation when the account cannot execute
   risk. Accounts need the Risk Analyst role, alone or alongside Trader.
+- After a run, a third lens, **Ladder**, shows the run's per-factor totals by
+  book and measure in place of the trade rows (D230,
+  [delta ladder](delta-ladder.md)).
 
 ## Curves connection
 
