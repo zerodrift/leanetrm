@@ -105,7 +105,7 @@ def run_checks(Client, check, after_browser):
         malformed = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [{'code': 'simple_moving_average_v1', 'parameters': {'window': 1}}]}, expected=422)
         check('an overlay request is still checked over a conflicting series: a bad window is an overlay_parameter refusal', malformed['code'] == 'overlay_parameter')
         c.call('profile', {'profile': 'editor'})
-        # Revision policy (D230): the correction was recorded after `context['knownAt']`; the closes above record the original and the corrected frame.
+        # Revision policy (D237): the correction was recorded after `context['knownAt']`; the closes above record the original and the corrected frame.
         asknown = 'as_known_at_cutoff_v1'
         def context_history(ctx, **extra):
             frame = next(f for f in c.call('workspace')['frames'] if f.get('contextId') == ctx['contextId'])

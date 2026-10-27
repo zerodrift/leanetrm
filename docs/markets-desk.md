@@ -123,7 +123,7 @@ ordered series of `(instant, exact value or missing)`. Definitions, versioned:
   values that are not plain ASCII decimals.
 - The history read states the series it is charted from as `chart`: either
   `{points:[{at,value|null,unavailableReason}]}`, one point per instant, or
-  `{conflict:{at,message}}`. Under `as_known_at_cutoff_v1` (D230) the points
+  `{conflict:{at,message}}`. Under `as_known_at_cutoff_v1` (D237) the points
   hold one sample per instant, resolved to the latest revision recorded at or
   before the read's knowledge cutoff. Under `exact_snapshot_pins_v1` several
   samples may share an instant: samples that agree on value and availability

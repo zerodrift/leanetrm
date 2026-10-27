@@ -102,7 +102,7 @@ a constituent opens the history of that same dated identity. Its history axis is
 observation/mark time, not contract expiry. Keep delivery periods and expiry
 distinct in metadata even when a chart uses expiry as its axis.
 
-A history read names its revision policy (D230). `exact_snapshot_pins_v1` shows
+A history read names its revision policy (D237). `exact_snapshot_pins_v1` shows
 each retained snapshot's exact pins, so several samples can share a business
 instant. `as_known_at_cutoff_v1` shows, per instant, the latest revision recorded
 at or before the read's knowledge cutoff: the selected context's instant, or

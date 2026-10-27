@@ -11,11 +11,12 @@ test('the panel docks beside the desk only when the main area is wide and the as
 });
 
 test('a contract of a curve is its own mode, the same only for the same curve and contract',()=>{
- const contract={kind:'contract',curve:'gas',contract:'c1'};
+ const contract={kind:'curve-contract',curve:'gas',contract:'c1'};
  assert.ok(sameMode(contract,{...contract}));
  assert.ok(!sameMode(contract,{...contract,contract:'c2'}));
  assert.ok(!sameMode(contract,{...contract,curve:'power'}));
  assert.ok(!sameMode(contract,{kind:'risk'}));
+ assert.ok(!sameMode(contract,{kind:'contract',factorId:'c1'}),'a contract of a curve is not a shocked contract of the delta ladder');
  assert.equal(modeLabel(contract),'Contract');
 });
 
@@ -23,7 +24,7 @@ test('a panel finds its parts by its own id, so a page can hold more than one',a
  const {host,parts}=markup('contract-panel');
  const shell=setupSidePanel(host,{unsaved:()=>false,confirmLeave:async()=>true,docked:()=>true});
  assert.equal(shell.element('body'),parts.body);
- await shell.show({kind:'contract',curve:'gas',contract:'c1'});assert.equal(host.hidden,false);assert.equal(parts.form.hidden,true);
+ await shell.show({kind:'curve-contract',curve:'gas',contract:'c1'});assert.equal(host.hidden,false);assert.equal(parts.form.hidden,true);
 });
 
 test('modes are the same when they name the same thing',()=>{

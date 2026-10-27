@@ -55,7 +55,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag:K,content?:string){const 
 function choose(id:string,options:{value:string;name:string}[],value:string){const node=select(id);node.replaceChildren(...options.map(o=>{const option=el('option',o.name);option.value=o.value;return option;}));node.value=value;}
 let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,pricingContract='',showAllContracts=false,input='',draftFor='',busy=false,page='market';
 let sourceOnlyCurve=false;
-// The contract the panel shows, and its history: the revision policy (D230) and overlays the person chose, the read's answer and the
+// The contract the panel shows, and its history: the revision policy (D237) and overlays the person chose, the read's answer and the
 // overlays it returned, named from the catalog, or that the read failed. The panel opens on exact closes with no overlays.
 let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
 // The overlay catalog, read for one account.
@@ -453,7 +453,7 @@ async function openContract(identity:string){
   if(!result)return;
   if(!result.points.some(p=>pointIdentity(p)===identity))throw Error('Please select this contract again.');
   const opener=contractPanel.current()===null?document.activeElement:undefined;
-  if(!await contractPanel.open({kind:'contract',curve:result.curve,contract:identity})||contract===identity&&!historyFailed)return;
+  if(!await contractPanel.open({kind:'curve-contract',curve:result.curve,contract:identity})||contract===identity&&!historyFailed)return;
   if(opener instanceof HTMLElement)contractOpener=opener;
   contract=identity;historyData=undefined;historySeries=[];historyFailed=false;
   renderContract();await history();

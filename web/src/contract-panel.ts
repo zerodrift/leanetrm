@@ -7,7 +7,7 @@ import type {HistoryPoint} from './market-view.js';
 import {kpi,node} from './tiles.js';
 
 export type RevisionPolicy='exact_snapshot_pins_v1'|'as_known_at_cutoff_v1';
-/** The two revision policies a history read takes (D230), in the order the switch shows them: the panel opens on the first. */
+/** The two revision policies a history read takes (D237), in the order the switch shows them: the panel opens on the first. */
 export const revisionPolicies:readonly {policy:RevisionPolicy;label:string}[]=[
   {policy:'exact_snapshot_pins_v1',label:'Exact closes'},
   {policy:'as_known_at_cutoff_v1',label:'As known at cutoff'},
@@ -49,7 +49,7 @@ export function knownAtText(point:Pick<HistoryPoint,'observationIds'|'knownAt'>,
   return point.knownAt===null?'Not certified yet':instant(point.knownAt);
 }
 
-export type ContractMode=Extract<PanelMode,{kind:'contract'}>;
+export type ContractMode=Extract<PanelMode,{kind:'curve-contract'}>;
 export type ContractHead={kicker:string;title:string;sub:string;figure:string;unit:string};
 type Tab='history'|'pricing';
 /** What the History tab shows: the policy chosen, and the read's basis and chart once it has arrived, or what is happening instead. */

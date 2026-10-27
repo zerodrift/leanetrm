@@ -5,14 +5,15 @@
 
 /**
  * What a panel holds: on the Blotter, one position (a trade's binding) at a revision, a new trade of a product or, until the person
- * has chosen one, of none, or a risk report; on Curves & prices, one contract (or maturity) of a curve; on Custom curves, the curve
- * being edited, whose views are the panel's tabs; or nothing.
+ * has chosen one, of none, a risk report, or a shocked contract of the delta ladder (D230); on Curves & prices, one contract (or
+ * maturity) of a curve; on Custom curves, the curve being edited, whose views are the panel's tabs; or nothing.
  */
 export type PanelMode=
   |{kind:'position';tradeId:string;bindingId:string;revision:number}
   |{kind:'new';product:'futures'|'swaps'|null}
   |{kind:'risk'}
-  |{kind:'contract';curve:string;contract:string}
+  |{kind:'contract';factorId:string}
+  |{kind:'curve-contract';curve:string;contract:string}
   |{kind:'custom-curve'}
   |null;
 
@@ -27,7 +28,8 @@ export function sameMode(a:PanelMode,b:PanelMode):boolean{
   if(a.kind!==b.kind)return false;
   if(a.kind==='position'&&b.kind==='position')return a.tradeId===b.tradeId&&a.bindingId===b.bindingId&&a.revision===b.revision;
   if(a.kind==='new'&&b.kind==='new')return a.product===b.product;
-  if(a.kind==='contract'&&b.kind==='contract')return a.curve===b.curve&&a.contract===b.contract;
+  if(a.kind==='contract'&&b.kind==='contract')return a.factorId===b.factorId;
+  if(a.kind==='curve-contract'&&b.kind==='curve-contract')return a.curve===b.curve&&a.contract===b.contract;
   return true;
 }
 
@@ -38,6 +40,7 @@ export function modeLabel(mode:NonNullable<PanelMode>):string{
     case 'new':return mode.product===null?'New trade':mode.product==='futures'?'New future':'New swap';
     case 'risk':return 'Risk report';
     case 'contract':return 'Contract';
+    case 'curve-contract':return 'Contract';
     case 'custom-curve':return 'Custom curve';
   }
 }
