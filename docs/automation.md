@@ -98,7 +98,12 @@ outside collapsed editors. A confirmed write followed by a failed directory read
 requires only a read refresh.
 
 This operation collects delivery prices under the existing whole-batch,
-exact-reference admission rules. It does not create a forward curve, publish a
+exact-reference admission rules. Collection is idempotent (D238, migration
+0118): an attempt must still cover every operating-day interval, but only
+intervals whose price or provider revision differs from the latest published
+revision enter a new batch. Repeating an identical collection succeeds and
+publishes nothing, so recorded prices keep their original knowledge time and
+period reads at any cutoff are unchanged. It does not create a forward curve, publish a
 market close or perform valuation/risk. Operator provisioning and collection
 worker installation remain separate reviewed steps.
 

@@ -155,11 +155,16 @@ def run_checks(url, session=None):
     check('a curve the close prices is shaped exactly as /evaluate prices it',
           priced['curve'] == 'ng_monthly' and priced['points'] and [(p['contractId'], p['price'], p['unavailableReason']) for p in priced['points']]
           == [(p['contractId'], p['value'], None) for p in c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_monthly'})['points']])
+    front = min((p for p in priced['points'] if p['price'] is not None), key=lambda p: (p['deliveryFrom'], p['deliveryTo']))
+    check('a priced curve states its contract count and its front, the first priced contract in delivery order, with no availability reason',
+          priced['contractCount'] == len(priced['points']) and priced['availability'] is None and priced['front'] ==
+          {'contractId': front['contractId'], 'deliveryFrom': front['deliveryFrom'], 'deliveryTo': front['deliveryTo'], 'price': front['price']})
     check('a curve whose one contract the close cannot price states that reason for the contract, where /evaluate fails the curve',
           unpriced['curve'] == 'ng_fixed_bridge' and [(p['price'], p['unavailableReason']) for p in unpriced['points']] == [(None, 'missing_observation')]
+          and unpriced['contractCount'] == 1 and unpriced['front'] is None and unpriced['availability'] == 'no_priced_contract'
           and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_fixed_bridge'}, expected=422)['code'] == 'missing_observation')
     check('a curve the close selects no contracts for is stated unavailable with the code /evaluate raises, and does not fail the curves beside it',
-          unavailable == {'curve': 'future', 'unit': None, 'points': None, 'unavailableReason': 'missing_curve_view'}
+          unavailable == {'curve': 'future', 'unit': None, 'points': None, 'unavailableReason': 'missing_curve_view', 'contractCount': None, 'front': None, 'availability': None}
           and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'future'}, expected=422)['code'] == 'missing_curve_view')
     early = {(r['tradeId'], r['bindingId']): r for r in report(dec18, TRADES)['holdings']}
     check('positions keep their booked facts when the close cannot value them',

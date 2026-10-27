@@ -4,11 +4,11 @@ type Choice={value:unknown;label:string};
 type Source={label:string;reference:PublishedSourceReference};
 type Request={aggregation:string;alignment:string;inputs:{source:PublishedSourceReference;weight:string}[]};
 
-/** Presentation of explicit server choices. Alignment, normalization and
+/** Presentation of explicit server choices, shown as the Combine curves view of the custom-curve panel. Alignment, normalization and
  * executable graph construction are performed only by the managed backend. */
 export function setupCurveBlend(build:(request:Request)=>void,edited:()=>void){
- const section=document.createElement('details');section.id='curve-blend';section.className='card';
- const heading=document.createElement('summary');heading.textContent='Combine published curves';
+ const section=document.createElement('section');section.id='curve-blend';section.className='custom-curve-view';
+ const heading=document.createElement('h3');heading.textContent='Combine published curves';
  const help=document.createElement('p');help.className='field-help';help.textContent='Choose curves and a weight for each matching delivery period. Dependencies keep their exact published versions. Build a draft graph, then preview its prices. Inputs must already have identical delivery periods and units, with one value per period.';
  const form=document.createElement('form'),choices=document.createElement('div'),rows=document.createElement('div');choices.className='schedule-fields';rows.id='curve-blend-inputs';
  const aggregation=document.createElement('select'),alignment=document.createElement('select');aggregation.id='curve-blend-aggregation';alignment.id='curve-blend-alignment';aggregation.required=alignment.required=true;
@@ -19,7 +19,7 @@ export function setupCurveBlend(build:(request:Request)=>void,edited:()=>void){
  let sources:Source[]=[],dirty=false;
  const fill=(select:HTMLSelectElement,items:Choice[])=>{const retained=select.value;select.replaceChildren(new Option('Choose…',''),...items.map(item=>new Option(item.label,String(item.value))));select.value=retained;};
  const controls: {row:HTMLElement;source:HTMLSelectElement;weight:HTMLInputElement}[]=[];
- const changed=()=>{dirty=true;section.open=true;edited();};
+ const changed=()=>{dirty=true;edited();};
  function sourceOptions(control:HTMLSelectElement){control.replaceChildren(new Option('Choose a published curve…',''),...sources.map((s,i)=>new Option(s.label,String(i))));}
  function append(){
   const row=document.createElement('div');row.className='schedule-fields curve-blend-row';const source=document.createElement('select'),weight=document.createElement('input'),remove=document.createElement('button');
@@ -40,7 +40,7 @@ export function setupCurveBlend(build:(request:Request)=>void,edited:()=>void){
    fill(aggregation,aggregationChoices);fill(alignment,alignmentChoices);
   },
   reset,
-  clean(){dirty=false;section.open=false;},
-  sync(busy:boolean,editable:boolean,supported:boolean,replacing:boolean){section.hidden=!supported;submit.textContent=replacing?'Replace current draft graph':'Build draft graph';for(const input of form.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=busy||!editable;add.disabled ||=controls.length>=30;discard.disabled ||=!dirty;},
+  clean(){dirty=false;},
+  sync(busy:boolean,editable:boolean,replacing:boolean){submit.textContent=replacing?'Replace current draft graph':'Build draft graph';for(const input of form.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=busy||!editable;add.disabled ||=controls.length>=30;discard.disabled ||=!dirty;},
  };
 }

@@ -1001,6 +1001,14 @@
    "curve": "gas_forward",
    "unit": "USD/MMBtu (IT)",
    "unavailableReason": null,
+   "contractCount": 4,
+   "front": {
+    "contractId": "k0000000-0000-0000-0000-000000000001",
+    "deliveryFrom": "2021-01-01",
+    "deliveryTo": "2021-02-01",
+    "price": "3.49"
+   },
+   "availability": null,
    "points": [
     {
      "contractId": "k0000000-0000-0000-0000-000000000001",
@@ -1036,7 +1044,10 @@
    "curve": "power_euro",
    "unit": null,
    "points": null,
-   "unavailableReason": "missing_curve"
+   "unavailableReason": "missing_curve",
+   "contractCount": null,
+   "front": null,
+   "availability": null
   }
  ]
 }

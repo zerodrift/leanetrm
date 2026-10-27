@@ -26,7 +26,7 @@ import {renderRegularTable,clearTableFilters} from './regular-table.js';
 import {curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
 import {type PricingGraph,pricingGraph,pricingEquation} from './pricing-view.js';
 import {renderPricingGraph} from './pricing-graph-view.js';
-import {type Row,type Frame,type Workspace,type CurveResult,type PriceHistory,type ReferenceDisplay,displayReferenceRows,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,marketTypeName,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel} from './market-view.js';
+import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,displayReferenceRows,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText} from './market-view.js';
 import {dataSections} from './data-sections.js';
 import {type Preferences,newPreferences,loadPreferences,savePreferences,validTimeZone,zoneChoices} from './preferences.js';
 import {setupShortcutEditor,scheduleErrorMessage} from './shortcut-view.js';
@@ -36,6 +36,13 @@ import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} fro
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
 import {readPages,type TargetContext} from './assistant-events.js';
+import {readCurveShapes} from './curve-shapes.js';
+import type {CurveShape} from './desk-model.js';
+import {commodityDot,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
+import {renderTile} from './tiles.js';
+import {panelPlacement} from './side-panel.js';
+import {answeredOverlays,type OverlayCatalog,type OverlayRequest,type OverlaySeries} from './time-chart.js';
+import {type ContractHistory,type RevisionPolicy,revisionPolicies,historyBasis,historyChart,knownAtText,setupContractPanel} from './contract-panel.js';
 
 const exampleId=new URLSearchParams(location.search).get('example')??'baseline';
 if(!['baseline','exchange'].includes(exampleId))throw Error('Choose an available example.');
@@ -46,10 +53,17 @@ const groupNode=(id:string)=>$<HTMLDetailsElement>('nav-group-'+id);
 const text=(id:string,value:string)=>{$(id).textContent=publicText(value);};
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,content?:string){const node=document.createElement(tag);if(content!==undefined)node.textContent=publicText(content);return node;}
 function choose(id:string,options:{value:string;name:string}[],value:string){const node=select(id);node.replaceChildren(...options.map(o=>{const option=el('option',o.name);option.value=o.value;return option;}));node.value=value;}
-let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,contract='',historyData:PriceHistory|undefined,pricingContract='',showAllContracts=false,input='',draftFor='',busy=false,page='market';
-let sourceOnlyCurve=false,historyRequested=false;
+let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,pricingContract='',showAllContracts=false,input='',draftFor='',busy=false,page='market';
+let sourceOnlyCurve=false;
+// The contract the panel shows, and its history: the revision policy (D237) and overlays the person chose, the read's answer and the
+// overlays it returned, named from the catalog, or that the read failed. The panel opens on exact closes with no overlays.
+let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
+// The overlay catalog, read for one account.
+let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
 let contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 let navigation:MarketNavigation|undefined,marketGeneration=0;
+// The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
+let boardShapes:{owner:MarketNavigation;scope:string;shapes:ReadonlyMap<string,CurveShape|string>}|undefined;
 let liveSucceeded:Date|undefined;
 let liveStream:EventSource|undefined,liveUpdates:LiveUpdates<LiveContextUpdate & {generation:number}>|undefined,liveId='',lastLiveUpdate:LiveContextUpdate|undefined;
 type ReferencePage={table:string;rows:Row[];references:Record<string,Row[]>;referenceDisplay?:ReferenceDisplay|null;offset:number;pageSize:number;maximumOffset:number;hasMore:boolean;search:string;referenceRevision:{catalogId:string;revisionId:string};definitionRevisionId:string;context:Context|null;profile:string;referenceScope:'selected_table'};
@@ -88,7 +102,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -105,7 +119,7 @@ async function transport<T>(path:string,body?:unknown,root=apiRoot):Promise<T>{
   try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Refresh and check the saved changes before saving again.':'The app could not connect. Please refresh the page.'),{code:'response_unknown'});}
   if(response.status===401){sessionEnded=true;workspace=undefined;result=undefined;historyData=undefined;curve='';document.body.hidden=true;location.replace('/auth');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
-  if(!response.ok){const error=await response.json().catch(()=>({code:'request_failed'}));if(path.startsWith('swaps/settlement/'))throw Object.assign(Error(error.message??'The settlement operation was refused.'),{code:error.code});if(path.startsWith('ppa/'))throw Object.assign(Error(`${error.code??'request_failed'}: ${error.message??'The PPA operation was refused.'}`),{code:error.code,details:error});const messages:Record<string,string>={index_fixing_convention_missing:'This index has no qualified fixing schedule for the selected observations. Its reference rules must be configured before this swap can be priced.',index_fixing_missing:'A published index fixing is required but is missing from the selected market inputs. Load the fixing and select a complete market context.',index_fixing_definition:'The fixing schedule does not match the exact index, price units or source definition.',swap_fixing_read_only:'Fixing dates come from the selected index convention and cannot be entered manually.',reference_edit:'Choose a reference row and complete its supported display fields. Financial terms are read-only.',reference_conflict:'This reference version changed. Reload before editing or reconcile the retained request.',reference_limit:'This reference catalog exceeds the supported metadata authoring limits.',reference_economic_change:'The saved version changes financial terms and cannot be applied as a display update.',reference_outcome_unknown:'The save outcome is unconfirmed. Inspect versions or retry the retained original request.',missing_curve_view:'This curve has no configured close for the selected date. Choose an available calendar date.',missing_observation:'Required market data is missing for this curve and close. Choose another available date or load the missing prices.',recipe_definition:'Complete every required operation setting and connect each node to the curve output with compatible inputs.',recipe_input:'The selected dates or contracts do not have complete valid observations. Check the source and date window.',recipe_transform:'This saved curve uses an operation that is unavailable in the connected engine. Recreate it with supported graph operations.',recipe_formula:'Use quoted parameters, connected @node inputs and typed JSON contract mappings.',custom_curve_definition:'Complete the curve operations, connections and required settings. Check the selected sources and date coverage.',custom_curve_conflict:'This curve changed or the code is already used. Reload the library before editing.',custom_curve_coverage:'The selected dates or contracts do not have complete observations. Choose a covered window or load the required prices.',custom_curve_operator:'This curve uses an unsupported operation or incompatible input connection.',custom_curve_source:'Choose an available curve from the selected market context.',custom_curve_limit:'This curve exceeds the supported graph or history bounds.',futures_execution_policy:'Trading eligibility is missing, ambiguous or inconsistent with its source. A maintainer must qualify this contract before it can be priced.',unit_catalog:'The configured unit catalog is unavailable at this effective date or knowledge cutoff.',reference_catalog:'The configured reference catalog is unavailable in this context.',reference_page:'Choose an available category and valid page or search text.',clock_tzdb:'The installed time-zone rules differ from the product clock’s declared release, or cannot be verified. Calculations are blocked until they match.',clock_rule:'This product’s market clock is incomplete or unknown in reference data.',power_calendar:'The settlement index calendar does not cover this whole delivery period.',power_index:'This curve needs a single settlement index with matching commodity, currency and unit.',tou_definition:'Supply a lowercase code, a name, a market clock and an ordered peak window.',tou_conflict:'This TOU product changed or its code is already used. Reload before editing.',clock_reference:'Choose a market clock from this workspace’s reference data.',calendar_reference:'Choose a business calendar from this workspace’s reference data.',calendar_binding:'Choose a reference calendar, not a typed one.',futures_revision_conflict:'This trade changed. Reload the current revision before amending.',futures_amendment:'Supply an explicit amendment reason and use the selected working As of time.',futures_no_change:'Change a supported booking term before previewing an amendment.',futures_trade:'The trade revision is unavailable in this context.',historical_read_only:'This historical view is read-only. Return to working data before booking or amending.',risk_stress:'Choose signed nonzero curve-coordinate shifts using the supported additive convention, with at most sixteen nested stresses.',scenario_target:'Choose an available exact curve, contract or point target; overlapping shifts belong in separate nested layers.',scenario_coordinate:'Choose a primitive quote for input shocks or a computed point for output shifts. Frozen observations cannot be shocked.',scenario_bucket:'Choose an ordered delivery window whose boundaries do not split a contract or computed point.',scenario_shift:'Choose an offered quote or output target, its exact unit and a valid signed shift within the supported nesting limit.',risk_context:'Select the shared financial context before running risk.',risk_job_context:'Queue the exact retained financial context with a stable request identity.',risk_job_conflict:'This request identity belongs to different risk inputs. Inspect the retained job before submitting a new request.',risk_job_run:'The parts of this run do not agree: every part of a run is queued once, at one retained context, with one part count. Queue the run again.',risk_job_outcome_unknown:'The job submission outcome is unknown. Reconcile the retained submission to retry the same request safely.',risk_engine_version:'This retained job requires its original managed engine version.',risk_timeout:'The risk job exceeded its configured calculation time limit.',risk_input_timeout:'The retained risk inputs could not be loaded within the configured time limit.',risk_result_limit:'The risk result exceeds the retained report size limit. Narrow the selected books or request book totals.',risk_bump:'Enter a positive absolute bump and choose distinct supported scenario targets.',risk_factor:'Choose an available quote or computed-output target in this market context.',risk_position:'Choose books containing live supported holdings.',risk_policy:'Choose the supported exact repricing policy.',risk_convention:'Choose the supported repricing convention for this risk operation.',portfolio_policy:'Refresh the risk catalog to select its complete supported pricing policies.',portfolio_context:'Select a complete retained financial context covering the held instruments and their market inputs.',swap_risk_model:'A held swap requires market inputs that are unavailable in this exact financial context.',precision_loss:'An exact result needs more precision. For a conversion, choose explicit final rounding; no value was rounded automatically.',price_domain:'A base or shocked price is outside the contract’s allowed price range.',table_view_conflict:'This saved view changed in another session. Use Reload views before saving or deleting it.',table_view:'Choose a valid named layout; at most twenty views can be saved per table.',blotter_view:'Choose available books and explicit pivot dimensions/measures. Lots require dated-contract grouping.',power_historical:'Return to current inputs to use the unsaved power example. Historical clock publication is not supported yet.',power_units:'This example needs an outright curve quoted per MWh.',settlement_coverage:'The selected mask has no intervals or the fixing coverage is incomplete.',power_input:'Complete the product, units and classification choices.',access_denied:hostedPilot?'Your account does not have permission for that operation.':'This demo user can’t make that change. You can switch users in Profile → Preview access.',revision_conflict:'This price has already changed. Refresh and choose the version you want in Price changes.',mutation_outcome_unknown:'We could not confirm whether your change was saved. Refresh and check the saved changes before saving again.',numeric_format:'Enter a number with no commas or spaces, using up to 18 decimal places.',missing_value:'Enter a new value before saving.',definition_rejected:'This value does not meet the contract’s price rules. Check the allowed range and settlement increment in Reference data.',snapshot_missing:'Choose an available market date.',request_token:'Please refresh the page before making this change.',request_cancelled:'This took too long. Please refresh and try again.',admin_conflict:'This account changed or the login name is already registered. Refresh accounts before editing.',last_administrator:'Keep at least one current administrator in this workspace.',self_access_change:'Another administrator must remove your administrative access.',admin_input:'Enter a name, login, identity kind and explicit roles.',admin_limit:'This preview has reached its account limit.',administration_outcome_unknown:'We could not confirm the change. Check accounts and recent access changes, then retry the retained request if necessary.',model_admin_input:entryRanges,model_admin_conflict:'This provider or model changed, the model already exists, its current state does not allow the change, or the request identity was used for a different change. Refresh AI settings before trying again.',model_admin_outcome_unknown:'We could not confirm the change. Check the current AI settings and recent changes, then retry the retained request if necessary.',model_identifier_invalid:'Enter the vendor’s model identifier: up to 128 letters, digits, dots, underscores or hyphens, starting with a letter or digit.',currency_unavailable:'Choose a currency of a sealed reference revision that your roles can currently read.',model_unqualified:'Enable a model once its capabilities are recorded under the usage mapping its vendor’s adapter applies.',model_provider_unqualified:'The provider is not qualified: this release must confirm its usage mapping, and its current key and terms must be attested.',model_provider_disabled:'The model’s provider is disabled. Enable the provider first.',model_mapping_unconfirmed:'Record capabilities once this release confirms a usage mapping for the model’s vendor.',model_unpriced:'The model needs a rate set in force now.',model_changed:'The model’s capability version changed. Refresh AI settings and choose the version listed now.',model_disabled:'The model is disabled. Enable it before an agent version names it.',model_limit_exceeded:'Ask for no more output tokens per call than the model version allows.',grant_duration_exceeded:'The grant is longer than the limit stated with it.',instructions_too_long:'The instructions are longer than the limit stated with them.',agent_retired:'This agent is retired and can no longer change.',parameter_required:'Choose one of the reasoning efforts the model’s capability version records.',test_in_progress:'This test has no recorded outcome yet. Retry the retained request to read it once it is recorded.',report_zone_invalid:'Choose a time zone the preview’s database knows, named exactly as it names it.',report_range_invalid:'Enter a From date before the To date, each written yyyy-MM-dd, no further apart than the Usage tab states.',agent_runtime_unavailable:'Tests run only while this process holds the agent worker, which another process may hold or whose connection was lost. Try again shortly.',credential_unavailable:'Key storage is unavailable here, so no key can be saved or opened. Its key files are missing or unreadable: ask whoever runs this installation to restore them.',agent_managed:'Agents can’t be created or changed here, and only agents hold the agent reader role.',numeric_range:'A number is too large: its magnitude must be below 10^24.',interval_series_resolution:'Choose a 5, 15, 30 or 60 minute resolution.',interval_series_empty:'Add at least one value to import.',interval_series_size:'A revision holds at most 200,000 intervals, so split a larger import into several smaller ones.',interval_series_instant:'Write each start as a UTC instant, for example 2027-01-01T05:00:00Z, within the years 2000 to 2099.',interval_series_grid:'Every start must be where one of the series’ intervals starts on its market clock, and From and To may not fall inside a stored interval.',interval_series_overlap:'Intervals within one import cannot overlap or repeat.',interval_series_historical:'Return to working data to edit or read interval series, then use Known at on this page to see earlier knowledge.',interval_curve_historical:'Return to working data to read interval curves; their TOU and shape inputs are current definitions.',interval_curve_window:'Choose From and To on the curve’s interval grid, at most 35,136 intervals apart.',interval_curve_cutoff:'Choose Known at for a shaped curve or when resolving actuals.',interval_contract:'Choose a curve whose constituents are exact delivery intervals on its market clock.',interval_block:'A block curve must be date-only and bound to a published TOU peak window, or cover all hours.',interval_block_partition:'The curve’s block marks must cover every interval in this window exactly once. Choose a window inside its marked months.',interval_shape:'The shape cannot calibrate a block: multiplicative factors need a positive weighted mean under the supported method.',interval_shape_coverage:'The shape has no value for an interval of a block this window touches at the chosen Known at. Choose a later Known at or complete the shape.',interval_actual:'This curve has no collected actual-price source and due rule, or its collected prices do not match its intervals.',interval_actual_missing:'A delivered interval’s actual price is due but was not collected by the chosen Known at.',interval_aggregate:'Aggregate resolved prices over whole local hours or operating days, with From and To on their boundaries.',interval_curve_coverage:'The curve has no interval for part of this window. Choose From and To within its intervals.',interval_delivered:'This window includes intervals delivered by the market date. Choose Resolve to price them from collected actuals.',interval_series_conflict:'This request was already used for a different change, so start a new request.',interval_series_revision_conflict:'Someone else saved this series first, so reload it and apply your change again.',interval_series_values:'Check the values: each must be a plain decimal with at most 18 decimal places inside the series’ allowed range, and no interval may overlap a stored one that starts at a different time.',interval_series_window:'Choose a From before To spanning at most 35,136 intervals and 100,000 changes, with a Known at no later than now.',interval_series_code:'Choose an unused code that starts with a lowercase letter and uses lowercase letters, digits, underscores, dots or hyphens.',interval_series_definition:'Name the series in 1 to 80 characters without leading or trailing spaces, and choose a kind, specification and clock that belong together in this workspace’s reference data.',interval_series_request:'This request has no identity, so refresh the page and try again.',interval_series_reason:'Give a reason of 1 to 500 characters that is not blank.',interval_series_outcome_unknown:'We could not confirm whether the save completed, so retry the original request to recover its receipt or check the change log first.',request_too_large:'The request is too large for this operation; for an import, split it into smaller ones.'};throw Object.assign(Error(agentRefusal(error)??scheduleErrorMessage(error.code)??messages[error.code]??'The app could not complete that request. Please refresh and try again.'),{code:error.code});}
+  if(!response.ok){const error=await response.json().catch(()=>({code:'request_failed'}));if(path.startsWith('swaps/settlement/'))throw Object.assign(Error(error.message??'The settlement operation was refused.'),{code:error.code});if(path.startsWith('ppa/'))throw Object.assign(Error(`${error.code??'request_failed'}: ${error.message??'The PPA operation was refused.'}`),{code:error.code,details:error});const messages:Record<string,string>={index_fixing_convention_missing:'This index has no qualified fixing schedule for the selected observations. Its reference rules must be configured before this swap can be priced.',index_fixing_missing:'A published index fixing is required but is missing from the selected market inputs. Load the fixing and select a complete market context.',index_fixing_definition:'The fixing schedule does not match the exact index, price units or source definition.',swap_fixing_read_only:'Fixing dates come from the selected index convention and cannot be entered manually.',reference_edit:'Choose a reference row and complete its supported display fields. Financial terms are read-only.',reference_conflict:'This reference version changed. Reload before editing or reconcile the retained request.',reference_limit:'This reference catalog exceeds the supported metadata authoring limits.',reference_economic_change:'The saved version changes financial terms and cannot be applied as a display update.',reference_outcome_unknown:'The save outcome is unconfirmed. Inspect versions or retry the retained original request.',missing_curve_view:'This curve has no configured close for the selected date. Choose an available calendar date.',missing_observation:'Required market data is missing for this curve and close. Choose another available date or load the missing prices.',recipe_definition:'Complete every required operation setting and connect each node to the curve output with compatible inputs.',recipe_input:'The selected dates or contracts do not have complete valid observations. Check the source and date window.',recipe_transform:'This saved curve uses an operation that is unavailable in the connected engine. Recreate it with supported graph operations.',recipe_formula:'Use quoted parameters, connected @node inputs and typed JSON contract mappings.',custom_curve_definition:'Complete the curve operations, connections and required settings. Check the selected sources and date coverage.',custom_curve_conflict:'This curve changed or the code is already used. Reload the library before editing.',custom_curve_coverage:'The selected dates or contracts do not have complete observations. Choose a covered window or load the required prices.',custom_curve_operator:'This curve uses an unsupported operation or incompatible input connection.',custom_curve_source:'Choose an available curve from the selected market context.',custom_curve_limit:'This curve exceeds the supported graph or history bounds.',futures_execution_policy:'Trading eligibility is missing, ambiguous or inconsistent with its source. A maintainer must qualify this contract before it can be priced.',unit_catalog:'The configured unit catalog is unavailable at this effective date or knowledge cutoff.',reference_catalog:'The configured reference catalog is unavailable in this context.',reference_page:'Choose an available category and valid page or search text.',clock_tzdb:'The installed time-zone rules differ from the product clock’s declared release, or cannot be verified. Calculations are blocked until they match.',clock_rule:'This product’s market clock is incomplete or unknown in reference data.',power_calendar:'The settlement index calendar does not cover this whole delivery period.',power_index:'This curve needs a single settlement index with matching commodity, currency and unit.',tou_definition:'Supply a lowercase code, a name, a market clock and an ordered peak window.',tou_conflict:'This TOU product changed or its code is already used. Reload before editing.',clock_reference:'Choose a market clock from this workspace’s reference data.',calendar_reference:'Choose a business calendar from this workspace’s reference data.',calendar_binding:'Choose a reference calendar, not a typed one.',futures_revision_conflict:'This trade changed. Reload the current revision before amending.',futures_amendment:'Supply an explicit amendment reason and use the selected working As of time.',futures_no_change:'Change a supported booking term before previewing an amendment.',futures_trade:'The trade revision is unavailable in this context.',historical_read_only:'This historical view is read-only. Return to working data before booking or amending.',risk_stress:'Choose signed nonzero curve-coordinate shifts using the supported additive convention, with at most sixteen nested stresses.',scenario_target:'Choose an available exact curve, contract or point target; overlapping shifts belong in separate nested layers.',scenario_coordinate:'Choose a primitive quote for input shocks or a computed point for output shifts. Frozen observations cannot be shocked.',scenario_bucket:'Choose an ordered delivery window whose boundaries do not split a contract or computed point.',scenario_shift:'Choose an offered quote or output target, its exact unit and a valid signed shift within the supported nesting limit.',risk_context:'Select the shared financial context before running risk.',risk_job_context:'Queue the exact retained financial context with a stable request identity.',risk_job_conflict:'This request identity belongs to different risk inputs. Inspect the retained job before submitting a new request.',risk_job_run:'The parts of this run do not agree: every part of a run is queued once, at one retained context, with one part count. Queue the run again.',risk_job_outcome_unknown:'The job submission outcome is unknown. Reconcile the retained submission to retry the same request safely.',risk_engine_version:'This retained job requires its original managed engine version.',risk_timeout:'The risk job exceeded its configured calculation time limit.',risk_input_timeout:'The retained risk inputs could not be loaded within the configured time limit.',risk_result_limit:'The risk result exceeds the retained report size limit. Narrow the selected books or request book totals.',risk_bump:'Enter a positive absolute bump and choose distinct supported scenario targets.',risk_factor:'Choose an available quote or computed-output target in this market context.',risk_position:'Choose books containing live supported holdings.',risk_policy:'Choose the supported exact repricing policy.',risk_convention:'Choose the supported repricing convention for this risk operation.',portfolio_policy:'Refresh the risk catalog to select its complete supported pricing policies.',portfolio_context:'Select a complete retained financial context covering the held instruments and their market inputs.',swap_risk_model:'A held swap requires market inputs that are unavailable in this exact financial context.',precision_loss:'An exact result needs more precision. For a conversion, choose explicit final rounding; no value was rounded automatically.',price_domain:'A base or shocked price is outside the contract’s allowed price range.',table_view_conflict:'This saved view changed in another session. Use Reload views before saving or deleting it.',table_view:'Choose a valid named layout; at most twenty views can be saved per table.',blotter_view:'Choose available books and explicit pivot dimensions/measures. Lots require dated-contract grouping.',power_historical:'Return to current inputs to use the unsaved power example. Historical clock publication is not supported yet.',power_units:'This example needs an outright curve quoted per MWh.',settlement_coverage:'The selected mask has no intervals or the fixing coverage is incomplete.',power_input:'Complete the product, units and classification choices.',access_denied:hostedPilot?'Your account does not have permission for that operation.':'This demo user can’t make that change. You can switch users in Profile → Preview access.',revision_conflict:'This price has already changed. Refresh and choose the version you want in Price changes.',mutation_outcome_unknown:'We could not confirm whether your change was saved. Refresh and check the saved changes before saving again.',numeric_format:'Enter a number with no commas or spaces, using up to 18 decimal places.',missing_value:'Enter a new value before saving.',definition_rejected:'This value does not meet the contract’s price rules. Check the allowed range and settlement increment in Reference data.',snapshot_missing:'Choose an available market date.',request_token:'Please refresh the page before making this change.',request_cancelled:'This took too long. Please refresh and try again.',admin_conflict:'This account changed or the login name is already registered. Refresh accounts before editing.',last_administrator:'Keep at least one current administrator in this workspace.',self_access_change:'Another administrator must remove your administrative access.',admin_input:'Enter a name, login, identity kind and explicit roles.',admin_limit:'This preview has reached its account limit.',administration_outcome_unknown:'We could not confirm the change. Check accounts and recent access changes, then retry the retained request if necessary.',model_admin_input:entryRanges,model_admin_conflict:'This provider or model changed, the model already exists, its current state does not allow the change, or the request identity was used for a different change. Refresh AI settings before trying again.',model_admin_outcome_unknown:'We could not confirm the change. Check the current AI settings and recent changes, then retry the retained request if necessary.',model_identifier_invalid:'Enter the vendor’s model identifier: up to 128 letters, digits, dots, underscores or hyphens, starting with a letter or digit.',currency_unavailable:'Choose a currency of a sealed reference revision that your roles can currently read.',model_unqualified:'Enable a model once its capabilities are recorded under the usage mapping its vendor’s adapter applies.',model_provider_unqualified:'The provider is not qualified: this release must confirm its usage mapping, and its current key and terms must be attested.',model_provider_disabled:'The model’s provider is disabled. Enable the provider first.',model_mapping_unconfirmed:'Record capabilities once this release confirms a usage mapping for the model’s vendor.',model_unpriced:'The model needs a rate set in force now.',model_changed:'The model’s capability version changed. Refresh AI settings and choose the version listed now.',model_disabled:'The model is disabled. Enable it before an agent version names it.',model_limit_exceeded:'Ask for no more output tokens per call than the model version allows.',grant_duration_exceeded:'The grant is longer than the limit stated with it.',instructions_too_long:'The instructions are longer than the limit stated with them.',agent_retired:'This agent is retired and can no longer change.',parameter_required:'Choose one of the reasoning efforts the model’s capability version records.',test_in_progress:'This test has no recorded outcome yet. Retry the retained request to read it once it is recorded.',report_zone_invalid:'Choose a time zone the preview’s database knows, named exactly as it names it.',report_range_invalid:'Enter a From date before the To date, each written yyyy-MM-dd, no further apart than the Usage tab states.',agent_runtime_unavailable:'Tests run only while this process holds the agent worker, which another process may hold or whose connection was lost. Try again shortly.',credential_unavailable:'Key storage is unavailable here, so no key can be saved or opened. Its key files are missing or unreadable: ask whoever runs this installation to restore them.',agent_managed:'Agents can’t be created or changed here, and only agents hold the agent reader role.',numeric_range:'A number is too large: its magnitude must be below 10^24.',interval_series_resolution:'Choose a 5, 15, 30 or 60 minute resolution.',interval_series_empty:'Add at least one value to import.',interval_series_size:'A revision holds at most 200,000 intervals, so split a larger import into several smaller ones.',interval_series_instant:'Write each start as a UTC instant, for example 2027-01-01T05:00:00Z, within the years 2000 to 2099.',interval_series_grid:'Every start must be where one of the series’ intervals starts on its market clock, and From and To may not fall inside a stored interval.',interval_series_overlap:'Intervals within one import cannot overlap or repeat.',interval_series_historical:'Return to working data to edit or read interval series, then use Known at on this page to see earlier knowledge.',interval_curve_historical:'Return to working data to read interval curves; their TOU and shape inputs are current definitions.',interval_curve_window:'Choose From and To on the curve’s interval grid, at most 35,136 intervals apart.',interval_curve_cutoff:'Choose Known at for a shaped curve or when resolving actuals.',interval_contract:'Choose a curve whose constituents are exact delivery intervals on its market clock.',interval_block:'A block curve must be date-only and bound to a published TOU peak window, or cover all hours.',interval_block_partition:'The curve’s block marks must cover every interval in this window exactly once. Choose a window inside its marked months.',interval_shape:'The shape cannot calibrate a block: multiplicative factors need a positive weighted mean under the supported method.',interval_shape_coverage:'The shape has no value for an interval of a block this window touches at the chosen Known at. Choose a later Known at or complete the shape.',interval_actual:'This curve has no collected actual-price source and due rule, or its collected prices do not match its intervals.',interval_actual_missing:'A delivered interval’s actual price is due but was not collected by the chosen Known at.',interval_aggregate:'Aggregate resolved prices over whole local hours or operating days, with From and To on their boundaries.',interval_curve_coverage:'The curve has no interval for part of this window. Choose From and To within its intervals.',interval_delivered:'This window includes intervals delivered by the market date. Choose Resolve to price them from collected actuals.',interval_series_conflict:'This request was already used for a different change, so start a new request.',interval_series_revision_conflict:'Someone else saved this series first, so reload it and apply your change again.',interval_series_values:'Check the values: each must be a plain decimal with at most 18 decimal places inside the series’ allowed range, and no interval may overlap a stored one that starts at a different time.',interval_series_window:'Choose a From before To spanning at most 35,136 intervals and 100,000 changes, with a Known at no later than now.',interval_series_code:'Choose an unused code that starts with a lowercase letter and uses lowercase letters, digits, underscores, dots or hyphens.',interval_series_definition:'Name the series in 1 to 80 characters without leading or trailing spaces, and choose a kind, specification and clock that belong together in this workspace’s reference data.',interval_series_request:'This request has no identity, so refresh the page and try again.',interval_series_reason:'Give a reason of 1 to 500 characters that is not blank.',interval_series_outcome_unknown:'We could not confirm whether the save completed, so retry the original request to recover its receipt or check the change log first.',request_too_large:'The request is too large for this operation; for an import, split it into smaller ones.',overlay_parameter:'Choose a known overlay with a whole-number window from 2 to 250, and at most four overlays.',overlay_input:'The chart overlays need an ordered price history of at most 35,136 points with plain decimal values.',history_conflict:'Different prices remain at one instant under the cutoff policy. Choose Exact closes or one version to read this history.',power_period_interval:'A stored delivery price is not an interval of these operating days under the source’s market clock, so the read was refused.',power_period:'Choose operating dates written yyyy-MM-dd that span 1 to 366 days within 2000 to 2099, and a day inside the contract’s delivery period when settling.',custom_curve_mixed_units:'The preview mixes output units, so no single unit describes it. Give the outputs one unit.'};throw Object.assign(Error(agentRefusal(error)??scheduleErrorMessage(error.code)??messages[error.code]??'The app could not complete that request. Please refresh and try again.'),{code:error.code});}
   return response.json() as Promise<T>;
 }
 async function api<T>(path:string,body?:unknown):Promise<T>{
@@ -113,7 +127,7 @@ async function api<T>(path:string,body?:unknown):Promise<T>{
  if(['profile','market/current','market/context'].includes(path))stopLive();
  if(/^(trading\/(blotter|workspace)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|evaluate|history|power\/preview)$/.test(path)){
   // A workspace read's report and its desk summaries are both shown; its catalog is not.
-  const displayed=path==='trading/workspace'?{blotter:(payload as {blotter:unknown}).blotter,summaries:(payload as {summaries?:unknown}).summaries}:path==='evaluate'||path==='history'?{points:(payload as CurveResult|PriceHistory).points}:payload;
+  const displayed=path==='trading/workspace'?{blotter:(payload as {blotter:unknown}).blotter,summaries:(payload as {summaries?:unknown}).summaries}:path==='evaluate'||path==='history'?{points:(payload as CurveResult|ContractHistory).points}:payload;
   await prepareAmountDisplay(displayed,request=>transport<string[]>('amounts/display',request),path==='history'?decimalTick():undefined);
  }
  return payload;
@@ -127,37 +141,51 @@ async function act(work:()=>Promise<void>,{keepNotice=false}={}){
   // Errors and notices describe the previous action; the next one starts clean.
   if(busy)return;busy=true;syncControls();$('error').hidden=true;if(!keepNotice)$('notice').hidden=true;text('status','Loading…');
   try{await work();text('status',pageStatus());}
-  catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');}
+  catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');if(page==='custom-curves')await customCurves.recover().catch(()=>undefined);}
   finally{busy=false;syncControls();if(closeCheckDue){closeCheckDue=false;void recheckNewestClose();}}
 }
-// A move of the person's that would give up the amendment the Blotter's panel holds, as another page, another context or another close
-// does, asks first, in the panel, whether to; and it asks before the page is busy, because every control, the question's own included,
+// A move of the person's that would give up the amendment the Blotter's panel holds, or the edits of a custom curve, as another page, another
+// context or another close does, asks first, in the panel, whether to; and it asks before the page is busy, because every control, the question's own included,
 // is disabled while it is. `modal` is a dialog open over the page, which keeps the panel out of reach, and is closed for the question.
 // false means the person kept the amendment.
-async function mayLeave(modal?:HTMLDialogElement){
-  if(page!=='futures')return true;
-  if(modal?.open&&futures.editing())modal.close();
-  return futures.leave();
+// `move` says what the move does to a custom curve's edits: 'discards' them (another page, context or account), changes the close ('closes'), which
+// keeps the graph and gives up only an unpublished effective-version timeline, or 'keeps' them (preferences, following live). The Blotter's amendment
+// is asked about for every move, and always through its own leave, which also closes its forms.
+type Move='discards'|'closes'|'keeps';
+async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
+  if(page==='futures'){
+    if(modal?.open&&futures.editing())modal.close();
+    return futures.leave();
+  }
+  if(page!=='custom-curves'||move==='keeps')return true;
+  const scope=move==='closes'?'timeline':'edits';
+  if(!customCurves.holds(scope))return true;
+  if(modal?.open)modal.close();
+  if(!await customCurves.leave(scope))return false;
+  if(move==='discards')customCurves.discard();
+  return true;
 }
+// Whether the page showing holds edits that a move to another page, context or account gives up: the Blotter's amendment, or a custom curve's unsaved edits.
+function holdsEdits(){return page==='futures'?futures.editing():page==='custom-curves'&&customCurves.holds('edits');}
 // What the profile dialog does gives up what the Blotter holds, which is asked about with the dialog closed, for a modal dialog keeps the panel, and
 // the question, out of reach. Keeping the amendment leaves the dialog closed and nothing done, which is said, for a closed dialog looks like a done one.
-async function mayLeaveForDialog(notDone:string){
+async function mayLeaveForDialog(notDone:string,move:Move='discards'){
   if(busy)return false;
-  if(await mayLeave($<HTMLDialogElement>('profile-dialog')))return true;
-  notice(`${notDone}, because you kept the amendment you were editing.`);
+  if(await mayLeave(move,$<HTMLDialogElement>('profile-dialog')))return true;
+  notice(page==='futures'?`${notDone}, because you kept the amendment you were editing.`:`${notDone} · your curve edits are unchanged.`);
   return false;
 }
-// Runs `work` as an action, once the person has agreed to leave what the Blotter holds.
-function leaving(work:()=>Promise<void>){void (async()=>{if(busy)return;if(await mayLeave())await act(work);})();}
+// Runs `work` as an action, once the person has agreed to leave what the page holds. A discarded curve that the work then failed to leave is read again.
+function leaving(work:()=>Promise<void>,move:Move='discards'){void (async()=>{if(busy)return;if(await mayLeave(move))await act(work);})();}
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
-function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][]){
+function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][],onRowActivate?:(index:number)=>void){
   const referenceScope=[data().profile,page,select('reference-table').value,referencePage?.referenceRevision,referencePage?.offset,referencePage?.search,historicalContext()];
   const marketScope=[data().profile,curve,result?.snapshotId??'',target==='history-values'?contract:'',target==='revisions'?input:'',...(['inputs','mappings'].includes(target)?[showAllContracts||target==='inputs'&&sourceOnlyCurve?'all':pricingContract]:[])];
-  renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows});
+  renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows,onRowActivate});
 }
 
-function clearPrices(){historyRequested=false;result=undefined;pricingContract='';contract='';historyData=undefined;$('history-card').hidden=true;clearChart($('history-chart'));input='';draftFor='';$('revision-card').hidden=true;text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
+function clearPrices(){result=undefined;pricingContract='';closeContract();input='';draftFor='';$('revision-card').hidden=true;text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
 const showsDate=(next:string)=>!['admin','ai','jobs','interval-series','ppa','delivery'].includes(next);
 const showsContext=(next:string)=>showsDate(next)&&next!=='interval-curves';
 async function setPage(next:string){
@@ -297,6 +325,41 @@ function renderCloseBadge(){
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
 function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
 function renderFrames(value:string){const frames=offeredFrames();choose('snapshot',[{value:'',name:frames.length?'Choose a date…':'No inputs for this context date'},...frameOptions(frames,prefs.timeZone)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}
+// The board's shapes are those of one close of one directory, read for one account and context: any change of them leaves none read.
+const boardScope=()=>JSON.stringify([administrationScope,currentProfile,select('snapshot').value,contextDirty]);
+function readShapes():ReadonlyMap<string,CurveShape|string>{const kept=boardShapes;return kept&&kept.owner===navigation&&kept.scope===boardScope()?kept.shapes:new Map();}
+const board=()=>marketBoard(directory(),{by:prefs.browseBy,commodity:prefs.market,type:prefs.marketType},readShapes());
+// Choosing a curve, from the library or from its card on the board, or no curve, which shows the board again.
+async function selectCurve(code:string){
+  curve=code;invalidateMarketDates();clearPrices();
+  if(!curve){renderContext();await loadBoard();}
+  else if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}
+}
+function chooseCurve(code:string){void act(()=>selectCurve(code));}
+// The market board, while no curve is shown: every listed curve at the selected close, or what to choose before there is one.
+function renderMarketBoard(){
+  const shown=!curve||!workspace,close=navigation&&!contextDirty?navigation.frames.find(f=>f.id===select('snapshot').value):undefined;
+  $('market-board').hidden=!shown;$('market-board-empty').hidden=!!close;$('market-board-groups').hidden=!close;
+  text('market-board-status',close?`Prices at the close of ${instant(close.at)}`:'');
+  text('market-board-empty-title',contextDirty?'Apply the changed context':'Choose a market date');
+  text('market-board-empty-help',contextDirty?'View the changed context, then choose a close in As of to see every curve at it.':'Pick a close in As of above to see every curve at that close, or choose a curve from the list.');
+  if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve,busy);else $('market-board-groups').replaceChildren();
+}
+// Reads the curve shapes of the listed curves at the selected close that have none the backend stated, at most 64 to a read, and draws
+// them on the board and in the library. A curve whose read failed shows why, and is read again by the next load. A read that a change of account, directory, close or context overtakes is refused, as build() refuses one.
+async function loadBoard(){
+  if(page!=='market'||contextDirty||!navigation||!select('snapshot').value)return;
+  const owner=directory(),started=marketGeneration,scope=boardScope(),known=readShapes(),reads=shapeReads(board());
+  if(reads.length){
+    const source={snapshotId:frame().id,context:historicalContext()};
+    const read=await Promise.all(reads.map(curves=>readCurveShapes(api,source,curves)));
+    if(navigation!==owner||started!==marketGeneration||scope!==boardScope())throw Error('The account or market selection changed. Reload before continuing.');
+    const shapes=new Map(known);
+    reads.forEach((curves,i)=>{for(const code of curves)shapes.set(code,read[i].get(code)??'Curve shape unavailable · the read did not return this curve');});
+    boardShapes={owner,scope,shapes};
+  }
+  renderBrowse();renderMarketBoard();
+}
 function renderBrowse(){
   const categories=navigationCategories(directory()),commodities=categories.map(c=>c.code);
   // No commodity code is empty, so the empty value can only mean All markets.
@@ -304,21 +367,22 @@ function renderBrowse(){
   // Discard an unavailable presentation filter; market inputs remain separately pinned.
   if(prefs.market!==null&&!commodities.includes(prefs.market)){prefs.market=null;select('commodity').value='';}
   select('browse-by').value=prefs.browseBy;document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>{const active=b.dataset.type===prefs.marketType;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
-  const groups=navigationGroups(directory(),prefs.browseBy,prefs.market,prefs.marketType);text('curve-count',String(groups.reduce((n,g)=>n+g.curves.length,0)));
+  const groups=board();text('curve-count',String(groups.reduce((n,g)=>n+g.cards.length,0)));
   const owner=directory();
   $('curves').replaceChildren(...groups.map(group=>{const section=el('details'),key=prefs.browseBy+'|'+group.key;section.className='curve-group';section.open=!prefs.collapsedCurveGroups.includes(key);section.append(el('summary',group.name));
     section.ontoggle=()=>{if(!section.isConnected||navigation!==owner)return;const closed=prefs.collapsedCurveGroups.includes(key);if(closed===!section.open)return;prefs.collapsedCurveGroups=section.open?prefs.collapsedCurveGroups.filter(k=>k!==key):[...prefs.collapsedCurveGroups,key].slice(-64);persist();};
-    group.curves.forEach(c=>{const button=el('button');button.className='curve-button'+(c.code===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.code===curve));button.append(el('span',curveName(c.code)),el('small',marketTypeName(c.marketType)));button.onclick=()=>void act(async()=>{curve=c.code;invalidateMarketDates();clearPrices();if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}});section.append(button);});return section;}));
+    // The name and type are the row's text; the commodity dot and the curve's sparkline beside them are decorative.
+    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c);button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(commodityDot(c),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
   if(!groups.length)$('curves').append(el('p','No curves match these choices.'));
 }
 function renderContext(){
-  const example=directory().example;$('example').hidden=!example;text('example-help',example?`${curveName(example.curve)} · ${instant(example.at)}`:'No market inputs have been imported.');renderLayout();renderBrowse();$('welcome').hidden=!!curve&&!!workspace;$('curve-detail').hidden=!curve||!workspace;
+  const example=directory().example;$('example').hidden=!example;text('example-help',example?`${curveName(example.curve)} · ${instant(example.at)}`:'No market inputs have been imported.');renderLayout();renderBrowse();renderMarketBoard();$('curve-detail').hidden=!curve||!workspace;
   $('curve-power').hidden=!curve||!workspace?.powerCurveCodes.includes(curve);
   if(curve&&workspace){const c=selectedCurve(),listed=listedCurve(),kind=listed.marketType;renderSummary();text('curve-kind',navigationCurveKind(listed));text('curve-title',curveName(curve));
     const specification=kind==='rates'?row('interest_rate_definitions','code',val(c,'interest_rate_code'),true):undefined;
     text('unit',specification?`${val(row('currencies','code',val(specification,'currency_code'),true),'display_code')} · % per year`:unit(val(c,'quote_code')));
     text('chart-title',kind==='rates'?'Zero-rate curve':kind==='futures'?'Futures curve':kind==='forwards'?'Forward curve':'Mixed curve');
-    text('source-title',kind==='rates'?'Rates behind this curve':'Prices behind this curve');text('source-help',kind==='rates'?'Annual zero rates for the listed maturities.':'Prices and conversion factors for the selected market date.');text('history-help',kind==='rates'?'One maturity, followed over time.':'One contract, followed over time.');
+    text('source-title',kind==='rates'?'Rates behind this curve':'Prices behind this curve');text('source-help',kind==='rates'?'Annual zero rates for the listed maturities.':'Prices and conversion factors for the selected market date.');text('contracts-help',kind==='rates'?'Choose a maturity to see its rate history and how it’s priced.':'Choose a contract to see its price history and how it’s priced.');
     renderDependencies();if(result)renderInputs();}
   showView(prefs.tab);
 }
@@ -343,26 +407,25 @@ function rateConvention(){
   return result.convention;
 }
 function renderSummary(){
-  const items:{name:string;value:string;numeric?:boolean}[]=[];
-  if(result&&curve){
-    const rates=result.kind==='rates',front=result.points[0];
-    if(front)items.push({name:rates?'Maturities':'Contracts',value:String(result.points.length)},{name:rates?'First maturity':'Front contract',value:rates?displayDate(pointDate(front)):deliveryLabel(front.deliveryFrom!,front.deliveryTo!)},{name:rates?'First zero rate (%)':'Front price',value:front.value,numeric:true});
-    else items.push({name:'Contracts',value:'None remaining'});
-    items.push(rates?{name:'Day count',value:rateConvention().dayCount}:{name:'Settlement',value:settlementText()});
-  }
+  const items=result&&curve?summaryTiles(result,result.kind==='rates'?'':settlementText()):[];
   $('curve-summary').hidden=!items.length;
-  $('curve-summary').replaceChildren(...items.map(item=>{const group=el('div'),value=el('dd',item.value);if(item.numeric)value.className='numeric';group.append(el('dt',item.name),value);return group;}));
+  // A figure is one token that never splits; the curve's words, as its settlement, wrap in their tile instead.
+  $('curve-summary').replaceChildren(...items.map(item=>renderTile({label:item.name,rows:[{figure:item.value}],words:!item.numeric})));
   const context=historicalContext(),banner=$('curve-mode');banner.hidden=!curve||contextDirty||(!context&&!canCorrect());
   banner.dataset.tone=context?'historical':'editor';
   text('curve-mode',context?`Historical view: ${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}. Prices are read-only; return to working data to make changes.`:'You can correct source prices on the Price sources tab. Every earlier version stays available.');
 }
 function renderPrices(){
-  if(!result)return;renderSummary();const rates=result.kind==='rates';if(result.availability==='no_remaining_contracts'){pricingContract='';contract='';historyData=undefined;$('history-card').hidden=true;text('price-date',`As of: ${instant(result.at)}`);text('build-info','No remaining delivery days');clearChart($('curve-chart'),'No remaining delivery days for this market date.');clearChart($('history-chart'));$('contracts').replaceChildren();renderDependencies();renderInputs();return;}
+  if(!result)return;renderSummary();const rates=result.kind==='rates';if(result.availability==='no_remaining_contracts'){pricingContract='';closeContract();text('price-date',`As of: ${instant(result.at)}`);text('build-info','No remaining delivery days');clearChart($('curve-chart'),'No remaining delivery days for this market date.');$('contracts').replaceChildren();renderDependencies();renderInputs();return;}
   const exportCurve={snapshotId:result.snapshotId,curve:result.curve};
   renderChart($('curve-chart'),{exportImage:download=>void act(async()=>{try{await api('evaluate',exportCurve);}catch(error){clearPrices();throw error;}download();}),title:curveName(result.curve),axis:rates?'maturity':'delivery',unit:$('unit').textContent??'',series:[{name:curveName(result.curve),points:result.points.map(p=>({x:pointIdentity(p),label:rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!),y:p.value}))}]});
-  text('price-date',`As of: ${instant(result.at)}`);text('build-info',`${result.points.length} ${rates?(result.points.length===1?'rate sample':'rate samples'):(result.points.length===1?'contract':'contracts')}`);
-  table('contracts',rates?['Maturity','Zero rate (%)','Discount factor','']:['Delivery period','Price','Expires',''],result.points.map(p=>[rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!),p.value,rates?p.displayDiscountFactor!:instant(p.expiry!),action(rates?'Rate history':'Price history',async()=>{contract=pointIdentity(p);await history();})]),rates?[1,2]:[1],result.points.map(p=>[rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!),amountText(p.value,'price',p.priceTick),rates?amountText(p.discountFactor!,'factor'):instant(p.expiry!),rates?'Rate history':'Price history']));
-  if(historyData)renderHistory();renderDependencies();renderInputs();
+  text('price-date',`As of: ${instant(result.at)}`);text('build-info',contractCountText(result));
+  // A row, chosen or pressed with Enter, opens its contract in the panel, for the result it was drawn from.
+  const shown=result;
+  table('contracts',rates?['Maturity','Zero rate (%)','Discount factor']:['Delivery period','Price','Expires'],result.points.map(p=>[contractLabel(p),p.value,rates?p.displayDiscountFactor!:instant(p.expiry!)]),rates?[1,2]:[1],result.points.map(p=>[contractLabel(p),amountText(p.value,'price',p.priceTick),rates?amountText(p.discountFactor!,'factor'):instant(p.expiry!)]),
+    index=>void act(async()=>{if(result===shown)await openContract(pointIdentity(shown.points[index]));}));
+  $('contracts').querySelector('table')?.setAttribute('aria-describedby','contracts-help');
+  renderContract();renderDependencies();renderInputs();
 }
 async function build(){
   if(contextDirty)throw Error('Apply the changed context before viewing prices.');
@@ -376,14 +439,74 @@ async function build(){
   try{workspace=hydrated;data().observations=next.observations;result=next;renderContext();renderPrices();}
   catch(error){clearPrices();if(includeWorkspace)workspace=undefined;throw error;}
 }
-function renderHistory(){
-  if(!result||!historyData)return;const p=result.points.find(p=>pointIdentity(p)===contract);if(!p)throw Error('Please select this sample again.');const rates=result.kind==='rates';$('history-card').hidden=false;text('history-title',`${rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!)} · ${rates?'rate':'price'} history`);
-  const labels=timeLabels(historyData.points.map(p=>p.at),prefs.timeZone);
-  const exportHistory={snapshotId:result.snapshotId,curve:result.curve,...(rates?{seriesId:contract}:{contractId:contract})};
-  renderChart($('history-chart'),{exportImage:download=>void act(async()=>{try{await api('history',exportHistory);}catch(error){clearPrices();throw error;}download();}),title:`${rates?'Rates':'Prices'} over time`,axis:'observation',unit:$('unit').textContent??'',series:[{name:rates?'Zero rate':'Price',points:historyData.points.map((p,i)=>({x:p.snapshotId,label:labels[i],y:p.value}))}]});
-  table('history-values',['Market date',rates?'Zero rate (%)':'Price'],historyData.points.map((p,i)=>[labels[i],historyPriceLabel(p)]),[1],historyData.points.map((p,i)=>[labels[i],p.value===null?historyPriceLabel(p):amountText(p.value,'price',decimalTick())]));
+const contractLabel=(p:Point)=>result?.kind==='rates'?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!);
+const staleSelection=()=>Error('The account or market selection changed. Reload before continuing.');
+// Closes the contract panel without asking, and forgets the contract it showed and its history choices.
+function closeContract(){contractPanel.reset();forgetContract();}
+// The contract's row is marked open in every drawing of the table, as the panel is open on it.
+function openRow(){const index=result?.points.findIndex(p=>pointIdentity(p)===contract)??-1;return index<0?undefined:$('contracts').querySelectorAll<HTMLElement>('tbody tr')[index];}
+function markOpenRow(){$('contracts').querySelectorAll('tbody tr[aria-current]').forEach(row=>row.removeAttribute('aria-current'));if(contract)openRow()?.setAttribute('aria-current','true');}
+function forgetContract(){contract='';historyData=undefined;historySeries=[];historyFailed=false;historyPolicy=revisionPolicies[0].policy;overlayRequests=[];}
+// Opens a contract of the curve on screen in the panel and reads its history. The contract the panel shows already is only given focus,
+// unless its history could not be read, which is then read again.
+async function openContract(identity:string){
+  if(!result)return;
+  if(!result.points.some(p=>pointIdentity(p)===identity))throw Error('Please select this contract again.');
+  const opener=contractPanel.current()===null?document.activeElement:undefined;
+  if(!await contractPanel.open({kind:'curve-contract',curve:result.curve,contract:identity})||contract===identity&&!historyFailed)return;
+  if(opener instanceof HTMLElement)contractOpener=opener;
+  contract=identity;historyData=undefined;historySeries=[];historyFailed=false;
+  renderContract();await history();
 }
-async function history(){historyRequested=true;if(!result||!contract)return;const owner=result,selected=contract,started=marketGeneration,scope=marketSelection();clearChart($('history-chart'));historyData=undefined;$('history-card').hidden=true;const next=await api<PriceHistory>('history',{snapshotId:result.snapshotId,curve:result.curve,...(result.kind==='rates'?{seriesId:contract}:{contractId:contract})});if(result!==owner||contract!==selected||started!==marketGeneration||scope!==marketSelection())throw Error('The account or market selection changed. Reload before continuing.');historyData=next;renderHistory();}
+// Draws the panel's contract from the result on screen: its head, how it is priced and its history. A result that no longer prices
+// it closes the panel, and says so.
+function renderContract(){
+  if(!result||!contract)return;
+  const p=result.points.find(p=>pointIdentity(p)===contract);
+  if(!p){closeContract();notice('The contract the panel showed has no price at this close, so the panel was closed.');return;}
+  const rates=result.kind==='rates';
+  contractPanel.head({kicker:`${curveName(result.curve)} · ${rates?'Maturity':'Contract'}`,title:contractLabel(p),sub:rates?`Discount factor ${p.displayDiscountFactor}`:`Expires ${instant(p.expiry!)}`,figure:rates?p.value:amountText(p.value,'price',p.priceTick),unit:$('unit').textContent??''});
+  const pricing=el('section');pricing.className='contract-flow pricing-flow';
+  if(rates)pricing.append(el('h4',contractLabel(p)),rateFlow(p));else drawPricingGraph(pricing,pricingGraph(result,p));
+  contractPanel.pricing().replaceChildren(pricing);
+  markOpenRow();renderHistory();
+}
+function renderHistory(){
+  if(!result||!contract)return;
+  const choices={policy:historyPolicy,overlays:overlayRequests.length},rates=result.kind==='rates';
+  if(!historyData){contractPanel.history({state:historyFailed?'failed':'reading',...choices});$('history-values').replaceChildren();return;}
+  const p=result.points.find(p=>pointIdentity(p)===contract)!,points=historyData.points,labels=timeLabels(points.map(p=>p.at),prefs.timeZone);
+  contractPanel.history({state:'read',...choices,basis:historyBasis(historyPolicy,historyData,instant),chart:{title:contractLabel(p),unit:$('unit').textContent??'',zone:prefs.timeZone,series:historyChart(historyData),overlays:historySeries}});
+  table('history-values',['Market date',rates?'Zero rate (%)':'Price','Known at'],points.map((p,i)=>[labels[i],historyPriceLabel(p),knownAtText(p,instant)]),[1],
+    points.map((p,i)=>[labels[i],p.value===null?historyPriceLabel(p):amountText(p.value,'price',decimalTick()),knownAtText(p,instant)]));
+}
+// The overlay catalog, read once for the account on screen.
+async function readOverlayCatalog(){
+  const scope=administrationScope+':'+currentProfile;
+  if(overlayCatalog?.scope===scope)return overlayCatalog.catalog;
+  const started=marketGeneration,catalog=await api<OverlayCatalog>('analytics/overlays');
+  if(started!==marketGeneration||scope!==administrationScope+':'+currentProfile)throw staleSelection();
+  if(typeof catalog?.policy!=='string'||!Array.isArray(catalog.overlays))throw Error('The overlay catalog is missing or inconsistent. Refresh and try again.');
+  overlayCatalog={scope,catalog};return catalog;
+}
+// Reads the history of the panel's contract under the revision policy and overlays chosen. Each read, the catalog's included, is kept
+// only for the result, contract, account, close and choices it was made for; one the person closed the panel during is dropped.
+async function history(){
+  if(!result||!contract)return;
+  const owner=result,selected=contract,started=marketGeneration,scope=marketSelection(),policy=historyPolicy,overlays=overlayRequests;
+  const current=()=>result===owner&&contract===selected&&started===marketGeneration&&scope===marketSelection()&&policy===historyPolicy&&overlays===overlayRequests;
+  historyData=undefined;historySeries=[];historyFailed=false;renderHistory();
+  try{
+    const catalog=await readOverlayCatalog();
+    if(!contract)return;if(!current())throw staleSelection();
+    contractPanel.catalog(catalog);
+    const next=await api<ContractHistory>('history',{revisionPolicy:policy,snapshotId:owner.snapshotId,curve:owner.curve,...(owner.kind==='rates'?{seriesId:selected}:{contractId:selected}),...(overlays.length?{overlays}:{})});
+    if(!contract)return;if(!current())throw staleSelection();
+    historyBasis(policy,next,instant);
+    historySeries=answeredOverlays(overlays,next.overlays,catalog,'conflict' in historyChart(next));historyData=next;
+  }catch(error){if(current()){historyFailed=true;renderHistory();}throw error;}
+  renderHistory();
+}
 function renderInputs(){
   if(!result||!result.points.length){text('inputs',result?'No price sources are needed for an empty delivery window.':'Choose a market date to view price sources.');text('input-count','');return;}
   const used=new Set(sourcePoints().flatMap(p=>p.lineage));if([...used].some(id=>!pricingFrame().observationIds.includes(id)))throw Error('A required source observation is missing from this market date.');const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
@@ -409,6 +532,14 @@ function pricingPoints(){
 }
 function sourcePoints(){return sourceOnlyCurve&&result?result.points:pricingPoints();}
 function drawPricingGraph(target:HTMLElement,graph:PricingGraph){renderPricingGraph(target,graph,curveName,unit);}
+// A maturity's discount factor from its zero rate, under the convention the evaluated result states.
+function rateFlow(point:Point){
+  const convention=rateConvention();
+  if(point.annualRate===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
+  const flow=el('div');flow.className='rate-flow';
+  for(const [title,value,detail] of [['Zero rate',`${point.value}%`,'Annual rate'],['Time to maturity',`${point.actualDays} / 365`,convention.dayCount],['Discount factor',point.displayDiscountFactor,convention.compounding]]){const card=el('div');card.className='rate-step';card.append(el('small',title),el('strong',value),el('span',detail));flow.append(card);}
+  return flow;
+}
 function renderDependencies(){
   sourceOnlyCurve=false;select('source-contract').closest<HTMLElement>('.pricing-toolbar')!.hidden=false;
   document.body.classList.toggle('showing-all-contracts',showAllContracts&&!!result);
@@ -420,13 +551,11 @@ function renderDependencies(){
   for(const id of ['source-contract','pricing-contract'])choose(id,options,pricingContract);
   const sources=document.createDocumentFragment(),dependencies=document.createDocumentFragment();
   if(rates){
-    const convention=rateConvention();
+    rateConvention(); // the formula below is drawn only for the convention it states
     if(showAllContracts){for(const container of [sources,dependencies]){const host=el('section');renderWorkbook(host,rateWorkbook(result));container.append(host);}}
     for(const point of points){
       if(point.annualRate===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
-      if(!showAllContracts)for(const container of [sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';section.append(el('h4',displayDate(pointDate(point))));const flow=el('div');flow.className='rate-flow';
-        for(const [title,value,detail] of [['Zero rate',`${point.value}%`,'Annual rate'],['Time to maturity',`${point.actualDays} / 365`,convention.dayCount],['Discount factor',point.displayDiscountFactor,convention.compounding]]){const card=el('div');card.className='rate-step';card.append(el('small',title),el('strong',value),el('span',detail));flow.append(card);}
-        section.append(flow);container.append(section);}
+      if(!showAllContracts)for(const container of [sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';section.append(el('h4',displayDate(pointDate(point))),rateFlow(point));container.append(section);}
     }
     table('mappings',['Maturity','Calculation','Discount factor'],points.map(p=>[displayDate(pointDate(p)),`1 ÷ (1 + ${p.annualRate} × ${p.actualDays} / 365)`,p.discountFactor!]),[2]);
   }else{
@@ -529,7 +658,8 @@ async function refreshLiveScreen(update:LiveContextUpdate){
  if(liveId!==update.live.id||!navigation?.live||!navigation.context)throw Error('The live selection changed.');
  renderFrames(navigation.frames[0]?.id??'');dateEditor.showContext(navigation.context);
  jobs.contextChanged();
- if(page==='market'&&curve){const selectedHistory=contract;await build();if(historyRequested&&selectedHistory){contract=selectedHistory;await history();}}
+ // The open contract panel is read again with the page (D188): its history at the new generation, or closed when the new result has no such contract.
+ if(page==='market'){if(curve){const open=contract;historyData=undefined;historySeries=[];await build();if(open&&contract===open)await history();}await loadBoard();}
  else if(page==='custom-curves')await customCurves.liveRefresh();
  else if(page==='futures')await futures.liveRefresh();
  else if(page==='reference')await loadReference();
@@ -550,11 +680,11 @@ function connectLive(selection:LiveSelection){
  });
  stream.onerror=()=>{if(liveStream===stream)liveUpdates?.disconnected();};
 }
-async function reload(selected:string){await loadNavigation();renderFrames(selected);if(curve)await loadWorkspace();renderContext();}
-function updateFilters(){
+async function reload(selected:string){await loadNavigation();renderFrames(selected);if(curve)await loadWorkspace();renderContext();await loadBoard();}
+async function updateFilters(){
   prefs.browseBy=select('browse-by').value as Preferences['browseBy'];prefs.market=select('commodity').value||null;persist();
   if(curve&&!navigationGroups(directory(),prefs.browseBy,prefs.market,prefs.marketType).some(g=>g.curves.some(c=>c.code===curve))){curve='';invalidateMarketDates();clearPrices();}
-  renderContext();syncControls();
+  renderContext();await loadBoard();syncControls();
 }
 async function openProfile(){
   try{
@@ -576,7 +706,7 @@ async function profileAction(control:HTMLElement,work:()=>Promise<void>){
 }
 $('profile-dialog').addEventListener('close',()=>profileError());
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
-$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(!await mayLeaveForDialog('Your preferences were not saved'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;persist();assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});})();};
+$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(!await mayLeaveForDialog('Your preferences were not saved','keeps'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;persist();assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();futures.refresh();if(page==='futures'&&select('snapshot').value)await futures.load();$<HTMLDialogElement>('profile-dialog').close();});})();};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
   hostedPilot=mode==='hosted-pilot';
@@ -623,25 +753,27 @@ $('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was 
 function closeChanged(){
   shownClose=select('snapshot').value;closeBasis=undefined;
   marketCalendar.selectedChanged();customCurves.snapshotChanged();parties.reset();futures.reset('inputs');clearPrices();
+  // The board and the library show nothing of the previous close while the new one is read.
+  if(navigation)renderBrowse();renderMarketBoard();
 }
 async function loadSelectedClose(){
   if(!select('snapshot').value)return;
-  if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'&&curve)await build();
+  if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}
 }
 // A close the person chooses waits for them to agree to what choosing it gives up. The hidden select that every read and command takes its close from
 // stays on the close the page shows until they do, so that nothing made while the question is open uses a close they have not confirmed, and keeping
 // the amendment has nothing to put back. The calendar chooses through here, and so does anything that stands in for it with a change event.
 function chooseClose(id:string){
   select('snapshot').value=shownClose;
-  leaving(async()=>{select('snapshot').value=id;closeChanged();await loadSelectedClose();});
+  leaving(async()=>{select('snapshot').value=id;closeChanged();await loadSelectedClose();},'closes');
 }
 $('snapshot').onchange=()=>chooseClose(select('snapshot').value);
 $('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await initializeContext();await build();});
-$('browse-by').onchange=()=>void act(async()=>updateFilters());$('commodity').onchange=()=>void act(async()=>updateFilters());
-document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];updateFilters();}));
+$('browse-by').onchange=()=>void act(updateFilters);$('commodity').onchange=()=>void act(updateFilters);
+document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];await updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
-function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();clearReference();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();text('environment-context-note','Context changed · choose View this context to apply it.');}
+function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();clearReference();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=>administrationScope+':'+currentProfile,profileChoices);
 // A person's own agent grants, in the profile dialog (docs/ai-assistant.md §7.1).
@@ -649,14 +781,14 @@ const agentGrants=setupAgentGrants({api,act,busy:()=>busy,zone:()=>prefs.timeZon
 $('profile-dialog').addEventListener('close',agentGrants.hide);
 // Settings › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
-const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:()=>page==='futures'&&futures.editing(),mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}));
+const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:holdsEdits,mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}));
 $('date-context').addEventListener('input',dirtyContext);
 // Opening the time controls is how a person starts to change the context the Blotter is read in, which clears it as the first change is made:
 // so it asks first, as every other way out of an amendment does, and the controls stay closed when the person keeps the amendment, or while
 // the page is busy, which cannot be asked. Controls that are open already ask before each change of theirs (the date editor's guard).
 $<HTMLElement>('date-context').querySelector('summary')!.addEventListener('click',event=>{
   const controls=$<HTMLDetailsElement>('date-context');
-  if(controls.open||page!=='futures'||!futures.editing())return;
+  if(controls.open||!holdsEdits())return;
   event.preventDefault();
   if(busy)return;
   void mayLeave().then(agreed=>{if(agreed)controls.open=true;});
@@ -693,15 +825,18 @@ $('follow-live').onclick=()=>leaving(async()=>{
  const selected=await api<LiveContextUpdate>('market/live',{snapshotId:frame().id,policy:'selected_facts_latest_committed_corrections_v1'});
  if(navigation){navigation.context=selected.context;navigation.live=selected.live;}
  contextDirty=false;connectLive(selected.live);lastLiveUpdate=selected;liveUpdates?.offer({...selected,generation:selected.live.generation});
-});
+},'keeps');
 $('live-retry').onclick=()=>{if(liveStream?.readyState===EventSource.CLOSED&&navigation?.live){liveStream=undefined;connectLive(navigation.live);}else if(lastLiveUpdate)liveUpdates?.offer({...lastLiveUpdate,generation:lastLiveUpdate.live.generation},true);};
-const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScopeChanged:invalidateMarketDates,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
+// The side panels of Curves & prices and Custom curves dock beside the page when the main area has the room and the assistant is closed.
+const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
+const panelDocked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
+const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScopeChanged:invalidateMarketDates,unsavedChanged:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},docked:panelDocked,sheet:()=>phone.matches&&!$('custom-curves-page').hidden,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
 // The hidden select remains the shared exact-frame adapter consumed by the
 // existing pricing, trading and knowledge-context widgets. The calendar is its UI.
 const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  zone:()=>prefs.timeZone,busy:()=>busy,enabled:()=>!!navigation&&can('ReadMarketData')&&!contextDirty,
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
- open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose),select:chooseClose
+ open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose,'closes'),select:chooseClose
 });
 const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
@@ -717,6 +852,16 @@ const unitConverter=setupUnitConverter({api,act,busy:()=>busy});
 // The knowledge the Blotter is read at: working data at current knowledge, the selected historical view, or live corrections.
 const knowledgeView=()=>navigation?.live?'live' as const:historicalContext()?'historical' as const:'working' as const;
 const futures=setupFutures({newPpa:async()=>{await setPage('ppa');await ppa.load();$('page-title').tabIndex=-1;$('page-title').focus();},api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+// The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
+// otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, or else to what opened it.
+const contractPanel=setupContractPanel($('contract-panel'),{
+  docked:panelDocked,sheet:()=>phone.matches&&!$('market-page').hidden,
+  closed:()=>{const row=openRow();forgetContract();markOpenRow();(row??(contractOpener?.isConnected?contractOpener:undefined))?.focus();contractOpener=undefined;},
+  policy:policy=>void act(async()=>{historyPolicy=policy;await history();}),
+  overlays:requests=>void act(async()=>{overlayRequests=requests;await history();})});
+let mainWidth=main.clientWidth;
+new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;contractPanel.place();customCurves.place();}}).observe(main);
+new MutationObserver(()=>{contractPanel.place();customCurves.place();}).observe(document.body,{attributes:true,attributeFilter:['class']});
 const touProducts=setupTouProducts(act,api,()=>busy,()=>prefs.timeZone,async()=>{power.reset();if(select('snapshot').value)await power.load();});
 $('reference-table').onchange=()=>void act(async()=>{$<HTMLInputElement>('reference-search').value='';await loadReference();});
 $('reference-search-form').onsubmit=event=>{event.preventDefault();void act(()=>loadReference(0,$<HTMLInputElement>('reference-search').value));};
@@ -724,12 +869,12 @@ $('reference-previous').onclick=()=>void act(()=>loadReference(Math.max(0,refere
 $('reference-next').onclick=()=>void act(()=>loadReference(referencePage!.offset+referencePage!.pageSize,referencePage!.search));
 for(const id of ['source-contract','pricing-contract'])select(id).onchange=()=>void act(async()=>{pricingContract=select(id).value;input='';draftFor='';renderDependencies();renderInputs();});
 for(const id of ['source-all','pricing-all'])$(id).onclick=()=>void act(async()=>{showAllContracts=!showAllContracts;renderDependencies();renderInputs();});
-$('history-close').onclick=()=>{historyRequested=false;clearChart($('history-chart'));$('history-card').hidden=true;historyData=undefined;contract='';};
+$('curve-all-markets').onclick=()=>chooseCurve('');
 $('correction-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const current=frame(),next=await api<{frame:Frame;observationId:string}>('corrections',{snapshotId:current.id,observationId:input,value:$<HTMLInputElement>('correction-value').value});closeCheckDue=true;clearPrices();await reload(next.frame.id);input=next.observationId;await build();notice('Your change was saved. The market date now shows the corrected prices. Earlier versions are still available.');});};
 // Opens a page as its navigation does. The assistant's moves and Back open pages the same way.
 async function showPage(next:string){
   switch(next){
-    case 'market':await setPage('market');return;
+    case 'market':await setPage('market');await loadBoard();return;
     case 'custom-curves':await setPage('custom-curves');await customCurves.load();return;
     case 'delivery':await setPage('delivery');await deliveryPrices.load();return;
     case 'interval-series':await setPage('interval-series');await intervalSeries.load();return;
@@ -812,11 +957,9 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       const code=String(selection.curve);
       if(selection.view!=='curves'&&!directory().curves.some(c=>c.code===code))throw Error('That curve is not in this market data.');
       await setPage('market');
-      if(selection.view==='curves'){curve='';invalidateMarketDates();clearPrices();renderContext();return;}
+      if(selection.view==='curves')return selectCurve('');
       prefs.tab=selection.view==='observations'?'inputs':prefs.tab==='inputs'?'prices':prefs.tab;persist();
-      curve=code;invalidateMarketDates();clearPrices();
-      if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}
-      return;
+      return selectCurve(code);
     }
     case 'reference_data':{
       const table=String(selection.table),search=String(selection.search);await loadWorkspace();
@@ -840,7 +983,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
     default:return showPage(next);
   }
 }
-// Opens Curves & prices on a curve, and the price history of one of its contracts when a contract is named. A contract the close
+// Opens Curves & prices on a curve, and one of its contracts in the panel when a contract is named. A contract the close
 // does not price leaves only the curve, and says so.
 async function openCurve(code:string,contractId:string|null){
   await showTarget('curves',{view:'prices',curve:code});
@@ -848,7 +991,7 @@ async function openCurve(code:string,contractId:string|null){
   if(!result){notice("Choose a market date to see this contract's price history.");return;}
   const point=result.points.find(p=>(p.seriesId??p.contractId)===contractId);
   if(!point){notice('That contract has no price at this close, so its price history is not shown.');return;}
-  contract=pointIdentity(point);await history();
+  await openContract(pointIdentity(point));
 }
 // Selects knowledge and an As of frame, as a target pins them or a place showed them, before a page opens there. Working data's time
 // controls then show the frame's effective date at current knowledge, as returning to working data leaves them (D217).
@@ -889,12 +1032,12 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,api,roo
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A reload, closing the tab and going back leave the page without the panel's own question, so the browser asks while the panel holds an
-// amendment with edits: the listener is on while it does, and off once the edits are saved or given up. A session that has ended cannot
+// amendment with edits, or a custom curve holds unsaved ones: the listener is on while it does, and off once the edits are saved or given up. A session that has ended cannot
 // send what the form holds, and is not asked about.
 const askBeforeUnload=(event:BeforeUnloadEvent)=>{if(sessionEnded)return;event.preventDefault();event.returnValue='';};
 let askingBeforeUnload=false;
 function syncUnloadQuestion(){
-  const holds=futures.editing();
+  const holds=futures.editing()||customCurves.editing();
   if(holds===askingBeforeUnload)return;
   askingBeforeUnload=holds;
   if(holds)window.addEventListener('beforeunload',askBeforeUnload);else window.removeEventListener('beforeunload',askBeforeUnload);
@@ -906,7 +1049,7 @@ const chooser=select('example-dataset');chooser.replaceChildren(...examples.map(
   const selected=examples.find(e=>e.id===chooser.value);
   if(!selected)return;
   // Another example is another page load, which gives up what the panel holds unless the person keeps it: the select then shows the example the page is.
-  if(page==='futures'&&futures.editing()&&(busy||!await mayLeave())){chooser.value=exampleId;return;}
+  if(holdsEdits()&&(busy||!await mayLeave())){chooser.value=exampleId;return;}
   location.assign(selected.url);
 })();
 csrf=boot.csrfToken;administrationScope=[boot.runId,boot.tenantId,boot.workspaceId].join(':');setHostMode(boot.mode);
