@@ -243,6 +243,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D237 | History reads resolve versions under an explicit revision policy | Decided by the owner (2026-10-26). Refines D172 for history reads only; valuation, snapshots and recorded closes keep exact pins. A history request must name `exact_snapshot_pins_v1` (each frame's exact pins, as before) or `as_known_at_cutoff_v1`; a missing or unknown policy is a `history_revision_policy` refusal, never a default. The cutoff policy follows each pin's correction chain, with the certified-context resolver, to the latest revision recorded at or before the read's bitemporal knowledge cutoff: the selected context's own instant, which the response echoes as `knowledgeCutoff` (`knowledgeBasis` `selected_context`), or current knowledge for working data (`knowledgeCutoff` null, `knowledgeBasis` `current_knowledge`). A revision recorded after the cutoff is invisible, and a request body never supplies a different cutoff. Samples at one instant that are then identical collapse to one (D238); different ones are a `history_conflict` refusal naming the instant. Each point carries its observation identities and `knownAt`, the latest certified publication instant among them (null while uncertified). Superseded versions stay reachable in Price sources |
 | D238 | Every write is idempotent; a changed value is a new revision with its own knowledge time | Decided by the owner (2026-10-26). Recording an existing fact (same business key, value and effective time) returns the existing record instead of adding a row, for imports, scrapes, collection jobs, closes and retried commands; retried commands carry a request id and receive their first outcome. A different value for the same business key is a new revision, never an overwrite, and reads resolve revisions by knowledge time under an explicit policy, never by row or insertion order. Recorded in AGENTS.md so every database operation follows it |
 | D245 | Each agent version sets its time per read | Decided by the owner (2026-10-27). Replaces `ToolRead` (D184) with `readSeconds`, 1 to 30 seconds and not above the time per turn (migration 0120); a read past it ends the turn `limit_tool_read`, enforced by the API and by the database |
+| D246 | The Blotter lists a PPA booked under other reference or definition versions than the selected close as not valued; whole-book consumers still refuse | Decided by the owner (2026-10-27). Refines D220 for the Blotter only. Trading workspace, Blotter and pivot reads list each PPA trade with a binding booked under other definition or reference versions than the selected market data, with `unavailableReason` `other_definition_versions`, null value fields and its booked facts stated under its own versions; valuation totals leave it out and count it in `unvaluedPositions`. Close risk, portfolio risk and generated pilot closes still refuse the whole scope with `pilot_close_inputs`. Response values only; no schema or permission change |
 
 ## Proposed implementation choices
 
@@ -891,3 +892,41 @@ overlapping reads in any workspace could keep it held long enough to starve such
 change; a longer time per read makes that more likely. This has not been measured.
 Faster reads, and reads that do not hold the epoch row throughout, remain separate
 work.
+
+## D246 — Other-version PPAs in the Blotter
+
+A PPA trade is booked under exact definition and reference versions, which every
+binding of its revision names. Market data selected at a close uses one pair of
+versions. Since PPAs joined the Blotter, a book holding one PPA booked under other
+versions refused the whole read with `pilot_close_inputs`. On the hosted pilot,
+eleven synthetic PPAs installed with their own reference catalog made every Blotter
+read that included their book fail.
+
+The Blotter is a report, so it follows D220 instead. A PPA trade any of whose
+bindings names other versions than the selected market data is listed whole, so no
+total holds part of a trade. Each of its positions has `unavailableReason`
+`other_definition_versions`, shown as **Not valued** with "Booked under other
+reference data versions". Its present value, complete PV and overdue balances are
+null, never zero. Its booked facts are those it was booked with: trade, binding,
+revision, book, parties, delivery, coverage and contract MW, with its quantity
+specification and currency named under its own reference revision and its own
+definition revision. They are never translated into the selected versions, so a pivot
+keeps them in their own groups. No curves are read for such a PPA, so each is its own
+market, `ppa_instrument:<instrument id>`, labelled "PPA · " and its instrument
+reference. A reference catalog the reader cannot access refuses the read with
+`access_denied`, as before. A booked reference revision the close's context does not
+see, because it is not in force at the close's date or not yet known by its cutoff,
+refuses the read with `pilot_close_inputs` and the reason
+`reference_not_visible_at_close`, naming the trade's bindings, once access has been
+checked again; no check covers that case yet. PPAs booked under the selected versions are valued as before, in the same
+read.
+Valuation totals leave the listed trades out and count them in `unvaluedPositions`;
+trade counts and quantities count them as booked facts.
+
+Whole-book consumers keep their contract. Close risk, a portfolio risk run and a
+generated pilot close still refuse a scope holding such a PPA with
+`pilot_close_inputs` and the affected bindings, so the Blotter's Risk report over that
+scope is refused. Leaving such PPAs out of risk runs, as D220 does for futures and
+swaps, is not implemented. Valuing a PPA under its own versions beside positions
+valued under others is not implemented either.
+

@@ -438,6 +438,33 @@ test('PPA and heat-rate rows retain their instrument and valuation measure',()=>
  assert.deepEqual([h.pill,h.measure,h.quantityNote],['HEAT','PV','By period']);
 });
 
+test('a PPA the close cannot value is listed as not valued, with its reason, and no value',()=>{
+ const ppa={...fixture.holdings[0],instrumentType:'ppa',contractIdentityKind:'ppa_instrument',direction:'multi_side',quantity:'80',unit:'MW',fixedPrice:null,mark:null,
+  presentValue:null,measure:'ppa_value_excluding_overdue',completePv:null,overdueKnown:null,overdueEstimated:null,unavailableReason:'other_definition_versions'};
+ const [p]=positionRows([ppa]);
+ assert.deepEqual([p.value,p.unavailable,p.markNote],[null,'Booked under other reference data versions',null]);
+ assert.throws(()=>positionRows([{...ppa,presentValue:'1'}]),{message:'The Blotter returned a value for a position it cannot value.'});
+});
+
+test('PPAs the close cannot value are each their own market, so two that differ in currency neither share a header nor a chart point',()=>{
+ const message='The trading workspace returned an inconsistent desk summary. Refresh and try again.';
+ const revision='60000000-0000-0000-0000-000000000009',own={catalogId:'10000000-0000-0000-0000-000000000009',revisionId:'20000000-0000-0000-0000-000000000009'};
+ const ppa=(n,currency)=>({...fixture.holdings[0],tradeId:`p${n}`,bindingId:`pb${n}`,instrumentId:`i${n}`,tradeReference:`TR-90000${n}`,instrumentReference:`IN-90000${n}`,
+  instrumentType:'ppa',contractIdentityKind:'ppa_instrument',direction:'multi_side',curve:'',marketKey:`ppa_instrument:i${n}`,marketLabel:`PPA · IN-90000${n}`,projectionCurves:[],
+  definitionRevisionId:revision,quantity:'10',unit:'MW',quantitySpecification:{revision:own,code:'capacity'},currencyReference:{revision:own,code:currency},currency:currency.toUpperCase(),
+  fixedPrice:null,mark:null,markMinusPrice:null,executionPnl:null,presentValue:null,measure:'ppa_value_excluding_overdue',completePv:null,overdueKnown:null,overdueEstimated:null,
+  unavailableReason:'other_definition_versions'});
+ const held=[ppa(1,'usd'),ppa(2,'eur')];
+ const group=h=>({commodity:h.commodity,market:h.marketKey,marketLabel:h.marketLabel,definitionRevisionId:revision,instrumentType:'ppa',unit:'MW',currency:h.currency,
+  quantitySpecification:h.quantitySpecification,currencyReference:h.currencyReference,presentValue:null,executionPnl:null,quantity:'10',tradeCount:1,unvaluedPositions:1});
+ const summaries=key=>changed(fixture.summaries,3,()=>held.map(h=>({...group(h),market:key(h)})));
+ assert.deepEqual(deskGroups('market',summaries(h=>h.marketKey),held).headers.map(h=>h.label),['PPA · IN-900001','PPA · IN-900002']);
+ assert.doesNotThrow(()=>positionChartPanels(summaries(h=>h.marketKey),held,new Map(),format));
+ // Before D246's market keys, both shared the key of an empty curve list, and the desk refused to show them.
+ const shared=held.map(h=>({...h,marketKey:'[]',marketLabel:'PPA · independent schedules'}));
+ assert.throws(()=>deskGroups('market',summaries(()=>'[]'),shared),{message});
+});
+
 test('cross-commodity and PPA position charts keep multi-side directions explicit',()=>{
  for(const type of ['heat_rate','ppa']){
   const summaries=clone(fixture.summaries),holdings=clone(fixture.holdings);

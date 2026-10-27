@@ -19,7 +19,7 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
   executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|null;unavailableReason:ValuationReason|null;
   /** A swap's instrument kind: a scheduled one (D214) holds its quantities and prices by period. Futures state none. */
   contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument'|'ppa_instrument';
-  measure?:string;completePv?:string|null;overdueKnown?:string;overdueEstimated?:string;pendingActuals?:string;coverage?:{from:string;to:string};
+  measure?:string;completePv?:string|null;overdueKnown?:string|null;overdueEstimated?:string|null;pendingActuals?:string;coverage?:{from:string;to:string};
   /** For a scheduled swap whose periods project from several curves: the markets together, as the backend keys and names them. */
   marketKey?:string|null;marketLabel?:string|null;projectionCurves?:string[]|null};
 export type Summary={view:{groupBy:string[];measures:string[];pivotConvention:string|null};groups:PivotGroup[]};

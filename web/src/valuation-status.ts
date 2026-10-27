@@ -1,19 +1,21 @@
 // Plain words for the positions a close cannot value (D220). The backend decides which positions
 // those are and why; a status it has not defined is refused rather than shown as a value.
-export type ValuationReason='source_expired'|'missing_observation';
+export type ValuationReason='source_expired'|'missing_observation'|'other_definition_versions';
 // An expired source is a future's own contract, awaiting settlement, but for a swap an input of the
-// composite or custom curve it is projected from.
-const reasons:Readonly<Record<string,Readonly<Record<ValuationReason,string>>>>={
+// composite or custom curve it is projected from. A PPA booked under other reference or definition
+// versions than the close is not valued at it (D246).
+const reasons:Readonly<Record<string,Readonly<Partial<Record<ValuationReason,string>>>>>={
   future:{source_expired:'Contract expired · awaiting settlement',missing_observation:'Missing price at this close'},
   financial_swap:{source_expired:'Past marking cutoff',missing_observation:'Missing price at this close'},
   heat_rate:{source_expired:'Past marking cutoff',missing_observation:'Missing price at this close'},
+  ppa:{other_definition_versions:'Booked under other reference data versions'},
 };
 
 export function valuationReason(code:ValuationReason,instrumentType:string):string{
   if(typeof instrumentType!=='string'||!Object.hasOwn(reasons,instrumentType))throw Error('The Blotter returned an unknown instrument type.');
   const words=reasons[instrumentType];
   if(typeof code!=='string'||!Object.hasOwn(words,code))throw Error('The Blotter returned an unknown valuation status.');
-  return words[code];
+  return words[code]!;
 }
 
 // The backend's count of positions a total leaves out; anything but a whole number of positions is refused.
