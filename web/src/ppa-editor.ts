@@ -1,6 +1,6 @@
 import {latestFrame} from './context-defaults.js';
 import {componentEditor,choices,code,selectChoices} from './ppa-components.js';
-import {ReviewedPpaCommand,exactText,measureRows,inspectionRows,quantityLabel,refusalText,type Measures,type InspectionRow} from './ppa-view.js';
+import {ReviewedPpaCommand,exactText,labelText,measureRows,inspectionRows,quantityLabel,refusalText,type Measures,type InspectionRow} from './ppa-view.js';
 import type {Catalog,Frame,Terms,Quantity,Template,MemberTemplate,Editor,Preview,Head,Binding} from './ppa-contract.js';
 import {displayInstant,friendly} from './market-view.js';
 import {renderPricing,type PricingResult} from './ppa-pricing.js';
@@ -38,7 +38,7 @@ export function setupPpa(options:Options){
  <h3>Read-only native detail</h3><p>Value this trade, then select one month, binding and side per page. Gross rows retain server quantities, prices and provenance; these rows are not a complete-trade total.</p><div class="schedule-fields"><label>Binding<select id="ppa-detail-binding"></select></label><label>Side<select id="ppa-detail-side"></select></label><label>Detail month<input id="ppa-detail-month" type="month"></label></div><button id="ppa-detail-show" type="button">Inspect selected month</button><p id="ppa-detail-note"></p><div id="ppa-detail" class="table-wrap"></div><div class="schedule-actions"><button id="ppa-detail-prev" type="button">Previous intervals</button><button id="ppa-detail-next" type="button">Next intervals</button></div><details><summary>Exact selected rows, units and provenance</summary><pre id="ppa-detail-evidence" class="ppa-evidence"></pre></details></section>`;
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>root.querySelector<T>('#'+id)!;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
- const value=(id:string)=>{const v=field(id).value;if(!v)throw Error(`Choose ${get(id).closest('label')?.textContent?.trim()??id}.`);return v;};
+ const value=(id:string)=>{const v=field(id).value;if(!v){const label=get(id).closest('label');throw Error(`Choose ${label?labelText(label):id}.`);}return v;};
  const selected=(id:string)=>[...get<HTMLSelectElement>(id).selectedOptions].map(o=>o.value).filter(Boolean);
  const choose=(id:string,rows:{value:string;label:string}[],v='')=>selectChoices(get<HTMLSelectElement>(id),rows,v);
  const enums=(id:string,rows:string[])=>choose(id,rows.map(value=>({value,label:friendly(value)})),field(id).value);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {exactText,measureRows,inspectionRows,refusalText,ReviewedPpaCommand,componentQuantity,quantityLabel} from '../dist/ppa-view.js';
+import {exactText,measureRows,inspectionRows,refusalText,ReviewedPpaCommand,componentQuantity,quantityLabel,labelText} from '../dist/ppa-view.js';
 const q=(numerator,denominator='1')=>({numerator,denominator});
 test('PPA measures preserve exact fractions and unavailable PV beside holdings and overdue amounts',()=>{
  const rows=measureRows({valueExcludingOverdue:q('100'),completePv:null,unavailableReason:'due_cash_policy_required',overdueKnownBalance:q('-860'),overdueEstimated:q('1','3')});
@@ -43,4 +43,11 @@ test('inspection resolves physical unit labels only within the exact reference r
  assert.equal(quantityLabel({revision:{catalogId:'c',revisionId:'r'},code:'energy'},catalog),'MWh [energy]');
  assert.throws(()=>quantityLabel({revision:{catalogId:'c',revisionId:'other'},code:'energy'},catalog),/revision/);
  assert.throws(()=>quantityLabel({revision:{catalogId:'c',revisionId:'r'},code:'missing'},catalog),/unit/);
+});
+test('a field is named by its label\'s own words, never by the choices of the control inside it',()=>{
+ const text=t=>({nodeName:'#text',textContent:t}),node=(nodeName,...childNodes)=>({nodeName,childNodes,textContent:childNodes.map(c=>c.textContent).join('')});
+ const pending=node('LABEL',text('Pending delivered actuals'),node('SELECT',node('OPTION',text('Choose…')),node('OPTION',text('Require Actuals V1'))));
+ assert.equal(labelText(pending),'Pending delivered actuals');
+ assert.equal(labelText(node('LABEL',text('Termination boundary · '),node('SPAN',text('America/Chicago')),node('INPUT'))),'Termination boundary · America/Chicago','words in the label beside the control are kept');
+ assert.equal(labelText(node('LABEL',text('  Memo  '),node('TEXTAREA',text('draft')))),'Memo');
 });

@@ -83,7 +83,7 @@ test('every part of a run states which positions it leaves out, and every part l
  assert.throws(()=>runExclusions([report([]),report([],[])]),{message:'The parts of this run leave out different positions, so its results are not shown. Run it again.'});
 });
 
-test('the change chart draws a bar for each position one shock moves, signed, and names those several shocks move and those none moves',()=>{
+test('the change chart draws a bar for each position one shock moves, signed, counts those several shocks move and names those none moves',()=>{
  const cells=lensCells([report([
   factor('jan',gas,'0.05',[holding(1,values('25','-25')),holding(2,values('-4','4')),holding(3,values('0','0')),holding(4,values('-32','32'))]),
   factor('feb',gas,'0.05',[holding(1,values('0','0')),holding(2,values('-1','1')),holding(3,values('0','0')),holding(4,values('0','0'))]),
@@ -98,8 +98,17 @@ test('the change chart draws a bar for each position one shock moves, signed, an
  assert.equal(panel.unit,'USD');assert.equal(panel.orientation,'horizontal');assert.equal(panel.colorBySign,true);
  assert.deepEqual(panel.series[0].points.map(p=>[p.label,p.y]),[['TR-000001 · Market 1','25'],['TR-000004 · Market 4','-32']],'largest gain first, and a loss to the left');
  assert.deepEqual(panel.series[0].points.map(p=>p.text),['+#0:25','−#3:32'],'each bar states its signed change in its own position\'s format');
- assert.equal(panel.subtitle,'Not drawn: TR-000002 · 2 shocks');
+ assert.equal(panel.subtitle,'Not drawn: 1 position several shocks move · its changes are in its Risk tab');
  assert.deepEqual(unmoved,['TR-000003']);
+});
+
+test('a panel counts the positions several shocks move instead of naming each, so a large book does not bury the chart',()=>{
+ const many=[1,2,3,4,5,6,7,8,9];
+ const cells=lensCells([report(['jan','feb'].map(id=>factor(id,gas,'0.05',many.map(n=>holding(n,values('1','-1'))))))]);
+ const rows=many.map(n=>({key:key(n),reference:`TR-00000${n}`,market:`Market ${n}`,commodity:'test_gas'}));
+ const {panels}=changeChart(rows,cells,new Map(),(index,value)=>value);
+ assert.equal(panels[0].subtitle,'Not drawn: 9 positions several shocks move · their changes are in each one\'s Risk tab');
+ assert.equal(panels[0].series[0].points.length,0);
 });
 
 test('the change bars of the lens share one scale per currency, the largest magnitude the lens draws, chosen exactly',()=>{
