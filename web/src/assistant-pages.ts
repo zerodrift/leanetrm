@@ -44,12 +44,12 @@ export function pageReport(state:PageState):PageReport{
     case 'schedules':return {page:'schedules',selection:{view:'library'}};
     case 'reference':return {page:'reference_data',selection:{table:state.table,search:state.search}};
     case 'parties':return {page:'parties',selection:{kind:state.kind}};
-    // The page's own directory also lists jobs others own for a job manager, which the assistant does not read, so the list it
-    // reports is always the first page of the person's own jobs.
     // An inspected PPA is the Blotter's trade view of it; a listed book is its PPA trades. Before either there is no
     // book to report, which Looking at says, and nothing is asked from.
     case 'ppa':return {page:'ppa',selection:state.trade?{view:'trade',...noBlotter,bookIds:null,tradeId:state.trade.tradeId,instrumentType:'ppa',revision:state.trade.revision}
       :{view:'ppa_book',...noBlotter,bookIds:state.book?[state.book]:[],tradeId:null,instrumentType:null,revision:null}};
+    // The page's own directory also lists jobs others own for a job manager, which the assistant does not read, so the list it
+    // reports is always the first page of the person's own jobs.
     case 'jobs':return {page:'jobs',selection:state.job?{view:'history',job:state.job,page:null,before:null}:{view:'jobs',job:null,page:0,before:null}};
     case 'futures':{
       if(state.risk)return {page:'blotter_risk',selection:{}};

@@ -194,6 +194,7 @@ static class AgentToolChecks
             Require(PageReports.Dispatch(Json(report)) is {Page:"ppa",Call:{} dispatched}&&dispatched.Operation.Id==operation,$"{report} dispatches {operation}");
         }
         foreach(var report in new[]{Report("ppa",Blotter),Report("ppa","{}"),Report("blotter",PpaBook),
+            Report("ppa",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"ppa","revision":null}"""),
             Report("ppa",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":2}""")})
             Require(Code(()=>PageReports.Require(Json(report)))=="page_report_invalid",$"ask refuses the page report {report}");
         Require(PageReports.Supported.Contains("ppa")&&!PageReports.NotSupported.Contains("ppa")&&!PageReports.Navigable.Contains("ppa")
@@ -209,14 +210,24 @@ static class AgentToolChecks
             JsonNode.Parse($$"""{"instrumentType":"ppa","state":{"tradeId":"{{Trade}}","tradeReference":"TR-000009","revision":2},"history":[]}""")!.AsObject(),1);
         Require(editor.Single().Target is {Page:"blotter",Kind:"record"},"an inspected PPA's target opens it in the Blotter, which reads the same trade");
 
-        var heads=$$"""[{{string.Join(",",Enumerable.Range(0,2).Select(n=>$$"""{"trade_id":"{{Trade}}","revision":{{n+1}},"catalog_id":"{{Catalog}}"}"""))}}]""";
+        var (other,binding)=(Guid.NewGuid(),Guid.NewGuid());
+        JsonElement Head(int revision,string kind,Guid reference)=>JsonSerializer.SerializeToElement(new{catalog_id=Catalog,trade_id=Trade,revision,event_kind=kind,
+            book_id=Book,definition_revision_id=Guid.Empty,reference_catalog_id=reference,reference_revision_id=Guid.Empty,actor_id=Guid.NewGuid(),
+            reason="Synthetic reason",memo="Synthetic memo",request=new{terms="synthetic"}});
         var directory=new{scope=new{product="ppa"},snapshotId=Working.Id,knowledgeContext=Guid.NewGuid(),knownAt=Cutoff,total=2,offset=0,limit=64,
-            heads=JsonSerializer.Deserialize<JsonElement>(heads),bindings=new[]{new{trade_id=Trade,binding_id=Guid.NewGuid(),quantity="10"}}};
+            heads=new[]{Head(2,"amended",Manifest.ReferenceCatalogId),Head(1,"booked",other)},
+            bindings=new[]{new{trade_id=Trade,binding_id=binding,quantity="10"},new{trade_id=Trade,binding_id=Guid.NewGuid(),quantity="5"}}};
         var read=ToolResults.PpaBook(directory);
-        Require(read.Value.Select(m=>m.Key).SequenceEqual(["knownAt","total","heads","bindings"])&&read.Rows==3&&!read.Displayed
+        var listedTrade=read.Value["trades"]![0]!.AsObject();
+        Require(read.Value.Select(m=>m.Key).SequenceEqual(["knownAt","trades"])&&read.Rows==2&&!read.Displayed
+            &&listedTrade.Select(m=>m.Key).SequenceEqual(["tradeId","revision","event","definitionRevisionId","referenceRevisionId","bindings"])
+            &&listedTrade["event"]!.GetValue<string>()=="amended"&&listedTrade["bindings"]!.GetValue<int>()==2
+            &&read.Access.SequenceEqual(new[]{Manifest.ReferenceCatalogId,other}.Order().Select(c=>new ReadAccess("reference_access",c,"ReadMarketData")))
+            &&!read.Value.ToJsonString().Contains("Synthetic memo")&&!read.Value.ToJsonString().Contains("synthetic\"")
             &&Code(()=>ToolResults.PpaBook(directory with{total=65}))=="result_too_large",
-            "a PPA book returns every PPA trade the book holds at the pin and their bindings, without the frame and context the envelope names; "+
-            "a book with more trades than one directory read holds is result_too_large, never a partial list");
+            "a PPA book lists each trade as the page does, its revision, event, exact versions and number of bindings, never its booking request, "+
+            "actor, reason or memo; its step records every reference catalog the read checked; and a book with more trades than one directory read "+
+            "holds is result_too_large, never a partial list");
         Console.WriteLine("PASS agent PPA bookings: the inspected trade and one book's list, read under the Blotter's accesses, and no navigation target");
     }
 

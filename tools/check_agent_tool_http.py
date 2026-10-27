@@ -975,9 +975,10 @@ def check_ppa_reads(check, query, fake, trader, agent, grant, ask, settled, step
           'with its own target, and captures no context beyond the one its ask captured',
           turn['state'] == 'completed' and listed['operation'] == 'trades.ppa_book_v1' and listed['target'] == 'n1'
           and (listed['context']['knowledge'], listed['context']['contextId'], listed['context']['cutoff']) == ('working_data', turn['context']['contextId'], turn['context']['cutoff'])
-          and set(listed['result']) == {'knownAt', 'total', 'heads', 'bindings'} and listed['result']['total'] == len(listed['result']['heads'])
+          and set(listed['result']) == {'knownAt', 'trades'} and at(listed['result']['knownAt']) == at(turn['context']['cutoff'])
           and int(query('SELECT count(*) FROM market_data.temporal_contexts;')) == int(captures) + 1
-          and query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE id='{turn['context']['contextId']}';") == '1', (turn, listed))
+          and query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE id='{turn['context']['contextId']}';") == '1'
+          and at(query('SELECT max(certified_through) FROM market_data.knowledge_clocks;')) <= at(turn['context']['recordedAt']), (turn, listed))
     check('a PPA book reads exactly one book, under the Blotter\'s trading, market and reference access, and Navigate opens neither PPA '
           'bookings nor a target a PPA read issued',
           [(s['tool'], s['operation'], s['code']) for s in recorded] == [('read_current_page', 'trades.ppa_book_v1', None), ('read_trades', None, 'tool_arguments_invalid'),
@@ -988,8 +989,9 @@ def check_ppa_reads(check, query, fake, trader, agent, grant, ask, settled, step
     fake.respond(stream(tool_use(model_name, [('toolu_ppa_5', 'read_current_page', {})])), stream(recording(model_name, text='Unavailable.')))
     inspected = {'view': 'trade', **NO_BLOTTER, 'tradeId': str(uuid4()), 'instrumentType': 'ppa', 'revision': 1}
     missing, _ = settled(ask(agent_state=ppa_agent, report={'page': 'ppa', 'selection': inspected})['turn'])
-    check('an inspected PPA is read as the Blotter\'s trade view of it, and one the pinned knowledge does not hold is page_selection_unavailable',
-          [(s['operation'], s['code'], s['access'] == trades) for s in steps(missing)] == [('trades.trade_v1', 'page_selection_unavailable', True)], steps(missing))
+    check('an inspected PPA is read as the Blotter\'s trade view of it under its accesses, and one the pinned knowledge does not show is '
+          'refused access_denied, as the database refuses a PPA it does not show',
+          [(s['operation'], s['code'], s['access'] == trades) for s in steps(missing)] == [('trades.trade_v1', 'access_denied', True)], steps(missing))
     unlisted = ask(agent_state=ppa_agent, report={'page': 'ppa', 'selection': ppa_book([])}, expected=422)
     check('ask refuses PPA bookings before it lists a book page_report_invalid', unlisted['code'] == 'page_report_invalid', unlisted)
 

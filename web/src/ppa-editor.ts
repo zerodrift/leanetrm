@@ -166,7 +166,7 @@ export function setupPpa(options:Options){
   get<HTMLButtonElement>('ppa-detail-prev').disabled=busy||detailOffset===0;get<HTMLButtonElement>('ppa-detail-next').disabled=busy||!detailMore;get<HTMLButtonElement>('ppa-retry').disabled=busy||!pending;get<HTMLButtonElement>('ppa-status').disabled=busy||!pending;
   get<HTMLButtonElement>('ppa-value-trade').disabled=busy||!detail;get<HTMLButtonElement>('ppa-detail-show').disabled=busy||!inspected;get<HTMLButtonElement>('ppa-list').disabled=busy||!catalog;get<HTMLButtonElement>('ppa-book-value').disabled=busy||!catalog;pendingView();
  }
- field('ppa-pending-actuals').onchange=()=>{invalidate();get('ppa-blotter').replaceChildren();};
+ field('ppa-pending-actuals').onchange=()=>{invalidate();listed=undefined;get('ppa-blotter').replaceChildren();};
  field('ppa-book-filter').onchange=()=>{invalidate();listed=undefined;get('ppa-blotter').replaceChildren();get('ppa-directory-note').textContent='';directoryTotal=0;};
  field('ppa-frame').onchange=()=>act(()=>loadCatalog());get('ppa-latest').onclick=()=>act(async()=>{const c=await options.api<Catalog>('ppa/catalog',{snapshotId:pin().snapshotId});changedKnowledge();known.set(c.knownAt);});field('ppa-known').addEventListener('input',changedKnowledge);get('ppa-known').nextElementSibling?.addEventListener('change',changedKnowledge);
  get('ppa-draft').onclick=()=>act(async()=>openNew(true));get('ppa-price-draft').onclick=()=>act(priceDraft);get('ppa-new').onclick=()=>act(async()=>openNew());field('ppa-composition').onchange=()=>{invalidate();renderComponents();};for(const id of ['ppa-quantity-kind','ppa-hours','ppa-assets','ppa-sources'])field(id).addEventListener('change',quantityControls);

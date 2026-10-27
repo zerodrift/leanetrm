@@ -55,7 +55,7 @@ public sealed class TradeReads
         Read(connection,view,async data=>
         {
             var manifest=database.Manifest;
-            var editor=JsonSerializer.SerializeToNode(await Ppa().Editor(connection,view.CalculationFrame,new(view.Frame.Id,tradeId,PpaCutoff(view)),ct),PpaStore.Json)!.AsObject();
+            var editor=JsonSerializer.SerializeToNode(await Ppa().Editor(connection,view.CalculationFrame,new(view.Frame.Id,tradeId,PpaCutoff(view)),ct,Bound(view)),PpaStore.Json)!.AsObject();
             var head=editor["head"]!.AsObject();var selected=head["revision"]!.GetValue<int>();
             if(revision is {} requested&&requested!=selected)
                 throw new MarketDataException("ppa_revision","Select the historical context of the requested PPA revision; this context retains its current head and complete visible history.");
@@ -71,8 +71,8 @@ public sealed class TradeReads
         Read(connection,view,async data=>
         {
             var store=Ppa();
-            var directory=await store.Directory(connection,view.CalculationFrame,new(view.Frame.Id,[book],PpaCutoff(view),0,PpaBookLimit),ct);
-            await store.RecheckScope(connection,view.CalculationFrame,PpaCutoff(view),"books",[book],store.ReferenceFor(view.CalculationFrame),ct);
+            var directory=await store.Directory(connection,view.CalculationFrame,new(view.Frame.Id,[book],PpaCutoff(view),0,PpaBookLimit),ct,Bound(view));
+            await store.RecheckScope(connection,view.CalculationFrame,PpaCutoff(view),"books",[book],store.ReferenceFor(view.CalculationFrame),ct,Bound(view));
             return directory;
         },ct);
     // The most trades one directory read lists.
@@ -83,6 +83,8 @@ public sealed class TradeReads
         var manifest=database.Manifest;
         return new(database,new TouProductStore(manifest.CatalogId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId));
     }
+    // The context a PPA read binds: the view's, which Read bound exactly, so the read captures none (D184).
+    static Guid Bound(TradingView view)=>view.Context.ContextId??throw new InvalidOperationException("A trading view binds no context.");
     // A PPA read's knowledge cutoff: the view's, in the form the PPA reads take.
     static string PpaCutoff(TradingView view)=>
         SchedulePreview.ParseAt(view.Context.KnownAt).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",System.Globalization.CultureInfo.InvariantCulture);

@@ -81,6 +81,6 @@ static class PageReports
         catch(ToolRefusal){return new(id,null);}
     }
 
-    // PPA bookings shows only PPAs.
-    static bool Shows(string page,ToolCall call)=>page!="ppa"||call.Arguments is not TradeArguments{InstrumentType:not "ppa"};
+    // PPA bookings shows only PPAs, each at the revision it inspected.
+    static bool Shows(string page,ToolCall call)=>page!="ppa"||call.Arguments is not TradeArguments{InstrumentType:not "ppa"} and not TradeArguments{Revision:null};
 }
