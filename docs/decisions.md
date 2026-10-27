@@ -777,6 +777,21 @@ The standard isolated preview seeds 37 synthetic bindings, including eight
 heat-rate and five PPA bindings. See [demo instruments](demo-instruments.md) for
 coverage, numerical evidence and remaining limits.
 
+## D230 — The delta ladder shows the server's factor totals as returned
+
+After a risk run, the desk's **Ladder** lens shows the report's per-factor
+totals: one row for each shocked factor, grouped by its curve, and one column for
+each book, valuation measure and currency the run returns. A cell is the server's
+delta, up P&L or down P&L for that factor, book and measure, displayed through the
+backend amount formatter. The ladder never sums rows, books, measures or
+currencies, converts units, or shows a missing total as zero: rows are separate
+shocks and can repeat one exposure at two levels of the curve graph (an input
+quote and a computed point built from it). A factor returned twice, or two totals
+for one column, refuses the ladder. A row opens a Contract panel listing the
+positions its shock moves, from the same report. Totals across books, a choice of
+one curve level and quantity-equivalent units need server-side contracts and
+remain work. See [the delta ladder](delta-ladder.md).
+
 ## D231 — The page assistant reads the person's own jobs on Jobs & Infrastructure
 
 Decided by the owner on 2026-10-26 ([devops-assistant.md](devops-assistant.md)).

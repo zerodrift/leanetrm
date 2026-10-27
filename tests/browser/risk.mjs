@@ -76,6 +76,27 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `(()=>{const tile=document.querySelector('#desk-tile-risk'),figure=tile.querySelector('.kpi-value'),panels=[...document.querySelectorAll('#desk-chart-position .chart')];return ${shocksShown}===${heldTargets}.length&&!!figure&&figure.title.endsWith(' USD')&&/^[+−]/.test(figure.querySelector('.kpi-figure').textContent)&&tile.textContent.includes('Largest move: ')&&document.querySelector('#desk-chart-position-title').textContent==='Change if each contract moves up'&&panels.length>0&&panels.some(p=>/Not drawn: \\d+ positions? several shocks move · /.test(p.textContent))&&document.querySelector('#desk-tile-risk .desk-risk-state').hidden&&(label=>label.children.length===2&&label.textContent===label.children[0].textContent+' '+label.children[1].textContent)(tile.querySelector('.desk-tile-label'));})()`,
     "[document.querySelector('#desk-tile-risk').textContent,document.querySelector('#desk-chart-position').textContent]");
   await shot('risk-held-results');
+  // The Ladder lens (D230): a row for each shocked factor, grouped by curve, and a column for each book, measure and currency the run's
+  // reports total, each cell that total as the server returns it. It never adds rows, books or measures, so it has no total of its own.
+  const ladderRows="[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')]",zeroText='/^-?0+(?:\\.0+)?$/';
+  const firstFactor=`${runReports(`Math.ceil(${heldTargets}.length/16)`)}.flatMap(r=>r.factors)[0]`;
+  const ladderCells=value=>`(()=>{const f=${firstFactor},row=${ladderRows}[0];return f.totals.every((t,j)=>{const span=row.querySelector('[tabulator-field=c'+(6+j)+'] span');return !!span&&span.title.startsWith(t.values.${value==='delta'?'delta':value}+' '+t.values.${value==='delta'?'deltaUnit':'currency'});});})()`;
+  await click('#desk-lens [data-lens=ladder]');await wait(`document.querySelector('#blotter-table-title').textContent==='Delta ladder · grouped by curve'&&${ladderRows}.length>0&&`+idle);
+  await check('the Ladder lens has a row for each factor the run shocked and a column for each book, measure and currency its reports total, and no total of its own',
+    `(()=>{const factors=${runReports(`Math.ceil(${heldTargets}.length/16)`)}.flatMap(r=>r.factors),columns=new Set(factors.flatMap(f=>f.totals.map(t=>JSON.stringify([t.bookId,t.measure,t.values.currency])))),titles=[...document.querySelectorAll('#desk-positions .tabulator-col-title')].map(t=>t.textContent.trim());
+      return document.querySelector('#blotter-filters .table-row-count').textContent.startsWith(factors.length+' of ')&&titles.filter(t=>/ · [A-Z]{3}$/.test(t)).length===columns.size&&!titles.some(t=>/total/i.test(t))&&!document.querySelector('#desk-ladder-value').hidden&&document.querySelector('#blotter-row-group-control').hidden;})()`,
+    "[document.querySelector('#blotter-filters .table-row-count').textContent,[...document.querySelectorAll('#desk-positions .tabulator-col-title')].map(t=>t.textContent.trim())]");
+  await check('each ladder cell of a factor is the server\'s total for its book and measure, its delta in the unit the server names',ladderCells('delta'),
+    `[...${ladderRows}[0].querySelectorAll('[tabulator-field] span')].map(s=>s.title)`);
+  await click('[data-ladder-value=upPnl]');await wait(`document.querySelector('[data-ladder-value=upPnl]').getAttribute('aria-pressed')==='true'&&`+idle);
+  await check('Up P&L shows each total\'s change if its factor moves up, in its currency',ladderCells('upPnl'),`[...${ladderRows}[0].querySelectorAll('[tabulator-field] span')].map(s=>s.title)`);
+  await evaluate(`${ladderRows}[0].click()`);await wait("document.querySelector('#side-panel').dataset.mode==='contract'&&"+idle);
+  await check('a ladder row opens its Contract panel, which lists each position its shock moves as the server values it',
+    `(()=>{const f=${firstFactor},moved=f.positions.filter(p=>!${zeroText}.test(p.values.upPnl)),items=[...document.querySelectorAll('#side-panel-view .contract-positions li')];
+      return document.querySelector('#side-panel').getAttribute('aria-label')==='Contract'&&document.querySelector('#side-panel-title').textContent.includes(' · ')&&items.length===moved.length&&moved.every(p=>items.some(li=>li.textContent.startsWith(p.tradeReference+' · ')));})()`,
+    "document.querySelector('#side-panel-view').textContent");
+  await click('[data-ladder-value=delta]');await click('#desk-lens [data-lens=risk]');await wait(`${inline}&&!document.querySelector('#blotter-row-group-control').hidden&&`+idle);
+  await check('the Risk lens shows the trade rows again with their grouping, and the contract the panel showed stays a contract of the run',`document.querySelector('#blotter-table-title').textContent.startsWith('Positions')&&document.querySelector('#side-panel').dataset.mode==='contract'`);
   // Results stay while a position is looked at; its panel's Risk tab lists each shock that moves it: a position the run's own reports say a
   // shock moves, found by its trade reference among the positions read, whatever the order of the rows.
   const heldReports=runReports(`Math.ceil(${heldTargets}.length/16)`);

@@ -4,12 +4,13 @@
 
 /**
  * What the panel holds: one position (a trade's binding) at a revision, a new trade of a product or, until the person has chosen
- * one, of none, a risk report, or nothing.
+ * one, of none, a risk report, a shocked contract of the delta ladder (D230), or nothing.
  */
 export type PanelMode=
   |{kind:'position';tradeId:string;bindingId:string;revision:number}
   |{kind:'new';product:'futures'|'swaps'|null}
   |{kind:'risk'}
+  |{kind:'contract';factorId:string}
   |null;
 
 /** The width of the main area from which the panel docks beside the positions; narrower, or beside the assistant, it overlays them. */
@@ -23,6 +24,7 @@ export function sameMode(a:PanelMode,b:PanelMode):boolean{
   if(a.kind!==b.kind)return false;
   if(a.kind==='position'&&b.kind==='position')return a.tradeId===b.tradeId&&a.bindingId===b.bindingId&&a.revision===b.revision;
   if(a.kind==='new'&&b.kind==='new')return a.product===b.product;
+  if(a.kind==='contract'&&b.kind==='contract')return a.factorId===b.factorId;
   return true;
 }
 
@@ -32,6 +34,7 @@ export function modeLabel(mode:NonNullable<PanelMode>):string{
     case 'position':return 'Position';
     case 'new':return mode.product===null?'New trade':mode.product==='futures'?'New future':'New swap';
     case 'risk':return 'Risk report';
+    case 'contract':return 'Contract';
   }
 }
 
