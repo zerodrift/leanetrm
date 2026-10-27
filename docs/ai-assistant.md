@@ -798,7 +798,8 @@ The tool set is fixed; each tool is switched on per agent version.
 - Each agent version declares, and each turn records: maximum tool steps, total input
   tokens per turn, output tokens per call (not above the model's:
   `model_limit_exceeded`), elapsed time from the ask, time per tool read (1 to 30
-  seconds, not above the elapsed time), retry count and the caching switch. Exceeding one ends the turn with `limit_tool_steps`, `limit_input_tokens`,
+  seconds, not above the elapsed time), retry count, history window (0 to 1,000 earlier
+  turns, §7.6) and the caching switch. Exceeding one ends the turn with `limit_tool_steps`, `limit_input_tokens`,
   `limit_output_tokens` or `limit_elapsed`; a tool request cut off by a limit is not
   run, and a call whose tool requests would take the turn past its steps has none of
   them run. A read in flight at its version's time per read ends the turn
@@ -870,8 +871,13 @@ The tool set is fixed; each tool is switched on per agent version.
   grant lists every permission its sources used; otherwise a step line says it was
   withheld. Inclusion is recorded at ask, and included turns' sources join the source
   set and every recheck.
-- History is never trimmed. A conversation past the input limit or context window
-  fails with that code and the panel offers a new conversation.
+- Each version's history window (`historyTurns`, 0 to 1,000) bounds the earlier turns
+  sent: an ask considers only the latest that many earlier turns of the conversation by
+  ordinal, includes or withholds each of those as above, and records the included ones.
+  A turn before the window is neither sent nor reported withheld; an included turn's
+  sources still join the set, with those of the turns it included. A turn past the
+  input limit or context window still fails with that code and the panel offers a new
+  conversation; a smaller window makes that less likely, never impossible (D249).
 
 ## 8. Live event stream
 

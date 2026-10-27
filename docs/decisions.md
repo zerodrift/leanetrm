@@ -245,6 +245,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D245 | Each agent version sets its time per read | Decided by the owner (2026-10-27). Replaces `ToolRead` (D184) with `readSeconds`, 1 to 30 seconds and not above the time per turn (migration 0120); a read past it ends the turn `limit_tool_read`, enforced by the API and by the database |
 | D246 | The Blotter lists a PPA booked under other reference or definition versions than the selected close as not valued; whole-book consumers still refuse | Decided by the owner (2026-10-27). Refines D220 for the Blotter only. Trading workspace, Blotter and pivot reads list each PPA trade with a binding booked under other definition or reference versions than the selected market data, with `unavailableReason` `other_definition_versions`, null value fields and its booked facts stated under its own versions; valuation totals leave it out and count it in `unvaluedPositions`. Close risk, portfolio risk and generated pilot closes still refuse the whole scope with `pilot_close_inputs`. Response values only; no schema or permission change |
 | D247 | Answers draw pipe tables as tables of text cells | Decided by the owner (2026-10-27). Refines D191 (§10.1). A header row, a separator row and rows of the header's width become a table built from text nodes, with emphasis and code in cells; any other pipe text stays literal. HTML, links and images stay literal text and URLs are not linked. Front end only |
+| D249 | Each agent version sets its history window | Decided by the owner (2026-10-27). A turn sends at most its version's latest `historyTurns` earlier turns, 0 to 1,000, enforced by the API and the database, and records those it sends; withholding applies within the window. Versions saved earlier take 1,000 (migration 0121), which a conversation already longer refuses. The input-token limit still applies |
 
 ## Proposed implementation choices
 
@@ -941,3 +942,32 @@ a paragraph. Pipe text in any other shape stays literal. Nothing else changes: H
 links and images stay text, URLs are not linked, and charts remain cards (§10.2), which
 are not implemented.
 
+## D249 — Each agent version sets its history window
+
+A follow-up sent every earlier turn of its conversation (§7.6), so a long conversation
+eventually crossed its version's input limit and failed `limit_input_tokens`, and could
+only start over. Each agent version now states a history window (`historyTurns`), set
+in Settings › AI with its other limits: 0 to 1,000 earlier turns. The API refuses a save
+without it and the database enforces both bounds.
+
+At ask, the database considers only the conversation's latest `historyTurns` earlier
+turns by ordinal. Of those, each is included or withheld as before: withheld when its
+owner can no longer read a source it used or the covering grant no longer lists a
+permission those sources needed, and named by a step. The turn records the included
+turns (`included_turns`) once, with its other ask facts, so a repeated ask answers with
+the same record. A turn before the window is neither sent nor reported withheld. An
+included turn's sources still join the new turn's source set and every recheck,
+together with the sources of the turns it included, which may lie before the window. A
+window of 0 sends no earlier turn.
+
+The window bounds history by turns, not tokens. The version's input-token limit still
+bounds what each turn sends, checked against reported usage as before; a turn whose
+window, tool results or own question exceed it still fails `limit_input_tokens`, and the
+panel still offers a new conversation. Nothing is estimated or trimmed to fit.
+
+Migration 0121 adds the field. Versions saved before it sent every earlier turn, so each
+takes 1,000, the largest window, which still sends every earlier turn of a conversation
+of up to 1,001 turns. The migration refuses to run if any conversation already holds
+more than 1,000 turns, whose next turn would otherwise send fewer than before. A
+conversation of an earlier version that later grows past 1,001 turns sends its latest
+1,000. The worker and runtime set are unchanged.
