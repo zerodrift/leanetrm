@@ -74,22 +74,41 @@ def run_checks(url,export):
     check('explicit revision selection preserves period view',revised['curveContracts']==first['curveContracts'] and
           c.evaluate(revised,'location_delivery')['points'][0]['value']=='3.35')
     jan30=next(p for p in c.evaluate(first,'location_delivery')['points'] if p['deliveryFrom']=='2026-01-30')
-    history=c.call('history',{'snapshotId':first['id'],'curve':'location_delivery','contractId':jan30['contractId']})['points']
+    history=c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':first['id'],'curve':'location_delivery','contractId':jan30['contractId']})['points']
     check('dated daily history retains exact prices and explicit expired gaps',
           [p['value'] for p in history[:4]]==['3.404','3.252','3.281','3.41'] and
           all(p['value'] is None and p['unavailableReason']=='source_expired' for p in history[4:]))
     march=next(p for p in c.evaluate(first,'location_delivery')['points'] if p['deliveryFrom']=='2026-03-01')
-    history=c.call('history',{'snapshotId':first['id'],'curve':'location_delivery','contractId':march['contractId']})['points']
+    history=c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':first['id'],'curve':'location_delivery','contractId':march['contractId']})['points']
     check('same monthly contract has eight retained prices across the rollover',len(history)==8 and
           history[0]['value']=='3.85' and history[-1]['value']=='4' and all(p['unavailableReason'] is None for p in history))
     check('BALMO is explicitly empty on both month-end frames',all(c.evaluate(frames[i],'location_balmo')['availability']=='no_remaining_contracts' for i in [4,7]))
     feb=c.evaluate(frames[5],'location_delivery')['points']
     check('February view has 27 daily contracts plus two monthly tails',len(feb)==29 and feb[0]['value']=='3.55' and
           c.evaluate(frames[5],'location_balmo')['points'][0]['value']=='3.65')
+    for code,members in first['curveContracts'].items():
+        summary=c.evaluate(first,code)['summary']
+        assert summary['kind']=='contracts' and summary['contractCount']==len(members) and summary['availability'] is None,(code,summary)
+        assert (summary['front'] or {}).get('contractId')==(members[0] if members else None),(code,summary)
+    check('every evaluated curve states its contract count and front contract from the backend',True)
+    front=c.evaluate(first,'location_delivery')['summary']['front']
+    seeded={(p['curve'],p['contractId']):p['value'] for p in export['frames'][0]['expected']}
+    check('the daily curve fronts its first seeded contract at its seeded price',front['price']==seeded[('location_delivery',front['contractId'])]=='3.25')
+    empty=c.evaluate(frames[4],'location_balmo')['summary']
+    check('a curve at a close past its last expiry states no contracts and why',empty=={'kind':'contracts','contractCount':0,'front':None,'availability':'no_remaining_contracts'})
+    emptied=c.call('market/curve-shapes',{'snapshotId':frames[4]['id'],'curves':['location_balmo']})['curves'][0]
+    check('a curve shape with no remaining contracts states a zero count, no front and why',
+          (emptied['contractCount'],emptied['front'],emptied['availability'])==(0,None,'no_remaining_contracts'))
+    shapes={s['curve']:s for s in c.call('market/curve-shapes',{'snapshotId':first['id'],'curves':['location_delivery','location_balmo']})['curves']}
+    check('curve shapes state the same count and front as the evaluation',all(
+          shapes[code]['contractCount']==c.evaluate(first,code)['summary']['contractCount'] and shapes[code]['front']==c.evaluate(first,code)['summary']['front'] and shapes[code]['availability'] is None
+          for code in shapes))
     rates=c.evaluate(first,'interest_rates')
     check('basic interest-rate example still evaluates',rates['kind']=='rates' and len(rates['points'])==3)
+    check('a rate curve states its maturity count, first maturity and zero rate, and day count',rates['summary']=={'kind':'rates','maturityCount':3,
+          'firstMaturity':rates['points'][0]['maturity'],'firstZeroRate':rates['points'][0]['value'],'dayCount':rates['convention']['dayCount']})
     check('unknown curve remains an error',c.call('evaluate',{'snapshotId':first['id'],'curve':'absent'},status=422)['code']=='missing_curve')
-    check('arbitrary dated contract cannot be substituted in history',c.call('history',{'snapshotId':first['id'],'curve':'location_delivery',
+    check('arbitrary dated contract cannot be substituted in history',c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':first['id'],'curve':'location_delivery',
           'contractId':'00000000-0000-0000-0000-000000000001'},status=422)['code']=='request_member')
     other=Client();other.call('profile',{'profile':'viewer'})
     check('another browser session cannot use an edited frame',other.call('evaluate',{'snapshotId':changed['id'],'curve':'location_delivery'},status=422)['code']=='snapshot_missing')

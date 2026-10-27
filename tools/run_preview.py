@@ -474,6 +474,9 @@ def main():
                 from seed_schedule_examples import seed_schedule_examples
                 seed_schedule_examples(url,run_id,temporary)
                 print('Published the synthetic monthly gas date schedule; daily power contract dates are backend-loadable session candidates.',flush=True)
+                from delivery_price_seed import seed as seed_delivery_prices
+                seed_delivery_prices(query,manifest)
+                print('Collected seven synthetic days of hourly and quarter-hour delivery prices, including the 2026-11-01 fall-back day.',flush=True)
         if args.with_exchange and not args.check:
             from seed_exchange_positions import seed_positions as seed_exchange
             seed_exchange(url,run_id,temporary)
@@ -861,7 +864,8 @@ def main():
             else:
                 from check_preview import run_checks
                 from check_direct_reads import run_checks as check_direct_reads
-                workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary))
+                after_browser=[]
+                workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary),after_browser)
                 from check_table_views import run_checks as check_table_views
                 check_table_views(url,query)
                 from check_schedule_storage import run_checks as check_schedule_storage
@@ -886,6 +890,9 @@ def main():
                 from check_schedule_examples import run_checks as check_schedule_examples
                 check_schedule_examples(url,run_id,temporary)
                 if args.browser_check:
+                    # The Delivery prices desk checks read the interactive preview's synthetic week; the HTTP checks above ran without it.
+                    from delivery_price_seed import seed as seed_delivery_prices
+                    seed_delivery_prices(query,manifest)
                     worker_env=prepare_risk_worker()
                     risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
                     target=temporary/'browser-target.json'
@@ -894,6 +901,11 @@ def main():
                     # The desk's scenarios run in this suite; a slower runner needs more than six minutes for all of them.
                     if browser_process.wait(timeout=900):
                         raise RuntimeError('Owned browser checks failed')
+                    if evidence:=os.environ.get('OPENETRM_MARKETS_BROWSER_EVIDENCE'):
+                        destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                        for screenshot in temporary.glob('markets-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
+                # Checks that record durable closes would add samples to the browser suites' history, so they run after them.
+                for later in after_browser:later()
                 # Preview sessions are capped, so the checks below share this session instead of each opening one.
                 from check_swaps_preview import run_checks as check_swaps
                 session=check_swaps(url)

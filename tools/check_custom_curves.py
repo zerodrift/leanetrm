@@ -19,11 +19,15 @@ def run_checks(url, query=None, manifest=None):
     assert len(prompt['rows'])==1 and prompt['rows'][0][1]=='3.08', prompt['rows']
     assert prompt['trace']['numericalPolicy']=='exact_rational_connected_curves_v1', 'Preview trace does not identify its connected rational calculation policy'
     assert len(prompt['dependencies'])==1
+    first=prompt['summary']['firstPeriod']
+    assert prompt['summary']=={'points':1,'unavailablePoints':0,'firstPeriod':first,'lastPeriod':first,'unit':prompt['rows'][0][2]}, prompt['summary']
+    assert first['from']==prompt['rows'][0][5] and first['to']>first['from'], (first,prompt['rows'][0])
     balmo=client.call('custom-curves/preview',{'definition':templates['ng_balmo']['definition'],'snapshotId':frame['id']})
     assert len(balmo['rows'])==1 and balmo['rows'][0][1]=='3.6175',balmo['rows']
     assert len(balmo['dependencies'])==14
     average=client.call('custom-curves/preview',{'definition':templates['ng_average']['definition'],'snapshotId':frame['id']})
     assert len(average['rows'])==12 and len(average['inputs'])==240 and average['dependencies']==[]
+    assert average['summary']['points']==12 and average['summary']['firstPeriod']['from']<average['summary']['lastPeriod']['from'], average['summary']
     panel=deepcopy(templates['ng_average']['definition'])
     panel['nodes']=[node for node in panel['nodes'] if node['kind']!='mean']
     for node in panel['nodes']:

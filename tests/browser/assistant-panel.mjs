@@ -139,6 +139,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await press('Go');
   await wait(`${q('#snapshot')}.value===${JSON.stringify(first)}&&${q('#assistant-looking-shows')}.textContent.startsWith('Prices of ')&&${idle}`);
   await check('Go selects the target\'s As of date, opens what it names, and leaves Back',`${notice}.textContent.startsWith('Took you to ')&&${buttons}==='Back'`);
+  // The contract panel shows part of the curve the page shows: Looking at, and so the page report an ask sends, stays the curve's.
+  const curveLooking=await evaluate(looking);
+  await click('#contracts tbody tr:first-child');await wait(`${shown('#contract-panel')}&&!!document.querySelector('#history-values tbody tr')&&${idle}`);
+  await check('opening a contract in the panel leaves Looking at, and the page report, as the curve\'s',
+    `${shown('#contract-panel')}&&JSON.stringify(${looking})===${JSON.stringify(JSON.stringify(curveLooking))}&&${looking}[1].startsWith('Prices of ')`,looking);
+  await click('#contract-panel-close');
 
   // Unsaved edits on the page being left hold a live move (§10.1).
   await click('#nav-futures');await newTrade({click,wait},'futures');

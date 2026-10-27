@@ -21,9 +21,16 @@ export function deliveryPriceChoices(sources:DeliveryPriceSource[],selection:Del
  };
 }
 
-export function latestDeliverySource(sources:DeliveryPriceSource[]):DeliveryPriceSource|undefined{
- return sources.filter(s=>s.availableDates.length>0).reduce<DeliveryPriceSource|undefined>((latest,source)=>{
-  const newest=(s:DeliveryPriceSource)=>[...s.availableDates].sort().at(-1)!;
-  return !latest||newest(source)>newest(latest)?source:latest;
- },undefined);
+export type DeliveryOpening={sourceId:string;fromDate:string;throughDate:string;policy:string};
+/**
+ * The range the page opens on: the catalog's opening, chosen by the backend under newest_available_delivery_day_v1, or nothing when
+ * no source has a day. An opening that the catalog's own sources cannot show is refused, never replaced by another choice.
+ */
+export function deliveryOpening(sources:DeliveryPriceSource[],opening:DeliveryOpening|null){
+ if(opening===null)return null;
+ const source=sources.find(s=>s.id===opening.sourceId);
+ if(opening.policy!=='newest_available_delivery_day_v1'||!source||![opening.fromDate,opening.throughDate].every(date=>source.availableDates.includes(date))||
+  opening.throughDate<opening.fromDate||opening.throughDate>(source.availableThrough[opening.fromDate]??''))
+  throw Error('The delivery-price catalog names an opening it cannot show. Refresh the page.');
+ return {source,fromDate:opening.fromDate,throughDate:opening.throughDate};
 }

@@ -19,7 +19,8 @@ await withOwnedBrowser(process.argv[2],process.argv[3],async({command,evaluate,w
  await wait(idle+"&&document.querySelector('#error').hidden&&document.querySelectorAll('.curve-button').length>0&&performance.getEntriesByName('leanetrm:workspace-ready','mark').length===1");
  const initial=await evaluate(`({readyMs:performance.getEntriesByName('leanetrm:workspace-ready','mark')[0].startTime,requests:window.__pageRequests})`);
  const samples=[],pricing=[];
- const pages={market:['market-page',"document.querySelectorAll('.curve-button').length>0"],delivery:['delivery-page',"document.querySelector('#delivery-price-known').textContent.startsWith('Knowledge cutoff')"],jobs:['jobs-page',"document.querySelector('#jobs-infrastructure').textContent.length>0"],power:['power-page',"document.querySelector('#tou-list').textContent.length>0&&document.querySelector('#power-product').options.length>1"],reference:['reference-page',"document.querySelector('#reference-page-status').textContent.startsWith('Rows ')&&!!document.querySelector('#reference .tabulator-row, #reference tbody tr')"],schedules:['schedules-page',"document.querySelector('#dates-saved').textContent.length>0"],configuration:['curve-date-editor',"document.querySelector('#curve-dates-saved').textContent.length>0"],parties:['parties-page',"document.querySelector('#party-list').textContent.length>0"],futures:['futures-page',"document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-export').disabled"],admin:['admin-page',"document.querySelector('#admin-members').textContent.includes('Viewer')||document.querySelector('#admin-members').textContent.includes('viewer')"]};
+ const navIds={customCurves:'custom-curves'};
+ const pages={market:['market-page',"document.querySelectorAll('.curve-button').length>0&&!document.querySelector('#market-board').hidden&&document.querySelectorAll('.market-card[data-state=priced]').length>0"],customCurves:['custom-curves-page',"document.querySelectorAll('#custom-curves-operators button').length>=5&&document.querySelector('#custom-curves-heading').textContent.length>0&&!!document.querySelector('#custom-curves-template option[value=ng_prompt]')"],delivery:['delivery-page',"document.querySelector('#delivery-price-known').textContent.startsWith('Knowledge cutoff')&&document.querySelector('#delivery-price-badge').textContent.length>0&&document.querySelectorAll('#delivery-price-tiles .desk-tile').length>0&&!!document.querySelector('#delivery-price-chart canvas')&&document.querySelectorAll('#delivery-price-results tbody tr').length>0"],jobs:['jobs-page',"document.querySelector('#jobs-infrastructure').textContent.length>0"],power:['power-page',"document.querySelector('#tou-list').textContent.length>0&&document.querySelector('#power-product').options.length>1"],reference:['reference-page',"document.querySelector('#reference-page-status').textContent.startsWith('Rows ')&&!!document.querySelector('#reference .tabulator-row, #reference tbody tr')"],schedules:['schedules-page',"document.querySelector('#dates-saved').textContent.length>0"],configuration:['curve-date-editor',"document.querySelector('#curve-dates-saved').textContent.length>0"],parties:['parties-page',"document.querySelector('#party-list').textContent.length>0"],futures:['futures-page',"document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-export').disabled"],admin:['admin-page',"document.querySelector('#admin-members').textContent.includes('Viewer')||document.querySelector('#admin-members').textContent.includes('viewer')"]};
  async function completed(){
   const deadline=Date.now()+65000;
   while(Date.now()<deadline){
@@ -33,7 +34,7 @@ await withOwnedBrowser(process.argv[2],process.argv[3],async({command,evaluate,w
   const [section,ready]=pages[page];
   await evaluate(`(()=>{
    window.__pageMeasurement={done:false};const accept=result=>{window.__pageMeasurement={done:true,result};},reject=error=>{window.__pageMeasurement={done:true,error:String(error)};};
-   const start=performance.now(),first=window.__pageRequests.length;document.querySelector('#nav-${page}').click();
+   const start=performance.now(),first=window.__pageRequests.length;document.querySelector('#nav-${navIds[page]??page}').click();
    const poll=()=>{if(performance.now()-start>60000){reject(Error('Page readiness timed out: ${page}'));return;}
     if(${idle}&&!document.querySelector('#${section}').hidden&&(${ready})){
      if(!document.querySelector('#error').hidden){reject(Error(document.querySelector('#error').textContent));return;}
@@ -42,7 +43,7 @@ await withOwnedBrowser(process.argv[2],process.argv[3],async({command,evaluate,w
   })()`);
   samples.push(await completed());
  }
- for(const [profile,allowed] of [['editor',['market','delivery','jobs','power','reference','schedules','configuration']],['trader',['parties','futures']],['admin',['admin']]]){
+ for(const [profile,allowed] of [['editor',['market','customCurves','delivery','jobs','power','reference','schedules','configuration']],['trader',['parties','futures']],['admin',['admin']]]){
   await persona(profile);
   if(profile!=='admin'){
    await evaluate(`(()=>{const n=document.querySelector('#snapshot');n.value=[...n.options].at(-1).value;n.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait(idle);
