@@ -113,6 +113,13 @@ def run_checks(client, query, manifest):
     overlay = ranged['overlays'][0]
     assert overlay['policy'] == 'exact_rational_half_even_18_v1' and [v['at'] for v in overlay['series']['high']] == [row['start'] for row in exact['rows']]
     assert [v['value'] for v in overlay['series']['high']] == [None] + [precise] * 23 and overlay['series']['low'] == overlay['series']['high']
+    # The chart states a point per expected interval: every published hour, then each hour of 2026-11-03, which has no prices.
+    assert exact['chart'] == {'points':[{'at':row['start'],'value':precise,'unavailableReason':None} for row in exact['rows']]}, exact.get('chart')
+    two_days, _ = client.call('/api/power-imports/period', {**period,'throughDate':'2026-11-03','knownAt':repeated['knownAt']})
+    points = two_days['chart']['points']
+    assert len(two_days['rows']) == 24 and two_days['summary']['expectedIntervals'] == 48 and len(points) == 48, two_days['summary']
+    assert points[:24] == exact['chart']['points'] and all(p['value'] is None and p['unavailableReason'] == 'not_published_at_cutoff' for p in points[24:]), points[24:]
+    assert [datetime.fromisoformat(p['at'].replace('Z','+00:00')) for p in points[24:]] == [start+timedelta(hours=24+h) for h in range(24)]
     refusal, _ = client.call('/api/power-imports/period', {**period,'knownAt':repeated['knownAt'],'overlays':[{'code':'simple_moving_average_v1','parameters':{}}]}, expected=422)
     assert refusal['code'] == 'overlay_parameter'
     scope_mode=query(f"SELECT access_mode FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{r}','{manifest['tenantId']}','{manifest['workspaceId']}');")
@@ -127,4 +134,4 @@ def run_checks(client, query, manifest):
     client.call('/api/power-imports', expected=422)
     client.call('/api/market/current', {})
     print('PASS HTTP delivery metadata: exact commodity/location/clock/unit references and observed prices, attempts, scope revocation and historical rejection', flush=True)
-    print('PASS HTTP delivery periods: reads as known at each cutoff, an identical collection publishes nothing, newest-day opening, collection outcome, exact summary and period overlays', flush=True)
+    print('PASS HTTP delivery periods: reads as known at each cutoff, an identical collection publishes nothing, newest-day opening, collection outcome, exact summary, a chart point per expected interval and period overlays', flush=True)

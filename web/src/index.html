@@ -54,7 +54,7 @@
         <div class="delivery-filter-cutoff"><label for="delivery-price-cutoff">Knowledge cutoff · <span data-user-time-zone></span></label><input id="delivery-price-cutoff" type="datetime-local" step="1" required></div>
         <button type="submit">Show prices</button>
       </div>
-      <div class="delivery-filter-foot"><p id="delivery-price-clock">Choose a source to see its market clock. Both delivery dates are included.</p><p id="delivery-price-known"></p></div>
+      <div class="delivery-filter-foot"><p id="delivery-price-clock">Choose a source to see its market clock. Both delivery dates are included.</p><p id="delivery-price-known" role="status"></p></div>
     </form>
     <header id="delivery-price-head" class="curve-header delivery-head" hidden>
       <div><div class="curve-crumbs"><span id="delivery-price-badge" class="close-badge"></span><span id="delivery-price-path" class="eyebrow"></span></div><h2 id="delivery-price-title"></h2><p id="delivery-price-range" class="delivery-range"></p></div>
@@ -68,7 +68,7 @@
         <div id="delivery-price-shown" hidden>
           <details id="delivery-price-overlays" class="contract-overlays delivery-overlays"><summary>Overlays</summary><div id="delivery-price-overlay-menu"></div></details>
           <div id="delivery-price-chart" class="delivery-chart"></div>
-          <h4 class="breakdown-heading">Intervals</h4>
+          <h3 class="breakdown-heading">Intervals</h3>
           <div id="delivery-price-results" class="table-wrap"></div>
         </div>
       </section>

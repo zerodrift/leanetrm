@@ -168,8 +168,17 @@ export async function deliveryDesk({command,evaluate,wait,click,set,submit,check
     if(window.__openOlder){const other=catalog.sources.find(s=>s.id!==catalog.opening.sourceId),day=other.availableDates.slice().sort()[0];opening={...catalog.opening,sourceId:other.id,fromDate:day,throughDate:day};}
     if(window.__noOpening)opening=null;
     return new Response(JSON.stringify({...catalog,opening}),{status:response.status,headers:{'Content-Type':'application/json'}});}
+   // The overlay catalog refused, as for an account that may not read it.
+   if(path==='/api/analytics/overlays'&&window.__denyOverlays)return new Response(JSON.stringify({code:'forbidden',message:'Synthetic refusal of the overlay catalog.'}),{status:403,headers:{'Content-Type':'application/json'}});
    const response=await send(input,init);
-   if(path==='/api/power-imports/period')window.__periods.push({body:JSON.parse(init.body),data:response.ok?await response.clone().json():null});
+   if(path==='/api/power-imports/period'){
+    let data=response.ok?await response.clone().json():null;
+    // The series the read states, with its last interval unpublished, or with no series at all; the rows are left as they were.
+    if(data&&window.__lastUnpublished)data.chart.points[data.chart.points.length-1]={...data.chart.points.at(-1),value:null,unavailableReason:'not_published_at_cutoff'};
+    if(data&&window.__noChart)delete data.chart;
+    window.__periods.push({body:JSON.parse(init.body),data});
+    if(data&&(window.__lastUnpublished||window.__noChart))return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
+   }
    return response;
   };`});
  const period='window.__periods.at(-1)',catalog='window.__catalogs.at(-1)';
@@ -202,8 +211,16 @@ export async function deliveryDesk({command,evaluate,wait,click,set,submit,check
    "return cells.length===rows.length&&aside('Low')===cells[rows.findIndex(r=>r.start===s.low.start)]&&aside('High')===cells[rows.findIndex(r=>r.start===s.high.start)];})()");
   await check('the Prices tab draws the interval prices over time above the table of every interval',
    `!!document.querySelector('#delivery-price-chart .time-chart-canvas canvas')&&document.querySelectorAll('#delivery-price-results tbody tr').length===${period}.data.rows.length&&document.querySelector('#delivery-price-tabs-prices').getAttribute('aria-selected')==='true'&&document.querySelector('#delivery-price-collection').hidden`);
+  await check('the knowledge cutoff line is announced as status',"document.querySelector('#delivery-price-known').getAttribute('role')==='status'");
+  // The overlay catalog is read when the menu opens; a refusal shows in the menu only, and the prices stay.
+  await evaluate('window.__denyOverlays=true');await evaluate("document.querySelector('#delivery-price-overlays').open=true");
+  await wait("document.querySelector('#delivery-price-overlay-menu').textContent.includes('could not be read')");
+  await check('a refused overlay catalog says so in the overlay menu and leaves the prices and the page usable',
+   `document.querySelector('#delivery-price-overlay-menu').textContent.startsWith('Overlays could not be read: ')&&!document.querySelector('#delivery-price-overlay-menu form')&&document.querySelector('#error').hidden&&!!document.querySelector('#delivery-price-chart canvas')&&document.querySelectorAll('#delivery-price-results tbody tr').length===${period}.data.rows.length&&window.__periods.length===2`,
+   "[document.querySelector('#delivery-price-overlay-menu').textContent,document.querySelector('#error').textContent,window.__periods.length]");
+  await evaluate("window.__denyOverlays=false;document.querySelector('#delivery-price-overlays').open=false");
   // An overlay is asked for with an explicit window; the chart draws the values the backend returned, named by definition and window.
-  await evaluate("document.querySelector('#delivery-price-overlays').open=true");
+  await evaluate("document.querySelector('#delivery-price-overlays').open=true");await wait("!!document.querySelector('#delivery-price-overlay-menu fieldset')");
   await evaluate("(()=>{const input=[...document.querySelectorAll('#delivery-price-overlay-menu fieldset')].find(f=>f.querySelector('legend').textContent==='Simple moving average').querySelector('input');input.value='4';input.dispatchEvent(new Event('input',{bubbles:true}));})()");
   await evaluate("document.querySelector('#delivery-price-overlay-menu form').requestSubmit()");await wait(`${idle}&&window.__periods.length===3`);
   await check('a simple moving average with window 4 is read with the same range and drawn with its definition and window, showing its exact latest value',
@@ -221,7 +238,7 @@ export async function deliveryDesk({command,evaluate,wait,click,set,submit,check
   const reads=await evaluate('window.__periods.length');
   await set('#delivery-price-commodity',quarter.commodityKey);await wait(idle);
   await check('changing a filter chooses nothing further, reads nothing and puts the shown prices away',
-   `['provider','market','location','source'].every(x=>document.querySelector('#delivery-price-'+x).value==='')&&document.querySelector('#delivery-price-from').value===''&&window.__periods.length===${reads}&&!document.querySelector('#delivery-price-results tbody tr')&&!document.querySelector('#delivery-price-chart canvas')&&document.querySelector('#delivery-price-head').hidden&&!document.querySelector('#delivery-price-tiles [data-tile=summary]')&&!document.querySelector('#delivery-price-empty').hidden`);
+   `['provider','market','location','source'].every(x=>document.querySelector('#delivery-price-'+x).value==='')&&document.querySelector('#delivery-price-from').value===''&&window.__periods.length===${reads}&&!document.querySelector('#delivery-price-results tbody tr')&&!document.querySelector('#delivery-price-chart canvas')&&document.querySelector('#delivery-price-head').hidden&&!document.querySelector('#delivery-price-tiles [data-tile=intervals]')&&!document.querySelector('#delivery-price-empty').hidden`);
   await set('#delivery-price-provider',quarter.provider);await set('#delivery-price-market',quarter.market);await set('#delivery-price-location',quarter.locationKey);await set('#delivery-price-source',quarter.id);
   await pick('from','2026-11-01');await pick('through','2026-11-01');
   await check('choosing the dates reads nothing until Show prices',`window.__periods.length===${reads}&&document.querySelector('#delivery-price-from').value==='2026-11-01'&&document.querySelector('#delivery-price-through').value==='2026-11-01'`);
@@ -237,6 +254,16 @@ export async function deliveryDesk({command,evaluate,wait,click,set,submit,check
   await check('Delivery prices fits a 390px screen without page-wide horizontal scrolling',fitsWidth);
   await evaluate("document.querySelector('#delivery-price-form').scrollIntoView()");await shot('markets-delivery-mobile');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  // The chart draws the series the period read states: an interval the read leaves unpublished is no price, though the rows are unchanged.
+  await evaluate('window.__lastUnpublished=true');let count=await evaluate('window.__periods.length');await submit('#delivery-price-form');await wait(`window.__periods.length===${count+1}`);
+  await check('the chart draws the period read\'s own series: its last interval unpublished shows no latest price, whatever the rows hold',
+   `(()=>{const read=${period},price=[...document.querySelectorAll('#delivery-price-chart .time-chart-latest dt')].find(dt=>dt.textContent==='Price');`+
+   "return read.data.rows.length===100&&read.data.chart.points.length===100&&price&&price.nextElementSibling.textContent==='No price'&&document.querySelectorAll('#delivery-price-results tbody tr').length===100&&document.querySelector('#error').hidden;})()",
+   "[...document.querySelectorAll('#delivery-price-chart .time-chart-latest')].map(n=>n.textContent)");
+  await evaluate('window.__lastUnpublished=false;window.__noChart=true');count=await evaluate('window.__periods.length');await submit('#delivery-price-form');await wait(`window.__periods.length===${count+1}`);
+  await check('a period read that states no chart series is refused, and nothing is drawn from its rows',
+   "!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('chart')&&!document.querySelector('#delivery-price-chart canvas')","document.querySelector('#error').textContent");
+  await evaluate('window.__noChart=false');
   await evaluate('window.__noOpening=true');const before=await evaluate('window.__periods.length');
   await click('#nav-market');await click('#nav-delivery');
   await check('a catalog with no opening says there are no delivery prices yet and reads none',

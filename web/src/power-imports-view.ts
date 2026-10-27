@@ -6,21 +6,20 @@ import {createAvailableDatePicker} from './available-date-picker.js';
 import {renderRegularTable} from './regular-table.js';
 import {displayDate,publicText,timeLabels} from './market-view.js';
 import {deliveryPriceChoices,deliveryOpening,type DeliveryOpening,type DeliveryPriceSource} from './delivery-price-filters.js';
-import {collectionTile,deliveryChartPoints,summaryTiles,type DeliveryCollection,type DeliveryRow,type DeliverySummary} from './delivery-price-desk.js';
-import {overlayMenu,renderTimeChart,type OverlayCatalog,type OverlayRequest,type OverlaySeries,type TimeChart} from './time-chart.js';
-import {historyOverlays} from './contract-panel.js';
+import {collectionTile,periodChart,summaryTiles,type DeliveryCollection,type DeliveryRow,type DeliverySummary,type PeriodChart} from './delivery-price-desk.js';
+import {answeredOverlays,overlayMenu,renderTimeChart,type OverlayAnswer,type OverlayCatalog,type OverlayRequest,type TimeChart} from './time-chart.js';
 import {setupTabs} from './side-panel.js';
-import {renderTile,type TileSpec} from './tiles.js';
+import {node,renderTile,type TileSpec} from './tiles.js';
 
 type Catalog={knownAt:string;sources:DeliveryPriceSource[];opening:DeliveryOpening|null;collection:DeliveryCollection;jobs:{name:string;schedule_enabled:boolean}[];
   attempts:{jobName:string;provider:string;fromDate:string;throughDate:string;startedAt:string;finishedAt:string|null;state:string;errorCode:string|null}[]};
-type Period={priceUnit:string;rows:DeliveryRow[];summary:DeliverySummary;overlays?:Omit<OverlaySeries,'label'>[]};
+type Period={priceUnit:string;rows:DeliveryRow[];summary:DeliverySummary;chart?:PeriodChart;overlays?:OverlayAnswer[]};
 /** How the range on screen was chosen: the catalog's opening, or by the person, once they change a filter, a date or the cutoff. */
 type ChosenBy='opening'|'person';
 const badges:Record<ChosenBy,string>={opening:'Newest delivery day',person:'Selected range'};
 
 export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;
-  instant:(value:string)=>string;overlayCatalog:()=>Promise<OverlayCatalog>}){
+  instant:(value:string)=>string}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const known=zonedInput(get<HTMLInputElement>('delivery-price-cutoff'),options.zone,options.api);
  const filterNames=['commodity','provider','market','location','source'] as const;
@@ -28,9 +27,9 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
  const select=(name:typeof filterNames[number])=>get<HTMLSelectElement>('delivery-price-'+name);
  const from=get<HTMLInputElement>('delivery-price-from'),through=get<HTMLInputElement>('delivery-price-through');
  const overlays=get<HTMLDetailsElement>('delivery-price-overlays');
- let catalog:Catalog|undefined,generation=0,chosenBy:ChosenBy='opening',menu:OverlayCatalog|undefined,requests:OverlayRequest[]=[],chart:TimeChart|undefined;
- const firstDate=createAvailableDatePicker(get('delivery-price-from-calendar'),{id:'delivery-price-from-picker',label:'Delivery date from',busy:options.busy,onChange:date=>{from.value=date;changed();}});
- const lastDate=createAvailableDatePicker(get('delivery-price-through-calendar'),{id:'delivery-price-through-picker',label:'Delivery date to',busy:options.busy,onChange:date=>{through.value=date;changed();}});
+ let catalog:Catalog|undefined,generation=0,session=0,chosenBy:ChosenBy='opening',menu:OverlayCatalog|undefined,requests:OverlayRequest[]=[],chart:TimeChart|undefined;
+ const firstDate=createAvailableDatePicker(get('delivery-price-from-calendar'),{id:'delivery-price-from-picker',label:'Delivery date from',busy:options.busy,onChange:date=>{from.value=date;syncDates();changed();}});
+ const lastDate=createAvailableDatePicker(get('delivery-price-through-calendar'),{id:'delivery-price-through-picker',label:'Delivery date to',busy:options.busy,onChange:date=>{through.value=date;syncDates();changed();}});
  const show=(tab:string)=>{get('delivery-price-prices').hidden=tab!=='prices';get('delivery-price-collection').hidden=tab!=='collection';};
  const tabs=setupTabs(get('delivery-price-tabs'),[['prices','Prices'],['collection','Collection history']],{label:'Delivery prices',panel:get('delivery-price-view'),selected:'prices',select:show});
  const chosenSource=()=>catalog?.sources.find(s=>s.id===select('source').value);
@@ -64,8 +63,7 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
   get('delivery-price-empty').hidden=!title;get('delivery-price-shown').hidden=true;
  }
  function tiles(summary:TileSpec[]){
-  const tile=(spec:TileSpec,kind:string)=>{const element=renderTile(spec);element.dataset.tile=kind;element.dataset.name=spec.label;return element;};
-  get('delivery-price-tiles').replaceChildren(...summary.map(spec=>tile(spec,'summary')),...(catalog?[tile(collectionTile(catalog.collection,displayDate),'collection')]:[]));
+  get('delivery-price-tiles').replaceChildren(...[...summary,...(catalog?[collectionTile(catalog.collection,displayDate)]:[])].map(renderTile));
  }
  // Puts away the prices on screen; a read that was under way is no longer shown.
  function clearShown(){
@@ -73,9 +71,9 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
   get('delivery-price-results').replaceChildren();get('delivery-price-head').hidden=true;tiles([]);empty(pending());
  }
  // A change of the person's: the range is theirs from now on, and is read when they choose Show prices.
- function changed(){chosenBy='person';syncDates();clearShown();}
+ function changed(){chosenBy='person';clearShown();}
  filterNames.forEach((name,index)=>{select(name).onchange=()=>{for(const child of filterNames.slice(index+1))select(child).value='';from.value='';through.value='';filters();changed();};});
- for(const input of [from,through])input.onchange=changed;
+ for(const input of [from,through])input.onchange=()=>{syncDates();changed();};
  get('delivery-price-cutoff').addEventListener('input',()=>{changed();get('delivery-price-known').textContent='Unapplied cutoff · choose Show prices.';});
  function overlaySummary(){overlays.querySelector('summary')!.textContent=requests.length?`Overlays · ${requests.length} shown`:'Overlays';}
  async function read(){
@@ -85,11 +83,13 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
   if(!source)throw Error('Choose the commodity, operator, market, location and source of the prices to show.');
   if(!source.availableDates.includes(from.value)||!source.availableDates.includes(through.value)||through.value<from.value||through.value>(source.availableThrough[from.value]??''))throw Error('Choose available first and last delivery dates.');
   clearShown();
-  const owner=catalog,started=generation,by=chosenBy,asked=requests,shownMenu=menu!,range={sourceId:source.id,fromDate:from.value,throughDate:through.value};
+  const owner=catalog,started=generation,by=chosenBy,asked=requests,shownMenu=menu,range={sourceId:source.id,fromDate:from.value,throughDate:through.value};
   const cutoff=await known.instant();
   const result=await options.api<Period>('power-imports/period',{...range,knownAt:cutoff,...(asked.length?{overlays:asked}:{})});
   if(catalog!==owner||generation!==started)return;
-  const drawn=historyOverlays(asked,result.overlays,shownMenu),zone=options.zone(),rows=result.rows;
+  // Overlays are asked for only from the menu, so a read with any to answer has the catalog they were chosen from.
+  const drawn=shownMenu?answeredOverlays(asked,result.overlays,shownMenu):result.overlays===undefined?[]:(()=>{throw Error('The chart overlays do not match the ones chosen. Apply them again.');})();
+  const points=periodChart(result),zone=options.zone(),rows=result.rows;
   // Every interval's start and end, labelled together so that a clock's repeated hour keeps its instants apart.
   const labels=timeLabels([...rows.map(r=>r.start),...rows.map(r=>r.end)],zone),starts=labels.slice(0,rows.length),ends=labels.slice(rows.length);
   const startLabel=new Map(rows.map((r,i)=>[Date.parse(r.start),starts[i]]));
@@ -104,30 +104,40 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
   tiles(summaryTiles(result.summary,publicText(result.priceUnit),{start:intervalStart,instant:options.instant}));
   if(!rows.length){empty(['No prices at this cutoff','No interval of this range had been published by the knowledge cutoff.']);return;}
   get('delivery-price-empty').hidden=true;get('delivery-price-shown').hidden=false;
-  chart=renderTimeChart(get('delivery-price-chart'),{title:publicText(source.name),unit:publicText(result.priceUnit),zone,points:deliveryChartPoints(rows),overlays:drawn});
+  chart=renderTimeChart(get('delivery-price-chart'),{title:publicText(source.name),unit:publicText(result.priceUnit),zone,points,overlays:drawn});
   renderRegularTable(get('delivery-price-results'),'delivery-prices',JSON.stringify([source.id,range.fromDate,range.throughDate,cutoff]),['Delivery start','Delivery end',publicText(result.priceUnit),'Known at'],
    rows.map((r,i)=>[starts[i],ends[i],r.formattedPrice,options.instant(r.knownAt)]),[2],options.busy);
  }
  get<HTMLFormElement>('delivery-price-form').onsubmit=event=>{event.preventDefault();void options.act(read);};
- // The overlay menu is drawn once for each catalog, so what the person entered stays while they browse delivery prices.
- function drawMenu(next:OverlayCatalog){
-  if(menu===next)return;menu=next;requests=[];overlaySummary();
-  // Applying folds the menu away, so the chart it changes is in view, and reads the range on screen again.
-  overlayMenu(get('delivery-price-overlay-menu'),next,chosen=>{requests=chosen;overlays.open=false;overlaySummary();void options.act(read);});
- }
+ // The overlay catalog is read when the menu first opens, and the menu drawn once from it, so what the person entered stays while they
+ // browse delivery prices. A catalog that cannot be read says so in the menu alone: the prices do not depend on it.
+ let reading=false;
+ overlays.addEventListener('toggle',async()=>{
+  if(!overlays.open||menu||reading)return;
+  const host=get('delivery-price-overlay-menu'),started=session;reading=true;host.replaceChildren(node('p','fine-print','Reading the overlay catalog…'));
+  try{
+   const next=await options.api<OverlayCatalog>('analytics/overlays');
+   if(started!==session)return;
+   if(typeof next?.policy!=='string'||!Array.isArray(next.overlays))throw Error('The overlay catalog is missing or inconsistent. Refresh and try again.');
+   menu=next;
+   // Applying folds the menu away, so the chart it changes is in view, and reads the range on screen again.
+   overlayMenu(host,next,chosen=>{requests=chosen;overlays.open=false;overlaySummary();void options.act(read);});
+  }catch(error){if(started===session)host.replaceChildren(node('p','field-help',`Overlays could not be read: ${error instanceof Error?error.message:String(error)} Close the menu and open it again to retry.`));}
+  finally{if(started===session)reading=false;}
+ });
  function forget(){
   catalog=undefined;clearShown();get('delivery-price-attempts').replaceChildren();get('delivery-price-jobs').textContent='';get('delivery-price-known').textContent='';
  }
  return {
   sync(){known.refresh();firstDate.sync();lastDate.sync();for(const name of filterNames)select(name).disabled=options.busy()||select(name).options.length<2;},
-  reset(){known.clear();forget();menu=undefined;requests=[];get('delivery-price-overlay-menu').replaceChildren();overlays.open=false;overlaySummary();
+  reset(){session++;reading=false;known.clear();forget();menu=undefined;requests=[];get('delivery-price-overlay-menu').replaceChildren();overlays.open=false;overlaySummary();
    for(const name of filterNames)select(name).replaceChildren();filters();tabs.mark('prices');show('prices');},
   async load(){
    from.value='';through.value='';chosenBy='opening';forget();filters();const started=generation;
-   const [next,overlayCatalog]=await Promise.all([options.api<Catalog>('power-imports'),options.overlayCatalog()]);
+   const next=await options.api<Catalog>('power-imports');
    if(generation!==started)return;
    const opening=deliveryOpening(next.sources,next.opening);
-   catalog=next;known.set(catalog.knownAt);drawMenu(overlayCatalog);
+   catalog=next;known.set(catalog.knownAt);
    filters(opening?.source);if(opening){from.value=opening.fromDate;through.value=opening.throughDate;syncDates();}
    get('delivery-price-known').textContent='Knowledge cutoff · '+options.instant(catalog.knownAt);
    get('delivery-price-jobs').textContent=catalog.jobs.length?catalog.jobs.map(j=>publicText(j.name)+': '+(j.schedule_enabled?'scheduled':'paused')).join(' · '):'No collection jobs have been configured.';

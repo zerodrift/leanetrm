@@ -10,6 +10,8 @@ export type OverlayPoint={at:string;value:string|null;reason?:string|null};
 export type OverlaySeries={code:string;label:string;parameters:Record<string,number>;policy:string;series:Record<string,OverlayPoint[]>};
 export type OverlayCatalog={policy:string;overlays:{code:string;label:string;parameters:{name:string;label:string;minimum:number;maximum:number}[];seriesNames:string[]}[]};
 export type OverlayRequest={code:string;parameters:Record<string,number>};
+/** An overlay as a read returns it: the definition's code, parameters, policy and series, before the catalog names it. */
+export type OverlayAnswer=Omit<OverlaySeries,'label'>;
 export type TimeChartSpec={title:string;unit:string;points:TimePoint[];overlays:OverlaySeries[];zone:string};
 export type TimeChart={update(spec:TimeChartSpec):void;dispose():void};
 export type TimeBar={timestamp:number;close:number|null};
@@ -74,6 +76,27 @@ export function axisLabels(points:readonly TimePoint[],zone:string):Map<number,s
   const label=new Set(points.map(p=>day(p.at))).size<2?part({hour:'numeric',minute:'2-digit'})
     :part({month:'short',day:'numeric',...(new Set(points.map(p=>year(p.at))).size>1?{year:'numeric'}:{})});
   return new Map(points.map(p=>[instantOf(p.at),label(p.at)]));
+}
+
+const sameParameters=(a:Record<string,number>,b:Record<string,number>)=>{
+  const entries=(p:Record<string,number>)=>JSON.stringify(Object.entries(p).sort(([x],[y])=>x<y?-1:1));
+  return entries(a)===entries(b);
+};
+/**
+ * The overlays a read returned (a contract's history or a delivery period), each named by its catalog definition, in the order they were asked for. A read whose overlays do not
+ * answer the request exactly, under the catalog's policy and with its series, is refused; over a conflicting series it returns none.
+ */
+export function answeredOverlays(requests:readonly OverlayRequest[],answers:readonly OverlayAnswer[]|undefined,catalog:OverlayCatalog,conflict=false):OverlaySeries[]{
+  if(conflict){if(answers!==undefined)throw Error('The chart overlays do not match the ones chosen. Apply them again.');return [];}
+  const returned=answers??[];
+  if(returned.length!==requests.length||returned.some((answer,i)=>answer.code!==requests[i].code||!sameParameters(answer.parameters,requests[i].parameters)||answer.policy!==catalog.policy))
+    throw Error('The chart overlays do not match the ones chosen. Apply them again.');
+  return returned.map(answer=>{
+    const definition=catalog.overlays.find(d=>d.code===answer.code);
+    if(!definition)throw Error('An overlay is not in the overlay catalog. Refresh the page.');
+    if(JSON.stringify(Object.keys(answer.series).sort())!==JSON.stringify([...definition.seriesNames].sort()))throw Error('The chart overlays do not match the ones chosen. Apply them again.');
+    return {...answer,label:definition.label};
+  });
 }
 
 /** The definition and the parameters the read sent, for example "Simple moving average · 5". */

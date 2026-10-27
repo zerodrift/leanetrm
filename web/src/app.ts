@@ -41,8 +41,8 @@ import type {CurveShape} from './desk-model.js';
 import {commodityDot,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
 import {renderTile} from './tiles.js';
 import {panelPlacement} from './side-panel.js';
-import type {OverlayCatalog,OverlayRequest,OverlaySeries} from './time-chart.js';
-import {type ContractHistory,type RevisionPolicy,revisionPolicies,historyBasis,historyChart,historyOverlays,knownAtText,setupContractPanel} from './contract-panel.js';
+import {answeredOverlays,type OverlayCatalog,type OverlayRequest,type OverlaySeries} from './time-chart.js';
+import {type ContractHistory,type RevisionPolicy,revisionPolicies,historyBasis,historyChart,knownAtText,setupContractPanel} from './contract-panel.js';
 
 const exampleId=new URLSearchParams(location.search).get('example')??'baseline';
 if(!['baseline','exchange'].includes(exampleId))throw Error('Choose an available example.');
@@ -503,7 +503,7 @@ async function history(){
     const next=await api<ContractHistory>('history',{revisionPolicy:policy,snapshotId:owner.snapshotId,curve:owner.curve,...(owner.kind==='rates'?{seriesId:selected}:{contractId:selected}),...(overlays.length?{overlays}:{})});
     if(!contract)return;if(!current())throw staleSelection();
     historyBasis(policy,next,instant);
-    historySeries=historyOverlays(overlays,next.overlays,catalog,'conflict' in historyChart(next));historyData=next;
+    historySeries=answeredOverlays(overlays,next.overlays,catalog,'conflict' in historyChart(next));historyData=next;
   }catch(error){if(current()){historyFailed=true;renderHistory();}throw error;}
   renderHistory();
 }
@@ -838,7 +838,7 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
  open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose,'closes'),select:chooseClose
 });
-const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant,overlayCatalog:readOverlayCatalog});
+const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});

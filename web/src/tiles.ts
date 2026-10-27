@@ -19,10 +19,13 @@ export function kpi(figure:string,unit?:string){
 }
 
 export type TileRow={figure:string;caption?:string;sign?:'positive'|'negative'|'zero'};
-/** `aside` sits opposite the label, as the instant a figure belongs to; a tile of `words` lets its figures wrap instead of shrinking. */
-export type TileSpec={label:string;aside?:string;rows:readonly TileRow[];note?:string;words?:boolean};
+/**
+ * `aside` sits opposite the label, as the instant a figure belongs to; a tile of `words` lets its figures wrap instead of shrinking;
+ * `kind` names the tile for its page's layout and checks (`data-tile`), apart from the label it shows.
+ */
+export type TileSpec={label:string;kind?:string;aside?:string;rows:readonly TileRow[];note?:string;words?:boolean};
 export function renderTile(spec:TileSpec){
-  const tile=node('div','desk-tile');tile.append(label(spec.label,spec.aside));if(spec.words)tile.classList.add('desk-tile-words');
+  const tile=node('div','desk-tile');tile.append(label(spec.label,spec.aside));if(spec.words)tile.classList.add('desk-tile-words');if(spec.kind)tile.dataset.tile=spec.kind;
   for(const row of spec.rows){
     const block=node('div','desk-tile-row'),figure=kpi(row.figure,row.caption);if(row.sign)figure.dataset.sign=row.sign;
     block.append(figure);tile.append(block);

@@ -304,10 +304,12 @@ context or curve closes the panel.
   latest knowledge instant used. A collection tile shows the jobs and the
   newest attempt's outcome from a new catalog `collection` summary.
 - **Prices tab:** the time chart of interval prices with overlays, then the
-  interval table. The chart has a point for each published interval; where the
-  next published interval does not start at the previous one's end, a point
-  without a price at that end breaks the line. **Collection history tab:**
-  today's attempts table.
+  interval table. The period read states the series it is charted from as
+  `chart:{points:[{at,value|null,unavailableReason}]}`, one point per expected
+  interval of its operating days (the same points the overlays run over); an
+  interval not published by the cutoff has no price and the reason
+  `not_published_at_cutoff`. The browser draws only that series and refuses a
+  read without it. **Collection history tab:** today's attempts table.
 - The page keeps its own cutoff and generation guard, outside the As of dock.
 
 ## Backend changes

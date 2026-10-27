@@ -2,7 +2,7 @@
 // table, with its history over time and how it is priced. The page reads; this module draws what the reads returned, and says which
 // revision policy and knowledge each history read used. It chooses no revision, computes no overlay and fills no gap.
 import {setupSidePanel,setupTabs,type PanelMode} from './side-panel.js';
-import {renderTimeChart,overlayMenu,type OverlayCatalog,type OverlayRequest,type OverlaySeries,type TimeChart,type TimePoint} from './time-chart.js';
+import {renderTimeChart,overlayMenu,type OverlayAnswer,type OverlayCatalog,type OverlayRequest,type OverlaySeries,type TimeChart,type TimePoint} from './time-chart.js';
 import type {HistoryPoint} from './market-view.js';
 import {kpi,node} from './tiles.js';
 
@@ -12,7 +12,6 @@ export const revisionPolicies:readonly {policy:RevisionPolicy;label:string}[]=[
   {policy:'exact_snapshot_pins_v1',label:'Exact closes'},
   {policy:'as_known_at_cutoff_v1',label:'As known at cutoff'},
 ];
-type OverlayAnswer=Omit<OverlaySeries,'label'>;
 /**
  * A `history` read: its points under the policy it names, the knowledge it used, the series it is charted from (one point per instant,
  * or the instant where different samples remain), and the overlays it was asked for, which a conflicting series has none of.
@@ -42,27 +41,6 @@ export function historyChart(read:Partial<Pick<ContractHistory,'chart'>>):{point
   if(chart&&Array.isArray(chart.points)&&chart.conflict===undefined)return {points:chart.points.map(({at,value})=>({at,value}))};
   if(chart&&chart.points===undefined&&typeof chart.conflict?.message==='string')return {conflict:chart.conflict.message};
   throw Error('The price history does not state the series to chart. Read it again.');
-}
-
-const sameParameters=(a:Record<string,number>,b:Record<string,number>)=>{
-  const entries=(p:Record<string,number>)=>JSON.stringify(Object.entries(p).sort(([x],[y])=>x<y?-1:1));
-  return entries(a)===entries(b);
-};
-/**
- * The overlays a read returned, each named by its catalog definition, in the order they were asked for. A read whose overlays do not
- * answer the request exactly, under the catalog's policy and with its series, is refused; over a conflicting series it returns none.
- */
-export function historyOverlays(requests:readonly OverlayRequest[],answers:readonly OverlayAnswer[]|undefined,catalog:OverlayCatalog,conflict=false):OverlaySeries[]{
-  if(conflict){if(answers!==undefined)throw Error('The chart overlays do not match the ones chosen. Apply them again.');return [];}
-  const returned=answers??[];
-  if(returned.length!==requests.length||returned.some((answer,i)=>answer.code!==requests[i].code||!sameParameters(answer.parameters,requests[i].parameters)||answer.policy!==catalog.policy))
-    throw Error('The chart overlays do not match the ones chosen. Apply them again.');
-  return returned.map(answer=>{
-    const definition=catalog.overlays.find(d=>d.code===answer.code);
-    if(!definition)throw Error('An overlay is not in the overlay catalog. Refresh the page.');
-    if(JSON.stringify(Object.keys(answer.series).sort())!==JSON.stringify([...definition.seriesNames].sort()))throw Error('The chart overlays do not match the ones chosen. Apply them again.');
-    return {...answer,label:definition.label};
-  });
 }
 
 /** When a value was known: the latest certification of its prices, not certified yet, or nothing for a close that saved no price. */

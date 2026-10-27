@@ -125,12 +125,17 @@ public static class PowerHistory
         var average=ordered.Length==0?null:HalfEven18.Report(SignedRatio.Sum(ordered.Select((item,i)=>item.value*new SignedRatio(seconds[i],1)))/seconds.Sum());
         return new(rows.Count,window.Count,missing,Extreme(order=>order<0),Extreme(order=>order>0),average,rows.Count==0?null:rows.Max(row=>row.KnownAt),HalfEven18.Policy);
     }
-    // One point per operating-day interval: published prices, and missing points where none is published.
-    public static ImmutableArray<OverlayPoint> OverlayPoints(IReadOnlyList<PowerInterval> window,IReadOnlyList<IntervalActual> rows)
+    public const string NotPublished="not_published_at_cutoff";
+    // The series the period is charted from: one point per operating-day interval, at its start, with the price published by the
+    // cutoff, or no price and the reason where none was. The browser draws exactly these points (markets-desk.md, Delivery prices).
+    public static ImmutableArray<HistoryChartPoint> Chart(IReadOnlyList<PowerInterval> window,IReadOnlyList<IntervalActual> rows)
     {
         var prices=rows.ToDictionary(row=>row.Start,row=>row.Price.Value.ToString());
-        return [..window.Select(interval=>new OverlayPoint(interval.Start,prices.GetValueOrDefault(interval.Start)))];
+        return [..window.Select(interval=>prices.TryGetValue(interval.Start,out var price)?new HistoryChartPoint(interval.Start,price,null):new(interval.Start,null,NotPublished))];
     }
+    // The overlays' input: exactly the chart's points.
+    public static ImmutableArray<OverlayPoint> OverlayPoints(IReadOnlyList<PowerInterval> window,IReadOnlyList<IntervalActual> rows)=>
+        [..Chart(window,rows).Select(point=>new OverlayPoint(point.At,point.Value))];
     private static SignedRatio Exact(IntervalActual row)=>SignedRatio.TryParse(row.Price.Value.ToString(),out var value)?value:throw new MarketDataException("numeric_format","A recorded price is not a plain decimal.");
     public static async Task<object> Period(NpgsqlConnection connection,PowerHistoryPeriodRequest request,CancellationToken ct)
     {
@@ -140,6 +145,7 @@ public static class PowerHistory
         var history=await ReadPrices(connection,request.SourceId,window[0].Start,window[^1].End,SchedulePreview.ParseAt(request.KnownAt),ct);
         var read=Response(source,history,request.SourceId);
         read["summary"]=Summarize(window,history.Rows);
+        read["chart"]=new{points=Chart(window,history.Rows)};
         // The read holds one revision per interval, as known at the cutoff, so overlays see the same series.
         if(request.Overlays is {} overlays)read["overlays"]=Overlays.Compute(OverlayPoints(window,history.Rows),overlays);
         return read;

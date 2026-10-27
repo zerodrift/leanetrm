@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 // The chart library reads the browser's user agent when it loads; the pure functions under test never draw.
 globalThis.window??={navigator:{userAgent:'node'}};
-const {axisLabels,timeChartData,overlayLookup,overlayLegend,overlayMenuState,latestValues,chartStyles,exactTexts,isolatedPoints,withIsolatedPoints}=await import('../dist/time-chart.js');
+const {answeredOverlays,axisLabels,timeChartData,overlayLookup,overlayLegend,overlayMenuState,latestValues,chartStyles,exactTexts,isolatedPoints,withIsolatedPoints}=await import('../dist/time-chart.js');
 import {plotNumber} from '../dist/plot-number.js';
 
 const at=n=>`2027-03-${String(n).padStart(2,'0')}T00:00:00Z`;
@@ -123,4 +123,37 @@ test('axis ticks name the day of each point, the year too when the series spans 
   assert.deepEqual([...axisLabels([{at:'2020-12-31T21:00:00Z',value:'1'},{at:'2021-01-04T21:00:00Z',value:'2'}],zone).values()],['Dec 31, 2020','Jan 4, 2021']);
   assert.deepEqual([...axisLabels([{at:'2026-11-01T05:00:00Z',value:'1'},{at:'2026-11-01T05:30:00Z',value:'2'}],zone).values()],['1:00 AM','1:30 AM']);
   assert.deepEqual([...axisLabels([{at:'2020-12-15T21:00:00Z',value:'1'}],zone).keys()],[Date.parse('2020-12-15T21:00:00Z')]);
+});
+
+// A read's overlays answer the catalog it was asked under: their series are the definitions' series names.
+const readCatalog={policy:'exact_rational_half_even_18_v1',overlays:[
+  {code:'simple_moving_average_v1',label:'Simple moving average',parameters:[{name:'window',label:'Window',minimum:2,maximum:250}],seriesNames:['value']},
+  {code:'rolling_range_v1',label:'Rolling range',parameters:[{name:'window',label:'Window',minimum:2,maximum:250}],seriesNames:['high','low']}]};
+
+test('overlays are drawn with the catalog label for each definition the read was asked for, in the order asked',()=>{
+  const requests=[{code:'rolling_range_v1',parameters:{window:3}},{code:'simple_moving_average_v1',parameters:{window:2}}];
+  const series={value:[{at:at(17),value:'3.15',reason:null}]},range={high:[{at:at(17),value:'3.2',reason:null}],low:[{at:at(17),value:'3.1',reason:null}]};
+  const response=[{code:'rolling_range_v1',parameters:{window:3},policy:readCatalog.policy,series:range},{code:'simple_moving_average_v1',parameters:{window:2},policy:readCatalog.policy,series}];
+  assert.deepEqual(answeredOverlays(requests,response,readCatalog),[
+    {code:'rolling_range_v1',label:'Rolling range',parameters:{window:3},policy:readCatalog.policy,series:range},
+    {code:'simple_moving_average_v1',label:'Simple moving average',parameters:{window:2},policy:readCatalog.policy,series}]);
+  assert.deepEqual(answeredOverlays([],undefined,readCatalog),[]);
+});
+
+test('over a conflicting series the read returns no overlays, and any it returns are refused',()=>{
+  const sma={code:'simple_moving_average_v1',parameters:{window:3}};
+  assert.deepEqual(answeredOverlays([sma],undefined,readCatalog,true),[]);
+  assert.throws(()=>answeredOverlays([sma],[{...sma,policy:readCatalog.policy,series:{value:[]}}],readCatalog,true),/overlays/);
+});
+
+test('overlays that do not answer the request, or that the catalog does not define, are refused',()=>{
+  const sma={code:'simple_moving_average_v1',parameters:{window:3}},answer={...sma,policy:readCatalog.policy,series:{value:[]}};
+  assert.throws(()=>answeredOverlays([sma],undefined,readCatalog),/overlays/);
+  assert.throws(()=>answeredOverlays([sma],[{...answer,parameters:{window:4}}],readCatalog),/overlays/);
+  assert.throws(()=>answeredOverlays([sma],[answer,answer],readCatalog),/overlays/);
+  assert.throws(()=>answeredOverlays([sma],[{...answer,policy:'another_policy'}],readCatalog),/overlays/);
+  assert.throws(()=>answeredOverlays([sma],[{...answer,series:{other:[]}}],readCatalog),/overlays/);
+  assert.throws(()=>answeredOverlays([],[answer],readCatalog),/overlays/);
+  const unknown={code:'unknown_v1',parameters:{window:3}};
+  assert.throws(()=>answeredOverlays([unknown],[{...unknown,policy:readCatalog.policy,series:{value:[]}}],readCatalog),/catalog/);
 });

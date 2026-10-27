@@ -1406,9 +1406,9 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .delivery-tiles{margin:0 0 16px}
 /* Each tile is as wide as the row gives it, and its figure shrinks to the tile: a period's exact average can be twenty digits long. */
 .delivery-tiles .desk-tile{flex-basis:130px;container-type:inline-size}
-.delivery-tiles .desk-tile:is([data-name=Low],[data-name=High]){flex-basis:160px}
-.delivery-tiles .desk-tile[data-name=Average]{flex:2 1 250px}
-.delivery-tiles .desk-tile[data-name="Latest knowledge"]{flex-basis:170px}
+.delivery-tiles .desk-tile:is([data-tile=low],[data-tile=high]){flex-basis:160px}
+.delivery-tiles .desk-tile[data-tile=average]{flex:2 1 250px}
+.delivery-tiles .desk-tile[data-tile=known]{flex-basis:170px}
 .delivery-tiles .desk-tile[data-tile=collection]{flex-basis:200px}
 .delivery-tiles>.desk-tile:only-child{flex:0 1 280px}
 .delivery-tiles .desk-tile-label{flex-wrap:wrap;column-gap:8px;row-gap:1px}

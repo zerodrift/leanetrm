@@ -133,7 +133,16 @@ static class PowerImportChecks
         var overlay=OpenEtrm.Shared.Analytics.Overlays.Compute(PowerHistory.OverlayPoints(day,rows),[new("simple_moving_average_v1",new Dictionary<string,int>{["window"]=2})]).Single();
         var values=string.Join(",",overlay.Series["value"].Take(8).Select(v=>v.Value??"null"));
         Require(values=="null,0.75,5.625,2.375,-1.25,null,null,6.5",$"period overlays equal the hand-computed moving average: {values}");
-        Console.WriteLine("PASS delivery desk: newest-day opening with ties, DST-aware expected intervals, missing intervals, exact time-weighted average, earliest extremes and period overlays");
+        // The chart has a point for every expected interval: over 2026-11-02 and 2026-11-03, the first day's first and last hours and the
+        // whole second day are unpublished, and each of those 26 intervals is a point without a price that states why.
+        var range=PowerImportProtocol.Window(new(2026,11,2),new(2026,11,3),eastern,60);
+        var edges=range.Take(24).Select((interval,h)=>(interval,h)).Where(p=>p.h is > 0 and < 23).Select(p=>Row(p.interval,p.h.ToString(System.Globalization.CultureInfo.InvariantCulture))).ToArray();
+        var chart=PowerHistory.Chart(range,edges);
+        Require(chart.Length==48&&chart.Select(p=>p.At).SequenceEqual(range.Select(i=>i.Start)),"the period chart has one point per expected interval, at its start");
+        Require(chart.Select((p,i)=>i is > 0 and < 23?p.Value==i.ToString(System.Globalization.CultureInfo.InvariantCulture)&&p.UnavailableReason is null:p.Value is null&&p.UnavailableReason=="not_published_at_cutoff").All(ok=>ok),
+            "unpublished intervals at a day's edges and on a whole day are chart points without a price, with their reason");
+        Require(PowerHistory.OverlayPoints(range,edges).SequenceEqual(chart.Select(p=>new OpenEtrm.Shared.Analytics.OverlayPoint(p.At,p.Value))),"overlays run over exactly the chart's points");
+        Console.WriteLine("PASS delivery desk: newest-day opening with ties, DST-aware expected intervals, missing intervals, exact time-weighted average, earliest extremes, a chart point per expected interval and period overlays");
     }
     public static async Task<int> MalformedCollection()
     {
