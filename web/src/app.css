@@ -665,7 +665,16 @@ dialog label{margin-top:16px}
 .desk-run-export-note{color:var(--text-2)}
 .desk-run-actions{display:flex;flex:none;flex-wrap:wrap;gap:6px}
 .desk-run-actions button{padding:5px 10px;font-size:12px}
+.desk-lens-bar{display:inline-flex;flex-wrap:wrap;gap:8px}
+.desk-lens-bar[hidden]{display:none}
 .desk-lens{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:var(--surface-3)}
+.desk-lens[hidden]{display:none}
+.ladder-zero{color:var(--text-3)}
+.ladder-nonlinear{margin-left:6px;font-size:10.5px;font-weight:600;color:var(--text-2)}
+.ladder-missing{color:var(--text-3);font-style:italic}
+.contract-positions{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.contract-positions button{width:100%;display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;text-align:left}
+.contract-positions button span:last-child{margin-left:auto;font-variant-numeric:tabular-nums}
 .desk-lens button{padding:4px 10px;border:0;border-radius:7px;background:none;font-size:11.5px;font-weight:550;color:var(--text-2)}
 .desk-lens button:hover{background:var(--surface)}
 .desk-lens button[aria-pressed=true]{background:var(--surface);color:var(--text);font-weight:650;box-shadow:0 1px 2px rgba(18,34,27,.1)}

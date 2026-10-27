@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
 import {positionMode,positionIndex,tradeIndex,followedPosition,bookedPosition,requireTradeRows,revisionNote,setupDeskPanel} from '../dist/desk-panel.js';
-import {sameMode} from '../dist/side-panel.js';
+import {modeLabel,sameMode} from '../dist/side-panel.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
 setCurveNames(fixture.curveNames);
@@ -219,4 +219,12 @@ test('a position opened from a read the desk draws again is brought into view on
  await state.controller.open(0);state.log.length=0;
  state.controller.sync();
  assert.deepEqual(state.log,[['position.update',0],['grid.select',0]]);
+});
+
+test('a ladder row\'s Contract mode is the same mode only for the same shocked factor, and is named Contract',()=>{
+ const jan={kind:'contract',factorId:'f-jan'};
+ assert.ok(sameMode(jan,{kind:'contract',factorId:'f-jan'}));
+ assert.ok(!sameMode(jan,{kind:'contract',factorId:'f-feb'}));
+ assert.ok(!sameMode(jan,{kind:'risk'}));
+ assert.equal(modeLabel(jan),'Contract');
 });
