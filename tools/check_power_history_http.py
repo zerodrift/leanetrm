@@ -61,6 +61,20 @@ def run_checks(client, query, manifest):
         query(f"DELETE FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{alternate_catalog}','{manifest['tenantId']}','{manifest['workspaceId']}');")
     result, _ = client.call('/api/power-imports/period', {'sourceId':source['id'],'fromDate':'2026-11-02','throughDate':'2026-11-02','knownAt':catalog['knownAt']})
     assert result['priceUnit'] == 'USD/MWh' and len(result['rows']) == 24
+    # Before the day's first publication each of its intervals is a chart point without a price; at the cutoff that recorded it, each
+    # has the price recorded then. Earlier revisions are stepped through by their own knowledge instants.
+    day = {'sourceId':source['id'],'fromDate':'2026-11-02','throughDate':'2026-11-02'}
+    first_known = min(datetime.fromisoformat(row['knownAt'].replace('Z','+00:00')) for row in result['rows'])
+    for _ in range(5):
+        before, _ = client.call('/api/power-imports/period', {**day,'knownAt':(first_known-timedelta(microseconds=1)).isoformat()})
+        if not before['rows']:break
+        first_known = min(datetime.fromisoformat(row['knownAt'].replace('Z','+00:00')) for row in before['rows'])
+    else:
+        raise AssertionError('The delivery day has no cutoff before its first publication')
+    assert before['summary']['missingIntervals'] == 24, before['summary']
+    assert before['chart'] == {'points':[{'at':row['start'],'value':None,'unavailableReason':'not_published_at_cutoff'} for row in result['rows']]}, before['chart']
+    recorded, _ = client.call('/api/power-imports/period', {**day,'knownAt':first_known.isoformat()})
+    assert len(recorded['rows']) == 24 and recorded['chart'] == {'points':[{'at':row['start'],'value':row['formattedPrice'],'unavailableReason':None} for row in recorded['rows']]}, recorded['chart']
     # A normal collector correction retains all observed decimal places. History
     # display must not silently apply an unrelated four-place rounding policy.
     precise = '-17.125456789012345678'
@@ -76,12 +90,52 @@ def run_checks(client, query, manifest):
     INSERT INTO power_data.collectors VALUES('synthetic_history_collector','{actor}','{manifest['tenantId']}','{manifest['workspaceId']}','{manifest['catalogId']}');
     INSERT INTO power_data.jobs VALUES('{job}',gen_random_uuid(),'Synthetic precise history correction','synthetic_history_collector','{manifest['catalogId']}','PJM',true,false,'0 8 * * *','UTC',-7,-1);
     INSERT INTO power_data.job_sources VALUES('{job}','{source['id']}','{manifest['catalogId']}');""")
-    query(f"SET SESSION AUTHORIZATION synthetic_history_collector;SELECT power_data.worker_lock();DO $$DECLARE attempt uuid;BEGIN attempt=power_data.begin_attempt('{job}','2026-11-02','2026-11-02');PERFORM power_data.finish_attempt(attempt,'{payload}'::jsonb,NULL);END$$;")
-    query(f"SELECT power_data.certify('{manifest['catalogId']}');")
+    def collect():
+        query(f"SET SESSION AUTHORIZATION synthetic_history_collector;SELECT power_data.worker_lock();DO $$DECLARE attempt uuid;BEGIN attempt=power_data.begin_attempt('{job}','2026-11-02','2026-11-02');PERFORM power_data.finish_attempt(attempt,'{payload}'::jsonb,NULL);END$$;")
+        query(f"SELECT power_data.certify('{manifest['catalogId']}');")
+    collect()
     latest, _ = client.call('/api/power-imports')
-    exact, _ = client.call('/api/power-imports/period', {'sourceId':source['id'],'fromDate':'2026-11-02','throughDate':'2026-11-02','knownAt':latest['knownAt']})
+    period = {'sourceId':source['id'],'fromDate':'2026-11-02','throughDate':'2026-11-02'}
+    exact, _ = client.call('/api/power-imports/period', {**period,'knownAt':latest['knownAt']})
     assert len(exact['rows']) == 24 and all(row['price']['value'] == precise for row in exact['rows'])
     assert all(row['formattedPrice'] == precise for row in exact['rows']), 'Delivery history display rounded an exact observed price without an explicit policy'
+    assert 'overlays' not in exact
+    # The earlier cutoff still reads every interval as it was known then.
+    def facts(read): return [(row['start'], row['price']['value'], row['batchId'], row['knownAt']) for row in read['rows']]
+    earlier, _ = client.call('/api/power-imports/period', {**period,'knownAt':catalog['knownAt']})
+    assert facts(earlier) == facts(result) and {row['price']['value'] for row in earlier['rows']} == {'-17.125'}, 'A later correction changed a read at an earlier cutoff'
+    assert earlier['summary']['average'] == '-17.125'
+    # D238: collecting the same prices again publishes nothing new.
+    batches = query('SELECT count(*) FROM power_data.batches;')
+    collect()
+    assert query(f"SELECT state FROM power_data.attempts WHERE job_id='{job}' ORDER BY started_at DESC LIMIT 1;") == 'succeeded'
+    assert query('SELECT count(*) FROM power_data.batches;') == batches, 'An identical collection published a new batch'
+    repeated, _ = client.call('/api/power-imports')
+    again, _ = client.call('/api/power-imports/period', {**period,'knownAt':repeated['knownAt']})
+    assert facts(again) == facts(exact), 'An identical collection changed the knowledge time of recorded prices'
+    # One synthetic source has prices, through 2026-11-02 only.
+    assert repeated['opening'] == {'sourceId':source['id'],'fromDate':'2026-11-02','throughDate':'2026-11-02','policy':'newest_available_delivery_day_v1'}, repeated['opening']
+    newest = query("SELECT state||'|'||from_date||'|'||through_date||'|'||coalesce(error_code,'-') FROM power_data.attempts ORDER BY started_at DESC,id LIMIT 1;")
+    latest_attempt = repeated['collection']['latestAttempt']
+    assert '|'.join([latest_attempt['state'],latest_attempt['fromDate'],latest_attempt['throughDate'],latest_attempt['errorCode'] or '-']) == newest
+    assert repeated['collection']['jobs'] == int(query('SELECT count(*) FROM power_data.jobs;'))
+    assert repeated['collection']['enabledJobs'] == int(query('SELECT count(*) FROM power_data.jobs WHERE enabled;'))
+    first_hour = exact['rows'][0]['start']
+    assert exact['summary'] == {'intervals':24,'expectedIntervals':24,'missingIntervals':0,'low':{'price':precise,'start':first_hour},'high':{'price':precise,'start':first_hour},
+                                'average':precise,'latestKnownAt':exact['rows'][0]['knownAt'],'policy':'exact_rational_half_even_18_v1'}, exact['summary']
+    ranged, _ = client.call('/api/power-imports/period', {**period,'knownAt':repeated['knownAt'],'overlays':[{'code':'rolling_range_v1','parameters':{'window':2}}]})
+    overlay = ranged['overlays'][0]
+    assert overlay['policy'] == 'exact_rational_half_even_18_v1' and [v['at'] for v in overlay['series']['high']] == [row['start'] for row in exact['rows']]
+    assert [v['value'] for v in overlay['series']['high']] == [None] + [precise] * 23 and overlay['series']['low'] == overlay['series']['high']
+    # The chart states a point per expected interval: every published hour, then each hour of 2026-11-03, which has no prices.
+    assert exact['chart'] == {'points':[{'at':row['start'],'value':precise,'unavailableReason':None} for row in exact['rows']]}, exact.get('chart')
+    two_days, _ = client.call('/api/power-imports/period', {**period,'throughDate':'2026-11-03','knownAt':repeated['knownAt']})
+    points = two_days['chart']['points']
+    assert len(two_days['rows']) == 24 and two_days['summary']['expectedIntervals'] == 48 and len(points) == 48, two_days['summary']
+    assert points[:24] == exact['chart']['points'] and all(p['value'] is None and p['unavailableReason'] == 'not_published_at_cutoff' for p in points[24:]), points[24:]
+    assert [datetime.fromisoformat(p['at'].replace('Z','+00:00')) for p in points[24:]] == [start+timedelta(hours=24+h) for h in range(24)]
+    refusal, _ = client.call('/api/power-imports/period', {**period,'knownAt':repeated['knownAt'],'overlays':[{'code':'simple_moving_average_v1','parameters':{}}]}, expected=422)
+    assert refusal['code'] == 'overlay_parameter'
     scope_mode=query(f"SELECT access_mode FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{r}','{manifest['tenantId']}','{manifest['workspaceId']}');")
     assert scope_mode in ('owner','read_only')
     query(f"DELETE FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{r}','{manifest['tenantId']}','{manifest['workspaceId']}');")
@@ -94,3 +148,4 @@ def run_checks(client, query, manifest):
     client.call('/api/power-imports', expected=422)
     client.call('/api/market/current', {})
     print('PASS HTTP delivery metadata: exact commodity/location/clock/unit references and observed prices, attempts, scope revocation and historical rejection', flush=True)
+    print('PASS HTTP delivery periods: reads and charts as known at each cutoff, an identical collection publishes nothing, newest-day opening, collection outcome, exact summary, a chart point per expected interval and period overlays', flush=True)

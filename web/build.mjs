@@ -1,5 +1,5 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import {bundleApplication,vendorModules} from './bundle-app.mjs';
+import {bundleApplication} from './bundle-app.mjs';
 mkdirSync('dist', { recursive: true });
 for (const file of ['index.html', 'app.css']) copyFileSync(`src/${file}`, `dist/${file}`);
 
@@ -12,12 +12,21 @@ for(const [source,target] of [
  ['node_modules/echarts/LICENSE','ECHARTS-LICENSE'],
  ['node_modules/echarts/NOTICE','ECHARTS-NOTICE'],
  ['node_modules/zrender/LICENSE','ZRENDER-LICENSE'],
+ ['node_modules/klinecharts/LICENSE','KLINECHARTS-LICENSE'],
+ ['node_modules/klinecharts/NOTICE','KLINECHARTS-NOTICE'],
+ ['node_modules/klinecharts/licenses/LICENSE-lightweight-charts','KLINECHARTS-LICENSE-LIGHTWEIGHT-CHARTS'],
  ['node_modules/tslib/CopyrightNotice.txt','TSLIB-COPYRIGHT'],
  ['node_modules/tslib/LICENSE.txt','TSLIB-LICENSE'],
 ]) copyFileSync(source,'dist/vendor/'+target);
 
-await bundleApplication('dist');
-const preloads=vendorModules.map(file=>`<link rel="modulepreload" href="${file.slice(1)}">`).join('');
+// The library's ES module reads process.env.NODE_ENV, which a browser does not define: state production, once, and nothing else.
+const library=readFileSync('node_modules/klinecharts/dist/index.esm.js','utf8');
+if(library.split('process.env.NODE_ENV').length!==2)throw Error('The chart library no longer reads process.env.NODE_ENV exactly once.');
+writeFileSync('dist/vendor/klinecharts.js',library.replace('process.env.NODE_ENV',"'production'"));
+const metafile=await bundleApplication('dist');
+const imported=Object.values(metafile.outputs)[0].imports.map(item=>item.path);
+// Only the vendor modules the application imports are preloaded.
+const preloads=imported.map(file=>`<link rel="modulepreload" href="${file.slice(1)}">`).join('');
 const html=readFileSync('dist/index.html','utf8'),entry='<script type="module" src="/app.js"></script>';
 if(html.split(entry).length!==2)throw Error('The built page must name one application module.');
 writeFileSync('dist/index.html',html.replace(entry,preloads+entry));

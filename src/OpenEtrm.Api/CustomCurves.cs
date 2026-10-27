@@ -432,7 +432,17 @@ public static partial class CustomCurves
             return new{title="Custom curve",axis="category",axisName="Curve point",unit,
                 series=new[]{new{name="Price",points=result.Points.Select(p=>new{x=p.Label,y=p.Price.Format(format),label=p.Label})}}};
         }
-        return new{id,version,context=pin.Context,snapshotId=pin.RequireFrame().Id,at=pin.RequireFrame().At,engineVersion=RecipeEngine.Version,
+        object Summary()
+        {
+            var units=result.Points.Select(p=>Unit(p.Price.Unit)).Distinct().ToArray();
+            if(units.Length>1)throw new MarketDataException("custom_curve_mixed_units","The preview mixes output units, so no single unit describes it.");
+            var periods=result.Points.SelectMany(p=>p.Contracts).Select(c=>data.ContractRows(c.Id).Single()).Select(c=>(c.DeliveryFrom,c.DeliveryTo)).OrderBy(p=>p.DeliveryFrom).ThenBy(p=>p.DeliveryTo).ToArray();
+            object? Period((DateOnly From,DateOnly To)? period)=>period is {} p?new{from=p.From.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),to=p.To.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)}:null;
+            return new{points=result.Points.Length,unavailablePoints=0,
+                firstPeriod=Period(periods.Length>0?periods[0]:null),lastPeriod=Period(periods.Length>0?periods[^1]:null),
+                unit=units.SingleOrDefault()??""};
+        }
+        return new{id,version,context=pin.Context,summary=Summary(),snapshotId=pin.RequireFrame().Id,at=pin.RequireFrame().At,engineVersion=RecipeEngine.Version,
             columns=new[]{"Point","Price","Unit","Samples","Dates","Contracts"},
             rows=result.Points.Select(p=>new[]{p.Label,p.Price.Format(format),Unit(p.Price.Unit),p.SampleCount.ToString(CultureInfo.InvariantCulture),string.Join(", ",p.Dates.Select(d=>d.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture))),string.Join(", ",p.Contracts.Select(c=>data.ContractRows(c.Id).Single().DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)))}),
             chart=Chart(),

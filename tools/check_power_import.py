@@ -61,6 +61,17 @@ def run_checks(query,manifest,dotnet,root,environment):
     assert read(second)=='0'
     latest=query('SELECT known_at::text FROM power_data.receipts ORDER BY sequence DESC LIMIT 1;')
     assert read(latest)=='-17.125'
+    # D238: collecting identical prices again succeeds and publishes nothing.
+    publish('-17.125')
+    assert query(f"SELECT state FROM power_data.attempts WHERE job_id='{job}' ORDER BY started_at DESC LIMIT 1;")=='succeeded'
+    assert query('SELECT count(*) FROM power_data.batches;')=='3'
+    # A changed price, or a changed provider revision, is a new revision of that interval alone.
+    changed=json.loads(payload('-17.125'));changed[0]['rows'][3]['price']='-17.50';changed[0]['rows'][7]['revision']=2
+    revised=query(f"""BEGIN;SET SESSION AUTHORIZATION synthetic_collector;SELECT power_data.worker_lock();
+    DO $$DECLARE a uuid;BEGIN a=power_data.begin_attempt('{job}','2026-11-02','2026-11-02');PERFORM power_data.finish_attempt(a,'{json.dumps(changed)}'::jsonb,NULL);END$$;
+    RESET SESSION AUTHORIZATION;
+    SELECT string_agg(to_char(p.starts_at AT TIME ZONE 'UTC','HH24')||'='||p.price::text||'/'||p.provider_revision,',' ORDER BY p.starts_at) FROM power_data.prices p JOIN power_data.batches b ON b.id=p.batch_id WHERE b.sequence=(SELECT max(sequence) FROM power_data.batches);ROLLBACK;""")
+    assert revised.splitlines()[-1]=='08=-17.50/1,12=-17.125/2',revised
     token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','editor','human_interactive','{t}','{w}',NULL,'preview_runtime',60);")
     query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT power_data.read_prices('{source}','2026-10-02T04:00:00Z','2026-11-02T05:00:00Z','{latest}') IS NOT NULL;COMMIT;")
     # Independent calendar oracles: PJM 25-hour fall day and ERCOT 92/100 quarter-hours.

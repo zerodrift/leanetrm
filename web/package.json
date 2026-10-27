@@ -13,6 +13,7 @@
   "type": "module",
   "dependencies": {
     "echarts": "6.1.0",
+    "klinecharts": "10.0.3",
     "tabulator-tables": "6.6.1"
   }
 }

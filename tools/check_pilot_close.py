@@ -67,7 +67,7 @@ def run_checks(url, query, manifest,psql,environment):
     assert result['id'] in {f['id'] for day in dates['dates'] for f in day['frames']}
     selected=max((saved for saved in full['frames'] if saved['id'] in full['initialFrameIds']),key=lambda saved:saved['at'])
     curve=next(iter(frame['curveContracts']));contract=frame['curveContracts'][curve][0]
-    history=fresh.call('history',{'snapshotId':selected['id'],'curve':curve,'contractId':contract})
+    history=fresh.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':selected['id'],'curve':curve,'contractId':contract})
     stored_point=next((point for point in history['points'] if point['snapshotId']==result['id']),None)
     assert stored_point, 'Current price history omitted an unselected durable close'
     assert len({point['snapshotId'] for point in history['points'] if point['at']==frame['at']})==2, 'Distinct same-instant close identities were merged'
