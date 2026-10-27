@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {deliveryPriceChoices,latestDeliverySource} from '../dist/delivery-price-filters.js';
+import {deliveryPriceChoices,deliveryOpening} from '../dist/delivery-price-filters.js';
 
 const source=(id,commodityKey,commodityName,provider,market,locationKey,locationName)=>({id,name:id,commodityKey,commodityName,provider,market,marketName:market==='DA'?'Day ahead':'Real time',locationKey,locationName,minutes:60,marketClock:'America/New_York',priceUnit:'USD / MWh',availableDates:['2026-11-02'],availableThrough:{'2026-11-02':'2026-11-02'}});
 const sources=[source('east_da','r1:power','Power','PJM','DA','r1:hub','Eastern hub'),source('east_rt','r1:power','Power','PJM','RT','r1:hub','Eastern hub'),source('south_da','r1:power','Power','ERCOT','DA','r1:south','Southern hub'),source('gas_da','r1:gas','Gas','Other','DA','r1:gas_hub','Gas hub'),source('other_version','r2:power','Power','PJM','DA','r2:hub','Eastern hub')];
@@ -35,9 +35,24 @@ test('a source without saved delivery dates contributes no choices at any level'
  assert.deepEqual(deliveryPriceChoices([empty],{commodityKey:'empty',provider:'PJM',market:'DA',locationKey:'r1:hub'}).sources,[]);
 });
 
-test('initial browsing picks the newest available delivery date and handles no records',()=>{
- const older={...sources[0],availableDates:['2026-10-01']};
- const newer={...sources[1],availableDates:['2026-12-01','2026-11-01']};
- assert.equal(latestDeliverySource([older,newer]),newer);
- assert.equal(latestDeliverySource([{...older,availableDates:[]}]),undefined);
+const opening=(sourceId,fromDate,throughDate=fromDate)=>({sourceId,fromDate,throughDate,policy:'newest_available_delivery_day_v1'});
+const week={...sources[1],availableDates:['2026-11-01','2026-11-02','2026-11-03'],availableThrough:{'2026-11-01':'2026-11-03','2026-11-02':'2026-11-03','2026-11-03':'2026-11-03'}};
+
+test('the page opens on the source and days the catalog names, even when another source has a newer day',()=>{
+ const newer={...sources[0],availableDates:['2026-12-01'],availableThrough:{'2026-12-01':'2026-12-01'}};
+ assert.deepEqual(deliveryOpening([newer,week],opening('east_rt','2026-11-02')),{source:week,fromDate:'2026-11-02',throughDate:'2026-11-02'});
+ assert.deepEqual(deliveryOpening([newer,week],opening('east_rt','2026-11-01','2026-11-03')),{source:week,fromDate:'2026-11-01',throughDate:'2026-11-03'});
+});
+
+test('a catalog with no opening opens nothing',()=>{
+ assert.equal(deliveryOpening([],null),null);
+ assert.equal(deliveryOpening([week],null),null);
+});
+
+test('an opening the catalog cannot support is refused instead of replaced',()=>{
+ assert.throws(()=>deliveryOpening([week],{...opening('east_rt','2026-11-02'),policy:'newest_day_v2'}),/opening/i);
+ assert.throws(()=>deliveryOpening([week],opening('unknown','2026-11-02')),/opening/i);
+ assert.throws(()=>deliveryOpening([week],opening('east_rt','2026-10-31')),/opening/i);
+ assert.throws(()=>deliveryOpening([week],opening('east_rt','2026-11-03','2026-11-02')),/opening/i);
+ assert.throws(()=>deliveryOpening([{...week,availableThrough:{...week.availableThrough,'2026-11-01':'2026-11-02'}}],opening('east_rt','2026-11-01','2026-11-03')),/opening/i);
 });

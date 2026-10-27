@@ -150,3 +150,98 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   await check('changing the close closes the panel',"document.querySelector('#contract-panel').hidden&&document.querySelector('#error').hidden");
  }finally{await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});await command('Emulation.clearDeviceMetricsOverride');}
 }
+
+// Delivery prices as a desk (docs/markets-desk.md, Delivery prices), over the preview's seeded week of hourly and quarter-hour prices: the
+// page opens on the catalog's opening and says so, whatever another source's days; its tiles state the period summary and the catalog's
+// collection as the backend wrote them; a person's change marks the shown range as theirs and chooses nothing for them; the 2026-11-01
+// fall-back day shows its 100 quarter-hours with distinct labels; an overlay is drawn with its definition and window; a catalog with no
+// opening says there are no delivery prices yet; and the page fits a 390px screen.
+export async function deliveryDesk({command,evaluate,wait,click,set,submit,check,shot,idle,fitsWidth,url}){
+ await command('Runtime.enable');await command('Page.enable');
+ await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+ const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
+  window.__catalogs=[];window.__periods=[];const send=window.fetch;window.fetch=async(input,init)=>{
+   const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
+   if(path==='/api/power-imports'){const response=await send(input,init),catalog=await response.json();window.__catalogs.push(catalog);
+    // The opening the page is given: the catalog's own, another source's oldest day, or none.
+    let opening=catalog.opening;
+    if(window.__openOlder){const other=catalog.sources.find(s=>s.id!==catalog.opening.sourceId),day=other.availableDates.slice().sort()[0];opening={...catalog.opening,sourceId:other.id,fromDate:day,throughDate:day};}
+    if(window.__noOpening)opening=null;
+    return new Response(JSON.stringify({...catalog,opening}),{status:response.status,headers:{'Content-Type':'application/json'}});}
+   const response=await send(input,init);
+   if(path==='/api/power-imports/period')window.__periods.push({body:JSON.parse(init.body),data:response.ok?await response.clone().json():null});
+   return response;
+  };`});
+ const period='window.__periods.at(-1)',catalog='window.__catalogs.at(-1)';
+ const figures="[...document.querySelectorAll('#delivery-price-tiles .desk-tile')].map(t=>[t.querySelector('.desk-tile-label').firstChild.textContent,t.querySelector('.kpi-figure').textContent])";
+ // Opens a date picker and chooses a day, moving through the months that have data.
+ const pick=async(name,date)=>{await click(`#delivery-price-${name}-calendar summary`);
+  await evaluate(`(()=>{const host=document.querySelector('#delivery-price-${name}-calendar');for(let i=0;i<24&&!host.querySelector('button[data-date="${date}"]');i++)host.querySelector('[aria-label="Next month with data"]').click();host.querySelector('button[data-date="${date}"]').click();})()`);};
+ try{
+  await command('Page.navigate',{url:url+'/'});
+  await wait(idle+"&&document.querySelectorAll('.curve-button').length>0&&performance.getEntriesByName('leanetrm:workspace-ready').length===1");
+  // Interval labels in a zone whose clock repeats an hour on 2026-11-01.
+  const zone=await evaluate("document.querySelector('#zone').value");
+  await click('#profile-open');await set('#zone','America/Chicago');await submit('#preferences-form');
+  await evaluate('window.__openOlder=true');await click('#nav-delivery');await wait(`${idle}&&window.__periods.length===1`);
+  await check('Delivery prices opens on the catalog\'s opening, though another source has a newer day, and marks it the newest delivery day',
+   `(()=>{const raw=${catalog},read=${period},shown=raw.sources.find(s=>s.id!==raw.opening.sourceId),day=shown.availableDates.slice().sort()[0];`+
+   "return day<raw.opening.fromDate&&read.body.sourceId===shown.id&&read.body.fromDate===day&&read.body.throughDate===day&&document.querySelector('#delivery-price-source').value===shown.id&&"+
+   "document.querySelector('#delivery-price-from').value===day&&document.querySelector('#delivery-price-through').value===day&&document.querySelector('#delivery-price-badge').textContent==='Newest delivery day'&&"+
+   "document.querySelector('#delivery-price-title').textContent===shown.name&&document.querySelector('#error').hidden;})()",
+   `[${period}?.body,document.querySelector('#delivery-price-badge')?.textContent,document.querySelector('#error').textContent]`);
+  await evaluate('window.__openOlder=false');await click('#nav-market');await click('#nav-delivery');await wait(`${idle}&&window.__periods.length===2`);
+  await check('opened again, the page reads exactly the catalog\'s opening source and day',
+   `(()=>{const o=${catalog}.opening,read=${period}.body;return o.policy==='newest_available_delivery_day_v1'&&read.sourceId===o.sourceId&&read.fromDate===o.fromDate&&read.throughDate===o.throughDate&&!read.overlays&&document.querySelector('#delivery-price-badge').textContent==='Newest delivery day';})()`);
+  await check('the tiles state the period summary and the catalog\'s collection exactly as the backend wrote them',
+   `(()=>{const s=${period}.data.summary,c=${catalog}.collection,tiles=${figures};`+
+   "return JSON.stringify(tiles)===JSON.stringify([['Intervals',String(s.intervals)],['Low',s.low.price],['High',s.high.price],['Average',s.average],['Latest knowledge',tiles[4][1]],['Collection',c.latestAttempt.state]])&&"+
+   "s.intervals===s.expectedIntervals&&s.missingIntervals===0&&c.jobs>0&&tiles[4][1].length>0;})()",figures);
+  await check('the low and the high name the interval each starts, as the table labels it',
+   `(()=>{const s=${period}.data.summary,rows=${period}.data.rows,cells=[...document.querySelectorAll('#delivery-price-results tbody tr')].map(r=>r.cells[0].textContent),aside=label=>[...document.querySelectorAll('#delivery-price-tiles .desk-tile')].find(t=>t.querySelector('.desk-tile-label').firstChild.textContent===label).querySelector('.desk-tile-label').lastChild.textContent;`+
+   "return cells.length===rows.length&&aside('Low')===cells[rows.findIndex(r=>r.start===s.low.start)]&&aside('High')===cells[rows.findIndex(r=>r.start===s.high.start)];})()");
+  await check('the Prices tab draws the interval prices over time above the table of every interval',
+   `!!document.querySelector('#delivery-price-chart .time-chart-canvas canvas')&&document.querySelectorAll('#delivery-price-results tbody tr').length===${period}.data.rows.length&&document.querySelector('#delivery-price-tabs-prices').getAttribute('aria-selected')==='true'&&document.querySelector('#delivery-price-collection').hidden`);
+  // An overlay is asked for with an explicit window; the chart draws the values the backend returned, named by definition and window.
+  await evaluate("document.querySelector('#delivery-price-overlays').open=true");
+  await evaluate("(()=>{const input=[...document.querySelectorAll('#delivery-price-overlay-menu fieldset')].find(f=>f.querySelector('legend').textContent==='Simple moving average').querySelector('input');input.value='4';input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+  await evaluate("document.querySelector('#delivery-price-overlay-menu form').requestSubmit()");await wait(`${idle}&&window.__periods.length===3`);
+  await check('a simple moving average with window 4 is read with the same range and drawn with its definition and window, showing its exact latest value',
+   `(()=>{const read=${period},o=${catalog}.opening,last=read.data.overlays[0].series.value.at(-1),latest=[...document.querySelectorAll('#delivery-price-chart .time-chart-latest dt')].map(dt=>[dt.textContent,dt.nextElementSibling.textContent]).find(([name])=>name==='Simple moving average · 4 · value');`+
+   "return JSON.stringify(read.body.overlays)===JSON.stringify([{code:'simple_moving_average_v1',parameters:{window:4}}])&&read.body.sourceId===o.sourceId&&read.body.fromDate===o.fromDate&&latest&&latest[1]===last.value&&"+
+   "document.querySelector('#delivery-price-overlays summary').textContent==='Overlays · 1 shown'&&document.querySelector('#delivery-price-badge').textContent==='Newest delivery day'&&document.querySelector('#error').hidden;})()",
+   `[JSON.stringify(${period}.body),document.querySelector('#delivery-price-chart .time-chart-latest')?.textContent,document.querySelector('#error').textContent]`);
+  await evaluate('window.scrollTo(0,0)');await shot('markets-delivery-desktop');
+  await click('#delivery-price-tabs-collection');
+  await check('Collection history lists each attempt the catalog returned, with the jobs',
+   `!document.querySelector('#delivery-price-collection').hidden&&document.querySelector('#delivery-price-prices').hidden&&document.querySelectorAll('#delivery-price-attempts tbody tr').length===${catalog}.attempts.length&&${catalog}.attempts.length>0&&document.querySelector('#delivery-price-jobs').textContent.length>0`);
+  await click('#delivery-price-tabs-prices');
+  // A person's change: dependent choices wait for them, nothing is read and the shown prices are put away until Show prices.
+  const quarter=await evaluate(`${catalog}.sources.find(s=>s.minutes===15)`);
+  const reads=await evaluate('window.__periods.length');
+  await set('#delivery-price-commodity',quarter.commodityKey);await wait(idle);
+  await check('changing a filter chooses nothing further, reads nothing and puts the shown prices away',
+   `['provider','market','location','source'].every(x=>document.querySelector('#delivery-price-'+x).value==='')&&document.querySelector('#delivery-price-from').value===''&&window.__periods.length===${reads}&&!document.querySelector('#delivery-price-results tbody tr')&&!document.querySelector('#delivery-price-chart canvas')&&document.querySelector('#delivery-price-head').hidden&&!document.querySelector('#delivery-price-tiles [data-tile=summary]')&&!document.querySelector('#delivery-price-empty').hidden`);
+  await set('#delivery-price-provider',quarter.provider);await set('#delivery-price-market',quarter.market);await set('#delivery-price-location',quarter.locationKey);await set('#delivery-price-source',quarter.id);
+  await pick('from','2026-11-01');await pick('through','2026-11-01');
+  await check('choosing the dates reads nothing until Show prices',`window.__periods.length===${reads}&&document.querySelector('#delivery-price-from').value==='2026-11-01'&&document.querySelector('#delivery-price-through').value==='2026-11-01'`);
+  await submit('#delivery-price-form');
+  await check('the fall-back day shows its 100 quarter-hours with distinct labels, and the range is marked as the person\'s selection',
+   `(()=>{const read=${period},rows=[...document.querySelectorAll('#delivery-price-results tbody tr')],starts=rows.map(r=>r.cells[0].textContent);`+
+   `return read.body.sourceId===${JSON.stringify(quarter.id)}&&read.body.fromDate==='2026-11-01'&&read.body.throughDate==='2026-11-01'&&read.data.summary.intervals===100&&read.data.summary.expectedIntervals===100&&`+
+   "rows.length===100&&new Set(starts).size===100&&new Set(rows.map(r=>r.cells[1].textContent)).size===100&&document.querySelector('#delivery-price-badge').textContent==='Selected range'&&"+
+   "!document.querySelector('#delivery-price-head').hidden&&!!document.querySelector('#delivery-price-chart canvas')&&document.querySelector('#error').hidden;})()",
+   "[document.querySelectorAll('#delivery-price-results tbody tr').length,document.querySelector('#delivery-price-badge')?.textContent,document.querySelector('#error').textContent]");
+  await check('the overlay chosen before is read again with the selected range',`JSON.stringify(${period}.body.overlays)===JSON.stringify([{code:'simple_moving_average_v1',parameters:{window:4}}])&&[...document.querySelectorAll('#delivery-price-chart .time-chart-latest dt')].some(dt=>dt.textContent==='Simple moving average · 4 · value')`);
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
+  await check('Delivery prices fits a 390px screen without page-wide horizontal scrolling',fitsWidth);
+  await evaluate("document.querySelector('#delivery-price-form').scrollIntoView()");await shot('markets-delivery-mobile');
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  await evaluate('window.__noOpening=true');const before=await evaluate('window.__periods.length');
+  await click('#nav-market');await click('#nav-delivery');
+  await check('a catalog with no opening says there are no delivery prices yet and reads none',
+   `window.__periods.length===${before}&&document.querySelector('#delivery-price-empty-title').textContent==='No delivery prices yet'&&!document.querySelector('#delivery-price-empty').hidden&&document.querySelector('#delivery-price-head').hidden&&!document.querySelector('#delivery-price-results tbody tr')&&document.querySelector('#error').hidden`);
+  await evaluate('window.__noOpening=false');
+  await click('#profile-open');await set('#zone',zone);await submit('#preferences-form');
+ }finally{await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});await command('Emulation.clearDeviceMetricsOverride');}
+}

@@ -124,7 +124,7 @@ const statedPeriod=(value:unknown)=>value===null||typeof value==='object'&&typeo
  * The preview's tiles, from the summary the backend states with it: nothing is counted and no period is chosen here. A tile of words
  * (a period or a unit) wraps in its tile; a preview without a complete summary is refused.
  */
-export function previewTiles(summary:PreviewSummary|undefined):(TileSpec&{words:boolean})[]{
+export function previewTiles(summary:PreviewSummary|undefined):TileSpec[]{
  if(!summary||!Number.isSafeInteger(summary.points)||!Number.isSafeInteger(summary.unavailablePoints)||!statedPeriod(summary.firstPeriod)||!statedPeriod(summary.lastPeriod)||typeof summary.unit!=='string')
   throw Error('The preview does not state its summary. Preview again.');
  const words=(label:string,figure:string)=>({label,rows:[{figure}],words:true});

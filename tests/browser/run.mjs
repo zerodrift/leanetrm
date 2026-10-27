@@ -28,7 +28,7 @@ import {run as riskCloses} from './risk-closes.mjs';
 import {run as jobs} from './jobs.mjs';
 import {run as startupRequests} from './startup-requests.mjs';
 import {run as marketNavigationRead} from './market-navigation.mjs';
-import {run as marketsDesk} from './markets-desk.mjs';
+import {run as marketsDesk,deliveryDesk} from './markets-desk.mjs';
 import {run as startupAccess} from './startup-access.mjs';
 import {run as reference} from './reference.mjs';
 import {run as referenceEditor} from './reference-editor.mjs';
@@ -47,7 +47,7 @@ import {run as notices} from './notices.mjs';
 import {run as intervalSeries} from './interval-series.mjs';
 import {run as intervalCurves} from './interval-curves.mjs';
 import {run as valuationStatus} from './valuation-status.mjs';
-async function marketNavigation(browser){await startupRequests(browser);await marketNavigationRead(browser);await marketsDesk(browser);await startupAccess(browser);await reference(browser);await marketContext(browser);await scheduleExamples(browser);await referenceEditor(browser);}
+async function marketNavigation(browser){await startupRequests(browser);await marketNavigationRead(browser);await marketsDesk(browser);await deliveryDesk(browser);await startupAccess(browser);await reference(browser);await marketContext(browser);await scheduleExamples(browser);await referenceEditor(browser);}
 async function tradingNavigation(browser){await futuresLoading(browser);await futuresAdmission(browser);await futures(browser);}
 // The standard fixture initially has futures only. Book both product families
 // through their editor checks before exercising mixed-portfolio risk.

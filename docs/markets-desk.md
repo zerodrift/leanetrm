@@ -288,20 +288,26 @@ context or curve closes the panel.
 - **Filter bar.** The commodity, operator, market, location and source selects,
   the delivery date range and the knowledge cutoff move out of the Context
   popover into a bar at the top of the page. The cascade and its refusal of
-  conflicting labels stay.
+  conflicting labels stay. A changed filter clears the choices below it and
+  chooses none of them; the person's range is read when they choose Show
+  prices.
 - **Opening selection from the backend.** The catalog returns
   `opening:{sourceId,fromDate,throughDate,policy:'newest_available_delivery_day_v1'}`
   (the source with the newest available day, ties broken by source name then
   identity). The page opens on it and shows a **Newest delivery day** badge,
-  which becomes **Selected range** once the user changes a filter. The browser's
-  `latestDeliverySource` is removed.
+  which becomes **Selected range** once the user changes a filter, a date or
+  the cutoff. The browser's `latestDeliverySource` is removed. A catalog
+  without an opening shows that there are no delivery prices yet.
 - **Tiles** from a new `summary` on the period read under the same rational
   policy as overlays: interval count with missing intervals, low and high with
   their instants, time-weighted average over the published intervals, and the
   latest knowledge instant used. A collection tile shows the jobs and the
   newest attempt's outcome from a new catalog `collection` summary.
 - **Prices tab:** the time chart of interval prices with overlays, then the
-  interval table. **Collection history tab:** today's attempts table.
+  interval table. The chart has a point for each published interval; where the
+  next published interval does not start at the previous one's end, a point
+  without a price at that end breaks the line. **Collection history tab:**
+  today's attempts table.
 - The page keeps its own cutoff and generation guard, outside the As of dock.
 
 ## Backend changes

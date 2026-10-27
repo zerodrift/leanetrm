@@ -41,7 +41,40 @@
   <div class="status-bar"><span id="status" role="status" aria-live="polite">Loading market data…</span></div>
   <section id="ppa-page" hidden aria-label="PPA bookings"></section>
   <section id="custom-curves-page" hidden aria-label="Custom curves"></section>
-  <section id="delivery-page" hidden aria-label="Delivery prices"><div class="card"><h2>Delivery prices</h2><p>Published PJM LMP and ERCOT settlement-point prices. The latest available delivery date is shown automatically. Change the source, dates or knowledge cutoff in Context.</p><p id="delivery-price-jobs"></p><p id="delivery-price-known" class="muted"></p><details class="floating-context"><summary>Context</summary><div class="header-context-panel"><form id="delivery-price-form"><div class="schedule-fields"><label>Commodity<select id="delivery-price-commodity" required></select></label><label>Operator<select id="delivery-price-provider" required></select></label><label>Market<select id="delivery-price-market" required></select></label><label>Location<select id="delivery-price-location" required></select></label><label>Source<select id="delivery-price-source" data-context-coordinate="Source" required></select></label><div><label for="delivery-price-from-picker">Delivery date from</label><div id="delivery-price-from-calendar"></div><input id="delivery-price-from" type="hidden"></div><div><label for="delivery-price-through-picker">Delivery date to</label><div id="delivery-price-through-calendar"></div><input id="delivery-price-through" type="hidden"></div></div><p id="delivery-price-clock" class="field-help">Choose a source to see its market clock. Both delivery dates are included.</p><label>Knowledge cutoff · <span data-user-time-zone></span><input id="delivery-price-cutoff" data-context-coordinate="Knowledge cutoff" type="datetime-local" step="1" required></label><button type="submit">Show prices</button></form></div></details><div id="delivery-price-results" class="table-wrap"></div></div><div class="card"><h3>Collection history</h3><p class="field-help">Each attempt to fetch and import delivery prices, including its delivery-date range and outcome. Failed attempts do not publish prices.</p><div id="delivery-price-attempts" class="table-wrap"></div></div></section>
+  <section id="delivery-page" hidden aria-label="Delivery prices">
+    <form id="delivery-price-form" class="delivery-filters" aria-label="Delivery prices to show">
+      <div class="delivery-filter-fields">
+        <label>Commodity<select id="delivery-price-commodity" required></select></label>
+        <label>Operator<select id="delivery-price-provider" required></select></label>
+        <label>Market<select id="delivery-price-market" required></select></label>
+        <label>Location<select id="delivery-price-location" required></select></label>
+        <label class="delivery-filter-source">Source<select id="delivery-price-source" required></select></label>
+        <div><label for="delivery-price-from-picker">Delivery date from</label><div id="delivery-price-from-calendar"></div><input id="delivery-price-from" type="hidden"></div>
+        <div><label for="delivery-price-through-picker">Delivery date to</label><div id="delivery-price-through-calendar"></div><input id="delivery-price-through" type="hidden"></div>
+        <div class="delivery-filter-cutoff"><label for="delivery-price-cutoff">Knowledge cutoff · <span data-user-time-zone></span></label><input id="delivery-price-cutoff" type="datetime-local" step="1" required></div>
+        <button type="submit">Show prices</button>
+      </div>
+      <div class="delivery-filter-foot"><p id="delivery-price-clock">Choose a source to see its market clock. Both delivery dates are included.</p><p id="delivery-price-known"></p></div>
+    </form>
+    <header id="delivery-price-head" class="curve-header delivery-head" hidden>
+      <div><div class="curve-crumbs"><span id="delivery-price-badge" class="close-badge"></span><span id="delivery-price-path" class="eyebrow"></span></div><h2 id="delivery-price-title"></h2><p id="delivery-price-range" class="delivery-range"></p></div>
+      <div class="curve-header-actions"><span id="delivery-price-unit" class="unit-pill"></span></div>
+    </header>
+    <div id="delivery-price-tiles" class="desk-tiles delivery-tiles" role="group" aria-label="Delivery price summary"></div>
+    <div id="delivery-price-tabs" class="side-panel-tabs page-tabs"></div>
+    <div id="delivery-price-view">
+      <section id="delivery-price-prices" class="card delivery-prices">
+        <div id="delivery-price-empty" class="market-board-empty delivery-empty" hidden><div class="market-board-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/></svg></div><h3 id="delivery-price-empty-title"></h3><p id="delivery-price-empty-help"></p></div>
+        <div id="delivery-price-shown" hidden>
+          <details id="delivery-price-overlays" class="contract-overlays delivery-overlays"><summary>Overlays</summary><div id="delivery-price-overlay-menu"></div></details>
+          <div id="delivery-price-chart" class="delivery-chart"></div>
+          <h4 class="breakdown-heading">Intervals</h4>
+          <div id="delivery-price-results" class="table-wrap"></div>
+        </div>
+      </section>
+      <section id="delivery-price-collection" class="card" hidden><h3>Collection history</h3><p class="field-help">Each attempt to fetch and import delivery prices, including its delivery-date range and outcome. Failed attempts do not publish prices.</p><p id="delivery-price-jobs" class="delivery-jobs"></p><div id="delivery-price-attempts" class="table-wrap"></div></section>
+    </div>
+  </section>
   <nav id="curve-price-navigation" class="curve-price-navigation" aria-label="Price views" hidden>
     <button id="curve-price-contracts" type="button" class="secondary" aria-pressed="true">Contract prices</button>
     <button id="nav-interval-curves" type="button" class="secondary" aria-pressed="false">Hourly / sub-hourly prices</button>

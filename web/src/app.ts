@@ -410,7 +410,7 @@ function renderSummary(){
   const items=result&&curve?summaryTiles(result,result.kind==='rates'?'':settlementText()):[];
   $('curve-summary').hidden=!items.length;
   // A figure is one token that never splits; the curve's words, as its settlement, wrap in their tile instead.
-  $('curve-summary').replaceChildren(...items.map(item=>{const tile=renderTile({label:item.name,rows:[{figure:item.value}]});if(!item.numeric)tile.classList.add('desk-tile-words');return tile;}));
+  $('curve-summary').replaceChildren(...items.map(item=>renderTile({label:item.name,rows:[{figure:item.value}],words:!item.numeric})));
   const context=historicalContext(),banner=$('curve-mode');banner.hidden=!curve||contextDirty||(!context&&!canCorrect());
   banner.dataset.tone=context?'historical':'editor';
   text('curve-mode',context?`Historical view: ${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}. Prices are read-only; return to working data to make changes.`:'You can correct source prices on the Price sources tab. Every earlier version stays available.');
@@ -838,7 +838,7 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
  open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose,'closes'),select:chooseClose
 });
-const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
+const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant,overlayCatalog:readOverlayCatalog});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});

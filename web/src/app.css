@@ -1365,7 +1365,7 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .contract-overlays .overlay-menu>button{margin:10px 8px 0 0;font-size:12.5px;padding:6px 14px}
 .contract-overlays .overlay-menu .fine-print{margin:8px 0 0}
 .contract-chart{min-width:0}
-.contract-chart .time-chart-tools button,.contract-chart .time-chart-tools input{font-size:12px;padding:4px 9px;min-height:28px}
+.contract-chart .time-chart-tools button,.contract-chart .time-chart-tools input,.delivery-chart .time-chart-tools button,.delivery-chart .time-chart-tools input{font-size:12px;padding:4px 9px;min-height:28px}
 .contract-chart .time-chart-tools input{width:110px}
 .contract-chart .time-chart-body{flex-direction:column;align-items:stretch;gap:8px}
 .contract-chart .time-chart-canvas{flex:0 0 auto;height:260px}
@@ -1385,3 +1385,45 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 
 .trade-change-review th:nth-child(n+2){white-space:nowrap}
 .trade-change-review .change-category{display:block;margin-top:.25rem;font-weight:normal;opacity:.8}
+
+/* Delivery prices (power-imports-view.ts): a filter bar over the page, the range shown with how it was chosen, the summary tiles, and
+   tabs over the interval prices (chart with its latest values beside it, then every interval) and the collection history. */
+.delivery-filters{margin:0 0 18px;padding:14px 16px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.delivery-filter-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));align-items:end;gap:12px 14px}
+.delivery-filter-fields>label{display:flex;flex-direction:column;gap:5px;margin:0;font-size:12px;color:var(--text-3)}
+.delivery-filter-fields>div>label{margin:0 0 5px;overflow:hidden;font-size:12px;color:var(--text-3);text-overflow:ellipsis;white-space:nowrap}
+.delivery-filter-fields select,.delivery-filter-fields input:not([type=hidden]),.delivery-filter-fields .available-date-picker>summary{width:100%;min-width:0;box-sizing:border-box}
+.delivery-filter-fields .available-date-picker>summary{display:flex;align-items:center;min-height:36px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);font-size:13px;color:var(--text);cursor:pointer;list-style:none;white-space:nowrap}
+.delivery-filter-fields .available-date-picker>summary::-webkit-details-marker{display:none}
+.delivery-filter-fields .available-date-picker>summary[aria-disabled=true]{color:var(--text-3);cursor:default}
+.delivery-filter-source,.delivery-filter-cutoff{grid-column:span 2}
+.delivery-filter-cutoff select{margin-top:6px;width:100%}
+.delivery-filter-fields>button{min-height:36px}
+.delivery-filter-foot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 16px;margin-top:12px;padding-top:9px;border-top:1px solid var(--border);font-size:12px;color:var(--text-3)}
+.delivery-filter-foot p{margin:0}
+#delivery-price-known{color:var(--text-2);font-weight:500}
+.delivery-range{margin:4px 0 0;font-size:13px;color:var(--text-3)}
+.delivery-tiles{margin:0 0 16px}
+/* Each tile is as wide as the row gives it, and its figure shrinks to the tile: a period's exact average can be twenty digits long. */
+.delivery-tiles .desk-tile{flex-basis:130px;container-type:inline-size}
+.delivery-tiles .desk-tile:is([data-name=Low],[data-name=High]){flex-basis:160px}
+.delivery-tiles .desk-tile[data-name=Average]{flex:2 1 250px}
+.delivery-tiles .desk-tile[data-name="Latest knowledge"]{flex-basis:170px}
+.delivery-tiles .desk-tile[data-tile=collection]{flex-basis:200px}
+.delivery-tiles>.desk-tile:only-child{flex:0 1 280px}
+.delivery-tiles .desk-tile-label{flex-wrap:wrap;column-gap:8px;row-gap:1px}
+.delivery-tiles .desk-tile-label span+span{font-weight:500;white-space:nowrap}
+.delivery-tiles .desk-tile-words .kpi-value small{display:block;margin-top:3px;font-size:12px;letter-spacing:0}
+.page-tabs{gap:24px;margin:0 0 14px;padding:0;background:none}
+.page-tabs .side-panel-tab{padding:10px 0;font-size:14px;font-weight:500}
+.delivery-overlays{width:fit-content;min-width:min(420px,100%);max-width:100%;margin-bottom:12px}
+.delivery-chart{min-width:0}
+.delivery-chart .time-chart-tools input{width:120px}
+.delivery-chart .time-chart-canvas{height:340px}
+.delivery-chart .time-chart-latest{flex:0 1 240px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.delivery-chart .time-chart-latest dd{overflow-wrap:anywhere}
+.delivery-chart .fine-print{margin:6px 0 0}
+.delivery-prices .breakdown-heading{margin:18px 0 8px}
+.delivery-empty{min-height:280px;border:0;box-shadow:none}
+.delivery-jobs{margin:0 0 12px;font-size:13px;color:var(--text-2)}
+@media(max-width:760px){.delivery-filter-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.delivery-filter-fields>button{grid-column:span 2}.delivery-head{flex-direction:row;flex-wrap:wrap;gap:8px 16px}.delivery-chart .time-chart-canvas{height:280px}.delivery-chart .time-chart-latest{flex:1 1 100%}}

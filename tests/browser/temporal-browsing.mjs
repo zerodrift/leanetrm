@@ -15,22 +15,21 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const path=String(args[0]);
   if(path.endsWith('/power-imports')){
    const source=(id,date,commodity,provider)=>({id,name:'Synthetic '+id,commodityKey:commodity,commodityName:commodity,provider,market:'DA',marketName:'Day ahead',locationKey:id,locationName:id,minutes:60,marketClock:'UTC',priceUnit:'USD / MWh',availableDates:[date],availableThrough:{[date]:date}});
-   return new Response(JSON.stringify({knownAt:'2026-10-25T12:00:00Z',sources:[source('older','2026-01-01','Power','PJM'),source('latest','2026-02-01','Gas','Synthetic')],jobs:[],attempts:[]}));
+   return new Response(JSON.stringify({knownAt:'2026-10-25T12:00:00Z',sources:[source('older','2026-01-01','Power','PJM'),source('latest','2026-02-01','Gas','Synthetic')],opening:{sourceId:'latest',fromDate:'2026-02-01',throughDate:'2026-02-01',policy:'newest_available_delivery_day_v1'},collection:{jobs:0,enabledJobs:0,latestAttempt:null},jobs:[],attempts:[]}));
   }
-  if(path.endsWith('/power-imports/period')){window.deliveryReads.push(JSON.parse(args[1].body));return new Response(JSON.stringify({priceUnit:'USD / MWh',rows:[{start:'2026-02-01T00:00:00Z',end:'2026-02-01T01:00:00Z',formattedPrice:'12.50',knownAt:'2026-10-25T12:00:00Z'}]}));}
+  if(path.endsWith('/power-imports/period')){window.deliveryReads.push(JSON.parse(args[1].body));return new Response(JSON.stringify({priceUnit:'USD / MWh',rows:[{start:'2026-02-01T00:00:00Z',end:'2026-02-01T01:00:00Z',formattedPrice:'12.50',knownAt:'2026-10-25T12:00:00Z'}],summary:{intervals:1,expectedIntervals:24,missingIntervals:23,low:{price:'12.50',start:'2026-02-01T00:00:00Z'},high:{price:'12.50',start:'2026-02-01T00:00:00Z'},average:'12.5',latestKnownAt:'2026-10-25T12:00:00Z',policy:'exact_rational_half_even_18_v1'}}));}
   return window.deliveryOriginal(...args);
  };`);
  await click('#nav-market');await click('#nav-delivery');
- await check('delivery browsing opens the newest source and day without manual filters',"window.deliveryReads.length===1&&window.deliveryReads[0].sourceId==='latest'&&window.deliveryReads[0].fromDate==='2026-02-01'&&window.deliveryReads[0].throughDate==='2026-02-01'&&document.querySelectorAll('#delivery-price-results tbody tr').length===1&&document.querySelector('#date-context').hidden&&document.querySelector('#error').hidden");
- await evaluate("document.querySelector('#delivery-price-form').closest('details').open=true");
+ await check('delivery browsing opens the catalog\'s opening source and day without manual filters',"window.deliveryReads.length===1&&window.deliveryReads[0].sourceId==='latest'&&window.deliveryReads[0].fromDate==='2026-02-01'&&window.deliveryReads[0].throughDate==='2026-02-01'&&document.querySelectorAll('#delivery-price-results tbody tr').length===1&&document.querySelector('#date-context').hidden&&document.querySelector('#error').hidden");
  await set('#delivery-price-cutoff','2026-10-25T11:00:00');
- await check('editing a delivery cutoff clears old records until applied',"!document.querySelector('#delivery-price-results tbody tr')&&document.querySelector('#delivery-price-known').textContent.includes('Unapplied')");
+ await check('editing a delivery cutoff clears old records until applied',"!document.querySelector('#delivery-price-results tbody tr')&&document.querySelector('#delivery-price-known').textContent.includes('Unapplied')&&document.querySelector('#delivery-price-head').hidden&&document.querySelector('#delivery-price-empty-title').textContent==='Show prices to read this range'");
  await submit('#delivery-price-form');
- await check('delivery reads use the edited cutoff',"window.deliveryReads.at(-1).knownAt.startsWith('2026-10-25T11:00:00')&&document.querySelectorAll('#delivery-price-results tbody tr').length===1");
- await shot('floating-context-desktop');
+ await check('delivery reads use the edited cutoff, and the range read is the person\'s selection',"window.deliveryReads.at(-1).knownAt.startsWith('2026-10-25T11:00:00')&&document.querySelectorAll('#delivery-price-results tbody tr').length===1&&document.querySelector('#delivery-price-badge').textContent==='Selected range'");
+ await shot('delivery-cutoff-desktop');
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
- await check('floating context fits the mobile viewport',fitsWidth);
- await shot('floating-context-mobile');
+ await check('the delivery filter bar fits the mobile viewport',fitsWidth);
+ await shot('delivery-cutoff-mobile');
  await command('Emulation.clearDeviceMetricsOverride');
  await evaluate("window.fetch=window.deliveryOriginal");
  await click('#profile-open');await evaluate("document.querySelector('#show-assistant').checked=false");await submit('#preferences-form');await click('#profile-open');

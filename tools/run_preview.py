@@ -887,6 +887,9 @@ def main():
                 from check_schedule_examples import run_checks as check_schedule_examples
                 check_schedule_examples(url,run_id,temporary)
                 if args.browser_check:
+                    # The Delivery prices desk checks read the interactive preview's synthetic week; the HTTP checks above ran without it.
+                    from delivery_price_seed import seed as seed_delivery_prices
+                    seed_delivery_prices(query,manifest)
                     worker_env=prepare_risk_worker()
                     risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
                     target=temporary/'browser-target.json'
