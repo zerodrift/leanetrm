@@ -12,12 +12,12 @@ const models=[{id:'m1',version:3,vendor:'anthropic',identifier:'model-one',displ
 const directory={vendors,roles,tools,models,bounds:{instructions:6000,grantDays:90}};
 const version=(changes={})=>({version:2,description:'Answers questions about the page.',instructions:'Quote only values you read.\nSay when something is unavailable.',
   model:{id:'m1',version:3,vendor:'anthropic',identifier:'model-one',displayName:'Model one',current:true},reasoning:'low',caching:false,
-  tools:['read_current_page','read_trades'],allowedRoles:['risk_analyst','trader'],limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:2},
+  tools:['read_current_page','read_trades'],allowedRoles:['risk_analyst','trader'],limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:2,historyTurns:20},
   grantDays:28,savedBy:'Synthetic admin',savedAt:'2026-10-20T12:00:00Z',...changes});
 const agent=(changes={})=>({id:'a1',name:'Page guide',version:4,state:'active',publishedVersion:1,newest:version(),published:version({version:1}),...changes});
 const instant=at=>`at ${at}`;
 const entry=(changes={})=>({description:'Answers questions.',instructions:'Quote only values you read.',modelId:'m1',reasoning:'low',caching:'off',
-  tools:['read_trades'],allowedRoles:['trader'],limits:{toolSteps:'8',inputTokens:'200000',outputTokens:'2048',elapsedSeconds:'120',readSeconds:'15',retries:'0'},grantDays:'28',...changes});
+  tools:['read_trades'],allowedRoles:['trader'],limits:{toolSteps:'8',inputTokens:'200000',outputTokens:'2048',elapsedSeconds:'120',readSeconds:'15',retries:'0',historyTurns:'20'},grantDays:'28',...changes});
 
 test('each Settings › AI tab is offered by its own permission, in the order Usage, Models & prices, Providers, Agents',()=>{
   assert.deepEqual(aiTabs(['ReadModelUsage']),['usage']);
@@ -60,7 +60,7 @@ test("a version's rows state every field it was saved with, by name",()=>{
   assert.deepEqual(rows,[['Description','Answers questions about the page.'],['Instructions','Quote only values you read.\nSay when something is unavailable.'],
     ['Model','Model one · model-one (Anthropic) · capability version 3'],['Reasoning effort','low'],['Prompt caching','Off'],['Tools','Read current page, Read trades'],
     ['Allowed roles','Risk analyst, Trader'],['Tool steps per turn','8'],['Input tokens per turn','200,000'],['Output tokens per call','2,048'],['Time per turn','120 seconds'],['Time per read','15 seconds'],
-    ['Retries per call','2'],['Grant duration','28 days'],['Saved','Synthetic admin · at 2026-10-20T12:00:00Z']]);
+    ['Retries per call','2'],['Earlier turns sent per turn','20'],['Grant duration','28 days'],['Saved','Synthetic admin · at 2026-10-20T12:00:00Z']]);
   assert.deepEqual(versionRows(version({tools:[],allowedRoles:[],caching:true,model:{...version().model,current:false}}),directory,instant).slice(2,7).map(r=>r[1]),
     ['Model one · model-one (Anthropic) · capability version 3 · no longer current','low','On','None','None']);
   // A role that no longer uses agents is still named as saved; an unknown tool or vendor cannot be shown.
@@ -87,7 +87,7 @@ test('a chosen model holds only at the capability version it was chosen at, neve
 
 test('a save names every field as entered, nothing blank is inferred, and numbers are whole',()=>{
   assert.deepEqual(agentSaveRequest(entry(),directory),{description:'Answers questions.',instructions:'Quote only values you read.',modelId:'m1',modelVersion:3,reasoning:'low',
-    caching:false,tools:['read_trades'],allowedRoles:['trader'],limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:0},grantDays:28});
+    caching:false,tools:['read_trades'],allowedRoles:['trader'],limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:0,historyTurns:20},grantDays:28});
   assert.equal(agentSaveRequest(entry({caching:'on'}),directory).caching,true);
   // Text travels exactly as entered: the server owns its rules.
   assert.equal(agentSaveRequest(entry({instructions:' Leading space'}),directory).instructions,' Leading space');
@@ -103,6 +103,8 @@ test('a save names every field as entered, nothing blank is inferred, and number
     assert.throws(()=>agentSaveRequest(entry({limits:{...entry().limits,toolSteps:value}}),directory),/^Error: Enter the tool steps per turn as a whole number\.$/);
   assert.throws(()=>agentSaveRequest(entry({limits:{...entry().limits,retries:''}}),directory),/retries per call as a whole number/);
   assert.throws(()=>agentSaveRequest(entry({limits:{...entry().limits,readSeconds:''}}),directory),/^Error: Enter the time per read in seconds as a whole number\.$/);
+  assert.throws(()=>agentSaveRequest(entry({limits:{...entry().limits,historyTurns:''}}),directory),/^Error: Enter the earlier turns sent per turn as a whole number\.$/);
+  assert.equal(agentSaveRequest(entry({limits:{...entry().limits,historyTurns:'0'}}),directory).limits.historyTurns,0);
   assert.throws(()=>agentSaveRequest(entry({grantDays:'four'}),directory),/^Error: Enter the grant duration as a whole number of days\.$/);
 });
 
@@ -122,7 +124,7 @@ test('an allowed role lacking a permission is named with the permission, from th
 
 test("the codes agents share with the model commands are explained in the agents' terms",()=>{
   const save='settings/ai/agents/save';
-  assert.match(agentMessage('model_admin_input',save),/1 to 100 tool steps.*1 to 10,000,000 output tokens per call.*1 to 3,600 seconds per turn; 1 to 30 seconds per read, and no more than per turn; 0 to 10 retries per call.*a grant of at least one day/);
+  assert.match(agentMessage('model_admin_input',save),/1 to 100 tool steps.*1 to 10,000,000 output tokens per call.*1 to 3,600 seconds per turn; 1 to 30 seconds per read, and no more than per turn; 0 to 10 retries per call; 0 to 1,000 earlier turns sent per turn; and a grant of at least one day/);
   assert.match(agentMessage('model_admin_conflict',save),/^This agent changed, its name is taken/);
   assert.match(agentMessage('model_unqualified',save),/^The model is not qualified/);
   for(const code of ['agent_retired',undefined])assert.equal(agentMessage(code,save),undefined);
