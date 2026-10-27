@@ -73,18 +73,17 @@ static class TurnWorkerChecks
             "a completed tool stop succeeds, or is usage_unrecognized, and is never a transport failure");
         Console.WriteLine("PASS a tool stop is a completed call the tool loop answers, never an ending or a transport failure");
 
-        // A read that returned (§7.5): no step once the turn is to stop, whatever it returned, and a read its bound stopped
-        // names the bound.
+        // A read that returned (§7.5): no step once the turn is to stop, whatever it returned; a read is bounded only by its
+        // turn's deadline, so one the deadline stopped fails the turn limit_elapsed (D232).
         ToolStep Step(ToolStepEnd end,string? code)=>new("read_market_data","market_data.curves_v1",null,code,DateTimeOffset.UnixEpoch,[],end is ToolStepEnd.Result or ToolStepEnd.Refusal?"{}":null,end);
         var (read,refused,failed,interrupted)=(Step(ToolStepEnd.Result,null),Step(ToolStepEnd.Refusal,"missing_curve"),Step(ToolStepEnd.Failure,"tool_failed"),Step(ToolStepEnd.Interrupted,null));
-        Require(new[]{read,refused,failed,interrupted}.All(s=>TurnWorker.Settled(s,true,false) is null&&TurnWorker.Settled(s,true,true) is null),
+        Require(new[]{read,refused,failed,interrupted}.All(s=>TurnWorker.Settled(s,true) is null),
             "once its turn is to stop, a read that returned is no step, whatever it returned");
-        Require(TurnWorker.Settled(read,false,true)==read&&TurnWorker.Settled(refused,false,true)==refused&&TurnWorker.Settled(failed,false,false)==failed
-            &&TurnWorker.Settled(interrupted,false,true) is {End:ToolStepEnd.Failure,Code:"limit_elapsed"}
-            &&TurnWorker.Settled(interrupted,false,false) is {End:ToolStepEnd.Failure,Code:"limit_tool_read"},
-            "a read its bound stopped fails its turn limit_elapsed when the turn's deadline was the bound, else limit_tool_read; any other step stands");
-        Console.WriteLine("PASS a read that returned once its turn is to stop is no step; one its bound stopped fails the turn limit_elapsed at the "+
-            "deadline, else limit_tool_read (D232)");
+        Require(TurnWorker.Settled(read,false)==read&&TurnWorker.Settled(refused,false)==refused&&TurnWorker.Settled(failed,false)==failed
+            &&TurnWorker.Settled(interrupted,false) is {End:ToolStepEnd.Failure,Code:"limit_elapsed"},
+            "a read the turn's deadline stopped fails its turn limit_elapsed; any other step stands");
+        Console.WriteLine("PASS a read that returned once its turn is to stop is no step; one the turn's deadline stopped fails the turn "+
+            "limit_elapsed, the only bound on a read (D232)");
 
         // The tool loop's next call replays the model's reply, then answers each of its requests in order (§6.1, §7.3).
         var question=new ModelUserText("Q?");

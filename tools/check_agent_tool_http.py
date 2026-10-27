@@ -487,9 +487,8 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           (followed, events))
 
     # A target's page check in flight (§7.5), held where it reads the reference catalog's scope: Stop stops it at once and
-    # writes no step, and the 15-second ToolRead fails the turn limit_tool_read (D232) with a step naming the check's instant and
-    # accesses. The scope is locked only once the call is open, and released before the turn's ending is read, since the
-    # step's publication recheck reads it too.
+    # writes no step. The scope is locked only once the call is open, and released before the turn's ending is read, since
+    # the step's publication recheck reads it too.
     def checking(stop):
         """The turn of an ask whose one request navigates to Curves & prices, once `stop` has acted on its check, held at the
         reference catalog's scope, with its steps and the calls it made."""
@@ -504,16 +503,11 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
             reading(1)
             stop(asked)
         holding(psql, environment, 'LOCK TABLE security.reference_catalog_scopes IN ACCESS EXCLUSIVE MODE', held)
-        ended = settled(asked, timeout=30)[0]
+        ended = settled(asked, timeout=20)[0]
         return ended, [(s['code'], s['operation'], s['access'], s['read_at'] is not None) for s in steps(ended)], len(fake.received) - since
     halted_check, halted_steps, halted_calls = checking(lambda asked: trader.call(STOP, {'turnId': asked['id']}))
     check("Stop while a target's page check is in flight stops the check at once and ends the turn cancelled, writing no step and opening no "
           'other call', (halted_check['state'], halted_check['outcome'], halted_steps, halted_calls) == ('cancelled', None, [], 1), (halted_check, halted_steps))
-    slow_check, slow_steps, slow_calls = checking(lambda asked: reading(0, within=20))
-    check("a target's page check in flight past the runtime set's 15-second ToolRead fails the turn limit_tool_read, its step naming Navigate's "
-          "operation with the instant and the accesses the check ran under",
-          (slow_check['state'], slow_check['outcome'], slow_steps, slow_calls)
-          == ('failed', 'limit_tool_read', [('limit_tool_read', 'navigation.target_v1', market, True)], 1), (slow_check, slow_steps))
 
     # Refusals are steps the model receives, and the turn continues (§7.3).
     fake.respond(stream(tool_use(model_name, [('toolu_synthetic_21', 'read_current_page', {}),
@@ -630,7 +624,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
             starting(asked)
             reading(1)
             stop(asked)
-            return settled(asked, timeout=30)[0]
+            return settled(asked, timeout=20)[0]
         ended = holding(psql, environment, 'LOCK TABLE trading.counterparties IN ACCESS EXCLUSIVE MODE', work)
         return ended, [(s['code'], s['operation'], s['access'], s['read_at'] is not None) for s in steps(ended)], len(fake.received) - since
 
@@ -646,7 +640,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     tool_stop = threading.Event()
 
     def late_start(asked):
-        """Lets the call stop for its tool 1.5 seconds before the turn's deadline, so its read starts with less than ToolRead left."""
+        """Lets the call stop for its tool 1.5 seconds before the turn's deadline, so its read is in flight at the deadline."""
         while query(f"SELECT clock_timestamp()<asked_at+interval '3.5 seconds' FROM assistant.turns WHERE id='{asked['id']}';") == 't':
             time.sleep(.05)
         tool_stop.set()
@@ -655,12 +649,21 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           "the instant and the accesses its read ran under",
           (outcome(late), late_steps, late_calls) == (('failed', 'limit_elapsed'), [('limit_elapsed', *bound)], 1)
           and at(late['endedAt']) - at(late['askedAt']) < timedelta(seconds=5) + promptly, (late, late_steps))
-    slow, slow_steps, slow_calls = in_flight(lambda asked: None)
-    check("a read in flight past the runtime set's 15-second ToolRead fails the turn limit_tool_read, its step naming that bound with the "
-          "instant and the accesses its read ran under", (outcome(slow), slow_steps, slow_calls) == (('failed', 'limit_tool_read'), [('limit_tool_read', *bound)], 1),
-          (slow, slow_steps))
-    check('a read past its bound is logged as a warning naming its tool and operation, never its input (D232)',
-          'A tool read passed the 15-second ToolRead bound: read_trade_parties trade_parties.versions_v1' in log.read_text(errors='replace'))
+    check("a read its turn's deadline stopped is logged as a warning naming its tool and operation, never its input (D232)",
+          "A tool read was stopped at its turn's deadline: read_trade_parties trade_parties.versions_v1" in log.read_text(errors='replace'))
+    # A read is bounded only by its turn's deadline (D232): one held past the five seconds a database command is otherwise given
+    # completes once released, and the turn answers.
+    fake.respond(stream(tool_use(model_name, [parties_read])), stream(recording(model_name, text='Two counterparties.')))
+
+    def patient():
+        asked = ask()['turn']
+        reading(1)
+        time.sleep(7)
+        return asked
+    waited = settled(holding(psql, environment, 'LOCK TABLE trading.counterparties IN ACCESS EXCLUSIVE MODE', patient), timeout=30)[0]
+    check("a read held for seven seconds, past any per-read or per-command bound, completes once released and the turn answers",
+          outcome(waited) == ('completed', None) and [(s['code'], s['operation']) for s in steps(waited)] == [(None, 'trade_parties.versions_v1')],
+          (waited, steps(waited)))
     switched, switched_steps, switched_calls = in_flight(lambda asked: trader.call('profile', {'profile': 'trader'}))
     # The switch forgets the frames the session discovered.
     frame = frame_of(trader)

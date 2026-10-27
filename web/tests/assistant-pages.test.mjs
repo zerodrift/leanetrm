@@ -143,7 +143,6 @@ test('step lines name the tool and, for a refusal or failure, say why in plain w
   assert.equal(stepLine({ordinal:3,tool:'navigate',code:'tool_arguments_invalid'}),'Navigate · the request was not one this tool accepts');
   assert.equal(stepLine({ordinal:4,tool:'read_current_page',code:'some_new_refusal'}),'Read the page · the tool refused this request');
   assert.equal(stepLine({ordinal:6,tool:'read_trades',code:'tool_failed'}),'Read trades · the read failed');
-  assert.equal(stepLine({ordinal:7,tool:'read_current_page',code:'limit_tool_read'}),'Read the page · the read took longer than its time limit','a read past its bound says so, not that it failed (D232)');
   assert.equal(stepLine({withheld:2}),'An earlier answer was left out: what it read can no longer be read for you');
   assert.throws(()=>stepLine({ordinal:5,tool:'delete_trades',code:null}),/page is inconsistent/);
 });
@@ -151,7 +150,6 @@ test('step lines name the tool and, for a refusal or failure, say why in plain w
 test('an ending says why an answer stopped; a completed answer needs no line',()=>{
   assert.equal(endingLine({state:'completed',code:null,incomplete:false}),null);
   assert.equal(endingLine({state:'failed',code:'limit_elapsed',incomplete:true}),'The answer ran out of time.');
-  assert.equal(endingLine({state:'failed',code:'limit_tool_read',incomplete:false}),'A read took longer than its time limit, so the answer could not finish.');
   assert.equal(endingLine({state:'failed',code:'some_new_failure',incomplete:false}),'The answer could not finish.');
   assert.equal(endingLine({state:'cancelled',code:null,incomplete:true}),'You stopped this answer.');
   assert.equal(endingLine({state:'cancelled',code:'session_ended',incomplete:false}),'The answer stopped because your session changed.');

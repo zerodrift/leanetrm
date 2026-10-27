@@ -116,7 +116,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
             authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", 8);
             runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8);
             calculationRuntime=PreviewSource(root,"OPENETRM_PREVIEW_RUNTIME","preview_runtime",null,"openetrm-calculation-listener");
-            // An agent read is bounded by ToolRead over all its commands, so no one command of it is cut off sooner (D232).
+            // An agent read is bounded by its turn's deadline alone, so no one command of it is cut off sooner (D232).
             agentAuthenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", RuntimeSet.AgentPool, AgentReads, AgentCommandSeconds);
             agentRuntime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", RuntimeSet.AgentPool, AgentReads, AgentCommandSeconds);
             runtimeLogin = "preview_runtime";
@@ -137,8 +137,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
     }
 
     // A pool of the given size, or unpooled connections without one, named for the server when an application is given.
-    // The command timeout of the agent read pools: ToolRead, which bounds the whole read through its cancellation.
-    internal static readonly int AgentCommandSeconds=(int)RuntimeSet.ToolRead.TotalSeconds;
+    // The command timeout of the agent read pools: the longest elapsed limit an agent version may set (0066), so only the
+    // turn's deadline, through its cancellation, stops a read (D232).
+    internal const int AgentCommandSeconds=3600;
 
     private static NpgsqlDataSource PreviewSource(string root, string variable, string login, int? pool, string? application=null, int commandTimeout=5)
     {
