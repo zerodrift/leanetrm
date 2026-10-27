@@ -67,8 +67,8 @@ static class NavigationTargets
             {Operation.Id:"trades.blotter_v1",Arguments:BlotterArguments blotter}=>Filter(Blotter(blotter.View),blotter.View.Mode=="pivot"?"totals":"trades"),
             {Operation.Id:"trades.trade_v1",Arguments:TradeArguments trade}=>Trade(trade.TradeId,trade.InstrumentType,
                 result["state"]!["revision"]!.GetValue<int>(),result["state"]!["tradeReference"]!.GetValue<string>()),
-            {Arguments:JobListArguments list}=>Filter(new(){["view"]="jobs",["job"]=null,["page"]=list.Page,["before"]=null},
-                list.Page==0?null:string.Create(CultureInfo.InvariantCulture,$"page {list.Page+1}")),
+            // The page's own list also shows jobs others own to a job manager, so no page of it is the reader's list.
+            {Arguments:JobListArguments}=>Page("jobs"),
             {Arguments:JobHistoryArguments job}=>Job(job.Job),
             _=>throw new InvalidOperationException("An operation issues no target.")
         };

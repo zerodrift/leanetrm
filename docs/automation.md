@@ -108,9 +108,11 @@ The page assistant reads Jobs & Infrastructure under `ReadJobs` (D231, D233,
 [devops-assistant.md](devops-assistant.md)). Migration 0118 adds
 `automation.owned_jobs(page)` and `automation.owned_job_history(job, before)`, which
 return only jobs the reader owns, or for an agent's delegated context the jobs its
-delegator owns, a job manager's or operator's included. Another person's job is
+delegator owns, even when the reader manages other jobs. Another person's job is
 `job_not_found`. They return each job's terms, state, version, editability and runs,
-its audit actions and the terms of its command receipts. They never return service,
+its audit actions and the named schedule terms of its command receipts, 25 jobs to a
+page. A trigger keeps every job's owner, tenant and workspace fixed
+(`job_owner_immutable`). They never return a request identity, service,
 worker, fence or lease fields, and the database holds no container output for them
 to read. They change nothing. The agent reader role holds `ReadJobs` and no
 permission that creates, changes or cancels a job.

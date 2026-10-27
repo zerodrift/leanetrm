@@ -353,7 +353,12 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         catch(ToolRefusal refused){return Before(refused.Code,refused.Code=="tool_arguments_invalid"?null:input);}
         catch(MarketDataException refused){return Before(refused.Code,input);}
         if(call.Arguments is NavigateArguments navigate)
-            return Target(targets,navigate) is {} target?await Navigate(turn,tool,input!.Value,target,ct):Before("tool_arguments_invalid",input);
+        {
+            if(Target(targets,navigate) is not {} target)return Before("tool_arguments_invalid",input);
+            // A historical view does not move to a page of current operational records, as it does not read them.
+            if(!turn.Pin.Working&&PageReports.Operations(target.Page).Any(o=>Operations[o].Needs==ToolNeeds.Operational))return Before("jobs_current_only",input);
+            return await Navigate(turn,tool,input!.Value,target,ct);
+        }
         var operation=call.Operation;
         var access=operation.Access(database.Manifest);
         DateTimeOffset? readAt=null;

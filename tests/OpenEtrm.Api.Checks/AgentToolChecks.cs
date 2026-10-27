@@ -574,13 +574,13 @@ static class AgentToolChecks
             "a trade read issues the trade at the exact revision it read, its latest under the pinned knowledge included, as a record target");
         var jobs=Issue("read_jobs",JobList,$$"""{"page":0,"total":1,"jobs":[{"id":"{{Job}}","name":"Synthetic readiness"}]}""");
         var job=Issue("read_jobs",JobHistory,$$"""{"job":{"id":"{{Job}}","name":"Synthetic readiness"},"runs":[],"audit":[],"commands":[]}""",4);
-        Require(jobs.Issued.Length==2&&Is(jobs.Issued[0],"n1","jobs",JobList,"filter","Jobs & Infrastructure")
+        Require(jobs.Issued.Length==2&&Is(jobs.Issued[0],"n1","jobs","null","page","Jobs & Infrastructure")
             &&Is(jobs.Issued[1],"n2","jobs",JobHistory,"record","Jobs & Infrastructure: job history")
             &&jobs.Result["jobs"]![0]!["target"]!.GetValue<string>()=="n2"
             &&job.Issued.Length==1&&Is(job.Issued[0],"n4","jobs",JobHistory,"record","Jobs & Infrastructure: job history"),
-            "a job list issues its own page as a filter target, then each job's history as a record target, and a job's history its own; labels name no "+
-            "text a person typed");
-        var issued=directory.Issued.Concat(rows.Issued).Concat(totals.Issued).Concat(trade.Issued).Concat(jobs.Issued).Concat(job.Issued).ToList();
+            "a job list issues the page as it opens, since the page's own list is not the reader's, then each job's history as a record target, and a "+
+            "job's history its own; labels name no text a person typed");
+        var issued=directory.Issued.Concat(rows.Issued).Concat(totals.Issued).Concat(trade.Issued).Concat(jobs.Issued.Skip(1)).Concat(job.Issued).ToList();
         foreach(var (tool,input,page,kind,label) in new[]{
             ("read_market_data","""{"view":"curve","curve":"future"}""","curves","record","Curves & prices: curve future"),
             ("read_market_data","""{"view":"observations","curve":"future"}""","curves","filter","Curves & prices: inputs of curve future"),

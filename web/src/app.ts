@@ -825,11 +825,8 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       await setPage('reference');referenceCategory();select('reference-table').value=table;
       $<HTMLInputElement>('reference-search').value=search;await loadReference(0,search);return;
     }
-    // The page lists every job its reader may see, so a target opens its first page, and a job's history its details there.
-    case 'jobs':
-      await setPage('jobs');await jobs.load();
-      if(selection.view==='history')jobs.openJob(String(selection.job));
-      return;
+    // A job's history opens its details on the page of the directory that lists it.
+    case 'jobs':await setPage('jobs');await jobs.openJob(String(selection.job));return;
     case 'parties':{
       const kind=String(selection.kind);
       if(![...select('party-kind').options].some(o=>o.value===kind))throw Error('That kind of party is not one this page shows.');

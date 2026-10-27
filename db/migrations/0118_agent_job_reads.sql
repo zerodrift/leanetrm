@@ -96,6 +96,17 @@ BEGIN
  EXECUTE replace(definition,before,'WHEN ''record'' THEN target->>''page'' IN(''curves'',''blotter'',''jobs'')');
 END $upgrade$;
 
+-- A job's owner and scope never change, even for the database owner: a job read's access is the reader's ReadJobs in
+-- the workspace, which holds only while the jobs it read stay the reader's.
+CREATE FUNCTION automation.guard_job_owner() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF(NEW.owner_id,NEW.tenant_id,NEW.workspace_id) IS DISTINCT FROM(OLD.owner_id,OLD.tenant_id,OLD.workspace_id) THEN
+  RAISE EXCEPTION 'job_owner_immutable' USING ERRCODE='55000';
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER immutable_job_owner BEFORE UPDATE ON automation.jobs FOR EACH ROW EXECUTE FUNCTION automation.guard_job_owner();
+
 -- The reader of a job read: a bound request context holding ReadJobs, which for an agent also requires its current
 -- delegation listing it and its delegator holding it, and the person whose jobs it reads, the delegator for an agent.
 CREATE FUNCTION automation.job_reader(OUT tenant_id uuid,OUT workspace_id uuid,OUT owner_id uuid)
@@ -147,7 +158,19 @@ LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
   FROM security.principals p WHERE p.id=actor_id) END;
 $$;
 
--- The reader's own jobs, newest first, 100 to a page.
+-- What a command receipt carried, as its owner's reads show it: whether it created, updated or controlled the job, and
+-- its schedule terms and target, nested under a schedule for a close's creation. Only these named terms are read, so
+-- a request identity, at any depth, and a close's financial definition never are.
+CREATE FUNCTION automation.receipt_terms(request jsonb) RETURNS jsonb
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT jsonb_build_object('kind',CASE WHEN terms ? 'action' THEN 'control' WHEN terms ? 'id' THEN 'update' ELSE 'create' END)
+  ||coalesce((SELECT jsonb_object_agg(k,v) FROM jsonb_each(terms) t(k,v) WHERE k IN('name','operation','dueAt','expiresAt','intervalSeconds','timeZone',
+   'misfire','overlap','timeoutSeconds','maximumAttempts','profileId','profileVersion','id','action','expectedVersion')),'{}'::jsonb)
+ FROM(SELECT CASE WHEN jsonb_typeof(request->'schedule')='object' THEN request->'schedule' ELSE request END terms)r;
+$$;
+
+-- The reader's own jobs, newest first, 25 to a page: a row with its latest run takes about 1.1 KB, so a page stays well
+-- within one tool result's 64 KiB.
 CREATE FUNCTION automation.owned_jobs(page integer) RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE r record;
@@ -156,12 +179,12 @@ BEGIN
  IF page IS NULL OR page NOT BETWEEN 0 AND 10000 THEN RAISE EXCEPTION 'job_input';END IF;
  RETURN jsonb_build_object('page',page,'total',(SELECT count(*) FROM automation.jobs j WHERE(j.tenant_id,j.workspace_id,j.owner_id)=(r.tenant_id,r.workspace_id,r.owner_id)),
   'jobs',coalesce((SELECT jsonb_agg(automation.owned_job(j) ORDER BY j.created_at DESC,j.id) FROM(SELECT * FROM automation.jobs x
-   WHERE(x.tenant_id,x.workspace_id,x.owner_id)=(r.tenant_id,r.workspace_id,r.owner_id) ORDER BY x.created_at DESC,x.id OFFSET page*100 LIMIT 100)j),'[]'::jsonb));
+   WHERE(x.tenant_id,x.workspace_id,x.owner_id)=(r.tenant_id,r.workspace_id,r.owner_id) ORDER BY x.created_at DESC,x.id OFFSET page*25 LIMIT 25)j),'[]'::jsonb));
 END $$;
 
 -- One of the reader's jobs with its history, newest first, sized so a history fits one tool result: its latest 25
 -- runs; its audit actions before an audit sequence, 100 at a time, which record finished runs' outcomes; and its latest 25
--- command receipts, the terms each request carried without its request identity. Another person's job reads like an
+-- command receipts, by their named terms. Another person's job reads like an
 -- unknown one (job_not_found).
 CREATE FUNCTION automation.owned_job_history(job uuid,before bigint) RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -178,17 +201,20 @@ BEGIN
     'actor',automation.job_actor(j.owner_id,a.actor_id)) ORDER BY a.sequence DESC)
    FROM(SELECT * FROM automation.audit z WHERE z.job_id=j.id AND(before IS NULL OR z.sequence<before) ORDER BY z.sequence DESC LIMIT 100)a),'[]'::jsonb),
   'commands',coalesce((SELECT jsonb_agg(jsonb_build_object('committedAt',c.committed_at,'actor',automation.job_actor(j.owner_id,c.actor_id),
-    'request',c.request-'requestId') ORDER BY c.committed_at DESC,c.request_id)
+    'request',automation.receipt_terms(c.request)) ORDER BY c.committed_at DESC,c.request_id)
    FROM(SELECT * FROM automation.commands w WHERE w.job_id=j.id ORDER BY w.committed_at DESC,w.request_id LIMIT 25)c),'[]'::jsonb));
 END $$;
 
 ALTER FUNCTION automation.job_reader() OWNER TO openetrm_security_owner;
 ALTER FUNCTION automation.owned_run(automation.runs) OWNER TO openetrm_security_owner;
 ALTER FUNCTION automation.job_actor(uuid,uuid) OWNER TO openetrm_security_owner;
+ALTER FUNCTION automation.receipt_terms(jsonb) OWNER TO openetrm_security_owner;
+ALTER FUNCTION automation.guard_job_owner() OWNER TO openetrm_security_owner;
 ALTER FUNCTION automation.owned_job(automation.jobs) OWNER TO openetrm_security_owner;
 ALTER FUNCTION automation.owned_jobs(integer) OWNER TO openetrm_security_owner;
 ALTER FUNCTION automation.owned_job_history(uuid,bigint) OWNER TO openetrm_security_owner;
-REVOKE ALL ON FUNCTION automation.job_reader(),automation.owned_run(automation.runs),automation.job_actor(uuid,uuid),automation.owned_job(automation.jobs),
+REVOKE ALL ON FUNCTION automation.job_reader(),automation.owned_run(automation.runs),automation.job_actor(uuid,uuid),automation.receipt_terms(jsonb),
+ automation.guard_job_owner(),automation.owned_job(automation.jobs),
  automation.owned_jobs(integer),automation.owned_job_history(uuid,bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION automation.owned_jobs(integer),automation.owned_job_history(uuid,bigint) TO openetrm_runtime;
 COMMIT;

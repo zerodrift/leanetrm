@@ -822,8 +822,8 @@ permission, `ReadJobs`, is held by the six human role templates that hold
 `ReadJobs`, `ReadMarketData`, `ReadTrades` and `ReadTradeParties`. Agents are
 never granted `RunJobs`, `ManageJobs`, `LaunchWorkloads` or `ManageInfrastructure`.
 Job reads record the access `job_access` under `ReadJobs` in no catalog. A job's
-owner never changes, so the permission in the workspace is all the source-access
-and replay rechecks need.
+owner and scope never change, which a trigger enforces, so the permission in the
+workspace is all the source-access and replay rechecks need.
 
 ## D234 — Proposal provenance and single use
 
