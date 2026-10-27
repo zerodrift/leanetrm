@@ -908,7 +908,8 @@ function pageState():PageState{
     case 'reference':return {page,table:referencePage?.table??'',search:referencePage?.search??''};
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
-    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'jobs':case 'admin':case 'ai':case 'ppa':return {page};
+    case 'jobs':return {page,job:jobs.shown()};
+    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':case 'ppa':return {page};
     default:throw Error('This page could not load. Please refresh.');
   }
 }
@@ -967,6 +968,8 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       await setPage('reference');referenceCategory();select('reference-table').value=table;
       $<HTMLInputElement>('reference-search').value=search;await loadReference(0,search);return;
     }
+    // A job's history opens its details on the page of the directory that lists it, found before the page changes.
+    case 'jobs':{const job=await jobs.locateJob(String(selection.job));await setPage('jobs');jobs.showJob(job);return;}
     case 'parties':{
       const kind=String(selection.kind);
       if(![...select('party-kind').options].some(o=>o.value===kind))throw Error('That kind of party is not one this page shows.');

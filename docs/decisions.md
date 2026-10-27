@@ -801,6 +801,60 @@ positions its shock moves, from the same report. Totals across books, a choice o
 one curve level and quantity-equivalent units need server-side contracts and
 remain work. See [the delta ladder](delta-ladder.md).
 
+## D239 — The page assistant reads the person's own jobs on Jobs & Infrastructure
+
+Decided by the owner on 2026-10-26 ([devops-assistant.md](devops-assistant.md)).
+Jobs & Infrastructure becomes a page the assistant reads. Read jobs returns only
+jobs owned by the signed-in person, as the delegator of the turn's grant: their
+terms, state, version, editability and runs, audit actions and command receipts.
+That holds for a job manager or installation operator too; another person's job
+reads like an unknown one (`job_not_found`). Jobs are current operational
+records: the read binds no market context, is labeled with its read instant and
+is refused under a historical view (`jobs_current_only`). The database holds no
+container output, and this decision adds none. Runtime set `turns_v6` adds
+`jobs.list_v1` and `jobs.history_v1`; migration 0119 implements them.
+
+## D240 — Agents stay read-only; job changes are prepared and confirmed by the person
+
+Decided by the owner on 2026-10-26. The agent may prepare a create, update,
+pause, resume or cancel. The change takes effect only when the person confirms it
+on the page, through the ordinary job operation under their own sign-in. The
+job's owner is the person and it carries no delegation. Executing a change after
+an in-turn confirmation under a delegated `RunJobs` was considered and rejected.
+Not yet implemented.
+
+## D241 — ReadJobs
+
+Decided by the owner on 2026-10-26; amends D42 and ai-assistant.md §5.4. A new
+permission, `ReadJobs`, is held by the six human role templates that hold
+`RunJobs` and by the agent reader role. The agent reader role then holds exactly
+`ReadJobs`, `ReadMarketData`, `ReadTrades` and `ReadTradeParties`. Agents are
+never granted `RunJobs`, `ManageJobs`, `LaunchWorkloads` or `ManageInfrastructure`.
+Job reads record the access `job_access` under `ReadJobs` in no catalog. A job's
+owner and scope never change, which a trigger refuses for any ordinary update
+(a superuser can still disable triggers), so the permission in the
+workspace is all the source-access and replay rechecks need.
+
+## D242 — Proposal provenance and single use
+
+Decided by the owner on 2026-10-26. An executed proposal records an exact foreign
+key to its preparation step and whether the person confirmed it unchanged in
+`automation.audit`. A proposal is used at most once, keyed to the request identity
+that used it, and can be reviewed for one hour after its step. Not yet implemented.
+
+## D243 — The changes an agent may prepare
+
+Decided by the owner on 2026-10-26. Create proposals cover `worker_check` and
+`swarm_job`. Update, pause, resume and cancel cover the person's own jobs. An
+agent never prepares changes to collection schedules or infrastructure, run again
+or the resolution of an uncertain launch. Not yet implemented.
+
+## D244 — Prepared job changes state every term
+
+Decided by the owner on 2026-10-26. A preparation names every term explicitly.
+Nothing is defaulted or inferred, and a missing or conflicting term is a
+structured refusal. Not yet implemented.
+
 ## D245 — Each agent version sets its time per read
 
 Each agent version states a time per read (`readSeconds`), set in Settings › AI with its

@@ -17,6 +17,7 @@ static class AgentToolChecks
     public static void Run()
     {
         CurvePreparation();
+        JobReads();
         TurnPins();
         Definitions();
         Inputs();
@@ -105,7 +106,7 @@ static class AgentToolChecks
             "a version's switched-on tools are offered in the fixed order, Navigate after the read tools, a version without tools offers none, "+
             "and Show card is not offered");
         var permissions=AgentTools.Tools.ToDictionary(t=>t.Name,t=>string.Join(",",t.Permissions));
-        Require(permissions.Count==9&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
+        Require(permissions.Count==10&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
             &&permissions["read_trades"]=="ReadMarketData,ReadTrades"&&permissions["read_trade_parties"]=="ReadMarketData,ReadTradeParties"
             &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData"&&permissions["navigate"]=="",
             "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools), and Navigate needs none of its own");
@@ -131,6 +132,43 @@ static class AgentToolChecks
     // Every member of Read trades is named; those the other view takes are null.
     const string NoTrade=""" "tradeId":null,"instrumentType":null,"revision":null""",NoBlotter=""" "mode":null,"bookIds":null,"portfolioIds":null,"groupBy":null,"measures":null""";
     const string Blotter=$$"""{"view":"blotter","mode":"trades","bookIds":[],"portfolioIds":[],"groupBy":[],"measures":[],{{NoTrade}}}""";
+
+    const string Job="a7000000-0000-0000-0000-000000000003";
+    const string JobList="""{"view":"jobs","job":null,"page":0,"before":null}""",JobHistory=$$"""{"view":"history","job":"{{Job}}","page":null,"before":null}""";
+
+    // Jobs & Infrastructure (docs/devops-assistant.md §3, D239): one read tool with a list and a history view, every member
+    // named, a current operational read under ReadJobs alone, and the page's report in its input.
+    static void JobReads()
+    {
+        Require(AgentTools.Offered(["navigate","read_jobs","read_current_page"]).Select(t=>t.Name).SequenceEqual(["read_current_page","read_jobs","navigate"]),
+            "Read jobs is offered among the read tools, before Navigate");
+        foreach(var (input,operation,arguments) in new (string,string,ToolArguments)[]{
+            (JobList,"jobs.list_v1",new JobListArguments(0)),
+            ("""{"view":"jobs","job":null,"page":10000,"before":null}""","jobs.list_v1",new JobListArguments(10000)),
+            (JobHistory,"jobs.history_v1",new JobHistoryArguments(Guid.Parse(Job),null)),
+            ($$"""{"view":"history","job":"{{Job}}","page":null,"before":9007199254740991}""","jobs.history_v1",new JobHistoryArguments(Guid.Parse(Job),9007199254740991))})
+        {
+            var call=AgentTools.Parse("read_jobs",Json(input));
+            Require(call.Operation.Id==operation&&call.Arguments==arguments,$"read_jobs accepts {input}");
+        }
+        foreach(var input in new[]{"{}","""{"view":"jobs","job":null,"page":0}""","""{"view":"jobs","job":null,"page":-1,"before":null}""",
+            """{"view":"jobs","job":null,"page":10001,"before":null}""","""{"view":"jobs","job":null,"page":1.5,"before":null}""",
+            """{"view":"jobs","job":null,"page":null,"before":null}""",$$"""{"view":"jobs","job":"{{Job}}","page":0,"before":null}""",
+            """{"view":"jobs","job":null,"page":0,"before":3}""",$$"""{"view":"history","job":"{{Job}}","page":0,"before":null}""",
+            """{"view":"history","job":null,"page":null,"before":null}""",$$"""{"view":"history","job":"{{Job.ToUpperInvariant()}}","page":null,"before":null}""",
+            $$"""{"view":"history","job":"{{Job}}","page":null,"before":0}""",$$"""{"view":"history","job":"{{Job}}","page":null,"before":"5"}""",
+            $$"""{"view":"history","job":"{{Job}}","page":null,"before":null,"owner":null}""","""{"view":"runs","job":null,"page":null,"before":null}"""})
+            Require(Code(()=>AgentTools.Parse("read_jobs",Json(input)))=="tool_arguments_invalid",$"read_jobs refuses {input}");
+        Require(AgentTools.Operation("jobs.list_v1").Access(Manifest).SequenceEqual([new ReadAccess("job_access",null,"ReadJobs")])
+            &&AgentTools.Operation("jobs.history_v1").Access(Manifest).SequenceEqual([new ReadAccess("job_access",null,"ReadJobs")])
+            &&AgentTools.Operation("jobs.history_v1").SelectionRefusals.SetEquals(["job_not_found"]),
+            "job reads run under ReadJobs over the workspace's jobs, in no catalog, and a page's job that is gone is its selection unavailable");
+        var readAt=DateTimeOffset.Parse("2026-10-26T12:00:00Z");
+        var envelope=AgentTools.Envelope(Pin("current",Guid.NewGuid(),Working),AgentTools.Operation("jobs.list_v1"),readAt,new(new JsonObject(),0,false),"n1");
+        Require(JsonNode.DeepEquals(envelope["context"],JsonNode.Parse("""{"knowledge":"current_operations","readAt":"2026-10-26T12:00:00+00:00"}""")),
+            "a job read is labeled as a current operational read with its instant, never the pinned cutoff or frame");
+        Console.WriteLine("PASS agent jobs: Read jobs' list and history views, ReadJobs access and current operational label");
+    }
 
     static void Inputs()
     {
@@ -212,7 +250,7 @@ static class AgentToolChecks
             ("read_reference_data","""{"table":"units","search":"\ud800"}"""),("read_reference_data","""{"table":"units","search":"\udc00\ud800"}"""),
             ("read_reference_data","""{"table":"units","search":null}"""),("read_market_data","""{"view":"curve","curve":"\ud800"}"""),
             ("read_current_page","{}"),("navigate","{}"),("navigate","""{"page":"blotter"}"""),("navigate","""{"target":"n1"}"""),
-            ("navigate","""{"page":null,"target":null}"""),("navigate","""{"page":"blotter","target":"n1"}"""),("navigate","""{"page":"jobs","target":null}"""),
+            ("navigate","""{"page":null,"target":null}"""),("navigate","""{"page":"blotter","target":"n1"}"""),
             ("navigate","""{"page":"settings_ai","target":null}"""),("navigate","""{"page":"Blotter","target":null}"""),("navigate","""{"page":1,"target":null}"""),
             ("navigate","""{"page":null,"target":"n0"}"""),("navigate","""{"page":null,"target":"n01"}"""),("navigate","""{"page":null,"target":"N1"}"""),
             ("navigate","""{"page":null,"target":"1"}"""),("navigate","""{"page":null,"target":"n"}"""),("navigate","""{"page":null,"target":"n1234567890"}"""),
@@ -258,14 +296,15 @@ static class AgentToolChecks
             ("""{"page":"reference_data","selection":{"table":"units","search":"mega"}}""","reference_data","reference_data.table_v1"),
             ("""{"page":"parties","selection":{"kind":"counterparty"}}""","parties","trade_parties.versions_v1"),
             (Report("blotter",blotter),"blotter","trades.blotter_v1"),
-            (Report("blotter",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":3}"""),"blotter","trades.trade_v1")})
+            (Report("blotter",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":3}"""),"blotter","trades.trade_v1"),
+            (Report("jobs",JobList),"jobs","jobs.list_v1"),(Report("jobs",JobHistory),"jobs","jobs.history_v1")})
         {
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","jobs","users_access","settings_ai","ppa"};
+        var unsupported=new[]{"blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai","ppa"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
-                .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves"}.Order()),
+                .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs"}.Order()),
             "the closed set names one id per navigable view, with each coverage row the assistant reads and each it does not");
         foreach(var page in unsupported)
         {
@@ -294,7 +333,7 @@ static class AgentToolChecks
         Require(call.Operation.Id=="market_data.curve_v1"&&call.Arguments==new CurveArguments("future")&&dispatched&&own.Operation.Id=="market_data.curves_v1"&&!ownDispatched,
             "Read current page dispatches the stored report's read with its selection; another tool reads its own input");
         Require(Code(()=>AgentTools.Requested(Turn(curve,"read_current_page"),Current()))=="tool_not_enabled"
-            &&Code(()=>AgentTools.Requested(Turn("""{"page":"jobs","selection":{}}""","read_current_page","read_market_data"),Current()))=="page_not_supported"
+            &&Code(()=>AgentTools.Requested(Turn("""{"page":"users_access","selection":{}}""","read_current_page","read_market_data"),Current()))=="page_not_supported"
             &&Code(()=>AgentTools.Requested(Turn("""{"page":"curves","selection":{"view":"curve"}}""","read_current_page","read_market_data"),Current()))=="page_selection_unavailable"
             &&Code(()=>AgentTools.Requested(Turn(curve,"read_current_page","read_market_data"),Current("""{"page":"curves"}""")))=="tool_arguments_invalid",
             "Read current page takes no input, refuses an unsupported page page_not_supported, a stored selection it cannot read page_selection_unavailable "+
@@ -536,7 +575,15 @@ static class AgentToolChecks
         Require(trade.Issued.Length==1&&Is(trade.Issued[0],"n8","blotter",TradeView(Guid.Parse(Trade),"future",3),"record","Blotter: trade TR-000009 revision 3")
             &&trade.Result["history"]!.AsArray().All(h=>!h!.AsObject().ContainsKey("target")),
             "a trade read issues the trade at the exact revision it read, its latest under the pinned knowledge included, as a record target");
-        var issued=directory.Issued.Concat(rows.Issued).Concat(totals.Issued).Concat(trade.Issued).ToList();
+        var jobs=Issue("read_jobs",JobList,$$"""{"page":0,"total":1,"jobs":[{"id":"{{Job}}","name":"Synthetic readiness"}]}""");
+        var job=Issue("read_jobs",JobHistory,$$"""{"job":{"id":"{{Job}}","name":"Synthetic readiness"},"runs":[],"audit":[],"commands":[]}""",4);
+        Require(jobs.Issued.Length==2&&Is(jobs.Issued[0],"n1","jobs","null","page","Jobs & Infrastructure")
+            &&Is(jobs.Issued[1],"n2","jobs",JobHistory,"record","Jobs & Infrastructure: job history")
+            &&jobs.Result["jobs"]![0]!["target"]!.GetValue<string>()=="n2"
+            &&job.Issued.Length==1&&Is(job.Issued[0],"n4","jobs",JobHistory,"record","Jobs & Infrastructure: job history"),
+            "a job list issues the page as it opens, since the page's own list is not the reader's, then each job's history as a record target, and a "+
+            "job's history its own; labels name no text a person typed");
+        var issued=directory.Issued.Concat(rows.Issued).Concat(totals.Issued).Concat(trade.Issued).Concat(jobs.Issued.Skip(1)).Concat(job.Issued).ToList();
         foreach(var (tool,input,page,kind,label) in new[]{
             ("read_market_data","""{"view":"curve","curve":"future"}""","curves","record","Curves & prices: curve future"),
             ("read_market_data","""{"view":"observations","curve":"future"}""","curves","filter","Curves & prices: inputs of curve future"),
@@ -563,14 +610,15 @@ static class AgentToolChecks
             "numbered across the turn, each a page report its page reads, labeled with the page and what it shows");
 
         var names=new Dictionary<string,string>{["curves"]="Curves & prices",["contract_definitions"]="Contract definitions",["schedules"]="Schedules",
-            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Custom curves"};
+            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Custom curves",
+            ["jobs"]="Jobs & Infrastructure"};
         Require(PageReports.Supported.Order().SequenceEqual(names.Keys.Order())
             &&names.All(n=>NavigationTargets.Page(n.Key) is {Kind:"page",Selection:null} target&&target.Page==n.Key&&target.Label==n.Value),
             "a page target names one of the seven pages the assistant reads with no selection, the page as it opens, labeled with the page's name");
         foreach(var (page,operation,tool) in new[]{("curves","market_data.curve_v1","read_market_data"),
             ("contract_definitions","market_data.contract_definitions_v1","read_market_data"),("schedules","schedules.library_v1","read_schedules"),
             ("power_tous","schedules.tou_products_v1","read_schedules"),("reference_data","reference_data.table_v1","read_reference_data"),
-            ("parties","trade_parties.versions_v1","read_trade_parties"),("blotter","trades.trade_v1","read_trades")})
+            ("parties","trade_parties.versions_v1","read_trade_parties"),("blotter","trades.trade_v1","read_trades"),("jobs","jobs.history_v1","read_jobs")})
             Require(NavigationTargets.Access(page,Manifest).SequenceEqual(AgentTools.Operation(operation).Access(Manifest))
                 &&NavigationTargets.Permissions(page).SequenceEqual(AgentTools.Tools.Single(t=>t.Name==tool).Permissions),
                 $"a target on {page} is checked by the accesses and permissions that page's reads run under");
