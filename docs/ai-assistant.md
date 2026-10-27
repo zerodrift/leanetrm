@@ -70,7 +70,7 @@ its stored events after a sequence, read in their own request context with the r
 recheck, then each piece of answer text the worker publishes once its publication
 recheck has committed, with every other event, steps included, read the same way,
 through to the turn's terminal event, with resume, heartbeats, one stream per turn and
-the refusals §8 lists; the runtime set is `turns_v6` (D193, D231). `ReadModelUsage` reads usage
+the refusals §8 lists; the runtime set is `turns_v6` (D193, D239). `ReadModelUsage` reads usage
 through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
@@ -346,7 +346,7 @@ audit as history.
   permission its switched-on tools need; a database check enforces it
   (`agent_role_lacks_permission`, naming role and permission).
 - A new **agent reader** role holds exactly `ReadMarketData`, `ReadTrades` and
-  `ReadTradeParties`, and from migration 0118 `ReadJobs` (D233). A database check allows it only on agent principals and allows
+  `ReadTradeParties`, and from migration 0119 `ReadJobs` (D241). A database check allows it only on agent principals and allows
   agent principals no other role. The migration fails, never revokes silently, if an
   agent principal already holds another role.
 - Creating an agent is one `ManageAgents` security-definer operation: the principal,
@@ -632,7 +632,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Read schedules | Published date schedules and calendars, TOU products, power hours |
 | Read reference data | The `references` and `unitCatalog` read behind Reference data |
 | Read custom curves | Reads pinned saved ingredients, operators and exact published versions |
-| Read jobs | The person's own jobs, and one job's runs, audit actions and command receipts ([devops-assistant.md](devops-assistant.md), D231) |
+| Read jobs | The person's own jobs, and one job's runs, audit actions and command receipts ([devops-assistant.md](devops-assistant.md), D239) |
 | Prepare custom curve | Validates/prices an explicit formula and offers a reviewed draft; saves nothing |
 | Navigate | Requests a move to a server-issued target |
 | Show card | Creates an application-drawn card from this turn's reads (§10.2) |
@@ -1339,7 +1339,7 @@ common notebook alongside agent notebooks.
 **Tool decisions** (D177): the record keeps an As of frame's exact pins, from which tool
 reads rebuild the page's frame (§7.2); a read's own refusal of its input returns to the
 model as a refused step with its code and the page's fixed text; Interval series
-and Jobs & Infrastructure are not supported pages (D231 later adds Jobs & Infrastructure); D193 adds Custom curves below; Read market data
+and Jobs & Infrastructure are not supported pages (D239 later adds Jobs & Infrastructure); D193 adds Custom curves below; Read market data
 reads the pinned frame only, curve history later; a step records its operation, input,
 code, read instant and accesses, and results wait for cards (§7.3); worker writes
 evaluate the source-access check as a context issued to the turn's agent would, which a

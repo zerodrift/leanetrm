@@ -152,10 +152,10 @@ def check_curve_proposals_upgrade(query, migration):
 
 
 def check_job_reads_upgrade(query, migration):
-    """Before 0118 applies: it refuses a changed helper the job reads rely on or definition they replace, or one whose privileges differ."""
+    """Before 0119 applies: it refuses a changed helper the job reads rely on or definition they replace, or one whose privileges differ."""
     helpers = ('assistant.agent_tools()', 'assistant.agent_access(assistant.turns,text,text,uuid,uuid)', 'assistant.is_read_access(jsonb)',
                'assistant.sources_readable(uuid)', 'assistant.is_navigation_target(assistant.turns,jsonb)', 'automation.edit_reason(automation.jobs)')
-    check_guard(query, migration, '0118', 'job_reads', (
+    check_guard(query, migration, '0119', 'job_reads', (
         *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in helpers),
         *((f'GRANT EXECUTE ON FUNCTION {helper} TO PUBLIC;', helper) for helper in helpers),
         ('ALTER TABLE assistant.tool_read_access RENAME CONSTRAINT tool_read_access_check TO tool_read_access_renamed;', 'assistant.tool_read_access_check')))

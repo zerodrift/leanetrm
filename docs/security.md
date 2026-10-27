@@ -43,7 +43,7 @@ agent reader:
 | Market Data Editor | Read, import observations, write market/reference drafts, use agents and delegate within authority |
 | Market Data Approver | Read, freeze definitions and approve/publish qualified changes |
 | Access Administrator | Manage identities/access, model providers and agents, and create scoped delegations |
-| Agent reader | Read market data, trades, trade parties and the delegator's own jobs (`ReadJobs`, D233); held only by agent principals |
+| Agent reader | Read market data, trades, trade parties and the delegator's own jobs (`ReadJobs`, D241); held only by agent principals |
 
 A trigger on role grants keeps the agent reader role to agent principals and agent
 principals to it, even for the database owner, while any grant can still be revoked;

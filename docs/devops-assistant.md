@@ -1,7 +1,7 @@
 # Page assistant: Jobs & Infrastructure (DevOps)
 
 Status: the owner approved this design on 2026-10-26, including pause and resume and
-the owner-only scope ([decisions.md](decisions.md) D231–D236). Step 1 of §9 is
+the owner-only scope ([decisions.md](decisions.md) D239–D244). Step 1 of §9 is
 implemented: the decisions, `ReadJobs`, Read jobs (§3) and its page report and
 targets. Prepare, review and confirm (§4–§5) are not implemented yet. It extends the
 page assistant ([ai-assistant.md](ai-assistant.md)) to Jobs & Infrastructure
@@ -61,12 +61,12 @@ are not owned by a person, so the agent does not read or change them (§6).
 | Prepare job change (not implemented) | `jobs.prepare_v1` | A validated proposal (§4); saves nothing | 8 KiB arguments |
 
 - Read jobs is one tool with two views, every member named and the other view's null:
-  `{"view","job","page","before"}`. It needs a new permission, **`ReadJobs`** (D233),
+  `{"view","job","page","before"}`. It needs a new permission, **`ReadJobs`** (D241),
   which the grant lists and the consent names. Prepare will also check that the
   **delegator** currently holds `RunJobs` (and `LaunchWorkloads` for a container
   job); the agent never holds them.
 - The reads are `automation.owned_jobs(page)` and `automation.owned_job_history(job,
-  before)` (migration 0118). They decide the reader in SQL: a bound request context
+  before)` (migration 0119). They decide the reader in SQL: a bound request context
   holding `ReadJobs`, which for an agent also requires its current delegation listing
   it and its delegator holding it, reading the jobs of its delegator. The page's own
   `automation.job_list` stays as it is: it also lists jobs a manager may see and calls
@@ -109,7 +109,7 @@ set `turns_v6` adds `jobs.list_v1` and `jobs.history_v1` and their refusals.
 
 ## 4. Changes: prepare, review, confirm
 
-Agents stay read-only (D232). The agent **prepares**; the person **executes**.
+Agents stay read-only (D240). The agent **prepares**; the person **executes**.
 This follows the custom curve proposal of D193.
 
 1. **Prepare.** The model calls Prepare job change with every member explicit:
@@ -117,7 +117,7 @@ This follows the custom curve proposal of D193.
    operation, name, due, expiry, interval, timeout, attempts and profile (create), or
    job and the full amended terms (update), or job (control). Members a kind does not
    take are null; a missing member is `tool_arguments_invalid`. Nothing is defaulted,
-   and the server does not fill a term the model left out (D236). The operation runs
+   and the server does not fill a term the model left out (D244). The operation runs
    the same validation as `create_job`, `update_job` and `control_job` without writing:
    bounds, the 64-job quota, editability, state transitions, profile enabled and
    approved. Update and control proposals bind the job's **expected version** as read.
@@ -216,12 +216,12 @@ human write path and its uncertain-outcome handling.
 
 | ID | Decision |
 | --- | --- |
-| D231 | Jobs & Infrastructure becomes a supported assistant page. The agent reads only jobs owned by the signed-in person, with their runs, audit actions and command receipts, current-only and refused under a historical pin; no container logs exist or are added |
-| D232 | Agents stay read-only. Job changes are prepared by the agent and executed only by the person's confirmation through the ordinary job operation under their own sign-in |
-| D233 | New permission `ReadJobs` for the six human role templates and the agent reader role; agents are never granted `RunJobs`, `ManageJobs`, `LaunchWorkloads` or `ManageInfrastructure` (amends D42, ai-assistant.md §5.4) |
-| D234 | Executed proposals record an exact tool-step foreign key and `as_proposed` in `automation.audit`; a proposal is single-use and keyed to the request identity that used it; review window one hour |
-| D235 | Create proposals cover `worker_check` and `swarm_job` only; update, pause, resume and cancel cover the person's editable jobs; never collection schedules, infrastructure, run again or uncertain-launch resolution |
-| D236 | Prepare takes every term explicitly; nothing is defaulted or inferred, and a missing or conflicting term is a structured refusal |
+| D239 | Jobs & Infrastructure becomes a supported assistant page. The agent reads only jobs owned by the signed-in person, with their runs, audit actions and command receipts, current-only and refused under a historical pin; no container logs exist or are added |
+| D240 | Agents stay read-only. Job changes are prepared by the agent and executed only by the person's confirmation through the ordinary job operation under their own sign-in |
+| D241 | New permission `ReadJobs` for the six human role templates and the agent reader role; agents are never granted `RunJobs`, `ManageJobs`, `LaunchWorkloads` or `ManageInfrastructure` (amends D42, ai-assistant.md §5.4) |
+| D242 | Executed proposals record an exact tool-step foreign key and `as_proposed` in `automation.audit`; a proposal is single-use and keyed to the request identity that used it; review window one hour |
+| D243 | Create proposals cover `worker_check` and `swarm_job` only; update, pause, resume and cancel cover the person's editable jobs; never collection schedules, infrastructure, run again or uncertain-launch resolution |
+| D244 | Prepare takes every term explicitly; nothing is defaulted or inferred, and a missing or conflicting term is a structured refusal |
 
 The owner approved these on 2026-10-26 as drafted: pause and resume belong in the
 first slice with cancel, a `ManageJobs` holder's agent reads only their own jobs, and
@@ -233,7 +233,7 @@ Each step leaves the assistant working with the tools off, and updates the
 documents it makes inaccurate (ai-assistant.md, automation.md, security.md,
 decisions.md, db/README.md).
 
-1. Record the decisions; migration 0118 adding `ReadJobs`, the owner-filtered reads
+1. Record the decisions; migration 0119 adding `ReadJobs`, the owner-filtered reads
    `jobs.list_v1` and `jobs.history_v1` with the error-code explanations; page report
    `jobs`, Read current page dispatch, job and page targets; runtime set `turns_v6`.
    **Implemented.**

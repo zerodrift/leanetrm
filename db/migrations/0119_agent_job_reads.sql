@@ -1,4 +1,4 @@
--- The page assistant reads Jobs & Infrastructure (docs/devops-assistant.md §2–§3, D231, D233): ReadJobs, held by the
+-- The page assistant reads Jobs & Infrastructure (docs/devops-assistant.md §2–§3, D239, D241): ReadJobs, held by the
 -- human roles that run jobs and by the agent reader role, reads the jobs its reader owns, or for an agent the jobs its
 -- delegator owns, with their runs, audit actions and command receipts. It never reads another person's job, a job
 -- manager's or operator's included, and it changes nothing: the agent reader role still holds no permission that

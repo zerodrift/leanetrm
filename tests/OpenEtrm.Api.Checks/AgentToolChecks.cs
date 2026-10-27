@@ -135,7 +135,7 @@ static class AgentToolChecks
     const string Job="a7000000-0000-0000-0000-000000000003";
     const string JobList="""{"view":"jobs","job":null,"page":0,"before":null}""",JobHistory=$$"""{"view":"history","job":"{{Job}}","page":null,"before":null}""";
 
-    // Jobs & Infrastructure (docs/devops-assistant.md §3, D231): one read tool with a list and a history view, every member
+    // Jobs & Infrastructure (docs/devops-assistant.md §3, D239): one read tool with a list and a history view, every member
     // named, a current operational read under ReadJobs alone, and the page's report in its input.
     static void JobReads()
     {

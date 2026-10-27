@@ -250,7 +250,7 @@ def main():
             if args.assistant_check and migration.name=='0089_curve_agent_proposals.sql':
                 from check_agent_turns import check_curve_proposals_upgrade
                 check_curve_proposals_upgrade(query,migration.read_text())
-            if args.assistant_check and migration.name=='0118_agent_job_reads.sql':
+            if args.assistant_check and migration.name=='0119_agent_job_reads.sql':
                 from check_agent_turns import check_job_reads_upgrade
                 check_job_reads_upgrade(query,migration.read_text())
             if args.assistant_check and migration.name=='0086_navigation_targets.sql':

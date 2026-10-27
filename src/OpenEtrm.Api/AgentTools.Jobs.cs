@@ -5,7 +5,7 @@ using NpgsqlTypes;
 
 namespace OpenEtrm.Api;
 
-// Jobs & Infrastructure (docs/devops-assistant.md §2–§3, D231): the jobs the turn's delegator owns, with each job's runs,
+// Jobs & Infrastructure (docs/devops-assistant.md §2–§3, D239): the jobs the turn's delegator owns, with each job's runs,
 // audit actions and command receipts, read in the agent's request context under ReadJobs alone. The database decides
 // whose jobs they are, so another person's job reads like an unknown one, a job manager's included.
 public sealed partial class AgentTools

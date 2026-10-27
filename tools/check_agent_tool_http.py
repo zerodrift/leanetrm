@@ -787,7 +787,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
 
 
 JOBS = {'view': 'jobs', 'job': None, 'page': 0, 'before': None}
-# The terms a command receipt may carry (D231): its schedule terms and its target, never a request identity or a
+# The terms a command receipt may carry (D239): its schedule terms and its target, never a request identity or a
 # financial definition.
 RECEIPT_TERMS = {'kind', 'name', 'operation', 'dueAt', 'expiresAt', 'intervalSeconds', 'timeZone', 'misfire', 'overlap', 'timeoutSeconds',
                  'maximumAttempts', 'profileId', 'profileVersion', 'id', 'action', 'expectedVersion'}
@@ -800,7 +800,7 @@ def history(job_id):
 
 
 def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settled, steps, requests, answers, model_name):
-    """Jobs & Infrastructure (docs/devops-assistant.md §2–§3, D231, D233): the agent reads only the jobs its delegator owns, their
+    """Jobs & Infrastructure (docs/devops-assistant.md §2–§3, D239, D241): the agent reads only the jobs its delegator owns, their
     runs, audit actions and command receipts, current-only, under ReadJobs alone; another person's job, a job manager's included,
     reads like an unknown one, and nothing in a result names service, worker, fence or lease internals."""
     now = datetime.now(UTC)
@@ -883,7 +883,7 @@ def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settle
           [s['access'] for s in recorded] == [JOB_ACCESS, JOB_ACCESS, JOB_ACCESS, [], JOB_ACCESS, JOB_ACCESS]
           and [e['payload']['target']['page'] for e in events if e['kind'] == 'navigation'] == ['jobs'], recorded)
 
-    # A historical view never reads current jobs (D231).
+    # A historical view never reads current jobs (D239).
     selected = trader.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
     fake.respond(stream(tool_use(model_name, [('toolu_jobs_7', 'read_jobs', JOBS), ('toolu_jobs_8', 'navigate', {'page': 'jobs', 'target': None})])),
                  stream(recording(model_name, text='Historical.')))

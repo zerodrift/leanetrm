@@ -104,8 +104,8 @@ worker installation remain separate reviewed steps.
 
 ## Page assistant reads
 
-The page assistant reads Jobs & Infrastructure under `ReadJobs` (D231, D233,
-[devops-assistant.md](devops-assistant.md)). Migration 0118 adds
+The page assistant reads Jobs & Infrastructure under `ReadJobs` (D239, D241,
+[devops-assistant.md](devops-assistant.md)). Migration 0119 adds
 `automation.owned_jobs(page)` and `automation.owned_job_history(job, before)`, which
 return only jobs the reader owns, or for an agent's delegated context the jobs its
 delegator owns, even when the reader manages other jobs. Another person's job is
