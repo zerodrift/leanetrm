@@ -161,6 +161,9 @@ def main():
         from seed_preview_swaps import seed_swaps
         seed_positions(url, run_id, temporary)
         seed_swaps(url, run_id, temporary)
+        # Delivery prices opens on this week of two sources, so its readiness includes the interval chart and table.
+        from delivery_price_seed import seed as seed_delivery_prices
+        seed_delivery_prices(query, manifest)
         # Independent unused observations exercise workspace scaling without
         # changing any pinned price, contract, correction chain or numerical result.
         query(f"""WITH originals AS MATERIALIZED (
