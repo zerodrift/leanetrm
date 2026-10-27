@@ -458,7 +458,7 @@ def run_checks(url, query, psql, manifest, environment):
     check("the worker starts the pinned turn and is given the version, its limits, the question, no earlier turn, and the catalog, pins, "
           "grant and agent principal its reads run under", started['turn']['state'] == 'running'
           and started['started']['instructions'] == 'Quote only values you read.'
-          and started['started']['limits'] == {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048, 'elapsedSeconds': 120, 'retries': 2}
+          and started['started']['limits'] == {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048, 'elapsedSeconds': 120, 'readSeconds': 15, 'retries': 2}
           and started['started']['modelId'] == usable and started['started']['earlier'] == [] and started['turn']['question'] == 'What does this page show?'
           and (started['started']['catalogId'], started['started']['pins'], started['started']['delegationId']) == (catalog, None, covering['id'])
           and started['started']['agentPrincipal'] == query(f"SELECT principal_id FROM assistant.agents WHERE id='{guide['id']}';"), started)
@@ -565,7 +565,7 @@ def run_checks(url, query, psql, manifest, environment):
     quitting = Turn()
     ask(quitting, login('quitter'))
     stop(quitting, login('quitter'))
-    quick = agent('quick guide', elapsedSeconds=1)
+    quick = agent('quick guide', elapsedSeconds=1, readSeconds=1)
     grant(risk, quick)
     stuck = Turn()
     ran(stuck, 'risk', agent_id=quick['id'])

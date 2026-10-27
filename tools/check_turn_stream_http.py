@@ -127,7 +127,7 @@ def run_checks(url, query, psql, manifest, environment, fake, trap, admin, trade
 
     def grant(session, agent_state):
         return session.call(f'{GRANTS}/grant', {'operationId': str(uuid4()), 'agentId': agent_state['id'], 'version': 1})
-    guide, hasty = agent('guide'), agent('hasty', elapsedSeconds=5)
+    guide, hasty = agent('guide'), agent('hasty', elapsedSeconds=5, readSeconds=5)
     for agent_state in (guide, hasty):
         grant(trader, agent_state)
 

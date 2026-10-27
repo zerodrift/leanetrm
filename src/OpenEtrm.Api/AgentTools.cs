@@ -55,8 +55,9 @@ public sealed record AgentIdentity(string Principal,Guid Delegation)
     public override string ToString()=>nameof(AgentIdentity);
 }
 
-// What a turn's reads run with: its pin, its agent, the page report stored at ask and the version's switched-on tools.
-public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools,Guid TurnId);
+// What a turn's reads run with: its pin, its agent, the page report stored at ask, the version's switched-on tools and its
+// time per read (D245).
+public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools,Guid TurnId,TimeSpan ReadLimit);
 
 // How a step ended: with a result or a refusal the model receives, a failure that ends the turn, or a read the worker
 // stopped, whose cause it names.
@@ -162,7 +163,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     public TurnReads Reads(JsonElement turn,JsonElement started)=>new(
         TurnPin.From(turn.GetProperty("context"),started.GetProperty("pins"),started.GetProperty("catalogId").GetGuid(),database.Manifest),
         new(started.GetProperty("agentPrincipal").GetString()!,started.GetProperty("delegationId").GetGuid()),turn.GetProperty("pageReport").Clone(),
-        [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)],turn.GetProperty("id").GetGuid());
+        [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)],turn.GetProperty("id").GetGuid(),
+        TimeSpan.FromSeconds(started.GetProperty("limits").GetProperty("readSeconds").GetInt32()));
 
     // The definitions a version's request offers: its switched-on tools that this release implements, in the fixed order.
     public static ImmutableArray<ModelTool> Offered(IEnumerable<string> switchedOn)
@@ -314,7 +316,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     // publication the database rechecks; a cancellation is the worker's to name; anything else fails the turn tool_failed.
     internal static (string? Code,ToolStepEnd End) Classify(Exception e)=>e switch
     {
-        OperationCanceledException=>(null,ToolStepEnd.Interrupted),
+        // The API's cancellation, or the database's own copy of the read's bound (D245).
+        OperationCanceledException or PostgresException{SqlState:"57014"}=>(null,ToolStepEnd.Interrupted),
         PreviewDeniedException or PostgresException{SqlState:"42501"}=>("access_denied",ToolStepEnd.Refusal),
         MarketDataException m=>(m.Code,ToolStepEnd.Refusal),
         TemporalException t=>(t.Code,ToolStepEnd.Refusal),
@@ -365,7 +368,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         ToolStep Step(string? code,string? content,ToolStepEnd end)=>new(tool,readAt is null?null:operation.Id,input,code,readAt,readAt is null?[]:access,content,end);
         try
         {
-            var result=await database.WithAgent(turn.Agent,Tools.Single(t=>t.Name==operation.Tool).Permissions,at=>readAt=at,
+            var result=await database.WithAgent(turn.Agent,turn.ReadLimit,Tools.Single(t=>t.Name==operation.Tool).Permissions,at=>readAt=at,
                 (connection,read)=>Read(connection,turn.Pin,call,read),ct);
             if(!result.Access.IsDefaultOrEmpty)access=[..access.Concat(result.Access).Distinct()];
             if(operation.Id=="custom_curves.prepare_v1")result.Value["proposal"]=new JsonObject{["turnId"]=turn.TurnId.ToString(),["step"]=targets.Steps+1};
@@ -411,7 +414,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         var access=NavigationTargets.Access(target.Page,database.Manifest);
         DateTimeOffset? checkedAt=null;
         bool opens;
-        try{opens=await database.WithAgent(turn.Agent,NavigationTargets.Permissions(target.Page),at=>checkedAt=at,(connection,c)=>Opens(connection,access,c),ct);}
+        try{opens=await database.WithAgent(turn.Agent,turn.ReadLimit,NavigationTargets.Permissions(target.Page),at=>checkedAt=at,(connection,c)=>Opens(connection,access,c),ct);}
         catch(Exception e)
         {
             var (code,end)=Classify(e);

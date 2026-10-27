@@ -316,7 +316,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
 
     # Limits and provider endings (§7.5).
     # Long enough for the call to open, so the stalled response is this turn's.
-    hasty = agent('hasty', elapsedSeconds=5)
+    hasty = agent('hasty', elapsedSeconds=5, readSeconds=5)
     grant(trader, hasty)
     stalling()
     requests = sent()

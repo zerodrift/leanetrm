@@ -682,9 +682,13 @@ runs them ([ai-assistant.md](ai-assistant.md) §7.2, §7.4, §8):
   bind none. Once its context is bound, a read joins the source set with every access
   it may check, even when it is then denied or fails, so a denied read is a refused
   step whose publication recheck ends the turn `access_changed` once that access is
-  lost. Each read is bounded by the runtime set's
-  5-second `ToolRead` and the turn's deadline, and a read that returns once its turn is
-  to stop, whatever stopped it, records no step. A request for a tool the version has
+  lost. Each read is bounded by its agent version's time per read, at most 30 seconds,
+  and the turn's deadline (D245), which also bounds how long it holds the epoch row; the
+  database holds the read to the same bound, so one whose API stops responding releases
+  the row within twice its time per read. Overlapping reads, in any workspace, can still
+  keep the row held long enough to fail an access-control change on its 5-second
+  timeout. A read that returns once its turn is to stop, whatever stopped it, records
+  no step. A request for a tool the version has
   not switched on, which the adapter already fails, reads nothing. Results stay in the
   worker's memory and reach only the model; a refusal carries only its code and fixed
   text, never the read's message, and logs name error types only.

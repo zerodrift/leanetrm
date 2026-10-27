@@ -70,7 +70,7 @@ its stored events after a sequence, read in their own request context with the r
 recheck, then each piece of answer text the worker publishes once its publication
 recheck has committed, with every other event, steps included, read the same way,
 through to the turn's terminal event, with resume, heartbeats, one stream per turn and
-the refusals §8 lists; the runtime set is `turns_v6` (D193, D239). `ReadModelUsage` reads usage
+the refusals §8 lists; the runtime set is `turns_v7` (D193, D239, D245). `ReadModelUsage` reads usage
 through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
@@ -764,8 +764,11 @@ The tool set is fixed; each tool is switched on per agent version.
   `ask_incomplete`. Every ending frees both slots.
 - Agent work uses its own runtime and authenticator pools per scope on the existing
   logins, never the UI pools; workspace concurrency stays below their size, and each
-  tool read runs in one request context and is bounded by `ToolRead`, 5 seconds, over
-  all its commands. No transaction, request context or epoch lock is held across a
+  tool read runs in one request context and is bounded by its agent version's time per
+  read and its turn's deadline (D245). The database holds each read to its time per
+  read too, per statement and per wait between them, so a read the API can no longer
+  cancel still ends within twice that; the agent pools' command timeout is the most time
+  per read a version may set, 30 seconds. No transaction, request context or epoch lock is held across a
   model call, backoff or stream write. Worker writes use a pool of their own on the
   runtime login. Text deltas are coalesced for at most the runtime set's interval and
   published in pieces of at most 2,048 bytes, each with its publication recheck. A
@@ -794,13 +797,15 @@ The tool set is fixed; each tool is switched on per agent version.
 
 - Each agent version declares, and each turn records: maximum tool steps, total input
   tokens per turn, output tokens per call (not above the model's:
-  `model_limit_exceeded`), elapsed time from the ask, retry count and the caching
-  switch. Exceeding one ends the turn with `limit_tool_steps`, `limit_input_tokens`,
+  `model_limit_exceeded`), elapsed time from the ask, time per tool read (1 to 30
+  seconds, not above the elapsed time), retry count and the caching switch. Exceeding one ends the turn with `limit_tool_steps`, `limit_input_tokens`,
   `limit_output_tokens` or `limit_elapsed`; a tool request cut off by a limit is not
   run, and a call whose tool requests would take the turn past its steps has none of
-  them run. A read in flight at the turn's deadline ends it `limit_elapsed`, and one
-  past the runtime set's `ToolRead` ends it `tool_failed`, each recording its step with
-  the instant and accesses it read under.
+  them run. A read in flight at its version's time per read ends the turn
+  `limit_tool_read`, and one in flight at the turn's deadline `limit_elapsed`, each
+  recording its step with the instant and accesses it read under and logged as a warning
+  naming that bound, its tool and its operation, never its input; a read that failed in
+  another way ends it `tool_failed` (D245).
 - The input limit is checked before each attempt against input that earlier attempts
   reported; nothing is estimated, so the crossing attempt completes and is billed. An
   earlier unknown or unrecognized input ends the turn with `limit_input_unverifiable`
@@ -1360,8 +1365,9 @@ precision as the default; Navigate is not offered until it is built, and a reque
 tool not offered is unreadable; reads after a call whose usage is unrecognized or past
 the input limit run, and the next open ends the turn, the worker checking only the step
 limit before reading; a denied read's step publication decides whether the turn
-continues; each read is bounded by the runtime set's `ToolRead` and runs on agent pools
-named `openetrm-agent-reads`, and one that returns once its turn is to stop is no step.
+continues; each read is bounded by its version's time per read and its turn's deadline
+(D245, which replaces the runtime set's `ToolRead`) and runs on agent pools named
+`openetrm-agent-reads`, and one that returns once its turn is to stop is no step.
 
 **Stream decisions** (D185): a stream serves its conversation's latest turn, with a
 replay window of 256 of that turn's events; answer text arrives pushed once its

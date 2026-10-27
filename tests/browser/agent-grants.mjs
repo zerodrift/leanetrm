@@ -19,7 +19,7 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
   let agent=await call('settings/ai/agents/create',{operationId:crypto.randomUUID(),name:guide});
   agent=await call('settings/ai/agents/save',{operationId:crypto.randomUUID(),agentId:agent.id,expectedVersion:agent.version,description:'Reads the page it is opened on.',
     instructions:'Quote only values you read.',modelId:model,modelVersion,reasoning:'low',caching:false,tools:['read_market_data','read_trades'],allowedRoles:['trader'],
-    limits:{toolSteps:4,inputTokens:100000,outputTokens:1024,elapsedSeconds:60,retries:1},grantDays:7});
+    limits:{toolSteps:4,inputTokens:100000,outputTokens:1024,elapsedSeconds:60,readSeconds:10,retries:1},grantDays:7});
   agent=await call('settings/ai/agents/publish',{operationId:crypto.randomUUID(),agentId:agent.id,expectedVersion:agent.version});
   const grant=()=>call('assistant/grants/grant',{operationId:crypto.randomUUID(),agentId:agent.id,version:1});
 
