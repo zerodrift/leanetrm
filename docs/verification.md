@@ -1593,21 +1593,24 @@ do not qualify a hosted deployment or production financial throughput.
 ## Hosted job
 
 [The workflow](../.github/workflows/ci.yml) uses `ubuntu-24.04` hosted runners on
-pushes, pull requests and manual dispatch. Checkout and tool-setup actions are
+pushes to `master`, pull requests and manual dispatch. A branch push without a pull
+request runs no CI; its pull request run verifies the same head. Checkout and tool-setup actions are
 pinned to exact commits. The checks job has read-only repository access, does not
 persist checkout credentials and requires no repository secrets. The full local
-`check_all.py` command remains available. CI partitions its existing stages with
-`--group workspace`, `--group trading`, `--group ppa` and `--group recovery`;
-each fresh checkout repeats all shared preparation and checks. The union covers every full-gate stage,
+`check_all.py` command remains available. CI partitions its existing stages into
+eight groups (`check_all.py` `GROUPS`): `workspace`, `standard`, `assistant`,
+`trading`, `portfolio`, `settlement`, `ppa` and `recovery`;
+each fresh checkout repeats all shared preparation and checks (about 2.5 minutes). The union covers every full-gate stage,
 with no duplicated preview stages. Each group retains a 45-minute job deadline;
-individual command and owned-resource deadlines remain in force. The expanded
-51-stage sequential gate exceeded that job deadline on Ubuntu. The workspace
-partition subsequently exceeded it as trading and settlement coverage grew.
-The trading partition now owns swap pricing, settlement, observation schedules,
-portfolio valuation and close-worker checks, and the Blotter desk's valuation-status
-browser and desk-field checks, leaving the other workspace browser checks in their
-own job. Every preview stage still runs once across the matrix;
-this split does not establish a measured runtime for the new partitions.
+individual command and owned-resource deadlines remain in force. The partitions
+follow measured preview durations on four October 2026 runs: shared preparation
+took about 2.5 minutes per group, while the scheduled swap settlement (10-15
+minutes), renewable close recovery (13-20), standard browser (8-13) and
+page-assistant (about 6) stages dominated. Those long stages run in `settlement`,
+`recovery`, `standard` and `assistant` so that no group queues two of them. `trading` owns swap pricing and
+observation schedules; `portfolio` owns portfolio valuation, close workers and the
+Blotter desk's valuation-status and desk-field checks; `workspace` keeps the
+remaining workspace browser checks. Every preview stage still runs once across the matrix.
 Group completion is reported separately from full-gate completion, and the final required check
 accepts only successful completion of every group. Failures, cancellation and
 skipped groups cannot qualify. It does not publish packages or
