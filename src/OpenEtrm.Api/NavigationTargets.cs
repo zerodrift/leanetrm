@@ -67,6 +67,9 @@ static class NavigationTargets
             {Operation.Id:"trades.blotter_v1",Arguments:BlotterArguments blotter}=>Filter(Blotter(blotter.View),blotter.View.Mode=="pivot"?"totals":"trades"),
             {Operation.Id:"trades.trade_v1",Arguments:TradeArguments trade}=>Trade(trade.TradeId,trade.InstrumentType,
                 result["state"]!["revision"]!.GetValue<int>(),result["state"]!["tradeReference"]!.GetValue<string>()),
+            // PPA bookings is no page Navigate opens, so Navigate refuses this target (D250).
+            {Arguments:PpaBookArguments book}=>Filter(new(){["view"]="ppa_book",["mode"]=null,["bookIds"]=Strings([book.Book.ToString()]),
+                ["portfolioIds"]=null,["groupBy"]=null,["measures"]=null,["tradeId"]=null,["instrumentType"]=null,["revision"]=null},"book"),
             // The page's own list also shows jobs others own to a job manager, so no page of it is the reader's list.
             {Arguments:JobListArguments}=>Page("jobs"),
             {Arguments:JobHistoryArguments job}=>Job(job.Job),

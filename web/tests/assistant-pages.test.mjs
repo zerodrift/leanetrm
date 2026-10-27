@@ -255,12 +255,20 @@ test('a kept ask is read back from browser storage only in the exact form the pa
     assert.equal(keptAsk(bad),undefined,bad);
 });
 
-test('PPA is an explicit unsupported assistant page without a financial read target',()=>{
- const report=pageReport({page:'ppa'});
- assert.deepEqual(report,{page:'ppa',selection:{}});
- const looking=lookingAt(report,{mode:'current',frameId:frame,frameLabel:'Synthetic frame'},{curve:x=>x,table:x=>x});
- assert.equal(looking.page,'PPA bookings');assert.equal(looking.supported,false);
- assert.equal(looking.shows,'The assistant does not read this page.');
+test('PPA bookings reports the inspected PPA or the listed book, which the assistant reads but does not open (D250)',()=>{
+ const current={mode:'current',frameId:frame,frameLabel:'Synthetic frame'},names={curve:x=>x,table:x=>x};
+ const none={view:'ppa_book',mode:null,portfolioIds:null,groupBy:null,measures:null,tradeId:null,instrumentType:null,revision:null};
+ assert.deepEqual(pageReport({page:'ppa',trade:null,book:null}),{page:'ppa',selection:{...none,bookIds:[]}});
+ assert.deepEqual(pageReport({page:'ppa',trade:null,book}),{page:'ppa',selection:{...none,bookIds:[book]}});
+ assert.deepEqual(pageReport({page:'ppa',trade:{tradeId:trade,revision:3},book}),
+  {page:'ppa',selection:{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:trade,instrumentType:'ppa',revision:3}});
+ const empty=lookingAt(pageReport({page:'ppa',trade:null,book:null}),current,names);
+ assert.equal(empty.page,'PPA bookings');assert.equal(empty.supported,true);assert.equal(empty.askable,false);
+ assert.match(empty.shows,/^No PPA trades are listed yet/);
+ const listed=lookingAt(pageReport({page:'ppa',trade:null,book}),current,names);
+ assert.equal(listed.askable,true);assert.match(listed.shows,/^PPA trades of the selected book\. Read at the As of date and knowledge cutoff of the context below/);
+ const inspected=lookingAt(pageReport({page:'ppa',trade:{tradeId:trade,revision:3},book}),current,names);
+ assert.equal(inspected.askable,true);assert.match(inspected.shows,/^Inspected PPA trade, revision 3\./);assert.doesNotMatch(inspected.shows,new RegExp(trade));
  assert.throws(()=>webPage('ppa'));
 });
 

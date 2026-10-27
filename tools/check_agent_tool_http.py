@@ -824,6 +824,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     finally:
         query("INSERT INTO security.reference_catalog_scopes SELECT * FROM json_populate_recordset(NULL::security.reference_catalog_scopes,'" + scopes.replace("'", "''") + "'::json);")
     check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settled, steps, requests, answers, model_name)
+    check_ppa_reads(check, query, fake, trader, agent, grant, ask, settled, steps, requests, answers, model_name, booking['books'][0]['id'], trades)
     for release in stalled:
         release.set()
     check('no log line or request body carries the key, and no request goes through a proxy',
@@ -943,3 +944,47 @@ def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settle
     replayed = trader.call(f"assistant/conversations/{turn['conversationId']}?after=0")
     check('the owner still replays a completed jobs answer while they hold ReadJobs, after revoking the grant',
           next(t for t in replayed['turns'] if t['id'] == turn['id'])['hidden'] is None, replayed)
+
+
+def ppa_book(book_ids):
+    """Read trades' input for the PPA trades booked in a book, as PPA bookings reports its listed book (D250)."""
+    return {'view': 'ppa_book', **NO_BLOTTER, 'bookIds': book_ids, **NO_TRADE}
+
+
+def check_ppa_reads(check, query, fake, trader, agent, grant, ask, settled, steps, requests, answers, model_name, book, trades):
+    """PPA bookings (D250): Read current page reads the listed book's PPA trades, or the inspected PPA, through Read trades at the
+    turn's pin and under the Blotter's accesses, capturing no context; the page and the targets its reads issue are no page
+    Navigate opens."""
+    ppa_agent = agent('ppa', tools=('read_current_page', 'read_trades', 'navigate'))
+    grant(trader, ppa_agent)
+    fake.respond(stream(tool_use(model_name, [('toolu_ppa_1', 'read_current_page', {}), ('toolu_ppa_2', 'read_trades', ppa_book([book, str(uuid4())])),
+                                              ('toolu_ppa_3', 'navigate', {'page': 'ppa', 'target': None})])),
+                 stream(tool_use(model_name, [('toolu_ppa_4', 'navigate', {'page': None, 'target': 'n1'})])),
+                 stream(recording(model_name, text='No PPA trades are booked in this book.')))
+    captures = query('SELECT count(*) FROM market_data.temporal_contexts;')
+    since = len(fake.received)
+    turn, events = settled(ask(agent_state=ppa_agent, report={'page': 'ppa', 'selection': ppa_book([book])})['turn'])
+    recorded, results = steps(turn), answers(requests(since)[-1])
+    listed = results['toolu_ppa_1'][0]
+    check('Read current page on PPA bookings reads the listed book\'s PPA trades through Read trades at the pinned context, cutoff and frame, '
+          'with its own target, and captures no context beyond the one its ask captured',
+          turn['state'] == 'completed' and listed['operation'] == 'trades.ppa_book_v1' and listed['target'] == 'n1'
+          and (listed['context']['knowledge'], listed['context']['contextId'], listed['context']['cutoff']) == ('working_data', turn['context']['contextId'], turn['context']['cutoff'])
+          and set(listed['result']) == {'knownAt', 'total', 'heads', 'bindings'} and listed['result']['total'] == len(listed['result']['heads'])
+          and int(query('SELECT count(*) FROM market_data.temporal_contexts;')) == int(captures) + 1
+          and query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE id='{turn['context']['contextId']}';") == '1', (turn, listed))
+    check('a PPA book reads exactly one book, under the Blotter\'s trading, market and reference access, and Navigate opens neither PPA '
+          'bookings nor a target a PPA read issued',
+          [(s['tool'], s['operation'], s['code']) for s in recorded] == [('read_current_page', 'trades.ppa_book_v1', None), ('read_trades', None, 'tool_arguments_invalid'),
+                                                                       ('navigate', None, 'tool_arguments_invalid'), ('navigate', None, 'tool_arguments_invalid')]
+          and recorded[0]['access'] == trades and all(s['access'] == [] for s in recorded[1:])
+          and not [e for e in events if e['kind'] == 'navigation'], recorded)
+
+    fake.respond(stream(tool_use(model_name, [('toolu_ppa_5', 'read_current_page', {})])), stream(recording(model_name, text='Unavailable.')))
+    inspected = {'view': 'trade', **NO_BLOTTER, 'tradeId': str(uuid4()), 'instrumentType': 'ppa', 'revision': 1}
+    missing, _ = settled(ask(agent_state=ppa_agent, report={'page': 'ppa', 'selection': inspected})['turn'])
+    check('an inspected PPA is read as the Blotter\'s trade view of it, and one the pinned knowledge does not hold is page_selection_unavailable',
+          [(s['operation'], s['code'], s['access'] == trades) for s in steps(missing)] == [('trades.trade_v1', 'page_selection_unavailable', True)], steps(missing))
+    unlisted = ask(agent_state=ppa_agent, report={'page': 'ppa', 'selection': ppa_book([])}, expected=422)
+    check('ask refuses PPA bookings before it lists a book page_report_invalid', unlisted['code'] == 'page_report_invalid', unlisted)
+

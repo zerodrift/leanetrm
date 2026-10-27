@@ -92,6 +92,17 @@ static class ToolResults
         return new(read,read[listed]!.AsArray().Count,ToolAmountDisplay.Annotate(DisplayWalk.Viewer(read)));
     }
 
+    // One book's PPA trades and their bindings, with the cutoff the page states, and without the request's frame, context and
+    // page, which the envelope names. A book with more trades than one directory read lists would be a partial list.
+    public static ToolResult PpaBook(object directory)
+    {
+        var read=Node(directory).AsObject();
+        if(read["total"]!.GetValue<int>()>TradeReads.PpaBookLimit)throw new MarketDataException("result_too_large","The book holds more PPA trades than one read returns.");
+        var result=new JsonObject();
+        foreach(var name in new[]{"knownAt","total","heads","bindings"})result[name]=read[name]!.DeepClone();
+        return new(result,result["heads"]!.AsArray().Count+result["bindings"]!.AsArray().Count,false);
+    }
+
     // A trade's selected revision and every revision the pinned knowledge holds, shown as its editor shows them
     // (trade-editor.ts, swap-editor.ts), from the deal's saved formats: a futures trade by the deal's trade format with
     // its prices at its contract's settlement-price increment, where the catalog lists the contract; a swap's valuation

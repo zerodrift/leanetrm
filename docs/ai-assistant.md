@@ -647,7 +647,8 @@ The tool set is fixed; each tool is switched on per agent version.
 | Blotter rows and holdings | Read trades | `ReadTrades`, `ReadMarketData` | Pinned |
 | Custom curves | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
 | Jobs & Infrastructure | Read jobs | `ReadJobs` | Current operational records; refused under a historical view |
-| The Blotter's Risk report and its trade rows under the Risk lens, a new trade entered in the Blotter's panel, Delivery prices, Interval series, Users & access, Settings › AI, PPA bookings | none | | Not supported |
+| PPA bookings: the inspected PPA, or the listed book's PPA trades (D250) | Read trades | `ReadTrades`, `ReadMarketData` | Pinned, not the page's own market inputs and cutoff; not a Navigate page |
+| The Blotter's Risk report and its trade rows under the Risk lens, a new trade entered in the Blotter's panel, Delivery prices, Interval series, Users & access, Settings › AI | none | | Not supported |
 
 - Read current page has no permissions of its own; if the dispatched tool is off it is
   refused with `tool_not_enabled`. On an unsupported page it returns
@@ -886,12 +887,12 @@ The tool set is fixed; each tool is switched on per agent version.
   the knowledge mode or retained context, the frame id when selected, and the page
   report, exactly `{"page","selection"}` as Looking at shows: one page identifier per
   navigable view from a closed set, `curves`, `contract_definitions`, `schedules`,
-  `power_tous`, `reference_data`, `parties`, `blotter` and `custom_curves`, which the
-  assistant reads, and `blotter_risk`, `blotter_risk_lens` (the Blotter's trade rows under
+  `power_tous`, `reference_data`, `parties`, `blotter`, `custom_curves`, `jobs` and
+  `ppa`, which the assistant reads (Navigate opens all but `ppa`, D250), and `blotter_risk`, `blotter_risk_lens` (the Blotter's trade rows under
   the Risk lens, D222), `blotter_new_trade`, `blotter_new_future`,
   `blotter_new_swap` (a new trade being entered in the Blotter's panel, of its product,
   or of none while none is chosen), `delivery_prices`, `interval_series`,
-  `interval_curves`, `jobs`, `users_access`, `settings_ai` and `ppa`, which it does not.
+  `interval_curves`, `users_access` and `settings_ai`, which it does not.
   A read page's selection is its read tool's input for a view the page shows; any other
   page's is empty. Before admission and writing nothing it refuses an invalid report
   (`page_report_invalid`, checked by the parser Read current page dispatches with), a

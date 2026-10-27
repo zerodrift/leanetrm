@@ -18,6 +18,7 @@ static class AgentToolChecks
     {
         CurvePreparation();
         JobReads();
+        PpaBookReads();
         TurnPins();
         Definitions();
         Inputs();
@@ -170,6 +171,55 @@ static class AgentToolChecks
         Console.WriteLine("PASS agent jobs: Read jobs' list and history views, ReadJobs access and current operational label");
     }
 
+    // PPA bookings (D250): the page's inspected trade is the Blotter's trade view of a PPA, and its book list Read trades'
+    // ppa_book view of exactly one book, under the Blotter's accesses. The page reads at the turn's pin and is no
+    // navigation target: Navigate names neither it nor a target its read issues.
+    const string PpaBook=$$"""{"view":"ppa_book","mode":null,"bookIds":["{{Book}}"],"portfolioIds":null,"groupBy":null,"measures":null,{{NoTrade}}}""";
+    static void PpaBookReads()
+    {
+        var call=AgentTools.Parse("read_trades",Json(PpaBook));
+        Require(call.Operation.Id=="trades.ppa_book_v1"&&call.Arguments==new PpaBookArguments(Guid.Parse(Book)),"read_trades reads one book's PPA bookings");
+        foreach(var input in new[]{PpaBook.Replace($"[\"{Book}\"]","[]"),PpaBook.Replace($"[\"{Book}\"]",$"[\"{Book}\",\"{Trade}\"]"),
+            PpaBook.Replace($"[\"{Book}\"]","null"),PpaBook.Replace("\"mode\":null","\"mode\":\"trades\""),PpaBook.Replace("\"portfolioIds\":null","\"portfolioIds\":[]"),
+            PpaBook.Replace("\"tradeId\":null",$"\"tradeId\":\"{Trade}\""),PpaBook.Replace("\"revision\":null","\"revision\":1"),PpaBook.Replace(",\"revision\":null","")})
+            Require(Code(()=>AgentTools.Parse("read_trades",Json(input)))=="tool_arguments_invalid",$"read_trades refuses {input}");
+        var book=AgentTools.Operation("trades.ppa_book_v1");
+        Require(book is {Tool:"read_trades",Needs:ToolNeeds.Frame}&&book.Access(Manifest).SequenceEqual(AgentTools.Operation("trades.trade_v1").Access(Manifest)),
+            "a PPA book reads under the Blotter's trading, market and reference access, at the pinned frame");
+
+        var trade=Report("ppa",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"ppa","revision":2}""");
+        foreach(var (report,operation) in new[]{(Report("ppa",PpaBook),"trades.ppa_book_v1"),(trade,"trades.trade_v1")})
+        {
+            PageReports.Require(Json(report));
+            Require(PageReports.Dispatch(Json(report)) is {Page:"ppa",Call:{} dispatched}&&dispatched.Operation.Id==operation,$"{report} dispatches {operation}");
+        }
+        foreach(var report in new[]{Report("ppa",Blotter),Report("ppa","{}"),Report("blotter",PpaBook),
+            Report("ppa",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":2}""")})
+            Require(Code(()=>PageReports.Require(Json(report)))=="page_report_invalid",$"ask refuses the page report {report}");
+        Require(PageReports.Supported.Contains("ppa")&&!PageReports.NotSupported.Contains("ppa")&&!PageReports.Navigable.Contains("ppa")
+            &&Code(()=>AgentTools.Parse("navigate",Json("""{"page":"ppa","target":null}""")))=="tool_arguments_invalid",
+            "the assistant reads PPA bookings, which is no page Navigate opens");
+
+        var listed=NavigationTargets.Issue(call,JsonNode.Parse($$"""{"total":1,"heads":[{"trade_id":"{{Trade}}","revision":2}],"bindings":[]}""")!.AsObject(),1);
+        var turn=new TurnTargets();
+        turn.Issue(listed);
+        Require(listed.Length==1&&listed[0].Target is {Page:"ppa",Kind:"filter",Label:"PPA bookings: book"}&&AgentTools.Target(turn,new(null,"n1")) is null,
+            "a PPA book issues its own selection, which Navigate does not open");
+        var editor=NavigationTargets.Issue(AgentTools.Parse("read_trades",Json($$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"ppa","revision":2}""")),
+            JsonNode.Parse($$"""{"instrumentType":"ppa","state":{"tradeId":"{{Trade}}","tradeReference":"TR-000009","revision":2},"history":[]}""")!.AsObject(),1);
+        Require(editor.Single().Target is {Page:"blotter",Kind:"record"},"an inspected PPA's target opens it in the Blotter, which reads the same trade");
+
+        var heads=$$"""[{{string.Join(",",Enumerable.Range(0,2).Select(n=>$$"""{"trade_id":"{{Trade}}","revision":{{n+1}},"catalog_id":"{{Catalog}}"}"""))}}]""";
+        var directory=new{scope=new{product="ppa"},snapshotId=Working.Id,knowledgeContext=Guid.NewGuid(),knownAt=Cutoff,total=2,offset=0,limit=64,
+            heads=JsonSerializer.Deserialize<JsonElement>(heads),bindings=new[]{new{trade_id=Trade,binding_id=Guid.NewGuid(),quantity="10"}}};
+        var read=ToolResults.PpaBook(directory);
+        Require(read.Value.Select(m=>m.Key).SequenceEqual(["knownAt","total","heads","bindings"])&&read.Rows==3&&!read.Displayed
+            &&Code(()=>ToolResults.PpaBook(directory with{total=65}))=="result_too_large",
+            "a PPA book returns every PPA trade the book holds at the pin and their bindings, without the frame and context the envelope names; "+
+            "a book with more trades than one directory read holds is result_too_large, never a partial list");
+        Console.WriteLine("PASS agent PPA bookings: the inspected trade and one book's list, read under the Blotter's accesses, and no navigation target");
+    }
+
     static void Inputs()
     {
         var blotter=Blotter;
@@ -194,7 +244,7 @@ static class AgentToolChecks
             ("navigate","""{"page":"blotter","target":null}""","navigation.target_v1"),("navigate","""{"page":null,"target":"n1"}""","navigation.target_v1"),
             ("navigate","""{"target":"n999999999","page":null}""","navigation.target_v1")})
             Require(AgentTools.Parse(tool,Json(input)).Operation.Id==operation,$"{tool} accepts {input}");
-        foreach(var page in PageReports.Supported)
+        foreach(var page in PageReports.Navigable)
             Require(AgentTools.Parse("navigate",Json($$"""{"page":"{{page}}","target":null}""")).Arguments==new NavigateArguments(page,null),$"Navigate names the page {page}");
         Require(AgentTools.Parse("navigate",Json("""{"page":null,"target":"n42"}""")).Arguments==new NavigateArguments(null,"n42"),
             "Navigate names a handle a read issued, with its page null");
@@ -302,9 +352,9 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai","ppa"};
+        var unsupported=new[]{"blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
-                .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs"}.Order()),
+                .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Order()),
             "the closed set names one id per navigable view, with each coverage row the assistant reads and each it does not");
         foreach(var page in unsupported)
         {
@@ -612,7 +662,7 @@ static class AgentToolChecks
         var names=new Dictionary<string,string>{["curves"]="Curves & prices",["contract_definitions"]="Contract definitions",["schedules"]="Schedules",
             ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Custom curves",
             ["jobs"]="Jobs & Infrastructure"};
-        Require(PageReports.Supported.Order().SequenceEqual(names.Keys.Order())
+        Require(PageReports.Navigable.Order().SequenceEqual(names.Keys.Order())
             &&names.All(n=>NavigationTargets.Page(n.Key) is {Kind:"page",Selection:null} target&&target.Page==n.Key&&target.Label==n.Value),
             "a page target names one of the seven pages the assistant reads with no selection, the page as it opens, labeled with the page's name");
         foreach(var (page,operation,tool) in new[]{("curves","market_data.curve_v1","read_market_data"),
@@ -630,7 +680,7 @@ static class AgentToolChecks
                 $"every read of {page} runs under the accesses its targets are checked by");
         var schema=AgentTools.Tools.Single(t=>t.Name=="navigate").InputSchema.GetProperty("properties");
         Require(schema.GetProperty("page").GetProperty("enum").EnumerateArray().Select(p=>p.ValueKind==JsonValueKind.Null?null:p.GetString())
-                .SequenceEqual([..PageReports.Supported.Order(StringComparer.Ordinal),null])
+                .SequenceEqual([..PageReports.Navigable.Order(StringComparer.Ordinal),null])
             &&schema.GetProperty("target").GetProperty("pattern").GetString()=="^n[1-9][0-9]{0,8}$",
             "Navigate's schema offers exactly the pages the assistant reads, in a fixed order, and the handles reads issue");
 

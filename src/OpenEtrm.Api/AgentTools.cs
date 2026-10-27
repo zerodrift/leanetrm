@@ -38,6 +38,7 @@ sealed record ReferenceArguments(string Table,string Search):ToolArguments;
 sealed record PartyArguments(string Kind):ToolArguments;
 sealed record BlotterArguments(FuturesBlotterView View):ToolArguments;
 sealed record TradeArguments(Guid TradeId,string InstrumentType,int? Revision):ToolArguments;
+sealed record PpaBookArguments(Guid Book):ToolArguments;
 sealed record JobListArguments(int Page):ToolArguments;
 sealed record JobHistoryArguments(Guid Job,long? Before):ToolArguments;
 // Navigate's request names exactly one of a page the assistant reads and a handle a read issued.
@@ -105,12 +106,13 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         Tool("read_trades","Reads trades at the pinned knowledge and As of frame. View blotter returns Blotter rows with their execution P&L or "+
             "present value (mode trades), or totals grouped by its dimensions (mode pivot), for the listed books and portfolios; empty lists read "+
             "every book you can read. View trade returns one trade's revision, or its latest under the pinned knowledge when revision is null, with "+
-            "its history. Send every member: those the other view takes are null.",
+            "its history. View ppa_book returns the PPA trades booked in the one book bookIds names, with their bindings. Send every member: those "+
+            "the view does not take are null.",
             $$$"""
-            {"type":"object","properties":{"view":{"type":"string","enum":["blotter","trade"]},
+            {"type":"object","properties":{"view":{"type":"string","enum":["blotter","trade","ppa_book"]},
              "mode":{"type":["string","null"],"enum":["trades","pivot",null],"description":"Blotter: trade rows, or totals grouped by groupBy. Null for a trade."},
              "bookIds":{"type":["array","null"],"items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,
-              "description":"Blotter: the books to read, empty for every book. Null for a trade."},
+              "description":"Blotter: the books to read, empty for every book. PPA book: exactly one book. Null for a trade."},
              "portfolioIds":{"type":["array","null"],"items":{"type":"string","pattern":"{{{Uuid}}}"},"maxItems":64,"uniqueItems":true,
               "description":"Blotter: the portfolios to read, empty for every portfolio. Null for a trade."},
              "groupBy":{"type":["array","null"],"items":{"type":"string","enum":["portfolio","book","market","contract","instrumentType","commodity"]},"uniqueItems":true,
@@ -145,7 +147,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             "own view, and each curve and trade it lists names one too. Send page, with target null, to open a page as it opens; or send a handle as "+
             "target, with page null. Ordinary moves keep the knowledge and As of frame pinned when the question was asked. Curve proposals instead request explicit review of an unpriced draft under the user's current header, retaining the proposal's origin dates. Say where it leads.",
             $$$"""
-            {"type":"object","properties":{"page":{"type":["string","null"],"enum":[{{{string.Join(",",PageReports.Supported.Order(StringComparer.Ordinal).Select(p=>$"\"{p}\""))}}},null],
+            {"type":"object","properties":{"page":{"type":["string","null"],"enum":[{{{string.Join(",",PageReports.Navigable.Order(StringComparer.Ordinal).Select(p=>$"\"{p}\""))}}},null],
               "description":"A page to open, or null to open a target."},
              "target":{"type":["string","null"],"pattern":"^n[1-9][0-9]{0,8}$","description":"A target handle a read in this turn returned, or null to open a page."}},
              "required":["page","target"],"additionalProperties":false}
@@ -181,6 +183,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("market_data.contract_definitions_v1","read_market_data",ToolNeeds.View,MarketAccess,[]),
         new("trades.blotter_v1","read_trades",ToolNeeds.Frame,TradeAccess,["blotter_view"]),
         new("trades.trade_v1","read_trades",ToolNeeds.Frame,TradeAccess,["futures_trade","swap_trade","ppa_trade","ppa_revision"]),
+        new("trades.ppa_book_v1","read_trades",ToolNeeds.Frame,TradeAccess,["ppa_scope"]),
         new("trade_parties.versions_v1","read_trade_parties",ToolNeeds.Frame,PartyAccess,[]),
         new("schedules.library_v1","read_schedules",ToolNeeds.View,MarketAccess,[]),
         new("schedules.tou_products_v1","read_schedules",ToolNeeds.CurrentOnly,MarketAccess,[]),
@@ -225,7 +228,13 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 return new(Operations[$"market_data.{market}_v1"],new NoArguments());
             case "read_trades":
                 members.Exactly("view","mode","bookIds","portfolioIds","groupBy","measures","tradeId","instrumentType","revision");
-                if(members.Choice("view","blotter","trade")=="trade")
+                var view=members.Choice("view","blotter","trade","ppa_book");
+                if(view=="ppa_book")
+                {
+                    members.Null("mode","portfolioIds","groupBy","measures","tradeId","instrumentType","revision");
+                    return members.Ids("bookIds") is [var book]?new(Operations["trades.ppa_book_v1"],new PpaBookArguments(book)):throw ToolInput.Invalid();
+                }
+                if(view=="trade")
                 {
                     members.Null("mode","bookIds","portfolioIds","groupBy","measures");
                     return new(Operations["trades.trade_v1"],new TradeArguments(members.Id("tradeId"),members.Choice("instrumentType","future","financial_swap","heat_rate","ppa"),
@@ -252,7 +261,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 if(members.Has("page"))
                 {
                     members.Null("target");
-                    return new(Navigation,new NavigateArguments(members.Choice("page",[..PageReports.Supported]),null));
+                    return new(Navigation,new NavigateArguments(members.Choice("page",[..PageReports.Navigable]),null));
                 }
                 members.Null("page");
                 return new(Navigation,new NavigateArguments(null,members.Text("target",2,10,Handle())));
@@ -398,10 +407,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             :tooLarge;
     }
 
-    // The target a Navigate request names (§7.3): a page the assistant reads, or a handle a published step of this turn
-    // issued; none for any other handle.
+    // The target a Navigate request names (§7.3): a page Navigate opens, or a handle a published step of this turn issued
+    // on such a page; none for any other handle (D250).
     internal static NavigationTarget? Target(TurnTargets targets,NavigateArguments navigate)=>
-        navigate.Page is {} page?NavigationTargets.Page(page):targets.Find(navigate.Handle!);
+        navigate.Page is {} page?NavigationTargets.Page(page):targets.Find(navigate.Handle!) is {} target&&PageReports.Opens(target.Page)?target:null;
 
     // Navigate's step (§7.3): its target, once its page is checked in a request context issued to the agent, under the
     // turn's grant against the delegator's permissions, by the accesses and permissions that page's reads run under, which
@@ -503,6 +512,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 ToolResults.Parties(await parties.Catalog(connection,pin.Trading(await Context()),party.Kind,ct),party.Kind),
             {Operation.Id:"trades.blotter_v1",Arguments:BlotterArguments blotter}=>ToolResults.Blotter(await trades.Blotter(connection,pin.Trading(await Context()),blotter.View,ct)),
             {Operation.Id:"trades.trade_v1",Arguments:TradeArguments trade}=>await Trade(connection,pin.Trading(await Context()),trade,ct),
+            {Operation.Id:"trades.ppa_book_v1",Arguments:PpaBookArguments book}=>ToolResults.PpaBook(await trades.PpaBook(connection,pin.Trading(await Context()),book.Book,ct)),
             {Arguments:JobListArguments list}=>await Jobs(connection,list,ct),
             {Arguments:JobHistoryArguments job}=>await JobHistory(connection,job,ct),
             _=>throw new InvalidOperationException("An operation has no read.")

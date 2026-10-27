@@ -25,7 +25,8 @@ test('failed live pause refuses PPA loading through the normal action error path
 test('manual navigation, page reporting and unsaved checks include the PPA page',()=>{
  assert.match(source,/for\(const name of \[[^\n]*'ppa'\]\)\s*\$\('nav-'\+name\)\.onclick=navigate\(name\)/);
  const report=source.match(/function pageState\(\):PageState\{([\s\S]*?)\n\}/)[1];
- assert.deepEqual(new Function('page',report)('ppa'),{page:'ppa'});
+ const shown={trade:null,book:'d1000000-0000-4000-8000-000000000001'};
+ assert.deepEqual(new Function('page','ppa',report)('ppa',{shown:()=>shown}),{page:'ppa',...shown});
  const unsaved=source.match(/function unsaved\(\)\{([\s\S]*?)\n\}/)[1];
  assert.equal(new Function('page','ppa',unsaved)('ppa',{unsaved:()=>true}),true);
 });
