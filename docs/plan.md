@@ -1163,6 +1163,8 @@ Extend only after the baseline contracts are demonstrated:
 - Storage/dispatch optimization and capacity-dependent quantity behavior.
 - Advanced fees, quantity tiers and any justified scripting sandbox.
 - Multi-factor P&L explain, cross sensitivities and residual attribution.
+- Delta ladder extensions (D230): one curve level per run, server totals across
+  selected books, and server-stated quantity-equivalent units.
 - Calibration, simulation, validated analytic/automatic differentiation paths.
 - Safe cross-run result reuse and incremental market updates.
 - Live feed adapters and their entitlement/provenance controls.

@@ -15,6 +15,7 @@ import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
 import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
 import {createTableWorkspace} from './table-workspace.js';
 import {renderDataGrid} from './data-grid.js';
+import {contractPositions,deltaLadder,ladderExport,type LadderCell,type LadderValue} from './delta-ladder.js';
 import {pivotMatrix,pivotChartPanels,groupLabel,type PivotGroup} from './analytics-model.js';
 import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js';
@@ -113,6 +114,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // What the trade rows' desk drew from the read on screen, which the side panel draws its position from.
   let drawn:{rows:DeskRow[];colors:ReadonlyMap<string,string>}|undefined;
   let view=newBlotterView(),savedViews:BlotterView[]=[],table:ReturnType<typeof renderDataGrid>|undefined,tableColumns:string[]=[];
+  // The delta ladder (D230) the Ladder lens draws in place of the trade rows, by the value it shows, with what an export of it states.
+  let ladderTable:ReturnType<typeof renderDataGrid>|undefined,ladderValue:LadderValue='delta',ladderShown:{headers:string[];rows:string[][];numeric:number[]}|undefined;
   // Columns the current read shows that a saved view never keeps: each pivot group's count of positions it leaves out, and the desk's curve shapes.
   let transientKeys:ReadonlySet<string>=new Set();
   let versions=new Map<string,string>();
@@ -122,7 +125,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   let viewsLoaded=false;
   // The Values | Risk lens of the trade rows (D222), the run's results it shows once they are prepared, the key of the results being
   // prepared, and the run the lens last turned to Risk for: a run's results turn it once, and the person turns it after that.
-  let lens:'values'|'risk'='values',inline:Inline|undefined,preparing:string|undefined,lensFor:number|undefined;
+  let lens:'values'|'risk'|'ladder'='values',inline:Inline|undefined,preparing:string|undefined,lensFor:number|undefined;
   // Each report of the run on screen by a number of its own, so that results that are new can be told from those already shown.
   const reportIds=new WeakMap<RiskReport,number>();let reports=0;
   // The risk report of the panel's Risk report mode, for the books and context of the read on screen. What it holds outlives the panel's
@@ -139,10 +142,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The Values | Risk lens of the trade rows (D222): Values shows the positions' values and their long and short sizes, Risk the run's results.
   for(const button of get('desk-lens').querySelectorAll<HTMLButtonElement>('[data-lens]'))
     button.onclick=()=>{const next=button.dataset.lens as typeof lens;if(busy()||next===lens||!inline||inline.state!=='shown')return;lens=next;captureFilters();render();options.reported();};
+  // The Ladder lens shows a run's delta, or its up or down P&L, for each shocked factor (D230).
+  for(const button of get('desk-ladder-value').querySelectorAll<HTMLButtonElement>('[data-ladder-value]'))
+    button.onclick=()=>{const next=button.dataset.ladderValue as LadderValue;if(busy()||next===ladderValue)return;ladderValue=next;render();options.reported();};
   // Shows the lens, with the one chosen, where it applies: the trade rows of a read whose run's results are on screen.
   function syncLens(){
     const control=get('desk-lens');control.hidden=!(inline?.state==='shown'&&view.mode==='trades'&&holdings);
     for(const button of control.querySelectorAll<HTMLButtonElement>('[data-lens]')){button.setAttribute('aria-pressed',String(button.dataset.lens===lens));button.disabled=busy();}
+    const values=get('desk-ladder-value');values.hidden=lens!=='ladder';
+    for(const button of values.querySelectorAll<HTMLButtonElement>('[data-ladder-value]')){button.setAttribute('aria-pressed',String(button.dataset.ladderValue===ladderValue));button.disabled=busy();}
   }
   function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};}
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
@@ -161,7 +169,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
   // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
   // Mark, for as long as its columns do not fit the room it has left.
-  const dockedGiveUp=()=>panel.current()!==null&&docked()?lensShown()?riskGiveUp:[curveColumn,markColumn]:[];
+  const dockedGiveUp=()=>panel.current()!==null&&docked()?ladderOn()?[]:lensShown()?riskGiveUp:[curveColumn,markColumn]:[];
   const wide=()=>!phone.matches&&swapEditor.settlementOpen();
   const panel=setupSidePanel(get('side-panel'),{
     // What the panel holds that switching would lose: the form of an amendment or of a new trade, with edits in it.
@@ -170,7 +178,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     sheet:()=>phone.matches&&!get('futures-page').hidden,
     // A swap's settlement figures need more room than a docked panel has: off a phone, the panel lies over the desk at a wider width.
     wide,
-    changed:()=>{table?.fitColumns(dockedGiveUp());modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
+    changed:()=>{table?.fitColumns(dockedGiveUp());ladderTable?.fitColumns([]);modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
   // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
   // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
@@ -189,6 +197,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(mode!==null&&mode.kind!=='position')deskPanel.left();
     if(mode?.kind==='new')entry.show(mode,mode.product===null?'choose':'loading');
     if(mode?.kind==='risk')risk.mount(panel);
+    if(mode?.kind==='contract')drawContract();
     renderRisk();options.reported();
   }
   // The panel docks or overlays by the width the main area has: it is placed again when that changes, not when only its height does.
@@ -367,7 +376,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
         ||[...cells.keys(),...left].some(k=>!held.has(k)))
         throw Error('The results of this run do not match the positions of the Blotter on screen. Run it again.');
       await prepareAmountDisplay({rows:read.holdings.flatMap(h=>(cells.get(positionKey(h))?.shocks??[]).map(shock=>({amountFormat:h.amountFormat,
-        upPnl:shock.up,downPnl:shock.down,basePv:shock.base,upPv:shock.upValue,downPv:shock.downValue,delta:shock.delta,gamma:shock.gamma})))},body=>api<string[]>('amounts/display',body));
+        upPnl:shock.up,downPnl:shock.down,basePv:shock.base,upPv:shock.upValue,downPv:shock.downValue,delta:shock.delta,gamma:shock.gamma}))),
+        // The delta ladder's totals by book and measure (D230), in the desk's own precision: a total has no position's format.
+        totals:parts.flatMap(r=>r.factors.flatMap(f=>f.totals.map(t=>({upPnl:t.values.upPnl,downPnl:t.values.downPnl,delta:t.values.delta}))))},body=>api<string[]>('amounts/display',body));
       return {key,state:'shown',run:run.key,cells,excluded,summary:runSummary(parts,excluded),scales:changeScales(cells),gaps:runGaps(run)};
     }catch(error){
       if((error as {code?:string}).code==='access_denied')throw error;
@@ -397,6 +408,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // The Risk lens shows a run's results in the trade rows; a pivot view has no lens.
   const lensShown=()=>lens==='risk'&&inline?.state==='shown'&&view.mode==='trades';
+  // The Ladder lens shows a run's per-factor totals in place of the trade rows (D230).
+  const ladderOn=()=>lens==='ladder'&&inline?.state==='shown'&&view.mode==='trades';
   // What the risk tile shows of a run's results: its largest move in each currency, the largest known one while a part has no results,
   // which position it is and why, and each position's own largest move as a small bar; or that nothing moves; with what the run leaves out,
   // which positions are not known and why.
@@ -455,7 +468,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   function sync(){syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();syncRiskReport();workspace.busy(busy());syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
-  function clear(){generation++;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
+  function clear(){generation++;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
   // Starts the Blotter afresh: for another close or context, or for the Blotter opened again, each of which says so of a risk run it
   // clears; or, for another account, saying nothing, as everything the page held goes.
   function reset(cause:ReadCause|null){if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
@@ -493,13 +506,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     for(const [key,label] of [['heatRatePv','Heat-rate PV'],['ppaValue','PPA value excluding overdue cash']] as const){let host=document.getElementById('desk-tile-'+key);const tile=tiles.find(t=>t.key===key);if(!host&&tile){host=document.createElement('section');host.id='desk-tile-'+key;host.className='desk-tile';get('desk-tile-swapPv').parentElement!.append(host);}if(host){host.hidden=!tile;if(tile)renderMoneyTile(host,label,key==='ppaValue'?'PPA':'heat-rate swap',tile,money);}}
     renderPositionsTile(get('desk-tile-positions'),mix,colors);
     if(plan)renderDesk(scope,colors,plan);else renderPivot(scope);
-    text('blotter-table-title',pivot?view.splitBy.length?'Pivot table':'Pivot summary':view.rowGroup===null?'Positions':`Positions · grouped by ${rowGroupLabel(view.rowGroup).toLowerCase()}`);
+    text('blotter-table-title',pivot?view.splitBy.length?'Pivot table':'Pivot summary':ladderOn()?'Delta ladder · grouped by curve':view.rowGroup===null?'Positions':`Positions · grouped by ${rowGroupLabel(view.rowGroup).toLowerCase()}`);
+    // The ladder groups its rows by curve, so the trade rows' grouping is not offered beside it.
+    get('blotter-row-group-control').hidden=pivot||ladderOn();
     workspace.describe(pivot?[
       {label:'Rows',values:view.groupBy.filter(d=>!view.splitBy.includes(d)).map(d=>groupChoices.find(c=>c[0]===d)![1])},
       {label:'Columns',values:view.splitBy.map(d=>groupChoices.find(c=>c[0]===d)![1])},
       {label:'Values',values:view.measures.map(m=>measureChoices.find(c=>c[0]===m)![1])},
     ]:[]);
-    text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();deskPanel.sync();
+    text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();deskPanel.sync();drawContract();
   }
   // What the trade rows' desk shows, selected from the read: its rows, their trade fields, its group headers and its two charts.
   function planDesk(colors:ReadonlyMap<string,string>){
@@ -509,47 +524,111 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   function renderDesk(scope:string,colors:ReadonlyMap<string,string>,plan:ReturnType<typeof planDesk>){
     const held=holdings!.holdings,{rows,fields,groups}=plan,shown=lensShown()?inline as Extract<Inline,{state:'shown'}>:undefined;
-    // Every other trade column is present, shown when the view chooses it, so a filter on a hidden one stays active. Under the Risk lens
-    // the price, mark, value and curve columns give way to the shock, its changes and the delta (D222).
-    const details=tradeColumns.filter(([key])=>!(deskFields as readonly string[]).includes(key));
-    const head=shown?riskColumns:deskColumns,columns=[...head,...details];
-    tableColumns=columns.map(c=>c[0]);transientKeys=new Set(['curve',...riskKeys]);
-    const numeric=tableColumns.flatMap((key,i)=>i>=head.length?(numericFields.includes(key)?[i]:[]):['quantity','executionPrice','mark','presentValue','riskUp','riskDown','riskDelta'].includes(key)?[i]:[]);
-    const lenses=shown?held.map((h,i)=>lensRow(shown,h,rows[i])):undefined;
-    // A lens cell sorts and filters by its exact amount, which only a position one shock moves has; the others by their words.
-    const single=(i:number)=>lenses?.[i].state==='shocks'&&lenses[i].shocks.length===1?lenses[i].shocks[0]:undefined;
-    const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='unmoved'?'Not moved':lens.state==='unknown'?'Not known'
-      :lens.shocks.length>1?`${lens.shocks.length} shocks`:`±${lens.shocks[0].bump} ${lens.shocks[0].unit}`;};
-    const values=rows.map((row,i)=>shown?[row.reference,row.market,row.quantity??'',lensWords(i),single(i)?.up??'',single(i)?.down??'',single(i)?.delta??'',...details.map(([key])=>fields[i][key]??'')]
-      :[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
-    const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
     const formats=held.map(holdingFormats);
-    const cells=deskCells(rows,colors,{money:(i,value)=>formats[i].money(value),quantity:(i,value)=>formats[i].quantity(value),price:(i,value)=>formats[i].price(value),mark:(i,value)=>formats[i].mark(value),
-      factor:(i,value)=>formats[i].factor(value)},i=>shapeOf(held[i]),tableColumns,lenses&&(i=>lenses[i]));
-    // How many of a book's, or an instrument type's, positions the run leaves out, by the book and instrument type the run names for each.
-    const leftOut=(key:string)=>shown?shown.excluded.filter(e=>view.rowGroup==='book'?e.bookId===key:view.rowGroup==='instrumentType'?e.instrumentType===key:false).length:0;
-    table=workspace.render('desk-positions',scope+JSON.stringify([view.mode,view.rowGroup,view.bookIds,view.portfolioIds,view.query,view.columnFilters,shown?'risk':'values']),columns.map(c=>c[1]),values,numeric,busy,{
-      keys:tableColumns,cells,searchText:rows.map((row,i)=>shown?`${row.words} ${lensWords(i)}`:row.words),visual:shown?[]:[curveColumn],giveUp:dockedGiveUp(),rowHeight:46,stretch:true,
-      visible:columns.map(([key],i)=>i<head.length||view.columns.includes(key)),
-      // The Risk lens keeps the widths of the columns it shares with the view, and is laid out afresh: a saved view never keeps it.
-      layout:shown?{order:riskColumns.map(([key])=>key),widths:view.grid.widths,sort:view.grid.sort.filter(s=>riskColumns.some(([key])=>key===s.key))}:view.grid,
-      onLayout:layout=>{if(!shown)view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
-      group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
-      initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
-      onRowOpen:index=>void deskPanel.open(index)});
-    workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
-      if(busy())return;captureLayout();view.columns=selected;render();
-    },[...deskFields]);
+    // The Ladder lens draws the run's per-factor totals in place of the trade rows (D230); the charts below are drawn either way.
+    if(ladderOn())renderLadder(scope);
+    else{
+      ladderTable=undefined;ladderShown=undefined;
+      // Every other trade column is present, shown when the view chooses it, so a filter on a hidden one stays active. Under the Risk lens
+      // the price, mark, value and curve columns give way to the shock, its changes and the delta (D222).
+      const details=tradeColumns.filter(([key])=>!(deskFields as readonly string[]).includes(key));
+      const head=shown?riskColumns:deskColumns,columns=[...head,...details];
+      tableColumns=columns.map(c=>c[0]);transientKeys=new Set(['curve',...riskKeys]);
+      const numeric=tableColumns.flatMap((key,i)=>i>=head.length?(numericFields.includes(key)?[i]:[]):['quantity','executionPrice','mark','presentValue','riskUp','riskDown','riskDelta'].includes(key)?[i]:[]);
+      const lenses=shown?held.map((h,i)=>lensRow(shown,h,rows[i])):undefined;
+      // A lens cell sorts and filters by its exact amount, which only a position one shock moves has; the others by their words.
+      const single=(i:number)=>lenses?.[i].state==='shocks'&&lenses[i].shocks.length===1?lenses[i].shocks[0]:undefined;
+      const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='unmoved'?'Not moved':lens.state==='unknown'?'Not known'
+        :lens.shocks.length>1?`${lens.shocks.length} shocks`:`±${lens.shocks[0].bump} ${lens.shocks[0].unit}`;};
+      const values=rows.map((row,i)=>shown?[row.reference,row.market,row.quantity??'',lensWords(i),single(i)?.up??'',single(i)?.down??'',single(i)?.delta??'',...details.map(([key])=>fields[i][key]??'')]
+        :[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
+      const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
+      const cells=deskCells(rows,colors,{money:(i,value)=>formats[i].money(value),quantity:(i,value)=>formats[i].quantity(value),price:(i,value)=>formats[i].price(value),mark:(i,value)=>formats[i].mark(value),
+        factor:(i,value)=>formats[i].factor(value)},i=>shapeOf(held[i]),tableColumns,lenses&&(i=>lenses[i]));
+      // How many of a book's, or an instrument type's, positions the run leaves out, by the book and instrument type the run names for each.
+      const leftOut=(key:string)=>shown?shown.excluded.filter(e=>view.rowGroup==='book'?e.bookId===key:view.rowGroup==='instrumentType'?e.instrumentType===key:false).length:0;
+      table=workspace.render('desk-positions',scope+JSON.stringify([view.mode,view.rowGroup,view.bookIds,view.portfolioIds,view.query,view.columnFilters,shown?'risk':'values']),columns.map(c=>c[1]),values,numeric,busy,{
+        keys:tableColumns,cells,searchText:rows.map((row,i)=>shown?`${row.words} ${lensWords(i)}`:row.words),visual:shown?[]:[curveColumn],giveUp:dockedGiveUp(),rowHeight:46,stretch:true,
+        visible:columns.map(([key],i)=>i<head.length||view.columns.includes(key)),
+        // The Risk lens keeps the widths of the columns it shares with the view, and is laid out afresh: a saved view never keeps it.
+        layout:shown?{order:riskColumns.map(([key])=>key),widths:view.grid.widths,sort:view.grid.sort.filter(s=>riskColumns.some(([key])=>key===s.key))}:view.grid,
+        onLayout:layout=>{if(!shown)view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
+        group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
+        initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
+        onRowOpen:index=>void deskPanel.open(index)});
+      workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
+        if(busy())return;captureLayout();view.columns=selected;render();
+      },[...deskFields]);
+    }
     renderDeskCharts(get('desk-chart-pv'),plan.pvPanels,'No swaps in the selected books');
     // After a run, the long and short chart becomes the change if each contract moves up; it leaves out what the run leaves out (D220).
-    text('desk-chart-position-title',shown?'Change if each contract moves up':'Long and short by market');
-    if(shown){
-      const change=changeChart(rows.map((row,i)=>({key:positionKey(held[i]),reference:row.reference,market:row.market,commodity:row.commodity})),shown.cells,colors,(i,value)=>formats[i].money(value));
-      const excluded=valuationNote(shown.excluded.length);
-      const unmoved=unmovedNote(change.unmoved,shown.gaps);
-      renderDeskCharts(get('desk-chart-position'),change.panels,noMoveText(shown.gaps),[...(excluded?[excluded]:[]),...(unmoved?[unmoved]:[])]);
+    const charted=shown??(ladderOn()?inline as Extract<Inline,{state:'shown'}>:undefined);
+    text('desk-chart-position-title',charted?'Change if each contract moves up':'Long and short by market');
+    if(charted){
+      const change=changeChart(rows.map((row,i)=>({key:positionKey(held[i]),reference:row.reference,market:row.market,commodity:row.commodity})),charted.cells,colors,(i,value)=>formats[i].money(value));
+      const excluded=valuationNote(charted.excluded.length);
+      const unmoved=unmovedNote(change.unmoved,charted.gaps);
+      renderDeskCharts(get('desk-chart-position'),change.panels,noMoveText(charted.gaps),[...(excluded?[excluded]:[]),...(unmoved?[unmoved]:[])]);
     }else renderDeskCharts(get('desk-chart-position'),plan.positionPanels,'No positions in the selected books');
     drawn={rows,colors};
+  }
+  // The reports of the run on screen whose parts have results: a part that failed or has none is said so by the run bar, never read as zero.
+  const shownReports=()=>inline?.state==='shown'?risk.current()?.parts.flatMap(p=>p.report?[p.report]:[])??[]:[];
+  // The Ladder lens: a row for each shocked factor, grouped by curve, and a column for each book, measure and currency, each cell the
+  // server's own value (D230). Its rows are not positions, so the trade rows' filters, layout and selection are left as they are.
+  function renderLadder(scope:string){
+    const ladder=deltaLadder(shownReports(),ladderValue,curveName),exported=ladderExport(ladder,ladderValue),rows=ladder.groups.flatMap(g=>g.rows);
+    const keys=['curve','contract','coordinate','shock','priceUnit','value',...ladder.columns.map((_,i)=>'book'+i)],first=keys.length-ladder.columns.length;
+    // Each amount as the backend formats it in the desk's precision: delta as the lens shows it, P&L as money. The browser never rounds.
+    const kind=ladderValue==='delta'?'factor' as const:'money' as const,shownText=(cell:LadderCell)=>cell.missing?'Not reported':amountText(cell.exact,kind);
+    const display=exported.rows.map((row,i)=>row.map((value,c)=>c<first?value:shownText(rows[i].cells[c-first])));
+    const cells=(index:number,column:number)=>{
+      if(column<first)return null;
+      const cell=rows[index].cells[column-first],span=document.createElement('span');
+      if(cell.missing){span.className='ladder-missing';span.textContent='Not reported';return span;}
+      span.textContent=publicText(shownText(cell));span.title=publicText(`${cell.exact} ${cell.unit} · up ${amountText(cell.upExact,'money')} · down ${amountText(cell.downExact,'money')}`);if(cell.zero)span.className='ladder-zero';
+      if(cell.nonlinear){const mark=document.createElement('span');mark.className='ladder-nonlinear';mark.textContent='nonlinear';span.append(mark);}
+      return span;
+    };
+    const groupKeys=ladder.groups.flatMap(g=>g.rows.map(()=>g.key)),titles=new Map(ladder.groups.map(g=>[g.key,g.title]));
+    table=undefined;ladderShown=exported;
+    ladderTable=workspace.render('desk-positions',scope+JSON.stringify(['ladder',ladderValue,view.bookIds,view.portfolioIds]),exported.headers,exported.rows,exported.numeric,busy,{
+      keys,displayRows:display,cells,searchText:display.map(row=>row.join(' ')),rowHeight:40,stretch:true,giveUp:[],
+      visible:keys.map(key=>!['curve','priceUnit','value'].includes(key)),layout:{order:keys,widths:{contract:150,coordinate:120,shock:190,...Object.fromEntries(ladder.columns.map((_,i)=>['book'+i,180]))},sort:[]},onLayout:()=>{},onReady:sync,
+      group:{keys:groupKeys,order:ladder.groups.map(g=>g.key),header:(key,count)=>{const head=document.createElement('span');head.className='desk-group-head';
+        head.textContent=publicText(`${titles.get(key)} · ${count} ${count===1?'shock':'shocks'}, each on its own`);return head;}},
+      initial:{query:'',columns:keys.map(()=>null)},onRowOpen:index=>void openContract(rows[index].factorId)});
+  }
+  // A ladder row opens the panel's Contract mode: the positions its shock moves, as the server values them.
+  async function openContract(factorId:string){
+    if(busy())return;
+    if(await panel.show({kind:'contract',factorId}))panel.reveal();
+  }
+  function drawContract(){
+    const mode=panel.current();
+    if(mode?.kind!=='contract')return;
+    const reports=shownReports(),factor=reports.flatMap(r=>r.factors).find(f=>f.factor.id===mode.factorId);
+    if(!factor){panel.reset();options.notice('The contract the panel showed is not in the run on screen, so the panel was closed.');return;}
+    const ladder=deltaLadder(reports,ladderValue,curveName),group=ladder.groups.find(g=>g.rows.some(r=>r.factorId===mode.factorId))!,row=group.rows.find(r=>r.factorId===mode.factorId)!;
+    const node=<K extends keyof HTMLElementTagNameMap>(tag:K,className:string,value:string)=>{const n=document.createElement(tag);n.className=className;n.textContent=publicText(value);return n;};
+    const title=node('h2','side-panel-title',`${group.title} · ${row.period}`);title.id='side-panel-title';
+    panel.element('head').replaceChildren(title,node('p','side-panel-sub',`${row.coordinate} · shocked ${row.shock}`));
+    panel.element('tabs').replaceChildren();
+    const body=panel.element('body');body.setAttribute('role','group');body.setAttribute('aria-label','Contract');
+    const listed=contractPositions(factor,ladderValue),words={delta:'Delta',upPnl:'Up P&L',downPnl:'Down P&L'}[ladderValue];
+    const list=document.createElement('ul');list.className='contract-positions';
+    for(const position of listed.positions){
+      const item=document.createElement('li'),button=document.createElement('button');button.type='button';button.className='secondary';
+      const held=holdings?.holdings.find(h=>positionKey(h)===position.key),format=held?holdingFormats(held):undefined;
+      button.append(node('span','',`${position.tradeReference} · ${position.label}`),node('span','',`${format?(ladderValue==='delta'?format.factor:format.money)(position.exact):position.exact} ${position.unit}`));
+      button.title=publicText(`${position.exact} ${position.unit}`);
+      button.onclick=()=>{const index=holdings?.holdings.findIndex(h=>positionKey(h)===position.key)??-1;if(index>=0)void deskPanel.open(index);else options.notice(`${position.tradeReference} is not in this Blotter read.`);};
+      item.append(button);list.append(item);
+    }
+    panel.element('view').replaceChildren(
+      node('p','field-help',listed.positions.length?`${words} of each position this shock moves, as the server values it, largest first. Open one to see the position.`:'This shock moves no position in the books on screen.'),
+      ...(listed.positions.length?[list]:[]),
+      ...(listed.unmoved?[node('p','field-help',`${listed.unmoved} other held ${listed.unmoved===1?'position is':'positions are'} not moved by this shock.`)]:[]));
   }
   // The curve shape a position's market has at this read: its shape, why it has none, or nothing yet while the shapes are read.
   function shapeOf(h:Holding):CurveShape|string|undefined{
@@ -795,9 +874,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const rows=grid.shownRows().map(i=>{const h=read.holdings[i],fields=tradeFields(h);return columns.map(([key])=>notValued(h,key)??noted(drawn?.rows[i],key)??fields[key]??'');});
     return {headers:columns.map(c=>c[1]),rows,numeric:columns.flatMap(([key],i)=>numericFields.includes(key)?[i]:[])};
   }
-  get('blotter-export').onclick=()=>{if(busy()||!table||!holdings||!lastReadRequest)return;const pivot=view.mode==='pivot';const metadata=[['Blotter snapshot'],['As of',holdings.asOf],['Knowledge cutoff',holdings.context.knownAt],['Convention',holdings.convention],['Display',view.mode],['Grouping',pivot?view.groupBy.join(' / '):rowGroupLabel(view.rowGroup)],['Measures',pivot?view.measures.join(' / '):'Trade rows'],['Portfolios',view.portfolioIds.length?catalog!.books.filter(b=>view.portfolioIds.includes(b.portfolio_id)).map(b=>b.portfolio).filter((v,i,a)=>a.indexOf(v)===i).join(' / '):'All authorized portfolios'],['Books',view.bookIds.length?catalog!.books.filter(b=>view.bookIds.includes(b.id)).map(b=>b.name).join(' / '):'All books in selected portfolios'],['Search',table.state().query],['Column filters',JSON.stringify(Object.fromEntries(table.state().columns.flatMap((v,i)=>v===null?[]:[[tableColumns[i],v]])))],['Numerical policy',holdings.pivotNumericalPolicy],['Pivot convention',pivot?'trading_blotter_totals_v1':'Not applicable'],['Positions not valued at this close',String(excludedPositions(holdings.unvaluedPositions))],[]];
-    const shown=pivot?{headers:table.headers(),rows:table.visibleRows(),numeric:table.numeric()}:tradeExport(table);
-    const csv=guardedCsv(metadata)+guardedCsv([shown.headers,...shown.rows],shown.numeric);void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv('leanetrm-blotter.csv',csv);});
+  get('blotter-export').onclick=()=>{if(busy()||!(table||ladderTable)||!holdings||!lastReadRequest)return;const grid=(table??ladderTable)!,filterKeys=table?tableColumns:ladderShown?.headers??[];const pivot=view.mode==='pivot';const metadata=[['Blotter snapshot'],['As of',holdings.asOf],['Knowledge cutoff',holdings.context.knownAt],['Convention',holdings.convention],['Display',view.mode],['Grouping',pivot?view.groupBy.join(' / '):rowGroupLabel(view.rowGroup)],['Measures',pivot?view.measures.join(' / '):'Trade rows'],['Portfolios',view.portfolioIds.length?catalog!.books.filter(b=>view.portfolioIds.includes(b.portfolio_id)).map(b=>b.portfolio).filter((v,i,a)=>a.indexOf(v)===i).join(' / '):'All authorized portfolios'],['Books',view.bookIds.length?catalog!.books.filter(b=>view.bookIds.includes(b.id)).map(b=>b.name).join(' / '):'All books in selected portfolios'],['Search',grid.state().query],['Column filters',JSON.stringify(Object.fromEntries(grid.state().columns.flatMap((v,i)=>v===null?[]:[[filterKeys[i],v]])))],['Numerical policy',holdings.pivotNumericalPolicy],['Pivot convention',pivot?'trading_blotter_totals_v1':'Not applicable'],['Positions not valued at this close',String(excludedPositions(holdings.unvaluedPositions))],[]];
+    // The Ladder lens exports the ladder's rows the filters show, exactly, with the run they come from (D230).
+    const ladder=ladderTable&&ladderShown?{...ladderShown,rows:ladderTable.shownRows().map(i=>ladderShown!.rows[i])}:undefined;
+    const shown=ladder??(pivot?{headers:table!.headers(),rows:table!.visibleRows(),numeric:table!.numeric()}:tradeExport(table!));
+    const about=ladder?[...metadata.slice(0,-1),['Risk run',get('desk-run-title').textContent??''],['Run detail',get('desk-run-detail').textContent??''],[]]:metadata;
+    const csv=guardedCsv(about)+guardedCsv([shown.headers,...shown.rows],shown.numeric);void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv(ladder?'leanetrm-delta-ladder.csv':'leanetrm-blotter.csv',csv);});
   };
   get('futures-refresh').onclick=()=>guarded(load);
   // A Blotter view a navigation target names, applied as Apply applies the view's controls.
@@ -843,7 +925,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // not a Display choice not yet applied: the person's view is never changed to fit it.
     requireTradeRows:()=>requireTradeRows(view.mode),
     // What the Blotter shows: its risk report, the trade in its panel, the new trade entered there, or the view its last read applied.
-    report:()=>({risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),lens:lensShown()?'risk' as const:'values' as const,
+    report:()=>({risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),lens:lensShown()||ladderOn()?'risk' as const:'values' as const,
       view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]}}),
     // A form of the panel with edits not yet sent, the risk report's setup among them, or a trade request or risk job whose outcome is unconfirmed.
     unsaved:()=>!!pending.command||editing()||risk.unconfirmed(),

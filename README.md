@@ -29,7 +29,9 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   resolve under the selected business date and knowledge cutoff
 - **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
   and remaining projections. Connected quote and computed-output scenarios produce
-  exact delta and gamma; generated-close jobs retain mixed futures-and-swaps reports
+  exact delta and gamma; generated-close jobs retain mixed futures-and-swaps reports.
+  A delta ladder shows each shocked contract's totals by book and measure, see
+  [the delta ladder](docs/delta-ladder.md)
 - **Agent curve drafts:** authorized agents can read curve ingredients and prepare a
   pinned preview. Explicit Review opens an unpriced draft in the ordinary editor;
   saving and publishing use the person’s authoring permissions
