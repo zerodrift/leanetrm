@@ -231,7 +231,7 @@ public sealed class TurnWorker:IAsyncDisposable
         return true;
     }
 
-    // Answers one tool request with its step (§7.3, §7.5): a read bounded by the runtime set and the turn's deadline,
+    // Answers one tool request with its step (§7.3, §7.5): a read bounded by its version's time per read and the turn's deadline,
     // recorded once and never retried, since a step that may have landed cannot be told from a new one. A read that
     // returns once the turn is to stop is no step, whatever it returned (Settled); a step the database recorded and
     // published reaches the model, its result's targets then named by their handles, and any other answer ends the turn.
@@ -241,20 +241,28 @@ public sealed class TurnWorker:IAsyncDisposable
     {
         if(await Halted(turn,r,deadline))return null;
         ToolStep read;
+        bool fired;
+        var (after,byDeadline)=ReadBound(reads.ReadLimit,Remaining(deadline));
         using(var bound=CancellationTokenSource.CreateLinkedTokenSource(r.Cancel.Token))
         {
-            bound.CancelAfter(Remaining(deadline));
+            bound.CancelAfter(after);
             read=await r.Tools.Run(reads,targets,request,bound.Token);
+            fired=bound.IsCancellationRequested;
         }
         // The database ends a turn whose cancel was requested cancelled.
-        if(Settled(read,r.Cancel.IsCancellationRequested||Abandoned(r)) is not {} step)
+        if(Settled(read,r.Cancel.IsCancellationRequested||Abandoned(r),fired,byDeadline) is not {} step)
         {
             if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
             return null;
         }
-        // A read the deadline stopped is logged by its tool and operation, never its input, so a slow read is visible to an operator (D237).
-        if(read.End==ToolStepEnd.Interrupted)
-            logger.LogWarning("A tool read was stopped at its turn's deadline: {Tool} {Operation}",step.Tool,step.Operation??"none");
+        // A read its bound stopped is logged by that bound, its tool and operation, never its input, so a slow read is visible
+        // to an operator (D245).
+        if(step.Code is "limit_elapsed" or "limit_tool_read")
+        {
+            if(byDeadline)logger.LogWarning("A tool read was stopped at its turn's deadline: {Tool} {Operation}",step.Tool,step.Operation??"none");
+            else logger.LogWarning("A tool read was stopped at its agent's time per read of {Seconds} seconds: {Tool} {Operation}",
+                reads.ReadLimit.TotalSeconds,step.Tool,step.Operation??"none");
+        }
         var recorded=await Write("SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb,$9::jsonb)::text",turn,r.Token,
             step.Tool,(object?)step.Operation??DBNull.Value,step.Input is {} input?input.GetRawText():DBNull.Value,(object?)step.Code??DBNull.Value,
             (object?)step.ReadAt??DBNull.Value,step.ReadAt is null?DBNull.Value:JsonSerializer.Serialize(step.Access,JsonSerializerOptions.Web),
@@ -278,10 +286,17 @@ public sealed class TurnWorker:IAsyncDisposable
     }
 
     // What a read that returned becomes (§7.5): no step once its turn is to stop, whatever it returned, so a stop this
-    // process alone knows of publishes nothing; a read is bounded only by its turn's deadline, so one that stopped fails the
-    // turn limit_elapsed (D237); any other step as it is.
-    internal static ToolStep? Settled(ToolStep read,bool stopping)=>
-        stopping?null:read.End==ToolStepEnd.Interrupted?read with{Code="limit_elapsed",End=ToolStepEnd.Failure}:read;
+    // process alone knows of publishes nothing; a read its bound stopped, or that failed once its bound had fired, fails the
+    // turn limit_elapsed when that bound was the turn's deadline, else limit_tool_read, its version's time per read (D245);
+    // any other step as it is.
+    internal static ToolStep? Settled(ToolStep read,bool stopping,bool fired,bool byDeadline)=>
+        stopping?null:read.End==ToolStepEnd.Interrupted||fired&&read.End==ToolStepEnd.Failure
+            ?read with{Code=byDeadline?"limit_elapsed":"limit_tool_read",End=ToolStepEnd.Failure}:read;
+
+    // A read's bound (D245): its version's time per read, or what remains of its turn when that is no more, and whether
+    // the bound is the turn's deadline.
+    internal static (TimeSpan After,bool ByDeadline) ReadBound(TimeSpan readLimit,TimeSpan remaining)=>
+        remaining<=readLimit?(remaining,true):(readLimit,false);
 
     // What a call's ending makes of its turn when this program did not stop the call (§7.5): the turn's ending and code,
     // or none to retry, after a failure whose input is known and that published nothing, while retries remain.

@@ -3,7 +3,7 @@ import {displayInstant,publicText} from './market-view.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Limits={toolSteps:number;inputTokens:number;outputTokens:number;elapsedSeconds:number;retries:number};
+type Limits={toolSteps:number;inputTokens:number;outputTokens:number;elapsedSeconds:number;readSeconds:number;retries:number};
 type VersionModel={id:string;version:number;vendor:string;identifier:string;displayName:string;current:boolean};
 type AgentVersion={version:number;description:string;instructions:string;model:VersionModel;reasoning:string;caching:boolean;tools:string[];allowedRoles:string[];
   limits:Limits;grantDays:number;savedBy:string;savedAt:string};
@@ -24,7 +24,7 @@ const states:Record<string,string>={active:'Active',retired:'Retired'};
 const toolNames:Record<string,string>={navigate:'Navigate',read_current_page:'Read current page',read_market_data:'Read market data',read_reference_data:'Read reference data',
   read_schedules:'Read schedules',read_trade_parties:'Read trade parties',read_trades:'Read trades',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve'};
 const limitNames:[keyof Limits,string][]=[['toolSteps','tool steps per turn'],['inputTokens','input tokens per turn'],['outputTokens','output tokens per call'],
-  ['elapsedSeconds','time per turn in seconds'],['retries','retries per call']];
+  ['elapsedSeconds','time per turn in seconds'],['readSeconds','time per read in seconds'],['retries','retries per call']];
 // Refusals that prove a first attempt wrote nothing, so its retained request can be released.
 const rejections=['model_admin_input','model_admin_conflict','agent_retired','agent_role_lacks_permission','model_changed','model_disabled','model_unqualified',
   'model_unpriced','model_provider_disabled','model_provider_unqualified','parameter_required','model_limit_exceeded','grant_duration_exceeded','instructions_too_long',
@@ -64,7 +64,7 @@ export function versionRows(version:AgentVersion,choices:Choices,instant:(at:str
     ['Reasoning effort',version.reasoning],['Prompt caching',version.caching?'On':'Off'],['Tools',version.tools.map(toolName).join(', ')||'None'],
     ['Allowed roles',version.allowedRoles.map(code=>roleName(choices,code)).join(', ')||'None'],['Tool steps per turn',String(limits.toolSteps)],
     ['Input tokens per turn',grouped(limits.inputTokens)],['Output tokens per call',grouped(limits.outputTokens)],['Time per turn',`${limits.elapsedSeconds} seconds`],
-    ['Retries per call',String(limits.retries)],['Grant duration',`${version.grantDays} days`],['Saved',`${version.savedBy} · ${instant(version.savedAt)}`]];
+    ['Time per read',`${limits.readSeconds} seconds`],['Retries per call',String(limits.retries)],['Grant duration',`${version.grantDays} days`],['Saved',`${version.savedBy} · ${instant(version.savedAt)}`]];
 }
 // A version names a model the directory offers, at the capability version the directory lists for it.
 export function modelChoices(choices:Choices){
@@ -107,7 +107,7 @@ const agentMessages:Record<string,string>={
   model_admin_input:'Check the entries: a name of 1 to 80 characters and a description of 1 to 500, each with no space at either end and no control, '
     +'line-separator or text-direction formatting characters; instructions within the limit stated with them, in lines with those characters excluded and '
     +'no space or line feed at either end; 1 to 100 tool steps and 1 to 100,000,000 input tokens per turn; 1 to 10,000,000 output tokens per call; '
-    +'1 to 3,600 seconds per turn; 0 to 10 retries per call; and a grant of at least one day, within the limit stated with it.',
+    +'1 to 3,600 seconds per turn; 1 to 30 seconds per read, and no more than per turn; 0 to 10 retries per call; and a grant of at least one day, within the limit stated with it.',
   model_admin_conflict:'This agent changed, its name is taken, or the request identity was used for a different change. Refresh AI settings before trying again.',
   model_unqualified:'The model is not qualified: its capabilities must be recorded under the usage mapping its vendor’s adapter applies.'};
 // Create and Save send what the administrator typed. While the page and the server agree, only an entry outside its
@@ -129,7 +129,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
   const pending=new PendingCommand(knownAgentRejection);
   const storage=()=>`openetrm.ai.agents.request.${options.identity()}`;
   const limitFields:[keyof Limits,string][]=[['toolSteps','ai-agent-tool-steps'],['inputTokens','ai-agent-input-tokens'],['outputTokens','ai-agent-output-tokens'],
-    ['elapsedSeconds','ai-agent-elapsed'],['retries','ai-agent-retries']];
+    ['elapsedSeconds','ai-agent-elapsed'],['readSeconds','ai-agent-read'],['retries','ai-agent-retries']];
   const tables=['ai-agent-table','ai-agent-audit','ai-agent-published','ai-agent-draft'];
   // The form's basis is the agent and newest version it was filled from; its model is pinned to the version chosen, and
   // the roles it chose that no longer use agents are kept apart. A confirmed save refills the form at the next read.

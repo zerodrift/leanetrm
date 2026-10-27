@@ -261,6 +261,9 @@ def main():
                 from swap_fixture import fixture as swap_fixture
                 from preview_fixture import trading_fixture
                 check_default_upgrade(query,[reference,market,swap_fixture(fixing_frames=fixing_frames)[0],security,trading_fixture(manifest['catalogId'],swap_defaults=True)],migration.read_text())
+            if args.assistant_check and migration.name=='0120_agent_read_limit.sql':
+                from check_agent_administration import check_read_limit_upgrade
+                check_read_limit_upgrade(query,migration.read_text())
             if args.check and migration.name=='0116_remove_unused_cash_rounding.sql':
                 from check_cash_rounding_retirement import run_checks as check_cash_retirement
                 check_cash_retirement(query,migration.read_text())
@@ -815,7 +818,7 @@ def main():
                 from check_agent_turn_http import run_checks as check_agent_turn_http
                 sessions=check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
                 from check_agent_tool_http import run_checks as check_agent_tool_http
-                check_agent_tool_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap,*sessions)
+                check_agent_tool_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap,*sessions,api_pid=child.pid)
                 from check_turn_stream_http import run_checks as check_turn_stream_http
                 check_turn_stream_http(url,query,psql,manifest,app_env,fake_provider,proxy_trap,*sessions)
                 from check_model_usage import run_checks as check_model_usage

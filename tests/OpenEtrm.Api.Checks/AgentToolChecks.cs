@@ -120,10 +120,11 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v6"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
-            &&PreviewDatabase.AgentCommandSeconds==3600,"turns_v6 bounds a tool read only by its turn's deadline, up to the longest an agent version may set (D237), bounds tool results and keeps a workspace's turns below its agent pools");
+        Require(RuntimeSet.Turns=="turns_v7"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
+            &&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
+            "turns_v7 bounds a tool read by its agent version's time per read, at most 30 seconds, and its turn's deadline (D245), gives no command of a read less, bounds tool results and keeps a workspace's turns below its agent pools");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v6 bounds reads by their turn and their results, and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v7 bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
@@ -285,7 +286,7 @@ static class AgentToolChecks
 
         // Read current page (§7.3): its own input is empty, then the stored report's page, then the version's tools.
         var working=Pin("current",Guid.NewGuid(),Working);
-        TurnReads Turn(string report,params string[] tools)=>new(working,new("agent",Guid.NewGuid()),Json(report),[..tools],Guid.NewGuid());
+        TurnReads Turn(string report,params string[] tools)=>new(working,new("agent",Guid.NewGuid()),Json(report),[..tools],Guid.NewGuid(),TimeSpan.FromSeconds(15));
         var curve="""{"page":"curves","selection":{"view":"curve","curve":"future"}}""";
         ModelToolRequest Current(string input="{}")=>new("toolu_synthetic_01","read_current_page",Json(input));
         var (call,dispatched)=AgentTools.Requested(Turn(curve,"read_current_page","read_market_data"),Current());
@@ -322,11 +323,13 @@ static class AgentToolChecks
             (new TemporalException("temporal_context","Pin an exact retained context."),"temporal_context",ToolStepEnd.Refusal),
             (new PostgresException("knowledge_coverage","ERROR","ERROR","P0001"),"knowledge_coverage",ToolStepEnd.Refusal),
             (new PostgresException("The selected curve is unavailable.","ERROR","ERROR","P0001"),"tool_failed",ToolStepEnd.Failure),
-            (new PostgresException("canceling statement due to statement timeout","ERROR","ERROR","57014"),"tool_failed",ToolStepEnd.Failure),
+            // The database's own copy of the read's bound (D245) stops it as the API's cancellation does.
+            (new PostgresException("canceling statement due to statement timeout","ERROR","ERROR","57014"),null,ToolStepEnd.Interrupted),
             (new NpgsqlException("Exception while reading from stream",new TimeoutException()),"tool_failed",ToolStepEnd.Failure),
             (new InvalidOperationException("The turn's pinned-context record cannot be read."),"tool_failed",ToolStepEnd.Failure)})
             Require(AgentTools.Classify(error)==(code,end),$"a read ending {error.GetType().Name} is classified {code} {end}");
-        Console.WriteLine("PASS a read's structured refusal or denial is a refused step; a stop is the worker's to name; anything else fails the turn tool_failed");
+        Console.WriteLine("PASS a read's structured refusal or denial is a refused step; a stop, the API's or the database's at the read's bound, is the worker's "+
+            "to name; anything else fails the turn tool_failed");
 
         var shown=JsonDocument.Parse(AgentTools.Refusal("missing_curve")).RootElement;
         var other=JsonDocument.Parse(AgentTools.Refusal("tou_conflict")).RootElement;

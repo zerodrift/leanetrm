@@ -26,8 +26,9 @@ public sealed class SwapSettlementOperations(PreviewDatabase database)
     private readonly SwapStore store=new(database);
     private readonly TradeReads reads=new(database);
 
+    // Outside a turn these reads have no version's time per read, so they take the most any version may set (D245).
     private Task<object> Agent(AgentIdentity agent,string operation,Func<NpgsqlConnection,CancellationToken,Task<object>> work,CancellationToken ct) =>
-        database.WithAgent(agent,Catalog.Single(c=>c.Id==operation).Permissions,_=>{},work,ct);
+        database.WithAgent(agent,TimeSpan.FromSeconds(RuntimeSet.MaxReadSeconds),Catalog.Single(c=>c.Id==operation).Permissions,_=>{},work,ct);
 
     private async Task<TradingView> View(NpgsqlConnection connection,InputFrame frame,FuturesReadRequest request,CancellationToken ct)
     {

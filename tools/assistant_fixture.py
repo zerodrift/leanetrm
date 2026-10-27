@@ -64,7 +64,7 @@ class Fixture:
             'description': 'Answers questions about the page it is opened on.', 'instructions': 'Quote only values you read.',
             'modelId': model_id, 'modelVersion': self.version_of(model_id), 'reasoning': 'low', 'caching': False, 'tools': list(tools),
             'allowedRoles': ['trader', 'risk_analyst'],
-            'limits': {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048, 'elapsedSeconds': 120, 'retries': 2, **limits}, 'grantDays': days})
+            'limits': {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048, 'elapsedSeconds': 120, 'readSeconds': 15, 'retries': 2, **limits}, 'grantDays': days})
 
     def publish(self, agent_state):
         return self.admin.call(f'{AGENTS}/publish', {'operationId': str(uuid4()), 'agentId': agent_state['id'], 'expectedVersion': agent_state['version']})

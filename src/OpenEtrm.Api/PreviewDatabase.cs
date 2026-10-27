@@ -116,7 +116,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
             authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", 8);
             runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8);
             calculationRuntime=PreviewSource(root,"OPENETRM_PREVIEW_RUNTIME","preview_runtime",null,"openetrm-calculation-listener");
-            // An agent read is bounded by its turn's deadline alone, so no one command of it is cut off sooner (D237).
+            // An agent read is bounded by its version's time per read, so no one command of it is cut off sooner (D245).
             agentAuthenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", RuntimeSet.AgentPool, AgentReads, AgentCommandSeconds);
             agentRuntime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", RuntimeSet.AgentPool, AgentReads, AgentCommandSeconds);
             runtimeLogin = "preview_runtime";
@@ -137,9 +137,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
     }
 
     // A pool of the given size, or unpooled connections without one, named for the server when an application is given.
-    // The command timeout of the agent read pools: the longest elapsed limit an agent version may set (0066), so only the
-    // turn's deadline, through its cancellation, stops a read (D237).
-    internal const int AgentCommandSeconds=3600;
+    // The command timeout of the agent read pools: the most time per read a version may set, so only the read's own bound,
+    // through its cancellation, stops a read (D245).
+    internal const int AgentCommandSeconds=RuntimeSet.MaxReadSeconds;
 
     private static NpgsqlDataSource PreviewSource(string root, string variable, string login, int? pool, string? application=null, int commandTimeout=5)
     {
@@ -179,7 +179,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         // A hosted request whose sign-in session was revoked or ended since it was authenticated (docs/ai-assistant.md §11).
         try { token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException()); }
         catch (PostgresException e) when (hostedSession is not null && e.SqlState == "42501") { throw new PreviewSessionEnded(); }
-        return await Bound(runtime, token, hostedSession is not null, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
+        return await Bound(runtime, token, hostedSession is not null, null, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
             Admission.Agents=>"SELECT assistant.use_agent_admission($1)",Admission.Grants=>"SELECT assistant.use_grant_admission($1)",
             _=>"SELECT security.use_context($1)"}, async(connection,ct)=>
         {
@@ -195,7 +195,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
     // tool needs is checked before and after the read. The check after it is defense in depth: the bind holds the epoch
     // row FOR SHARE until the read's transaction ends, so no revocation can commit during the read, and a grant or role
     // grant whose term ends during it, the one change it can see, also fails the step's publication recheck.
-    public async Task<T> WithAgent<T>(AgentIdentity agent, ImmutableArray<string> permissions, Action<DateTimeOffset> boundAt,
+    // The database holds the read to `readLimit` too (D245): each statement, and each wait between them, so a read whose API
+    // can no longer cancel it still ends its transaction, and the epoch row, within twice that.
+    public async Task<T> WithAgent<T>(AgentIdentity agent, TimeSpan readLimit, ImmutableArray<string> permissions, Action<DateTimeOffset> boundAt,
         Func<NpgsqlConnection, CancellationToken, Task<T>> read, CancellationToken ct)
     {
         if(agentAuthenticator is null||agentRuntime is null)throw new InvalidOperationException("This database adapter has no agent pools.");
@@ -203,7 +205,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         foreach (var value in new object[] { Manifest.IdentityIssuer, agent.Principal, Manifest.TenantId, Manifest.WorkspaceId, agent.Delegation, runtimeLogin })
             issue.Parameters.Add(new NpgsqlParameter { Value = value });
         var token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException());
-        return await Bound(agentRuntime, token, false, "SELECT security.use_context($1)", async(connection,ct)=>
+        return await Bound(agentRuntime, token, false, readLimit, "SELECT security.use_context($1)", async(connection,ct)=>
         {
             await using(var now = new NpgsqlCommand("SELECT clock_timestamp()", connection))
             await using(var reader = await now.ExecuteReaderAsync(ct))
@@ -220,11 +222,15 @@ public sealed class PreviewDatabase : IAsyncDisposable
 
     // Runs an operation in one READ COMMITTED transaction bound to an issued request context, which a hosted request
     // also holds to its verified sign-in session before and after the operation. An agent's context has no sign-in
-    // session: revoking its delegator's cancels the turn instead (docs/ai-assistant.md §11).
-    private async Task<T> Bound<T>(NpgsqlDataSource source, Guid token, bool signedIn, string bind, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct)
+    // session: revoking its delegator's cancels the turn instead (docs/ai-assistant.md §11). A `held` bound is set before the
+    // bind, which may itself wait on the epoch row, as the longest any statement or any wait between them may take.
+    private async Task<T> Bound<T>(NpgsqlDataSource source, Guid token, bool signedIn, TimeSpan? held, string bind, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        if(held is {} bound)
+            await using(var limit = new NpgsqlCommand("SELECT set_config('statement_timeout',$1,true),set_config('idle_in_transaction_session_timeout',$1,true)", connection, transaction))
+            { limit.Parameters.AddWithValue(((long)bound.TotalMilliseconds).ToString(System.Globalization.CultureInfo.InvariantCulture)); await limit.ExecuteNonQueryAsync(ct); }
         await using (var command = new NpgsqlCommand(bind, connection, transaction))
         { command.Parameters.AddWithValue(token); await command.ExecuteNonQueryAsync(ct); }
         async Task Session()

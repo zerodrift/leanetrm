@@ -73,17 +73,29 @@ static class TurnWorkerChecks
             "a completed tool stop succeeds, or is usage_unrecognized, and is never a transport failure");
         Console.WriteLine("PASS a tool stop is a completed call the tool loop answers, never an ending or a transport failure");
 
-        // A read that returned (§7.5): no step once the turn is to stop, whatever it returned; a read is bounded only by its
-        // turn's deadline, so one the deadline stopped fails the turn limit_elapsed (D237).
+        // A read that returned (§7.5): no step once the turn is to stop, whatever it returned; one its bound stopped, or that
+        // failed once its bound had fired, fails the turn limit_elapsed when that bound was the turn's deadline, else
+        // limit_tool_read, its agent version's time per read (D245).
         ToolStep Step(ToolStepEnd end,string? code)=>new("read_market_data","market_data.curves_v1",null,code,DateTimeOffset.UnixEpoch,[],end is ToolStepEnd.Result or ToolStepEnd.Refusal?"{}":null,end);
         var (read,refused,failed,interrupted)=(Step(ToolStepEnd.Result,null),Step(ToolStepEnd.Refusal,"missing_curve"),Step(ToolStepEnd.Failure,"tool_failed"),Step(ToolStepEnd.Interrupted,null));
-        Require(new[]{read,refused,failed,interrupted}.All(s=>TurnWorker.Settled(s,true) is null),
+        var cases=from fired in new[]{false,true} from byDeadline in new[]{false,true} select(fired,byDeadline);
+        Require(new[]{read,refused,failed,interrupted}.All(s=>cases.All(c=>TurnWorker.Settled(s,true,c.fired,c.byDeadline) is null)),
             "once its turn is to stop, a read that returned is no step, whatever it returned");
-        Require(TurnWorker.Settled(read,false)==read&&TurnWorker.Settled(refused,false)==refused&&TurnWorker.Settled(failed,false)==failed
-            &&TurnWorker.Settled(interrupted,false) is {End:ToolStepEnd.Failure,Code:"limit_elapsed"},
-            "a read the turn's deadline stopped fails its turn limit_elapsed; any other step stands");
-        Console.WriteLine("PASS a read that returned once its turn is to stop is no step; one the turn's deadline stopped fails the turn "+
-            "limit_elapsed, the only bound on a read (D237)");
+        Require(cases.All(c=>TurnWorker.Settled(read,false,c.fired,c.byDeadline)==read&&TurnWorker.Settled(refused,false,c.fired,c.byDeadline)==refused)
+            &&new[]{false,true}.All(byDeadline=>TurnWorker.Settled(failed,false,false,byDeadline)==failed),
+            "a result or refusal stands whichever bound it ran under, and so does a failure before its bound fired");
+        Require(new[]{false,true}.All(fired=>TurnWorker.Settled(interrupted,false,fired,true) is {End:ToolStepEnd.Failure,Code:"limit_elapsed"}
+                &&TurnWorker.Settled(interrupted,false,fired,false) is {End:ToolStepEnd.Failure,Code:"limit_tool_read"})
+            &&TurnWorker.Settled(failed,false,true,true) is {End:ToolStepEnd.Failure,Code:"limit_elapsed"}
+            &&TurnWorker.Settled(failed,false,true,false) is {End:ToolStepEnd.Failure,Code:"limit_tool_read"},
+            "a read stopped at the turn's deadline, or failing once it passed, fails the turn limit_elapsed, and at its time per read limit_tool_read");
+        // A read's bound is the version's time per read, or the turn's deadline once that comes first.
+        var limit=TimeSpan.FromSeconds(15);
+        Require(TurnWorker.ReadBound(limit,TimeSpan.FromSeconds(120))==(limit,false)&&TurnWorker.ReadBound(limit,TimeSpan.FromSeconds(4))==(TimeSpan.FromSeconds(4),true)
+            &&TurnWorker.ReadBound(limit,limit)==(limit,true)&&TurnWorker.ReadBound(limit,TimeSpan.Zero)==(TimeSpan.Zero,true),
+            "a read is bounded by its version's time per read, or by the turn's deadline when that is no later");
+        Console.WriteLine("PASS a read that returned once its turn is to stop is no step; one stopped at its version's time per read, or failing once "+
+            "it passed, fails the turn limit_tool_read, and at the turn's deadline limit_elapsed (D245)");
 
         // The tool loop's next call replays the model's reply, then answers each of its requests in order (§6.1, §7.3).
         var question=new ModelUserText("Q?");

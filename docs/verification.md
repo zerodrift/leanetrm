@@ -1054,7 +1054,7 @@ for the browser and later suites):
   refused so too, keeping its input. A historical view without a frame publishes a page
   target keeping its retained context with no frame. A page check held where it reads
   the reference catalog's scope stops at once on Stop, ending the turn cancelled with no
-  step, and past the 5-second `ToolRead` fails the turn `tool_failed` with a step naming
+  step, and past its agent's time per read fails the turn `limit_tool_read` with a step naming
   Navigate's operation, the check's instant and its accesses.
 - **Go and Back:** the panel selects a target's retained context again by its id, which
   yields exactly that context, which the session then shows and an ask pins, without
@@ -1081,8 +1081,12 @@ for the browser and later suites):
   the turn cancelled and the session's end `session_ended`, each stopping the read
   well within its own bound and writing no step or other call; a read whose call
   stopped for it shortly before the turn's deadline is stopped there, failing the turn
-  `limit_elapsed`, and one past the 5-second `ToolRead` fails it `tool_failed`, each
-  with a step naming that bound with the read's instant and accesses; and a worker that
+  `limit_elapsed`, and one past its agent's time per read fails it `limit_tool_read`, each
+  with a step naming that bound with the read's instant and accesses and one warning in
+  the log naming the bound, the tool and the operation, never the input; with the API
+  process paused while a read waits, the database stops the read and frees the epoch row
+  within twice its time per read, and the resumed turn fails `limit_tool_read`; a read held for
+  seven seconds within a 15-second time per read completes and the turn answers; and a worker that
   loses its generation stops the read at once and writes no step for a second, the
   next start interrupts the turn, and once the lock is free the next ask completes.
 - **Page reports and the key:** ask refuses a page report outside the closed set, or

@@ -31,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   async function publish(agent,tools,allowedRoles=['trader']){
     const saved=await side.call('settings/ai/agents/save',{operationId:crypto.randomUUID(),agentId:agent.id,expectedVersion:agent.version,
       description:'Answers questions about the page it is opened on.',instructions:'Quote only values you read.',modelId:model.id,modelVersion,reasoning:'low',
-      caching:false,tools,allowedRoles,limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,retries:2},grantDays:28});
+      caching:false,tools,allowedRoles,limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:2},grantDays:28});
     return side.call('settings/ai/agents/publish',{operationId:crypto.randomUUID(),agentId:saved.id,expectedVersion:saved.version});
   }
   const create=name=>side.call('settings/ai/agents/create',{operationId:crypto.randomUUID(),name});

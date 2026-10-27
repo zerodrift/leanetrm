@@ -139,7 +139,8 @@ const reasons:Record<string,string>={tool_arguments_invalid:'the request was not
   page_selection_unavailable:'what the page showed is not available in the pinned context',snapshot_missing:'it needs an As of date, and none was chosen',
   power_historical:'a historical view does not read current definitions',access_denied:'the agent’s access does not cover it',
   missing_curve:'that curve is not in the pinned market data',missing_observation:'market data it needs is missing',blotter_view:'that Blotter view is not available',
-  futures_trade:'that trade is not available in the pinned context',swap_trade:'that trade is not available in the pinned context',tool_failed:'the read failed'};
+  futures_trade:'that trade is not available in the pinned context',swap_trade:'that trade is not available in the pinned context',tool_failed:'the read failed',
+  limit_tool_read:'the read took longer than this agent’s time per read'};
 // A step: the tool's name and, for a refusal or failure, why in plain words; a withheld earlier turn has a line of its own.
 export function stepLine(step:Step){
   if('withheld' in step)return 'An earlier answer was left out: what it read can no longer be read for you';
@@ -152,7 +153,8 @@ const tooLong='This conversation is too long to continue. Start a new conversati
 const failures:Record<string,string>={limit_elapsed:'The answer ran out of time.',limit_tool_steps:'The answer used as many reads as this agent may make.',
   limit_output_tokens:'The answer reached this agent’s length limit.',limit_input_tokens:tooLong,context_window_exceeded:tooLong,
   limit_input_unverifiable:'The answer stopped because the provider’s token usage could not be verified. Ask an administrator to check the provider’s usage mapping.',
-  access_changed:'The answer stopped because access to what it read changed.',tool_failed:'A read failed, so the answer could not finish.'};
+  access_changed:'The answer stopped because access to what it read changed.',tool_failed:'A read failed, so the answer could not finish.',
+  limit_tool_read:'A read took longer than this agent’s time per read, so the answer could not finish.'};
 const cancellations:Record<string,string>={session_ended:'The answer stopped because your session changed.',
   access_changed:'The answer stopped because your grant to this agent ended.',agent_retired:'The answer stopped because the agent was retired.',
   model_disabled:'The answer stopped because its model was switched off.',model_provider_disabled:'The answer stopped because its provider was switched off.'};
