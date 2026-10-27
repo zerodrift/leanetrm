@@ -1,8 +1,10 @@
 # Markets desk
 
-Status: proposed design, not implementation evidence. Decisions it introduces
-are listed under [Decisions to record](#decisions-to-record) and are added to
-[decisions.md](decisions.md) when implementation starts.
+Status: implemented on the markets desk branch, with the follow-ups listed
+under [Remaining work](#remaining-work). The decisions it introduces are D231 to
+D235 in [decisions.md](decisions.md). Its capability is recorded in
+[implementation.md](implementation.md) and verified by the browser and backend
+checks named under Verification; the page benchmark covers all three pages.
 
 ## Why
 
@@ -89,7 +91,7 @@ on the shared ECharts component, which preserves gaps between periods.
   A priced point with no priced neighbour gets a dot, since a line joins only
   neighbours. Hovering shows the exact backend string for the instant, for the
   price and every overlay series, never a rounded number.
-- **Theme.** Colors, fonts and grid come from the CSS tokens; a dark scheme follows when the app defines one (it defines none yet).
+- **Theme.** Colors, fonts and grid come from the CSS tokens; a dark scheme follows when the app defines one (it defines none yet; see Remaining work).
 - **Overlays.** The overlay menu lists the backend's overlay catalog. Choosing an
   overlay asks for its parameters (the window, with no prefilled value), sends
   them with the read, and draws the values the backend returns as a registered
@@ -332,15 +334,21 @@ context or curve closes the panel.
 delivery order that the selected close prices. A curve with no such contract
 has `front: null` and an availability reason.
 
-## Decisions to record
+## Decisions
 
-| ID | Decision |
-| --- | --- |
-| D231 | Prices over time use KLineChart (`klinecharts` 10.0.3, Apache-2.0). Cross-sections by delivery period stay on ECharts |
-| D232 | Chart overlays are server-computed from a versioned catalog under an exact rational policy, with required parameters and gaps for incomplete windows. Drawings are unsaved presentation state |
-| D233 | Curve summaries (contract count, front contract and price, rate-curve fields) come from the backend; front is the first priced contract in delivery order |
-| D234 | Delivery prices opens on a backend-chosen `newest_available_delivery_day_v1` selection, stated with a badge; its summary statistics are backend fields |
-| D235 | Custom curves asks before discarding unsaved edits on navigation, unload or a context change |
+D231 (KLineChart for time charts), D232 (server-computed overlays), D233
+(backend curve summaries and the front contract), D234 (the delivery opening
+selection and period statistics) and D235 (the unsaved-edit question) are
+recorded in [decisions.md](decisions.md). D238 (idempotent writes) and D237
+(history revision policy) govern the history reads the charts draw.
+
+## Remaining work
+
+Listed in [plan.md](plan.md): Positions on this curve, Bollinger bands,
+per-selection resolved contracts in custom-curve previews, structured refusals
+for an empty contract or null output position, a reported refusal of a saved
+weighted draft previewed by id and version, rates curves on the market board and
+the dark color scheme.
 
 ## Verification
 

@@ -1,4 +1,4 @@
--- D229: a collection that repeats recorded delivery prices publishes nothing new.
+-- D238: a collection that repeats recorded delivery prices publishes nothing new.
 -- A successful attempt still covers every operating-day interval; only intervals
 -- whose price or provider revision differs from the latest published revision
 -- become a new batch, so unchanged prices keep their original knowledge time.

@@ -105,7 +105,7 @@ def run_checks(client, query, manifest):
     earlier, _ = client.call('/api/power-imports/period', {**period,'knownAt':catalog['knownAt']})
     assert facts(earlier) == facts(result) and {row['price']['value'] for row in earlier['rows']} == {'-17.125'}, 'A later correction changed a read at an earlier cutoff'
     assert earlier['summary']['average'] == '-17.125'
-    # D229: collecting the same prices again publishes nothing new.
+    # D238: collecting the same prices again publishes nothing new.
     batches = query('SELECT count(*) FROM power_data.batches;')
     collect()
     assert query(f"SELECT state FROM power_data.attempts WHERE job_id='{job}' ORDER BY started_at DESC LIMIT 1;") == 'succeeded'

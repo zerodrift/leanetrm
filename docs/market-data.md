@@ -107,7 +107,7 @@ each retained snapshot's exact pins, so several samples can share a business
 instant. `as_known_at_cutoff_v1` shows, per instant, the latest revision recorded
 at or before the read's knowledge cutoff: the selected context's instant, or
 current knowledge for working data, which the response states. Identical
-samples at one instant collapse (D229); different ones are refused naming the
+samples at one instant collapse (D238); different ones are refused naming the
 instant. Each point carries its observation identities and certified `knownAt`.
 
 Histories attach to stable market factor identities and can be assembled into an

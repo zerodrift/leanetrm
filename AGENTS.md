@@ -82,7 +82,7 @@ choices. Update the decision record when a decision changes.
 - Historical context carries business/effective time and a resolved knowledge
   cutoff through every business read, join, calculation and agent operation.
   Never silently substitute current data or historical permissions.
-- Make every write idempotent (D229). Recording a fact that already exists
+- Make every write idempotent (D238). Recording a fact that already exists
   (the same business key, value and effective time) is a no-op that returns
   the existing record, never a second row; this covers imports, scrapes,
   collection jobs, closes and retried commands. A retried command carries its

@@ -1167,6 +1167,19 @@ Extend only after the baseline contracts are demonstrated:
   selected books, and server-stated quantity-equivalent units.
 - Calibration, simulation, validated analytic/automatic differentiation paths.
 - Safe cross-run result reuse and incremental market updates.
+- Markets desk follow-ups ([markets-desk.md](markets-desk.md)):
+  - Positions on this curve, which needs a trading read keyed by curve.
+  - Bollinger bands, which need an explicit irrational-number policy.
+  - Per-selection-node resolved contracts in custom-curve previews, so a
+    Select contracts card can say which contract "Position N" resolved to at
+    the close.
+  - Custom-curve preview and save return 400 `request_format` for an empty
+    contract id or a null output position instead of a structured refusal.
+  - A saved, unedited weighted draft previewed by id and version was reported
+    refused as `custom_curve_definition`; unconfirmed and pre-existing, to be
+    reproduced before any fix.
+  - Rates curves on the market board.
+  - A dark color scheme; the charts already follow the tokens.
 - Live feed adapters and their entitlement/provenance controls.
 - Settlement workflows, richer administration and deployment hardening.
 

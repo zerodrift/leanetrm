@@ -21,7 +21,7 @@ internal static class PreviewDataChecks
             var session=new PreviewSession(fixture.Manifest with{Frames=[seed]});
             var id=session.InitialFrames.Single();session.Frames[id]=frame with{Id=id};return session;
         }
-        Check("history keeps one sample per instant: identical versions collapse, different ones are a conflict (D229, D237)",()=>
+        Check("history keeps one sample per instant: identical versions collapse, different ones are a conflict (D238, D237)",()=>
         {
             var at=new DateTimeOffset(2020,12,17,16,0,0,TimeSpan.Zero);
             HistorySample Sample(string? value,DateTimeOffset? known,string? reason=null)=>new(at,value,Guid.NewGuid(),[],reason,known);

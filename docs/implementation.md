@@ -3078,3 +3078,25 @@ unknown native facts, exact quantities, idempotency and current authority.
 API, collection, scheduler and pilot-runtime startup reject trusted-importer
 membership. These commands do not activate imported contracts or qualify an
 installation's data rights or deployment.
+
+
+The markets desk ([markets-desk.md](markets-desk.md), D231 to D235) gives the
+three Markets pages the Blotter's structure. Curves & prices opens on a market
+board of every visible curve at the selected close, with batched backend
+summaries (contract count, front contract and price, or a stated reason such as
+`no_remaining_contracts` or `no_priced_contract`); a selected curve shows backend
+tiles, and a contract opens in the side panel with its history in a KLineChart
+time chart and its pricing graph. Overlays (simple and exponential moving
+averages, rolling range) are computed by the backend under
+`exact_rational_half_even_18_v1`, require explicit windows, leave gaps where a
+window is incomplete, and are drawn only from the series the read states as
+`chart`. Drawings are unsaved presentation state. Custom curves is a header bar,
+library, graph and a side panel with Details, Effective versions and Combine
+curves, with a backend preview summary and a question before unsaved edits are
+discarded. Delivery prices has a filter bar, opens on the catalog's
+`newest_available_delivery_day_v1` selection with a badge, and shows backend
+statistics, the interval chart with overlays and the collection history.
+Positions on this curve, Bollinger bands and the other follow-ups remain in
+[plan.md](plan.md). Verification is the backend numerical checks, the web unit
+tests, the markets desk browser checks at 1440 and 390 pixels and the page
+benchmark.

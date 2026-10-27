@@ -31,7 +31,7 @@ class Collector:
 
     def publish(self, key, day, start, count, minutes, prices, revision):
         """Publish and certify one day's collection; returns the batch id and knowledge time of the
-        intervals it changed, or None when every price was already recorded (D229)."""
+        intervals it changed, or None when every price was already recorded (D238)."""
         source = self.sources[key]
         end = start + timedelta(minutes=count * minutes)
         self.query(f"""INSERT INTO power_data.operating_days VALUES('{self.reference}','{self.revision}','{source['clock']}',

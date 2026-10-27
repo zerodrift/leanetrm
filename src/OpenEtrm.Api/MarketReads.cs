@@ -173,7 +173,7 @@ public sealed class MarketReads(PreviewDatabase database)
 
     // Rebuilds the given frames of the pinned view; the pinned frame replaces the frame at its instant. Under as_known_at_cutoff_v1
     // each frame follows its pins to their latest revision visible at the pinned context's cutoff (the resolver certified contexts use),
-    // then samples at one instant collapse when identical and are refused when they still differ (D229, D237).
+    // then samples at one instant collapse when identical and are refused when they still differ (D238, D237).
     public async Task<ImmutableArray<HistorySample>> History(NpgsqlConnection connection,PinnedContext pin,ImmutableArray<InputFrame> frames,
         string curve,Guid? contractId,Guid? seriesId,string revisionPolicy,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null)
     {

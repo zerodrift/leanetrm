@@ -61,7 +61,7 @@ def run_checks(query,manifest,dotnet,root,environment):
     assert read(second)=='0'
     latest=query('SELECT known_at::text FROM power_data.receipts ORDER BY sequence DESC LIMIT 1;')
     assert read(latest)=='-17.125'
-    # D229: collecting identical prices again succeeds and publishes nothing.
+    # D238: collecting identical prices again succeeds and publishes nothing.
     publish('-17.125')
     assert query(f"SELECT state FROM power_data.attempts WHERE job_id='{job}' ORDER BY started_at DESC LIMIT 1;")=='succeeded'
     assert query('SELECT count(*) FROM power_data.batches;')=='3'

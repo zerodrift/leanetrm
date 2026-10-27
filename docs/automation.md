@@ -98,7 +98,7 @@ outside collapsed editors. A confirmed write followed by a failed directory read
 requires only a read refresh.
 
 This operation collects delivery prices under the existing whole-batch,
-exact-reference admission rules. Collection is idempotent (D229, migration
+exact-reference admission rules. Collection is idempotent (D238, migration
 0118): an attempt must still cover every operating-day interval, but only
 intervals whose price or provider revision differs from the latest published
 revision enter a new batch. Repeating an identical collection succeeds and
