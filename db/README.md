@@ -1372,3 +1372,20 @@ migration it stops automatic hosted updates until the operator qualifies a new b
 lock that blocks new jobs, within the migration's 5 s lock and 15 s statement timeouts. An installation
 with a large job history applies it with job admission stopped; a build that exceeds the timeout rolls
 the whole migration back.
+
+Migration `0119_agent_job_reads.sql` adds `ReadJobs` to the six human role templates
+that hold `RunJobs` and to the agent reader role, and the owner-scoped reads
+`automation.owned_jobs(integer)` and `automation.owned_job_history(uuid,bigint)` (D239,
+D241). It records job reads as the tool-read access `job_access` in no catalog, adds
+`read_jobs` to the agent tools and Jobs & Infrastructure to navigation targets,
+and a trigger that keeps each job's owner, tenant and workspace fixed
+(`job_owner_immutable`). It writes no job. Replacing the `tool_read_access` check
+reads every recorded tool-read access under an exclusive lock on that table, within
+the migration's 15 s statement timeout. The new rule only widens the old one, so
+the scan cannot fail, but its time grows with the steps an installation has
+recorded; one with a large assistant history applies the migration with assistant
+turns stopped, and a scan past the timeout rolls the whole migration back. A guard refuses the migration if a helper it relies on or replaces
+differs from the reviewed definition. Apply the migration before the API and web
+assets: the earlier API never offers `read_jobs`, and this release's API records the
+`job_access` access, which the earlier schema refuses. As a new migration it stops
+automatic hosted updates until the operator qualifies a new baseline (D135).

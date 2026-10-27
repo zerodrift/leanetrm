@@ -16,16 +16,17 @@ public sealed record AgentTool(string Name,string Description,JsonElement InputS
     public ModelTool Definition=>new(Name,Description,InputSchema);
 }
 
-// What a read needs of the turn's pin before it runs (§7.2): its pinned context, with or without the As of frame, or
-// current-only definitions, with or without the frame.
-enum ToolNeeds {View,Frame,CurrentOnly,CurrentOnlyFrame}
+// What a read needs of the turn's pin before it runs (§7.2): its pinned context, with or without the As of frame,
+// current-only definitions, with or without the frame, or current operational records such as jobs, which have no
+// market context and which a historical view does not read (docs/devops-assistant.md §3).
+enum ToolNeeds {View,Frame,CurrentOnly,CurrentOnlyFrame,Operational}
 
 // A versioned read operation (architecture §10): its tool, what it needs of the pin, the accesses its read runs under, and
 // which of its read's refusals mean that a page's selection is unavailable.
 sealed record ToolOperation(string Id,string Tool,ToolNeeds Needs,Func<PreviewManifest,ImmutableArray<ReadAccess>> Access,ImmutableHashSet<string> SelectionRefusals);
 
-// One access a read ran under, as record_tool_step takes it (§7.1).
-public sealed record ReadAccess(string Access,Guid CatalogId,string Permission);
+// One access a read ran under, as record_tool_step takes it (§7.1): in a catalog, or for job reads none.
+public sealed record ReadAccess(string Access,Guid? CatalogId,string Permission);
 
 // A request's operation and its arguments.
 sealed record ToolCall(ToolOperation Operation,ToolArguments Arguments);
@@ -37,6 +38,8 @@ sealed record ReferenceArguments(string Table,string Search):ToolArguments;
 sealed record PartyArguments(string Kind):ToolArguments;
 sealed record BlotterArguments(FuturesBlotterView View):ToolArguments;
 sealed record TradeArguments(Guid TradeId,string InstrumentType,int? Revision):ToolArguments;
+sealed record JobListArguments(int Page):ToolArguments;
+sealed record JobHistoryArguments(Guid Job,long? Before):ToolArguments;
 // Navigate's request names exactly one of a page the assistant reads and a handle a read issued.
 sealed record NavigateArguments(string? Page,string? Handle):ToolArguments;
 
@@ -136,6 +139,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
              "search":{"type":"string","maxLength":160}},"required":["table","search"],"additionalProperties":false}
             """,MarketData),
         ..CurveTools,
+        JobTool,
         Tool("navigate","Requests a move of the user to a page, or to what a read in this turn showed. Every read result names a target handle for its "+
             "own view, and each curve and trade it lists names one too. Send page, with target null, to open a page as it opens; or send a handle as "+
             "target, with page null. Ordinary moves keep the knowledge and As of frame pinned when the question was asked. Curve proposals instead request explicit review of an unpriced draft under the user's current header, retaining the proposal's origin dates. Say where it leads.",
@@ -181,7 +185,9 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("schedules.power_hours_v1","read_schedules",ToolNeeds.CurrentOnlyFrame,MarketAccess,[]),
         new("reference_data.table_v1","read_reference_data",ToolNeeds.View,MarketAccess,[]),
         new("custom_curves.catalog_v1","read_custom_curves",ToolNeeds.View,MarketAccess,[]),
-        new("custom_curves.prepare_v1","prepare_custom_curve",ToolNeeds.Frame,MarketAccess,[])
+        new("custom_curves.prepare_v1","prepare_custom_curve",ToolNeeds.Frame,MarketAccess,[]),
+        new("jobs.list_v1","read_jobs",ToolNeeds.Operational,JobAccess,[]),
+        new("jobs.history_v1","read_jobs",ToolNeeds.Operational,JobAccess,["job_not_found"])
     }.ToImmutableDictionary(o=>o.Id);
     internal static ToolOperation Operation(string id)=>Operations[id];
     // Navigate reads no page: the accesses its check runs under are those of its target's page.
@@ -207,6 +213,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 if(Encoding.UTF8.GetByteCount(serialized)+serialized.Count(c=>c is ',' or ':')>8192)throw ToolInput.Invalid();
                 return new(Operations["custom_curves.prepare_v1"],new PrepareCurveArguments(members.Text("code",1,32,CustomCode()),
                     members.Text("name",1,80),members.Formula("formula"),members.Choice("engine",OpenEtrm.MarketData.CustomCurves.RecipeEngine.Version)));
+            case "read_jobs":return ParseJobs(members);
             case "read_market_data":
                 members.Exactly("view","curve");
                 var market=members.Choice("view","curves","curve","observations","contract_definitions");
@@ -296,7 +303,9 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         ["knowledge_tracking"]="The pinned knowledge cutoff cannot be certified for this read.",
         ["knowledge_retention"]="The pinned knowledge cutoff cannot be certified for this read.",
         ["knowledge_timeline"]="The pinned knowledge cutoff cannot be certified for this read.",
-        ["precision_loss"]="An exact result needs more precision than this read keeps."
+        ["precision_loss"]="An exact result needs more precision than this read keeps.",
+        ["jobs_current_only"]="Jobs are current operational records, which a historical view does not read.",
+        ["job_not_found"]="No job of the user's with this id exists. The assistant reads only the user's own jobs."
     }.ToImmutableDictionary();
     internal const string GenericText="The read refused this request; its code states why.";
     internal static string Text(string code)=>Texts.GetValueOrDefault(code,GenericText);
@@ -344,7 +353,12 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         catch(ToolRefusal refused){return Before(refused.Code,refused.Code=="tool_arguments_invalid"?null:input);}
         catch(MarketDataException refused){return Before(refused.Code,input);}
         if(call.Arguments is NavigateArguments navigate)
-            return Target(targets,navigate) is {} target?await Navigate(turn,tool,input!.Value,target,ct):Before("tool_arguments_invalid",input);
+        {
+            if(Target(targets,navigate) is not {} target)return Before("tool_arguments_invalid",input);
+            // A historical view does not move to a page of current operational records, as it does not read them.
+            if(!turn.Pin.Working&&PageReports.Operations(target.Page).Any(o=>Operations[o].Needs==ToolNeeds.Operational))return Before("jobs_current_only",input);
+            return await Navigate(turn,tool,input!.Value,target,ct);
+        }
         var operation=call.Operation;
         var access=operation.Access(database.Manifest);
         DateTimeOffset? readAt=null;
@@ -413,13 +427,15 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     {
         foreach(var held in access)
         {
-            await using var command=ScheduleStore.Command(connection,held.Access switch
+            await using var command=held.CatalogId is {} catalog?ScheduleStore.Command(connection,held.Access switch
             {
                 "market_access"=>"SELECT security.market_access($1,$2)",
                 "reference_access"=>"SELECT security.reference_access($1,$2)",
                 "trading_access"=>"SELECT security.trading_access($1,$2)",
                 _=>throw new InvalidOperationException("An access has no check.")
-            },held.CatalogId,held.Permission);
+            },catalog,held.Permission)
+                :held.Access=="job_access"?ScheduleStore.Command(connection,"SELECT security.has_permission($1)",held.Permission)
+                :throw new InvalidOperationException("An access has no check.");
             if(!Equals(await command.ExecuteScalarAsync(ct),true))return false;
         }
         return true;
@@ -450,10 +466,12 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     }
 
     // What a read needs of the pin, checked before it runs (§7.2): working data for current-only definitions
-    // (power_historical), and a frame where it consumes one (snapshot_missing).
+    // (power_historical) and for operational records (jobs_current_only), and a frame where it consumes one
+    // (snapshot_missing).
     static void Require(TurnPin pin,ToolNeeds needs)
     {
         if(needs is ToolNeeds.CurrentOnly or ToolNeeds.CurrentOnlyFrame)pin.CurrentOnly();
+        if(needs is ToolNeeds.Operational&&!pin.Working)throw new MarketDataException("jobs_current_only","Jobs are not read under a historical view.");
         if(Consumes(needs))pin.RequireFrame();
     }
 
@@ -482,6 +500,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 ToolResults.Parties(await parties.Catalog(connection,pin.Trading(await Context()),party.Kind,ct),party.Kind),
             {Operation.Id:"trades.blotter_v1",Arguments:BlotterArguments blotter}=>ToolResults.Blotter(await trades.Blotter(connection,pin.Trading(await Context()),blotter.View,ct)),
             {Operation.Id:"trades.trade_v1",Arguments:TradeArguments trade}=>await Trade(connection,pin.Trading(await Context()),trade,ct),
+            {Arguments:JobListArguments list}=>await Jobs(connection,list,ct),
+            {Arguments:JobHistoryArguments job}=>await JobHistory(connection,job,ct),
             _=>throw new InvalidOperationException("An operation has no read.")
         };
     }
@@ -498,12 +518,12 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     }
 
     // A result with the knowledge it was read at (§7.2): the turn's pinned context and cutoff, or for current-only
-    // definitions the instant they were read, never the cutoff; the As of frame where the read consumed one; and the
-    // handle of its own target (§7.3).
+    // definitions and operational records the instant they were read, never the cutoff; the As of frame where the read
+    // consumed one; and the handle of its own target (§7.3).
     internal static JsonObject Envelope(TurnPin pin,ToolOperation operation,DateTimeOffset readAt,ToolResult result,string target)
     {
-        var context=operation.Needs is ToolNeeds.CurrentOnly or ToolNeeds.CurrentOnlyFrame
-            ?new JsonObject{["knowledge"]="current_definitions",["readAt"]=JsonSerializer.SerializeToNode(readAt)}
+        var context=operation.Needs is ToolNeeds.CurrentOnly or ToolNeeds.CurrentOnlyFrame or ToolNeeds.Operational
+            ?new JsonObject{["knowledge"]=operation.Needs==ToolNeeds.Operational?"current_operations":"current_definitions",["readAt"]=JsonSerializer.SerializeToNode(readAt)}
             :new JsonObject{["knowledge"]=pin.Working?"working_data":"retained",["contextId"]=pin.ContextId.ToString(),["cutoff"]=JsonSerializer.SerializeToNode(pin.Cutoff)};
         if(Consumes(operation.Needs)&&pin.Frame is {} frame)
             context["frame"]=new JsonObject{["id"]=frame.Id.ToString(),["name"]=frame.Name,["at"]=JsonSerializer.SerializeToNode(frame.At)};
@@ -569,6 +589,12 @@ sealed class ToolInput
         var chosen=Items(name).Select(i=>i.ValueKind==JsonValueKind.String&&String(i) is var value&&values.Contains(value)?value:throw Invalid()).ToImmutableArray();
         return chosen.Distinct().Count()==chosen.Length?chosen:throw Invalid();
     }
+
+    // A whole number in a range, or for an optional member null: always named, never left to a default.
+    public long Whole(string name,long minimum,long maximum)=>
+        Member(name,JsonValueKind.Number).TryGetInt64(out var value)&&value>=minimum&&value<=maximum?value:throw Invalid();
+    public long? OptionalWhole(string name,long minimum,long maximum)=>
+        members.TryGetValue(name,out var value)&&value.ValueKind==JsonValueKind.Null?null:Whole(name,minimum,maximum);
 
     // A revision, or null for the latest: always named, never left to a default.
     public int? Revision(string name)

@@ -10,7 +10,7 @@ import json
 import re
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 from assistant_context import Contexts, holding
 from assistant_fixture import Fixture
@@ -293,13 +293,13 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                   'market_data.contract_definitions_v1', 'reference_data.table_v1', 'schedules.library_v1', 'schedules.tou_products_v1',
                   'schedules.power_hours_v1', 'trade_parties.versions_v1', 'trades.blotter_v1', 'trades.blotter_v1', 'trades.trade_v1', 'trades.trade_v1']
     check("a step records its tool, operation, the request's input, the instant it read, after its call's close and before the next "
-          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v5",
+          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v6",
           [(s['tool'], s['operation'], s['input'], s['code']) for s in recorded] == [(r[1], o, r[2], None) for r, o in zip(first + second, operations)]
           and [s['access'] for s in recorded] == [market] * 9 + [parties] + [trades] * 4
           and all(at(loop[0]['closed']) <= at(s['read_at']) <= at(loop[1]['started']) for s in recorded[:3])
           and all(at(loop[1]['closed']) <= at(s['read_at']) <= at(loop[2]['started']) for s in recorded[3:])
           and [e['payload'] for e in events if e['kind'] == 'step'] == [{'ordinal': n, 'tool': s['tool']} for n, s in enumerate(recorded, start=1)]
-          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v5', recorded)
+          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v6', recorded)
     grant_id = delegation(turn)
     contexts_read = issued(grant_id)
     check("each read runs in one request context of its own, issued to the agent's principal under the turn's grant on the agent pools, "
@@ -556,7 +556,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                  stream(recording(model_name, text='Historical.')))
     before = len(issued(grant_id))
     since = len(fake.received)
-    historical, events = settled(ask(report={'page': 'jobs', 'selection': {}},
+    historical, events = settled(ask(report={'page': 'users_access', 'selection': {}},
                                      knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None})['turn'])
     trader.call('market/current', {})
     looked = steps(historical)
@@ -576,7 +576,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     contexts = query('SELECT count(*) FROM market_data.temporal_contexts;')
     again = trader.call(RETAINED, {'contextId': selected['contextId'], 'selection': 'latest_correction'})
     fake.respond(stream(recording(model_name, text='Pinned again.')))
-    pinned, _ = settled(ask(report={'page': 'jobs', 'selection': {}}, knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None})['turn'])
+    pinned, _ = settled(ask(report={'page': 'users_access', 'selection': {}}, knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None})['turn'])
     check('a retained context selected by its id is exactly that context, which the session then shows and an ask pins, and selecting it '
           'captures nothing',
           again['context'] == selected and trader.call('workspace/navigation')['context'] == selected
@@ -777,9 +777,123 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
               and all(e['payload'] == {'hidden': 'access_changed'} for e in hidden_events if e['kind'] in ('text', 'navigation')))
     finally:
         query("INSERT INTO security.reference_catalog_scopes SELECT * FROM json_populate_recordset(NULL::security.reference_catalog_scopes,'" + scopes.replace("'", "''") + "'::json);")
+    check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settled, steps, requests, answers, model_name)
     for release in stalled:
         release.set()
     check('no log line or request body carries the key, and no request goes through a proxy',
           KEY not in log.read_text(errors='replace') and all(KEY.encode() not in r['body'] for r in fake.received) and trap.connections == 0)
     print(f'{passed} HTTP tool checks passed.', flush=True)
     return passed
+
+
+JOBS = {'view': 'jobs', 'job': None, 'page': 0, 'before': None}
+# The terms a command receipt may carry (D239): its schedule terms and its target, never a request identity or a
+# financial definition.
+RECEIPT_TERMS = {'kind', 'name', 'operation', 'dueAt', 'expiresAt', 'intervalSeconds', 'timeZone', 'misfire', 'overlap', 'timeoutSeconds',
+                 'maximumAttempts', 'profileId', 'profileVersion', 'id', 'action', 'expectedVersion'}
+JOB_ACCESS = [{'access': 'job_access', 'permission': 'ReadJobs', 'market': None, 'reference': None}]
+
+
+def history(job_id):
+    """Read jobs' input for one job's runs, audit trail and command receipts, newest first."""
+    return {'view': 'history', 'job': job_id, 'page': None, 'before': None}
+
+
+def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settled, steps, requests, answers, model_name):
+    """Jobs & Infrastructure (docs/devops-assistant.md §2–§3, D239, D241): the agent reads only the jobs its delegator owns, their
+    runs, audit actions and command receipts, current-only, under ReadJobs alone; another person's job, a job manager's included,
+    reads like an unknown one, and nothing in a result names service, worker, fence or lease internals."""
+    now = datetime.now(UTC)
+
+    def job(session, name):
+        return session.call('jobs/create', {'requestId': str(uuid4()), 'name': name, 'operation': 'worker_check',
+                                            'dueAt': (now + timedelta(hours=1)).isoformat(), 'expiresAt': (now + timedelta(hours=2)).isoformat(),
+                                            'intervalSeconds': None, 'timeZone': 'UTC', 'misfire': 'run_once', 'overlap': 'forbid',
+                                            'timeoutSeconds': 30, 'maximumAttempts': 2, 'profileId': None, 'profileVersion': None})
+    # More jobs than one page holds, cancelled so they leave the owner's outstanding quota as they found it.
+    for n in range(25):
+        extra = job(trader, f'Synthetic agent-read filler {n}')
+        trader.call('jobs/control', {'requestId': str(uuid4()), 'id': extra['id'], 'action': 'cancel', 'expectedVersion': extra['version']})
+    mine = job(trader, 'Synthetic agent-read readiness')
+    paused = trader.call('jobs/control', {'requestId': str(uuid4()), 'id': mine['id'], 'action': 'pause', 'expectedVersion': mine['version']})
+    # A receipt shaped as a generated pilot close's: its schedule nests a request identity beside a financial definition.
+    nested = str(uuid4())
+    query("INSERT INTO automation.commands SELECT tenant_id,workspace_id,owner_id,gen_random_uuid(),id,jsonb_build_object('schedule',"
+          f"jsonb_build_object('requestId','{nested}','name','Synthetic nested','operation','generated_pilot_close_v1'),'definition',"
+          f"jsonb_build_object('bookIds',jsonb_build_array('{uuid4()}'))),'{{}}'::jsonb,clock_timestamp() FROM automation.jobs WHERE id='{mine['id']}';")
+    theirs = job(admin, 'Synthetic manager readiness')
+    try:
+        query(f"UPDATE automation.jobs SET owner_id=(SELECT owner_id FROM automation.jobs WHERE id='{theirs['id']}') WHERE id='{mine['id']}';")
+        moved = True
+    except RuntimeError as error:
+        moved = 'job_owner_immutable' not in str(error)
+    check("an update that changes a job's owner, tenant or workspace is refused, the database owner's included, so a job read's access needs "
+          "no per-job row",
+          not moved)
+    jobs_agent = agent('jobs', tools=('read_current_page', 'read_jobs', 'navigate'))
+    granted = grant(trader, jobs_agent)
+    check('a version with Read jobs asks for a grant of ReadJobs alone, which the consent names',
+          granted['permissions'] == ['ReadJobs'], granted)
+    check('the agent reader role holds ReadJobs and none of the permissions that change jobs or infrastructure',
+          query("SELECT string_agg(permission,',' ORDER BY permission) FROM security.role_permissions WHERE role_id="
+                "(SELECT id FROM security.roles WHERE code='agent_reader');") == 'ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades')
+
+    fake.respond(stream(tool_use(model_name, [('toolu_jobs_1', 'read_current_page', {}), ('toolu_jobs_2', 'read_jobs', history(mine['id'])),
+                                              ('toolu_jobs_3', 'read_jobs', history(theirs['id'])),
+                                              ('toolu_jobs_4', 'read_jobs', {**JOBS, 'job': mine['id']}),
+                                              ('toolu_jobs_5', 'navigate', {'page': 'jobs', 'target': None}),
+                                              ('toolu_jobs_6', 'read_jobs', {**JOBS, 'page': 1})])),
+                 stream(recording(model_name, text='Your readiness job is paused.')))
+    since = len(fake.received)
+    turn, events = settled(ask(agent_state=jobs_agent, report={'page': 'jobs', 'selection': JOBS})['turn'])
+    recorded, results = steps(turn), answers(requests(since)[-1])
+    listed, own = results['toolu_jobs_1'][0], results['toolu_jobs_2'][0]
+    owned = set(query("SELECT coalesce(string_agg(j.id::text,','),'') FROM automation.jobs j JOIN security.agent_delegations d "
+                      "ON(d.delegator_id,d.tenant_id,d.workspace_id)=(j.owner_id,j.tenant_id,j.workspace_id) "
+                      f"WHERE d.id='{granted['id']}';").split(','))
+    later = results['toolu_jobs_6'][0]
+    check('Read current page on Jobs & Infrastructure lists the delegator\'s own jobs, newest first, 25 to a page, never a job manager\'s '
+          'other jobs, labeled as a current operational read',
+          turn['state'] == 'completed' and listed['operation'] == 'jobs.list_v1'
+          and set(listed['context']) == {'knowledge', 'readAt'} and listed['context']['knowledge'] == 'current_operations'
+          and len(listed['result']['jobs']) == 25 and listed['result']['jobs'][0]['id'] == mine['id']
+          and {j['id'] for j in listed['result']['jobs'] + later['result']['jobs']} <= owned
+          and theirs['id'] not in {j['id'] for j in listed['result']['jobs'] + later['result']['jobs']}
+          and listed['result']['total'] == len(owned) and later['result']['page'] == 1
+          and len(later['result']['jobs']) == min(25, len(owned) - 25), (listed, later))
+    row = next(j for j in listed['result']['jobs'] if j['id'] == mine['id'])
+    check("a job row carries its terms, state, version, editability and latest run as the page shows them, and no owner, service, worker, "
+          "fence or lease internals",
+          (row['state'], row['version'], row['name'], row['operation']) == ('paused', paused['version'], 'Synthetic agent-read readiness', 'worker_check')
+          and row['latestRun'] is None and row['canEdit'] is True and row['editReason'] is None
+          and not {'owner', 'mine', 'serviceId', 'workerId', 'workerLogin', 'fence', 'leaseUntil', 'delegationId'} & set(row), row)
+    check("Read job history returns the job, its audit actions and its command receipts newest first, the receipts' terms without "
+          "their request identities",
+          own['operation'] == 'jobs.history_v1' and own['result']['job']['id'] == mine['id'] and own['result']['runs'] == []
+          and [a['action'] for a in own['result']['audit']] == ['pause', 'created'] and all(a['actor'] == 'you' for a in own['result']['audit'])
+          and [(c['request']['kind'], c['request'].get('action')) for c in own['result']['commands']] == [('create', None), ('control', 'pause'), ('create', None)]
+          and own['result']['commands'][0]['request'] == {'kind': 'create', 'name': 'Synthetic nested', 'operation': 'generated_pilot_close_v1'}
+          and all(set(c['request']) <= RECEIPT_TERMS for c in own['result']['commands']) and nested not in json.dumps(own), own)
+    check("another person's job, though the delegator manages it, is refused job_not_found as an unknown one, and a list view naming a "
+          "job is tool_arguments_invalid",
+          [(s['code'], s['operation']) for s in recorded] == [(None, 'jobs.list_v1'), (None, 'jobs.history_v1'), ('job_not_found', 'jobs.history_v1'),
+                                                              ('tool_arguments_invalid', None), (None, 'navigation.target_v1'), (None, 'jobs.list_v1')]
+          and results['toolu_jobs_3'][0]['code'] == 'job_not_found', recorded)
+    check('every job read records job_access under ReadJobs, and Navigate opens Jobs & Infrastructure by those accesses',
+          [s['access'] for s in recorded] == [JOB_ACCESS, JOB_ACCESS, JOB_ACCESS, [], JOB_ACCESS, JOB_ACCESS]
+          and [e['payload']['target']['page'] for e in events if e['kind'] == 'navigation'] == ['jobs'], recorded)
+
+    # A historical view never reads current jobs (D239).
+    selected = trader.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
+    fake.respond(stream(tool_use(model_name, [('toolu_jobs_7', 'read_jobs', JOBS), ('toolu_jobs_8', 'navigate', {'page': 'jobs', 'target': None})])),
+                 stream(recording(model_name, text='Historical.')))
+    historical, _ = settled(ask(agent_state=jobs_agent, report={'page': 'jobs', 'selection': JOBS},
+                                knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None})['turn'])
+    trader.call('market/current', {})
+    check('under a historical view Read jobs and a move to Jobs & Infrastructure are refused jobs_current_only before reading',
+          [(s['code'], s['access']) for s in steps(historical)] == [('jobs_current_only', [])] * 2, steps(historical))
+
+    trader.call(f'{GRANTS}/revoke', {'operationId': str(uuid4()), 'grantId': granted['id']})
+    replayed = trader.call(f"assistant/conversations/{turn['conversationId']}?after=0")
+    check('the owner still replays a completed jobs answer while they hold ReadJobs, after revoking the grant',
+          next(t for t in replayed['turns'] if t['id'] == turn['id'])['hidden'] is None, replayed)

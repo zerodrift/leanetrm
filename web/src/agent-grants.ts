@@ -16,7 +16,7 @@ export type WorkspaceGrants={current:GrantInForce[];history:GrantRecord[];vendor
 
 const inconsistent=()=>Error('The agent grants are inconsistent. Refresh them.');
 // What a grant lets its agent read, named by the permission each read needs, in a fixed order.
-const reads:[string,string][]=[['ReadTrades','trades'],['ReadTradeParties','trade parties'],['ReadMarketData','market data']];
+const reads:[string,string][]=[['ReadTrades','trades'],['ReadTradeParties','trade parties'],['ReadMarketData','market data'],['ReadJobs','your jobs']];
 export function readsPhrase(permissions:string[]){
   if(new Set(permissions).size!==permissions.length||!permissions.every(p=>reads.some(([code])=>code===p)))throw inconsistent();
   const named=reads.filter(([code])=>permissions.includes(code)).map(([,name])=>name);

@@ -11,7 +11,7 @@ public enum Permission
     ManageIdentities, ManageAccess, CreateDelegations,
     BookTrade, AmendTrade, RunValuation, RunScenario, RunDealRisk, ApproveMarketData, PublishMarketData, ReadTrades,
     ReadTradeParties, WriteTradeParties, RunJobs, ManageJobs, LaunchWorkloads, ManageInfrastructure, ManageModelProviders,
-    ManageAgents, UseAgents
+    ManageAgents, UseAgents, ReadJobs
 }
 public sealed record Principal(Guid Id, PrincipalKind Kind, bool Enabled);
 public readonly record struct Scope(Guid TenantId, Guid WorkspaceId);

@@ -67,17 +67,22 @@ static class NavigationTargets
             {Operation.Id:"trades.blotter_v1",Arguments:BlotterArguments blotter}=>Filter(Blotter(blotter.View),blotter.View.Mode=="pivot"?"totals":"trades"),
             {Operation.Id:"trades.trade_v1",Arguments:TradeArguments trade}=>Trade(trade.TradeId,trade.InstrumentType,
                 result["state"]!["revision"]!.GetValue<int>(),result["state"]!["tradeReference"]!.GetValue<string>()),
+            // The page's own list also shows jobs others own to a job manager, so no page of it is the reader's list.
+            {Arguments:JobListArguments}=>Page("jobs"),
+            {Arguments:JobHistoryArguments job}=>Job(job.Job),
             _=>throw new InvalidOperationException("An operation issues no target.")
         };
     }
 
-    // The records a result lists: the curve directory's curves and the Blotter's trade rows; a pivot's totals are none.
+    // The records a result lists: the curve directory's curves, the Blotter's trade rows and a job list's jobs; a pivot's
+    // totals are none.
     static ImmutableArray<(JsonObject Row,NavigationTarget Target)> Listed(ToolCall call,JsonObject result)=>call switch
     {
         {Operation.Id:"market_data.curves_v1"}=>[..Rows(result,"curves").Select(c=>(c,Curve(c["code"]!.GetValue<string>())))],
         {Arguments:BlotterArguments{View.Mode:"trades"}}=>[..Rows(result,"holdings").Select(h=>(h,Trade(Guid.Parse(h["tradeId"]!.GetValue<string>()),
             h["instrumentType"]!.GetValue<string>(),int.Parse(h["revision"]!.GetValue<string>(),NumberStyles.None,CultureInfo.InvariantCulture),
             h["tradeReference"]!.GetValue<string>())))],
+        {Arguments:JobListArguments}=>[..Rows(result,"jobs").Select(j=>(j,Job(Guid.Parse(j["id"]!.GetValue<string>()))))],
         _=>[]
     };
 
@@ -90,6 +95,10 @@ static class NavigationTargets
         ["view"]="trade",["mode"]=null,["bookIds"]=null,["portfolioIds"]=null,["groupBy"]=null,["measures"]=null,
         ["tradeId"]=trade.ToString(),["instrumentType"]=instrumentType,["revision"]=revision
     },"record",string.Create(CultureInfo.InvariantCulture,$"{PageReports.Name("blotter")}: trade {reference} revision {revision}"));
+
+    // A job's history, labeled without its name, which a person typed and a label may not carry.
+    static NavigationTarget Job(Guid job)=>new("jobs",new(){["view"]="history",["job"]=job.ToString(),["page"]=null,["before"]=null},"record",
+        $"{PageReports.Name("jobs")}: job history");
 
     static JsonObject Market(string view,string? curve)=>new(){["view"]=view,["curve"]=curve};
 
