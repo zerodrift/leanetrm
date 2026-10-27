@@ -120,7 +120,7 @@ ordered series of `(instant, exact value or missing)`. Definitions, versioned:
   policy and the definition version.
 - A window that contains a missing point has no value, with reason
   `window_incomplete`. An EMA restarts its seed after a missing point.
-- The input series holds at most 35,136 points (one year of half-hour
+- The input series holds at most 35,136 points (366 days of quarter-hour
   intervals); more is an `overlay_input` refusal, as are unordered instants and
   values that are not plain ASCII decimals.
 - The history read states the series it is charted from as `chart`: either
@@ -135,9 +135,10 @@ ordered series of `(instant, exact value or missing)`. Definitions, versioned:
   message with the values table instead of a chart.
 - Overlays run over the chart's points, so the chart and the overlays show the
   same series, aligned by instant. Over a conflicting series the read returns
-  its points and the conflict with no `overlays` (status 200); the requests are
-  still checked, so a bad parameter or input that is not the conflict remains
-  an `overlay_parameter` or `overlay_input` refusal. The panel then says that
+  its points and the conflict with no `overlays` (status 200); the overlay
+  parameters are still checked (the read computes overlays over no points), so
+  a bad parameter remains an `overlay_parameter` refusal; the series is not
+  checked as an overlay input there. The panel then says that
   overlays cannot be drawn over a series with different prices at one instant.
 - The delivery period read (`power-imports/period`) instead gives overlays one
   point per expected interval of its operating days, each the interval's price
@@ -348,7 +349,8 @@ Listed in [plan.md](plan.md): Positions on this curve, Bollinger bands,
 per-selection resolved contracts in custom-curve previews, structured refusals
 for an empty contract or null output position, a reported refusal of a saved
 weighted draft previewed by id and version, rates curves on the market board and
-the dark color scheme.
+the dark color scheme. The contract history chart also lost the image export
+the old history card had.
 
 ## Verification
 

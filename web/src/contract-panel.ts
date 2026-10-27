@@ -58,6 +58,12 @@ export type HistoryState=
   |{state:'failed';policy:RevisionPolicy;overlays:number}
   |{state:'read';policy:RevisionPolicy;overlays:number;basis:string;chart:{title:string;unit:string;zone:string;series:{points:TimePoint[]}|{conflict:string};overlays:OverlaySeries[]}};
 
+/** The overlay menu's summary: the count of overlays is stated only while they are drawn, that is over a read, non-conflicting history. */
+export function overlaySummaryText(state:HistoryState){
+  if(!state.overlays)return 'Overlays';
+  return state.state==='read'&&!('conflict' in state.chart.series)?`Overlays · ${state.overlays} shown`:'Overlays · not drawn';
+}
+
 /**
  * The panel over `#contract-panel`'s markup. `policy` hears the person choose a revision policy, `overlays` the overlays they apply,
  * and `closed` that they closed the panel. The page draws the values table into `#history-values` and the pricing into `pricing()`.
@@ -98,7 +104,7 @@ export function setupContractPanel(host:HTMLElement,o:{docked:()=>boolean;sheet:
     },
     history(state:HistoryState){
       for(const [policy,button] of buttons)button.setAttribute('aria-pressed',String(policy===state.policy));
-      overlaySummary.textContent=state.overlays?`Overlays · ${state.overlays} shown`:'Overlays';
+      overlaySummary.textContent=overlaySummaryText(state);
       if(state.state!=='read'){basis.textContent=state.state==='reading'?'Reading the history…':'The history could not be read. The message above says why.';clearChart();return;}
       basis.textContent=state.basis;
       const series=state.chart.series;

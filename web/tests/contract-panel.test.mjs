@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 // The chart library reads the browser's user agent when it loads; the pure functions under test never draw.
 globalThis.window??={navigator:{userAgent:'node'}};
-const {revisionPolicies,historyBasis,historyChart,knownAtText}=await import('../dist/contract-panel.js');
+const {revisionPolicies,historyBasis,historyChart,knownAtText,overlaySummaryText}=await import('../dist/contract-panel.js');
 
 const at=n=>`2020-12-${String(n).padStart(2,'0')}T22:00:00+00:00`;
 const instant=value=>`shown ${value}`;
@@ -51,4 +51,14 @@ test('each value states when it was known: its instant, not certified yet, or no
   assert.equal(knownAtText({at:at(17),value:'3.2',snapshotId:'c',observationIds:['o'],knownAt:at(18)},instant),instant(at(18)));
   assert.equal(knownAtText({at:at(17),value:'3.2',snapshotId:'c',observationIds:['o'],knownAt:null},instant),'Not certified yet');
   assert.equal(knownAtText({at:at(17),value:null,snapshotId:'c',observationIds:[],knownAt:null,unavailableReason:'missing_observation'},instant),'—');
+});
+
+test('the overlay menu counts overlays only when the history was read and its chart is not a conflict',()=>{
+  const chart=series=>({title:'t',unit:'u',zone:'z',series,overlays:[]});
+  const read=series=>({state:'read',policy:'exact_snapshot_pins_v1',overlays:2,basis:'b',chart:chart(series)});
+  assert.equal(overlaySummaryText(read({points:[]})),'Overlays · 2 shown');
+  assert.equal(overlaySummaryText(read({conflict:'different prices'})),'Overlays · not drawn');
+  assert.equal(overlaySummaryText({state:'failed',policy:'exact_snapshot_pins_v1',overlays:2}),'Overlays · not drawn');
+  assert.equal(overlaySummaryText({state:'reading',policy:'exact_snapshot_pins_v1',overlays:2}),'Overlays · not drawn');
+  assert.equal(overlaySummaryText({state:'reading',policy:'exact_snapshot_pins_v1',overlays:0}),'Overlays');
 });

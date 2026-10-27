@@ -1169,6 +1169,7 @@ Extend only after the baseline contracts are demonstrated:
 - Safe cross-run result reuse and incremental market updates.
 - Markets desk follow-ups ([markets-desk.md](markets-desk.md)):
   - Positions on this curve, which needs a trading read keyed by curve.
+  - The contract history chart lost the image export the old history card had.
   - Bollinger bands, which need an explicit irrational-number policy.
   - Per-selection-node resolved contracts in custom-curve previews, so a
     Select contracts card can say which contract "Position N" resolved to at
