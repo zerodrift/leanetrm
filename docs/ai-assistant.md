@@ -144,7 +144,7 @@ or period P&L comparison and P&L explain (D77, O12), the next slice; monthly spe
 caps, a later slice (phase 1 bounds cost per turn and by concurrency); sensitivities
 and other calculations; agents that change business state; tools beyond the fixed set,
 external tool servers and sub-agents; agent-written code (architecture §12); embedded
-page views; tables, HTML, links or images in answer text; paging of tool reads;
+page views; HTML, links or images in answer text (tables, D247, are drawn); paging of tool reads;
 delivery-price reads; running an unsaved agent definition; billing, attachments,
 voice, pop-outs, steering and branching; administrator pause, single-turn cancellation
 and run inspection (architecture §9 Operations).
@@ -1080,9 +1080,11 @@ credential entries read only "key replaced".
 - **Composer:** Enter sends, Shift+Enter adds a line, Send becomes Stop during a turn,
   and a failed send keeps the draft with Retry. On `grant_required` the consent of
   §7.1 appears.
-- **Formatting:** paragraphs, lists, emphasis and code, built from text nodes. No
-  tables, HTML, links or images, and URLs are not linked, because rendered links let
-  injected text carry data out. Tabular and charted values appear only as cards.
+- **Formatting:** paragraphs, lists, pipe tables, emphasis and code, built from text
+  nodes (D247). A table needs a header row, a separator row and rows of the header's
+  width; anything else stays text. No HTML, links or images, and URLs are not linked,
+  because rendered links let injected text carry data out. Charted values appear only
+  as cards.
 
 ### 10.2 Cards
 

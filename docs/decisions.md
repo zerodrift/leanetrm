@@ -244,6 +244,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D238 | Every write is idempotent; a changed value is a new revision with its own knowledge time | Decided by the owner (2026-10-26). Recording an existing fact (same business key, value and effective time) returns the existing record instead of adding a row, for imports, scrapes, collection jobs, closes and retried commands; retried commands carry a request id and receive their first outcome. A different value for the same business key is a new revision, never an overwrite, and reads resolve revisions by knowledge time under an explicit policy, never by row or insertion order. Recorded in AGENTS.md so every database operation follows it |
 | D245 | Each agent version sets its time per read | Decided by the owner (2026-10-27). Replaces `ToolRead` (D184) with `readSeconds`, 1 to 30 seconds and not above the time per turn (migration 0120); a read past it ends the turn `limit_tool_read`, enforced by the API and by the database |
 | D246 | The Blotter lists a PPA booked under other reference or definition versions than the selected close as not valued; whole-book consumers still refuse | Decided by the owner (2026-10-27). Refines D220 for the Blotter only. Trading workspace, Blotter and pivot reads list each PPA trade with a binding booked under other definition or reference versions than the selected market data, with `unavailableReason` `other_definition_versions`, null value fields and its booked facts stated under its own versions; valuation totals leave it out and count it in `unvaluedPositions`. Close risk, portfolio risk and generated pilot closes still refuse the whole scope with `pilot_close_inputs`. Response values only; no schema or permission change |
+| D247 | Answers draw pipe tables as tables of text cells | Decided by the owner (2026-10-27). Refines D191 (§10.1). A header row, a separator row and rows of the header's width become a table built from text nodes, with emphasis and code in cells; any other pipe text stays literal. HTML, links and images stay literal text and URLs are not linked. Front end only |
 | D250 | The page assistant reads PPA bookings through Read trades; PPA bookings is not a Navigate page | Decided under the owner's delegation (2026-10-27). Refines D184, D190 and D191. An inspected PPA is reported as Read trades' trade view of it (`trades.trade_v1`, instrument type `ppa`); a listed book as the new `ppa_book` view of exactly one book (`trades.ppa_book_v1`), the page's own directory read of the whole book at the turn's pin, rechecking the book's scope, refused `result_too_large` above 64 trades. Both run under the Blotter's accesses and permissions and bind the pinned context, cutoff and frame, not the page's own market inputs and cutoff, which Looking at says. PPA bookings and the targets its reads issue are not opened by Navigate (`tool_arguments_invalid`), since the database's navigation targets do not list it. No migration, runtime-set or permission change |
 
 ## Proposed implementation choices
@@ -931,6 +932,15 @@ scope is refused. Leaving such PPAs out of risk runs, as D220 does for futures a
 swaps, is not implemented. Valuing a PPA under its own versions beside positions
 valued under others is not implemented either.
 
+## D247 — Tables in answers
+
+Agent instructions ask for small comparison tables, but the panel drew only paragraphs,
+lists and code, so a table showed as lines of pipes. The panel now draws a pipe table
+with a header row, a separator row of dashes for each column and rows of the header's
+width as a table. Each cell holds text nodes, with the same emphasis and code spans as
+a paragraph. Pipe text in any other shape stays literal. Nothing else changes: HTML,
+links and images stay text, URLs are not linked, and charts remain cards (§10.2), which
+are not implemented.
 ## D250 — PPA bookings in the page assistant
 
 On the hosted pilot, Read current page on PPA bookings returned `page_not_supported`,

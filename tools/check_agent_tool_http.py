@@ -376,6 +376,11 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                                              'valuation': without(swapped['valuation'], 'snapshotId', 'asOf'),
                                              'quantityInputs': swapped['quantityInputs']}, (rows_read, totals, trade, swap_read))
 
+    check("A swap's valuation names the snapshot and definitions it was read under, not every market input of that close, "
+          "so one trade fits in one read",
+          'marketInputs' not in swapped['valuation'] and 'marketInputs' not in swap_read['result']['valuation']
+          and swapped['valuation']['snapshotId'] == frame['id'] and swapped['valuation']['definitions'], swapped['valuation'].keys())
+
     # Each display is the one the page asks amounts/display for from its own inputs: a Blotter row's ticks and deal formats
     # (futures-view.ts), the viewer's precision for totals and a swap's terms, which a result shows by the default, a
     # futures trade's contract increment and the deal's trade format (trade-editor.ts), and a swap valuation's trade format

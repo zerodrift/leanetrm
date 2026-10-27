@@ -181,7 +181,6 @@ public sealed partial class SwapStore(PreviewDatabase database)
   presentValue=presentValue,currency=instrument.Currency,quantity=quantity.Amount.ToString(),quantityApplication=instrument.Sides.Any(s=>s.Value.Schedule.Implementation==ScheduledSwapSide.Implementation)?ScheduledPriceApplication:"total_per_side_delivery_period_v1",
   instrumentPresentValue=Exact(instrument.PresentValue),numericalPolicy=numericalPolicy,instrument.CurveNumericalPolicy,instrument.ScenarioId,
   snapshotId=instrument.Snapshot.Id,definitions=instrument.Snapshot.Definitions,asOf=instrument.Snapshot.ValuationAt,marketCutoff=instrument.Snapshot.MarketCutoff,
-  marketInputs=instrument.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,s.Observation.Source,s.Observation.Role,s.Observation.ObservedAt,value=s.Observation.Value.ToString()}),
   sides=sides.Select(s=>new{sideId=s.Contribution.SideId,kind=s.Contribution.Value is PaymentSideValuation pv&&pv.Payments.All(p=>p.Prices.All(r=>r.Term.FixedPrice is not null))?"fixed":"floating",
    coefficient=s.Contribution.Coefficient.ToString(),quantityRatio=new{numerator=s.Contribution.QuantityRatio.Numerator.ToString(CultureInfo.InvariantCulture),denominator=s.Contribution.QuantityRatio.Denominator.ToString(CultureInfo.InvariantCulture)},presentValue=Exact(s.Contribution.Value.PresentValue),contribution=Exact(s.Contribution.Contribution),
    slot=instrument.Sides.IndexOf(s.Contribution),implementation=s.Contribution.Value.Schedule.Implementation,payments=s.Payments.Select(p=>new{
