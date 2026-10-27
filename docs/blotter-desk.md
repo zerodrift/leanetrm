@@ -147,6 +147,10 @@ returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
   adversarially with the change.
 - A risk run excludes positions that are not valued at its base close and
   lists them in the run bar.
+- A PPA booked under other reference or definition versions than the close
+  is listed as **Not valued** · "Booked under other reference data versions",
+  with its booked facts under its own versions (D246). Risk runs still refuse a
+  scope that holds one.
 
 ## Desk layout
 

@@ -233,3 +233,13 @@ test('a position that projects from several curves draws none of them, and Open 
  assert.equal(curveNote(false,true),'This position projects from several curves, so there is no one curve to open.');
  assert.equal(curveNote(true,false),null);
 });
+
+test('a PPA the close cannot value states its booked facts and none of its valuation measures',()=>{
+ const base={...fixture.holdings[0],instrumentType:'ppa',contractIdentityKind:'ppa_instrument',direction:'multi_side',quantity:'80',unit:'MW',fixedPrice:null,mark:null,
+  markMinusPrice:null,measure:'ppa_value_excluding_overdue'};
+ const valued={...base,presentValue:'14420',completePv:'15000',overdueKnown:'1200',overdueEstimated:'0',unavailableReason:null};
+ const unvalued={...base,presentValue:null,completePv:null,overdueKnown:null,overdueEstimated:null,unavailableReason:'other_definition_versions'};
+ const labels=h=>positionSummary(h,positionRows([h])[0],formats).facts.map(f=>f.label);
+ assert.ok(['Complete PV','Overdue known','Overdue estimated'].every(l=>labels(valued).includes(l)));
+ assert.ok(labels(unvalued).includes('Quantity')&&!['Complete PV','Overdue known','Overdue estimated'].some(l=>labels(unvalued).includes(l)));
+});

@@ -8,6 +8,12 @@ test('each position-specific status reads in plain words for the instrument it c
  assert.equal(valuationReason('source_expired','heat_rate'),'Past marking cutoff');
  for(const instrumentType of ['future','financial_swap','heat_rate'])assert.equal(valuationReason('missing_observation',instrumentType),'Missing price at this close');
 });
+test('a PPA booked under other reference or definition versions than the close reads in plain words, and only for a PPA',()=>{
+ assert.equal(valuationReason('other_definition_versions','ppa'),'Booked under other reference data versions');
+ for(const instrumentType of ['future','financial_swap','heat_rate'])
+  assert.throws(()=>valuationReason('other_definition_versions',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
+ assert.throws(()=>valuationReason('source_expired','ppa'),{message:'The Blotter returned an unknown valuation status.'});
+});
 test('a status or instrument the Blotter does not define is refused, never shown as valued or as another reason',()=>{
  for(const code of ['index_fixing_missing','','toString','__proto__',undefined,null])
   assert.throws(()=>valuationReason(code,'future'),{message:'The Blotter returned an unknown valuation status.'});

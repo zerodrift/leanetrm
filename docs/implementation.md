@@ -2256,7 +2256,10 @@ explicit compatible subsets remain labeled as subsets. Retained obligations and
 certificate holdings survive ended delivery. Current reference authorization
 precedes pin diagnostics and is rechecked before disclosure. Separately authorized
 PPA frame discovery does not add PPA-only bundles to ordinary workspace inventory.
-The legacy trading blotter lists futures and swaps; it does not list PPA bookings.
+The Blotter lists PPA bookings. One booked under other definition or reference
+versions than the selected close is listed as not valued with its booked facts, and
+whole-book consumers refuse it (D246). Eight Blotter checks in the PPA portfolio
+check read both, and a Blotter read without access to its reference catalog is refused.
 
 Verification passes 44 durable-storage checks, 12 temporal-storage checks, three
 whole-book consumer guards, 18 basic HTTP checks, 43 independent economic HTTP
