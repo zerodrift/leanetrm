@@ -142,7 +142,18 @@ static class PowerImportChecks
         Require(chart.Select((p,i)=>i is > 0 and < 23?p.Value==i.ToString(System.Globalization.CultureInfo.InvariantCulture)&&p.UnavailableReason is null:p.Value is null&&p.UnavailableReason=="not_published_at_cutoff").All(ok=>ok),
             "unpublished intervals at a day's edges and on a whole day are chart points without a price, with their reason");
         Require(PowerHistory.OverlayPoints(range,edges).SequenceEqual(chart.Select(p=>new OpenEtrm.Shared.Analytics.OverlayPoint(p.At,p.Value))),"overlays run over exactly the chart's points");
-        Console.WriteLine("PASS delivery desk: newest-day opening with ties, DST-aware expected intervals, missing intervals, exact time-weighted average, earliest extremes, a chart point per expected interval and period overlays");
+        // A published row that is not an expected interval of the period (its start is no interval start, or its end is not that
+        // interval's end, as after a market-clock change) is refused by the summary, the chart and the overlays alike, never dropped.
+        bool RefusesInterval(Action read,string named){try{read();}catch(MarketDataException e)when(e.Code=="power_period_interval"&&e.Message.Contains(named,StringComparison.Ordinal)){return true;}return false;}
+        var offStart=new IntervalActual(day[5].Start.AddMinutes(30),day[5].End.AddMinutes(30),new(ExactDecimal.Parse("5"),unit),published,Guid.Empty,1);
+        var offEnd=new IntervalActual(day[5].Start,day[5].Start.AddMinutes(30),new(ExactDecimal.Parse("5"),unit),published,Guid.Empty,1);
+        foreach(var stray in new[]{offStart,offEnd})
+        {
+            IntervalActual[] read=[..rows,stray];var named=stray.Start.ToString("O",System.Globalization.CultureInfo.InvariantCulture);
+            Require(RefusesInterval(()=>PowerHistory.Summarize(day,read),named)&&RefusesInterval(()=>PowerHistory.Chart(day,read),named)&&RefusesInterval(()=>PowerHistory.OverlayPoints(day,read),named),
+                $"a published row that is not an expected interval is refused, naming it: {named}");
+        }
+        Console.WriteLine("PASS delivery desk: newest-day opening with ties, DST-aware expected intervals, missing intervals, exact time-weighted average, earliest extremes, a chart point per expected interval, refusal of rows outside the expected intervals and period overlays");
     }
     public static async Task<int> MalformedCollection()
     {

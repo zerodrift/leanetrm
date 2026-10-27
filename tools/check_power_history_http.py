@@ -61,6 +61,20 @@ def run_checks(client, query, manifest):
         query(f"DELETE FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{alternate_catalog}','{manifest['tenantId']}','{manifest['workspaceId']}');")
     result, _ = client.call('/api/power-imports/period', {'sourceId':source['id'],'fromDate':'2026-11-02','throughDate':'2026-11-02','knownAt':catalog['knownAt']})
     assert result['priceUnit'] == 'USD/MWh' and len(result['rows']) == 24
+    # Before the day's first publication each of its intervals is a chart point without a price; at the cutoff that recorded it, each
+    # has the price recorded then. Earlier revisions are stepped through by their own knowledge instants.
+    day = {'sourceId':source['id'],'fromDate':'2026-11-02','throughDate':'2026-11-02'}
+    first_known = min(datetime.fromisoformat(row['knownAt'].replace('Z','+00:00')) for row in result['rows'])
+    for _ in range(5):
+        before, _ = client.call('/api/power-imports/period', {**day,'knownAt':(first_known-timedelta(microseconds=1)).isoformat()})
+        if not before['rows']:break
+        first_known = min(datetime.fromisoformat(row['knownAt'].replace('Z','+00:00')) for row in before['rows'])
+    else:
+        raise AssertionError('The delivery day has no cutoff before its first publication')
+    assert before['summary']['missingIntervals'] == 24, before['summary']
+    assert before['chart'] == {'points':[{'at':row['start'],'value':None,'unavailableReason':'not_published_at_cutoff'} for row in result['rows']]}, before['chart']
+    recorded, _ = client.call('/api/power-imports/period', {**day,'knownAt':first_known.isoformat()})
+    assert len(recorded['rows']) == 24 and recorded['chart'] == {'points':[{'at':row['start'],'value':row['formattedPrice'],'unavailableReason':None} for row in recorded['rows']]}, recorded['chart']
     # A normal collector correction retains all observed decimal places. History
     # display must not silently apply an unrelated four-place rounding policy.
     precise = '-17.125456789012345678'
@@ -134,4 +148,4 @@ def run_checks(client, query, manifest):
     client.call('/api/power-imports', expected=422)
     client.call('/api/market/current', {})
     print('PASS HTTP delivery metadata: exact commodity/location/clock/unit references and observed prices, attempts, scope revocation and historical rejection', flush=True)
-    print('PASS HTTP delivery periods: reads as known at each cutoff, an identical collection publishes nothing, newest-day opening, collection outcome, exact summary, a chart point per expected interval and period overlays', flush=True)
+    print('PASS HTTP delivery periods: reads and charts as known at each cutoff, an identical collection publishes nothing, newest-day opening, collection outcome, exact summary, a chart point per expected interval and period overlays', flush=True)

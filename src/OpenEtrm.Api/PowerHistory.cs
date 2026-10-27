@@ -111,6 +111,7 @@ public static class PowerHistory
     // instant, and the average weights each price by its interval's duration.
     public static DeliveryPeriodSummary Summarize(IReadOnlyList<PowerInterval> window,IReadOnlyList<IntervalActual> rows)
     {
+        RequireExpected(window,rows);
         var published=rows.Select(row=>row.Start).ToHashSet();
         var missing=window.Count(interval=>!published.Contains(interval.Start));
         var ordered=rows.OrderBy(row=>row.Start).Select(row=>(row,value:Exact(row))).ToArray();
@@ -130,8 +131,18 @@ public static class PowerHistory
     // cutoff, or no price and the reason where none was. The browser draws exactly these points (markets-desk.md, Delivery prices).
     public static ImmutableArray<HistoryChartPoint> Chart(IReadOnlyList<PowerInterval> window,IReadOnlyList<IntervalActual> rows)
     {
+        RequireExpected(window,rows);
         var prices=rows.ToDictionary(row=>row.Start,row=>row.Price.Value.ToString());
         return [..window.Select(interval=>prices.TryGetValue(interval.Start,out var price)?new HistoryChartPoint(interval.Start,price,null):new(interval.Start,null,NotPublished))];
+    }
+    // Every published row must be one of the period's expected intervals, with its start and end. The window is recomputed from the
+    // source's current market clock, so a row recorded under another clock rule or time-zone release is refused, never dropped or counted.
+    private static void RequireExpected(IReadOnlyList<PowerInterval> window,IReadOnlyList<IntervalActual> rows)
+    {
+        var ends=window.ToDictionary(interval=>interval.Start,interval=>interval.End);
+        foreach(var row in rows)
+            if(!ends.TryGetValue(row.Start,out var end)||end!=row.End)
+                throw new MarketDataException("power_period_interval",$"The delivery price for {row.Start.ToString("O",System.Globalization.CultureInfo.InvariantCulture)} to {row.End.ToString("O",System.Globalization.CultureInfo.InvariantCulture)} is not an interval of these operating days under the source's market clock.");
     }
     // The overlays' input: exactly the chart's points.
     public static ImmutableArray<OverlayPoint> OverlayPoints(IReadOnlyList<PowerInterval> window,IReadOnlyList<IntervalActual> rows)=>
