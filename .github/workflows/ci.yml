@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
@@ -18,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["workspace", "trading", "ppa", "recovery"]
+        group: ["workspace", "standard", "assistant", "trading", "portfolio", "settlement", "ppa", "recovery"]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:

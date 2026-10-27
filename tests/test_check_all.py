@@ -118,7 +118,7 @@ class CheckAllTests(unittest.TestCase):
             return result
 
         complete = commands('all')
-        groups = {name: commands(name) for name in ('workspace', 'trading', 'ppa', 'recovery')}
+        groups = {name: commands(name) for name in GROUPS}
         self.assertEqual(set().union(*(set(value) for value in groups.values())), set(complete))
         for name, selected in groups.items():
             with self.subTest(group=name):
@@ -127,23 +127,40 @@ class CheckAllTests(unittest.TestCase):
                 self.assertEqual([c for c in selected if 'tools/run_preview.py' not in c],
                                  [c for c in complete if 'tools/run_preview.py' not in c])
                 self.assertEqual(selected, [c for c in complete if c in selected])
-        previews = [c for value in groups.values() for c in value if 'tools/run_preview.py' in c]
-        self.assertEqual(len(previews), len(set(previews)))
-        self.assertEqual(len([c for c in groups['recovery'] if 'tools/run_preview.py' in c]), 1)
-        self.assertIn('--close-risk-lease-check', groups['recovery'][-1])
-        self.assertTrue(any('--close-risk-check' in c for c in groups['ppa']))
-        self.assertTrue(any('--side-observation-check' in c and '--browser-check' in c
-                            for c in groups['trading']))
-        for name in ('workspace', 'ppa', 'recovery'):
-            self.assertFalse(any('--side-observation-check' in c for c in groups[name]))
-        # The long trading workflows must not consume the workspace job's budget.
-        for flag in ('--draft-check', '--scheduled-swap-check', '--index-fixing-check',
-                     '--swap-risk-holdings-check', '--pilot-close-check',
-                     '--connected-portfolio-check', '--valuation-status-check', '--desk-fields-check'):
-            self.assertTrue(any(flag in c for c in groups['trading']), flag)
-            self.assertFalse(any(flag in c for c in groups['workspace']), flag)
-        self.assertTrue(any('--hosted-check' in c for c in groups['workspace']))
-        self.assertTrue(any('--risk-jobs-check' in c for c in groups['workspace']))
+        previews = {name: [c for c in value if 'tools/run_preview.py' in c]
+                    for name, value in groups.items()}
+        every_preview = [c for value in previews.values() for c in value]
+        self.assertEqual(len(every_preview), len(set(every_preview)))
+        self.assertTrue(all(previews.values()), 'every CI job must run at least one preview')
+
+        def group_of(flag):
+            return next(name for name, value in previews.items() if any(flag in c for c in value))
+
+        # The longest workflows each take a job of their own so that the
+        # slowest single check, not a queue of them, sets the wall-clock time.
+        for name, flag in (('recovery', '--close-risk-lease-check'),
+                           ('settlement', '--scheduled-swap-check')):
+            self.assertEqual(len(previews[name]), 1, name)
+            self.assertIn(flag, previews[name][0])
+        self.assertEqual(len(previews['standard']), 1)
+        self.assertEqual(previews['standard'][0][-3:], ('--browser-check', '--browser', '/browser'))
+        self.assertFalse(any(flag.endswith('-check') and flag not in ('--check', '--browser-check')
+                             for flag in previews['standard'][0]))
+        self.assertEqual(group_of('--close-risk-check'), 'ppa')
+        self.assertEqual(group_of('--assistant-check'), 'assistant')
+        self.assertEqual(group_of('--risk-jobs-check'), 'assistant')
+        self.assertEqual(group_of('--hosted-check'), 'workspace')
+        for flag in ('--draft-check', '--factor-swap-check', '--index-fixing-check',
+                     '--side-observation-check', '--demo-instruments-check'):
+            self.assertEqual(group_of(flag), 'trading', flag)
+        for flag in ('--swap-risk-holdings-check', '--pilot-close-check', '--connected-portfolio-check',
+                     '--valuation-status-check', '--desk-fields-check'):
+            self.assertEqual(group_of(flag), 'portfolio', flag)
+
+    def test_branch_pushes_rely_on_their_pull_request_run(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        triggers = workflow.split('\non:\n', 1)[1].split('\n\n', 1)[0]
+        self.assertEqual(triggers, '  push:\n    branches: [master]\n  pull_request:\n  workflow_dispatch:')
 
     def test_failed_or_interrupted_group_never_claims_completion(self):
         for group in GROUPS:

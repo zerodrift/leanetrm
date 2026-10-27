@@ -15,7 +15,7 @@ CHECK_PROJECTS = (
 )
 
 
-GROUPS = ('workspace', 'trading', 'ppa', 'recovery')
+GROUPS = ('workspace', 'standard', 'assistant', 'trading', 'portfolio', 'settlement', 'ppa', 'recovery')
 
 
 def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
@@ -64,13 +64,13 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
 
     preview_check('integrated live calculation and browser',[*preview,'--live-calculation-check','--browser-check','--browser',str(browser)])
     preview_check('private inactive reference intake',[*preview,'--reference-import-check'])
-    preview_check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)])
+    preview_check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)], suite='standard')
     preview_check('isolated party maintenance and power browser', [*preview, '--party-check', '--browser-check', '--browser', str(browser)])
-    preview_check('isolated page-assistant administration and browser', [*preview, '--assistant-check', '--browser-check', '--browser', str(browser)])
+    preview_check('isolated page-assistant administration and browser', [*preview, '--assistant-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     preview_check('independent swap sides, spreads and reviewed par pricing', [*preview, '--draft-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('mixed PPA and heat-rate trades, exact worker custody and browser', [*preview, '--demo-instruments-check', '--browser-check', '--browser', str(browser)], suite='trading')
-    preview_check('scheduled swap settlement, delegated operations and lifecycle browser', [*preview, '--scheduled-swap-check', '--browser-check', '--browser', str(browser)], suite='trading')
+    preview_check('scheduled swap settlement, delegated operations and lifecycle browser', [*preview, '--scheduled-swap-check', '--browser-check', '--browser', str(browser)], suite='settlement')
     preview_check('typed factor units, cross-commodity lifecycle and risk', [*preview, '--factor-swap-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('published index fixing price and risk', [*preview, '--index-fixing-check'], suite='trading')
     preview_check('side observation authoring, storage and valued schedules', [*preview, '--side-observation-check', '--browser-check', '--browser', str(browser)], suite='trading')
@@ -84,19 +84,19 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('renewable existing-close completion and recovery', [*preview, '--close-risk-lease-check'], suite='recovery')
     preview_check('standard futures execution policies', [*preview, '--execution-check'])
     preview_check('shared contract-date library', [*preview, '--contract-dates-check', '--browser-check', '--browser', str(browser)])
-    preview_check('stored mixed portfolio valuation and swap risk', [*preview, '--swap-risk-holdings-check'], suite='trading')
-    preview_check('generated pilot close, actual worker and immutable report', [*preview, '--pilot-close-check', '--browser-check', '--browser', str(browser)], suite='trading')
-    preview_check('connected published portfolio and retained workers', [*preview, '--connected-portfolio-check'], suite='trading')
+    preview_check('stored mixed portfolio valuation and swap risk', [*preview, '--swap-risk-holdings-check'], suite='portfolio')
+    preview_check('generated pilot close, actual worker and immutable report', [*preview, '--pilot-close-check', '--browser-check', '--browser', str(browser)], suite='portfolio')
+    preview_check('connected published portfolio and retained workers', [*preview, '--connected-portfolio-check'], suite='portfolio')
     preview_check('custom curve graphs and editor', [*preview, '--custom-curves-check', '--browser-check', '--browser', str(browser)])
     preview_check('market close calendar', [*preview, '--market-dates-check', '--browser-check', '--browser', str(browser)])
-    preview_check('positions a close cannot value', [*preview, '--valuation-status-check', '--browser-check', '--browser', str(browser)], suite='trading')
-    preview_check('Blotter commodity, swap direction, mark minus price, summaries and curve shapes', [*preview, '--desk-fields-check'], suite='trading')
+    preview_check('positions a close cannot value', [*preview, '--valuation-status-check', '--browser-check', '--browser', str(browser)], suite='portfolio')
+    preview_check('Blotter commodity, swap direction, mark minus price, summaries and curve shapes', [*preview, '--desk-fields-check'], suite='portfolio')
     preview_check('isolated exchange futures browser', [*preview, '--exchange-check', '--browser-check', '--browser', str(browser)])
     preview_check('isolated hosted authentication and browser', [*preview, '--hosted-check', '--browser-check', '--browser', str(browser)])
     preview_check('isolated jobs and infrastructure browser', [*preview, '--jobs-check', '--browser-check', '--browser', str(browser)])
     preview_check('additive reference demo and exact-version discounting',[*preview,'--reference-demo-check'])
     preview_check('isolated reference metadata editor',[*preview,'--reference-check','--browser-check','--browser',str(browser)])
-    preview_check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)])
+    preview_check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('mixed-period preview', [*preview, '--example', 'mixed-gas'])
     message = ('All synthetic verification suites passed.' if group == 'all'
                else f'Synthetic verification group {group} passed.')
