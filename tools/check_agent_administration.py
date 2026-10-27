@@ -86,6 +86,49 @@ def check_read_limit_upgrade(query, migration):
           'and the versions stay immutable', flush=True)
 
 
+SAVE_0120 = ('assistant.save_agent_version(uuid,uuid,integer,text,text,uuid,integer,text,boolean,text[],text[],integer,bigint,integer,'
+             'integer,integer,integer,integer,integer,integer)')
+
+
+def check_history_window_upgrade(query, migration):
+    """Before 0121 applies: it refuses a changed definition it replaces, or one whose privileges differ, and gives each version
+    saved before it a window of 1,000 earlier turns, which sends every earlier turn of any conversation it has run (D249)."""
+    from check_agent_turns import ASK
+    replaced = (ASK, 'assistant.agent_version_state(uuid,integer)', SAVE_0120)
+    check_guard(query, migration, '0121', 'agent_history_window', (
+        *((f"ALTER FUNCTION {f} SET work_mem='64kB';", f) for f in replaced),
+        (f'REVOKE EXECUTE ON FUNCTION {ASK} FROM openetrm_runtime;', ASK),
+        ('GRANT EXECUTE ON FUNCTION assistant.agent_version_state(uuid,integer) TO openetrm_runtime;', 'assistant.agent_version_state(uuid,integer)')))
+    # Versions saved earlier, planted as in check_read_limit_upgrade.
+    agent = uuid4()
+    query('BEGIN;SET LOCAL session_replication_role=replica;' + ''.join(
+        f"INSERT INTO assistant.agent_versions VALUES('{agent}',{version},'Synthetic description.','Synthetic instructions.','{uuid4()}',1,'low',"
+        f"false,ARRAY[]::text[],8,200000,2048,120,2,28,'{uuid4()}',clock_timestamp(),15);" for version in (1, 2)) + 'COMMIT;')
+    try:
+        read = (f"SELECT 'windows '||string_agg(version||':'||history_turns,',' ORDER BY version) FROM assistant.agent_versions "
+                f"WHERE agent_id='{agent}';")
+        changed = expect(f"UPDATE assistant.agent_versions SET history_turns=6 WHERE agent_id='{agent}';", '55000')
+        output = query(f'BEGIN;{migration_body(migration)}{read}{changed}ROLLBACK;')
+    finally:
+        query(f"BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM assistant.agent_versions WHERE agent_id='{agent}';COMMIT;")
+    assert 'windows 1:1000,2:1000' in output.splitlines(), output
+    print('PASS migration 0121 gives each earlier version a window of 1,000 earlier turns, and the versions stay immutable', flush=True)
+    # A conversation already longer than that window would lose earlier turns it sends today, so the migration refuses it.
+    long = ("INSERT INTO assistant.turns(id,conversation_id,tenant_id,workspace_id,ordinal,owner_id,operation_id,agent_id,agent_version,draft,"
+            "delegation_id,question,page_report,catalog_id,knowledge_mode,included_turns,runtime_set,state,answer,incomplete,generation,token_digest,"
+            "session_digest,profile,session_ends_at,asked_at) "
+            f"SELECT gen_random_uuid(),'{uuid4()}','{uuid4()}','{uuid4()}',o,'{uuid4()}',gen_random_uuid(),'{agent}',1,false,'{uuid4()}',"
+            "'Synthetic question.','{}'::jsonb,gen_random_uuid(),'current',ARRAY[]::uuid[],'turns_v7','queued','',false,1,repeat('a',64),"
+            "repeat('b',64),'Synthetic person',clock_timestamp(),clock_timestamp() FROM generate_series(1,1001) o;")
+    try:
+        query(f'BEGIN;SET LOCAL session_replication_role=replica;{long}{migration_body(migration)}ROLLBACK;')
+    except RuntimeError as error:
+        assert 'agent_history_window: a conversation has more than 1,000 turns' in str(error), error
+    else:
+        raise AssertionError('Migration 0121 applied over a conversation longer than its window')
+    print('PASS migration 0121 refuses a conversation already longer than the window it gives earlier versions', flush=True)
+
+
 def run_checks(query, psql, manifest, environment, admin, viewer, again):
     """`admin` and `again` are two sessions of the preview administrator, `viewer` one of the viewer, shared with the other modules."""
     contexts = Contexts(query, manifest)
@@ -186,7 +229,8 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
                 'instructions': 'Quote only values you read.\nSay when something is unavailable.',
                 'modelId': usable, 'modelVersion': version_of(usable), 'reasoning': 'low', 'caching': False,
                 'tools': ['read_current_page', 'read_market_data', 'read_trades', 'navigate'], 'allowedRoles': ['trader', 'risk_analyst'],
-                'limits': {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048, 'elapsedSeconds': 120, 'readSeconds': 15, 'retries': 2},
+                'limits': {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048, 'elapsedSeconds': 120, 'readSeconds': 15, 'retries': 2,
+                           'historyTurns': 20},
                 'grantDays': 28}
         for key, value in changes.items():
             if key in body['limits']:
@@ -211,7 +255,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
         limits = body['limits']
         values = (body['operationId'], body['agentId'], body['expectedVersion'], body['description'], body['instructions'], body['modelId'],
                   body['modelVersion'], body['reasoning'], body['caching'], body['tools'], body['allowedRoles'], limits['toolSteps'],
-                  limits['inputTokens'], limits['outputTokens'], limits['elapsedSeconds'], limits['readSeconds'], limits['retries'], body['grantDays'],
+                  limits['inputTokens'], limits['outputTokens'], limits['elapsedSeconds'], limits['readSeconds'], limits['retries'], limits['historyTurns'], body['grantDays'],
                   instructions_limit, grant_days_limit)
         return f"assistant.save_agent_version({','.join(literal(value) for value in values)})"
 
@@ -363,7 +407,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
     def refused_save(code, status=422, **changes):
         return refusal(f'{AGENTS}/save', save_body(first, **changes), status, code)
     for field in ('description', 'instructions', 'modelVersion', 'reasoning', 'caching', 'tools', 'allowedRoles', 'limits',
-                  'grantDays', 'expectedVersion', 'toolSteps', 'inputTokens', 'outputTokens', 'elapsedSeconds', 'readSeconds', 'retries'):
+                  'grantDays', 'expectedVersion', 'toolSteps', 'inputTokens', 'outputTokens', 'elapsedSeconds', 'readSeconds', 'retries', 'historyTurns'):
         refused_save('model_admin_input', **{field: None})
     # An identity that does not bind makes the body a bad request (§5.2).
     for field in ('operationId', 'agentId', 'modelId'):
@@ -394,18 +438,19 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
     current = longest
     for limits in ({'toolSteps': 0}, {'toolSteps': 101}, {'inputTokens': 0}, {'inputTokens': 100000001}, {'elapsedSeconds': 0},
                    {'elapsedSeconds': 3601}, {'readSeconds': 0}, {'readSeconds': 31}, {'elapsedSeconds': 10, 'readSeconds': 11},
-                   {'retries': -1}, {'retries': 11}, {'outputTokens': 0}, {'grantDays': 0}):
+                   {'retries': -1}, {'retries': 11}, {'historyTurns': -1}, {'historyTurns': 1001}, {'outputTokens': 0}, {'grantDays': 0}):
         refused_save('model_admin_input', expectedVersion=current['version'], **limits)
     refused_save('model_limit_exceeded', expectedVersion=current['version'], outputTokens=4097)
     refused_save('grant_duration_exceeded', expectedVersion=current['version'], grantDays=91)
     bounds = admin.call(f'{AGENTS}/save', save_body(current, toolSteps=100, inputTokens=100000000, outputTokens=4096, elapsedSeconds=3600,
-                                                     readSeconds=30, retries=10, grantDays=90))
-    check("limits stay within their bounds, a read's time within 30 seconds and its turn's, output within the model version's limit, "
-          "and the grant within the runtime set's duration (D245)",
+                                                     readSeconds=30, retries=10, historyTurns=1000, grantDays=90))
+    unwindowed = admin.call(f'{AGENTS}/save', save_body(bounds, historyTurns=0))
+    check("limits stay within their bounds, a read's time within 30 seconds and its turn's, earlier turns sent from 0 to 1,000, "
+          "output within the model version's limit, and the grant within the runtime set's duration (D245, D249)",
           bounds['newest']['limits'] == {'toolSteps': 100, 'inputTokens': 100000000, 'outputTokens': 4096, 'elapsedSeconds': 3600, 'readSeconds': 30,
-                                         'retries': 10}
-          and bounds['newest']['grantDays'] == 90)
-    current = bounds
+                                         'retries': 10, 'historyTurns': 1000}
+          and bounds['newest']['grantDays'] == 90 and unwindowed['newest']['limits']['historyTurns'] == 0)
+    current = unwindowed
     for reasoning in ('medium', ''):
         refused_save('parameter_required', expectedVersion=current['version'], reasoning=reasoning)
     check('the reasoning effort is one the model version records')
@@ -488,9 +533,10 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
     check('even for the owner, an agent keeps its identity, name and principal, its published version only moves forward, '
           'and its versions and allowed roles are immutable')
 
-    def version_row(agent_id, reasoning='low', output=2048, elapsed=120, read=15):
+    def version_row(agent_id, reasoning='low', output=2048, elapsed=120, read=15, history=20):
         return (f"INSERT INTO assistant.agent_versions VALUES('{agent_id}',1000,'Synthetic description.','Synthetic instructions.','{usable}',"
-                f"{version_of(usable)},'{reasoning}',false,ARRAY[]::text[],8,200000,{output},{elapsed},2,28,'{contexts.administrator}',clock_timestamp(),{read});")
+                f"{version_of(usable)},'{reasoning}',false,ARRAY[]::text[],8,200000,{output},{elapsed},2,28,'{contexts.administrator}',clock_timestamp(),{read},"
+                f"{history});")
 
     def agent_row(principal_id, version=1, published='NULL', retired='NULL'):
         return (f"INSERT INTO assistant.agents VALUES(gen_random_uuid(),'{contexts.tenant}','{contexts.workspace}','{principal_id}',"
@@ -503,13 +549,15 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
     for setup, statement, code in (('', version_row(guide['id'], reasoning='medium'), '23514'), ('', version_row(guide['id'], output=4097), '23514'),
                                    ('', version_row(guide['id'], read=0), '23514'), ('', version_row(guide['id'], read=31), '23514'),
                                    ('', version_row(guide['id'], elapsed=10, read=11), '23514'),
+                                   ('', version_row(guide['id'], history=-1), '23514'), ('', version_row(guide['id'], history=1001), '23514'),
+                                   ('', version_row(guide['id'], history='NULL'), '23502'),
                                    (other, version_row(other_agent), '23514'), ('', agent_row(contexts.administrator), '55000'),
                                    (member, agent_row(agent, version=2), '55000'), (member, agent_row(agent, published=1), '55000'),
                                    (member, agent_row(agent, retired='clock_timestamp()'), '55000')):
         query(f'BEGIN;{setup}{expect(statement, code)}ROLLBACK;')
     query(f"BEGIN;{version_row(guide['id'])}{other}{member}{agent_row(agent)}ROLLBACK;")
     check("even for the owner, a version names a model of its agent's workspace with an effort and an output limit its model version "
-          'allows and a time per read of 1 to 30 seconds within its time per turn, and an agent starts at version 1 with an agent principal, unpublished and active')
+          'allows, a time per read of 1 to 30 seconds within its time per turn and 0 to 1,000 earlier turns sent, and an agent starts at version 1 with an agent principal, unpublished and active')
 
     # A model change after publication marks the agent until a newer version is published.
     marked = admin.call(f'{AGENTS}/save', save_body(draft, modelId=changed, modelVersion=version_of(changed)))
