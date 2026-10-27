@@ -1526,6 +1526,30 @@ def run_checks(url, query, psql, manifest, environment):
                                                              'access_changed'))
     check("an ask whose included turns used a source the agent can no longer read is refused access_changed")
 
+    # The window (D249): a turn sends at most its version's last historyTurns earlier turns, in order, and records them; a turn
+    # before the window is neither sent nor reported withheld.
+    def conversed(agent_state, questions):
+        turns, conversation = [], None
+        for question in questions:
+            turn = Turn()
+            started = ran(turn, agent_id=agent_state['id'], conversation=conversation, question=question)
+            end(turn, 'failed', 'request_cancelled')
+            conversation = query(f"SELECT conversation_id FROM assistant.turns WHERE id='{turn.id}';")
+            turns.append((turn, started))
+        return turns
+    windowed, forgetful = agent('windowed', historyTurns=2), agent('forgetful', historyTurns=0)
+    grant(trader, windowed)
+    grant(trader, forgetful)
+    sent = conversed(windowed, ('First?', 'Second?', 'Third?', 'Fourth?'))
+    last, started = sent[-1]
+    check("a turn sends its version's last earlier turns in order, records exactly those, and reports no turn before the window withheld",
+          [[e['ordinal'] for e in s['started']['earlier']] for _, s in sent] == [[], [1], [1, 2], [2, 3]]
+          and [e['question'] for e in started['started']['earlier']] == ['Second?', 'Third?']
+          and query(f"SELECT array_to_string(included_turns,',') FROM assistant.turns WHERE id='{last.id}';") == f'{sent[1][0].id},{sent[2][0].id}'
+          and 'step' not in kinds(last).split(','), [s['started']['earlier'] for _, s in sent])
+    check('a version that sends no earlier turns sends none, and records none',
+          all(s['started']['earlier'] == [] for _, s in conversed(forgetful, ('First?', 'Second?'))))
+
     # The replay recheck (§7.1): once the owner can no longer read a source, here with the market catalog out of the
     # workspace's scope in a transaction that then rolls back, a turn that used it, and every turn including one, is read
     # with its answer and text hidden as access_changed and withheld from an ask; it needs no grant, so a revoked one

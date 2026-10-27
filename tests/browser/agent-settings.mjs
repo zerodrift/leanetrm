@@ -38,9 +38,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   async function fill(changes={}){
     const entry={description:'Answers questions about the page it is opened on.',instructions:'Quote only values you read.\nSay when something is unavailable.',
       model:added.id,effort:'low',caching:'off',tools:['read_current_page','read_trades'],roles:['trader','risk_analyst'],toolSteps:'8',inputTokens:'200000',outputTokens:'2048',
-      elapsed:'120',read:'15',retries:'2',grant:'28',...changes};
+      elapsed:'120',read:'15',retries:'2',history:'20',grant:'28',...changes};
     for(const [id,value] of [['description',entry.description],['instructions',entry.instructions],['model',entry.model],['effort',entry.effort],['caching',entry.caching],
-      ['tool-steps',entry.toolSteps],['input-tokens',entry.inputTokens],['output-tokens',entry.outputTokens],['elapsed',entry.elapsed],['read',entry.read],['retries',entry.retries],['grant-days',entry.grant]])
+      ['tool-steps',entry.toolSteps],['input-tokens',entry.inputTokens],['output-tokens',entry.outputTokens],['elapsed',entry.elapsed],['read',entry.read],['retries',entry.retries],['history',entry.history],['grant-days',entry.grant]])
       await set('#ai-agent-'+id,value);
     await tick('ai-agent-tools',entry.tools);await tick('ai-agent-roles',entry.roles);
   }
@@ -115,7 +115,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the save sent every field, with the exact model version the directory listed',
     `(()=>{const b=${sent('save')}.at(-1).body;return b.modelId===${JSON.stringify(added.id)}&&b.modelVersion===1&&b.reasoning==='low'&&b.caching===false`
     +"&&JSON.stringify(b.tools)==='[\"read_current_page\",\"read_trades\"]'&&JSON.stringify(b.allowedRoles)==='[\"risk_analyst\",\"trader\"]'"
-    +"&&JSON.stringify(b.limits)==='{\"toolSteps\":8,\"inputTokens\":200000,\"outputTokens\":2048,\"elapsedSeconds\":120,\"readSeconds\":15,\"retries\":2}'&&b.grantDays===28"
+    +"&&JSON.stringify(b.limits)==='{\"toolSteps\":8,\"inputTokens\":200000,\"outputTokens\":2048,\"elapsedSeconds\":120,\"readSeconds\":15,\"retries\":2,\"historyTurns\":20}'&&b.grantDays===28"
     +"&&b.instructions==='Quote only values you read.\\nSay when something is unavailable.';})()");
   // A chosen role that no longer uses agents is named rather than offered, after a refresh as when its agent opens, and
   // is chosen again once it is offered again; a stubbed directory drops one.
@@ -197,7 +197,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const listing=(await side.call('settings/ai/agents')).agents.find(a=>a.name===name);
   await side.call('settings/ai/agents/save',{operationId:crypto.randomUUID(),agentId:listing.id,expectedVersion:listing.version,description:'Saved by another administrator.',
     instructions:'Answer only about market data.',modelId:added.id,modelVersion:2,reasoning:'high',caching:true,tools:['read_market_data'],allowedRoles:['trader'],
-    limits:{toolSteps:4,inputTokens:100000,outputTokens:1024,elapsedSeconds:60,readSeconds:10,retries:1},grantDays:7});
+    limits:{toolSteps:4,inputTokens:100000,outputTokens:1024,elapsedSeconds:60,readSeconds:10,retries:1,historyTurns:10},grantDays:7});
   await set('#ai-agent-description','Edited while another administrator saved.');await click('#ai-agents-refresh');
   const saves=await evaluate(`${sent('save')}.length`);
   await submit('#ai-agent-form');
