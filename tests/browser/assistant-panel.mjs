@@ -257,16 +257,22 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Read current page on it is refused page_not_supported, which its step line says in plain words',
     `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
     +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'delivery_prices',selection:{}})`);
-  // Nor PPA bookings, whose ask names the page with no selection and is admitted like any other page of the closed set (§8).
+  // PPA bookings is read once it lists a book (D250): before that Looking at says so and nothing is asked; then Read current
+  // page reads the listed book's PPA trades.
   await click('#nav-ppa');
-  await check('Looking at says the assistant does not read PPA bookings',
-    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['PPA bookings','The assistant does not read this page.']))}`,looking);
-  await script({tools:[['toolu_ppa_panel_01','read_current_page',{}]]},{text:'I do not read this page either.'});
-  await ask('What is on the PPA page?');await wait(finished);
-  await check('an ask from it is admitted with the page and no selection, and Read current page on it is refused page_not_supported',
-    `${q('#assistant-error')}.hidden&&${latest}.querySelector('.assistant-question').textContent==='What is on the PPA page?'`
-    +`&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
-    +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'ppa',selection:{}})`,`${q('#assistant-error')}.textContent`);
+  await wait(`${q('#ppa-book-filter')}.options.length>1&&${idle}`);
+  await set('#assistant-question','Which PPAs are in this book?');
+  await check('Looking at on PPA bookings before a book is listed says to load one, and nothing is asked',
+    `${looking}[0]==='PPA bookings'&&${looking}[1].startsWith('No PPA trades are listed yet')&&${q('#assistant-send')}.disabled`,looking);
+  await set('#ppa-book-filter',await evaluate(`[...${q('#ppa-book-filter')}.options].find(o=>o.value).value`));
+  await click('#ppa-list');await wait(`${q('#ppa-directory-note')}.textContent.includes('PPA trades in the complete selected book scope')&&${idle}`);
+  await script({tools:[['toolu_ppa_panel_01','read_current_page',{}]]},{text:'This book holds no PPA trades.'});
+  await ask('Which PPAs are in this book?');await wait(finished);
+  const listedBook=await evaluate(`${q('#ppa-book-filter')}.value`);
+  await check('once a book is listed Looking at says so, and the ask reports that book, which Read current page reads',
+    `${looking}[1].startsWith('PPA trades of the selected book.')&&${q('#assistant-error')}.hidden`
+    +`&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page'`
+    +`&&JSON.stringify(${asks}.at(-1).body.pageReport.selection.bookIds)===${JSON.stringify(JSON.stringify([listedBook]))}`,`[${looking},${q('#assistant-error')}.textContent]`);
 
   // Send becomes Stop during a turn (§10.1).
   await script({hold:'stop',text:'Partial answer. ',tools:[['toolu_panel_07','read_current_page',{}]]});

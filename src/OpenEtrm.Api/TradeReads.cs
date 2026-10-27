@@ -55,8 +55,7 @@ public sealed class TradeReads
         Read(connection,view,async data=>
         {
             var manifest=database.Manifest;
-            var store=new PpaStore(database,new TouProductStore(manifest.CatalogId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId));
-            var editor=JsonSerializer.SerializeToNode(await store.Editor(connection,view.CalculationFrame,new(view.Frame.Id,tradeId,SchedulePreview.ParseAt(view.Context.KnownAt).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",System.Globalization.CultureInfo.InvariantCulture)),ct),PpaStore.Json)!.AsObject();
+            var editor=JsonSerializer.SerializeToNode(await Ppa().Editor(connection,view.CalculationFrame,new(view.Frame.Id,tradeId,PpaCutoff(view)),ct,Bound(view)),PpaStore.Json)!.AsObject();
             var head=editor["head"]!.AsObject();var selected=head["revision"]!.GetValue<int>();
             if(revision is {} requested&&requested!=selected)
                 throw new MarketDataException("ppa_revision","Select the historical context of the requested PPA revision; this context retains its current head and complete visible history.");
@@ -65,6 +64,30 @@ public sealed class TradeReads
             return new{state=new{tradeId,revision=selected,tradeReference=TradingReference.Trade(references[0]),head,
                 bindings=editor["bindings"]!.DeepClone(),instruments=editor["instruments"]!.DeepClone()},history=editor["history"]!.DeepClone()};
         },ct);
+
+    // The PPA trades booked in one book, as PPA bookings lists them, with their bindings: the whole book in one directory
+    // read, rechecking the book's scope as the page's read does.
+    public Task<object> PpaBook(NpgsqlConnection connection,TradingView view,Guid book,CancellationToken ct)=>
+        Read(connection,view,async data=>
+        {
+            var store=Ppa();
+            var directory=await store.Directory(connection,view.CalculationFrame,new(view.Frame.Id,[book],PpaCutoff(view),0,PpaBookLimit),ct,Bound(view));
+            await store.RecheckScope(connection,view.CalculationFrame,PpaCutoff(view),"books",[book],store.ReferenceFor(view.CalculationFrame),ct,Bound(view));
+            return directory;
+        },ct);
+    // The most trades one directory read lists.
+    internal const int PpaBookLimit=64;
+
+    PpaStore Ppa()
+    {
+        var manifest=database.Manifest;
+        return new(database,new TouProductStore(manifest.CatalogId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId));
+    }
+    // The context a PPA read binds: the view's, which Read bound exactly, so the read captures none (D184).
+    static Guid Bound(TradingView view)=>view.Context.ContextId??throw new InvalidOperationException("A trading view binds no context.");
+    // A PPA read's knowledge cutoff: the view's, in the form the PPA reads take.
+    static string PpaCutoff(TradingView view)=>
+        SchedulePreview.ParseAt(view.Context.KnownAt).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",System.Globalization.CultureInfo.InvariantCulture);
 
     // The one trading read path: a read of the view's frame under its cutoff and trading context. A
     // read that can answer without the frame's market data goes first, and falls back with null.

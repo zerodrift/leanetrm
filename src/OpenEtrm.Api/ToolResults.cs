@@ -92,6 +92,27 @@ static class ToolResults
         return new(read,read[listed]!.AsArray().Count,ToolAmountDisplay.Annotate(DisplayWalk.Viewer(read)));
     }
 
+    // One book's PPA trades as PPA bookings lists them: each trade's revision, event, exact versions and number of bindings,
+    // with the cutoff, never the booking request, actor, reason or memo the page does not show. A book with more trades than
+    // one directory read lists would be a partial list. The read also checked each trade's reference catalog, which its
+    // step records.
+    public static ToolResult PpaBook(object directory)
+    {
+        var read=Node(directory).AsObject();
+        if(read["total"]!.GetValue<int>()>TradeReads.PpaBookLimit)throw new MarketDataException("result_too_large","The book holds more PPA trades than one read returns.");
+        var heads=read["heads"]!.AsArray();
+        var bindings=read["bindings"]!.AsArray().GroupBy(b=>Text(b,"trade_id")).ToDictionary(g=>g.Key,g=>g.Count());
+        var trades=new JsonArray([..heads.Select(h=>(JsonNode?)new JsonObject{["tradeId"]=Text(h,"trade_id"),["revision"]=h!["revision"]!.DeepClone(),
+            ["event"]=Text(h,"event_kind"),["definitionRevisionId"]=Text(h,"definition_revision_id"),["referenceRevisionId"]=Text(h,"reference_revision_id"),
+            ["bindings"]=bindings.GetValueOrDefault(Text(h,"trade_id"))})]);
+        return new(new(){["knownAt"]=read["knownAt"]!.DeepClone(),["trades"]=trades},trades.Count,false,References(heads));
+    }
+
+    static string Text(JsonNode? row,string name)=>row![name]!.GetValue<string>();
+    // The reference catalogs a PPA read checked access to, one per catalog its rows name.
+    static ImmutableArray<ReadAccess> References(JsonArray rows)=>
+        [..rows.Select(r=>Guid.Parse(Text(r,"reference_catalog_id"))).Distinct().Order().Select(c=>new ReadAccess("reference_access",c,"ReadMarketData"))];
+
     // A trade's selected revision and every revision the pinned knowledge holds, shown as its editor shows them
     // (trade-editor.ts, swap-editor.ts), from the deal's saved formats: a futures trade by the deal's trade format with
     // its prices at its contract's settlement-price increment, where the catalog lists the contract; a swap's valuation
@@ -99,7 +120,7 @@ static class ToolResults
     public static ToolResult Trade(object editor,string instrumentType,Dictionary<string,DealAmountFormats.Selection>? formats)
     {
         var read=Node(editor).AsObject();
-        if(instrumentType=="ppa"){read["instrumentType"]="ppa";return new(read,read["history"]!.AsArray().Count,false);}
+        if(instrumentType=="ppa"){read["instrumentType"]="ppa";return new(read,read["history"]!.AsArray().Count,false,References(read["history"]!.AsArray()));}
         if(instrumentType is "financial_swap" or "heat_rate")
         {
             var actual=read["state"]?["terms"]?["scheduled"]?["implementation"]?.GetValue<string>()==OpenEtrm.MarketData.Trading.CrossCommodityScheduledSwap.Implementation?"heat_rate":"financial_swap";

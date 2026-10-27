@@ -32,8 +32,10 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     internal async Task Recheck(NpgsqlConnection connection,InputFrame? frame,CancellationToken ct)
     {if(frame is null){await Authority(connection,[],ct);return;}var selected=SelectedManifest(frame);await Authority(connection,[selected.ReferenceCatalogId],ct);await MarketBundle.Require(connection,selected,ct);}
     internal PreviewManifest SelectedManifest(InputFrame? frame)=>frame?.PpaBundle is {} b?database.Manifest with {RevisionId=b.DefinitionRevisionId,ReferenceCatalogId=b.ReferenceCatalogId,ReferenceRevisionId=b.ReferenceRevisionId}:database.Manifest;
-    internal async Task RecheckScope(NpgsqlConnection connection,InputFrame frame,string knownAt,string scope,Guid[] ids,Guid reference,CancellationToken ct)
-    {if(scope!="draft"){var context=await Bind(connection,frame,knownAt,ct);if(scope!="books" || ids.Length>0)await ReadScope(connection,scope,ids,context,frame,false,ct);}await Authority(connection,[reference],ct);}
+    // A read given the context its request already bound (an agent's pinned context, D250) reads under it and captures
+    // none; otherwise it captures the page's context at the frame's date and its cutoff.
+    internal async Task RecheckScope(NpgsqlConnection connection,InputFrame frame,string knownAt,string scope,Guid[] ids,Guid reference,CancellationToken ct,Guid? bound=null)
+    {if(scope!="draft"){var context=bound??await Bind(connection,frame,knownAt,ct);if(scope!="books" || ids.Length>0)await ReadScope(connection,scope,ids,context,frame,false,ct);}await Authority(connection,[reference],ct);}
 
     private async Task Authority(NpgsqlConnection connection,IEnumerable<Guid> references,CancellationToken ct)
     {
@@ -146,9 +148,9 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         await using var command=ScheduleStore.Command(connection,"SELECT security.read_ppa_terms($1,$2)::text",Catalog,instrument);
         return await command.ExecuteScalarAsync(ct) is string text?JsonSerializer.Deserialize<JsonElement>(text):throw new PreviewDeniedException();
     }
-    internal async Task<object> Editor(NpgsqlConnection connection,InputFrame frame,PpaEditorRequest request,CancellationToken ct)
+    internal async Task<object> Editor(NpgsqlConnection connection,InputFrame frame,PpaEditorRequest request,CancellationToken ct,Guid? bound=null)
     {
-        var context=await Bind(connection,frame,request.KnownAt,ct);var scope=await ReadScope(connection,"trades",[request.TradeId],context,frame,true,ct);var heads=Rows(scope,"heads");var bindings=Rows(scope,"bindings");
+        var context=bound??await Bind(connection,frame,request.KnownAt,ct);var scope=await ReadScope(connection,"trades",[request.TradeId],context,frame,true,ct);var heads=Rows(scope,"heads");var bindings=Rows(scope,"bindings");
         var history=Rows(scope,"history");var references=history.Select(r=>r.Id("reference_catalog_id")).ToArray();
         await Authority(connection,references,ct);
         // Complete history comes from the same trusted scope and certified cutoff;
@@ -162,12 +164,12 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         await Authority(connection,heads.Select(r=>r.Id("reference_catalog_id")),ct);
         return new{tradeId=request.TradeId,knowledgeContext=context,knownAt=request.KnownAt,head=heads.Single(),bindings=bindings.Select(BindingRow).ToArray(),instruments=terms,history,revisionBindings};
     }
-    internal async Task<object> Directory(NpgsqlConnection connection,InputFrame frame,PpaDirectoryRequest request,CancellationToken ct)
+    internal async Task<object> Directory(NpgsqlConnection connection,InputFrame frame,PpaDirectoryRequest request,CancellationToken ct,Guid? bound=null)
     {
         if(request.Offset<0 || request.Limit is <1 or >64)throw PpaCompiler.Error("ppa_limit","Directory pages require an explicit limit of 1 through 64 and a nonnegative offset.");
         if(request.BookIds is null || request.BookIds.Length>PpaCompiler.MaximumBindings || request.BookIds.Any(id=>id==Guid.Empty) || request.BookIds.Distinct().Count()!=request.BookIds.Length)
             throw PpaCompiler.Error("ppa_scope","Select distinct explicit books within the supported scope.");
-        var context=await Bind(connection,frame,request.KnownAt,ct);
+        var context=bound??await Bind(connection,frame,request.KnownAt,ct);
         var scope=request.BookIds.Length==0?(JsonElement?)null:await ReadScope(connection,"books",request.BookIds,context,frame,false,ct);
         var heads=scope is {} result?Rows(result,"heads"):[];var allBindings=scope is {} retained?Rows(retained,"bindings"):[];
         await Authority(connection,heads.Select(r=>r.Id("reference_catalog_id")).Append(ReferenceFor(frame)),ct);

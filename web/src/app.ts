@@ -910,7 +910,8 @@ function pageState():PageState{
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
     case 'jobs':return {page,job:jobs.shown()};
-    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':case 'ppa':return {page};
+    case 'ppa':return {page,...ppa.shown()};
+    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
     default:throw Error('This page could not load. Please refresh.');
   }
 }

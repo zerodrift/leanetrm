@@ -9,12 +9,14 @@ export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioId
 export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa';revision:number;reference:string};
 /** A new trade being entered in the Blotter's panel: of its product, or of none until the person chooses one. */
 export type EntryShown={product:'futures'|'swaps'|null};
+/** What PPA bookings shows: the inspected trade's revision, else the book whose PPA trades it lists, else neither. */
+export type PpaShown={trade:{tradeId:string;revision:number}|null;book:string|null};
 // What a web page shows, as the page's own state names it.
 export type PageState=
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}
-  |{page:'jobs';job:string|null}|{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'admin'|'ai'|'ppa'};
+  |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'admin'|'ai'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
@@ -22,7 +24,10 @@ export type PageContext={mode:'current';frameId:string|null;frameLabel:string|nu
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
 const unsupported:Record<string,string>={delivery:'delivery_prices','interval-series':'interval_series',
-  'interval-curves':'interval_curves',admin:'users_access',ai:'settings_ai',ppa:'ppa'};
+  'interval-curves':'interval_curves',admin:'users_access',ai:'settings_ai'};
+// Pages the assistant reads but Navigate does not open (D250).
+const unopened:readonly string[]=['ppa'];
+const noBlotter={mode:null,portfolioIds:null,groupBy:null,measures:null};
 
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
 const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap'} as const;
@@ -39,6 +44,10 @@ export function pageReport(state:PageState):PageReport{
     case 'schedules':return {page:'schedules',selection:{view:'library'}};
     case 'reference':return {page:'reference_data',selection:{table:state.table,search:state.search}};
     case 'parties':return {page:'parties',selection:{kind:state.kind}};
+    // An inspected PPA is the Blotter's trade view of it; a listed book is its PPA trades. Before either there is no
+    // book to report, which Looking at says, and nothing is asked from.
+    case 'ppa':return {page:'ppa',selection:state.trade?{view:'trade',...noBlotter,bookIds:null,tradeId:state.trade.tradeId,instrumentType:'ppa',revision:state.trade.revision}
+      :{view:'ppa_book',...noBlotter,bookIds:state.book?[state.book]:[],tradeId:null,instrumentType:null,revision:null}};
     // The page's own directory also lists jobs others own for a job manager, which the assistant does not read, so the list it
     // reports is always the first page of the person's own jobs.
     case 'jobs':return {page:'jobs',selection:state.job?{view:'history',job:state.job,page:null,before:null}:{view:'jobs',job:null,page:0,before:null}};
@@ -88,6 +97,8 @@ function shows(report:PageReport,names:Names,trade?:string){
       return `${s.mode==='pivot'?`Totals by ${joined((s.groupBy as string[]).map(d=>dimensions[d]))}`:'Trade rows'} · ${scope}`;
     }
     case 'jobs':return s.view==='history'?'The history of the job whose details are open':'Your jobs. Other people’s jobs are not sent.';
+    case 'ppa':return `${s.view==='trade'?`Inspected PPA trade, revision ${s.revision}`:(s.bookIds as string[]).length?'PPA trades of the selected book'
+      :'No PPA trades are listed yet: load a book’s PPA trades to ask about them'}. Read at the As of date and knowledge cutoff of the context below, not this page’s own.`;
     case 'blotter_risk':return 'The assistant does not read risk results.';
     case 'blotter_risk_lens':return 'Risk results on the trade rows. The assistant does not read risk results.';
     case 'blotter_new_trade':return `A new trade is being started: no product is chosen yet. ${unsent}`;
@@ -105,9 +116,10 @@ function contextLine(context:PageContext){
 // Looking at: the page, what it shows and the context the next question will pin, or that the page is not read.
 export function lookingAt(report:PageReport,context:PageContext,names:Names,extra:{trade?:string}={}){
   if(!Object.hasOwn(pageNames,report.page))throw inconsistent();
-  // A page whose report names no selection yet, Reference data before it shows a table, has nothing to be asked from.
-  const named=!(report.page==='reference_data'&&report.selection.table==='');
-  return {page:pageNames[report.page],shows:shows(report,names,extra.trade),context:contextLine(context),supported:readPages.includes(report.page),
+  // A page whose report names no selection yet, Reference data before it shows a table or PPA bookings before it lists a
+  // book, has nothing to be asked from.
+  const named=!(report.page==='reference_data'&&report.selection.table===''||report.page==='ppa'&&report.selection.view==='ppa_book'&&!(report.selection.bookIds as string[]).length);
+  return {page:pageNames[report.page],shows:shows(report,names,extra.trade),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
     askable:named&&askKnowledge(context)!==undefined};
 }
 

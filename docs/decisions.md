@@ -246,6 +246,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D246 | The Blotter lists a PPA booked under other reference or definition versions than the selected close as not valued; whole-book consumers still refuse | Decided by the owner (2026-10-27). Refines D220 for the Blotter only. Trading workspace, Blotter and pivot reads list each PPA trade with a binding booked under other definition or reference versions than the selected market data, with `unavailableReason` `other_definition_versions`, null value fields and its booked facts stated under its own versions; valuation totals leave it out and count it in `unvaluedPositions`. Close risk, portfolio risk and generated pilot closes still refuse the whole scope with `pilot_close_inputs`. Response values only; no schema or permission change |
 | D247 | Answers draw pipe tables as tables of text cells | Decided by the owner (2026-10-27). Refines D191 (§10.1). A header row, a separator row and rows of the header's width become a table built from text nodes, with emphasis and code in cells; any other pipe text stays literal. HTML, links and images stay literal text and URLs are not linked. Front end only |
 | D249 | Each agent version sets its history window | Decided by the owner (2026-10-27). A turn sends at most its version's latest `historyTurns` earlier turns, 0 to 1,000, enforced by the API and the database, and records those it sends; withholding applies within the window. Versions saved earlier take 1,000 (migration 0121), which a conversation already longer refuses. The input-token limit still applies |
+| D250 | The page assistant reads PPA bookings through Read trades; PPA bookings is not a Navigate page | Decided under the owner's delegation (2026-10-27). Refines D184, D190 and D191. An inspected PPA is reported as Read trades' trade view of it (`trades.trade_v1`, instrument type `ppa`); a listed book as the new `ppa_book` view of exactly one book (`trades.ppa_book_v1`), the page's own directory read of the whole book at the turn's pin, rechecking the book's scope, refused `result_too_large` above 64 trades, listing the page's columns. Both capture no context, run under the Blotter's accesses and permissions and bind the pinned context, cutoff and frame, not the page's own market inputs and cutoff, which Looking at says. PPA bookings and the targets its reads issue are not opened by Navigate (`tool_arguments_invalid`), since the database's navigation targets do not list it. No migration, runtime-set or permission change |
 
 ## Proposed implementation choices
 
@@ -977,3 +978,41 @@ what is sent, not the work of an ask: the source walk behind withholding and eve
 recheck still follows included turns back through the conversation, so an ask's cost
 grows with the conversation's length. This has not been measured for very long
 conversations.
+
+## D250 — PPA bookings in the page assistant
+
+On the hosted pilot, Read current page on PPA bookings returned `page_not_supported`,
+so a question about the PPA a person had open got no answer. The page's two views are
+already reads the assistant has: the inspected trade is the editor read the Blotter's
+trade view of a PPA makes (`TradeReads.PpaTrade`), and the listed book is the page's
+directory read. So both go through Read trades, which an agent version that reads the
+Blotter already has switched on, with no new tool, permission or migration.
+
+- The page reports the inspected PPA as Read trades' trade view with instrument type
+  `ppa` and its revision, or the listed book as `{"view":"ppa_book","bookIds":[book]}`
+  with every other member null. Before a book is listed it reports no book, Looking at
+  says to load one, and nothing is asked; ask refuses such a report
+  `page_report_invalid`. A trade view of another instrument type is refused too.
+- `trades.ppa_book_v1` reads the whole book in one directory read of at most 64 trades
+  and rechecks the book's scope, as the page's own read does. A larger book is
+  `result_too_large`, never a partial list. The result lists each trade as the page
+  does, with its revision, event, exact definition and reference versions and number of
+  bindings, and the cutoff; never the booking request, actor, reason or memo. Its step
+  records every reference catalog the read checked, so a revoked one hides the answer.
+- Both bind the turn's pinned context, cutoff and frame. The PPA reads take the context
+  the trading read already bound instead of capturing one, so neither these reads nor
+  the existing PPA trade read capture or take the capture lock (D184). PPA bookings
+  keeps its own market inputs and knowledge cutoff, which the read does not follow;
+  Looking at says the read is at the context shown below it. A PPA the pinned
+  knowledge holds at another revision is `page_selection_unavailable`; a page report names the inspected revision. A book or
+  PPA trade the pinned knowledge does not show at all is refused `access_denied`, as
+  the database's PPA scope read does not tell it from one the reader may not read.
+- The database's navigation targets list only the pages Navigate opened before, so
+  PPA bookings is readable but not navigable: Navigate refuses the page and any target a
+  PPA book read issues `tool_arguments_invalid`. An inspected PPA's target opens it in
+  the Blotter, which reads the same trade.
+
+Delivery prices stays unsupported: its read, `power_data.read_prices`, captures a
+date context, which tool reads never do (D184), so it needs a read that binds the
+pinned context without capturing.
+

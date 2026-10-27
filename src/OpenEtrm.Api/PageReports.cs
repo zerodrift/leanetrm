@@ -14,8 +14,8 @@ sealed record PageRead(string Page,ToolCall? Call);
 static class PageReports
 {
     // A page: the tool that reads it, the operations behind the views it shows and, for a page the assistant reads, the
-    // name navigation targets label it with.
-    sealed record Page(string? Tool,ImmutableHashSet<string> Operations,string? Name);
+    // name navigation targets label it with and whether Navigate opens it (D250).
+    sealed record Page(string? Tool,ImmutableHashSet<string> Operations,string? Name,bool Navigable=true);
 
     static readonly ImmutableDictionary<string,Page> Pages=new Dictionary<string,Page>
     {
@@ -28,23 +28,32 @@ static class PageReports
         ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1"],"Blotter"),
         ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1"],"Custom curves"),
         ["jobs"]=new("read_jobs",["jobs.list_v1","jobs.history_v1"],"Jobs & Infrastructure"),
+        // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
+        ["ppa"]=new("read_trades",["trades.trade_v1","trades.ppa_book_v1"],"PPA bookings",false),
         ["blotter_risk"]=Unsupported(),["blotter_risk_lens"]=Unsupported(),["blotter_new_trade"]=Unsupported(),["blotter_new_future"]=Unsupported(),["blotter_new_swap"]=Unsupported(),
         ["delivery_prices"]=Unsupported(),["interval_series"]=Unsupported(),
-        ["interval_curves"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported(),["ppa"]=Unsupported()
+        ["interval_curves"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported()
     }.ToImmutableDictionary(StringComparer.Ordinal);
 
     static Page Unsupported()=>new(null,[],null);
 
-    // The pages the assistant reads, and those it does not.
+    // The pages the assistant reads, those Navigate opens, and those it does not read.
     internal static IEnumerable<string> Supported=>Pages.Where(p=>p.Value.Tool is not null).Select(p=>p.Key);
+    internal static IEnumerable<string> Navigable=>Pages.Where(p=>p.Value is {Tool:not null,Navigable:true}).Select(p=>p.Key);
     internal static IEnumerable<string> NotSupported=>Pages.Where(p=>p.Value.Tool is null).Select(p=>p.Key);
+    internal static bool Opens(string page)=>Pages[page] is {Tool:not null,Navigable:true};
 
     // A page the assistant reads: its read tool, the operations behind the views it shows and its name; and the page an
     // operation reads.
     internal static string Tool(string page)=>Pages[page].Tool??throw new InvalidOperationException("The assistant does not read this page.");
     internal static ImmutableHashSet<string> Operations(string page)=>Pages[page].Operations;
     internal static string Name(string page)=>Pages[page].Name??throw new InvalidOperationException("The assistant does not read this page.");
-    internal static string PageOf(string operation)=>Pages.Single(p=>p.Value.Operations.Contains(operation)).Key;
+    // An operation two pages show belongs to the one Navigate opens.
+    internal static string PageOf(string operation)
+    {
+        var pages=Pages.Where(p=>p.Value.Operations.Contains(operation)).ToArray();
+        return (pages.Length==1?pages[0]:pages.Single(p=>p.Value.Navigable)).Key;
+    }
 
     // A report ask accepts, or page_report_invalid.
     public static void Require(JsonElement report)
@@ -67,8 +76,11 @@ static class PageReports
         try
         {
             var call=AgentTools.Parse(page.Tool,selection);
-            return new(id,page.Operations.Contains(call.Operation.Id)?call:null);
+            return new(id,page.Operations.Contains(call.Operation.Id)&&Shows(id,call)?call:null);
         }
         catch(ToolRefusal){return new(id,null);}
     }
+
+    // PPA bookings shows only PPAs, each at the revision it inspected.
+    static bool Shows(string page,ToolCall call)=>page!="ppa"||call.Arguments is not TradeArguments{InstrumentType:not "ppa"} and not TradeArguments{Revision:null};
 }
