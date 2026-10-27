@@ -792,7 +792,7 @@ positions its shock moves, from the same report. Totals across books, a choice o
 one curve level and quantity-equivalent units need server-side contracts and
 remain work. See [the delta ladder](delta-ladder.md).
 
-## D232 — Tool reads are bounded by their turn's deadline alone
+## D237 — Tool reads are bounded by their turn's deadline alone
 
 Remove the runtime set's separate per-read bound (`ToolRead`, 5 seconds). A tool read
 runs until it returns or its turn's deadline, the agent version's elapsed limit that an

@@ -649,9 +649,9 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           "the instant and the accesses its read ran under",
           (outcome(late), late_steps, late_calls) == (('failed', 'limit_elapsed'), [('limit_elapsed', *bound)], 1)
           and at(late['endedAt']) - at(late['askedAt']) < timedelta(seconds=5) + promptly, (late, late_steps))
-    check("a read its turn's deadline stopped is logged as a warning naming its tool and operation, never its input (D232)",
+    check("a read its turn's deadline stopped is logged as a warning naming its tool and operation, never its input (D237)",
           "A tool read was stopped at its turn's deadline: read_trade_parties trade_parties.versions_v1" in log.read_text(errors='replace'))
-    # A read is bounded only by its turn's deadline (D232): one held past the five seconds a database command is otherwise given
+    # A read is bounded only by its turn's deadline (D237): one held past the five seconds a database command is otherwise given
     # completes once released, and the turn answers.
     fake.respond(stream(tool_use(model_name, [parties_read])), stream(recording(model_name, text='Two counterparties.')))
 

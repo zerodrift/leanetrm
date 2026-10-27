@@ -13,7 +13,7 @@ static class RuntimeSet
     public const int AgentInstructions=6000;
     // The longest grant a version may ask for (§7.1).
     public const int MaxGrantDays=90;
-    // turns_v6 bounds a tool read only by its turn's deadline (D232).
+    // turns_v6 bounds a tool read only by its turn's deadline (D237).
     public const string Turns="turns_v6";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
@@ -29,7 +29,7 @@ static class RuntimeSet
     // The most records and UTF-8 bytes one tool result returns; a larger result is refused whole, never truncated (§7.3).
     public const int ToolResultRows=500,ToolResultBytes=64*1024;
     // The connections each scope's agent reads may hold on each login, above its workspace turns, which read one at a time
-    // (§7.4). A read is bounded by its turn's deadline alone (D232).
+    // (§7.4). A read is bounded by its turn's deadline alone (D237).
     public const int AgentPool=6;
     // The wait before a turn's first retry, doubled for each later one.
     public static readonly TimeSpan RetryBackoff=TimeSpan.FromSeconds(1);

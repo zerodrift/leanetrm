@@ -121,7 +121,7 @@ static class AgentToolChecks
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
         Require(RuntimeSet.Turns=="turns_v6"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
-            &&PreviewDatabase.AgentCommandSeconds==3600,"turns_v6 bounds a tool read only by its turn's deadline, up to the longest an agent version may set (D232), bounds tool results and keeps a workspace's turns below its agent pools");
+            &&PreviewDatabase.AgentCommandSeconds==3600,"turns_v6 bounds a tool read only by its turn's deadline, up to the longest an agent version may set (D237), bounds tool results and keeps a workspace's turns below its agent pools");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
             "require every member they state, and their permissions; turns_v6 bounds reads by their turn and their results, and keeps workspace turns below the agent pools");
     }

@@ -252,7 +252,7 @@ public sealed class TurnWorker:IAsyncDisposable
             if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
             return null;
         }
-        // A read the deadline stopped is logged by its tool and operation, never its input, so a slow read is visible to an operator (D232).
+        // A read the deadline stopped is logged by its tool and operation, never its input, so a slow read is visible to an operator (D237).
         if(read.End==ToolStepEnd.Interrupted)
             logger.LogWarning("A tool read was stopped at its turn's deadline: {Tool} {Operation}",step.Tool,step.Operation??"none");
         var recorded=await Write("SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb,$9::jsonb)::text",turn,r.Token,
@@ -279,7 +279,7 @@ public sealed class TurnWorker:IAsyncDisposable
 
     // What a read that returned becomes (§7.5): no step once its turn is to stop, whatever it returned, so a stop this
     // process alone knows of publishes nothing; a read is bounded only by its turn's deadline, so one that stopped fails the
-    // turn limit_elapsed (D232); any other step as it is.
+    // turn limit_elapsed (D237); any other step as it is.
     internal static ToolStep? Settled(ToolStep read,bool stopping)=>
         stopping?null:read.End==ToolStepEnd.Interrupted?read with{Code="limit_elapsed",End=ToolStepEnd.Failure}:read;
 
