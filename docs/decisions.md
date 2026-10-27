@@ -776,3 +776,20 @@ a second quantity-conversion contract.
 The standard isolated preview seeds 37 synthetic bindings, including eight
 heat-rate and five PPA bindings. See [demo instruments](demo-instruments.md) for
 coverage, numerical evidence and remaining limits.
+
+## D232 — A 15-second tool read bound with its own outcome
+
+Raise the runtime set's `ToolRead` from 5 to 15 seconds and name a read stopped by it
+`limit_tool_read`, a code of its own, instead of `tool_failed`. The runtime set becomes
+`turns_v6`, which every new turn records; turns recorded under `turns_v5` keep their
+5-second bound and codes. The agent read pools' command timeout equals `ToolRead`, so
+no single command of a read is cut off sooner; the other pools keep 5 seconds. A read
+in flight at the turn's deadline still ends the turn `limit_elapsed`, and any other
+failed read stays `tool_failed`. A read past the bound is
+logged as a warning naming its tool and operation, never its input.
+
+On the hosted pilot, Blotter and trade reads of the page assistant exceeded 5 seconds:
+the page's own Blotter read took about 2.7 seconds and one swap's editor read about
+3.1 seconds, before the agent's read adds its own session and amount display. Every
+such read was cancelled and reported only as a generic failure, which the API did not
+log. The faster reads themselves remain separate performance work.

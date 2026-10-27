@@ -116,8 +116,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
             authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", 8);
             runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8);
             calculationRuntime=PreviewSource(root,"OPENETRM_PREVIEW_RUNTIME","preview_runtime",null,"openetrm-calculation-listener");
-            agentAuthenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", RuntimeSet.AgentPool, AgentReads);
-            agentRuntime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", RuntimeSet.AgentPool, AgentReads);
+            // An agent read is bounded by ToolRead over all its commands, so no one command of it is cut off sooner (D232).
+            agentAuthenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", RuntimeSet.AgentPool, AgentReads, AgentCommandSeconds);
+            agentRuntime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", RuntimeSet.AgentPool, AgentReads, AgentCommandSeconds);
             runtimeLogin = "preview_runtime";
         }
         else
@@ -129,14 +130,17 @@ public sealed class PreviewDatabase : IAsyncDisposable
                 throw new InvalidOperationException("Hosted runtime and authenticator require separate logins to the same dedicated database.");
             authenticator=NpgsqlDataSource.Create(auth.ConnectionString); runtime=NpgsqlDataSource.Create(app.ConnectionString);
             calculationRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){Pooling=false,ApplicationName="openetrm-calculation-listener"}.ConnectionString);
-            agentAuthenticator=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(auth.ConnectionString){MaxPoolSize=RuntimeSet.AgentPool,ApplicationName=AgentReads}.ConnectionString);
-            agentRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){MaxPoolSize=RuntimeSet.AgentPool,ApplicationName=AgentReads}.ConnectionString);
+            agentAuthenticator=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(auth.ConnectionString){MaxPoolSize=RuntimeSet.AgentPool,ApplicationName=AgentReads,CommandTimeout=AgentCommandSeconds}.ConnectionString);
+            agentRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){MaxPoolSize=RuntimeSet.AgentPool,ApplicationName=AgentReads,CommandTimeout=AgentCommandSeconds}.ConnectionString);
             runtimeLogin=app.Username!;
         }
     }
 
     // A pool of the given size, or unpooled connections without one, named for the server when an application is given.
-    private static NpgsqlDataSource PreviewSource(string root, string variable, string login, int? pool, string? application=null)
+    // The command timeout of the agent read pools: ToolRead, which bounds the whole read through its cancellation.
+    internal static readonly int AgentCommandSeconds=(int)RuntimeSet.ToolRead.TotalSeconds;
+
+    private static NpgsqlDataSource PreviewSource(string root, string variable, string login, int? pool, string? application=null, int commandTimeout=5)
     {
         var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable(variable)
             ?? throw new InvalidOperationException($"Missing {variable}."));
@@ -145,7 +149,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         // JSON timestamp transport follows the API UTC contract, independently
         // of the database host, process environment or display preference.
         config.Timezone = "UTC";
-        config.CommandTimeout = 5; config.Timeout = 5;
+        config.CommandTimeout = commandTimeout; config.Timeout = 5;
         if (pool is {} size) config.MaxPoolSize = size; else config.Pooling = false;
         if (application is not null) config.ApplicationName = application;
         return NpgsqlDataSource.Create(config.ConnectionString);

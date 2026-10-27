@@ -81,10 +81,10 @@ static class TurnWorkerChecks
             "once its turn is to stop, a read that returned is no step, whatever it returned");
         Require(TurnWorker.Settled(read,false,true)==read&&TurnWorker.Settled(refused,false,true)==refused&&TurnWorker.Settled(failed,false,false)==failed
             &&TurnWorker.Settled(interrupted,false,true) is {End:ToolStepEnd.Failure,Code:"limit_elapsed"}
-            &&TurnWorker.Settled(interrupted,false,false) is {End:ToolStepEnd.Failure,Code:"tool_failed"},
-            "a read its bound stopped fails its turn limit_elapsed when the turn's deadline was the bound, else tool_failed; any other step stands");
+            &&TurnWorker.Settled(interrupted,false,false) is {End:ToolStepEnd.Failure,Code:"limit_tool_read"},
+            "a read its bound stopped fails its turn limit_elapsed when the turn's deadline was the bound, else limit_tool_read; any other step stands");
         Console.WriteLine("PASS a read that returned once its turn is to stop is no step; one its bound stopped fails the turn limit_elapsed at the "+
-            "deadline, else tool_failed");
+            "deadline, else limit_tool_read (D232)");
 
         // The tool loop's next call replays the model's reply, then answers each of its requests in order (§6.1, §7.3).
         var question=new ModelUserText("Q?");

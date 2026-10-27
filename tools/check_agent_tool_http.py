@@ -293,13 +293,13 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                   'market_data.contract_definitions_v1', 'reference_data.table_v1', 'schedules.library_v1', 'schedules.tou_products_v1',
                   'schedules.power_hours_v1', 'trade_parties.versions_v1', 'trades.blotter_v1', 'trades.blotter_v1', 'trades.trade_v1', 'trades.trade_v1']
     check("a step records its tool, operation, the request's input, the instant it read, after its call's close and before the next "
-          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v5",
+          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v6",
           [(s['tool'], s['operation'], s['input'], s['code']) for s in recorded] == [(r[1], o, r[2], None) for r, o in zip(first + second, operations)]
           and [s['access'] for s in recorded] == [market] * 9 + [parties] + [trades] * 4
           and all(at(loop[0]['closed']) <= at(s['read_at']) <= at(loop[1]['started']) for s in recorded[:3])
           and all(at(loop[1]['closed']) <= at(s['read_at']) <= at(loop[2]['started']) for s in recorded[3:])
           and [e['payload'] for e in events if e['kind'] == 'step'] == [{'ordinal': n, 'tool': s['tool']} for n, s in enumerate(recorded, start=1)]
-          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v5', recorded)
+          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v6', recorded)
     grant_id = delegation(turn)
     contexts_read = issued(grant_id)
     check("each read runs in one request context of its own, issued to the agent's principal under the turn's grant on the agent pools, "
@@ -487,7 +487,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           (followed, events))
 
     # A target's page check in flight (§7.5), held where it reads the reference catalog's scope: Stop stops it at once and
-    # writes no step, and the 5-second ToolRead fails the turn tool_failed with a step naming the check's instant and
+    # writes no step, and the 15-second ToolRead fails the turn limit_tool_read (D232) with a step naming the check's instant and
     # accesses. The scope is locked only once the call is open, and released before the turn's ending is read, since the
     # step's publication recheck reads it too.
     def checking(stop):
@@ -504,16 +504,16 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
             reading(1)
             stop(asked)
         holding(psql, environment, 'LOCK TABLE security.reference_catalog_scopes IN ACCESS EXCLUSIVE MODE', held)
-        ended = settled(asked, timeout=20)[0]
+        ended = settled(asked, timeout=30)[0]
         return ended, [(s['code'], s['operation'], s['access'], s['read_at'] is not None) for s in steps(ended)], len(fake.received) - since
     halted_check, halted_steps, halted_calls = checking(lambda asked: trader.call(STOP, {'turnId': asked['id']}))
     check("Stop while a target's page check is in flight stops the check at once and ends the turn cancelled, writing no step and opening no "
           'other call', (halted_check['state'], halted_check['outcome'], halted_steps, halted_calls) == ('cancelled', None, [], 1), (halted_check, halted_steps))
-    slow_check, slow_steps, slow_calls = checking(lambda asked: reading(0, within=10))
-    check("a target's page check in flight past the runtime set's 5-second ToolRead fails the turn tool_failed, its step naming Navigate's "
+    slow_check, slow_steps, slow_calls = checking(lambda asked: reading(0, within=20))
+    check("a target's page check in flight past the runtime set's 15-second ToolRead fails the turn limit_tool_read, its step naming Navigate's "
           "operation with the instant and the accesses the check ran under",
           (slow_check['state'], slow_check['outcome'], slow_steps, slow_calls)
-          == ('failed', 'tool_failed', [('tool_failed', 'navigation.target_v1', market, True)], 1), (slow_check, slow_steps))
+          == ('failed', 'limit_tool_read', [('limit_tool_read', 'navigation.target_v1', market, True)], 1), (slow_check, slow_steps))
 
     # Refusals are steps the model receives, and the turn continues (§7.3).
     fake.respond(stream(tool_use(model_name, [('toolu_synthetic_21', 'read_current_page', {}),
@@ -630,7 +630,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
             starting(asked)
             reading(1)
             stop(asked)
-            return settled(asked, timeout=20)[0]
+            return settled(asked, timeout=30)[0]
         ended = holding(psql, environment, 'LOCK TABLE trading.counterparties IN ACCESS EXCLUSIVE MODE', work)
         return ended, [(s['code'], s['operation'], s['access'], s['read_at'] is not None) for s in steps(ended)], len(fake.received) - since
 
@@ -656,9 +656,11 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           (outcome(late), late_steps, late_calls) == (('failed', 'limit_elapsed'), [('limit_elapsed', *bound)], 1)
           and at(late['endedAt']) - at(late['askedAt']) < timedelta(seconds=5) + promptly, (late, late_steps))
     slow, slow_steps, slow_calls = in_flight(lambda asked: None)
-    check("a read in flight past the runtime set's 5-second ToolRead fails the turn tool_failed, its step naming that bound with the "
-          "instant and the accesses its read ran under", (outcome(slow), slow_steps, slow_calls) == (('failed', 'tool_failed'), [('tool_failed', *bound)], 1),
+    check("a read in flight past the runtime set's 15-second ToolRead fails the turn limit_tool_read, its step naming that bound with the "
+          "instant and the accesses its read ran under", (outcome(slow), slow_steps, slow_calls) == (('failed', 'limit_tool_read'), [('limit_tool_read', *bound)], 1),
           (slow, slow_steps))
+    check('a read past its bound is logged as a warning naming its tool and operation, never its input (D232)',
+          'A tool read passed the 15-second ToolRead bound: read_trade_parties trade_parties.versions_v1' in log.read_text(errors='replace'))
     switched, switched_steps, switched_calls = in_flight(lambda asked: trader.call('profile', {'profile': 'trader'}))
     # The switch forgets the frames the session discovered.
     frame = frame_of(trader)

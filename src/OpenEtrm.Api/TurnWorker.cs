@@ -254,6 +254,9 @@ public sealed class TurnWorker:IAsyncDisposable
             if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
             return null;
         }
+        // A read past its bound is logged by its tool and operation, never its input, so a slow read is visible to an operator (D232).
+        if(step.Code=="limit_tool_read")
+            logger.LogWarning("A tool read passed the {Seconds}-second ToolRead bound: {Tool} {Operation}",RuntimeSet.ToolRead.TotalSeconds,step.Tool,step.Operation??"none");
         var recorded=await Write("SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb,$9::jsonb)::text",turn,r.Token,
             step.Tool,(object?)step.Operation??DBNull.Value,step.Input is {} input?input.GetRawText():DBNull.Value,(object?)step.Code??DBNull.Value,
             (object?)step.ReadAt??DBNull.Value,step.ReadAt is null?DBNull.Value:JsonSerializer.Serialize(step.Access,JsonSerializerOptions.Web),
@@ -278,9 +281,9 @@ public sealed class TurnWorker:IAsyncDisposable
 
     // What a read that returned becomes (§7.5): no step once its turn is to stop, whatever it returned, so a stop this
     // process alone knows of publishes nothing; a read its bound stopped fails the turn limit_elapsed when the turn's
-    // deadline was that bound, else tool_failed; any other step as it is.
+    // deadline was that bound, else limit_tool_read, the runtime set's ToolRead (D232); any other step as it is.
     internal static ToolStep? Settled(ToolStep read,bool stopping,bool byDeadline)=>
-        stopping?null:read.End==ToolStepEnd.Interrupted?read with{Code=byDeadline?"limit_elapsed":"tool_failed",End=ToolStepEnd.Failure}:read;
+        stopping?null:read.End==ToolStepEnd.Interrupted?read with{Code=byDeadline?"limit_elapsed":"limit_tool_read",End=ToolStepEnd.Failure}:read;
 
     // What a call's ending makes of its turn when this program did not stop the call (§7.5): the turn's ending and code,
     // or none to retry, after a failure whose input is known and that published nothing, while retries remain.

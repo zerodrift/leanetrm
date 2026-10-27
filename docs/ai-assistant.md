@@ -70,7 +70,7 @@ its stored events after a sequence, read in their own request context with the r
 recheck, then each piece of answer text the worker publishes once its publication
 recheck has committed, with every other event, steps included, read the same way,
 through to the turn's terminal event, with resume, heartbeats, one stream per turn and
-the refusals §8 lists; the runtime set is `turns_v5` (D193). `ReadModelUsage` reads usage
+the refusals §8 lists; the runtime set is `turns_v6` (D232; `turns_v5` was D193). `ReadModelUsage` reads usage
 through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
@@ -762,8 +762,8 @@ The tool set is fixed; each tool is switched on per agent version.
   `ask_incomplete`. Every ending frees both slots.
 - Agent work uses its own runtime and authenticator pools per scope on the existing
   logins, never the UI pools; workspace concurrency stays below their size, and each
-  tool read runs in one request context and is bounded by `ToolRead`, 5 seconds, over
-  all its commands. No transaction, request context or epoch lock is held across a
+  tool read runs in one request context and is bounded by `ToolRead`, 15 seconds (D232),
+  over all its commands; the agent pools' command timeout equals `ToolRead`. No transaction, request context or epoch lock is held across a
   model call, backoff or stream write. Worker writes use a pool of their own on the
   runtime login. Text deltas are coalesced for at most the runtime set's interval and
   published in pieces of at most 2,048 bytes, each with its publication recheck. A
@@ -797,8 +797,10 @@ The tool set is fixed; each tool is switched on per agent version.
   `limit_output_tokens` or `limit_elapsed`; a tool request cut off by a limit is not
   run, and a call whose tool requests would take the turn past its steps has none of
   them run. A read in flight at the turn's deadline ends it `limit_elapsed`, and one
-  past the runtime set's `ToolRead` ends it `tool_failed`, each recording its step with
-  the instant and accesses it read under.
+  past the runtime set's `ToolRead` ends it `limit_tool_read` (D232), each recording its
+  step with the instant and accesses it read under. A read past `ToolRead` is logged as a
+  warning naming its tool and operation, never its input; `tool_failed` is left for a
+  read that failed in some other way.
 - The input limit is checked before each attempt against input that earlier attempts
   reported; nothing is estimated, so the crossing attempt completes and is billed. An
   earlier unknown or unrecognized input ends the turn with `limit_input_unverifiable`
