@@ -151,6 +151,16 @@ def check_curve_proposals_upgrade(query, migration):
         *((f'GRANT EXECUTE ON FUNCTION {helper} TO PUBLIC;', helper) for helper in helpers)))
 
 
+def check_job_reads_upgrade(query, migration):
+    """Before 0118 applies: it refuses a changed helper the job reads rely on or definition they replace, or one whose privileges differ."""
+    helpers = ('assistant.agent_tools()', 'assistant.agent_access(assistant.turns,text,text,uuid,uuid)', 'assistant.is_read_access(jsonb)',
+               'assistant.sources_readable(uuid)', 'assistant.is_navigation_target(assistant.turns,jsonb)', 'automation.edit_reason(automation.jobs)')
+    check_guard(query, migration, '0118', 'job_reads', (
+        *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in helpers),
+        *((f'GRANT EXECUTE ON FUNCTION {helper} TO PUBLIC;', helper) for helper in helpers),
+        ('ALTER TABLE assistant.tool_read_access RENAME CONSTRAINT tool_read_access_check TO tool_read_access_renamed;', 'assistant.tool_read_access_check')))
+
+
 def conversation_0072():
     """The conversation read as 0072 defined it, in a schema of its own so that its parameters keep their names, for a
     transaction that creates it to compare with the read that replaced it and then rolls back."""
@@ -1221,7 +1231,7 @@ def run_checks(url, query, psql, manifest, environment):
                   {**moving, 'target': '[]'}, {**moving, 'target': '"curves"'},
                   {**moving, 'target': json.dumps({k: v for k, v in curve_target.items() if k != 'label'})},
                   {**moving, 'target': json.dumps({**curve_target, 'handle': 'n1'})}, aimed(kind='elsewhere'), aimed(kind=None),
-                  aimed(page='jobs'), aimed(page='settings_ai'), aimed(page='Curves'), aimed(page=None), aimed(page='schedules'),
+                  aimed(page='users_access'), aimed(page='settings_ai'), aimed(page='Curves'), aimed(page=None), aimed(page='schedules'),
                   aimed(kind='page'), aimed(selection=None),
                   aimed(selection=[]), aimed(selection='curve'), aimed(selection={'curve': 'x' * 8200}),
                   aimed(context={**pinned, 'contextId': str(uuid4())}), aimed(context={**pinned, 'contextId': None}),

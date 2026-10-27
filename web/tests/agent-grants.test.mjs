@@ -12,6 +12,8 @@ test('what a grant reads is named from a closed set, in a fixed order; anything 
   assert.equal(readsPhrase(['ReadMarketData','ReadTrades']),'trades and market data');
   assert.equal(readsPhrase(['ReadMarketData','ReadTradeParties','ReadTrades']),'trades, trade parties and market data');
   assert.equal(readsPhrase(['ReadMarketData']),'market data');
+  assert.equal(readsPhrase(['ReadJobs']),'your jobs');
+  assert.equal(readsPhrase(['ReadJobs','ReadMarketData']),'market data and your jobs');
   assert.equal(readsPhrase([]),'no workspace data');
   assert.throws(()=>readsPhrase(['ManageAccess']),/agent grants are inconsistent/);
   assert.throws(()=>readsPhrase(['ReadTrades','ReadTrades']),/agent grants are inconsistent/);

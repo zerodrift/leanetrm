@@ -14,7 +14,7 @@ export type PageState=
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}
-  |{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'jobs'|'admin'|'ai'|'ppa'};
+  |{page:'jobs';job:string|null}|{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'admin'|'ai'|'ppa'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
@@ -22,7 +22,7 @@ export type PageContext={mode:'current';frameId:string|null;frameLabel:string|nu
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
 const unsupported:Record<string,string>={delivery:'delivery_prices','interval-series':'interval_series',
-  'interval-curves':'interval_curves',jobs:'jobs',admin:'users_access',ai:'settings_ai',ppa:'ppa'};
+  'interval-curves':'interval_curves',admin:'users_access',ai:'settings_ai',ppa:'ppa'};
 
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
 const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap'} as const;
@@ -39,6 +39,9 @@ export function pageReport(state:PageState):PageReport{
     case 'schedules':return {page:'schedules',selection:{view:'library'}};
     case 'reference':return {page:'reference_data',selection:{table:state.table,search:state.search}};
     case 'parties':return {page:'parties',selection:{kind:state.kind}};
+    // The page's own directory also lists jobs others own for a job manager, which the assistant does not read, so the list it
+    // reports is always the first page of the person's own jobs.
+    case 'jobs':return {page:'jobs',selection:state.job?{view:'history',job:state.job,page:null,before:null}:{view:'jobs',job:null,page:0,before:null}};
     case 'futures':{
       if(state.risk)return {page:'blotter_risk',selection:{}};
       if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:{}};
@@ -84,6 +87,7 @@ function shows(report:PageReport,names:Names,trade?:string){
       const scope=books||portfolios?[books?counted(books,'book'):'',portfolios?counted(portfolios,'portfolio'):''].filter(Boolean).join(', '):'every book you can read';
       return `${s.mode==='pivot'?`Totals by ${joined((s.groupBy as string[]).map(d=>dimensions[d]))}`:'Trade rows'} · ${scope}`;
     }
+    case 'jobs':return s.view==='history'?'The history of the job whose details are open':'Your jobs. Other people’s jobs are not sent.';
     case 'blotter_risk':return 'The assistant does not read risk results.';
     case 'blotter_risk_lens':return 'Risk results on the trade rows. The assistant does not read risk results.';
     case 'blotter_new_trade':return `A new trade is being started: no product is chosen yet. ${unsent}`;
@@ -117,7 +121,7 @@ export function changesContext(target:TargetContext,page:PageContext){
 export const targetAction=(target:{live:boolean;changesContext:boolean;unsaved:boolean;proposal?:boolean})=>target.live&&!target.changesContext&&!target.unsaved&&!target.proposal?'move':'go';
 
 const webPages:Record<string,string>={curves:'market',contract_definitions:'configuration',schedules:'schedules',power_tous:'power',reference_data:'reference',
-  parties:'parties',blotter:'futures',custom_curves:'custom-curves'};
+  parties:'parties',blotter:'futures',custom_curves:'custom-curves',jobs:'jobs'};
 // The web page a target opens: only one the assistant reads.
 export function webPage(page:string){if(!Object.hasOwn(webPages,page))throw inconsistent();return webPages[page];}
 
@@ -133,13 +137,14 @@ export class NavigationHistory{
 }
 
 const toolNames:Record<string,string>={read_current_page:'Read the page',read_market_data:'Read market data',read_trades:'Read trades',
-  read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',navigate:'Navigate'};
+  read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',read_jobs:'Read your jobs',navigate:'Navigate'};
 const reasons:Record<string,string>={tool_arguments_invalid:'the request was not one this tool accepts',result_too_large:'the result was larger than one read returns',
   page_not_supported:'the assistant does not read the page you asked from',tool_not_enabled:'this agent does not read the page you asked from',
   page_selection_unavailable:'what the page showed is not available in the pinned context',snapshot_missing:'it needs an As of date, and none was chosen',
   power_historical:'a historical view does not read current definitions',access_denied:'the agent’s access does not cover it',
   missing_curve:'that curve is not in the pinned market data',missing_observation:'market data it needs is missing',blotter_view:'that Blotter view is not available',
-  futures_trade:'that trade is not available in the pinned context',swap_trade:'that trade is not available in the pinned context',tool_failed:'the read failed'};
+  futures_trade:'that trade is not available in the pinned context',swap_trade:'that trade is not available in the pinned context',
+  job_not_found:'that job is not one of yours',jobs_current_only:'a historical view does not read current jobs',tool_failed:'the read failed'};
 // A step: the tool's name and, for a refusal or failure, why in plain words; a withheld earlier turn has a line of its own.
 export function stepLine(step:Step){
   if('withheld' in step)return 'An earlier answer was left out: what it read can no longer be read for you';

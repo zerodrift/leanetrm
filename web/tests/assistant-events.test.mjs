@@ -5,6 +5,7 @@ import {streamFrame,readEvents,newTurnView,applyEvent,streamOrder} from '../dist
 const turnId='7e1a0c3e-4b5d-4f6a-8b9c-0d1e2f3a4b5c',agentId='a1000000-0000-4000-8000-000000000001';
 const context={mode:'current',contextId:'c1000000-0000-4000-8000-000000000001',frameId:'f1000000-0000-4000-8000-000000000001'};
 const target={page:'curves',selection:{view:'curve',curve:'future'},context,kind:'record',label:'Curves & prices: curve future'};
+const jobTarget={page:'jobs',selection:{view:'history',job:'a7000000-0000-0000-0000-000000000003',page:null,before:null},context,kind:'record',label:'Jobs & Infrastructure: job history'};
 const usage={calls:2,uncachedInput:{count:120,unknownCalls:0},cacheRead:{count:0,unknownCalls:0},cacheWrite:{count:0,unknownCalls:0},
   output:{count:40,unknownCalls:0},reasoning:{count:4,unknownCalls:0},
   cost:[{currency:{catalogId:'e1000000-0000-4000-8000-000000000001',revisionId:'e2000000-0000-4000-8000-000000000002',code:'usd'},amount:'0.000542',unpricedCalls:0}]};
@@ -17,6 +18,7 @@ test('a stored event parses only under its fixed name, with its sequence, turn, 
   assert.deepEqual(frame('step','7',{ordinal:2,tool:'navigate',code:'tool_arguments_invalid'}).payload.code,'tool_arguments_invalid');
   assert.deepEqual(frame('step','3',{withheld:1}).payload,{withheld:1});
   assert.deepEqual(frame('navigation','8',{ordinal:3,target}).payload.target,target);
+  assert.deepEqual(frame('navigation','9',{ordinal:4,target:jobTarget}).payload.target,jobTarget);
   assert.deepEqual(frame('usage','9',usage).payload,usage);
   assert.deepEqual(frame('completed','10',{},{incomplete:false}),{sequence:10,turnId,kind:'completed',hidden:null,incomplete:false,payload:{}});
   assert.equal(frame('failed','11',{code:'limit_elapsed'},{incomplete:true}).payload.code,'limit_elapsed');

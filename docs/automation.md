@@ -102,6 +102,19 @@ exact-reference admission rules. It does not create a forward curve, publish a
 market close or perform valuation/risk. Operator provisioning and collection
 worker installation remain separate reviewed steps.
 
+## Page assistant reads
+
+The page assistant reads Jobs & Infrastructure under `ReadJobs` (D231, D233,
+[devops-assistant.md](devops-assistant.md)). Migration 0118 adds
+`automation.owned_jobs(page)` and `automation.owned_job_history(job, before)`, which
+return only jobs the reader owns, or for an agent's delegated context the jobs its
+delegator owns, a job manager's or operator's included. Another person's job is
+`job_not_found`. They return each job's terms, state, version, editability and runs,
+its audit actions and the terms of its command receipts. They never return service,
+worker, fence or lease fields, and the database holds no container output for them
+to read. They change nothing. The agent reader role holds `ReadJobs` and no
+permission that creates, changes or cancels a job.
+
 ## Identity and database boundaries
 
 Migrations 0035 and 0036 seed no workers, operators, profiles, credentials or jobs.

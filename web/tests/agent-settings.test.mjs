@@ -65,6 +65,7 @@ test("a version's rows state every field it was saved with, by name",()=>{
     ['Model one · model-one (Anthropic) · capability version 3 · no longer current','low','On','None','None']);
   // A role that no longer uses agents is still named as saved; an unknown tool or vendor cannot be shown.
   assert.equal(versionRows(version({allowedRoles:['viewer','trader']}),directory,instant)[6][1],'viewer (no longer uses agents), Trader');
+  assert.equal(versionRows(version({tools:['read_current_page','read_jobs']}),directory,instant)[5][1],'Read current page, Read jobs');
   for(const changes of [{tools:['read_everything']},{model:{...version().model,vendor:'unknown'}}])
     assert.throws(()=>versionRows(version(changes),directory,instant),/inconsistent/);
 });
