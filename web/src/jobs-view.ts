@@ -3,7 +3,7 @@ import {zonedInput} from './user-time.js';
 import {JobRequest} from './job-requests.js';
 import {setupPilotClose} from './pilot-close-view.js';
 import {setupPilotCloseReport} from './pilot-close-report.js';
-import {findJob} from './job-target.js';
+import {findJob,directoryPage} from './job-target.js';
 
 type Job={id:string;name:string;operation:string;operationName?:string;pilotReport?:{runId:string;state:string}|null;state:string;version:number;dueAt:string;expiresAt:string;intervalSeconds:number|null;timeZone:string;misfire:string;overlap:string;timeoutSeconds:number;maximumAttempts:number;profileId:string|null;profileVersion:number|null;profileName:string|null;canEdit:boolean;editReason:string|null;owner:string;mine:boolean;actions:string[];runs:{id?:string;state:string;startedAt:string;attempt:number;observation:string|null;errorCode:string|null}[]};
 type Node={clusterId:string;id:string;version:number;name:string;role:string;state:string;availability:string;cpuNano:number;memoryBytes:number;observedAt:string;stale:boolean;actions:string[]};
@@ -25,8 +25,10 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   function closeEditor(){selected=undefined;get<HTMLFormElement>('job-create').reset();for(const option of get('job-operation').querySelectorAll('[data-retained]'))option.remove();dueInput.clear();expiryInput.clear();editorStatus.textContent='';get('job-editor-title').textContent='New job';get('job-submit').textContent='Create job';get('job-submit').hidden=false;get('job-cancel-edit').hidden=true;get('job-create').hidden=!directory?.canCreate;get<HTMLDetailsElement>('job-editor').open=false;get('job-editor').hidden=!directory?.canCreate;fields();sync();}
   function closeCollectionEditor(){selectedCollection=undefined;get<HTMLFormElement>('collection-job-form').reset();get<HTMLDetailsElement>('collection-job-editor').open=false;get('collection-job-editor').hidden=true;get('collection-job-status').textContent='';get('collection-job-cadence').textContent='';sync();}
   function clear(){directory=undefined;closeEditor();closeCollectionEditor();pilotReport.reset();for(const id of ['jobs-table','job-runs','jobs-nodes','jobs-node-commands','collection-jobs-table'])get(id).replaceChildren();for(const id of ['jobs-page-count','collection-jobs-page-count'])get(id).textContent='';get<HTMLButtonElement>('jobs-previous').disabled=true;get<HTMLButtonElement>('jobs-next').disabled=true;get('jobs-infrastructure').textContent='Status unavailable.';}
-  function openEditor(job:Job){
-    if(options.busy()||!directory?.jobs.includes(job))return;
+  // A click opens a listed job's details while nothing else runs.
+  function openEditor(job:Job){if(!options.busy())showJob(job);}
+  function showJob(job:Job){
+    if(!directory?.jobs.includes(job))return;
     closeCollectionEditor();
     selected=job;get('job-create').hidden=false;get('job-editor').hidden=false;get<HTMLDetailsElement>('job-editor').open=true;
     get('job-editor-title').textContent=job.canEdit?'Edit job':'Job details';get('job-submit').textContent='Save job';get('job-submit').hidden=!job.canEdit;get('job-cancel-edit').hidden=false;
@@ -72,7 +74,7 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
     get('job-create').hidden=!selected&&!directory.canCreate;
     get('job-editor').hidden=!selected&&!directory.canCreate;
     get('jobs-page-count').textContent=`Showing ${directory.jobs.length} of ${directory.total} jobs — page ${directory.page+1}.`;
-    get<HTMLButtonElement>('jobs-previous').disabled=directory.page===0;get<HTMLButtonElement>('jobs-next').disabled=(directory.page+1)*100>=directory.total;
+    get<HTMLButtonElement>('jobs-previous').disabled=directory.page===0;get<HTMLButtonElement>('jobs-next').disabled=(directory.page+1)*directoryPage>=directory.total;
     get('jobs-scope').textContent=directory.manageAll?'You can manage all jobs in your authorized scope.':'Your jobs and schedules.';
     get('jobs-infrastructure').textContent=directory.infrastructure.state==='not_configured'?'Swarm is not configured for this workspace.':directory.infrastructure.observedAt?`Latest node snapshot ${options.instant(directory.infrastructure.observedAt)}.`:'No node observation is available.';
     renderRegularTable(get('jobs-nodes'),'jobs-nodes',options.identity(),['Node','Role','Health','Availability','CPUs','Memory (MiB)','Observed','Actions'],directory.infrastructure.nodes.map(n=>{
@@ -142,12 +144,11 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
     if(identity!==options.identity()||request!==generation||selected!==editing)throw Error('The job selection changed. Refresh before saving.');
     await mutate(editing?'jobs/update':'jobs/create',{...terms,dueAt,expiresAt,...target});
   });};
-  function sync(){pilotClose.sync();get<HTMLButtonElement>('jobs-previous').disabled=options.busy()||!directory||directory.page===0;get<HTMLButtonElement>('jobs-next').disabled=options.busy()||!directory||(directory.page+1)*100>=directory.total;get<HTMLButtonElement>('collection-jobs-previous').disabled=options.busy()||!directory||directory.collectionJobs.page===0;get<HTMLButtonElement>('collection-jobs-next').disabled=options.busy()||!directory||(directory.collectionJobs.page+1)*100>=directory.collectionJobs.total;for(const input of get<HTMLFormElement>('job-create').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=options.busy()||(input.id!=='job-cancel-edit'&&(!!pending.command||!!selected&&!selected.canEdit))||(!!selected&&['job-operation','job-profile'].includes(input.id));for(const input of get<HTMLFormElement>('collection-job-form').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=options.busy()||(input.id!=='collection-job-close'&&(!!pending.command||!selectedCollection?.canEdit));}
-  // Opens a job's details, as a navigation target names it, on the page of the directory that lists it: only a job the
-  // person can see here.
-  async function openJob(id:string){
-    const {job}=await findJob(id,async page=>{await load(page);if(!directory)throw Error('The job selection changed. Refresh before continuing.');return directory;});
-    openEditor(job);
+  function sync(){pilotClose.sync();get<HTMLButtonElement>('jobs-previous').disabled=options.busy()||!directory||directory.page===0;get<HTMLButtonElement>('jobs-next').disabled=options.busy()||!directory||(directory.page+1)*directoryPage>=directory.total;get<HTMLButtonElement>('collection-jobs-previous').disabled=options.busy()||!directory||directory.collectionJobs.page===0;get<HTMLButtonElement>('collection-jobs-next').disabled=options.busy()||!directory||(directory.collectionJobs.page+1)*directoryPage>=directory.collectionJobs.total;for(const input of get<HTMLFormElement>('job-create').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=options.busy()||(input.id!=='job-cancel-edit'&&(!!pending.command||!!selected&&!selected.canEdit))||(!!selected&&['job-operation','job-profile'].includes(input.id));for(const input of get<HTMLFormElement>('collection-job-form').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=options.busy()||(input.id!=='collection-job-close'&&(!!pending.command||!selectedCollection?.canEdit));}
+  // The job a navigation target names, on the page of the directory that lists it, loaded but not yet shown: only a job
+  // the person can see here. Following a target runs as one action, so its details open with showJob.
+  async function locateJob(id:string){
+    return (await findJob(id,async page=>{await load(page);if(!directory)throw Error('The job selection changed. Refresh before continuing.');return directory;})).job;
   }
-  return{load,openJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create','market/closes/register','infrastructure/availability','infrastructure/resolve'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
+  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create','market/closes/register','infrastructure/availability','infrastructure/resolve'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
 }

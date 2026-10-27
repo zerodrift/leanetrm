@@ -827,7 +827,8 @@ def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settle
         moved = True
     except RuntimeError as error:
         moved = 'job_owner_immutable' not in str(error)
-    check("a job's owner, tenant and workspace never change, even for the database owner, so a job read's access needs no per-job row",
+    check("an update that changes a job's owner, tenant or workspace is refused, the database owner's included, so a job read's access needs "
+          "no per-job row",
           not moved)
     jobs_agent = agent('jobs', tools=('read_current_page', 'read_jobs', 'navigate'))
     granted = grant(trader, jobs_agent)
@@ -848,7 +849,8 @@ def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settle
     recorded, results = steps(turn), answers(requests(since)[-1])
     listed, own = results['toolu_jobs_1'][0], results['toolu_jobs_2'][0]
     owned = set(query("SELECT coalesce(string_agg(j.id::text,','),'') FROM automation.jobs j JOIN security.agent_delegations d "
-                      f"ON d.delegator_id=j.owner_id WHERE d.id='{granted['id']}';").split(','))
+                      "ON(d.delegator_id,d.tenant_id,d.workspace_id)=(j.owner_id,j.tenant_id,j.workspace_id) "
+                      f"WHERE d.id='{granted['id']}';").split(','))
     later = results['toolu_jobs_6'][0]
     check('Read current page on Jobs & Infrastructure lists the delegator\'s own jobs, newest first, 25 to a page, never a job manager\'s '
           'other jobs, labeled as a current operational read',

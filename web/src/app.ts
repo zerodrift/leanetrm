@@ -825,8 +825,8 @@ async function showTarget(report:string,selection:Record<string,unknown>|null){
       await setPage('reference');referenceCategory();select('reference-table').value=table;
       $<HTMLInputElement>('reference-search').value=search;await loadReference(0,search);return;
     }
-    // A job's history opens its details on the page of the directory that lists it.
-    case 'jobs':await setPage('jobs');await jobs.openJob(String(selection.job));return;
+    // A job's history opens its details on the page of the directory that lists it, found before the page changes.
+    case 'jobs':{const job=await jobs.locateJob(String(selection.job));await setPage('jobs');jobs.showJob(job);return;}
     case 'parties':{
       const kind=String(selection.kind);
       if(![...select('party-kind').options].some(o=>o.value===kind))throw Error('That kind of party is not one this page shows.');

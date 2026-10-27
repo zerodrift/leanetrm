@@ -39,8 +39,8 @@ listed as future work in automation.md, and this design does not add them. The
 | --- | --- | --- |
 | Job terms and state | `automation.jobs` | Name, operation, state, version, next due, expiry, interval, timeout, attempts, profile name and version |
 | Runs (attempts) | `automation.runs` | Due instant, job version, attempt, state, started, deadline, finished, `error_code`, observation state, whether launch was prepared and the service removed |
-| Audit trail | `automation.audit` | Action (created, updated, paused, cancelled, claimed, finished…), actor, time, run, fence |
-| Command receipts | `automation.commands` | The terms each create, update or control request carried, and its outcome |
+| Audit trail | `automation.audit` | Action as stored (such as `created`, `pause`, `cancel`, `succeeded`, `failed`), sequence, time, run, and whether you, an agent, a service or another person acted; never the fence |
+| Command receipts | `automation.commands` | Whether each request created, updated or controlled the job, and its named schedule terms and target; never its request identity, a close's financial definition or the stored response |
 
 Each error code is shown with the fixed explanation the server keeps for it (one
 closed table, like the refusal texts of §7.3). The model never sees raw Docker
@@ -83,8 +83,9 @@ are not owned by a person, so the agent does not read or change them (§6).
 - **Source access.** Each read records the access `job_access` under `ReadJobs` in no
   catalog, so the publication and replay rechecks of §7.1 apply: a revoked grant or
   a lost permission or membership hides the answer. A job's owner, tenant and
-  workspace never change, which a trigger enforces even for the database owner
-  (`job_owner_immutable`), so no per-job access row is kept.
+  workspace never change: a trigger refuses any update that changes them
+  (`job_owner_immutable`), including the table owner's, though a superuser can still
+  disable triggers, so no per-job access row is kept.
 - **Page report.** `jobs` with Read jobs' input as its selection: the first page of
   the person's own jobs, or a job's history while its details are open. The page's
   own list can also show jobs a manager may see, so the report never names the

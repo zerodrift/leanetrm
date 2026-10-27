@@ -96,8 +96,9 @@ BEGIN
  EXECUTE replace(definition,before,'WHEN ''record'' THEN target->>''page'' IN(''curves'',''blotter'',''jobs'')');
 END $upgrade$;
 
--- A job's owner and scope never change, even for the database owner: a job read's access is the reader's ReadJobs in
--- the workspace, which holds only while the jobs it read stay the reader's.
+-- A job's owner and scope never change: the trigger refuses any update that changes them, the table owner's included,
+-- though a superuser can disable triggers. A job read's access is the reader's ReadJobs in the workspace, which holds
+-- only while the jobs it read stay the reader's.
 CREATE FUNCTION automation.guard_job_owner() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 BEGIN
  IF(NEW.owner_id,NEW.tenant_id,NEW.workspace_id) IS DISTINCT FROM(OLD.owner_id,OLD.tenant_id,OLD.workspace_id) THEN

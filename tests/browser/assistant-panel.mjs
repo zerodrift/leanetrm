@@ -452,4 +452,23 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
    `${shown('#custom-curves-result')}&&window.__requests.some(r=>r.path==='/api/custom-curves/preview'&&r.body.snapshotId===${JSON.stringify(workingFrame)})`);
   await click('#custom-curves-save');await check('saving the reviewed draft uses the person’s ordinary authoring operation',`${q('#custom-curves-state')}.textContent.includes('Draft')&&${q('#error')}.hidden`);
 
+  // A job's history target, arriving live, opens that job's details on Jobs & Infrastructure (docs/devops-assistant.md §3).
+  const jobsAgent=await publish(await create('Browser jobs guide '+stamp),['read_jobs','navigate']);
+  const owner=await sideSession(url,'trader'),now=Date.now();
+  const job=await owner.call('jobs/create',{requestId:crypto.randomUUID(),name:'Synthetic panel readiness '+stamp,operation:'worker_check',
+   dueAt:new Date(now+3600000).toISOString(),expiresAt:new Date(now+7200000).toISOString(),intervalSeconds:null,timeZone:'UTC',misfire:'run_once',
+   overlap:'forbid',timeoutSeconds:30,maximumAttempts:2,profileId:null,profileVersion:null});
+  await persona('trader');await click('#nav-market');
+  if(!await evaluate(`${q('#snapshot')}.value`)){await set('#snapshot',await evaluate(`[...${q('#snapshot')}.options].map(o=>o.value).find(Boolean)`));await wait(idle);}
+  await click('#nav-jobs');await wait(idle);
+  if(await evaluate(`${q('#assistant-launcher')}.hidden===false&&${q('#assistant-panel')}.hidden`))await click('#assistant-launcher');
+  await set('#assistant-agent',jobsAgent.id+':1');
+  await ask('Open my readiness job.');await wait(shown('#assistant-consent'));
+  await script({tools:[['toolu_jobs_panel_01','read_jobs',{view:'history',job:job.id,page:null,before:null}]]},
+   {tools:[['toolu_jobs_panel_02','navigate',{page:null,target:'n1'}]]},{text:'Here is the job.'});
+  await click('#assistant-allow');await wait(`${finished}&&${idle}`);
+  await check("a live job target opens that job's details on Jobs & Infrastructure, though following it runs as one action",
+   `${shown('#jobs-page')}&&${q('#job-editor')}.open&&${q('#job-name')}.value===${JSON.stringify('Synthetic panel readiness '+stamp)}`,
+   `[${shown('#jobs-page')},${q('#job-editor')}.open,${q('#job-name')}.value,${q('#error')}.textContent]`);
+
 }
