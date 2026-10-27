@@ -842,7 +842,7 @@ The tool set is fixed; each tool is switched on per agent version.
   `model_provider_invalid_request`, `model_provider_transport`,
   `model_provider_overloaded` or `context_window_exceeded`; after publication with
   `model_provider_stream_interrupted`; past the byte bound, never retried, with
-  `model_provider_response_too_large`. Input is never trimmed.
+  `model_provider_response_too_large`. Input is never trimmed to fit a limit.
 - **Cancellation.** Stop, Disable (provider or model), Replace key, Record terms (both
   switch the provider off), Retire, revocation, a profile switch and the session end (a
   worker timer set from the recorded end) move affected turns to cancel requested,
@@ -871,8 +871,8 @@ The tool set is fixed; each tool is switched on per agent version.
   grant lists every permission its sources used; otherwise a step line says it was
   withheld. Inclusion is recorded at ask, and included turns' sources join the source
   set and every recheck.
-- Each version's history window (`historyTurns`, 0 to 1,000) bounds the earlier turns
-  sent: an ask considers only the latest that many earlier turns of the conversation by
+- The asked version's history window (`historyTurns`, 0 to 1,000) bounds the earlier
+  turns sent, whichever versions answered them: an ask considers only the latest that many earlier turns of the conversation by
   ordinal, includes or withholds each of those as above, and records the included ones.
   A turn before the window is neither sent nor reported withheld; an included turn's
   sources still join the set, with those of the turns it included. A turn past the

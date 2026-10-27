@@ -971,3 +971,9 @@ of up to 1,001 turns. The migration refuses to run if any conversation already h
 more than 1,000 turns, whose next turn would otherwise send fewer than before. A
 conversation of an earlier version that later grows past 1,001 turns sends its latest
 1,000. The worker and runtime set are unchanged.
+
+The window that applies is the asked version's, over earlier turns of any version. It bounds
+what is sent, not the work of an ask: the source walk behind withholding and every
+recheck still follows included turns back through the conversation, so an ask's cost
+grows with the conversation's length. This has not been measured for very long
+conversations.
