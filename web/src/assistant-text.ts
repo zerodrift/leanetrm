@@ -1,10 +1,14 @@
-// How the panel draws an answer (docs/ai-assistant.md §10.1, D191): paragraphs, lists, emphasis and code, built from
-// text nodes only. Links, images, tables and markup stay literal text, and URLs are never linked, so text injected into
-// an answer cannot carry data out.
+// How the panel draws an answer (docs/ai-assistant.md §10.1, D191, D247): paragraphs, lists, tables, emphasis and code,
+// built from text nodes only. Links, images and markup stay literal text, and URLs are never linked, so text injected
+// into an answer cannot carry data out.
 export type Inline={kind:'text'|'emphasis'|'strong'|'code';text:string};
-export type Block={kind:'paragraph';lines:Inline[][]}|{kind:'list';ordered:boolean;items:Inline[][]}|{kind:'code';text:string};
+export type Block={kind:'paragraph';lines:Inline[][]}|{kind:'list';ordered:boolean;items:Inline[][]}|{kind:'code';text:string}
+  |{kind:'table';header:Inline[][];rows:Inline[][][]};
 
 const bullet=/^ {0,3}[-*+][ \t]+(.*)$/,numbered=/^ {0,3}\d{1,9}[.)][ \t]+(.*)$/,fence=/^ {0,3}```/;
+const piped=/^ {0,3}\|.*\|[ \t]*$/,separator=/^:?-+:?$/;
+// A pipe-table line's cells, trimmed; the pipes at either end open and close the row.
+const cells=(line:string)=>line.trim().slice(1,-1).split('|').map(cell=>cell.trim());
 
 // An answer's blocks: paragraphs split on blank lines, keeping their single line breaks; runs of bulleted or numbered
 // items; and fenced code, kept exactly and running to the end while its fence is still open, as it is mid-stream.
@@ -20,6 +24,17 @@ export function answerBlocks(text:string):Block[]{
       blocks.push({kind:'code',text:code.join('\n')});continue;
     }
     if(!line.trim()){close();continue;}
+    // A table is a header row, a separator row of dashes for each column, and rows of the header's width; anything
+    // else stays text.
+    if(piped.test(line)&&piped.test(lines[i+1]??'')&&cells(lines[i+1]).every(cell=>separator.test(cell))&&cells(lines[i+1]).length===cells(line).length){
+      const width=cells(line).length;let end=i+2;
+      while(end<lines.length&&piped.test(lines[end]))end++;
+      if(lines.slice(i+2,end).every(row=>cells(row).length===width)){
+        close();
+        blocks.push({kind:'table',header:cells(line).map(inlines),rows:lines.slice(i+2,end).map(row=>cells(row).map(inlines))});
+        i=end-1;continue;
+      }
+    }
     const item=bullet.exec(line)??numbered.exec(line);
     if(item){
       const ordered=!bullet.test(line);
@@ -69,6 +84,12 @@ export function renderBlocks(blocks:Block[],document:Document){
   };
   for(const block of blocks){
     if(block.kind==='code'){const pre=document.createElement('pre'),code=document.createElement('code');code.textContent=block.text;pre.append(code);fragment.append(pre);continue;}
+    if(block.kind==='table'){
+      const table=document.createElement('table'),head=document.createElement('thead'),body=document.createElement('tbody');
+      const row=(cellsOf:Inline[][],tag:'th'|'td')=>{const tr=document.createElement('tr');for(const cell of cellsOf){const node=document.createElement(tag);spans(node,cell);tr.append(node);}return tr;};
+      head.append(row(block.header,'th'));for(const cellsOf of block.rows)body.append(row(cellsOf,'td'));
+      table.append(head,body);fragment.append(table);continue;
+    }
     if(block.kind==='list'){
       const list=document.createElement(block.ordered?'ol':'ul');
       for(const item of block.items){const li=document.createElement('li');spans(li,item);list.append(li);}

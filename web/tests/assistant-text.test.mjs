@@ -51,3 +51,18 @@ test('a line longer than 2,000 characters stays text, so a long answer draws in 
   assert.deepEqual(inlines(long),[text(long)]);
   assert.equal(inlines('*a* '.repeat(499)).filter(s=>s.kind==='emphasis').length,499);
 });
+
+test('a table with a header, a separator row and rows of its width becomes a table of text cells',()=>{
+  const answer='Unvalued positions:\n\n| Trade | Memo |\n|---|:--:|\n| TR-000013 | **Flat** physical |\n| TR-000014 | [link](https://example.invalid) <b>x</b> |\n\nSource: the Blotter.';
+  assert.deepEqual(answerBlocks(answer),[
+    {kind:'paragraph',lines:[[text('Unvalued positions:')]]},
+    {kind:'table',header:[[text('Trade')],[text('Memo')]],rows:[
+      [[text('TR-000013')],[{kind:'strong',text:'Flat'},text(' physical')]],
+      [[text('TR-000014')],[text('[link](https://example.invalid) <b>x</b>')]]]},
+    {kind:'paragraph',lines:[[text('Source: the Blotter.')]]}]);
+});
+
+test('pipe lines without a separator row, or with a row of another width, stay literal text',()=>{
+  assert.deepEqual(answerBlocks('| a | b |\n| 1 | 2 |'),[{kind:'paragraph',lines:[[text('| a | b |')],[text('| 1 | 2 |')]]}]);
+  assert.deepEqual(answerBlocks('| a | b |\n|---|---|\n| 1 |'),[{kind:'paragraph',lines:[[text('| a | b |')],[text('|---|---|')],[text('| 1 |')]]}]);
+});
