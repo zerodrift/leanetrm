@@ -1,5 +1,6 @@
 """Bounded PPA authoring, directory and retained schedule inspection checks."""
 from copy import deepcopy
+import json
 from uuid import uuid4
 from preview_client import PreviewClient
 from preview_fixture import trade_booking
@@ -183,6 +184,41 @@ def run_checks(url, query, manifest, **_):
     mixed_sources.update(operationId=str(uuid4()),bookId=books[1])
     mixed_sources['terms']['memberships'][0]['side']['quantity']=deepcopy(profile_terms(manifest)['memberships'][0]['side']['quantity'])
     independent_sources_trade=client.call('ppa/book',mixed_sources)['tradeId']
+    check_unpriced_blotter(client,query,frames)
     return {'overdue':{'tradeId':past_trade,'bookId':overdue_book,'frameId':overdue_frame['id'],'frameAt':overdue_frame['at'],'knownAt':overdue_known},
             'independentSources':{'tradeId':independent_sources_trade,'bookId':books[1]},'baseFrameId':frame,'baseFrameAt':next(f['at'] for f in frames if f['id']==frame),
             'alternateFrameId':other_frame,'alternateBundle':bundle,'mixedBookIds':books,'mixedTradeIds':[trade,second['tradeId'],other_trade,volume_trade]}
+
+
+def check_unpriced_blotter(client,query,frames):
+    """A PPA the selected market data cannot price is listed as not valued, with the reason, and the Blotter still values the rest."""
+    books=json.loads(query("SELECT json_agg(DISTINCT book_id ORDER BY book_id) FROM trading.ppa_trade_revisions;"))
+    def refusal(candidate,book):
+        catalog=client.call('ppa/catalog',{'snapshotId':candidate['id']})
+        preview=dict(snapshotId=candidate['id'],definitionRevisionId=catalog['definitions']['revisionId'],referenceCatalogId=catalog['reference']['catalogId'],
+                     referenceRevisionId=catalog['reference']['revisionId'],scope='books',selectedIds=[book],explicitSubset=False,terms=None,quantity=None,
+                     coverageFrom=None,coverageTo=None,knownAt=catalog['knownAt'],pendingActuals='estimate_until_actual_v1',detailMonths=[])
+        try:client.call('ppa/preview',preview);return None
+        except AssertionError as priced_not:
+            if ': expected 200, got 422: ' not in str(priced_not):raise
+            return client.call('ppa/preview',preview,expected=422)['code']
+    # The PPA engine itself must refuse the book at that close, so the refusal is the market data's, not the Blotter's.
+    found=next(((f['at'],book) for f in sorted(frames,key=lambda f:f['at']) if not f.get('ppaBundle')
+                for book in books if refusal(f,book)=='interval_block_coverage'),None)
+    assert found, 'some close must have no price for some PPA book'
+    at,refused=found
+    snapshot=next(f['id'] for f in client.call('workspace')['frames'] if f['at']==at and not f.get('ppaBundle'))
+    def blotter(bookIds):
+        view={'mode':'trades','bookIds':bookIds,'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}
+        read=client.call('trading/workspace',{'context':{'snapshotId':snapshot,'convention':'trading_workspace_v1','knowledgeMode':'current'},
+                                               'view':view,'bookingCatalog':'directory'})['blotter']
+        return read,{(r['tradeId'],r['bindingId']):r for r in read['holdings']}
+    everything,rows=blotter([])
+    listed=[r for r in rows.values() if r['bookId']==refused and r['instrumentType']=='ppa']
+    assert any(r['instrumentType']=='ppa' and r['presentValue'] is not None for r in rows.values() if r['bookId']!=refused), 'another PPA must still be valued'
+    assert listed and all(r['unavailableReason']=='unpriced_delivery' and r['presentValue'] is None and r['completePv'] is None for r in listed), listed
+    without,rest=blotter([b for b in json.loads(query("SELECT json_agg(id ORDER BY id) FROM trading.books;")) if b!=refused])
+    assert {k:v for k,v in rows.items() if v['bookId']!=refused}==rest, 'the other books must read as they do without the refused one'
+    # unvaluedPositions counts trades.
+    assert everything['unvaluedPositions']==without['unvaluedPositions']+len({r['tradeId'] for r in listed}), (everything['unvaluedPositions'],without['unvaluedPositions'])
+    print('PASS PPA UI: a PPA the market data cannot price is listed unvalued with its reason, and the rest read as they do without it',flush=True)

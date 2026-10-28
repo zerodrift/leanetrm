@@ -14,6 +14,11 @@ test('a PPA booked under other reference or definition versions than the close r
   assert.throws(()=>valuationReason('other_definition_versions',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
  assert.throws(()=>valuationReason('source_expired','ppa'),{message:'The Blotter returned an unknown valuation status.'});
 });
+test('a PPA whose delivery the close cannot price reads in plain words, and only for a PPA',()=>{
+ assert.equal(valuationReason('unpriced_delivery','ppa'),'No price for part of its delivery at this close');
+ for(const instrumentType of ['future','financial_swap','heat_rate'])
+  assert.throws(()=>valuationReason('unpriced_delivery',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
+});
 test('a status or instrument the Blotter does not define is refused, never shown as valued or as another reason',()=>{
  for(const code of ['index_fixing_missing','','toString','__proto__',undefined,null])
   assert.throws(()=>valuationReason(code,'future'),{message:'The Blotter returned an unknown valuation status.'});

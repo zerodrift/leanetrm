@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -9,11 +10,18 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.Api;
 
 // A report projection of the same independent side schedules as PPA pricing. D246: a trade booked under other
-// definition or reference versions than the selected market data is listed with its booked facts and no value.
+// definition or reference versions than the selected market data is listed with its booked facts and no value, and
+// so is a trade whose delivery the selected market data cannot price (D252).
 internal static class PpaBlotter
 {
     internal const string PendingActuals="estimate_until_actual_v1";
     internal const string OtherVersions="other_definition_versions";
+    internal const string UnpricedDelivery="unpriced_delivery";
+    // The refusals that say the selected market data has no price for part of a trade's delivery: no block of its curve,
+    // no interval of a marked curve or no due actual covers it, or the frame leaves out a projection it needs. Any other
+    // refusal, such as an ambiguous definition or a data integrity error, still refuses the whole read.
+    private static readonly FrozenSet<string> Unpriceable=new[]{"interval_block_coverage","interval_curve_coverage","interval_actual_missing"}.ToFrozenSet();
+    private const string MissingCurveView="missing_curve_view";
     internal const string ReferenceNotVisible="reference_not_visible_at_close";
     internal static async Task<ImmutableArray<JsonObject>> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,
         InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
@@ -27,12 +35,44 @@ internal static class PpaBlotter
         var scope=await PpaPortfolio.Scope(connection,data,frame,context,selected,ct);
         // A trade with any binding booked under other versions is listed whole, so no total holds part of a trade.
         var other=scope.Bindings.Where(b=>!PpaPortfolio.SameVersions(data,b)).Select(b=>b.Id("trade_id")).ToHashSet();
-        var prepared=await PpaPortfolio.Prepare(connection,data,frame,context,scope.Without(other),PendingActuals,SchedulePreview.ParseAt(context.KnownAt),ct);
-        if(prepared is null&&other.Count==0)return [];
         var facts=await Facts(connection,database.Manifest.CatalogId,scope.Heads,ct);
-        var result=ImmutableArray.CreateBuilder<JsonObject>();
-        if(prepared is not null)
+        var priced=scope.Without(other);
+        var unpriced=new HashSet<Guid>();var isolated=false;
+        ImmutableArray<JsonObject> valued;
+        while(true)
         {
+            try{valued=await Valued(priced.Without(unpriced));break;}
+            // A frame without a projection names the trades that need it.
+            catch(CloseRiskInputsException missing) when(Missing(missing) is {Count:>0} trades&&!trades.IsSubsetOf(unpriced)){unpriced.UnionWith(trades);}
+            // One trade the market data cannot price must not hide the others: once, each is tried on its own to find which
+            // it is, and the rest are valued together again. A refusal no single trade explains still refuses the read.
+            // This costs a preparation per trade of the read, after a refused read only, within the request's deadline.
+            catch(MarketDataException refusal) when(!isolated&&Unpriceable.Contains(refusal.Code))
+            {
+                isolated=true;
+                foreach(var trade in priced.Heads.Keys.Where(t=>!unpriced.Contains(t)))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    try{await Valued(priced.Without(priced.Heads.Keys.Where(t=>t!=trade).ToHashSet()));}
+                    catch(MarketDataException alone) when(Unpriceable.Contains(alone.Code)){unpriced.Add(trade);}
+                    catch(CloseRiskInputsException alone) when(Missing(alone).Contains(trade)){unpriced.Add(trade);}
+                }
+            }
+        }
+        var result=ImmutableArray.CreateBuilder<JsonObject>();
+        result.AddRange(valued);
+        if(other.Count>0)result.AddRange(await Unvalued(connection,database.Manifest.CatalogId,scope,other,OtherVersions,facts,books,ct));
+        if(unpriced.Count>0)result.AddRange(await Unvalued(connection,database.Manifest.CatalogId,scope,unpriced,UnpricedDelivery,facts,books,ct));
+        return result.ToImmutable();
+
+        // The trades a refusal names as needing a projection the frame leaves out, or none if it names any other reason.
+        static IReadOnlySet<Guid> Missing(CloseRiskInputsException refusal)=>refusal.AffectedBindings.All(b=>b.Reason==MissingCurveView)
+            ?refusal.AffectedBindings.Select(b=>b.TradeId).ToHashSet():new HashSet<Guid>();
+        async Task<ImmutableArray<JsonObject>> Valued(PpaScope valuedScope)
+        {
+            var prepared=await PpaPortfolio.Prepare(connection,data,frame,context,valuedScope,PendingActuals,SchedulePreview.ParseAt(context.KnownAt),ct);
+            if(prepared is null)return [];
+            var rows=ImmutableArray.CreateBuilder<JsonObject>();
             var session=prepared.Receipt.Instruments.IsEmpty?throw new PreviewDeniedException():prepared.Portfolio.Setup.Interval!.Session(prepared.Market);
             foreach(var binding in prepared.Bindings)
             {
@@ -50,11 +90,10 @@ internal static class PpaBlotter
                 row["presentValue"]=measures.ValueExcludingOverdue.ToExactString();row["unavailableReason"]=null;
                 row["completePv"]=measures.CompletePv?.ToExactString();
                 row["overdueKnown"]=measures.OverdueKnownBalance.ToExactString();row["overdueEstimated"]=measures.OverdueEstimated.ToExactString();
-                result.Add(row);
+                rows.Add(row);
             }
+            return rows.ToImmutable();
         }
-        if(other.Count>0)result.AddRange(await Unvalued(connection,database.Manifest.CatalogId,scope,other,facts,books,ct));
-        return result.ToImmutable();
     }
     // Each listed trade's booking facts and the exact revisions of its parties.
     private static async Task<Dictionary<Guid,JsonElement>> Facts(NpgsqlConnection connection,Guid catalog,ImmutableDictionary<Guid,JsonElement> heads,CancellationToken ct)
@@ -75,9 +114,9 @@ internal static class PpaBlotter
         return facts;
     }
     private static JsonElement Book(ImmutableArray<JsonElement> books,JsonElement head)=>books.Single(b=>b.Id("id")==head.Id("book_id"));
-    // The positions of trades booked under other versions. Their facts are stated under the versions each was booked
-    // with, never translated into the selected ones. Each is its own market: no curves are read for it, so nothing groups it with another.
-    private static async Task<IEnumerable<JsonObject>> Unvalued(NpgsqlConnection connection,Guid catalog,PpaScope scope,IReadOnlySet<Guid> trades,
+    // The positions of trades the Blotter does not value, for the reason given. Their facts are stated under the versions each was
+    // booked with, never translated into the selected ones. Each is its own market: no curves are read for it, so nothing groups it with another.
+    private static async Task<IEnumerable<JsonObject>> Unvalued(NpgsqlConnection connection,Guid catalog,PpaScope scope,IReadOnlySet<Guid> trades,string reason,
         Dictionary<Guid,JsonElement> facts,ImmutableArray<JsonElement> books,CancellationToken ct)
     {
         var bindings=scope.Bindings.Where(b=>trades.Contains(b.Id("trade_id"))).ToArray();
@@ -116,7 +155,7 @@ internal static class PpaBlotter
                 (name.Text("commodity"),name.Text("commodityName")),
                 PpaCompiler.Day(booked.Delivery.From),PpaCompiler.Day(booked.Delivery.To),new(binding.Instant("coverage_from"),binding.Instant("coverage_to")),
                 binding.Number("quantity"),name.Text("unit"),new(revision,booked.UnitQuantity),new(revision,booked.Currency),name.Text("currency")));
-            row["presentValue"]=null;row["unavailableReason"]=OtherVersions;row["completePv"]=null;row["overdueKnown"]=null;row["overdueEstimated"]=null;
+            row["presentValue"]=null;row["unavailableReason"]=reason;row["completePv"]=null;row["overdueKnown"]=null;row["overdueEstimated"]=null;
             rows.Add(row);
         }
         return rows;

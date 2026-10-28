@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseBlotterViews,readSavedViews,newBlotterView,pivotColumns,withoutColumns,deskFields} from '../dist/blotter-layout.js';
+import {parseBlotterViews,readSavedViews,newBlotterView,sidebarViews,pivotColumns,withoutColumns,deskFields} from '../dist/blotter-layout.js';
 import {guardedCsv} from '../dist/csv-export.js';
 test('named views retain layout and filters without retaining market inputs or permissions',()=>{
  const view={...newBlotterView(),name:'Book review',columns:['book','contract','executionPnl'],query:'Jan',columnFilters:{book:'Book A'}};
@@ -50,16 +50,24 @@ test('columns shown for one read leave no trace in the layout a view saves',()=>
 });
 
 const earlierVersion='Saved blotter view is from an earlier version.';
-// What earlier releases stored: version 3 had no row grouping, version 2 no plot style, version 1 no grid, column split or chart.
+// What earlier releases stored: version 4 had no sidebar choice, version 3 no row grouping, version 2 no plot style, version 1 no grid,
+// column split or chart.
 const stored=(()=>{
- const {rowGroup,...v3}={...newBlotterView(),version:3};
+ const {sidebar,...v4}={...newBlotterView(),version:4};
+ const {rowGroup,...v3}={...v4,version:3};
  const v2={...v3,version:2,chart:{visible:false,measure:'quantity'}};
  const {splitBy,grid,chart,...v1}={...v2,version:1};
- return [v1,v2,v3];
+ return [v1,v2,v3,v4];
 })();
-test('a new view groups its trade rows by book',()=>{
+test('a new view groups its trade rows by book and is not listed in the sidebar',()=>{
  const view=newBlotterView();
- assert.equal(view.version,4);assert.equal(view.rowGroup,'book');
+ assert.equal(view.version,5);assert.equal(view.rowGroup,'book');assert.equal(view.sidebar,false);
+});
+test('a saved view states whether the sidebar lists it, and the sidebar lists those views in their saved order',()=>{
+ const listed={...newBlotterView(),name:'Gas desk',sidebar:true},unlisted={...newBlotterView(),name:'Scratch'},power={...newBlotterView(),name:'Power desk',sidebar:true};
+ assert.deepEqual(parseBlotterViews(JSON.stringify([listed,unlisted])),[listed,unlisted]);
+ assert.deepEqual(sidebarViews([listed,unlisted,power]),['Gas desk','Power desk']);
+ for(const sidebar of [undefined,null,'true',1])assert.throws(()=>parseBlotterViews(JSON.stringify([{...newBlotterView(),sidebar}])),{message:'Invalid saved blotter view.'});
 });
 test('a saved view records its desk grouping, or none for a flat list',()=>{
  for(const rowGroup of ['book','market','instrumentType',null]){
@@ -75,9 +83,9 @@ test('a desk grouping the Blotter does not offer is refused, and so is leaving i
 test('views saved in an earlier format are unavailable and never migrated',()=>{
  for(const old of stored)assert.throws(()=>parseBlotterViews(JSON.stringify([old])),{message:earlierVersion});
  // Whatever else the layout holds, the version it claims decides.
- assert.throws(()=>parseBlotterViews(JSON.stringify([{...newBlotterView(),version:3}])),{message:earlierVersion});
+ assert.throws(()=>parseBlotterViews(JSON.stringify([{...newBlotterView(),version:4}])),{message:earlierVersion});
  // A version this release does not know is invalid, not an earlier one.
- for(const version of [0,5,'4',null])assert.throws(()=>parseBlotterViews(JSON.stringify([{...newBlotterView(),version}])),{message:'Invalid saved blotter view.'});
+ for(const version of [0,6,'5',null])assert.throws(()=>parseBlotterViews(JSON.stringify([{...newBlotterView(),version}])),{message:'Invalid saved blotter view.'});
 });
 test('the saved views a person sees are the current ones, with the earlier ones named as unavailable',()=>{
  const current={...newBlotterView(),name:'Current review'};
@@ -85,7 +93,7 @@ test('the saved views a person sees are the current ones, with the earlier ones 
  assert.deepEqual(readSavedViews([earlier[0],current,...earlier.slice(1)]),{views:[current],earlier:earlier.map(v=>v.name)});
  // Any other layout this release cannot read still fails the whole read.
  assert.throws(()=>readSavedViews([current,{...newBlotterView(),name:'Broken',rowGroup:'portfolio'}]),{message:'Invalid saved view choices.'});
- assert.throws(()=>readSavedViews([{...newBlotterView(),version:5}]),{message:'Invalid saved blotter view.'});
+ assert.throws(()=>readSavedViews([{...newBlotterView(),version:6}]),{message:'Invalid saved blotter view.'});
 });
 test('a pivot by instrument type lists each of its columns once and saves as a view',()=>{
  assert.deepEqual(pivotColumns(['instrumentType','book'],['tradeCount']),['instrumentType','book','tradeCount','unit','currency']);

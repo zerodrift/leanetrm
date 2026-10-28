@@ -770,11 +770,12 @@ and idempotent operation identity. Previous states remain read-only. Book moves
 and amendments preserve stable trade references; reusable instruments have their
 own references. UUIDs remain relationship keys. New table layouts show references.
 
-Saved Blotter views are layout version 4, the only version the application saves or reads
+Saved Blotter views are layout version 5, the only version the application saves or reads
 (`blotter-layout.ts`, `TableViews.Validate`). Besides the grid, column split and chart choices
 it records `rowGroup`, how trade rows are grouped: `book` (what a new view starts with),
-`market`, `instrumentType`, or `null` for a flat list. Pivot views keep their own `groupBy`. Nothing is
-migrated. The API refuses to save a layout of versions 1 to 3, or of any version it does not
+`market`, `instrumentType`, or `null` for a flat list, and `sidebar`, whether the sidebar lists
+the view under the Blotter (D251). Pivot views keep their own `groupBy`. Nothing is
+migrated. The API refuses to save a layout of versions 1 to 4, or of any version it does not
 know, with `table_view`. A stored view from an earlier version appears in the saved-view list as
 `<name> · Earlier format · save again`: choosing it explains and applies nothing, saving a view
 under its name replaces it, and Delete view removes it. A stored view that fails to read for any
@@ -2260,6 +2261,9 @@ The Blotter lists PPA bookings. One booked under other definition or reference
 versions than the selected close is listed as not valued with its booked facts, and
 whole-book consumers refuse it (D246). Eight Blotter checks in the PPA portfolio
 check read both, and a Blotter read without access to its reference catalog is refused.
+A PPA whose delivery the selected market data cannot price is listed as not valued with
+`unpriced_delivery`, and the rest of the read is priced as without it (D252); the PPA
+UI check reads a book the PPA engine itself refuses at that close.
 
 Verification passes 44 durable-storage checks, 12 temporal-storage checks, three
 whole-book consumer guards, 18 basic HTTP checks, 43 independent economic HTTP

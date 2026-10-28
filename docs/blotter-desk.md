@@ -151,6 +151,9 @@ returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
   is listed as **Not valued** · "Booked under other reference data versions",
   with its booked facts under its own versions (D246). Risk runs still refuse a
   scope that holds one.
+- A PPA whose delivery the selected market data has no price for is listed as **Not valued** ·
+  "No price for part of its delivery at this close", and the other positions of the
+  read are valued as without it (D252).
 
 ## Desk layout
 

@@ -19,7 +19,7 @@ import {contractPositions,deltaLadder,ladderExport,type LadderCell,type LadderVa
 import {pivotMatrix,pivotChartPanels,groupLabel,type PivotGroup} from './analytics-model.js';
 import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js';
-import {isPriceMeasure,priceMeanPolicy,blotterColumns,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
+import {isPriceMeasure,priceMeanPolicy,blotterColumns,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,sidebarViews,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
@@ -70,6 +70,8 @@ const curvesPerShapeRead=64;
 export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;notice:(message:string)=>void;
   // The definition revision of the curves the selected close prices; positions of another revision get no shape from it.
   definitionRevision:()=>string;
+  // The saved views the person lists in the sidebar, and the one the Blotter shows, whenever the saved views are read or the shown one changes.
+  onViews:(listed:string[],shown:string|null)=>void;
   // Whether Curves & prices lists a market, and opens it with one of its contracts' price history shown when a contract is named.
   curveListed:(curve:string)=>boolean;openCurve:(curve:string,contractId:string|null)=>Promise<void>;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}};
   // What the page reports of itself has changed: the panel moved to another mode, or its form was closed, or the lens changed.
@@ -286,7 +288,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // A view keeps the layout of its own columns: the Risk lens draws others, whose layout it never keeps.
   function captureLayout(){captureFilters();if(table?.ready()&&!tableColumns.includes('riskShock'))view.grid=withoutColumns(table.layout(),transientKeys);}
   function readView():BlotterView{
-    captureLayout();const next=structuredClone(view);next.mode=field('blotter-mode').value as BlotterView['mode'];
+    captureLayout();const next=structuredClone(view);next.mode=field('blotter-mode').value as BlotterView['mode'];next.sidebar=get<HTMLInputElement>('blotter-sidebar').checked;
     if(get<HTMLSelectElement>('blotter-books').options.length)next.bookIds=selected('blotter-books');
     if(get<HTMLSelectElement>('blotter-portfolios').options.length)next.portfolioIds=selected('blotter-portfolios');
     next.rowGroup=(field('blotter-row-group').value||null) as RowGroup;
@@ -310,6 +312,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     workspace.pivot(view.groupBy,view.measures,view.splitBy);get<HTMLInputElement>('blotter-show-chart').checked=view.chart.visible;field('blotter-chart-measure').value=view.chart.measure;field('blotter-chart-kind').value=view.chart.kind;
     get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.plotKind===view.chart.kind)));
     choose('blotter-saved',[...savedViews.map(v=>({id:v.name,name:v.name})),...earlierViews.map(name=>({id:name,name:`${name} · ${earlierFormatLabel}`}))],field('blotter-saved').value||draftBase?.name||'','Current view · not saved');
+    get<HTMLInputElement>('blotter-sidebar').checked=view.sidebar;
+    if(viewsLoaded)options.onViews(sidebarViews(savedViews),draftBase?.name??null);
   }
   async function layoutApi<T>(path:string,body?:unknown):Promise<T>{
     try{return await api<T>(path,body);}catch(error){
@@ -859,12 +863,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     view=structuredClone(saved.layout);viewControls();field('blotter-saved').value=next.name;text('blotter-view-note','Saved to your account. Dates and market inputs are selected separately.');table=undefined;workspace.closeMenus();await load();
   });
   // An earlier-format view is named so it can be saved again under its name, and explained as a notice, not an error.
-  field('blotter-saved').onchange=()=>guarded(async()=>{const name=field('blotter-saved').value;if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}const saved=savedViews.find(v=>v.name===name);if(!saved)return;draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;viewControls();workspace.closeMenus();await load();},()=>{field('blotter-saved').value=draftBase?.name??'';});
+  // A saved view the person chooses becomes the view the Blotter reads, the base of its next save.
+  function useSaved(saved:BlotterView){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;field('blotter-saved').value=view.name;viewControls();}
+  field('blotter-saved').onchange=()=>guarded(async()=>{const name=field('blotter-saved').value;if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}const saved=savedViews.find(v=>v.name===name);if(!saved)return;useSaved(saved);workspace.closeMenus();await load();},()=>{field('blotter-saved').value=draftBase?.name??'';});
   get('blotter-views-reload').onclick=()=>guarded(async()=>{
     const name=field('blotter-saved').value;
     await loadViews();
     const saved=savedViews.find(v=>v.name===name);
-    if(saved){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;viewControls();await load();}
+    if(saved){useSaved(saved);await load();}
     text('blotter-view-note',saved?'The selected account layout has been reloaded.':'Saved-view list refreshed. Choose a view to restore it.');
   });
   get('blotter-delete').onclick=()=>void act(async()=>{const name=field('blotter-saved').value;if(!name)throw Error('Choose a saved view to delete.');await layoutApi('table-views/blotter/delete',{name,expectedVersion:draftBase?.name===name?draftBase.version:versions.get(name)});if(draftBase?.name===name)draftBase=undefined;savedViews=savedViews.filter(v=>v.name!==name);earlierViews=earlierViews.filter(n=>n!==name);versions.delete(name);viewControls();field('blotter-name').value='';text('blotter-view-note','Saved view deleted. The displayed data is unchanged.');});
@@ -901,6 +907,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
   function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
   return {load,reset,sync,show,
+    // The person's saved views, read for the sidebar when they are not read yet.
+    async views(){restore();if(!viewsLoaded)await loadViews();},
+    // Shows the saved view a sidebar entry names, read afresh with the other saved views; the page then reads the Blotter.
+    async openView(name:string){
+      restore();await loadViews();
+      const saved=savedViews.find(v=>v.name===name);if(!saved)throw Error(`The saved view ${name} is no longer saved to your account.`);
+      useSaved(saved);
+    },
     // A live correction reads the desk again, a position or new trade in the panel with it unless the person has edits in it, and the risk
     // report at the corrected inputs, carrying a setup's choices over; it clears a risk run with a note. No live view can book, so no form of
     // a new trade is held while corrections arrive.

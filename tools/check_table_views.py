@@ -14,14 +14,16 @@ def run_checks(url, query):
     def client(profile):
         c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': profile}); return c
     trader = client('trader'); other_browser = client('trader'); viewer = client('viewer')
-    layout = dict(version=4, name='Account view', mode='trades', rowGroup='book', columns=['book','quantity','unit'],
+    layout = dict(version=5, name='Account view', sidebar=False, mode='trades', rowGroup='book', columns=['book','quantity','unit'],
                   bookIds=[], portfolioIds=[], groupBy=[], measures=[], query='Jan', columnFilters={}, splitBy=[],
                   grid=dict(order=[], widths={}, sort=[]), chart=dict(visible=False, measure='quantity', kind='bar'))
     check('account starts without saved layouts', trader.call('table-views/blotter') == [])
     saved = trader.call('table-views/blotter', {'layout': layout, 'expectedVersion': None})
     check('layout follows account into a separate browser session', other_browser.call('table-views/blotter') == [saved])
     trader.call('table-views/blotter', {'layout': {**layout, 'snapshotId': str(uuid4())}, 'expectedVersion': saved['version']}, expected=422)
-    earlier = {key: value for key, value in layout.items() if key != 'rowGroup'}
+    version4 = {key: value for key, value in layout.items() if key != 'sidebar'}
+    trader.call('table-views/blotter', {'layout': {**version4, 'version': 4}, 'expectedVersion': None}, expected=422)
+    earlier = {key: value for key, value in version4.items() if key != 'rowGroup'}
     trader.call('table-views/blotter', {'layout': {**earlier, 'version': 3}, 'expectedVersion': None}, expected=422)
     trader.call('table-views/blotter', {'layout': {**layout, 'rowGroup': 'portfolio'}, 'expectedVersion': saved['version']}, expected=422)
     check('only the current layout version is saved, with a desk grouping the Blotter offers', trader.call('table-views/blotter') == [saved])
@@ -46,7 +48,7 @@ def run_checks(url, query):
           listed['Earlier view']['version'] == earlier_version and listed['Earlier view']['layout']['version'] == 3 and 'rowGroup' not in listed['Earlier view']['layout'])
     trader.call('table-views/blotter', {'layout': {**layout, 'name': 'Earlier view'}, 'expectedVersion': None}, expected=409)
     replaced = trader.call('table-views/blotter', {'layout': {**layout, 'name': 'Earlier view'}, 'expectedVersion': earlier_version})
-    check('saving it again under the version it was stored with replaces it', replaced['version'] != earlier_version and replaced['layout']['version'] == 4 and
+    check('saving it again under the version it was stored with replaces it', replaced['version'] != earlier_version and replaced['layout']['version'] == 5 and
           replaced in other_browser.call('table-views/blotter'))
     trader.call('table-views/blotter/delete', {'name': 'Earlier view', 'expectedVersion': replaced['version']})
     discarded_version = store_earlier('Discarded view')

@@ -19,7 +19,7 @@ public static class TableViews
     // How the desk groups trade rows; null is a flat list.
     private static readonly string[] RowGroups=["book","market","instrumentType"];
     // The only layout version. Layouts of an earlier version are not migrated and cannot be saved.
-    private const int Version=4;
+    private const int Version=5;
     private static MarketDataException Invalid()=>new("table_view","Supply a valid named table layout. Dates, authority and market inputs cannot be saved in a layout.");
     private static bool Field(string key)
     {
@@ -38,7 +38,7 @@ public static class TableViews
     {
         try
         {
-            var fields=new[]{"version","name","mode","rowGroup","columns","bookIds","portfolioIds","groupBy","measures","query","columnFilters","splitBy","grid","chart"};
+            var fields=new[]{"version","name","sidebar","mode","rowGroup","columns","bookIds","portfolioIds","groupBy","measures","query","columnFilters","splitBy","grid","chart"};
             if(layout.ValueKind!=JsonValueKind.Object)throw Invalid();
             if(layout.GetProperty("version").GetInt32()!=Version||layout.EnumerateObject().Count()!=fields.Length||layout.EnumerateObject().Select(p=>p.Name).Distinct().Count()!=fields.Length||layout.EnumerateObject().Any(p=>!fields.Contains(p.Name)))throw Invalid();
             var name=layout.GetProperty("name").GetString();
@@ -56,6 +56,7 @@ public static class TableViews
             }
             var columns=List("columns",Columns);var dimensions=List("groupBy",Dimensions);var measures=List("measures",Measures);
             var mode=layout.GetProperty("mode").GetString();
+            if(layout.GetProperty("sidebar").ValueKind is not(JsonValueKind.True or JsonValueKind.False))throw Invalid();
             var rowGroup=layout.GetProperty("rowGroup");
             if(rowGroup.ValueKind is not JsonValueKind.Null&&(rowGroup.ValueKind!=JsonValueKind.String||!RowGroups.Contains(rowGroup.GetString())))throw Invalid();
             if(columns.Length==0||mode is not("trades" or "pivot")||mode=="trades"&&columns.Any(c=>c=="tradeCount"||TradingBlotter.PriceMeasures.ContainsKey(c)))throw Invalid();

@@ -247,6 +247,8 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D247 | Answers draw pipe tables as tables of text cells | Decided by the owner (2026-10-27). Refines D191 (§10.1). A header row, a separator row and rows of the header's width become a table built from text nodes, with emphasis and code in cells; any other pipe text stays literal. HTML, links and images stay literal text and URLs are not linked. Front end only |
 | D249 | Each agent version sets its history window | Decided by the owner (2026-10-27). A turn sends at most its version's latest `historyTurns` earlier turns, 0 to 1,000, enforced by the API and the database, and records those it sends; withholding applies within the window. Versions saved earlier take 1,000 (migration 0121), which a conversation already longer refuses. The input-token limit still applies |
 | D250 | The page assistant reads PPA bookings through Read trades; PPA bookings is not a Navigate page | Decided under the owner's delegation (2026-10-27). Refines D184, D190 and D191. An inspected PPA is reported as Read trades' trade view of it (`trades.trade_v1`, instrument type `ppa`); a listed book as the new `ppa_book` view of exactly one book (`trades.ppa_book_v1`), the page's own directory read of the whole book at the turn's pin, rechecking the book's scope, refused `result_too_large` above 64 trades, listing the page's columns. Both capture no context, run under the Blotter's accesses and permissions and bind the pinned context, cutoff and frame, not the page's own market inputs and cutoff, which Looking at says. PPA bookings and the targets its reads issue are not opened by Navigate (`tool_arguments_invalid`), since the database's navigation targets do not list it. No migration, runtime-set or permission change |
+| D251 | Saved Blotter views can be listed in the sidebar; PPA bookings has no sidebar entry | Decided by the owner (2026-10-28). Saved views are layout version 5, which adds `sidebar` (true or false), set by Show in the sidebar when a view is saved; earlier layouts are not migrated. The sidebar lists a person's flagged views under the Blotter and opens one as choosing it in the Blotter does. PPA bookings stays a Trading page opened from New trade; a person who wants a PPA list saves a Blotter view of PPAs and lists it. No migration or permission change |
+| D252 | The Blotter lists a PPA the selected market data cannot price as not valued; one such PPA no longer refuses the whole read | Decided under the owner's delegation (2026-10-28). Refines D246. When the PPAs of a Blotter read cannot be priced together because the market data has no price for part of some delivery (`interval_block_coverage`, `interval_curve_coverage`, `interval_actual_missing`, or a frame without a needed projection), the trades concerned are listed whole as not valued with `unpriced_delivery` and the rest are priced together as before. Any other refusal, or one no single trade explains, still refuses the read. An interval no period block covers is now `interval_block_coverage`, apart from overlapping blocks (`interval_block_partition`). Whole-book consumers keep refusing. No migration or permission change |
 
 ## Proposed implementation choices
 
@@ -1016,3 +1018,59 @@ Delivery prices stays unsupported: its read, `power_data.read_prices`, captures 
 date context, which tool reads never do (D184), so it needs a read that binds the
 pinned context without capturing.
 
+## D251 — Saved views in the sidebar
+
+People asked for the views they keep in the Blotter to sit in the sidebar like pages,
+and for PPAs to be one of those views rather than a page of their own.
+
+- A saved view records whether the sidebar lists it, as `sidebar` in layout version 5.
+  Save view has a Show in the sidebar choice, unchecked for a new view. The API and the
+  page refuse a layout without a true or false `sidebar`, and a stored version 4 view is
+  listed as an earlier format, as earlier versions are; nothing is migrated.
+- The sidebar lists the flagged views of the person signed in under the Blotter, in the
+  order the API returns them (by name), read when the workspace opens and again whenever
+  the Blotter reads its views. Choosing one opens the Blotter on that view, read afresh,
+  as choosing it from the saved-view list does; a view deleted elsewhere is refused with
+  a message instead of opening another. The entry of the view the Blotter shows is
+  marked; while it shows no listed view, the Blotter is.
+- PPA bookings keeps its page, opened from New trade's Open PPA bookings, and its group,
+  Trading, but has no sidebar entry. The Blotter lists, values and shows PPA positions;
+  its PPA panel says that forward amendments and termination are made in PPA bookings,
+  which New trade opens. A reader who cannot book no longer reaches that page.
+
+## D252 — PPAs the market data cannot price, in the Blotter
+
+The Blotter prices the PPAs of a read together, so a single PPA whose delivery the
+selected market data has no price for refused the whole read, futures and swaps
+included. Since New trade needs that read (D251), it also closed booking. In the owned
+PPA fixture a one-day profile PPA in 2031 did exactly that: at the later closes no
+period block of its shaped curve covers that day. The PPA page's own book valuation
+refuses the same book at those closes, so the refusal is the market data's, not the
+Blotter's.
+
+- The refusals that mean the market data has no price for part of a delivery are:
+  `interval_block_coverage` (no period block of a shaped curve covers an interval),
+  `interval_curve_coverage` (a marked curve has no interval there),
+  `interval_actual_missing` (a due actual was not collected), and a frame that leaves
+  out a projection a trade needs (`pilot_close_inputs` naming those trades with
+  `missing_curve_view`). An interval two period blocks cover is an ambiguous
+  definition, so it keeps `interval_block_partition` and is not one of them, nor is a
+  shape or quantity series integrity error (`interval_shape_coverage`).
+- A refusal naming its trades lists those trades. Otherwise each trade of the read is
+  priced on its own, once, to find which are refused. Those are listed whole, as
+  D246 lists other-version trades, with `unavailableReason` `unpriced_delivery`,
+  shown as **Not valued** with "No price for part of its delivery at this close". The
+  rest are then priced together as before, so their values are those of a read
+  without the refused trades. Pricing a trade depends only on its own spans, so a
+  trade refused alone is refused in any read that holds it.
+- Any other refusal, or one that appears only when trades are priced together, still
+  refuses the read. Nothing is priced from a default.
+- Valuation totals leave the listed trades out and count them in
+  `unvaluedPositions`, as D246 does. Like an other-version trade, each listed trade is
+  its own market, `ppa_instrument:<instrument id>`, with no curves, so a pivot by
+  market does not group it with its curve. Whole-book consumers (close risk, portfolio
+  risk runs and the PPA page's book valuation) keep refusing such a scope.
+- Finding the refused trades costs one preparation per trade of the read, only after a
+  refused read and within the request's deadline. Attributing the refusal to its
+  bindings in one preparation, as `missing_curve_view` already is, would remove that
+  cost and is left as follow-up work.

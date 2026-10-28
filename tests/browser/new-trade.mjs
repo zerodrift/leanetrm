@@ -11,6 +11,14 @@ export async function startNewTrade({click,wait}){
   await wait("document.querySelector('#side-panel').dataset.mode==='new'&&!!document.querySelector('#new-trade-product')&&"+idle);
 }
 
+/** Opens PPA bookings as the sidebar has no entry for it: from the Blotter's New trade panel. */
+export async function openPpaBookings({click,wait}){
+  await click('#nav-futures');
+  await wait("document.querySelector('#page-title').textContent==='Blotter'&&!document.querySelector('#futures-new').disabled&&"+idle);
+  await startNewTrade({click,wait});await click('#new-trade-ppa');
+  await wait("document.querySelector('#page-title').textContent==='PPA bookings'&&"+idle);
+}
+
 /** Chooses a product in the open panel and waits for its form to be in the panel's form part. */
 export async function chooseProduct({click,wait},product){
   await click('#new-trade-'+product);
