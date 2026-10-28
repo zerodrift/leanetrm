@@ -249,6 +249,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D250 | The page assistant reads PPA bookings through Read trades; PPA bookings is not a Navigate page | Decided under the owner's delegation (2026-10-27). Refines D184, D190 and D191. An inspected PPA is reported as Read trades' trade view of it (`trades.trade_v1`, instrument type `ppa`); a listed book as the new `ppa_book` view of exactly one book (`trades.ppa_book_v1`), the page's own directory read of the whole book at the turn's pin, rechecking the book's scope, refused `result_too_large` above 64 trades, listing the page's columns. Both capture no context, run under the Blotter's accesses and permissions and bind the pinned context, cutoff and frame, not the page's own market inputs and cutoff, which Looking at says. PPA bookings and the targets its reads issue are not opened by Navigate (`tool_arguments_invalid`), since the database's navigation targets do not list it. No migration, runtime-set or permission change |
 | D251 | Saved Blotter views can be listed in the sidebar; PPA bookings has no sidebar entry | Decided by the owner (2026-10-28). Saved views are layout version 5, which adds `sidebar` (true or false), set by Show in the sidebar when a view is saved; earlier layouts are not migrated. The sidebar lists a person's flagged views under the Blotter and opens one as choosing it in the Blotter does. PPA bookings stays a Trading page opened from New trade; a person who wants a PPA list saves a Blotter view of PPAs and lists it. No migration or permission change |
 | D252 | The Blotter lists a PPA the selected market data cannot price as not valued; one such PPA no longer refuses the whole read | Decided under the owner's delegation (2026-10-28). Refines D246. When the PPAs of a Blotter read cannot be priced together because the market data has no price for part of some delivery (`interval_block_coverage`, `interval_curve_coverage`, `interval_actual_missing`, or a frame without a needed projection), the trades concerned are listed whole as not valued with `unpriced_delivery` and the rest are priced together as before. Any other refusal, or one no single trade explains, still refuses the read. An interval no period block covers is now `interval_block_coverage`, apart from overlapping blocks (`interval_block_partition`). Whole-book consumers keep refusing. No migration or permission change |
+| D253 | One side model: a Side is its parameters for the whole term, generates a schedule of rows, and reads row values from the calculation graph | Decided by the owner (2026-10-28) as the target model; not implemented. No side is made of other sides; `FixedSide` and `FloatingSide` price payments for swaps and PPAs alike, with PPA-only price sides removed; physical delivery sides stay their own family. `Side.GenerateSchedule()` builds one `ScheduleRow` per period or interval for the whole term, holding graph references, not values; a shock to the graph changes exactly the rows that read it. `Side.PV` sums its evaluated rows and `Instrument.PV` sums coefficient × side PV. Refines D04 and D84 |
 | D256 | A turn's pinned As of frame may hold up to 256 KiB | Decided by the owner (2026-10-27). Migration 0122 raises `assistant.pin_turn`'s bound on a frame's pin JSON from 64 KiB to 256 KiB (262,144 bytes); nothing else changes. It applies over 0072's definition or one already identical to its own, as the hosted pilot's has been since its hotfix. |
 
 ## Proposed implementation choices
@@ -1076,6 +1077,107 @@ Blotter's.
   refused read and within the request's deadline. Attributing the refusal to its
   bindings in one preparation, as `missing_curve_view` already is, would remove that
   cost and is left as follow-up work.
+
+## D253 — One side model: parameters, a whole-term schedule, rows read from the graph
+
+Status: decided by the owner (2026-10-28) as the target model; not implemented. This
+record states the contract the implementation must meet and the evidence that
+qualifies it. Until then the current side families below remain the implemented
+behaviour.
+
+### Why
+
+A PPA is a sided instrument like a swap, but today it is priced through a separate
+side family. `PpaFixedSide` and `PpaFloatingSide` restate what `FixedSide` and
+`FloatingSide` express, with their own price terms and an interval schedule that
+holds no rows. Swaps, for their part, keep one delivery period and one payment per
+`FixedSide` or `FloatingSide`, and express a multi-period swap as a side made of
+other sides (`MonthlySwapSide`, `ScheduledSwapSide`). Two row types,
+`SidePaymentPlan` and the PPA's prepared interval rows, describe the same thing.
+This keeps PPA booking apart from New trade and makes one side editor impossible.
+D84 already asks for small, behaviour-based side families; this record says what a
+side of each family is.
+
+### The model
+
+- **A Side is its parameters for the whole term of the trade.** It holds:
+  - delivery terms: the term's start and end, a granularity (month, day or
+    interval) and the clock or calendar that granularity is counted on;
+  - a quantity rule: a fixed quantity per period, an explicit quantity per period,
+    metered volume, a profile, or accredited capacity, each with its unit;
+  - a price term: fixed (flat, escalated or stepped) or index (curve, multiplier
+    and adder);
+  - for an index price, an observation rule: the monthly index, equal or weighted
+    daily fixings, or the curve's price for each delivery interval;
+  - a payment rule, as today's payment conventions express it.
+- **No side is made of other sides.** `MonthlySwapSide` and `ScheduledSwapSide`
+  are removed: a monthly swap is one side with monthly granularity, and an
+  explicitly scheduled swap is one side whose quantity rule lists a quantity per
+  period.
+- **The side families are the D84 families.** `FixedSide` and `FloatingSide` price
+  payments for swaps and PPAs alike. Physical delivery stays its own family
+  (`PowerPhysicalSide`, `CertificateDeliverySide`, `CapacityDeliverySide`), as a
+  delivery is not a payment; those sides follow the same parameters, schedule and
+  rows pattern. `PpaFixedSide`, `PpaFloatingSide` and the PPA-only price term
+  types are removed; escalated and stepped prices become price terms of
+  `FixedSide`, available to swaps too.
+- **`Side.GenerateSchedule()` builds the schedule for the whole term from the
+  side's parameters alone**, deterministically. A schedule is a list of
+  `ScheduleRow`s, one per delivery period or interval. A row holds:
+  - its delivery window, and for an index price its observation window;
+  - its payment date, from the payment rule;
+  - references to the graph nodes it reads: the price point or points it
+    observes, the source of its quantity when the quantity is data (metered or
+    profile), and the discount factor of its payment date.
+  A row holds no market value. `SidePaymentPlan` and the PPA's prepared rows are
+  replaced by `ScheduleRow`.
+- **Values are graph lookups.** A row's price, quantity, amount and PV are read
+  from the calculation graph (`GraphSession`) of one market scenario. A shock is
+  applied to the graph, never to a row, a side or a trade; the session recomputes
+  only the nodes downstream of it, and each row re-reads its nodes. The schedule
+  shown for a scenario is therefore the schedule evaluated under that scenario,
+  and its rows change exactly where the shocked inputs reach.
+- **PV.** `Side.PV(context)` evaluates its rows under the context's scenario and
+  sums them: price × quantity, discounted to the row's payment date.
+  `Instrument.PV` sums coefficient × `Side.PV` over its memberships, and the trade
+  scales by its booked quantity once, as §3.2 already requires. The multiplication
+  belongs to the side, which owns the price term and quantity rule; the schedule is
+  the shared description of the term that settlement, dependency declaration, the
+  Blotter's detail rows and risk all read, so they never disagree about the rows.
+- **Risk** stays base, up and down PVs of the same instruments under shared
+  scenarios. A side declares its dependencies from its rows' graph references, so
+  a scenario that touches none of them reuses the side's value.
+
+### Bounds and choices still open
+
+- Whether each row is itself a graph node (its amount depending on its price,
+  quantity and discount nodes), or the side reads node values and sums. Row nodes
+  give drill-down and recomputation directly from the session; a PPA has tens of
+  thousands of interval rows, so this needs a bound on graph size or month-level
+  row aggregation, and a benchmark that names rows, nodes, scenarios and memory.
+- How existing trades move to the new definitions. The economic identities of the
+  sides change, so stored swaps and PPAs are rebooked under new definition versions
+  (no migration shims, per the repository's no-backwards-compatibility rule). On the
+  hosted pilot this is a reseed.
+- Futures and forwards are unchanged: `FuturesContract` stays a leaf instrument
+  (D110), and `ForwardContract` composes the new sides.
+
+### Qualification
+
+- Every current swap and PPA valuation check gives the same exact PV under the new
+  model, row by row where rows are comparable, before any old type is removed.
+- Schedule generation is checked from parameters alone, independently of
+  valuation; valuation is checked row by row.
+- A shock check shows that only the rows reading the shocked nodes change, and
+  that the side and instrument totals change by the sum of those rows.
+- Independent adversarial review, as the change touches numerical correctness and
+  scenario reuse.
+
+### What follows
+
+New trade offers a PPA as a third product, with one side editor for swaps and PPAs
+(D251's follow-up), and amend and terminate move into the PPA's panel. That work
+starts after this model is implemented and qualified.
 
 ## D256 — A turn's pinned As of frame may hold up to 256 KiB
 
