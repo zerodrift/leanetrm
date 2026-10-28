@@ -57,6 +57,15 @@ test('a horizontal chart that lists its values beside its bars needs no value-ax
  assert.equal(chartOptions(spec(true)).xAxis.axisLabel.show,false);
  assert.notEqual(chartOptions(spec(false)).xAxis.axisLabel.show,false);
 });
+test('long labels and listed texts of a horizontal chart are cut short so its bars keep at least a third of the width',()=>{
+ const long='Houston Ship Channel delivery-month forwards · generated prices · Swaps';
+ const spec={title:'Long and short',axis:'category',unit:'MMBtu',kind:'bar',orientation:'horizontal',series:[{name:'Quantity',points:[{x:'h',label:long,y:'1000',text:'1,000 receive fixed swaps and more words'}]}]};
+ for(const width of [900,600,343]){
+  const [categories,texts]=chartOptions(spec,{width}).yAxis;
+  assert.equal(categories.axisLabel.overflow,'truncate');assert.equal(texts.axisLabel.overflow,'truncate');
+  assert.ok(categories.axisLabel.width+texts.axisLabel.width<=width*2/3,`labels take ${categories.axisLabel.width}+${texts.axisLabel.width} of ${width}`);
+ }
+});
 test('bar colors are the polarity tokens of the shared stylesheet',()=>{
  assert.deepEqual([polarity.gain,polarity.loss,polarity.none],[token('--gain'),token('--loss'),token('--text-3')]);
 });

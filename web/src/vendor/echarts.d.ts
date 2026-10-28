@@ -1,2 +1,2 @@
-export type Chart={setOption(option:Record<string,unknown>,options?:Record<string,unknown>):void;resize():void;dispose():void;dispatchAction(action:Record<string,unknown>):void;getDataURL(options?:Record<string,unknown>):string;on(event:string,callback:(event:any)=>void):void};
+export type Chart={setOption(option:Record<string,unknown>,options?:Record<string,unknown>):void;resize():void;getOption():Record<string,unknown>;dispose():void;dispatchAction(action:Record<string,unknown>):void;getDataURL(options?:Record<string,unknown>):string;on(event:string,callback:(event:any)=>void):void};
 export function init(host:HTMLElement,theme?:unknown,options?:Record<string,unknown>):Chart;
