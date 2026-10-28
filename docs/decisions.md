@@ -129,7 +129,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D107 | Mark economic identity fields and version their canonical encoding | Executable instruments/sides declare EconomicDefinition versions and IdentityField properties. Ordered side economics and membership coefficients determine instrument identity; booked quantities/parties/metadata do not. Explicit value encodings, exact reference versions and normalized decimals avoid convenience-property or numeric-format drift. Canonical payload equality protects digest lookup. Operation-local reuse preserves exact retained UUIDs; database unique economic terms and serialized publication retain atomic cross-booking reuse independently of supplied hashes |
 | D108 | Bind exact LegalEntity and Counterparty versions to each retained trade revision | The booking legal entity and counterparty are separate scoped immutable domain models with code/name and exact catalog/ID/revision keys. New booking/amendment paths require both parties and include them in idempotency. D129 assigns read-only TradeDate server-side. Validate effective/knowledge visibility and current authority. Preserve legacy NULL facts without inferring parties from book, trader or instrument; explicit amendments supply missing party facts. V2 booking events retain the expanded payload; original V1 events and certificates remain readable |
 | D109 | Superseded in part by D110–D112: normalize unit quantities and retain product conversion and discount choices in instrument identity | Instrument/side unit amounts are one and excluded from keys; exact quantity bases remain marked. FuturesInstrument owns typed LotSize, resolved from the exact immutable series and applied once alongside external booked lots without intermediate rounding. FinancialSwapInstrument marks Discounting; a different choice creates a different instrument while sharing sides. Specialized and common pricing reject policy conflicts. Existing indexed typed-term database lookups remain; persisted canonical-digest lookup is unfinished |
-| D110 | Let a simple futures contract be the instrument | Supersedes D87 and the futures-wrapper portion of D109. FuturesContract is a leaf Instrument keyed by the exact futures-series primary key, independent of curve recipe/version and trade quantity. LotSize and settlement method resolve from immutable reference terms. SidedInstrument retains real composition. Explicit pricing bindings hold curve/member and quote policy; typed migration aliases preserve historical UUIDs/events |
+| D110 | Let a simple futures contract be the instrument | Supersedes D87 and the futures-wrapper portion of D109. FuturesContract is a leaf Instrument keyed by the exact futures-series primary key, independent of curve recipe/version and trade quantity. LotSize and settlement method resolve from immutable reference terms. SidedInstrument retains real composition. Explicit pricing bindings hold curve/member and quote policy; typed migration aliases preserve historical UUIDs/events. |
 | D111 | Separate shared factors, contractual equivalence and bound valuation work | Floating sides identify the selected curve and contractual observation/averaging/payment configuration; resolved projection aliases have a separate binding identity. Reuse includes complete bindings/context. Different payment dates can distinguish contracts without duplicating commodity factors. Exact market series remain selected factor identities; VaR/covariance and cross-revision forward normalization remain work |
 | D112 | Align economic lookup with typed primary/candidate keys | Futures SeriesKey expands to ref_data.futures_series(catalog_id,revision_id,code); primary-key lookup precedes alias retention and verifies full keys on UUID collisions. Fixed-side exact quote reference participates in managed identity as in SQL uniqueness. D112/0020 excludes generated monthly contract aliases from floating economic uniqueness and verifies complete retained projection bindings before reuse. Payment/side/instrument candidate-key lookups remain atomic under publication fencing; hashes cannot bypass exact relationships or authority |
 | D113 | Observable derivatives retain their own identity and underlying reference | Options may have market quotes and also reference a future/forward or explicit index/basket as underlying. Contract terms include strike/right/expiry/exercise/settlement/premium style. Measure/numeraire and market-input mode belong to valuation context. An outright option mark implies no inferred underlying exposure. Executable options and their lifecycle remain unimplemented |
@@ -249,7 +249,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D250 | The page assistant reads PPA bookings through Read trades; PPA bookings is not a Navigate page | Decided under the owner's delegation (2026-10-27). Refines D184, D190 and D191. An inspected PPA is reported as Read trades' trade view of it (`trades.trade_v1`, instrument type `ppa`); a listed book as the new `ppa_book` view of exactly one book (`trades.ppa_book_v1`), the page's own directory read of the whole book at the turn's pin, rechecking the book's scope, refused `result_too_large` above 64 trades, listing the page's columns. Both capture no context, run under the Blotter's accesses and permissions and bind the pinned context, cutoff and frame, not the page's own market inputs and cutoff, which Looking at says. PPA bookings and the targets its reads issue are not opened by Navigate (`tool_arguments_invalid`), since the database's navigation targets do not list it. No migration, runtime-set or permission change |
 | D251 | Saved Blotter views can be listed in the sidebar; PPA bookings has no sidebar entry | Decided by the owner (2026-10-28). Saved views are layout version 5, which adds `sidebar` (true or false), set by Show in the sidebar when a view is saved; earlier layouts are not migrated. The sidebar lists a person's flagged views under the Blotter and opens one as choosing it in the Blotter does. PPA bookings stays a Trading page opened from New trade; a person who wants a PPA list saves a Blotter view of PPAs and lists it. No migration or permission change |
 | D252 | The Blotter lists a PPA the selected market data cannot price as not valued; one such PPA no longer refuses the whole read | Decided under the owner's delegation (2026-10-28). Refines D246. When the PPAs of a Blotter read cannot be priced together because the market data has no price for part of some delivery (`interval_block_coverage`, `interval_curve_coverage`, `interval_actual_missing`, or a frame without a needed projection), the trades concerned are listed whole as not valued with `unpriced_delivery` and the rest are priced together as before. Any other refusal, or one no single trade explains, still refuses the read. An interval no period block covers is now `interval_block_coverage`, apart from overlapping blocks (`interval_block_partition`). Whole-book consumers keep refusing. No migration or permission change |
-| D253 | One side model: a Side is its parameters for the whole term, generates a schedule of rows, and reads row values from the calculation graph | Decided by the owner (2026-10-28) as the target model; not implemented. No side is made of other sides; `FixedSide` and `FloatingSide` price payments for swaps and PPAs alike, with PPA-only price sides removed; physical delivery sides stay their own family. `Side.GenerateSchedule()` builds one `ScheduleRow` per period or interval for the whole term, holding graph references, not values; a shock to the graph changes exactly the rows that read it. `Side.PV` sums its evaluated rows and `Instrument.PV` sums coefficient × side PV. Refines D04 and D84 |
+| D253 | One side model: a Side is its parameters for the whole term, generates a schedule of rows, and reads row values from the calculation graph | Decided by the owner (2026-10-28) as the target model; not implemented. No side is made of other sides; `FixedSide` and `FloatingSide` price payments for swaps and PPAs alike, with PPA-only price sides removed; physical delivery sides stay their own family. `Side.GenerateSchedule()` builds one `ScheduleRow` per period or interval for the whole term, holding graph references, not values; a shock to the graph changes exactly the rows that read it. `Side.PV` sums its evaluated rows and `Instrument.PV` sums coefficient × side PV. Amended the same day: every `SidedInstrument` follows the model (futures stay leaf instruments, D110), and a position's detail opens under its Blotter row, showing each side's evaluated schedule. Refines D04 and D84 |
 | D256 | A turn's pinned As of frame may hold up to 256 KiB | Decided by the owner (2026-10-27). Migration 0122 raises `assistant.pin_turn`'s bound on a frame's pin JSON from 64 KiB to 256 KiB (262,144 bytes); nothing else changes. It applies over 0072's definition or one already identical to its own, as the hosted pilot's has been since its hotfix. |
 
 ## Proposed implementation choices
@@ -1148,6 +1148,29 @@ side of each family is.
   scenarios. A side declares its dependencies from its rows' graph references, so
   a scenario that touches none of them reuses the side's value.
 
+### Every sided instrument, and every schedule shown
+
+Amended by the owner (2026-10-28).
+
+- **Every sided instrument follows this pattern.** Every instrument that is a
+  `SidedInstrument` (forwards, financial swaps, monthly and scheduled swaps,
+  cross-commodity swaps such as heat rates, and PPAs) is made of sides that each
+  generate their schedule; none keeps a pricing path of its own. A futures
+  contract stays a leaf instrument with no sides, as D110 decides.
+- **A sided position shows the schedule of each of its sides.** The position's detail
+  lists its instrument's sides, and each side's schedule as rows evaluated under
+  the selected close or scenario: the delivery window, the observed price, the
+  quantity, the amount, the discount factor and the PV. Each side's rows sum to
+  its side PV, and the sides with their coefficients sum to the instrument's PV
+  as the Blotter reports it. It reads the same schedule the valuation reads, from
+  the backend; the page does no pricing. How a long schedule (a PPA's tens of
+  thousands of intervals) is shown, for example by month with a month's rows on
+  request, is open with the row-node question above.
+- **The detail opens under the position's row.** Choosing any position, a future's
+  included, expands its
+  detail beneath that row in the Blotter, in place of the docked side panel's
+  Position mode. New trade, Risk report and the assistant keep the side panel.
+
 ### Bounds and choices still open
 
 - Whether each row is itself a graph node (its amount depending on its price,
@@ -1159,8 +1182,8 @@ side of each family is.
   sides change, so stored swaps and PPAs are rebooked under new definition versions
   (no migration shims, per the repository's no-backwards-compatibility rule). On the
   hosted pilot this is a reseed.
-- Futures and forwards are unchanged: `FuturesContract` stays a leaf instrument
-  (D110), and `ForwardContract` composes the new sides.
+- Futures are unchanged: `FuturesContract` stays a leaf instrument (D110), and
+  `ForwardContract` composes the new sides.
 
 ### Qualification
 
@@ -1170,13 +1193,16 @@ side of each family is.
   valuation; valuation is checked row by row.
 - A shock check shows that only the rows reading the shocked nodes change, and
   that the side and instrument totals change by the sum of those rows.
+- Each sided position's detail shows every side's rows, whose amounts sum to the side
+  PV and, with the coefficients, to the PV the Blotter reports.
 - Independent adversarial review, as the change touches numerical correctness and
   scenario reuse.
 
 ### What follows
 
 New trade offers a PPA as a third product, with one side editor for swaps and PPAs
-(D251's follow-up), and amend and terminate move into the PPA's panel. That work
+(D251's follow-up), and amend and terminate move into the PPA's detail under its
+row. That work
 starts after this model is implemented and qualified.
 
 ## D256 — A turn's pinned As of frame may hold up to 256 KiB

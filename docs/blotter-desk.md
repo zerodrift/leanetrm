@@ -250,7 +250,8 @@ open; the breakpoint is the builder's call. A swap's settlement and P&L view
 needs more room than a docked panel has: off a phone it opens the panel wide,
 over the desk, which keeps its layout beneath. Modes:
 
-1. **Position.** Header with instrument type, trade reference, revision and
+1. **Position.** D253 moves this mode under the position's row, with each side's
+   evaluated schedule; until it is implemented it opens here. Header with instrument type, trade reference, revision and
    book. Title with market, delivery, side and quantity. The value, plus mark
    minus price. Tabs:
    - **Curve**: the market's forward curve at the selected close, the delivery
